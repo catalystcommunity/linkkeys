@@ -889,6 +889,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6800badb6cb2082ffd7b6a67e6125bb39f18782f793520caee8cb8846be06112"
 
 [[package]]
+name = "liblinkkeys"
+version = "0.1.0"
+dependencies = [
+ "ciborium",
+ "log",
+ "serde",
+ "uuid",
+]
+
+[[package]]
 name = "linkkeys"
 version = "0.1.0"
 dependencies = [
@@ -898,6 +908,7 @@ dependencies = [
  "diesel",
  "diesel_migrations",
  "env_logger",
+ "liblinkkeys",
  "log",
  "num_cpus",
  "r2d2",

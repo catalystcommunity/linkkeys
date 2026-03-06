@@ -16,18 +16,18 @@ async fn main() {
     env_logger::Builder::from_env(
         env_logger::Env::default().default_filter_or("warn")
     ).init();
-    
+
     // Parse CLI arguments
     let cli = Cli::parse();
-    
+
     match cli.command {
         Commands::Serve => {
-            log::info!("Starting IDP server...");
-            
+            log::info!("Starting linkkeys server...");
+
             // Create database connection pool
             let db_pool = db::create_pool();
             let db_pool_web = db_pool.clone();
-            
+
             // Start TCP server in a separate thread
             thread::spawn(|| {
                 match tcp::TcpServer::new() {
@@ -40,7 +40,7 @@ async fn main() {
                     }
                 }
             });
-            
+
             // Start Rocket web server (this will block)
             web::launch_rocket(db_pool_web).await;
         }

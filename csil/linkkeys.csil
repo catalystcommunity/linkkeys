@@ -1,0 +1,6 @@
+;; LinkKeys CSIL definitions
+;; Service interface definitions for the LinkKeys IDP
+
+HelloResponse = {
+    hello: text
+}
