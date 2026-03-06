@@ -22,7 +22,7 @@ pub struct NewHello {
 
 pub fn create_pool() -> DbPool {
     let database_url = env::var("DB_URL")
-        .unwrap_or_else(|_| "postgres://devuser:devpass@localhost/unnamed_idp".to_string());
+        .unwrap_or_else(|_| "postgres://devuser:devpass@localhost/linkkeys".to_string());
     
     let manager = ConnectionManager::<PgConnection>::new(database_url);
     
