@@ -1,6 +1,6 @@
 # LinkKeys Design
 
-LinkKeys is a specification and reference implementation for distributed, federated identity built on public key infrastructure. It provides actual single sign-on — not "login with a provider" — across the entire internet, controlled by domain administrators and their users rather than corporations.
+LinkKeys is a specification and reference implementation for distributed, federated identity built on public key infrastructure. It provides actual single sign-on — not "login with a provider" — across the entire internet, controlled by domain administrators and their users rather than a handful of social media vendors.
 
 ## Core Philosophy
 
@@ -10,8 +10,8 @@ This principle governs every design decision. We provide cryptographic primitive
 
 ### Design Priorities (ordered)
 
-1. **Non-technical users come first.** My mother should enjoy a secure digital life without understanding cryptography. If she has to think about keys, we failed.
-2. **Security by default.** Every default must be the safe choice. Unsafe options may exist but require deliberate action.
+1. **Non-technical users come first.** My mother should enjoy a secure digital life without understanding cryptography. If she has to think about these details of how keys are useful or not, we failed.
+2. **Security by default.** Every default must be the safe choice. Unsafe options may exist but require deliberate action. Safety is not technical, but social.
 3. **Simplicity over cleverness.** Simpler is better. Three similar lines beat a premature abstraction. A clear protocol beats an optimized one.
 4. **Assume malice and incompetence.** Every feature must be evaluated against both malicious and incompetent actors before it ships.
 5. **Ease of administration.** Domain admins must have simple tooling and clear docs. Making security easy is how you get security adopted.
@@ -25,9 +25,9 @@ An identity is:
 
 - A UUID (v4 or v7)
 - At a domain (domain.tld or sub.domain.tld)
-- With a set of public/private keypairs
+- With a set of public/private keypairs, always more than 1, preferably 3
 
-That's it. Everything meaningful to humans — display name, age verification, organizational role — is expressed through signed claims, not baked into the identity itself.
+That's it. Everything meaningful to humans — display name, age verification, organizational role — is expressed through signed claims or other protocols, not baked into the identity itself.
 
 ### Key Hierarchy
 
@@ -38,8 +38,8 @@ Domain Keys (≥3, equal, held on domain server(s))
               └── App Keys (per-application, signed by device key)
 ```
 
-- **Domain keys** are the root of trust. At least three, for redundancy and rotation without disruption. Published as fingerprints in DNS TXT records at the `@` record for the domain. Keys are equal — no special roles (signing vs encryption vs revocation). Any can do anything.
-- **User keys** are custodied by the domain server. The user's private keys never leave the domain server. This means a lost device is an inconvenience, not a catastrophe. The domain admin is a custodian — users must trust their domain admin, just as they trust their email provider today, but with better tooling for accountability.
+- **Domain keys** are the root of trust. At least three, for redundancy and rotation without disruption. Published as fingerprints in DNS TXT records at the `@` record for the domain. Keys are equal — no special roles (signing vs encryption vs revocation). Any key can do anything.
+- **User keys** are custodied by the domain server. The user's private keys never leave the domain server and are never stored unencrypted. This means a lost device is an inconvenience, not a catastrophe. The domain admin is a custodian — users must trust their domain admin, just as they trust their email provider today, but with better tooling for accountability.
 - **Device keys** live in the device's secure enclave (or best available equivalent). The device private key never leaves the device. Trust with the domain is established through the device's public key.
 - **App keys** are per-application (browser, email client, etc.) and signed by the device key. Applications enroll in the trust relationship through the device.
 
@@ -53,27 +53,28 @@ Domain Keys (≥3, equal, held on domain server(s))
 
 ### DNS-Based Key Discovery
 
-A domain publishes at least three key fingerprints in DNS TXT records at its `@` record. This is the root anchor — if you own the DNS, you control your identity.
+A domain (subdomains are also domains) publishes at least three key fingerprints in DNS TXT records at its `@` record. This is the root anchor — if you own the DNS, you control your identity.
 
 ### Key Signing (Web of Trust)
 
-When a domain is not yet trusted, the verifier asks: "Who signed your keys?"
+When a domain is not yet trusted, the verifier (the asking party) asks: "Who signed your keys?"
 
 **Signing process:**
 
-1. A signing service (anyone can run one; the project will operate at least one free instance) periodically inspects a domain's TXT records from public DNS.
+1. A signing service (anyone can run one; the project will operate at least one free instance, but preferably several across continental distributed areas) inspects a domain's TXT records from public DNS at the time of signing.
 2. The signing service validates that the domain controls the private keys matching those fingerprints (via challenge or message verification). An additional DNS challenge step can be used for stronger assurance.
-3. The signing service signs each of the domain's keys with each of its own private keys (at least three).
+3. The signing service signs each of the domain's keys with each of its own private keys (at least three, more should be paid for as that should be for high intensity use cases, but that's for humans to decide).
 4. The domain stores these signatures in TXT records referencing the signing service's domain (not at `@`, which is reserved for the domain's own fingerprints).
 
 **Verification process:**
 
 1. Verifier encounters an untrusted domain.
-2. Verifier asks for the domain's signing authorities (a list of domains).
-3. If the verifier already trusts any of those signing authorities, it fetches that authority's TXT records and validates the signatures against cached public keys.
-4. Signing timestamps (UTC) determine freshness. The verifier decides how long to trust without re-verification. Suggested default: ~3 months. Signing services should re-sign monthly. But we're not anyone's boss.
+2. Verifier gets public keys from TXT records for untrusted domain and connects to it assuming those keys are correct.
+3. Verifier asks for the domain's signing authorities (a list of domains).
+4. If the verifier already trusts any of those signing authorities, it fetches that untrusted domains' TXT records and validates the signatures against cached public keys or new ones if needed.
+5. Signing timestamps (UTC) determine freshness. The verifier decides how long to trust without re-verification. Suggested default: ~3 months. Signing services should re-sign monthly. But we're not anyone's boss.
 
-This is structurally similar to TLS certificate authorities, but without payment or corporate gatekeeping. Anyone can be a signing authority. Trust is earned socially, not purchased.
+This is structurally similar to TLS certificate authorities, but without payment or necessitated gatekeeping. Anyone can be a signing authority. Trust is earned socially, not purchased. Other verification types may require payment or other trusted entities on claims, but that's again a social thing. The protocol functions the same.
 
 ### Trust Hierarchies
 
@@ -91,9 +92,9 @@ A claim is:
 - A value of bytes (the claim content)
 - A signature over the whole thing
 
-Claims are signed individually so users and domains can decide which to share, with whom, and when. Claims can be signed by multiple parties — a user's domain signs it, and a third party (like a government agency) can countersign it.
+Claims are signed individually so users and domains can decide which to share, with whom, and when. Claims can be signed by multiple parties — a user's domain signs it, and a third party (like a government agency) can countersign it. The order of that is composable.
 
-**Example:** A DMV employee (who doesn't need to understand cryptography) scans a QR code, verifies physical documents, and the DMV's domain signs an "over-21" claim for the user. The user can present this claim to any service that trusts the DMV's domain as a claim authority. The claim may include the user's domain as a binding, so it cannot be transferred without the issuer's awareness.
+**Example:** A DMV employee (who doesn't need to understand cryptography) verifies physical documents, scans a QR code, and the DMV's domain signs an "over-21" claim for the user. The user can present this claim to any service that trusts the DMV's domain as a claim authority. The claim may include the user's domain as a binding, so it cannot be transferred without the issuer's awareness.
 
 Claims are the only mechanism for conveying human-meaningful information. The protocol itself only deals with UUIDs, keys, and signatures.
 
@@ -107,11 +108,11 @@ JSON wrappers will be provided as an optional part of the spec for web browser c
 
 ### Service Definitions
 
-All services and data structures are defined in CSIL (CBOR Service Interface Language). CSIL definitions live in `csil/` and are used to generate protocol types, serialization code, and validation logic. The CSIL definitions are part of the spec.
+All services and data structures are defined in CSIL (CBOR Service Interface Language). CSIL definitions live in `csil/` and are used to generate protocol types, message groupings, serialization code, and validation logic. The CSIL definitions are part of the spec.
 
 ### Transport
 
-The protocol is transport-agnostic but TCP is preferred. HTTP flows exist where needed (web enrollment, browser-based interactions) but are not the primary transport. A single server binary should handle everything — no requirement to run multiple services to participate in the ecosystem.
+The protocol is transport-agnostic but TCP is preferred. HTTP flows exist where needed (web enrollment, browser-based interactions) but are not the primary transport. A single server binary should handle everything — no requirement to run multiple services to participate in the ecosystem but that is an option for implementations.
 
 ### Negotiation
 
@@ -119,7 +120,7 @@ Protocol version and algorithm negotiation happen at handshake. This is critical
 
 ### Versioning
 
-The protocol is versioned. The spec will maintain multiple active versions with deprecation periods. Like email, once a flow is supported in the wild, it's difficult to close. Negotiation on handshake determines which version is used for a given interaction.
+The protocol is versioned (much less so during initial development phase). The spec will maintain multiple active versions with deprecation periods. Like email, once a flow is supported in the wild, it's difficult to close. Negotiation on handshake determines which version is used for a given interaction.
 
 ## Authentication Flows
 
@@ -127,11 +128,11 @@ The protocol is versioned. The spec will maintain multiple active versions with 
 
 When a user's device is not yet enrolled with their domain:
 
-1. The user is directed to an enrollment interface (webpage, native app, whatever the domain provides).
+1. The user is directed to an enrollment interface (webpage, native app, whatever the domain and device provides).
 2. The interface communicates with the domain server.
 3. The user proves their identity (login, existing session, admin-assisted, etc.).
 4. The device's public key is registered with the domain server.
-5. After enrollment, the device can silently authenticate — the user sees nothing unless something is wrong.
+5. After enrollment, the device can be trusted as a device for the domain — the user sees nothing unless something is wrong or other authentication factors are needed, such as in a banking application.
 
 ### Cross-Domain Authentication (the "login" flow)
 
@@ -142,7 +143,7 @@ When a user visits a new service:
 3. Identity is exchanged with only the claims approved for that service.
 4. The user is "logged in" in whatever way the service handles sessions. The service is encouraged to maintain its own internal account tied to UUID@domain.tld, but the service does not own the identity.
 
-The user (like my mother) ideally sees nothing. It just works.
+The user (like my mother) ideally sees nothing unless needed. It just works.
 
 ### Domain Migration
 
@@ -152,10 +153,10 @@ Migration between domains is encouraged but not enforced (we can't enforce it). 
 
 ### Priority 1: Compromised Domain Server
 
-The most critical technical threat. Domain servers hold user private keys.
+The most critical technical threat. Domain servers hold user private keys, encrypted, but they exist.
 
 **Mitigations:**
-- At least three domain keys, distributable across multiple servers in different locations.
+- At least three domain keys, distributable across multiple servers in different locations if needed.
 - If one server is compromised (even by a nation-state): revoke its key at the other servers, remove it from DNS TXT records, generate a new server/key.
 - Encrypted backups with long passphrases are standard practice, with tooling to make this easy.
 - Multi-admin signing for sensitive operations (a primitive we provide; adoption is a domain's choice).
@@ -187,7 +188,7 @@ Technology cannot solve this. But tools can help.
 **Mitigations:**
 - Claim-based permissions allow delegation: "require my co-signer for banking transactions" so a family member can protect a vulnerable user.
 - Domain admins can deny trust with unknown domains, blocking entire classes of phishing.
-- Spam blocking works across domains — block individual users or entire domains that don't control their users' behavior.
+- Spam blocking works across domains — block individual users or entire domains that don't moderate their users' behavior.
 - Reputation systems become easy to build on top of these primitives (but reputation is not part of this spec).
 
 ### Priority 5: Nation-State Adversary
@@ -198,7 +199,7 @@ Geo-distribute domain services. Beyond that, there are limits to what any system
 
 Helpful error messages are required — ease of use is the point. Security means:
 
-- Never log sensitive information (keys, claim values, session tokens).
+- Never log sensitive information (keys, claim values, session tokens, etc).
 - Describe how to get more information rather than dumping internals.
 - Errors should help developers and admins diagnose problems without leaking information that aids attackers.
 
@@ -207,7 +208,7 @@ Helpful error messages are required — ease of use is the point. Security means
 ```
 linkkeys/
 ├── crates/
-│   ├── liblinkkeys/        # Core library — all protocol logic, crypto, types
+│   ├── liblinkkeys/        # Core library — all protocol logic, crypto, types, meant for use with other languages as well
 │   └── linkkeys/           # Server binary — CLI, TCP/HTTP, database, plugins
 ├── csil/                   # CSIL service and type definitions (part of the spec)
 ├── docs/                   # Design docs and eventually the formal spec
@@ -242,7 +243,7 @@ linkkeys/
 
 ### Simplicity
 
-- Simpler is better. Do the simplest thing that works.
+- Simpler is better. Do the simplest thing that works, with security included in what "works" in all cases.
 - Don't abstract until you must. Don't optimize until you've measured.
 - Every dependency is a liability. Justify each one.
 
