@@ -1,6 +1,107 @@
-;; LinkKeys CSIL definitions
-;; Service interface definitions for the LinkKeys IDP
+;; LinkKeys CSIL Definitions
+;; https://github.com/catalystcommunity/csilgen
+
+options {
+    package: "linkkeys",
+    version: "v1alpha"
+}
+
+;; ============================================================
+;; Tagged Types
+;; ============================================================
+
+;; CBOR tag 0: date/time string (RFC 3339)
+datetime = #6.0(text)
+
+;; CBOR tag 37: UUID (RFC 9562)
+uuid = #6.37(bytes)
+
+;; ============================================================
+;; Common Types
+;; ============================================================
+
+;; Flexible value for operational check results.
+CheckValue = text / int / float64 / datetime
+
+;; A dictionary of named check values with a required result indicator.
+CheckResult = {
+    result: bool,
+    * text => CheckValue
+}
+
+;; ============================================================
+;; Hello
+;; ============================================================
+
+HelloRequest = {
+    ? name: text
+}
 
 HelloResponse = {
-    hello: text
+    greeting: text
+}
+
+;; ============================================================
+;; Guestbook
+;; ============================================================
+
+GuestbookEntry = {
+    @receive-only
+    id: uuid,
+
+    name: text,
+
+    @receive-only
+    created_at: datetime,
+
+    @receive-only
+    updated_at: datetime
+}
+
+CreateGuestbookRequest = {
+    name: text
+}
+
+UpdateGuestbookRequest = {
+    id: uuid,
+    name: text
+}
+
+DeleteGuestbookRequest = {
+    id: uuid
+}
+
+GuestbookListResponse = {
+    entries: [* GuestbookEntry]
+}
+
+;; ============================================================
+;; Services
+;; ============================================================
+
+service Ops {
+    @path("/healthcheck")
+    healthcheck: -> CheckResult,
+
+    @path("/readiness")
+    readiness: -> CheckResult
+}
+
+service Hello {
+    @path("/hello")
+    hello: HelloRequest -> HelloResponse
+}
+
+service Guestbook {
+    @path("/guestbook")
+    create: CreateGuestbookRequest -> GuestbookEntry,
+
+    @path("/guestbook")
+    list: -> GuestbookListResponse,
+
+    @path("/guestbook")
+    update: UpdateGuestbookRequest -> GuestbookEntry,
+
+    @path("/guestbook")
+    delete: DeleteGuestbookRequest -> ()
 }
