@@ -2,29 +2,80 @@
 
 use serde::{Deserialize, Serialize};
 
-pub type CheckValue = serde_json::Value;
+/// CheckValue enum variants
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CheckValue {
+    Variant0(String),
+    Variant1(i64),
+    Variant2(f64),
+}
 
 pub type CheckEntries = std::collections::HashMap<String, CheckValue>;
 
-pub type CheckResult = serde_json::Value;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CheckResult {
+    pub result: bool,
+    pub entries: CheckEntries,
+}
 
-pub type HelloRequest = serde_json::Value;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HelloRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
 
-pub type HelloResponse = serde_json::Value;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HelloResponse {
+    pub greeting: String,
+}
 
-pub type GuestbookEntry = serde_json::Value;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GuestbookEntry {
+    #[serde(skip_serializing)]
+    pub id: String,
+    pub name: String,
+    #[serde(skip_serializing)]
+    pub created_at: String,
+    #[serde(skip_serializing)]
+    pub updated_at: String,
+}
 
-pub type CreateGuestbookRequest = serde_json::Value;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CreateGuestbookRequest {
+    pub name: String,
+}
 
-pub type UpdateGuestbookRequest = serde_json::Value;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UpdateGuestbookRequest {
+    pub id: String,
+    pub name: String,
+}
 
-pub type DeleteGuestbookRequest = serde_json::Value;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DeleteGuestbookRequest {
+    pub id: String,
+}
 
-pub type DeleteGuestbookResponse = serde_json::Value;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DeleteGuestbookResponse {
+    pub success: bool,
+}
 
-pub type GuestbookListRequest = serde_json::Value;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GuestbookListRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
 
-pub type GuestbookListResponse = serde_json::Value;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GuestbookListResponse {
+    pub entries: Vec<GuestbookEntry>,
+}
 
-pub type EmptyRequest = serde_json::Value;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EmptyRequest {
+}
 

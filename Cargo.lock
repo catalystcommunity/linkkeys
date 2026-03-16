@@ -935,7 +935,6 @@ dependencies = [
  "ciborium",
  "log",
  "serde",
- "serde_json",
  "uuid",
 ]
 

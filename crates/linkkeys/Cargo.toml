@@ -5,8 +5,7 @@ edition = "2021"
 default-run = "linkkeys"
 
 [features]
-default = ["postgres"]
-# Exactly one of these must be enabled. Enabling both is a compile error.
+default = ["postgres", "sqlite"]
 postgres = ["diesel/postgres"]
 sqlite = ["diesel/sqlite"]
 

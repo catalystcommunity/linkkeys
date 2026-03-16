@@ -19,12 +19,12 @@ pub trait Hello {
 /// Guestbook service trait
 pub trait Guestbook {
     /// create-entry operation
-    fn create-entry(&self, input: CreateGuestbookRequest) -> GuestbookEntry;
+    fn create_entry(&self, input: CreateGuestbookRequest) -> GuestbookEntry;
     /// list-entries operation
-    fn list-entries(&self, input: GuestbookListRequest) -> GuestbookListResponse;
+    fn list_entries(&self, input: GuestbookListRequest) -> GuestbookListResponse;
     /// update-entry operation
-    fn update-entry(&self, input: UpdateGuestbookRequest) -> GuestbookEntry;
+    fn update_entry(&self, input: UpdateGuestbookRequest) -> GuestbookEntry;
     /// delete-entry operation
-    fn delete-entry(&self, input: DeleteGuestbookRequest) -> DeleteGuestbookResponse;
+    fn delete_entry(&self, input: DeleteGuestbookRequest) -> DeleteGuestbookResponse;
 }
 

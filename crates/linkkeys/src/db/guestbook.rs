@@ -1,82 +1,130 @@
-use diesel::prelude::*;
-
-use super::models::{GuestbookEntryRow, NewGuestbookEntryRow};
-use crate::schema::guestbook_entries;
-
 #[cfg(feature = "postgres")]
-pub fn create(conn: &mut super::DbConn, name: &str) -> QueryResult<GuestbookEntryRow> {
-    let new_entry = NewGuestbookEntryRow {
-        id: uuid::Uuid::now_v7(),
-        name: name.to_string(),
-    };
+pub mod pg {
+    use diesel::prelude::*;
 
-    diesel::insert_into(guestbook_entries::table)
-        .values(&new_entry)
-        .get_result(conn)
-}
+    use crate::db::models::pg::{GuestbookEntryRow, NewGuestbookEntryRow};
+    use crate::db::models::GuestbookEntry;
+    use crate::schema::pg::guestbook_entries;
 
-#[cfg(feature = "sqlite")]
-pub fn create(conn: &mut super::DbConn, name: &str) -> QueryResult<GuestbookEntryRow> {
-    let new_entry = NewGuestbookEntryRow {
-        id: uuid::Uuid::now_v7().to_string(),
-        name: name.to_string(),
-    };
+    pub fn create(conn: &mut diesel::PgConnection, name: &str) -> QueryResult<GuestbookEntry> {
+        let new_entry = NewGuestbookEntryRow {
+            id: uuid::Uuid::now_v7(),
+            name: name.to_string(),
+        };
 
-    diesel::insert_into(guestbook_entries::table)
-        .values(&new_entry)
-        .execute(conn)?;
-
-    // SQLite doesn't support RETURNING, so query it back
-    guestbook_entries::table
-        .filter(guestbook_entries::id.eq(&new_entry.id))
-        .first(conn)
-}
-
-pub fn list(
-    conn: &mut super::DbConn,
-    offset: Option<i64>,
-    limit: Option<i64>,
-) -> QueryResult<Vec<GuestbookEntryRow>> {
-    let mut query = guestbook_entries::table
-        .order(guestbook_entries::created_at.desc())
-        .into_boxed();
-
-    if let Some(off) = offset.filter(|&o| o >= 0) {
-        query = query.offset(off);
-    }
-    if let Some(lim) = limit.filter(|&l| l >= 0) {
-        query = query.limit(lim);
+        diesel::insert_into(guestbook_entries::table)
+            .values(&new_entry)
+            .get_result::<GuestbookEntryRow>(conn)
+            .map(Into::into)
     }
 
-    query.load(conn)
-}
+    pub fn list(
+        conn: &mut diesel::PgConnection,
+        offset: Option<i64>,
+        limit: Option<i64>,
+    ) -> QueryResult<Vec<GuestbookEntry>> {
+        let mut query = guestbook_entries::table
+            .order(guestbook_entries::created_at.desc())
+            .into_boxed();
 
-#[cfg(feature = "postgres")]
-pub fn update(conn: &mut super::DbConn, entry_id: uuid::Uuid, new_name: &str) -> QueryResult<GuestbookEntryRow> {
-    diesel::update(guestbook_entries::table.find(entry_id))
-        .set(guestbook_entries::name.eq(new_name))
-        .get_result(conn)
+        if let Some(off) = offset.filter(|&o| o >= 0) {
+            query = query.offset(off);
+        }
+        if let Some(lim) = limit.filter(|&l| l >= 0) {
+            query = query.limit(lim);
+        }
+
+        query
+            .load::<GuestbookEntryRow>(conn)
+            .map(|rows| rows.into_iter().map(Into::into).collect())
+    }
+
+    pub fn update(
+        conn: &mut diesel::PgConnection,
+        entry_id: &str,
+        new_name: &str,
+    ) -> QueryResult<GuestbookEntry> {
+        let id: uuid::Uuid = entry_id
+            .parse()
+            .map_err(|_| diesel::result::Error::NotFound)?;
+
+        diesel::update(guestbook_entries::table.find(id))
+            .set(guestbook_entries::name.eq(new_name))
+            .get_result::<GuestbookEntryRow>(conn)
+            .map(Into::into)
+    }
+
+    pub fn delete(conn: &mut diesel::PgConnection, entry_id: &str) -> QueryResult<usize> {
+        let id: uuid::Uuid = entry_id
+            .parse()
+            .map_err(|_| diesel::result::Error::NotFound)?;
+
+        diesel::delete(guestbook_entries::table.find(id)).execute(conn)
+    }
 }
 
 #[cfg(feature = "sqlite")]
-pub fn update(conn: &mut super::DbConn, entry_id: &str, new_name: &str) -> QueryResult<GuestbookEntryRow> {
-    diesel::update(guestbook_entries::table.find(entry_id))
-        .set(guestbook_entries::name.eq(new_name))
-        .execute(conn)?;
+pub mod sqlite {
+    use diesel::prelude::*;
 
-    guestbook_entries::table
-        .find(entry_id)
-        .first(conn)
-}
+    use crate::db::models::sqlite::{GuestbookEntryRow, NewGuestbookEntryRow};
+    use crate::db::models::GuestbookEntry;
+    use crate::schema::sqlite::guestbook_entries;
 
-#[cfg(feature = "postgres")]
-pub fn delete(conn: &mut super::DbConn, entry_id: uuid::Uuid) -> QueryResult<usize> {
-    diesel::delete(guestbook_entries::table.find(entry_id))
-        .execute(conn)
-}
+    pub fn create(conn: &mut diesel::SqliteConnection, name: &str) -> QueryResult<GuestbookEntry> {
+        let new_entry = NewGuestbookEntryRow {
+            id: uuid::Uuid::now_v7().to_string(),
+            name: name.to_string(),
+        };
+        let id = new_entry.id.clone();
 
-#[cfg(feature = "sqlite")]
-pub fn delete(conn: &mut super::DbConn, entry_id: &str) -> QueryResult<usize> {
-    diesel::delete(guestbook_entries::table.find(entry_id))
-        .execute(conn)
+        diesel::insert_into(guestbook_entries::table)
+            .values(&new_entry)
+            .execute(conn)?;
+
+        guestbook_entries::table
+            .filter(guestbook_entries::id.eq(&id))
+            .first::<GuestbookEntryRow>(conn)
+            .map(Into::into)
+    }
+
+    pub fn list(
+        conn: &mut diesel::SqliteConnection,
+        offset: Option<i64>,
+        limit: Option<i64>,
+    ) -> QueryResult<Vec<GuestbookEntry>> {
+        let mut query = guestbook_entries::table
+            .order(guestbook_entries::created_at.desc())
+            .into_boxed();
+
+        if let Some(off) = offset.filter(|&o| o >= 0) {
+            query = query.offset(off);
+        }
+        if let Some(lim) = limit.filter(|&l| l >= 0) {
+            query = query.limit(lim);
+        }
+
+        query
+            .load::<GuestbookEntryRow>(conn)
+            .map(|rows| rows.into_iter().map(Into::into).collect())
+    }
+
+    pub fn update(
+        conn: &mut diesel::SqliteConnection,
+        entry_id: &str,
+        new_name: &str,
+    ) -> QueryResult<GuestbookEntry> {
+        diesel::update(guestbook_entries::table.find(entry_id))
+            .set(guestbook_entries::name.eq(new_name))
+            .execute(conn)?;
+
+        guestbook_entries::table
+            .find(entry_id)
+            .first::<GuestbookEntryRow>(conn)
+            .map(Into::into)
+    }
+
+    pub fn delete(conn: &mut diesel::SqliteConnection, entry_id: &str) -> QueryResult<usize> {
+        diesel::delete(guestbook_entries::table.find(entry_id)).execute(conn)
+    }
 }
