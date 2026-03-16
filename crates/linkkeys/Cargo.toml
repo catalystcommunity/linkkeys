@@ -2,6 +2,13 @@
 name = "linkkeys"
 version = "0.1.0"
 edition = "2021"
+default-run = "linkkeys"
+
+[features]
+default = ["postgres"]
+# Exactly one of these must be enabled. Enabling both is a compile error.
+postgres = ["diesel/postgres"]
+sqlite = ["diesel/sqlite"]
 
 [dependencies]
 liblinkkeys = { path = "../liblinkkeys" }
@@ -10,10 +17,11 @@ liblinkkeys = { path = "../liblinkkeys" }
 clap = { version = "4.5", features = ["derive"] }
 
 # Web framework
-rocket = { version = "0.5", features = ["json"] }
+rocket = { version = "0.5", features = ["json", "tls"] }
 
 # Database
-diesel = { version = "2.2", features = ["postgres", "r2d2", "uuid"] }
+diesel = { version = "2.2", features = ["r2d2", "uuid", "chrono"] }
+diesel_migrations = "2.2"
 r2d2 = "0.8"
 
 # UUID support
@@ -23,16 +31,20 @@ uuid = { version = "1.10", features = ["v7", "serde"] }
 ciborium = "0.2"
 serde = { version = "1.0", features = ["derive"] }
 
+# TLS cert generation
+rcgen = "0.13"
+
 # Threading
 threadpool = "1.8"
 num_cpus = "1.16"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
 
 # Utilities
 env_logger = "0.11"
 log = "0.4"
 
-# For atomic operations
-crossbeam = "0.8"
-
 [dev-dependencies]
-diesel_migrations = "2.2"
+serde_json = "1.0"
+rand = "0.9"

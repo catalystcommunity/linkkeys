@@ -1,0 +1,2 @@
+-- SQLite doesn't need diesel helper functions.
+-- This migration exists to keep migration numbering aligned with Postgres.

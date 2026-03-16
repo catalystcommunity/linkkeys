@@ -1,3 +1,1 @@
-pub fn hello() -> &'static str {
-    "linkkeys"
-}
+pub mod generated;
