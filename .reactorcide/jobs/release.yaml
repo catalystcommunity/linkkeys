@@ -1,0 +1,21 @@
+name: linkkeys-release
+description: "Version bump with semver-tags and create GitHub release on merge to main"
+triggers:
+  events:
+    - pull_request_merged
+  branches:
+    - main
+job:
+  image: rust:1-bookworm
+  command: |
+    set -e
+    apt-get update && apt-get install -y --no-install-recommends \
+      libpq-dev libsqlite3-dev pkg-config git wget
+    git clone "https://x-access-token:${GITHUB_PAT}@github.com/${REACTORCIDE_REPO}.git" /workspace
+    cd /workspace
+    sh .reactorcide/jobs/scripts/release.sh
+  timeout: 3600
+  priority: 15
+  raw_command: true
+environment:
+  GITHUB_PAT: "${secret:catalystcommunity/ci:githubpat}"
