@@ -4,8 +4,10 @@ job:
   image: rust:1-bookworm
   command: |
     set -e
-    apt-get update && apt-get install -y --no-install-recommends \
-      libpq-dev libsqlite3-dev pkg-config
+    if [ "$(id -u)" = "0" ]; then
+      apt-get update && apt-get install -y --no-install-recommends \
+        libpq-dev libsqlite3-dev pkg-config
+    fi
     git clone --branch "${REACTORCIDE_PR_REF}" "${REACTORCIDE_SOURCE_URL}" /workspace
     cd /workspace
 
