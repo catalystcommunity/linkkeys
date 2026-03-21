@@ -1,0 +1,26 @@
+name: linkkeys-test-postgres
+description: "Run tests against PostgreSQL backend"
+job:
+  image: rust:1-bookworm
+  command: |
+    set -e
+    apt-get update && apt-get install -y --no-install-recommends \
+      libpq-dev libsqlite3-dev pkg-config postgresql postgresql-client
+
+    echo "=== Starting PostgreSQL ==="
+    pg_ctlcluster $(pg_lsclusters -h | awk '{print $1, $2}') start
+    su -c "createuser -s root" postgres
+    createdb linkkeys_test
+
+    git clone --branch "${REACTORCIDE_PR_REF}" "${REACTORCIDE_SOURCE_URL}" /workspace
+    cd /workspace
+
+    echo "=== Running tests (PostgreSQL backend) ==="
+    TEST_DATABASE_BACKEND=postgres \
+    TEST_DATABASE_URL="postgres://root@localhost/linkkeys_test" \
+    cargo test 2>&1
+
+    echo "=== PostgreSQL tests passed ==="
+  timeout: 1800
+  priority: 10
+  raw_command: true

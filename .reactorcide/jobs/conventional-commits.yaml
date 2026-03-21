@@ -1,0 +1,47 @@
+name: linkkeys-conventional-commits
+description: "Validate all PR commits follow conventional commit format"
+triggers:
+  events:
+    - pull_request_opened
+    - pull_request_updated
+  branches:
+    - main
+job:
+  image: 10.16.0.1:5000/public/reactorcide/runnerbase:dev
+  command: |
+    set -e
+    git clone --branch "${REACTORCIDE_PR_REF}" "${REACTORCIDE_SOURCE_URL}" /job/src
+    cd /job/src
+
+    echo "=== Validating Conventional Commits ==="
+    PATTERN='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?!?: .+'
+    FAILED=0
+
+    git log "${REACTORCIDE_DIFF_BASE}..HEAD" --pretty=format:"%H %s" > /tmp/commits.txt
+    while IFS= read -r LINE; do
+      HASH=$(echo "${LINE}" | cut -d' ' -f1)
+      MSG=$(echo "${LINE}" | cut -d' ' -f2-)
+      if echo "${MSG}" | grep -qE "${PATTERN}"; then
+        echo "OK: ${MSG}"
+      else
+        echo "FAIL: ${MSG} (${HASH})"
+        FAILED=1
+      fi
+    done < /tmp/commits.txt
+
+    if [ "${FAILED}" = "1" ]; then
+      echo ""
+      echo "Commit messages must match: type(scope)?: description"
+      echo "Valid types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert"
+      exit 1
+    fi
+
+    echo "All commits follow conventional commit format."
+
+    runnerlib trigger \
+      .reactorcide/jobs/build.yaml \
+      .reactorcide/jobs/test-sqlite.yaml \
+      .reactorcide/jobs/test-postgres.yaml
+  timeout: 300
+  priority: 10
+  raw_command: true
