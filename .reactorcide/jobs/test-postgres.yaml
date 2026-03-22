@@ -1,47 +1,38 @@
 name: linkkeys-test-postgres
 description: "Run tests against PostgreSQL backend"
 job:
-  image: rust:1-bookworm
+  image: 10.16.0.1:5000/public/reactorcide/runnerbase:dev
   command: |
     set -e
 
-    # Install postgres — handle both root and non-root contexts
-    if [ "$(id -u)" = "0" ]; then
-      apt-get update && apt-get install -y --no-install-recommends \
-        libpq-dev libsqlite3-dev pkg-config postgresql postgresql-client
-    else
-      # Non-root: check if postgres is available, try sudo if not
-      if ! command -v pg_isready >/dev/null 2>&1; then
-        sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-          libpq-dev libsqlite3-dev pkg-config postgresql postgresql-client
-      fi
-    fi
+    echo "=== Installing dependencies ==="
+    sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+      libpq-dev libsqlite3-dev pkg-config postgresql postgresql-client build-essential
+
+    echo "=== Installing Rust toolchain ==="
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+    . "$HOME/.cargo/env"
 
     echo "=== Starting PostgreSQL ==="
     PGDATA="/tmp/pgdata"
-    PGUSER="$(whoami)"
 
-    # Initialize a fresh postgres cluster owned by current user
-    initdb -D "${PGDATA}" --auth=trust --username="${PGUSER}" 2>/dev/null || \
-      pg_ctlcluster $(pg_lsclusters -h | awk '{print $1, $2}') start
-
-    # Start postgres in the background
-    pg_ctl -D "${PGDATA}" -l /tmp/pg.log -o "-k /tmp -h localhost" start || true
+    # Initialize a user-owned postgres cluster with trust auth
+    initdb -D "${PGDATA}" --auth=trust --username=runner
+    pg_ctl -D "${PGDATA}" -l /tmp/pg.log -o "-k /tmp -h 127.0.0.1 -p 5432" start
     sleep 2
 
     # Create test database
-    createdb -h /tmp linkkeys_test 2>/dev/null || \
-      createdb -h localhost linkkeys_test 2>/dev/null || true
+    createdb -h /tmp -U runner linkkeys_test
 
     git clone --branch "${REACTORCIDE_PR_REF}" "${REACTORCIDE_SOURCE_URL}" /workspace
     cd /workspace
 
     echo "=== Running tests (PostgreSQL backend) ==="
     TEST_DATABASE_BACKEND=postgres \
-    TEST_DATABASE_URL="postgres://${PGUSER}@localhost/linkkeys_test" \
+    TEST_DATABASE_URL="postgres://runner@127.0.0.1/linkkeys_test" \
     cargo test 2>&1
 
     echo "=== PostgreSQL tests passed ==="
-  timeout: 1800
+  timeout: 3600
   priority: 10
   raw_command: true
