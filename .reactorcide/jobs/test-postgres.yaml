@@ -10,10 +10,13 @@ job:
       libpq-dev libsqlite3-dev pkg-config postgresql postgresql-client build-essential
 
     echo "=== Installing Rust toolchain ==="
+    export HOME=/home/runner
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-    . "$HOME/.cargo/env"
+    . "/home/runner/.cargo/env"
 
     echo "=== Starting PostgreSQL ==="
+    # Postgres binaries are in /usr/lib/postgresql/*/bin/
+    export PATH="$(find /usr/lib/postgresql -name bin -type d | head -1):$PATH"
     PGDATA="/tmp/pgdata"
 
     # Initialize a user-owned postgres cluster with trust auth
