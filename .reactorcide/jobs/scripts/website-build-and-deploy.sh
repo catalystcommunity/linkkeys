@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cleanup() { kill %1 2>/dev/null || true; wait 2>/dev/null || true; }
-trap cleanup EXIT
-
 echo "================================================"
 echo "LinkKeys Website Build and Deploy"
 echo "================================================"
@@ -28,18 +25,17 @@ echo "================================================"
 
 # Setup environment
 export HOME="${HOME:-/root}"
-export XDG_RUNTIME_DIR=/tmp/run-root
 LOCAL_BIN="$HOME/.local/bin"
-mkdir -p "$XDG_RUNTIME_DIR" "$HOME/.docker" "$LOCAL_BIN"
+mkdir -p "$HOME/.docker" "$LOCAL_BIN"
 export PATH="$LOCAL_BIN:$PATH"
 
-# Install buildctl if not present
-if ! command -v buildctl &> /dev/null; then
-    echo "Installing buildkit..."
-    BUILDKIT_VERSION=0.17.3
-    curl -fsSL "https://github.com/moby/buildkit/releases/download/v${BUILDKIT_VERSION}/buildkit-v${BUILDKIT_VERSION}.linux-amd64.tar.gz" -o /tmp/buildkit.tar.gz
-    tar -xzf /tmp/buildkit.tar.gz --strip-components=1 -C "$LOCAL_BIN"
-    rm /tmp/buildkit.tar.gz
+# Install docker CLI if not present (uses DinD sidecar via DOCKER_HOST)
+if ! command -v docker &> /dev/null; then
+    echo "Installing docker CLI..."
+    DOCKER_VERSION=27.5.1
+    curl -fsSL "https://download.docker.com/linux/static/stable/x86_64/docker-${DOCKER_VERSION}.tgz" -o /tmp/docker.tgz
+    tar -xzf /tmp/docker.tgz --strip-components=1 -C "$LOCAL_BIN" docker/docker
+    rm /tmp/docker.tgz
 fi
 
 # Install helm if not present
@@ -61,52 +57,19 @@ INTERNAL_IMAGE="${REGISTRY_INTERNAL}/${REGISTRY_INTERNAL_PATH}"
 
 # Setup registry auth
 if [[ -n "${REGISTRY_USER:-}" ]] && [[ -n "${REGISTRY_PASSWORD:-}" ]]; then
-    AUTH=$(printf "%s:%s" "$REGISTRY_USER" "$REGISTRY_PASSWORD" | base64 -w 0)
-    cat > "$HOME/.docker/config.json" <<EOF
-{
-  "auths": {
-    "${REGISTRY_INTERNAL}": {"auth": "${AUTH}"},
-    "${REGISTRY_EXTERNAL}": {"auth": "${AUTH}"}
-  }
-}
-EOF
+    echo "${REGISTRY_PASSWORD}" | docker login "${REGISTRY_INTERNAL}" -u "${REGISTRY_USER}" --password-stdin
+    echo "${REGISTRY_PASSWORD}" | docker login "${REGISTRY_EXTERNAL}" -u "${REGISTRY_USER}" --password-stdin
     echo "Registry authentication configured"
 fi
 
-# Start buildkitd with OCI worker
-echo "Starting buildkitd..."
-buildkitd \
-    --oci-worker=true \
-    --containerd-worker=false \
-    --root="$HOME/.local/share/buildkit" \
-    --addr="unix://$XDG_RUNTIME_DIR/buildkit/buildkitd.sock" &
-
-# Wait for buildkitd to be ready
-for i in $(seq 1 30); do
-    if buildctl --addr="unix://$XDG_RUNTIME_DIR/buildkit/buildkitd.sock" debug info >/dev/null 2>&1; then
-        echo "buildkitd is ready"
-        break
-    fi
-    sleep 1
-done
-
-export BUILDKIT_HOST="unix://$XDG_RUNTIME_DIR/buildkit/buildkitd.sock"
-
-# Build and push image
+# Build image using Docker daemon (provided by DinD sidecar in k8s)
 echo "Building image: ${INTERNAL_IMAGE}:${VERSION}"
+docker build -t "${INTERNAL_IMAGE}:${VERSION}" -t "${INTERNAL_IMAGE}:latest" .
 
-buildctl build \
-    --frontend dockerfile.v0 \
-    --local context=. \
-    --local dockerfile=. \
-    --output type=image,name="${INTERNAL_IMAGE}:${VERSION}",push=true,registry.insecure=true
-
-# Also tag as latest
-buildctl build \
-    --frontend dockerfile.v0 \
-    --local context=. \
-    --local dockerfile=. \
-    --output type=image,name="${INTERNAL_IMAGE}:latest",push=true,registry.insecure=true
+# Push both tags
+echo "Pushing image..."
+docker push "${INTERNAL_IMAGE}:${VERSION}"
+docker push "${INTERNAL_IMAGE}:latest"
 
 echo "Image pushed successfully"
 
