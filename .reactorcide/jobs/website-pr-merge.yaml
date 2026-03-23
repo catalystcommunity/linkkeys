@@ -6,7 +6,7 @@ triggers:
   branches:
     - main
 paths:
-  include: ["website/"]
+  include: ["website/**"]
 job:
   image: 10.16.0.1:5000/public/reactorcide/runnerbase:dev
   command: "python3 /job/src/.reactorcide/jobs/scripts/website-pr-merge.py"

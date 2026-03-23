@@ -1,7 +1,7 @@
 contentDir: "content"
 outputDir: "generated"
 templatesDir: "templates"
-siteTitle: "LinkKeys - Identity Protocol Specification and Resources"
+siteTitle: "LinkKeys - Identity Protocol Specification and Other Resources"
 siteAddress: "https://linkidspec.com/"
 descending: True
 defaultExtension: ".html"
