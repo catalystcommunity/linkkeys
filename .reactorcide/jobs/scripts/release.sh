@@ -36,7 +36,22 @@ echo "=== New release: ${NEW_TAG} ==="
 VERSION="${NEW_TAG#v}"
 
 # -------------------------------------------------------------------
-# 3. Build the release binary
+# 3. Update helm chart version
+# -------------------------------------------------------------------
+echo "=== Updating helm chart version to ${VERSION} ==="
+sed -i "s/^version: .*/version: ${VERSION}/" helm_chart/Chart.yaml
+sed -i "s/^appVersion: .*/appVersion: \"${VERSION}\"/" helm_chart/Chart.yaml
+
+# Commit the version bump (semver-tags already tagged, so this is a follow-up commit)
+git config user.name "Catalyst Community (automation)"
+git config user.email "automation@catalystcommunity.dev"
+git remote set-url origin "https://x-access-token:${GITHUB_PAT}@github.com/${REACTORCIDE_REPO}.git"
+git add helm_chart/Chart.yaml
+git commit -m "ci: bump helm chart version to ${VERSION}" || echo "No chart changes to commit"
+git push || echo "Push failed, continuing with release"
+
+# -------------------------------------------------------------------
+# 4. Build the release binary
 # -------------------------------------------------------------------
 echo "=== Building linkkeys binary ==="
 cargo build --release --bin linkkeys 2>&1
@@ -48,7 +63,7 @@ ARCHIVE_NAME="linkkeys-${VERSION}-linux-amd64"
 tar -czf "${RELEASE_DIR}/${ARCHIVE_NAME}.tar.gz" -C target/release linkkeys
 
 # -------------------------------------------------------------------
-# 4. Install gh CLI and create GitHub release
+# 5. Install gh CLI and create GitHub release
 # -------------------------------------------------------------------
 echo "=== Creating GitHub release ==="
 wget -q "https://github.com/cli/cli/releases/download/v${GHCLI_VERSION}/gh_${GHCLI_VERSION}_linux_amd64.tar.gz" -O /tmp/gh.tar.gz

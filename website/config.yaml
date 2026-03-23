@@ -1,0 +1,11 @@
+contentDir: "content"
+outputDir: "generated"
+templatesDir: "templates"
+siteTitle: "LinkKeys - Identity Protocol Specification"
+siteAddress: "https://linkidspec.com/"
+descending: True
+defaultExtension: ".html"
+startPage: "index.html"
+pageConfig:
+  pageTitle: "LinkKeys"
+  pageDefaultTemplate: "page.jinja2"

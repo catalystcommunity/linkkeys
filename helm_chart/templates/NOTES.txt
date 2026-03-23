@@ -1,0 +1,12 @@
+LinkKeys server has been deployed.
+
+TCP endpoint: {{ include "linkkeys.fullname" . }}:{{ .Values.service.tcpPort }}
+HTTPS endpoint: {{ include "linkkeys.fullname" . }}:{{ .Values.service.httpPort }}
+
+{{- if .Values.ingress.enabled }}
+
+Ingress is enabled. Access the server at:
+{{- range .Values.ingress.hosts }}
+  - {{ .host }}
+{{- end }}
+{{- end }}

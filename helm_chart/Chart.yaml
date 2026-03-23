@@ -1,0 +1,10 @@
+apiVersion: v2
+name: linkkeys
+description: LinkKeys identity protocol server
+type: application
+
+# Chart version — updated automatically by release workflow
+version: 0.1.0
+
+# Application version — matches the project release version
+appVersion: "0.1.0"

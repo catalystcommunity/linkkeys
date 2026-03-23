@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "linkkeys.fullname" . }}
+  labels:
+    {{- include "linkkeys.labels" . | nindent 4 }}
+data:
+  DATABASE_BACKEND: {{ .Values.database.backend | quote }}
+  LOG_LEVEL: {{ .Values.server.logLevel | quote }}
+  TCP_PORT: {{ .Values.server.tcpPort | quote }}
+  HTTPS_PORT: {{ .Values.server.httpsPort | quote }}
