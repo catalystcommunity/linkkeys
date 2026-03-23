@@ -1,0 +1,8 @@
+# For the catalyst-helm/pysocha-site helm chart
+# See https://github.com/catalystcommunity/chart-pysocha-site
+
+domain: linkidspec.com
+sitefilePath: "/site/root"
+image:
+  repository: 10.16.0.1:5000/public/catalystcommunity/linkkeys-website
+  # tag will be provided by --set image.tag=...

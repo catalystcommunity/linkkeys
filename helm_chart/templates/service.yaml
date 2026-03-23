@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "linkkeys.fullname" . }}
+  labels:
+    {{- include "linkkeys.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.httpPort }}
+      targetPort: https
+      protocol: TCP
+      name: https
+    - port: {{ .Values.service.tcpPort }}
+      targetPort: tcp
+      protocol: TCP
+      name: tcp
+  selector:
+    {{- include "linkkeys.selectorLabels" . | nindent 4 }}

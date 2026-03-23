@@ -1,0 +1,26 @@
+name: linkkeys-website-build-and-deploy
+description: "Build website Docker image and deploy to Kubernetes via Helm"
+triggers:
+  events:
+    - push
+  branches:
+    - main
+paths:
+  include: ["website/content/extra_files/VERSION.txt"]
+job:
+  image: 10.16.0.1:5000/public/reactorcide/runnerbase:dev
+  command: "bash /job/src/.reactorcide/jobs/scripts/website-build-and-deploy.sh"
+  timeout: 1800
+  capabilities:
+    - docker
+environment:
+  REGISTRY_INTERNAL: "10.16.0.1:5000"
+  REGISTRY_INTERNAL_PATH: "public/catalystcommunity/linkkeys-website"
+  REGISTRY_EXTERNAL: "containers.catalystsquad.com"
+  REGISTRY_USER: "${secret:catalystcommunity/registry:user}"
+  REGISTRY_PASSWORD: "${secret:catalystcommunity/registry:password}"
+  KUBECONFIG_CONTENT: "${secret:catalystcommunity/k8s:kubeconfig}"
+  K8S_NAMESPACE: "linkkeys-website"
+  HELM_RELEASE: "linkkeys-website"
+  HELM_CHART: "catalyst-helm/pysocha-site"
+  HELM_CHART_VERSION: "1.1.1"

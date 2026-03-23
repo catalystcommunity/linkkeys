@@ -1,0 +1,88 @@
+# LinkKeys server Helm chart values
+
+replicaCount: 1
+
+image:
+  repository: containers.catalystsquad.com/public/catalystcommunity/linkkeys
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Database configuration
+database:
+  # postgres or sqlite
+  backend: postgres
+  # Connection string — for sqlite use a file path like /data/linkkeys.db
+  url: "postgresql://linkkeys:linkkeys@linkkeys-postgresql:5432/linkkeys?sslmode=disable"
+
+# Server configuration
+server:
+  tcpPort: 9000
+  httpsPort: 8443
+  logLevel: "info"
+
+# Optional bundled PostgreSQL (for development)
+postgresql:
+  enabled: false
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  auth:
+    username: linkkeys
+    password: linkkeys
+    database: linkkeys
+  storage:
+    size: 1Gi
+
+service:
+  type: ClusterIP
+  httpPort: 8443
+  tcpPort: 9000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: linkkeys.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources: {}
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 2000
+  fsGroup: 2000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL

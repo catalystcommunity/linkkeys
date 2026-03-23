@@ -1,0 +1,8 @@
+:80 {
+  root * /site/root
+  file_server
+  log {
+    output file /site/logs/log
+    format json
+  }
+}

@@ -1,0 +1,17 @@
+name: linkkeys-website-pr-merge
+description: "Version bump website and trigger build on PR merge to main"
+triggers:
+  events:
+    - pull_request_merged
+  branches:
+    - main
+paths:
+  include: ["website/"]
+job:
+  image: 10.16.0.1:5000/public/reactorcide/runnerbase:dev
+  command: "python3 /job/src/.reactorcide/jobs/scripts/website-pr-merge.py"
+  timeout: 1800
+environment:
+  GIT_USER_NAME: "Catalyst Community (automation)"
+  GIT_USER_EMAIL: "automation@catalystcommunity.dev"
+  GITHUB_TOKEN: "${secret:catalystcommunity/ci:githubpat}"
