@@ -68,10 +68,11 @@ def download_semver_tags():
 
     print("Downloading semver-tags...")
     subprocess.run(
-        "curl -fsSL https://github.com/catalystsquad/semver-tags/releases/download/v0.3.5/semver-tags.tar.gz | tar -xz",
+        "curl -fsSL https://github.com/catalystcommunity/semver-tags/releases/download/v0.4.0/semver-tags.tar.gz | tar -xz",
         shell=True,
         check=True
     )
+    os.chmod("./semver-tags", 0o755)
 
 
 def run_semver_tags() -> tuple[bool, str]:
@@ -79,7 +80,13 @@ def run_semver_tags() -> tuple[bool, str]:
     Run semver-tags and parse the results.
     Returns: (has_new_release, new_version)
     """
-    result = run_command(["./semver-tags", "run", "--output_json"])
+    result = run_command(["./semver-tags", "run", "--output_json"], check=False)
+    if result.returncode != 0:
+        print(f"semver-tags stderr: {result.stderr}")
+        print(f"semver-tags stdout: {result.stdout}")
+        # Non-zero exit may just mean no releasable changes
+        if not result.stdout.strip():
+            return False, ""
     output = result.stdout.strip()
 
     # Find the JSON object in output (skip any log lines)

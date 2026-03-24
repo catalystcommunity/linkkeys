@@ -10,7 +10,7 @@ pageConfig:
   pageTitle: "LinkKeys"
   pageDefaultTemplate: "page.jinja2"
 blogConfig:
-  title: "LinkKeys Blog"
+  title: "LinkKeys Blog Nonexistent"
   blogBaseDir: "blog"
   blogTemplate: "blog.jinja2"
   listingTemplate: "listing.jinja2"
