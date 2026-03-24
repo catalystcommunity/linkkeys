@@ -29,13 +29,13 @@ LOCAL_BIN="$HOME/.local/bin"
 mkdir -p "$HOME/.docker" "$LOCAL_BIN"
 export PATH="$LOCAL_BIN:$PATH"
 
-# Install docker CLI if not present (uses DinD sidecar via DOCKER_HOST)
-if ! command -v docker &> /dev/null; then
-    echo "Installing docker CLI..."
-    DOCKER_VERSION=27.5.1
-    curl -fsSL "https://download.docker.com/linux/static/stable/x86_64/docker-${DOCKER_VERSION}.tgz" -o /tmp/docker.tgz
-    tar -xzf /tmp/docker.tgz --strip-components=1 -C "$LOCAL_BIN" docker/docker
-    rm /tmp/docker.tgz
+# Install crane for pushing to insecure (HTTP) registries
+if ! command -v crane &> /dev/null; then
+    echo "Installing crane..."
+    CRANE_VERSION=0.20.3
+    curl -fsSL "https://github.com/google/go-containerregistry/releases/download/v${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz" -o /tmp/crane.tar.gz
+    tar -xzf /tmp/crane.tar.gz -C "$LOCAL_BIN" crane
+    rm /tmp/crane.tar.gz
 fi
 
 # Install helm if not present
@@ -57,21 +57,90 @@ INTERNAL_IMAGE="${REGISTRY_INTERNAL}/${REGISTRY_INTERNAL_PATH}"
 
 # Setup registry auth
 if [[ -n "${REGISTRY_USER:-}" ]] && [[ -n "${REGISTRY_PASSWORD:-}" ]]; then
-    echo "${REGISTRY_PASSWORD}" | docker login "${REGISTRY_INTERNAL}" -u "${REGISTRY_USER}" --password-stdin
-    echo "${REGISTRY_PASSWORD}" | docker login "${REGISTRY_EXTERNAL}" -u "${REGISTRY_USER}" --password-stdin
+    AUTH=$(printf "%s:%s" "$REGISTRY_USER" "$REGISTRY_PASSWORD" | base64 -w 0)
+    cat > "$HOME/.docker/config.json" <<EOF
+{
+  "auths": {
+    "${REGISTRY_INTERNAL}": {"auth": "${AUTH}"},
+    "${REGISTRY_EXTERNAL}": {"auth": "${AUTH}"}
+  }
+}
+EOF
     echo "Registry authentication configured"
 fi
 
-# Build image using Docker daemon (provided by DinD sidecar in k8s)
+# Build image — use docker if DinD sidecar is available, otherwise buildkit OCI
 echo "Building image: ${INTERNAL_IMAGE}:${VERSION}"
-docker build -t "${INTERNAL_IMAGE}:${VERSION}" -t "${INTERNAL_IMAGE}:latest" .
+IMAGE_TAR="/tmp/image.tar"
 
-# Push both tags
-echo "Pushing image..."
-docker push "${INTERNAL_IMAGE}:${VERSION}"
-docker push "${INTERNAL_IMAGE}:latest"
+if [[ -n "${DOCKER_HOST:-}" ]]; then
+    # K8s environment: DinD sidecar provides Docker daemon
+    if ! command -v docker &> /dev/null; then
+        echo "Installing docker CLI..."
+        DOCKER_VERSION=27.5.1
+        curl -fsSL "https://download.docker.com/linux/static/stable/x86_64/docker-${DOCKER_VERSION}.tgz" -o /tmp/docker.tgz
+        tar -xzf /tmp/docker.tgz --strip-components=1 -C "$LOCAL_BIN" docker/docker
+        rm /tmp/docker.tgz
+    fi
+    docker build -t "${INTERNAL_IMAGE}:${VERSION}" .
+    docker save "${INTERNAL_IMAGE}:${VERSION}" -o "${IMAGE_TAR}"
+else
+    # Privileged container (nerdctl/containerd): use buildkit OCI worker
+    if ! command -v buildctl &> /dev/null; then
+        echo "Installing buildkit..."
+        BUILDKIT_VERSION=0.17.3
+        curl -fsSL "https://github.com/moby/buildkit/releases/download/v${BUILDKIT_VERSION}/buildkit-v${BUILDKIT_VERSION}.linux-amd64.tar.gz" -o /tmp/buildkit.tar.gz
+        tar -xzf /tmp/buildkit.tar.gz --strip-components=1 -C "$LOCAL_BIN"
+        rm /tmp/buildkit.tar.gz
+    fi
 
-echo "Image pushed successfully"
+    export XDG_RUNTIME_DIR=/tmp/run-root
+    mkdir -p "$XDG_RUNTIME_DIR"
+
+    echo "Starting buildkitd..."
+    buildkitd \
+        --oci-worker=true \
+        --containerd-worker=false \
+        --root="$HOME/.local/share/buildkit" \
+        --addr="unix://$XDG_RUNTIME_DIR/buildkit/buildkitd.sock" &
+    BUILDKITD_PID=$!
+    trap "kill $BUILDKITD_PID 2>/dev/null || true; wait 2>/dev/null || true" EXIT
+
+    for i in $(seq 1 30); do
+        if buildctl --addr="unix://$XDG_RUNTIME_DIR/buildkit/buildkitd.sock" debug info >/dev/null 2>&1; then
+            echo "buildkitd is ready"
+            break
+        fi
+        sleep 1
+    done
+
+    export BUILDKIT_HOST="unix://$XDG_RUNTIME_DIR/buildkit/buildkitd.sock"
+
+    # Buildkit pushes directly and supports insecure registries natively
+    buildctl build \
+        --frontend dockerfile.v0 \
+        --local context=. \
+        --local dockerfile=. \
+        --output "type=image,name=${INTERNAL_IMAGE}:${VERSION},push=true,registry.insecure=true"
+
+    buildctl build \
+        --frontend dockerfile.v0 \
+        --local context=. \
+        --local dockerfile=. \
+        --output "type=image,name=${INTERNAL_IMAGE}:latest,push=true,registry.insecure=true"
+
+    echo "Image pushed successfully"
+fi
+
+if [[ -n "${DOCKER_HOST:-}" ]]; then
+    # Docker path: save to tarball, push via crane for insecure registry support
+    echo "Pushing image via crane..."
+    docker save "${INTERNAL_IMAGE}:${VERSION}" -o "${IMAGE_TAR}"
+    crane push --insecure "${IMAGE_TAR}" "${INTERNAL_IMAGE}:${VERSION}"
+    crane push --insecure "${IMAGE_TAR}" "${INTERNAL_IMAGE}:latest"
+    rm "${IMAGE_TAR}"
+    echo "Image pushed successfully"
+fi
 
 # ================================================
 # Deploy to Kubernetes
