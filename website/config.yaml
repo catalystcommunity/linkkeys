@@ -2,7 +2,7 @@ contentDir: "content"
 outputDir: "generated"
 templatesDir: "templates"
 siteTitle: "LinkKeys - Identity Protocol Specification and Other Resources"
-siteAddress: "https://linkidspec.com/"
+siteAddress: "https://catalystlinkkeys.com/"
 descending: True
 defaultExtension: ".html"
 startPage: "index.html"
