@@ -9,3 +9,17 @@ startPage: "index.html"
 pageConfig:
   pageTitle: "LinkKeys"
   pageDefaultTemplate: "page.jinja2"
+blogConfig:
+  title: "LinkKeys Blog"
+  blogBaseDir: "blog"
+  blogTemplate: "blog.jinja2"
+  listingTemplate: "listing.jinja2"
+  listingPaginationNum: 5
+  listingKeysNeeded: []
+  atomFeeds: False
+  tagsTemplate: "tags.jinja2"
+  tagTemplate: "tag.jinja2"
+  tagPaginationNum: 5
+  authorsTemplate: "authors.jinja2"
+  authorTemplate: "author.jinja2"
+  authorPaginationNum: 10
