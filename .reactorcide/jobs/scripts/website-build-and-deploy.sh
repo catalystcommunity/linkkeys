@@ -69,12 +69,12 @@ EOF
     echo "Registry authentication configured"
 fi
 
-# Build image — use docker if DinD sidecar is available, otherwise buildkit OCI
 echo "Building image: ${INTERNAL_IMAGE}:${VERSION}"
-IMAGE_TAR="/tmp/image.tar"
 
 if [[ -n "${DOCKER_HOST:-}" ]]; then
+    # =====================================================
     # K8s environment: DinD sidecar provides Docker daemon
+    # =====================================================
     if ! command -v docker &> /dev/null; then
         echo "Installing docker CLI..."
         DOCKER_VERSION=27.5.1
@@ -82,10 +82,36 @@ if [[ -n "${DOCKER_HOST:-}" ]]; then
         tar -xzf /tmp/docker.tgz --strip-components=1 -C "$LOCAL_BIN" docker/docker
         rm /tmp/docker.tgz
     fi
+
+    # Wait for DinD sidecar to be ready
+    echo "Waiting for Docker daemon..."
+    for i in $(seq 1 30); do
+        if docker info >/dev/null 2>&1; then
+            echo "Docker daemon is ready"
+            break
+        fi
+        if [[ $i -eq 30 ]]; then
+            echo "ERROR: Docker daemon not ready after 30 seconds"
+            exit 1
+        fi
+        sleep 1
+    done
+
+    # Build, save to tarball, push via crane (insecure registry support)
     docker build -t "${INTERNAL_IMAGE}:${VERSION}" .
+
+    IMAGE_TAR="/tmp/image.tar"
     docker save "${INTERNAL_IMAGE}:${VERSION}" -o "${IMAGE_TAR}"
+
+    echo "Pushing image via crane..."
+    crane push --insecure "${IMAGE_TAR}" "${INTERNAL_IMAGE}:${VERSION}"
+    crane push --insecure "${IMAGE_TAR}" "${INTERNAL_IMAGE}:latest"
+    rm "${IMAGE_TAR}"
+    echo "Image pushed successfully"
 else
-    # Privileged container (nerdctl/containerd): use buildkit OCI worker
+    # =====================================================
+    # Privileged container (nerdctl/local): buildkit OCI
+    # =====================================================
     if ! command -v buildctl &> /dev/null; then
         echo "Installing buildkit..."
         BUILDKIT_VERSION=0.17.3
@@ -116,7 +142,7 @@ else
 
     export BUILDKIT_HOST="unix://$XDG_RUNTIME_DIR/buildkit/buildkitd.sock"
 
-    # Buildkit pushes directly and supports insecure registries natively
+    # Buildkit pushes directly — supports insecure registries natively
     buildctl build \
         --frontend dockerfile.v0 \
         --local context=. \
@@ -129,16 +155,6 @@ else
         --local dockerfile=. \
         --output "type=image,name=${INTERNAL_IMAGE}:latest,push=true,registry.insecure=true"
 
-    echo "Image pushed successfully"
-fi
-
-if [[ -n "${DOCKER_HOST:-}" ]]; then
-    # Docker path: save to tarball, push via crane for insecure registry support
-    echo "Pushing image via crane..."
-    docker save "${INTERNAL_IMAGE}:${VERSION}" -o "${IMAGE_TAR}"
-    crane push --insecure "${IMAGE_TAR}" "${INTERNAL_IMAGE}:${VERSION}"
-    crane push --insecure "${IMAGE_TAR}" "${INTERNAL_IMAGE}:latest"
-    rm "${IMAGE_TAR}"
     echo "Image pushed successfully"
 fi
 
