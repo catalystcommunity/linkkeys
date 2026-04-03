@@ -1,0 +1,16 @@
+name: linkkeys-demoappsite-build-test
+description: "Verify the demoappsite Docker image builds successfully on PR"
+triggers:
+  events:
+    - pull_request_opened
+    - pull_request_updated
+  branches:
+    - main
+paths:
+  include: ["demoappsite/**", "crates/liblinkkeys/**"]
+job:
+  image: 10.16.0.1:5000/public/reactorcide/runnerbase:dev
+  command: "bash /job/src/.reactorcide/jobs/scripts/demoappsite-build-test.sh"
+  timeout: 1800
+  capabilities:
+    - docker

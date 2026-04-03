@@ -26,9 +26,10 @@ r2d2 = "0.8"
 # UUID support
 uuid = { version = "1.10", features = ["v7", "serde"] }
 
-# CBOR serialization
+# Serialization
 ciborium = "0.2"
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
 # TLS cert generation
 rcgen = "0.13"
@@ -40,10 +41,19 @@ num_cpus = "1.16"
 # Date/time
 chrono = { version = "0.4", features = ["serde"] }
 
+# Cryptography (re-export for CLI key handling)
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+
+# Password hashing
+bcrypt = "0.17"
+
+# DNS resolution
+hickory-resolver = "0.24"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+
 # Utilities
 env_logger = "0.11"
 log = "0.4"
+rand = "0.8"
 
 [dev-dependencies]
-serde_json = "1.0"
-rand = "0.9"

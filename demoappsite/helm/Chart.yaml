@@ -1,0 +1,6 @@
+apiVersion: v2
+name: linkkeys-demoappsite
+description: LinkKeys demo relying party application
+type: application
+version: 0.3.7
+appVersion: "0.3.7"

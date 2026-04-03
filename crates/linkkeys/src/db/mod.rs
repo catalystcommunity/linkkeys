@@ -1,5 +1,9 @@
+pub mod claims;
+pub mod domain_keys;
 pub mod guestbook;
 pub mod models;
+pub mod user_keys;
+pub mod users;
 
 use diesel::prelude::*;
 use diesel::r2d2::{self, ConnectionManager};
@@ -137,4 +141,113 @@ pub fn run_migrations_with_locking(pool: &DbPool, ready_flag: Arc<AtomicBool>) {
 
     ready_flag.store(true, Ordering::SeqCst);
     log::info!("Migrations complete, server ready");
+}
+
+// -- Convenience methods to eliminate match-on-DbPool boilerplate --
+
+impl DbPool {
+    pub fn list_active_domain_keys(&self) -> QueryResult<Vec<models::DomainKey>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                domain_keys::pg::list_active(&mut conn)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                domain_keys::sqlite::list_active(&mut conn)
+            }
+        }
+    }
+
+    pub fn list_all_domain_keys(&self) -> QueryResult<Vec<models::DomainKey>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                domain_keys::pg::list_all(&mut conn)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                domain_keys::sqlite::list_all(&mut conn)
+            }
+        }
+    }
+
+    pub fn find_user_by_id(&self, user_id: &str) -> QueryResult<models::User> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                users::pg::find_by_id(&mut conn, user_id)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                users::sqlite::find_by_id(&mut conn, user_id)
+            }
+        }
+    }
+
+    pub fn list_active_user_keys(&self, user_id: &str) -> QueryResult<Vec<models::UserKey>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                user_keys::pg::list_active_for_user(&mut conn, user_id)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                user_keys::sqlite::list_active_for_user(&mut conn, user_id)
+            }
+        }
+    }
+
+    pub fn list_active_claims(&self, user_id: &str) -> QueryResult<Vec<models::ClaimRow>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                claims::pg::list_active_for_user(&mut conn, user_id)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                claims::sqlite::list_active_for_user(&mut conn, user_id)
+            }
+        }
+    }
 }

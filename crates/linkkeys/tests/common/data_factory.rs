@@ -33,6 +33,6 @@ fn extract_name(overrides: &DataMap) -> String {
 
 fn rand_suffix() -> String {
     use rand::Rng;
-    let n: u32 = rand::rng().random();
+    let n: u32 = rand::thread_rng().gen();
     format!("{:08x}", n)
 }

@@ -2,5 +2,6 @@
 members = [
     "crates/liblinkkeys",
     "crates/linkkeys",
+    "demoappsite",
 ]
 resolver = "2"
