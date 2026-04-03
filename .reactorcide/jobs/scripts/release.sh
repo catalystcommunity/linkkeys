@@ -43,11 +43,15 @@ sed -i "s/^version: .*/version: ${VERSION}/" helm_chart/Chart.yaml
 sed -i "s/^appVersion: .*/appVersion: \"${VERSION}\"/" helm_chart/Chart.yaml
 echo "${VERSION}" > website/content/extra_files/VERSION.txt
 
+sed -i "s/^version: .*/version: ${VERSION}/" demoappsite/helm/Chart.yaml
+sed -i "s/^appVersion: .*/appVersion: \"${VERSION}\"/" demoappsite/helm/Chart.yaml
+echo "${VERSION}" > demoappsite/version/VERSION.txt
+
 # Commit the version bump (semver-tags already tagged, so this is a follow-up commit)
 git config user.name "Catalyst Community (automation)"
 git config user.email "automation@catalystcommunity.dev"
 git remote set-url origin "https://x-access-token:${GITHUB_PAT}@github.com/${REACTORCIDE_REPO}.git"
-git add helm_chart/Chart.yaml website/content/extra_files/VERSION.txt
+git add helm_chart/Chart.yaml website/content/extra_files/VERSION.txt demoappsite/helm/Chart.yaml demoappsite/version/VERSION.txt
 git commit -m "ci: bump version to ${VERSION}" || echo "No version changes to commit"
 git push || echo "Push failed, continuing with release"
 

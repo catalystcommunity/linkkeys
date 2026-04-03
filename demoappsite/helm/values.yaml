@@ -1,0 +1,48 @@
+replicaCount: 1
+
+image:
+  repository: 10.16.0.1:5000/public/catalystcommunity/linkkeys-demoappsite
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+
+domain: linkidspec.com
+
+demoapp:
+  port: 9090
+
+# The LinkKeys domain server this demo app authenticates against
+linkkeys:
+  domain: "catalystlinkkeys.com:8443"
+
+service:
+  type: ClusterIP
+  port: 9090
+
+ingress:
+  enabled: true
+  className: ""
+  annotations: {}
+  hosts:
+    - host: linkidspec.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 2000
+  fsGroup: 2000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL

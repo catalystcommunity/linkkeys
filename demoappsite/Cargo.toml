@@ -1,0 +1,35 @@
+[package]
+name = "demoappsite"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+liblinkkeys = { path = "../crates/liblinkkeys" }
+
+# Web framework
+rocket = { version = "0.5", features = ["tls", "secrets"] }
+
+# HTTP client for calling domain server
+reqwest = { version = "0.12", features = ["rustls-tls"] }
+
+# Serialization
+ciborium = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Async runtime (reqwest needs it)
+tokio = { version = "1", features = ["full"] }
+
+# UUID for nonce generation
+uuid = { version = "1.10", features = ["v4"] }
+
+# TLS cert generation
+rcgen = "0.13"
+
+# DNS resolution
+hickory-resolver = "0.24"
+
+# Utilities
+log = "0.4"
+env_logger = "0.11"
+chrono = { version = "0.4", features = ["serde"] }

@@ -79,3 +79,133 @@ pub struct GuestbookListResponse {
 pub struct EmptyRequest {
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DomainPublicKey {
+    pub key_id: String,
+    #[serde(with = "serde_bytes")]
+    pub public_key: Vec<u8>,
+    pub fingerprint: String,
+    pub algorithm: String,
+    pub created_at: String,
+    pub expires_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revoked_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GetDomainKeysResponse {
+    pub domain: String,
+    pub keys: Vec<DomainPublicKey>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UserPublicKey {
+    pub key_id: String,
+    pub user_id: String,
+    #[serde(with = "serde_bytes")]
+    pub public_key: Vec<u8>,
+    pub fingerprint: String,
+    pub algorithm: String,
+    pub created_at: String,
+    pub expires_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revoked_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GetUserKeysRequest {
+    pub user_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GetUserKeysResponse {
+    pub user_id: String,
+    pub domain: String,
+    pub keys: Vec<UserPublicKey>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Claim {
+    pub claim_id: String,
+    pub user_id: String,
+    pub claim_type: String,
+    #[serde(with = "serde_bytes")]
+    pub claim_value: Vec<u8>,
+    pub signed_by_key_id: String,
+    #[serde(with = "serde_bytes")]
+    pub signature: Vec<u8>,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revoked_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GetUserClaimsRequest {
+    pub user_id: String,
+    #[serde(with = "serde_bytes")]
+    pub token: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GetUserClaimsResponse {
+    pub user_id: String,
+    pub domain: String,
+    pub claims: Vec<Claim>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct IdentityAssertion {
+    pub user_id: String,
+    pub domain: String,
+    pub audience: String,
+    pub nonce: String,
+    pub issued_at: String,
+    pub expires_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SignedIdentityAssertion {
+    #[serde(with = "serde_bytes")]
+    pub assertion: Vec<u8>,
+    pub signing_key_id: String,
+    #[serde(with = "serde_bytes")]
+    pub signature: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GetUserInfoRequest {
+    #[serde(with = "serde_bytes")]
+    pub token: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UserInfo {
+    pub user_id: String,
+    pub domain: String,
+    pub display_name: String,
+    pub claims: Vec<Claim>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AlgorithmSupport {
+    pub signing: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encryption: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HandshakeRequest {
+    pub version: String,
+    pub algorithms: AlgorithmSupport,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HandshakeResponse {
+    pub version: String,
+    pub algorithms: AlgorithmSupport,
+}
+

@@ -82,6 +82,129 @@ EmptyRequest = {
 }
 
 ;; ============================================================
+;; Key Types
+;; ============================================================
+
+;; Fingerprint is SHA-256 of the public key bytes, hex-encoded
+DomainPublicKey = {
+    key_id: text,
+    public_key: bytes,
+    fingerprint: text,
+    algorithm: text,
+    created_at: text,
+    expires_at: text,
+    ? revoked_at: text
+}
+
+GetDomainKeysResponse = {
+    domain: text,
+    keys: [* DomainPublicKey]
+}
+
+UserPublicKey = {
+    key_id: text,
+    user_id: text,
+    public_key: bytes,
+    fingerprint: text,
+    algorithm: text,
+    created_at: text,
+    expires_at: text,
+    ? revoked_at: text
+}
+
+GetUserKeysRequest = {
+    user_id: text
+}
+
+GetUserKeysResponse = {
+    user_id: text,
+    domain: text,
+    keys: [* UserPublicKey]
+}
+
+;; ============================================================
+;; Claims
+;; ============================================================
+
+Claim = {
+    claim_id: text,
+    user_id: text,
+    claim_type: text,
+    claim_value: bytes,
+    signed_by_key_id: text,
+    signature: bytes,
+    created_at: text,
+    ? expires_at: text,
+    ? revoked_at: text
+}
+
+GetUserClaimsRequest = {
+    user_id: text,
+    ;; The signed assertion token proving the request is authorized
+    token: bytes
+}
+
+GetUserClaimsResponse = {
+    user_id: text,
+    domain: text,
+    claims: [* Claim]
+}
+
+;; ============================================================
+;; Identity Assertions (auth tokens)
+;; ============================================================
+
+IdentityAssertion = {
+    user_id: text,
+    domain: text,
+    audience: text,
+    nonce: text,
+    issued_at: text,
+    expires_at: text,
+    ? display_name: text
+}
+
+SignedIdentityAssertion = {
+    assertion: bytes,
+    signing_key_id: text,
+    signature: bytes
+}
+
+;; ============================================================
+;; User Info (queried with token)
+;; ============================================================
+
+GetUserInfoRequest = {
+    token: bytes
+}
+
+UserInfo = {
+    user_id: text,
+    domain: text,
+    display_name: text,
+    claims: [* Claim]
+}
+
+;; ============================================================
+;; Protocol Negotiation
+;; ============================================================
+
+AlgorithmSupport = {
+    signing: [* text],
+    ? encryption: [* text]
+}
+
+HandshakeRequest = {
+    version: text,
+    algorithms: AlgorithmSupport
+}
+
+HandshakeResponse = {
+    version: text,
+    algorithms: AlgorithmSupport
+}
+
+;; ============================================================
 ;; Services
 ;; ============================================================
 
@@ -99,4 +222,26 @@ service Guestbook {
     list-entries: GuestbookListRequest -> GuestbookListResponse,
     update-entry: UpdateGuestbookRequest -> GuestbookEntry,
     delete-entry: DeleteGuestbookRequest -> DeleteGuestbookResponse
+}
+
+service DomainKeys {
+    get-domain-keys: EmptyRequest -> GetDomainKeysResponse
+}
+
+service UserKeys {
+    get-user-keys: GetUserKeysRequest -> GetUserKeysResponse
+}
+
+service Identity {
+    ;; Relying party calls this with the signed assertion token
+    ;; to get user info + claims. Domain server verifies the token
+    ;; and returns info scoped to the audience.
+    get-user-info: GetUserInfoRequest -> UserInfo
+}
+
+service Handshake {
+    ;; Protocol and algorithm negotiation. Called before any other
+    ;; operation to establish which version and algorithms both
+    ;; sides support. Returns the intersection of capabilities.
+    handshake: HandshakeRequest -> HandshakeResponse
 }
