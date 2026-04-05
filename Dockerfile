@@ -11,6 +11,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
 COPY demoappsite/ demoappsite/
 COPY csil/ csil/
+COPY migrations/ migrations/
 RUN cargo build --release --bin linkkeys
 
 FROM debian:bookworm-slim
