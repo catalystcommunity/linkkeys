@@ -1,0 +1,27 @@
+{{- if .Values.gateway.httpRoute.enabled }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "linkkeys.fullname" . }}
+  labels:
+    {{- include "linkkeys.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.gateway.httpRoute.parentGateway }}
+      {{- if .Values.gateway.httpRoute.parentNamespace }}
+      namespace: {{ .Values.gateway.httpRoute.parentNamespace }}
+      {{- end }}
+      {{- if .Values.gateway.httpRoute.parentSection }}
+      sectionName: {{ .Values.gateway.httpRoute.parentSection }}
+      {{- end }}
+  {{- if .Values.gateway.httpRoute.hostnames }}
+  hostnames:
+    {{- range .Values.gateway.httpRoute.hostnames }}
+    - {{ . | quote }}
+    {{- end }}
+  {{- end }}
+  rules:
+    - backendRefs:
+        - name: {{ include "linkkeys.fullname" . }}
+          port: {{ .Values.service.httpPort }}
+{{- end }}

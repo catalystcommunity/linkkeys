@@ -11,9 +11,36 @@ spec:
       targetPort: https
       protocol: TCP
       name: https
-    - port: {{ .Values.service.tcpPort }}
+    {{- if eq .Values.service.type .Values.service.tcp.type }}
+    - port: {{ .Values.service.tcp.port }}
       targetPort: tcp
       protocol: TCP
       name: tcp
+      {{- if and (eq .Values.service.tcp.type "NodePort") .Values.service.tcp.nodePort }}
+      nodePort: {{ .Values.service.tcp.nodePort }}
+      {{- end }}
+    {{- end }}
   selector:
     {{- include "linkkeys.selectorLabels" . | nindent 4 }}
+---
+{{- if ne .Values.service.type .Values.service.tcp.type }}
+# Separate service for TCP when using a different service type (e.g., NodePort or LoadBalancer)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "linkkeys.fullname" . }}-tcp
+  labels:
+    {{- include "linkkeys.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.tcp.type }}
+  ports:
+    - port: {{ .Values.service.tcp.port }}
+      targetPort: tcp
+      protocol: TCP
+      name: tcp
+      {{- if and (eq .Values.service.tcp.type "NodePort") .Values.service.tcp.nodePort }}
+      nodePort: {{ .Values.service.tcp.nodePort }}
+      {{- end }}
+  selector:
+    {{- include "linkkeys.selectorLabels" . | nindent 4 }}
+{{- end }}

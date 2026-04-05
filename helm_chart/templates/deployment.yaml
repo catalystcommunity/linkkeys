@@ -50,6 +50,11 @@ spec:
                 name: {{ include "linkkeys.fullname" . }}
             - secretRef:
                 name: {{ include "linkkeys.fullname" . }}
+          {{- if eq .Values.database.backend "sqlite" }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          {{- end }}
           livenessProbe:
             tcpSocket:
               port: tcp
@@ -69,6 +74,12 @@ spec:
       {{- with .Values.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if eq .Values.database.backend "sqlite" }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "linkkeys.fullname" . }}-data
       {{- end }}
       {{- with .Values.tolerations }}
       tolerations:
