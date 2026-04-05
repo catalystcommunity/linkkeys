@@ -21,7 +21,7 @@ serviceAccount:
 database:
   # postgres or sqlite
   backend: postgres
-  # Connection string — for sqlite use a file path like /data/linkkeys.db
+  # Connection string — for sqlite use a path like /data/linkkeys.db
   url: "postgresql://linkkeys:linkkeys@linkkeys-postgresql:5432/linkkeys?sslmode=disable"
 
 # Server configuration
@@ -35,6 +35,8 @@ server:
   domainKeyPassphrase: ""
   # Disable TLS on the TCP transport (for development only)
   disableTcpTls: "false"
+  # Disable TLS on the HTTP transport (use when behind TLS-terminating ingress/gateway)
+  disableTls: "false"
 
 # Relying party mode — set these to run the same image as an RP server.
 # An RP is a LinkKeys server that holds domain keys and signs/decrypts
@@ -48,6 +50,14 @@ rp:
   passwordAuth: false
   # Accept invalid TLS certs when fetching domain keys (development only)
   allowInvalidCerts: "false"
+
+# SQLite persistent storage — enabled automatically when database.backend is sqlite
+sqlite:
+  persistence:
+    # Storage size for SQLite data volume
+    size: 1Gi
+    # Storage class (leave empty for cluster default)
+    storageClassName: ""
 
 # Optional bundled PostgreSQL (for development)
 postgresql:
@@ -63,11 +73,20 @@ postgresql:
   storage:
     size: 1Gi
 
+# Service configuration
 service:
+  # HTTP service type (ClusterIP, NodePort, LoadBalancer)
   type: ClusterIP
   httpPort: 8443
-  tcpPort: 9000
+  # TCP service — can be separate type for direct exposure
+  tcp:
+    # TCP service type (ClusterIP, NodePort, LoadBalancer)
+    type: ClusterIP
+    port: 9000
+    # NodePort for TCP (only used when type is NodePort)
+    nodePort: ""
 
+# Legacy Ingress (networking.k8s.io/v1)
 ingress:
   enabled: false
   className: ""
@@ -78,6 +97,26 @@ ingress:
         - path: /
           pathType: Prefix
   tls: []
+
+# Gateway API (gateway.networking.k8s.io/v1)
+gateway:
+  # HTTPRoute for HTTP/HTTPS traffic
+  httpRoute:
+    enabled: false
+    # Name of the Gateway resource to attach to
+    parentGateway: ""
+    # Namespace of the Gateway (leave empty for same namespace)
+    parentNamespace: ""
+    # Section name on the Gateway (e.g., "https")
+    parentSection: ""
+    hostnames: []
+    #  - linkkeys.example.com
+  # TCPRoute for the LinkKeys protocol port
+  tcpRoute:
+    enabled: false
+    parentGateway: ""
+    parentNamespace: ""
+    parentSection: ""
 
 resources: {}
 

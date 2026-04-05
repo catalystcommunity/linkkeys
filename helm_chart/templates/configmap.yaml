@@ -13,6 +13,9 @@ data:
   DOMAIN_NAME: {{ .Values.server.domainName | quote }}
   {{- end }}
   DISABLE_TCP_TLS: {{ .Values.server.disableTcpTls | quote }}
+  {{- if eq .Values.server.disableTls "true" }}
+  DISABLE_TLS: "true"
+  {{- end }}
   {{- if .Values.rp.enabled }}
   ENABLE_RP_ENDPOINTS: "true"
   {{- end }}

@@ -1,0 +1,21 @@
+{{- if .Values.gateway.tcpRoute.enabled }}
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TCPRoute
+metadata:
+  name: {{ include "linkkeys.fullname" . }}-tcp
+  labels:
+    {{- include "linkkeys.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.gateway.tcpRoute.parentGateway }}
+      {{- if .Values.gateway.tcpRoute.parentNamespace }}
+      namespace: {{ .Values.gateway.tcpRoute.parentNamespace }}
+      {{- end }}
+      {{- if .Values.gateway.tcpRoute.parentSection }}
+      sectionName: {{ .Values.gateway.tcpRoute.parentSection }}
+      {{- end }}
+  rules:
+    - backendRefs:
+        - name: {{ include "linkkeys.fullname" . }}
+          port: {{ .Values.service.tcp.port }}
+{{- end }}

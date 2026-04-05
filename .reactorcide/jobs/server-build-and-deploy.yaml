@@ -1,0 +1,22 @@
+name: linkkeys-server-build-and-deploy
+description: "Build linkkeys server Docker image and push to registries"
+triggers:
+  events:
+    - push
+  branches:
+    - main
+paths:
+  include: ["version/VERSION.txt"]
+job:
+  image: 10.16.0.1:5000/public/reactorcide/runnerbase:dev
+  command: "bash /job/src/.reactorcide/jobs/scripts/server-build-and-deploy.sh"
+  timeout: 1800
+  capabilities:
+    - docker
+environment:
+  REGISTRY_INTERNAL: "10.16.0.1:5000"
+  REGISTRY_INTERNAL_PATH: "public/catalystcommunity/linkkeys"
+  REGISTRY_EXTERNAL: "containers.catalystsquad.com"
+  REGISTRY_EXTERNAL_PATH: "public/catalystcommunity/linkkeys"
+  REGISTRY_USER: "${secret:catalystcommunity/registry:user}"
+  REGISTRY_PASSWORD: "${secret:catalystcommunity/registry:password}"

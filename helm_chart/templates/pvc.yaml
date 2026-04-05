@@ -1,0 +1,17 @@
+{{- if eq .Values.database.backend "sqlite" }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "linkkeys.fullname" . }}-data
+  labels:
+    {{- include "linkkeys.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.sqlite.persistence.storageClassName }}
+  storageClassName: {{ .Values.sqlite.persistence.storageClassName | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.sqlite.persistence.size }}
+{{- end }}
