@@ -45,6 +45,9 @@ pub enum UserCommands {
         /// Password (reads from stdin if not provided)
         #[arg(long)]
         password: Option<String>,
+        /// Generate an API key instead of prompting for a password
+        #[arg(long)]
+        api_key: bool,
     },
 }
 

@@ -31,8 +31,11 @@ ciborium = "0.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-# TLS cert generation
+# TLS
 rcgen = "0.13"
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std"] }
+rustls-pki-types = "1"
+x509-parser = "0.16"
 
 # Threading
 threadpool = "1.8"
@@ -47,9 +50,15 @@ ed25519-dalek = { version = "2", features = ["rand_core"] }
 # Password hashing
 bcrypt = "0.17"
 
+# HTTP client (fetch RP public keys for auth flow)
+reqwest = { version = "0.12", features = ["rustls-tls", "json"] }
+
 # DNS resolution
 hickory-resolver = "0.24"
 tokio = { version = "1", features = ["rt-multi-thread"] }
+
+# Encoding
+base64ct = { version = "1", features = ["alloc"] }
 
 # Utilities
 env_logger = "0.11"

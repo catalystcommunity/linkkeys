@@ -11,10 +11,17 @@ domain: linkidspec.com
 
 demoapp:
   port: 9090
+  # Accept invalid TLS certs (development only — self-signed certs)
+  allowInvalidCerts: "false"
 
-# The LinkKeys domain server this demo app authenticates against
-linkkeys:
-  domain: "catalystlinkkeys.com:8443"
+# The LinkKeys RP service this demo app delegates crypto to
+rp:
+  # URL of the RP service (linkkeys server in RP mode)
+  serviceUrl: ""
+  # Bearer token for authenticating to the RP service
+  apiKey: ""
+  # The RP's domain name (used in auth requests)
+  domain: ""
 
 service:
   type: ClusterIP

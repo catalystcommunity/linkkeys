@@ -10,13 +10,11 @@ pub mod pg {
         conn: &mut diesel::PgConnection,
         username: &str,
         display_name: &str,
-        password_hash: &str,
     ) -> QueryResult<User> {
         let new_row = NewUserRow {
             id: uuid::Uuid::now_v7(),
             username: username.to_string(),
             display_name: display_name.to_string(),
-            password_hash: password_hash.to_string(),
         };
 
         diesel::insert_into(users::table)
@@ -55,13 +53,11 @@ pub mod sqlite {
         conn: &mut diesel::SqliteConnection,
         username: &str,
         display_name: &str,
-        password_hash: &str,
     ) -> QueryResult<User> {
         let new_row = NewUserRow {
             id: uuid::Uuid::now_v7().to_string(),
             username: username.to_string(),
             display_name: display_name.to_string(),
-            password_hash: password_hash.to_string(),
         };
         let id = new_row.id.clone();
 

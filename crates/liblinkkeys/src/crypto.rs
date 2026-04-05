@@ -6,6 +6,7 @@ use argon2::{Algorithm, Argon2, Params, Version};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256};
 use std::fmt;
+use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519StaticSecret};
 
 pub const ALGORITHM_ED25519: &str = "ed25519";
 
@@ -228,6 +229,127 @@ pub fn decrypt_private_key(
         .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))
 }
 
+/// Convert an Ed25519 public key (32 bytes) to an X25519 public key (32 bytes).
+/// The Ed25519 Edwards point is converted to its Montgomery form.
+pub fn ed25519_public_to_x25519(ed25519_public: &[u8]) -> Result<[u8; 32], CryptoError> {
+    let vk = VerifyingKey::from_bytes(
+        ed25519_public
+            .try_into()
+            .map_err(|_| CryptoError::InvalidKeyLength)?,
+    )
+    .map_err(|_| CryptoError::InvalidKeyLength)?;
+    Ok(vk.to_montgomery().to_bytes())
+}
+
+/// Convert an Ed25519 private key (32-byte seed) to X25519 static secret bytes.
+/// Returns the unclamped lower 32 bytes of SHA-512(seed). These bytes MUST be used
+/// with `x25519_dalek::StaticSecret::from()`, which applies clamping internally.
+/// Do not use the returned bytes directly as a scalar without clamping.
+pub fn ed25519_private_to_x25519(ed25519_private: &[u8]) -> Result<[u8; 32], CryptoError> {
+    let sk = SigningKey::from_bytes(
+        ed25519_private
+            .try_into()
+            .map_err(|_| CryptoError::InvalidKeyLength)?,
+    );
+    // to_scalar_bytes() returns the unclamped lower 32 bytes of SHA-512(seed).
+    // Constructing an X25519StaticSecret from these bytes applies clamping internally.
+    Ok(sk.to_scalar_bytes())
+}
+
+/// Sealed-box encrypt a message to a recipient's X25519 public key.
+///
+/// 1. Generate an ephemeral X25519 keypair
+/// 2. Perform ECDH key agreement to derive a shared secret
+/// 3. Derive an AES-256 key from the shared secret via SHA-256
+/// 4. Encrypt with AES-256-GCM using a random 12-byte nonce
+///
+/// Returns (ephemeral_public_key, nonce, ciphertext) for constructing an EncryptedToken.
+pub fn sealed_box_encrypt(
+    plaintext: &[u8],
+    recipient_x25519_public: &[u8; 32],
+) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), CryptoError> {
+    let recipient_pk = X25519PublicKey::from(*recipient_x25519_public);
+
+    // Generate ephemeral X25519 keypair
+    let ephemeral_secret = X25519StaticSecret::random_from_rng(OsRng);
+    let ephemeral_public = X25519PublicKey::from(&ephemeral_secret);
+
+    // ECDH key agreement
+    let shared_secret = ephemeral_secret.diffie_hellman(&recipient_pk);
+
+    // Derive AES-256 key from shared secret via SHA-256 with domain separation.
+    // Include both public keys to bind the key to this specific exchange.
+    let mut hasher = Sha256::new();
+    hasher.update(b"linkkeys-sealed-box-v1");
+    hasher.update(ephemeral_public.as_bytes());
+    hasher.update(recipient_x25519_public);
+    hasher.update(shared_secret.as_bytes());
+    let aes_key = hasher.finalize();
+
+    let cipher = Aes256Gcm::new_from_slice(&aes_key)
+        .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
+
+    let nonce_bytes: [u8; 12] = rand::random();
+    let nonce = Nonce::from_slice(&nonce_bytes);
+
+    let ciphertext = cipher
+        .encrypt(nonce, plaintext)
+        .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
+
+    Ok((
+        ephemeral_public.as_bytes().to_vec(),
+        nonce_bytes.to_vec(),
+        ciphertext,
+    ))
+}
+
+/// Sealed-box decrypt using the recipient's X25519 private key.
+///
+/// 1. Perform ECDH with the ephemeral public key and recipient's private key
+/// 2. Derive AES-256 key from shared secret via SHA-256
+/// 3. Decrypt with AES-256-GCM
+pub fn sealed_box_decrypt(
+    ephemeral_public_key: &[u8],
+    nonce: &[u8],
+    ciphertext: &[u8],
+    recipient_x25519_private: &[u8; 32],
+) -> Result<Vec<u8>, CryptoError> {
+    let ephemeral_pk_bytes: [u8; 32] = ephemeral_public_key
+        .try_into()
+        .map_err(|_| CryptoError::DecryptionFailed("invalid ephemeral key length".to_string()))?;
+    let ephemeral_pk = X25519PublicKey::from(ephemeral_pk_bytes);
+
+    let nonce_bytes: [u8; 12] = nonce
+        .try_into()
+        .map_err(|_| CryptoError::DecryptionFailed("invalid nonce length".to_string()))?;
+
+    // Reconstruct the static secret from bytes
+    let recipient_secret = X25519StaticSecret::from(*recipient_x25519_private);
+
+    // Derive recipient's public key from their static secret (needed for KDF)
+    let recipient_public = X25519PublicKey::from(&recipient_secret);
+
+    // ECDH key agreement — same shared secret as the encrypting side
+    let shared_secret = recipient_secret.diffie_hellman(&ephemeral_pk);
+
+    // Derive AES-256 key from shared secret via SHA-256 with domain separation.
+    // Must match the encrypt side: protocol tag + both public keys + shared secret.
+    let mut hasher = Sha256::new();
+    hasher.update(b"linkkeys-sealed-box-v1");
+    hasher.update(ephemeral_pk_bytes);
+    hasher.update(recipient_public.as_bytes());
+    hasher.update(shared_secret.as_bytes());
+    let aes_key = hasher.finalize();
+
+    let cipher = Aes256Gcm::new_from_slice(&aes_key)
+        .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))?;
+    let gcm_nonce = Nonce::from_slice(&nonce_bytes);
+
+    cipher
+        .decrypt(gcm_nonce, ciphertext)
+        .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,5 +408,73 @@ mod tests {
     #[test]
     fn test_decrypt_too_short_fails() {
         assert!(decrypt_private_key(b"short", b"pass").is_err());
+    }
+
+    #[test]
+    fn test_ed25519_to_x25519_public_deterministic() {
+        let (vk, _sk) = generate_ed25519_keypair();
+        let x1 = ed25519_public_to_x25519(vk.as_bytes()).unwrap();
+        let x2 = ed25519_public_to_x25519(vk.as_bytes()).unwrap();
+        assert_eq!(x1, x2);
+        // X25519 public key is 32 bytes
+        assert_eq!(x1.len(), 32);
+    }
+
+    #[test]
+    fn test_ed25519_to_x25519_ecdh_roundtrip() {
+        // Generate two Ed25519 keypairs and convert to X25519
+        let (vk_a, sk_a) = generate_ed25519_keypair();
+        let (vk_b, sk_b) = generate_ed25519_keypair();
+
+        let x_pub_a = ed25519_public_to_x25519(vk_a.as_bytes()).unwrap();
+        let x_priv_a = ed25519_private_to_x25519(sk_a.as_bytes()).unwrap();
+        let x_pub_b = ed25519_public_to_x25519(vk_b.as_bytes()).unwrap();
+        let x_priv_b = ed25519_private_to_x25519(sk_b.as_bytes()).unwrap();
+
+        // ECDH from both sides should produce the same shared secret
+        let secret_a = X25519StaticSecret::from(x_priv_a);
+        let secret_b = X25519StaticSecret::from(x_priv_b);
+        let shared_ab = secret_a.diffie_hellman(&X25519PublicKey::from(x_pub_b));
+        let shared_ba = secret_b.diffie_hellman(&X25519PublicKey::from(x_pub_a));
+        assert_eq!(shared_ab.as_bytes(), shared_ba.as_bytes());
+    }
+
+    #[test]
+    fn test_sealed_box_encrypt_decrypt_roundtrip() {
+        let (vk, sk) = generate_ed25519_keypair();
+        let x_pub = ed25519_public_to_x25519(vk.as_bytes()).unwrap();
+        let x_priv = ed25519_private_to_x25519(sk.as_bytes()).unwrap();
+
+        let plaintext = b"hello sealed box";
+        let (ephemeral_pk, nonce, ciphertext) = sealed_box_encrypt(plaintext, &x_pub).unwrap();
+        let decrypted = sealed_box_decrypt(&ephemeral_pk, &nonce, &ciphertext, &x_priv).unwrap();
+        assert_eq!(plaintext.as_slice(), decrypted.as_slice());
+    }
+
+    #[test]
+    fn test_sealed_box_decrypt_wrong_key_fails() {
+        let (vk, _sk) = generate_ed25519_keypair();
+        let (_vk2, sk2) = generate_ed25519_keypair();
+        let x_pub = ed25519_public_to_x25519(vk.as_bytes()).unwrap();
+        let x_priv_wrong = ed25519_private_to_x25519(sk2.as_bytes()).unwrap();
+
+        let plaintext = b"secret message";
+        let (ephemeral_pk, nonce, ciphertext) = sealed_box_encrypt(plaintext, &x_pub).unwrap();
+        assert!(sealed_box_decrypt(&ephemeral_pk, &nonce, &ciphertext, &x_priv_wrong).is_err());
+    }
+
+    #[test]
+    fn test_sealed_box_decrypt_tampered_ciphertext_fails() {
+        let (vk, sk) = generate_ed25519_keypair();
+        let x_pub = ed25519_public_to_x25519(vk.as_bytes()).unwrap();
+        let x_priv = ed25519_private_to_x25519(sk.as_bytes()).unwrap();
+
+        let plaintext = b"secret message";
+        let (ephemeral_pk, nonce, mut ciphertext) = sealed_box_encrypt(plaintext, &x_pub).unwrap();
+        // Tamper with ciphertext
+        if let Some(byte) = ciphertext.first_mut() {
+            *byte ^= 0xff;
+        }
+        assert!(sealed_box_decrypt(&ephemeral_pk, &nonce, &ciphertext, &x_priv).is_err());
     }
 }

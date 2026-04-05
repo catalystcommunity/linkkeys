@@ -6,8 +6,6 @@ use rocket::{Config, State};
 use serde::{Deserialize, Serialize};
 use std::env;
 
-use liblinkkeys::generated::types::UserInfo;
-
 #[derive(Serialize, Deserialize)]
 struct Session {
     user_id: String,
@@ -30,6 +28,13 @@ struct AuthState {
     nonce: String,
     domain: String,
     api_base: String,
+}
+
+/// Configuration for the RP service connection.
+struct RpConfig {
+    service_url: String,
+    api_key: String,
+    domain: String,
 }
 
 fn get_own_origin() -> String {
@@ -222,7 +227,7 @@ fn parse_identity(input: &str) -> (Option<&str>, &str) {
 async fn resolve_api_base(domain: &str) -> String {
     use hickory_resolver::TokioAsyncResolver;
 
-    let dns_name = liblinkkeys::dns::linkkeys_dns_name(domain);
+    let dns_name = format!("_linkkeys.{}", domain);
 
     let resolver = match TokioAsyncResolver::tokio_from_system_conf() {
         Ok(r) => r,
@@ -236,9 +241,14 @@ async fn resolve_api_base(domain: &str) -> String {
         Ok(response) => {
             for record in response.iter() {
                 let txt = record.to_string();
-                if let Ok(parsed) = liblinkkeys::dns::parse_linkkeys_txt(&txt) {
-                    log::info!("Resolved {} -> {}", domain, parsed.api_base);
-                    return parsed.api_base;
+                // Simple parse: look for "v=lk1 api=<url>"
+                if txt.starts_with("v=lk1 ") {
+                    for part in txt.split_whitespace() {
+                        if let Some(url) = part.strip_prefix("api=") {
+                            log::info!("Resolved {} -> {}", domain, url);
+                            return url.to_string();
+                        }
+                    }
                 }
             }
             log::info!("No LinkKeys TXT record for {}, using direct", domain);
@@ -249,49 +259,6 @@ async fn resolve_api_base(domain: &str) -> String {
             format!("https://{}", domain)
         }
     }
-}
-
-#[rocket::post("/login", data = "<form>")]
-async fn login(cookies: &CookieJar<'_>, form: rocket::form::Form<LoginForm>) -> Result<Redirect, RawHtml<String>> {
-    let (user_hint, domain) = parse_identity(form.identity.trim());
-
-    if domain.is_empty() {
-        return Err(login_form(Some("Please enter your identity (e.g. you@example.com)")));
-    }
-
-    if !domain.contains('.') && !domain.contains(':') {
-        return Err(login_form(Some(
-            "That doesn't look like a domain. Try something like you@example.com or example.com",
-        )));
-    }
-
-    let api_base = resolve_api_base(domain).await;
-    let nonce = uuid::Uuid::new_v4().to_string();
-    let origin = get_own_origin();
-    let callback_url = format!("{}/callback", origin);
-
-    let auth_state = AuthState {
-        nonce: nonce.clone(),
-        domain: domain.to_string(),
-        api_base: api_base.clone(),
-    };
-    let state_json = serde_json::to_string(&auth_state).expect("AuthState serialization");
-    let mut state_cookie = Cookie::new("auth_state", state_json);
-    state_cookie.set_same_site(SameSite::Lax);
-    state_cookie.set_path("/");
-    state_cookie.set_http_only(true);
-    state_cookie.set_secure(true);
-    cookies.add_private(state_cookie);
-
-    let redirect_url = format!(
-        "{}/auth/authorize?callback_url={}&nonce={}&user_hint={}",
-        api_base,
-        simple_url_encode(&callback_url),
-        simple_url_encode(&nonce),
-        simple_url_encode(user_hint.unwrap_or("")),
-    );
-
-    Ok(Redirect::found(redirect_url))
 }
 
 fn simple_url_encode(s: &str) -> String {
@@ -309,108 +276,234 @@ fn simple_url_encode(s: &str) -> String {
     out
 }
 
-#[rocket::get("/callback?<token>")]
+/// Response from the RP service's /v1alpha/sign-request.json endpoint
+#[derive(Deserialize)]
+struct SignRequestResponse {
+    signed_request: String,
+}
+
+/// Response from the RP service's /v1alpha/decrypt-token.json endpoint
+#[derive(Deserialize)]
+struct DecryptTokenResponse {
+    signed_assertion: String,
+}
+
+/// Response from the RP service's /v1alpha/verify-assertion.json endpoint
+#[derive(Deserialize)]
+struct VerifyAssertionResponse {
+    assertion: AssertionData,
+    #[allow(dead_code)]
+    verified: bool,
+}
+
+#[derive(Deserialize)]
+struct AssertionData {
+    #[allow(dead_code)]
+    user_id: String,
+    domain: String,
+    nonce: String,
+    #[allow(dead_code)]
+    audience: String,
+    #[allow(dead_code)]
+    display_name: Option<String>,
+}
+
+/// User info response from the domain server's /v1alpha/userinfo.json endpoint
+#[derive(Deserialize)]
+struct UserInfoResponse {
+    user_id: String,
+    domain: String,
+    display_name: String,
+    claims: Vec<ClaimResponse>,
+}
+
+#[derive(Deserialize)]
+struct ClaimResponse {
+    claim_type: String,
+    claim_value: serde_json::Value,
+    signed_by_key_id: String,
+}
+
+#[rocket::post("/login", data = "<form>")]
+async fn login(
+    cookies: &CookieJar<'_>,
+    client: &State<reqwest::Client>,
+    rp_config: &State<RpConfig>,
+    form: rocket::form::Form<LoginForm>,
+) -> Result<Redirect, RawHtml<String>> {
+    let (user_hint, domain) = parse_identity(form.identity.trim());
+
+    if domain.is_empty() {
+        return Err(login_form(Some("Please enter your identity (e.g. you@example.com)")));
+    }
+
+    if !domain.contains('.') && !domain.contains(':') {
+        return Err(login_form(Some(
+            "That doesn't look like a domain. Try something like you@example.com or example.com",
+        )));
+    }
+
+    let api_base = resolve_api_base(domain).await;
+    let nonce = uuid::Uuid::new_v4().to_string();
+    let origin = get_own_origin();
+    let callback_url = format!("{}/callback", origin);
+
+    // Call RP service to sign the auth request
+    let sign_resp = client
+        .post(format!("{}/v1alpha/sign-request.json", rp_config.service_url))
+        .header("Authorization", format!("Bearer {}", rp_config.api_key))
+        .json(&serde_json::json!({
+            "callback_url": callback_url,
+            "nonce": nonce,
+        }))
+        .send()
+        .await
+        .map_err(|e| login_form(Some(&format!("Failed to contact RP service: {}", e))))?;
+
+    if !sign_resp.status().is_success() {
+        return Err(login_form(Some("RP service failed to sign auth request")));
+    }
+
+    let sign_result: SignRequestResponse = sign_resp
+        .json()
+        .await
+        .map_err(|e| login_form(Some(&format!("Invalid RP service response: {}", e))))?;
+
+    // Store auth state for callback verification
+    let auth_state = AuthState {
+        nonce: nonce.clone(),
+        domain: domain.to_string(),
+        api_base: api_base.clone(),
+    };
+    let state_json = serde_json::to_string(&auth_state).expect("AuthState serialization");
+    let mut state_cookie = Cookie::new("auth_state", state_json);
+    state_cookie.set_same_site(SameSite::Lax);
+    state_cookie.set_path("/");
+    state_cookie.set_http_only(true);
+    state_cookie.set_secure(true);
+    cookies.add_private(state_cookie);
+
+    // Redirect to domain server with signed request
+    let redirect_url = format!(
+        "{}/auth/authorize?callback_url={}&nonce={}&user_hint={}&relying_party={}&signed_request={}",
+        api_base,
+        simple_url_encode(&callback_url),
+        simple_url_encode(&nonce),
+        simple_url_encode(user_hint.unwrap_or("")),
+        simple_url_encode(&rp_config.domain),
+        simple_url_encode(&sign_result.signed_request),
+    );
+
+    Ok(Redirect::found(redirect_url))
+}
+
+#[rocket::get("/callback?<encrypted_token>")]
 async fn callback(
     cookies: &CookieJar<'_>,
     client: &State<reqwest::Client>,
-    token: &str,
+    rp_config: &State<RpConfig>,
+    encrypted_token: &str,
 ) -> Result<Redirect, RawHtml<String>> {
-    let err = |msg: &str| Err(error_page(msg));
-
-    // 1. Retrieve and clear auth state (nonce + expected domain)
+    // 1. Retrieve and clear auth state
     let auth_state: AuthState = cookies
         .get_private("auth_state")
         .and_then(|c| serde_json::from_str(c.value()).ok())
         .ok_or_else(|| error_page("No auth state found — login flow may have expired"))?;
     cookies.remove_private("auth_state");
 
-    // 2. Decode the assertion to get domain and nonce
-    let signed = liblinkkeys::encoding::assertion_from_url_param(token)
-        .map_err(|_| error_page("Invalid token encoding"))?;
-
-    let inner_assertion: liblinkkeys::generated::types::IdentityAssertion =
-        ciborium::de::from_reader(signed.assertion.as_slice())
-            .map_err(|_| error_page("Failed to decode assertion"))?;
-
-    // 3. Verify nonce matches what we sent
-    if inner_assertion.nonce != auth_state.nonce {
-        return err("Nonce mismatch — possible replay attack");
-    }
-
-    // 4. Verify domain matches what the user requested login to
-    if inner_assertion.domain != auth_state.domain {
-        return err("Domain mismatch — assertion came from a different domain than requested");
-    }
-
-    // 5. Fetch domain keys using the resolved API base (from DNS or fallback)
-    let api_base = &auth_state.api_base;
-    let keys_url = format!("{}/v1alpha/domain-keys", api_base);
-    let keys_resp = client
-        .get(&keys_url)
+    // 2. Call RP service to decrypt the token
+    let decrypt_resp = client
+        .post(format!("{}/v1alpha/decrypt-token.json", rp_config.service_url))
+        .header("Authorization", format!("Bearer {}", rp_config.api_key))
+        .json(&serde_json::json!({ "encrypted_token": encrypted_token }))
         .send()
         .await
-        .map_err(|e| error_page(&format!("Failed to fetch domain keys from {}: {}", keys_url, e)))?;
+        .map_err(|e| error_page(&format!("Failed to decrypt token: {}", e)))?;
 
-    let keys_bytes = keys_resp
-        .bytes()
+    if !decrypt_resp.status().is_success() {
+        return Err(error_page("RP service failed to decrypt token"));
+    }
+
+    let decrypt_result: DecryptTokenResponse = decrypt_resp
+        .json()
         .await
-        .map_err(|e| error_page(&format!("Failed to read domain keys response: {}", e)))?;
+        .map_err(|e| error_page(&format!("Invalid decrypt response: {}", e)))?;
 
-    let domain_keys_resp: liblinkkeys::generated::types::GetDomainKeysResponse =
-        ciborium::de::from_reader(keys_bytes.as_ref())
-            .map_err(|e| error_page(&format!("Failed to decode domain keys: {}", e)))?;
+    // 3. Call RP service to verify the assertion against the domain's keys
+    let verify_resp = client
+        .post(format!("{}/v1alpha/verify-assertion.json", rp_config.service_url))
+        .header("Authorization", format!("Bearer {}", rp_config.api_key))
+        .json(&serde_json::json!({
+            "signed_assertion": decrypt_result.signed_assertion,
+            "expected_domain": auth_state.domain,
+        }))
+        .send()
+        .await
+        .map_err(|e| error_page(&format!("Failed to verify assertion: {}", e)))?;
 
-    // 6. Verify the signature against the domain's public keys
-    liblinkkeys::assertions::verify_assertion(&signed, &domain_keys_resp.keys)
-        .map_err(|e| error_page(&format!("Assertion verification failed: {}", e)))?;
+    if !verify_resp.status().is_success() {
+        return Err(error_page("Assertion verification failed"));
+    }
 
-    // 7. Fetch user info + claims from domain server using the token
-    let userinfo_url = format!("{}/v1alpha/userinfo.json", api_base);
+    let verify_result: VerifyAssertionResponse = verify_resp
+        .json()
+        .await
+        .map_err(|e| error_page(&format!("Invalid verify response: {}", e)))?;
+
+    let assertion = &verify_result.assertion;
+
+    // 4. Verify nonce
+    if assertion.nonce != auth_state.nonce {
+        return Err(error_page("Nonce mismatch — possible replay attack"));
+    }
+
+    // 5. Verify domain
+    if assertion.domain != auth_state.domain {
+        return Err(error_page("Domain mismatch"));
+    }
+
+    // 6. Fetch user info from domain server
+    let userinfo_url = format!("{}/v1alpha/userinfo.json", auth_state.api_base);
     let userinfo_resp = client
         .post(&userinfo_url)
         .header("Content-Type", "application/json")
-        .body(serde_json::to_string(&serde_json::json!({"token": token})).unwrap())
+        .body(serde_json::to_string(&serde_json::json!({
+            "token": decrypt_result.signed_assertion
+        })).unwrap())
         .send()
         .await
         .map_err(|e| error_page(&format!("Failed to fetch user info: {}", e)))?;
 
-    let userinfo_text = userinfo_resp
-        .text()
+    let user_info: UserInfoResponse = userinfo_resp
+        .json()
         .await
-        .map_err(|e| error_page(&format!("Failed to read user info: {}", e)))?;
-
-    let user_info: UserInfo = serde_json::from_str(&userinfo_text)
         .map_err(|e| error_page(&format!("Failed to decode user info: {}", e)))?;
 
-    // 8. Build fingerprint lookup from domain keys
-    let key_fingerprints: std::collections::HashMap<String, String> = domain_keys_resp
-        .keys
-        .iter()
-        .map(|k| (k.key_id.clone(), k.fingerprint.clone()))
-        .collect();
-
-    // 9. Set session cookie
+    // 7. Build session
     let session = Session {
         user_id: user_info.user_id,
         domain: user_info.domain,
         display_name: user_info.display_name,
-        claims: user_info
-            .claims
-            .iter()
-            .map(|c| SessionClaim {
+        claims: user_info.claims.iter().map(|c| {
+            let value = match &c.claim_value {
+                serde_json::Value::Array(arr) => {
+                    // CBOR bytes come as JSON array of integers
+                    let bytes: Vec<u8> = arr.iter().filter_map(|v| v.as_u64().map(|n| n as u8)).collect();
+                    String::from_utf8_lossy(&bytes).to_string()
+                }
+                serde_json::Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            SessionClaim {
                 claim_type: c.claim_type.clone(),
-                claim_value: String::from_utf8_lossy(&c.claim_value).to_string(),
-                signed_by_fingerprint: key_fingerprints
-                    .get(&c.signed_by_key_id)
-                    .cloned()
-                    .unwrap_or_else(|| c.signed_by_key_id.clone()),
-            })
-            .collect(),
+                claim_value: value,
+                signed_by_fingerprint: c.signed_by_key_id.clone(),
+            }
+        }).collect(),
         expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
     };
 
     set_session(cookies, &session);
-
     Ok(Redirect::found("/"))
 }
 
@@ -462,9 +555,22 @@ async fn main() {
 
     let client = build_reqwest_client();
 
+    let rp_config = RpConfig {
+        service_url: env::var("RP_SERVICE_URL")
+            .unwrap_or_else(|_| "https://127.0.0.1:8443".to_string()),
+        api_key: env::var("RP_API_KEY")
+            .unwrap_or_else(|_| {
+                log::warn!("RP_API_KEY not set — RP service calls will fail");
+                String::new()
+            }),
+        domain: env::var("RP_DOMAIN")
+            .unwrap_or_else(|_| "localhost".to_string()),
+    };
+
     if let Err(e) = rocket::custom(config)
         .mount("/", rocket::routes![index, login, callback, logout])
         .manage(client)
+        .manage(rp_config)
         .launch()
         .await
     {
