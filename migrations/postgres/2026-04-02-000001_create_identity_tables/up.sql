@@ -15,11 +15,23 @@ CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     username VARCHAR NOT NULL UNIQUE,
     display_name VARCHAR NOT NULL,
-    password_hash VARCHAR NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 SELECT diesel_manage_updated_at('users');
+
+CREATE TABLE auth_credentials (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id),
+    credential_type VARCHAR NOT NULL,
+    credential_hash VARCHAR NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    revoked_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+SELECT diesel_manage_updated_at('auth_credentials');
+CREATE INDEX idx_auth_credentials_user_id ON auth_credentials(user_id);
+CREATE INDEX idx_auth_credentials_type ON auth_credentials(credential_type);
 
 CREATE TABLE user_keys (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -38,6 +38,25 @@ spec:
                 secretKeyRef:
                   name: {{ include "demoappsite.fullname" . }}
                   key: ROCKET_SECRET_KEY
+            {{- if .Values.rp.serviceUrl }}
+            - name: RP_SERVICE_URL
+              value: {{ .Values.rp.serviceUrl | quote }}
+            {{- end }}
+            {{- if .Values.rp.domain }}
+            - name: RP_DOMAIN
+              value: {{ .Values.rp.domain | quote }}
+            {{- end }}
+            {{- if .Values.rp.apiKey }}
+            - name: RP_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "demoappsite.fullname" . }}
+                  key: RP_API_KEY
+            {{- end }}
+            {{- if eq .Values.demoapp.allowInvalidCerts "true" }}
+            - name: ALLOW_INVALID_CERTS
+              value: "true"
+            {{- end }}
           livenessProbe:
             tcpSocket:
               port: https

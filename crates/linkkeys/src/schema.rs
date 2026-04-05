@@ -31,8 +31,19 @@ pub mod pg {
             id -> Uuid,
             username -> Varchar,
             display_name -> Varchar,
-            password_hash -> Varchar,
             created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        auth_credentials (id) {
+            id -> Uuid,
+            user_id -> Uuid,
+            credential_type -> Varchar,
+            credential_hash -> Varchar,
+            created_at -> Timestamptz,
+            revoked_at -> Nullable<Timestamptz>,
             updated_at -> Timestamptz,
         }
     }
@@ -70,10 +81,12 @@ pub mod pg {
     diesel::joinable!(user_keys -> users (user_id));
     diesel::joinable!(claims -> users (user_id));
     diesel::joinable!(claims -> domain_keys (signed_by_key_id));
+    diesel::joinable!(auth_credentials -> users (user_id));
     diesel::allow_tables_to_appear_in_same_query!(
         guestbook_entries,
         domain_keys,
         users,
+        auth_credentials,
         user_keys,
         claims,
     );
@@ -109,8 +122,19 @@ pub mod sqlite {
             id -> Text,
             username -> Text,
             display_name -> Text,
-            password_hash -> Text,
             created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        auth_credentials (id) {
+            id -> Text,
+            user_id -> Text,
+            credential_type -> Text,
+            credential_hash -> Text,
+            created_at -> Text,
+            revoked_at -> Nullable<Text>,
             updated_at -> Text,
         }
     }
@@ -148,10 +172,12 @@ pub mod sqlite {
     diesel::joinable!(user_keys -> users (user_id));
     diesel::joinable!(claims -> users (user_id));
     diesel::joinable!(claims -> domain_keys (signed_by_key_id));
+    diesel::joinable!(auth_credentials -> users (user_id));
     diesel::allow_tables_to_appear_in_same_query!(
         guestbook_entries,
         domain_keys,
         users,
+        auth_credentials,
         user_keys,
         claims,
     );

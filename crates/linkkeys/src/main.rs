@@ -45,8 +45,8 @@ async fn main() {
 
         Commands::Domain(DomainCommands::Init) => domain_init(),
         Commands::Domain(DomainCommands::DnsCheck) => domain_dns_check().await,
-        Commands::User(UserCommands::Create { username, display_name, password }) => {
-            user_create(&username, &display_name, password.as_deref());
+        Commands::User(UserCommands::Create { username, display_name, password, api_key }) => {
+            user_create(&username, &display_name, password.as_deref(), api_key);
         }
         Commands::Claim(ClaimCommands::Set { user_id, claim_type, claim_value, expires }) => {
             claim_set(&user_id, &claim_type, &claim_value, expires.as_deref());
@@ -66,6 +66,24 @@ fn pool_with_migrations() -> linkkeys::db::DbPool {
     let flag = Arc::new(AtomicBool::new(false));
     linkkeys::db::run_migrations_with_locking(&pool, flag);
     pool
+}
+
+fn store_auth_credential(db_pool: &linkkeys::db::DbPool, user_id: &str, credential_type: &str, credential_hash: &str) {
+    match db_pool {
+        #[cfg(feature = "postgres")]
+        linkkeys::db::DbPool::Postgres(pool) => {
+            let mut conn = pool.get().expect("Failed to get connection");
+            let uid: uuid::Uuid = user_id.parse().expect("Invalid user UUID");
+            linkkeys::db::auth_credentials::pg::create(&mut conn, uid, credential_type, credential_hash)
+                .expect("Failed to store auth credential");
+        }
+        #[cfg(feature = "sqlite")]
+        linkkeys::db::DbPool::Sqlite(pool) => {
+            let mut conn = pool.get().expect("Failed to get connection");
+            linkkeys::db::auth_credentials::sqlite::create(&mut conn, user_id, credential_type, credential_hash)
+                .expect("Failed to store auth credential");
+        }
+    }
 }
 
 struct GeneratedKey {
@@ -124,37 +142,20 @@ fn domain_init() {
     println!("Domain initialized with 3 keys.");
 }
 
-fn user_create(username: &str, display_name: &str, password: Option<&str>) {
+fn user_create(username: &str, display_name: &str, password: Option<&str>, api_key: bool) {
     let passphrase = get_passphrase();
     let db_pool = pool_with_migrations();
-
-    let password = match password {
-        Some(p) => p.to_string(),
-        None => {
-            eprint!("Enter password: ");
-            let mut input = String::new();
-            std::io::stdin().read_line(&mut input).expect("Failed to read password");
-            input.trim().to_string()
-        }
-    };
-
-    if password.is_empty() {
-        eprintln!("Error: password cannot be empty");
-        std::process::exit(1);
-    }
-
-    let hash = bcrypt::hash(&password, 12).expect("Failed to hash password");
 
     let user = match &db_pool {
         #[cfg(feature = "postgres")]
         linkkeys::db::DbPool::Postgres(pool) => {
             let mut conn = pool.get().expect("Failed to get connection");
-            linkkeys::db::users::pg::create(&mut conn, username, display_name, &hash)
+            linkkeys::db::users::pg::create(&mut conn, username, display_name)
         }
         #[cfg(feature = "sqlite")]
         linkkeys::db::DbPool::Sqlite(pool) => {
             let mut conn = pool.get().expect("Failed to get connection");
-            linkkeys::db::users::sqlite::create(&mut conn, username, display_name, &hash)
+            linkkeys::db::users::sqlite::create(&mut conn, username, display_name)
         }
     }
     .unwrap_or_else(|e| {
@@ -163,6 +164,32 @@ fn user_create(username: &str, display_name: &str, password: Option<&str>) {
     });
 
     println!("User created: id={}", user.id);
+
+    // Store auth credential
+    if api_key {
+        let (key, hash) = linkkeys::services::auth::generate_api_key(&user.id);
+        store_auth_credential(&db_pool, &user.id, linkkeys::services::auth::CREDENTIAL_TYPE_API_KEY, &hash);
+        println!("API key: {}", key);
+        println!("(save this — it will not be shown again)");
+    } else {
+        let password = match password {
+            Some(p) => p.to_string(),
+            None => {
+                eprint!("Enter password: ");
+                let mut input = String::new();
+                std::io::stdin().read_line(&mut input).expect("Failed to read password");
+                input.trim().to_string()
+            }
+        };
+
+        if password.is_empty() {
+            eprintln!("Error: password cannot be empty");
+            std::process::exit(1);
+        }
+
+        let hash = bcrypt::hash(&password, 12).expect("Failed to hash password");
+        store_auth_credential(&db_pool, &user.id, linkkeys::services::auth::CREDENTIAL_TYPE_PASSWORD, &hash);
+    }
 
     let user_id_for_store = user.id.clone();
     generate_and_store_keypairs(&db_pool, &passphrase, &[2, 3, 4], &|pool, pk, enc, fp, exp| {

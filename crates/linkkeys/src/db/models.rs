@@ -24,14 +24,25 @@ pub struct DomainKey {
     pub updated_at: String,
 }
 
-/// User model. NOT Serialize — contains password_hash.
+/// User model. Identity only — auth credentials are stored separately.
 #[derive(Debug, Clone)]
 pub struct User {
     pub id: String,
     pub username: String,
     pub display_name: String,
-    pub password_hash: String,
     pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Auth credential model. Stores hashed credentials per user per auth method.
+#[derive(Debug, Clone)]
+pub struct AuthCredential {
+    pub id: String,
+    pub user_id: String,
+    pub credential_type: String,
+    pub credential_hash: String,
+    pub created_at: String,
+    pub revoked_at: Option<String>,
     pub updated_at: String,
 }
 
@@ -148,7 +159,6 @@ pub mod pg {
         pub id: uuid::Uuid,
         pub username: String,
         pub display_name: String,
-        pub password_hash: String,
         pub created_at: chrono::DateTime<chrono::Utc>,
         pub updated_at: chrono::DateTime<chrono::Utc>,
     }
@@ -159,7 +169,6 @@ pub mod pg {
                 id: row.id.to_string(),
                 username: row.username,
                 display_name: row.display_name,
-                password_hash: row.password_hash,
                 created_at: row.created_at.to_rfc3339(),
                 updated_at: row.updated_at.to_rfc3339(),
             }
@@ -172,7 +181,43 @@ pub mod pg {
         pub id: uuid::Uuid,
         pub username: String,
         pub display_name: String,
-        pub password_hash: String,
+    }
+
+    // -- Auth Credentials --
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::pg::auth_credentials)]
+    pub struct AuthCredentialRow {
+        pub id: uuid::Uuid,
+        pub user_id: uuid::Uuid,
+        pub credential_type: String,
+        pub credential_hash: String,
+        pub created_at: chrono::DateTime<chrono::Utc>,
+        pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+        pub updated_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    impl From<AuthCredentialRow> for super::AuthCredential {
+        fn from(row: AuthCredentialRow) -> Self {
+            Self {
+                id: row.id.to_string(),
+                user_id: row.user_id.to_string(),
+                credential_type: row.credential_type,
+                credential_hash: row.credential_hash,
+                created_at: row.created_at.to_rfc3339(),
+                revoked_at: row.revoked_at.map(|t| t.to_rfc3339()),
+                updated_at: row.updated_at.to_rfc3339(),
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::pg::auth_credentials)]
+    pub struct NewAuthCredentialRow {
+        pub id: uuid::Uuid,
+        pub user_id: uuid::Uuid,
+        pub credential_type: String,
+        pub credential_hash: String,
     }
 
     // -- User Keys --
@@ -352,7 +397,6 @@ pub mod sqlite {
         pub id: String,
         pub username: String,
         pub display_name: String,
-        pub password_hash: String,
         pub created_at: String,
         pub updated_at: String,
     }
@@ -363,7 +407,6 @@ pub mod sqlite {
                 id: row.id,
                 username: row.username,
                 display_name: row.display_name,
-                password_hash: row.password_hash,
                 created_at: row.created_at,
                 updated_at: row.updated_at,
             }
@@ -376,7 +419,43 @@ pub mod sqlite {
         pub id: String,
         pub username: String,
         pub display_name: String,
-        pub password_hash: String,
+    }
+
+    // -- Auth Credentials --
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::sqlite::auth_credentials)]
+    pub struct AuthCredentialRow {
+        pub id: String,
+        pub user_id: String,
+        pub credential_type: String,
+        pub credential_hash: String,
+        pub created_at: String,
+        pub revoked_at: Option<String>,
+        pub updated_at: String,
+    }
+
+    impl From<AuthCredentialRow> for super::AuthCredential {
+        fn from(row: AuthCredentialRow) -> Self {
+            Self {
+                id: row.id,
+                user_id: row.user_id,
+                credential_type: row.credential_type,
+                credential_hash: row.credential_hash,
+                created_at: row.created_at,
+                revoked_at: row.revoked_at,
+                updated_at: row.updated_at,
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::auth_credentials)]
+    pub struct NewAuthCredentialRow {
+        pub id: String,
+        pub user_id: String,
+        pub credential_type: String,
+        pub credential_hash: String,
     }
 
     // -- User Keys --

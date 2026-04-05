@@ -1,3 +1,7 @@
+mod guard;
+pub mod nonce_store;
+pub mod rp;
+
 use rocket::form::FromForm;
 use rocket::http::{ContentType, Status};
 use rocket::response::content::RawHtml;
@@ -8,6 +12,8 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+
+use rand::Rng;
 
 use linkkeys::conversions::{get_domain_name, html_escape};
 use linkkeys::db::DbPool;
@@ -60,7 +66,7 @@ fn sign_assertion_for_user(
     if domain_keys.is_empty() {
         return Err(Status::InternalServerError);
     }
-    let dk = &domain_keys[rand::random::<usize>() % domain_keys.len()];
+    let dk = &domain_keys[rand::thread_rng().gen_range(0..domain_keys.len())];
 
     let passphrase = env::var("DOMAIN_KEY_PASSPHRASE").map_err(|_| Status::InternalServerError)?;
     let sk_bytes =
@@ -260,9 +266,14 @@ fn render_login_form(
     nonce: &str,
     username: &str,
     error: Option<&str>,
+    relying_party: Option<&str>,
 ) -> RawHtml<String> {
     let error_html = error
         .map(|e| format!(r#"<p class="error">{}</p>"#, html_escape(e)))
+        .unwrap_or_default();
+
+    let rp_hidden = relying_party
+        .map(|rp| format!(r#"  <input type="hidden" name="relying_party" value="{}" />"#, html_escape(rp)))
         .unwrap_or_default();
 
     RawHtml(format!(
@@ -283,6 +294,7 @@ button {{ padding: 10px 20px; margin-top: 12px; }}
 <form method="POST" action="/auth/authorize">
   <input type="hidden" name="callback_url" value="{callback_url}" />
   <input type="hidden" name="nonce" value="{nonce}" />
+{rp_hidden}
   <label>Username</label>
   <input type="text" name="username" value="{username}" autofocus />
   <label>Password</label>
@@ -295,20 +307,47 @@ button {{ padding: 10px 20px; margin-top: 12px; }}
         error = error_html,
         callback_url = html_escape(callback_url),
         nonce = html_escape(nonce),
+        rp_hidden = rp_hidden,
         username = html_escape(username),
     ))
 }
 
-#[rocket::get("/auth/authorize?<callback_url>&<nonce>&<user_hint>")]
+#[rocket::get("/auth/authorize?<callback_url>&<nonce>&<user_hint>&<relying_party>&<signed_request>")]
 fn auth_authorize_get(
     callback_url: &str,
     nonce: &str,
     user_hint: Option<&str>,
+    relying_party: Option<&str>,
+    signed_request: Option<&str>,
 ) -> Result<RawHtml<String>, Status> {
-    if !validate_callback_url(callback_url) {
-        return Err(Status::BadRequest);
+    match (relying_party, signed_request) {
+        (Some(_rp), Some(_sr)) => {
+            // New flow: relying party proves identity via signed request.
+            // The callback URL validation is still enforced as defense-in-depth
+            // until full signed_request verification is implemented with DNS
+            // lookup and RP key fetch (requires async, planned for RpKeyCache).
+            if !validate_callback_url(callback_url) {
+                return Err(Status::BadRequest);
+            }
+        }
+        (None, None) => {
+            // Legacy flow: validate callback URL against allowlist
+            if !validate_callback_url(callback_url) {
+                return Err(Status::BadRequest);
+            }
+        }
+        _ => {
+            // One present without the other is invalid
+            return Err(Status::BadRequest);
+        }
     }
-    Ok(render_login_form(callback_url, nonce, user_hint.unwrap_or(""), None))
+    Ok(render_login_form(
+        callback_url,
+        nonce,
+        user_hint.unwrap_or(""),
+        None,
+        relying_party,
+    ))
 }
 
 #[derive(FromForm)]
@@ -317,19 +356,35 @@ struct AuthorizeForm {
     nonce: String,
     username: String,
     password: String,
+    relying_party: Option<String>,
 }
 
 #[rocket::post("/auth/authorize", data = "<form>")]
-fn auth_authorize_post(
+async fn auth_authorize_post(
     pool: &State<DbPool>,
+    nonces: &State<nonce_store::NonceStore>,
     form: rocket::form::Form<AuthorizeForm>,
 ) -> Result<Redirect, RawHtml<String>> {
-    if !validate_callback_url(&form.callback_url) {
+    // Check nonce hasn't been used before (replay protection)
+    if !nonces.record(&form.nonce) {
+        return Err(render_login_form(
+            &form.callback_url,
+            &form.nonce,
+            &form.username,
+            Some("This login request has already been used. Please start a new login."),
+            form.relying_party.as_deref(),
+        ));
+    }
+
+    let has_rp = form.relying_party.is_some();
+
+    if !has_rp && !validate_callback_url(&form.callback_url) {
         return Err(render_login_form(
             &form.callback_url,
             &form.nonce,
             &form.username,
             Some("Callback URL not allowed. Contact the domain administrator."),
+            None,
         ));
     }
 
@@ -347,6 +402,7 @@ fn auth_authorize_post(
                 &form.nonce,
                 &form.username,
                 Some("Invalid username or password."),
+                form.relying_party.as_deref(),
             ));
         }
     };
@@ -358,13 +414,75 @@ fn auth_authorize_post(
                 &form.nonce,
                 &form.username,
                 Some("Internal server error during signing."),
+                form.relying_party.as_deref(),
             )
         })?;
 
     let separator = if form.callback_url.contains('?') { "&" } else { "?" };
-    let redirect_url = format!("{}{}token={}", form.callback_url, separator, token);
 
-    Ok(Redirect::found(redirect_url))
+    if let Some(ref rp_domain) = form.relying_party {
+        // New flow: encrypt the token for the relying party
+        match encrypt_token_for_rp(&token, rp_domain).await {
+            Ok(encrypted) => {
+                let redirect_url = format!("{}{}encrypted_token={}", form.callback_url, separator, encrypted);
+                Ok(Redirect::found(redirect_url))
+            }
+            Err(_) => {
+                Err(render_login_form(
+                    &form.callback_url,
+                    &form.nonce,
+                    &form.username,
+                    Some("Failed to encrypt token for relying party."),
+                    form.relying_party.as_deref(),
+                ))
+            }
+        }
+    } else {
+        // Legacy flow: plain token in URL
+        let redirect_url = format!("{}{}token={}", form.callback_url, separator, token);
+        Ok(Redirect::found(redirect_url))
+    }
+}
+
+/// Encrypt a signed assertion token for a relying party.
+/// Fetches the RP's public keys via DNS + HTTP, converts to X25519, encrypts.
+async fn encrypt_token_for_rp(
+    token_url_param: &str,
+    rp_domain: &str,
+) -> Result<String, Status> {
+    // Fetch RP's domain keys
+    let rp_keys = rp::fetch_domain_keys(rp_domain).await.map_err(|_| Status::BadGateway)?;
+    if rp_keys.is_empty() {
+        return Err(Status::BadGateway);
+    }
+
+    // Use the first active RP key for encryption
+    let rp_key = &rp_keys[0];
+
+    // Convert RP's Ed25519 public key to X25519
+    let x25519_pub = liblinkkeys::crypto::ed25519_public_to_x25519(&rp_key.public_key)
+        .map_err(|_| Status::InternalServerError)?;
+
+    // The token is already base64url-encoded CBOR of SignedIdentityAssertion.
+    // Decode it back to raw CBOR bytes for encryption.
+    let signed_assertion = liblinkkeys::encoding::assertion_from_url_param(token_url_param)
+        .map_err(|_| Status::InternalServerError)?;
+    let mut cbor_bytes = Vec::new();
+    ciborium::ser::into_writer(&signed_assertion, &mut cbor_bytes)
+        .map_err(|_| Status::InternalServerError)?;
+
+    // Encrypt with sealed box
+    let (ephemeral_pk, nonce, ciphertext) = liblinkkeys::crypto::sealed_box_encrypt(&cbor_bytes, &x25519_pub)
+        .map_err(|_| Status::InternalServerError)?;
+
+    let encrypted_token = liblinkkeys::generated::types::EncryptedToken {
+        ephemeral_public_key: ephemeral_pk,
+        nonce,
+        ciphertext,
+    };
+
+    liblinkkeys::encoding::encrypted_token_to_url_param(&encrypted_token)
+        .map_err(|_| Status::InternalServerError)
 }
 
 // -- Userinfo: Token-based API --
@@ -446,7 +564,7 @@ pub async fn launch_rocket(db_pool: DbPool, ready_flag: Arc<AtomicBool>) {
         ..Config::default()
     };
 
-    if let Err(e) = rocket::custom(config)
+    let mut rocket_instance = rocket::custom(config)
         .mount(
             "/",
             rocket::routes![
@@ -468,9 +586,22 @@ pub async fn launch_rocket(db_pool: DbPool, ready_flag: Arc<AtomicBool>) {
         )
         .manage(db_pool)
         .manage(ready_flag)
-        .launch()
-        .await
-    {
+        .manage(nonce_store::NonceStore::new(std::time::Duration::from_secs(300)));
+
+    // Mount RP endpoints when enabled
+    if env::var("ENABLE_RP_ENDPOINTS").unwrap_or_default() == "true" {
+        log::info!("RP endpoints enabled");
+        rocket_instance = rocket_instance.mount(
+            "/",
+            rocket::routes![
+                rp::sign_request_json,
+                rp::decrypt_token_json,
+                rp::verify_assertion_json,
+            ],
+        );
+    }
+
+    if let Err(e) = rocket_instance.launch().await {
         log::error!("Rocket failed: {}", e);
         std::process::exit(1);
     }

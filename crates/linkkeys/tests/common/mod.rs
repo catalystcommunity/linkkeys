@@ -2,7 +2,7 @@ pub mod data_factory;
 
 use diesel::prelude::*;
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-use linkkeys::db::models::GuestbookEntry;
+use linkkeys::db::models::{AuthCredential, GuestbookEntry, User};
 
 #[cfg(feature = "postgres")]
 const PG_MIGRATIONS: EmbeddedMigrations = embed_migrations!("../../migrations/postgres");
@@ -98,5 +98,33 @@ pub fn guestbook_delete(db: &mut TestDb, id: &str) -> usize {
         TestDb::Postgres(conn) => linkkeys::db::guestbook::pg::delete(conn, id).unwrap(),
         #[cfg(feature = "sqlite")]
         TestDb::Sqlite(conn) => linkkeys::db::guestbook::sqlite::delete(conn, id).unwrap(),
+    }
+}
+
+pub fn find_user_by_username(db: &mut TestDb, username: &str) -> User {
+    match db {
+        #[cfg(feature = "postgres")]
+        TestDb::Postgres(conn) => linkkeys::db::users::pg::find_by_username(conn, username).unwrap(),
+        #[cfg(feature = "sqlite")]
+        TestDb::Sqlite(conn) => linkkeys::db::users::sqlite::find_by_username(conn, username).unwrap(),
+    }
+}
+
+pub fn find_credentials_for_user(
+    db: &mut TestDb,
+    user_id: &str,
+    credential_type: &str,
+) -> Vec<AuthCredential> {
+    match db {
+        #[cfg(feature = "postgres")]
+        TestDb::Postgres(conn) => {
+            linkkeys::db::auth_credentials::pg::find_for_user(conn, user_id, credential_type)
+                .unwrap()
+        }
+        #[cfg(feature = "sqlite")]
+        TestDb::Sqlite(conn) => {
+            linkkeys::db::auth_credentials::sqlite::find_for_user(conn, user_id, credential_type)
+                .unwrap()
+        }
     }
 }

@@ -191,6 +191,34 @@ pub struct UserInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthRequest {
+    pub relying_party: String,
+    pub callback_url: String,
+    pub nonce: String,
+    pub timestamp: String,
+    pub signing_key_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SignedAuthRequest {
+    #[serde(with = "serde_bytes")]
+    pub request: Vec<u8>,
+    pub signing_key_id: String,
+    #[serde(with = "serde_bytes")]
+    pub signature: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EncryptedToken {
+    #[serde(with = "serde_bytes")]
+    pub ephemeral_public_key: Vec<u8>,
+    #[serde(with = "serde_bytes")]
+    pub ciphertext: Vec<u8>,
+    #[serde(with = "serde_bytes")]
+    pub nonce: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AlgorithmSupport {
     pub signing: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

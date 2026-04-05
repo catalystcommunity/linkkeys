@@ -186,6 +186,34 @@ UserInfo = {
 }
 
 ;; ============================================================
+;; Auth Request (relying party -> domain server)
+;; ============================================================
+
+AuthRequest = {
+    relying_party: text,
+    callback_url: text,
+    nonce: text,
+    timestamp: text,
+    signing_key_id: text
+}
+
+SignedAuthRequest = {
+    request: bytes,
+    signing_key_id: text,
+    signature: bytes
+}
+
+;; ============================================================
+;; Encrypted Token (domain server -> relying party)
+;; ============================================================
+
+EncryptedToken = {
+    ephemeral_public_key: bytes,
+    ciphertext: bytes,
+    nonce: bytes
+}
+
+;; ============================================================
 ;; Protocol Negotiation
 ;; ============================================================
 

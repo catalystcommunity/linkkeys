@@ -29,6 +29,25 @@ server:
   tcpPort: 9000
   httpsPort: 8443
   logLevel: "info"
+  # Domain identity used in assertions and DNS
+  domainName: ""
+  # Passphrase for encrypting/decrypting domain key material
+  domainKeyPassphrase: ""
+  # Disable TLS on the TCP transport (for development only)
+  disableTcpTls: "false"
+
+# Relying party mode — set these to run the same image as an RP server.
+# An RP is a LinkKeys server that holds domain keys and signs/decrypts
+# on behalf of web apps, but doesn't serve a login UI.
+rp:
+  # Enable RP endpoints (sign-request, decrypt-token, verify-assertion)
+  enabled: false
+  # Enable bearer token (API key) authentication on RP endpoints
+  apiKeyAuth: true
+  # Disable password-based login form (RP servers typically don't need it)
+  passwordAuth: false
+  # Accept invalid TLS certs when fetching domain keys (development only)
+  allowInvalidCerts: "false"
 
 # Optional bundled PostgreSQL (for development)
 postgresql:

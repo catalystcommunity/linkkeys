@@ -22,7 +22,6 @@ CREATE TABLE users (
     id TEXT PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,
     display_name TEXT NOT NULL,
-    password_hash TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -34,6 +33,27 @@ CREATE TRIGGER set_users_updated_at
 BEGIN
     UPDATE users SET updated_at = datetime('now') WHERE id = NEW.id;
 END;
+
+CREATE TABLE auth_credentials (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    credential_type TEXT NOT NULL,
+    credential_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    revoked_at TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TRIGGER set_auth_credentials_updated_at
+    AFTER UPDATE ON auth_credentials
+    FOR EACH ROW
+    WHEN OLD.updated_at = NEW.updated_at
+BEGIN
+    UPDATE auth_credentials SET updated_at = datetime('now') WHERE id = NEW.id;
+END;
+
+CREATE INDEX idx_auth_credentials_user_id ON auth_credentials(user_id);
+CREATE INDEX idx_auth_credentials_type ON auth_credentials(credential_type);
 
 CREATE TABLE user_keys (
     id TEXT PRIMARY KEY,

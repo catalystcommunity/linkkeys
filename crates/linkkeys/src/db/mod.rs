@@ -1,3 +1,4 @@
+pub mod auth_credentials;
 pub mod claims;
 pub mod domain_keys;
 pub mod guestbook;
@@ -226,6 +227,31 @@ impl DbPool {
                     Box::new(e.to_string()),
                 ))?;
                 user_keys::sqlite::list_active_for_user(&mut conn, user_id)
+            }
+        }
+    }
+
+    pub fn find_credentials_for_user(
+        &self,
+        user_id: &str,
+        credential_type: &str,
+    ) -> QueryResult<Vec<models::AuthCredential>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                auth_credentials::pg::find_for_user(&mut conn, user_id, credential_type)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                auth_credentials::sqlite::find_for_user(&mut conn, user_id, credential_type)
             }
         }
     }
