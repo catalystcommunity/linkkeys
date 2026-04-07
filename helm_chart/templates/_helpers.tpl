@@ -59,20 +59,3 @@ Create the name of the service account to use
 {{- end }}
 {{- end }}
 
-{{/*
-PostgreSQL labels
-*/}}
-{{- define "linkkeys.postgresql.labels" -}}
-helm.sh/chart: {{ include "linkkeys.chart" . }}
-app.kubernetes.io/name: {{ include "linkkeys.name" . }}-postgresql
-app.kubernetes.io/instance: {{ .Release.Name }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
-{{- end }}
-
-{{/*
-PostgreSQL selector labels
-*/}}
-{{- define "linkkeys.postgresql.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "linkkeys.name" . }}-postgresql
-app.kubernetes.io/instance: {{ .Release.Name }}
-{{- end }}

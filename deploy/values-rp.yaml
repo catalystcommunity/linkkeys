@@ -1,0 +1,32 @@
+image:
+  repository: 10.16.0.1:5000/public/catalystcommunity/linkkeys
+
+server:
+  domainName: "linkidspec.com"
+  disableTls: "true"
+  disableTcpTls: "true"
+
+database:
+  backend: sqlite
+  url: "/data/linkkeys-rp.db"
+
+rp:
+  enabled: true
+  apiKeyAuth: true
+  passwordAuth: false
+
+# The RP needs /v1alpha/* and /auth/* publicly reachable on linkidspec.com
+# so IDPs can fetch domain keys and the auth flow works.
+# The demoappsite handles all other paths on the same hostname.
+gateway:
+  httpRoute:
+    enabled: true
+    parentGateway: contour
+    parentNamespace: projectcontour
+    parentSection: https
+    hostnames:
+      - linkidspec.com
+    pathPrefixes:
+      - /v1alpha
+      - /healthcheck
+      - /readiness
