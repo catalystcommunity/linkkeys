@@ -50,6 +50,22 @@ spec:
                 name: {{ include "linkkeys.fullname" . }}
             - secretRef:
                 name: {{ include "linkkeys.fullname" . }}
+          env:
+            {{- if .Values.postgresql.enabled }}
+            # Construct DATABASE_URL from Zalando operator-created credentials
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresql.user | default "linkkeys" }}.{{ include "linkkeys.fullname" . }}-postgres.credentials.postgresql.acid.zalan.do
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresql.user | default "linkkeys" }}.{{ include "linkkeys.fullname" . }}-postgres.credentials.postgresql.acid.zalan.do
+                  key: password
+            - name: DATABASE_URL
+              value: "postgresql://$(PGUSER):$(PGPASSWORD)@{{ include "linkkeys.fullname" . }}-postgres:5432/{{ .Values.postgresql.database | default "linkkeys" }}?sslmode=require"
+            {{- end }}
           {{- if eq .Values.database.backend "sqlite" }}
           volumeMounts:
             - name: data
@@ -58,12 +74,12 @@ spec:
           livenessProbe:
             tcpSocket:
               port: tcp
-            initialDelaySeconds: 5
+            initialDelaySeconds: 15
             periodSeconds: 10
           readinessProbe:
             tcpSocket:
               port: tcp
-            initialDelaySeconds: 5
+            initialDelaySeconds: 15
             periodSeconds: 10
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

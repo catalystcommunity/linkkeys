@@ -1,0 +1,24 @@
+# Example: Deploy LinkKeys as a full Identity Provider.
+# The IDP manages users, keys, claims, and serves the login UI.
+
+server:
+  domainName: "linkkeys.example.com"
+  # domainKeyPassphrase: set via secret
+  disableTls: "true"  # TLS terminated at ingress/gateway
+  disableTcpTls: "true"
+
+database:
+  backend: postgres
+  url: "postgresql://linkkeys:linkkeys@linkkeys-postgresql:5432/linkkeys?sslmode=disable"
+
+postgresql:
+  enabled: true
+
+gateway:
+  httpRoute:
+    enabled: true
+    parentGateway: contour
+    parentNamespace: projectcontour
+    parentSection: https
+    hostnames:
+      - linkkeys.example.com

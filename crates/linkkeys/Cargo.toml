@@ -16,7 +16,7 @@ liblinkkeys = { path = "../liblinkkeys" }
 clap = { version = "4.5", features = ["derive"] }
 
 # Web framework
-rocket = { version = "0.5", features = ["json", "tls"] }
+rocket = { version = "0.5", features = ["json", "tls", "secrets"] }
 
 # Database
 diesel = { version = "2.2", features = ["r2d2", "uuid", "chrono"] }

@@ -28,7 +28,7 @@ service:
   port: 9090
 
 ingress:
-  enabled: true
+  enabled: false
   className: ""
   annotations: {}
   hosts:
@@ -37,6 +37,15 @@ ingress:
         - path: /
           pathType: Prefix
   tls: []
+
+# Gateway API (gateway.networking.k8s.io/v1)
+gateway:
+  httpRoute:
+    enabled: false
+    parentGateway: ""
+    parentNamespace: ""
+    parentSection: ""
+    hostnames: []
 
 resources: {}
 nodeSelector: {}

@@ -1,0 +1,27 @@
+# Example: Deploy LinkKeys as a Relying Party server.
+# The RP holds domain keys and signs/decrypts on behalf of web applications.
+# It does not serve a login UI — web apps call its API with bearer tokens.
+
+server:
+  domainName: "linkidspec.com"
+  # domainKeyPassphrase: set via secret
+  disableTls: "true"  # TLS terminated at ingress/gateway
+  disableTcpTls: "true"
+
+database:
+  backend: sqlite
+  url: "/data/linkkeys-rp.db"
+
+rp:
+  enabled: true
+  apiKeyAuth: true
+  passwordAuth: false
+
+gateway:
+  httpRoute:
+    enabled: true
+    parentGateway: contour
+    parentNamespace: projectcontour
+    parentSection: https
+    hostnames:
+      - linkidspec.com

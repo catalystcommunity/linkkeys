@@ -59,17 +59,18 @@ sqlite:
     # Storage class (leave empty for cluster default)
     storageClassName: ""
 
-# Optional bundled PostgreSQL (for development)
+# PostgreSQL via Zalando postgres-operator
 postgresql:
   enabled: false
-  image:
-    repository: postgres
-    tag: "16-alpine"
-    pullPolicy: IfNotPresent
-  auth:
-    username: linkkeys
-    password: linkkeys
-    database: linkkeys
+  # Team ID for the Zalando operator
+  teamId: "linkkeys"
+  # Database name and owner user
+  database: "linkkeys"
+  user: "linkkeys"
+  # Postgres version
+  version: "17"
+  # Number of instances (1 for dev, 2+ for HA)
+  instances: 1
   storage:
     size: 1Gi
 
@@ -111,6 +112,12 @@ gateway:
     parentSection: ""
     hostnames: []
     #  - linkkeys.example.com
+    # Optional path prefixes — routes only matching paths to this service.
+    # Useful when sharing a hostname with another service (e.g., RP + demo app).
+    # If empty, all paths are routed to this service.
+    pathPrefixes: []
+    #  - /v1alpha
+    #  - /auth
   # TCPRoute for the LinkKeys protocol port
   tcpRoute:
     enabled: false

@@ -557,10 +557,14 @@ pub async fn launch_rocket(db_pool: DbPool, ready_flag: Arc<AtomicBool>) {
         ))
     };
 
+    let secret_key = rocket::config::SecretKey::generate()
+        .expect("Failed to generate Rocket secret key");
+
     let config = Config {
         port,
         address: "0.0.0.0".parse().unwrap(),
         tls,
+        secret_key,
         ..Config::default()
     };
 

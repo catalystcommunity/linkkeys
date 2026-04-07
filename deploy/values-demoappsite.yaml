@@ -1,0 +1,21 @@
+demoapp:
+  port: 9090
+  allowInvalidCerts: "false"
+
+rp:
+  # The RP service is in a different namespace — use cross-namespace DNS
+  serviceUrl: "http://linkkeys-rp.linkkeys-rp.svc.cluster.local:8443"
+  # apiKey: set via overlay secret
+  domain: "linkidspec.com"
+
+ingress:
+  enabled: false
+
+gateway:
+  httpRoute:
+    enabled: true
+    parentGateway: contour
+    parentNamespace: projectcontour
+    parentSection: https
+    hostnames:
+      - linkidspec.com

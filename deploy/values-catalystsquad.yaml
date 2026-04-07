@@ -1,0 +1,28 @@
+image:
+  repository: 10.16.0.1:5000/public/catalystcommunity/linkkeys
+
+server:
+  domainName: "linkkeys.catalystsquad.com"
+  disableTls: "true"
+  disableTcpTls: "true"
+
+database:
+  backend: postgres
+
+postgresql:
+  enabled: true
+  teamId: linkkeys
+  database: linkkeys
+  user: linkkeys
+  instances: 1
+  storage:
+    size: 1Gi
+
+gateway:
+  httpRoute:
+    enabled: true
+    parentGateway: contour
+    parentNamespace: projectcontour
+    parentSection: https
+    hostnames:
+      - linkkeys.catalystsquad.com
