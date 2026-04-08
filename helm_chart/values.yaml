@@ -31,6 +31,9 @@ server:
   logLevel: "info"
   # Domain identity used in assertions and DNS
   domainName: ""
+  # Public-facing port for API URL construction (when behind a gateway/LB).
+  # Overrides httpsPort for dns-check output. Set to "443" when TLS is terminated at ingress.
+  publicPort: ""
   # Passphrase for encrypting/decrypting domain key material
   domainKeyPassphrase: ""
   # Disable TLS on the TCP transport (for development only)

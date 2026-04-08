@@ -53,7 +53,11 @@ spec:
                   name: {{ include "demoappsite.fullname" . }}
                   key: RP_API_KEY
             {{- end }}
-            {{- if eq .Values.demoapp.allowInvalidCerts "true" }}
+            {{- if eq (default "false" .Values.demoapp.disableTls) "true" }}
+            - name: DISABLE_TLS
+              value: "true"
+            {{- end }}
+            {{- if eq (default "false" .Values.demoapp.allowInvalidCerts) "true" }}
             - name: ALLOW_INVALID_CERTS
               value: "true"
             {{- end }}

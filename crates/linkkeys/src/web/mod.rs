@@ -568,26 +568,29 @@ pub async fn launch_rocket(db_pool: DbPool, ready_flag: Arc<AtomicBool>) {
         ..Config::default()
     };
 
+    let mut routes = rocket::routes![
+        healthcheck,
+        readiness,
+        hello_get,
+        hello_post,
+        domain_keys_cbor,
+        domain_keys_json,
+        user_keys_cbor,
+        user_keys_json,
+        handshake_cbor,
+        handshake_json,
+        userinfo_cbor,
+        userinfo_json,
+    ];
+
+    // Mount password auth routes (login form) when enabled (default: true)
+    if env::var("ENABLE_PASSWORD_AUTH").unwrap_or_else(|_| "true".to_string()) == "true" {
+        log::info!("Password auth enabled");
+        routes.extend(rocket::routes![auth_authorize_get, auth_authorize_post]);
+    }
+
     let mut rocket_instance = rocket::custom(config)
-        .mount(
-            "/",
-            rocket::routes![
-                healthcheck,
-                readiness,
-                hello_get,
-                hello_post,
-                domain_keys_cbor,
-                domain_keys_json,
-                user_keys_cbor,
-                user_keys_json,
-                handshake_cbor,
-                handshake_json,
-                auth_authorize_get,
-                auth_authorize_post,
-                userinfo_cbor,
-                userinfo_json,
-            ],
-        )
+        .mount("/", routes)
         .manage(db_pool)
         .manage(ready_flag)
         .manage(nonce_store::NonceStore::new(std::time::Duration::from_secs(300)));

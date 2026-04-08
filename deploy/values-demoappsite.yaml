@@ -1,6 +1,7 @@
 demoapp:
   port: 9090
   allowInvalidCerts: "false"
+  disableTls: "true"
 
 rp:
   # The RP service is in a different namespace — use cross-namespace DNS
@@ -16,6 +17,6 @@ gateway:
     enabled: true
     parentGateway: contour
     parentNamespace: projectcontour
-    parentSection: https
+    parentSection: http
     hostnames:
       - linkidspec.com

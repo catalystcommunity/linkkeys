@@ -3,6 +3,7 @@ image:
 
 server:
   domainName: "linkidspec.com"
+  publicPort: "443"
   disableTls: "true"
   disableTcpTls: "true"
 
@@ -23,7 +24,7 @@ gateway:
     enabled: true
     parentGateway: contour
     parentNamespace: projectcontour
-    parentSection: https
+    parentSection: http
     hostnames:
       - linkidspec.com
     pathPrefixes:
