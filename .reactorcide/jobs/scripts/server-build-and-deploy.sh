@@ -85,8 +85,12 @@ if [[ -n "${DOCKER_HOST:-}" ]]; then
     crane push --insecure "${IMAGE_TAR}" "${INTERNAL_IMAGE}:latest"
 
     echo "Pushing to external registry..."
-    crane push "${IMAGE_TAR}" "${EXTERNAL_IMAGE}:${VERSION}"
-    crane push "${IMAGE_TAR}" "${EXTERNAL_IMAGE}:latest"
+    if crane push "${IMAGE_TAR}" "${EXTERNAL_IMAGE}:${VERSION}" 2>/dev/null && \
+       crane push "${IMAGE_TAR}" "${EXTERNAL_IMAGE}:latest" 2>/dev/null; then
+        echo "External push succeeded"
+    else
+        echo "WARNING: External registry push failed (non-fatal)"
+    fi
 
     rm "${IMAGE_TAR}"
     echo "Image pushed successfully"
@@ -134,18 +138,21 @@ else
         --local dockerfile=. \
         --output "type=image,name=${INTERNAL_IMAGE}:latest,push=true,registry.insecure=true"
 
-    echo "Building and pushing to external registry..."
-    buildctl build \
+    echo "Pushing to external registry..."
+    if buildctl build \
         --frontend dockerfile.v0 \
         --local context=. \
         --local dockerfile=. \
-        --output "type=image,name=${EXTERNAL_IMAGE}:${VERSION},push=true"
-
-    buildctl build \
+        --output "type=image,name=${EXTERNAL_IMAGE}:${VERSION},push=true" 2>/dev/null && \
+       buildctl build \
         --frontend dockerfile.v0 \
         --local context=. \
         --local dockerfile=. \
-        --output "type=image,name=${EXTERNAL_IMAGE}:latest,push=true"
+        --output "type=image,name=${EXTERNAL_IMAGE}:latest,push=true" 2>/dev/null; then
+        echo "External push succeeded"
+    else
+        echo "WARNING: External registry push failed (non-fatal)"
+    fi
 
     echo "Image pushed successfully"
 fi

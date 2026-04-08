@@ -22,6 +22,6 @@ gateway:
     enabled: true
     parentGateway: contour
     parentNamespace: projectcontour
-    parentSection: https
+    parentSection: http
     hostnames:
       - linkidspec.com

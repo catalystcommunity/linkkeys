@@ -3,6 +3,7 @@ image:
 
 server:
   domainName: "linkkeys.catalystsquad.com"
+  publicPort: "443"
   disableTls: "true"
   disableTcpTls: "true"
 
@@ -23,6 +24,6 @@ gateway:
     enabled: true
     parentGateway: contour
     parentNamespace: projectcontour
-    parentSection: https
+    parentSection: http
     hostnames:
       - linkkeys.catalystsquad.com
