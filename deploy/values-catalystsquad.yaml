@@ -2,7 +2,8 @@ image:
   repository: 10.16.0.1:5000/public/catalystcommunity/linkkeys
 
 server:
-  domainName: "linkkeys.catalystsquad.com"
+  domainName: "catalystsquad.com"
+  apiHostname: "linkkeys.catalystsquad.com"
   publicPort: "443"
   disableTls: "true"
   disableTcpTls: "true"
