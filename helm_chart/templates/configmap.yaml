@@ -12,6 +12,9 @@ data:
   {{- if .Values.server.domainName }}
   DOMAIN_NAME: {{ .Values.server.domainName | quote }}
   {{- end }}
+  {{- if .Values.server.apiHostname }}
+  API_HOSTNAME: {{ .Values.server.apiHostname | quote }}
+  {{- end }}
   {{- if .Values.server.publicPort }}
   PUBLIC_PORT: {{ .Values.server.publicPort | quote }}
   {{- end }}

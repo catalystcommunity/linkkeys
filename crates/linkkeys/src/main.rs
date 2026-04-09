@@ -317,16 +317,18 @@ async fn domain_dns_check() {
     let fingerprints: Vec<String> = domain_keys.iter().map(|k| k.fingerprint.clone()).collect();
 
     // Build the expected API base URL.
+    // API_HOSTNAME overrides DOMAIN_NAME for the URL (when API is on a subdomain).
     // PUBLIC_PORT overrides HTTPS_PORT for URL construction (when behind a gateway/LB).
+    let api_hostname = std::env::var("API_HOSTNAME").unwrap_or_else(|_| domain_name.clone());
     let public_port: u16 = std::env::var("PUBLIC_PORT")
         .or_else(|_| std::env::var("HTTPS_PORT"))
         .unwrap_or_else(|_| "8443".to_string())
         .parse()
         .unwrap_or(8443);
     let api_base = if public_port == 443 {
-        format!("https://{}", domain_name)
+        format!("https://{}", api_hostname)
     } else {
-        format!("https://{}:{}", domain_name, public_port)
+        format!("https://{}:{}", api_hostname, public_port)
     };
 
     println!("Domain: {}", domain_name);
