@@ -29,8 +29,11 @@ server:
   tcpPort: 9000
   httpsPort: 8443
   logLevel: "info"
-  # Domain identity used in assertions and DNS
+  # Domain identity used in assertions and DNS (e.g., "todandlorna.com")
   domainName: ""
+  # API hostname if different from domainName (e.g., "linkkeys.todandlorna.com")
+  # Used in DNS TXT record api= field. Defaults to domainName if not set.
+  apiHostname: ""
   # Public-facing port for API URL construction (when behind a gateway/LB).
   # Overrides httpsPort for dns-check output. Set to "443" when TLS is terminated at ingress.
   publicPort: ""
