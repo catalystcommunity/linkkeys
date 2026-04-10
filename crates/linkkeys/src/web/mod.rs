@@ -321,12 +321,11 @@ fn auth_authorize_get(
     signed_request: Option<&str>,
 ) -> Result<RawHtml<String>, Status> {
     match (relying_party, signed_request) {
-        (Some(_rp), Some(_sr)) => {
-            // New flow: relying party proves identity via signed request.
-            // The callback URL validation is still enforced as defense-in-depth
-            // until full signed_request verification is implemented with DNS
-            // lookup and RP key fetch (requires async, planned for RpKeyCache).
-            if !validate_callback_url(callback_url) {
+        (Some(rp), Some(_sr)) => {
+            // New flow: verify the callback URL matches the relying party's domain.
+            // This prevents redirect attacks where domain A's login is sent to domain B.
+            let expected_origin = format!("https://{}", rp);
+            if !callback_url.starts_with(&expected_origin) {
                 return Err(Status::BadRequest);
             }
         }
@@ -376,16 +375,29 @@ async fn auth_authorize_post(
         ));
     }
 
-    let has_rp = form.relying_party.is_some();
-
-    if !has_rp && !validate_callback_url(&form.callback_url) {
-        return Err(render_login_form(
-            &form.callback_url,
-            &form.nonce,
-            &form.username,
-            Some("Callback URL not allowed. Contact the domain administrator."),
-            None,
-        ));
+    if let Some(ref rp) = form.relying_party {
+        // RP flow: callback URL must match the relying party's domain
+        let expected_origin = format!("https://{}", rp);
+        if !form.callback_url.starts_with(&expected_origin) {
+            return Err(render_login_form(
+                &form.callback_url,
+                &form.nonce,
+                &form.username,
+                Some("Callback URL does not match the relying party domain."),
+                form.relying_party.as_deref(),
+            ));
+        }
+    } else {
+        // Legacy flow: validate callback URL against allowlist
+        if !validate_callback_url(&form.callback_url) {
+            return Err(render_login_form(
+                &form.callback_url,
+                &form.nonce,
+                &form.username,
+                Some("Callback URL not allowed. Contact the domain administrator."),
+                None,
+            ));
+        }
     }
 
     let authenticator = PasswordAuthenticator::new(pool.inner().clone());
