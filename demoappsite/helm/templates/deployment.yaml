@@ -33,6 +33,10 @@ spec:
           env:
             - name: DEMO_PORT
               value: {{ .Values.demoapp.port | quote }}
+            {{- if .Values.demoapp.publicOrigin }}
+            - name: PUBLIC_ORIGIN
+              value: {{ .Values.demoapp.publicOrigin | quote }}
+            {{- end }}
             - name: ROCKET_SECRET_KEY
               valueFrom:
                 secretKeyRef:

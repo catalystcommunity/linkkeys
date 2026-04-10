@@ -38,6 +38,9 @@ struct RpConfig {
 }
 
 fn get_own_origin() -> String {
+    if let Ok(origin) = env::var("PUBLIC_ORIGIN") {
+        return origin;
+    }
     let port: u16 = env::var("DEMO_PORT")
         .unwrap_or_else(|_| "9090".to_string())
         .parse()

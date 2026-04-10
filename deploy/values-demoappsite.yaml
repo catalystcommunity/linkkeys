@@ -1,5 +1,6 @@
 demoapp:
   port: 9090
+  publicOrigin: "https://linkidspec.com"
   allowInvalidCerts: "false"
   disableTls: "true"
 
