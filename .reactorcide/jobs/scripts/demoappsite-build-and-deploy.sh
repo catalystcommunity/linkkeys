@@ -166,15 +166,31 @@ kubectl create secret docker-registry regcred \
     -o yaml | kubectl apply -f -
 
 echo "Deploying with Helm (local chart)..."
+
+# Write image override to temp file (avoid --set)
+RUNTIME_VALUES="/tmp/runtime-values.yaml"
+cat > "${RUNTIME_VALUES}" <<VALS
+image:
+  repository: ${INTERNAL_IMAGE}
+  tag: "${VERSION}"
+VALS
+
+# Include deploy values if they exist (gateway, RP config, etc.)
+DEPLOY_VALUES_ARGS=""
+if [[ -f ./deploy/values-demoappsite.yaml ]]; then
+    DEPLOY_VALUES_ARGS="-f ./deploy/values-demoappsite.yaml"
+fi
+
 helm upgrade \
     --install \
     --create-namespace \
     --namespace "${K8S_NAMESPACE}" \
     "${HELM_RELEASE}" \
     ./demoappsite/helm \
-    --set image.repository="${INTERNAL_IMAGE}" \
-    --set image.tag="${VERSION}" \
-    --set imagePullSecrets[0].name=regcred
+    ${DEPLOY_VALUES_ARGS} \
+    -f "${RUNTIME_VALUES}"
+
+rm -f "${RUNTIME_VALUES}"
 
 echo ""
 echo "================================================"

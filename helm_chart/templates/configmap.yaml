@@ -24,7 +24,6 @@ data:
   {{- end }}
   {{- if .Values.rp.enabled }}
   ENABLE_RP_ENDPOINTS: "true"
-  {{- end }}
   {{- if .Values.rp.apiKeyAuth }}
   ENABLE_API_KEY_AUTH: "true"
   {{- end }}
@@ -33,4 +32,5 @@ data:
   {{- end }}
   {{- if eq .Values.rp.allowInvalidCerts "true" }}
   ALLOW_INVALID_CERTS: "true"
+  {{- end }}
   {{- end }}
