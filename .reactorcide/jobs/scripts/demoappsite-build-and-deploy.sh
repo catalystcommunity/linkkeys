@@ -167,13 +167,24 @@ kubectl create secret docker-registry regcred \
 
 echo "Deploying with Helm (local chart)..."
 
-# Write image override to temp file (avoid --set)
+# Preserve existing RP API key from the cluster secret (if it exists)
+EXISTING_RP_KEY=$(kubectl -n "${K8S_NAMESPACE}" get secret "${HELM_RELEASE}" -o jsonpath='{.data.RP_API_KEY}' 2>/dev/null | base64 -d || true)
+
+# Write runtime overrides to temp file
 RUNTIME_VALUES="/tmp/runtime-values.yaml"
 cat > "${RUNTIME_VALUES}" <<VALS
 image:
   repository: ${INTERNAL_IMAGE}
   tag: "${VERSION}"
 VALS
+
+if [[ -n "${EXISTING_RP_KEY}" ]]; then
+    cat >> "${RUNTIME_VALUES}" <<VALS
+rp:
+  apiKey: "${EXISTING_RP_KEY}"
+VALS
+    echo "Preserved existing RP API key"
+fi
 
 # Include deploy values if they exist (gateway, RP config, etc.)
 DEPLOY_VALUES_ARGS=""
