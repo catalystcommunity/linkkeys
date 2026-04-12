@@ -25,6 +25,26 @@ pub fn create_test_pool() -> DbPool {
     match backend.as_str() {
         #[cfg(feature = "postgres")]
         "postgres" => {
+            // Run migrations exactly once per process (handles in-process parallelism),
+            // with an advisory lock (handles cross-process parallelism from multiple
+            // test binaries hitting the same Postgres database).
+            use std::sync::Once;
+            static PG_MIGRATE: Once = Once::new();
+            PG_MIGRATE.call_once(|| {
+                let mut migration_conn = diesel::PgConnection::establish(&url)
+                    .expect("Failed to connect for migrations");
+                const LOCK_KEY: i64 = 0x6c6b5f74657374; // "lk_test"
+                diesel::sql_query(format!("SELECT pg_advisory_lock({})", LOCK_KEY))
+                    .execute(&mut migration_conn)
+                    .expect("Failed to acquire advisory lock");
+                migration_conn
+                    .run_pending_migrations(PG_MIGRATIONS)
+                    .expect("Failed to run test migrations");
+                diesel::sql_query(format!("SELECT pg_advisory_unlock({})", LOCK_KEY))
+                    .execute(&mut migration_conn)
+                    .expect("Failed to release advisory lock");
+            });
+
             let manager = ConnectionManager::<diesel::PgConnection>::new(&url);
             let pool = r2d2::Pool::builder()
                 .max_size(1)
@@ -34,8 +54,6 @@ pub fn create_test_pool() -> DbPool {
 
             {
                 let mut conn = pool.get().expect("Failed to get test connection");
-                conn.run_pending_migrations(PG_MIGRATIONS)
-                    .expect("Failed to run test migrations");
                 conn.begin_test_transaction()
                     .expect("Failed to begin test transaction");
             }
@@ -44,6 +62,8 @@ pub fn create_test_pool() -> DbPool {
         }
         #[cfg(feature = "sqlite")]
         "sqlite" => {
+            // SQLite :memory: databases are per-connection, so no race.
+            // Migrations and test transaction can happen on the same connection.
             let manager = ConnectionManager::<diesel::SqliteConnection>::new(&url);
             let pool = r2d2::Pool::builder()
                 .max_size(1)
