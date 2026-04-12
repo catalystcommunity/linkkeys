@@ -1,6 +1,7 @@
 extern crate rocket;
 
 mod cli;
+mod dns;
 mod tcp;
 mod web;
 
