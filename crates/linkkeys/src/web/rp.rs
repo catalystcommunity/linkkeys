@@ -7,7 +7,7 @@ use std::env;
 use linkkeys::conversions::get_domain_name;
 use linkkeys::db::DbPool;
 
-use super::guard::BearerUser;
+use super::guard::AuthenticatedUser;
 
 // -- Request/Response types for JSON API --
 
@@ -48,7 +48,7 @@ pub struct VerifyAssertionOutput {
 /// Called by the web app when initiating a login redirect.
 #[rocket::post("/v1alpha/sign-request.json", data = "<body>")]
 pub fn sign_request_json(
-    _user: BearerUser,
+    _user: AuthenticatedUser,
     pool: &State<DbPool>,
     body: String,
 ) -> Result<(ContentType, Vec<u8>), Status> {
@@ -88,7 +88,7 @@ pub fn sign_request_json(
 /// Decrypt an encrypted token using this server's domain key converted to X25519.
 #[rocket::post("/v1alpha/decrypt-token.json", data = "<body>")]
 pub fn decrypt_token_json(
-    _user: BearerUser,
+    _user: AuthenticatedUser,
     pool: &State<DbPool>,
     body: String,
 ) -> Result<(ContentType, Vec<u8>), Status> {
@@ -132,7 +132,7 @@ pub fn decrypt_token_json(
 /// Performs DNS lookup and key fetch for the expected domain.
 #[rocket::post("/v1alpha/verify-assertion.json", data = "<body>")]
 pub async fn verify_assertion_json(
-    _user: BearerUser,
+    _user: AuthenticatedUser,
     body: String,
 ) -> Result<(ContentType, Vec<u8>), Status> {
     let input: VerifyAssertionInput = serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;

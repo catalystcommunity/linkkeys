@@ -233,6 +233,175 @@ HandshakeResponse = {
 }
 
 ;; ============================================================
+;; Relations (ReBAC)
+;; ============================================================
+
+Relation = {
+    id: text,
+    subject_type: text,
+    subject_id: text,
+    relation: text,
+    object_type: text,
+    object_id: text,
+    created_at: text,
+    ? removed_at: text
+}
+
+;; ============================================================
+;; Admin Types
+;; ============================================================
+
+AdminUser = {
+    id: text,
+    username: text,
+    display_name: text,
+    is_active: bool,
+    created_at: text,
+    updated_at: text
+}
+
+ListUsersRequest = {
+    ? offset: int,
+    ? limit: int
+}
+
+ListUsersResponse = {
+    users: [* AdminUser]
+}
+
+GetUserRequest = {
+    user_id: text
+}
+
+GetUserResponse = {
+    user: AdminUser
+}
+
+CreateUserRequest = {
+    username: text,
+    display_name: text,
+    ? password: text
+}
+
+CreateUserResponse = {
+    user: AdminUser,
+    ? api_key: text
+}
+
+UpdateUserRequest = {
+    user_id: text,
+    ? display_name: text
+}
+
+UpdateUserResponse = {
+    user: AdminUser
+}
+
+DeactivateUserRequest = {
+    user_id: text
+}
+
+DeactivateUserResponse = {
+    user: AdminUser
+}
+
+ResetPasswordRequest = {
+    user_id: text,
+    new_password: text
+}
+
+ResetPasswordResponse = {
+    success: bool
+}
+
+RemoveCredentialRequest = {
+    credential_id: text
+}
+
+RemoveCredentialResponse = {
+    success: bool
+}
+
+SetClaimRequest = {
+    user_id: text,
+    claim_type: text,
+    claim_value: text,
+    ? expires_at: text
+}
+
+SetClaimResponse = {
+    claim: Claim
+}
+
+RemoveClaimRequest = {
+    claim_id: text
+}
+
+RemoveClaimResponse = {
+    success: bool
+}
+
+GrantRelationRequest = {
+    subject_type: text,
+    subject_id: text,
+    relation: text,
+    object_type: text,
+    object_id: text
+}
+
+GrantRelationResponse = {
+    relation: Relation
+}
+
+RemoveRelationRequest = {
+    relation_id: text
+}
+
+RemoveRelationResponse = {
+    success: bool
+}
+
+ListRelationsRequest = {
+    ? subject_type: text,
+    ? subject_id: text,
+    ? object_type: text,
+    ? object_id: text
+}
+
+ListRelationsResponse = {
+    relations: [* Relation]
+}
+
+CheckPermissionRequest = {
+    user_id: text,
+    relation: text,
+    object_type: text,
+    object_id: text
+}
+
+CheckPermissionResponse = {
+    allowed: bool
+}
+
+;; ============================================================
+;; Account (Self-Service) Types
+;; ============================================================
+
+ChangePasswordRequest = {
+    new_password: text
+}
+
+ChangePasswordResponse = {
+    success: bool
+}
+
+GetMyInfoResponse = {
+    user: AdminUser,
+    relations: [* Relation],
+    claims: [* Claim]
+}
+
+;; ============================================================
 ;; Services
 ;; ============================================================
 
@@ -272,4 +441,25 @@ service Handshake {
     ;; operation to establish which version and algorithms both
     ;; sides support. Returns the intersection of capabilities.
     handshake: HandshakeRequest -> HandshakeResponse
+}
+
+service Admin {
+    list-users: ListUsersRequest -> ListUsersResponse,
+    get-user: GetUserRequest -> GetUserResponse,
+    create-user: CreateUserRequest -> CreateUserResponse,
+    update-user: UpdateUserRequest -> UpdateUserResponse,
+    deactivate-user: DeactivateUserRequest -> DeactivateUserResponse,
+    reset-password: ResetPasswordRequest -> ResetPasswordResponse,
+    remove-credential: RemoveCredentialRequest -> RemoveCredentialResponse,
+    set-claim: SetClaimRequest -> SetClaimResponse,
+    remove-claim: RemoveClaimRequest -> RemoveClaimResponse,
+    grant-relation: GrantRelationRequest -> GrantRelationResponse,
+    remove-relation: RemoveRelationRequest -> RemoveRelationResponse,
+    list-relations: ListRelationsRequest -> ListRelationsResponse,
+    check-permission: CheckPermissionRequest -> CheckPermissionResponse
+}
+
+service Account {
+    change-password: ChangePasswordRequest -> ChangePasswordResponse,
+    get-my-info: EmptyRequest -> GetMyInfoResponse
 }
