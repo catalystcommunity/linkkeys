@@ -1,3 +1,7 @@
+mod account;
+mod account_ui;
+mod admin;
+mod admin_ui;
 mod guard;
 pub mod nonce_store;
 pub mod rp;
@@ -619,6 +623,67 @@ pub async fn launch_rocket(db_pool: DbPool, ready_flag: Arc<AtomicBool>) {
             ],
         );
     }
+
+    // Mount admin API endpoints (permission checked in handlers)
+    rocket_instance = rocket_instance.mount(
+        "/",
+        rocket::routes![
+            admin::admin_list_users,
+            admin::admin_get_user,
+            admin::admin_create_user,
+            admin::admin_update_user,
+            admin::admin_deactivate_user,
+            admin::admin_reset_password,
+            admin::admin_remove_credential,
+            admin::admin_set_claim,
+            admin::admin_remove_claim,
+            admin::admin_grant_relation,
+            admin::admin_remove_relation,
+            admin::admin_list_relations,
+            admin::admin_check_permission,
+        ],
+    );
+
+    // Mount account (self-service) API endpoints
+    rocket_instance = rocket_instance.mount(
+        "/",
+        rocket::routes![
+            account::account_change_password,
+            account::account_get_my_info,
+        ],
+    );
+
+    // Mount server-rendered HTML UI for account self-service
+    rocket_instance = rocket_instance.mount(
+        "/",
+        rocket::routes![
+            account_ui::login_page,
+            account_ui::login_submit,
+            account_ui::logout,
+            account_ui::account_dashboard,
+            account_ui::change_password_page,
+            account_ui::change_password_submit,
+        ],
+    );
+
+    // Mount server-rendered HTML UI for user administration
+    rocket_instance = rocket_instance.mount(
+        "/",
+        rocket::routes![
+            admin_ui::admin_ui_user_list,
+            admin_ui::admin_ui_create_user_page,
+            admin_ui::admin_ui_create_user_submit,
+            admin_ui::admin_ui_user_detail,
+            admin_ui::admin_ui_update_user,
+            admin_ui::admin_ui_deactivate_user,
+            admin_ui::admin_ui_activate_user,
+            admin_ui::admin_ui_reset_password,
+            admin_ui::admin_ui_add_claim,
+            admin_ui::admin_ui_remove_claim,
+            admin_ui::admin_ui_grant_relation,
+            admin_ui::admin_ui_remove_relation,
+        ],
+    );
 
     if let Err(e) = rocket_instance.launch().await {
         log::error!("Rocket failed: {}", e);

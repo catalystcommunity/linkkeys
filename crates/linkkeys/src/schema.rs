@@ -31,6 +31,7 @@ pub mod pg {
             id -> Uuid,
             username -> Varchar,
             display_name -> Varchar,
+            is_active -> Bool,
             created_at -> Timestamptz,
             updated_at -> Timestamptz,
         }
@@ -43,7 +44,22 @@ pub mod pg {
             credential_type -> Varchar,
             credential_hash -> Varchar,
             created_at -> Timestamptz,
+            expires_at -> Nullable<Timestamptz>,
             revoked_at -> Nullable<Timestamptz>,
+            updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        relations (id) {
+            id -> Uuid,
+            subject_type -> Varchar,
+            subject_id -> Varchar,
+            relation -> Varchar,
+            object_type -> Varchar,
+            object_id -> Varchar,
+            created_at -> Timestamptz,
+            removed_at -> Nullable<Timestamptz>,
             updated_at -> Timestamptz,
         }
     }
@@ -89,6 +105,7 @@ pub mod pg {
         auth_credentials,
         user_keys,
         claims,
+        relations,
     );
 }
 
@@ -122,6 +139,7 @@ pub mod sqlite {
             id -> Text,
             username -> Text,
             display_name -> Text,
+            is_active -> Integer,
             created_at -> Text,
             updated_at -> Text,
         }
@@ -134,7 +152,22 @@ pub mod sqlite {
             credential_type -> Text,
             credential_hash -> Text,
             created_at -> Text,
+            expires_at -> Nullable<Text>,
             revoked_at -> Nullable<Text>,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        relations (id) {
+            id -> Text,
+            subject_type -> Text,
+            subject_id -> Text,
+            relation -> Text,
+            object_type -> Text,
+            object_id -> Text,
+            created_at -> Text,
+            removed_at -> Nullable<Text>,
             updated_at -> Text,
         }
     }
@@ -180,5 +213,6 @@ pub mod sqlite {
         auth_credentials,
         user_keys,
         claims,
+        relations,
     );
 }

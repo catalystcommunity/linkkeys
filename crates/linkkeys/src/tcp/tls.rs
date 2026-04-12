@@ -61,6 +61,7 @@ pub fn build_server_config(
 /// against expected fingerprints (from DNS TXT records).
 /// This replaces CA chain verification — trust is rooted in DNS-published fingerprints.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct FingerprintVerifier {
     expected_fingerprints: Vec<String>,
     provider: Arc<rustls::crypto::CryptoProvider>,
@@ -158,6 +159,7 @@ impl rustls::client::danger::ServerCertVerifier for FingerprintVerifier {
 
 /// Build a rustls ClientConfig that uses fingerprint-based verification
 /// instead of CA chain verification.
+#[allow(dead_code)]
 pub fn build_client_config(
     expected_fingerprints: Vec<String>,
 ) -> Result<Arc<rustls::ClientConfig>, Box<dyn std::error::Error>> {

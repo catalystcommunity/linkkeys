@@ -39,6 +39,56 @@ pub mod pg {
             .first::<UserRow>(conn)
             .map(Into::into)
     }
+
+    pub fn list_all(conn: &mut diesel::PgConnection) -> QueryResult<Vec<User>> {
+        users::table
+            .order(users::created_at.asc())
+            .load::<UserRow>(conn)
+            .map(|rows| rows.into_iter().map(Into::into).collect())
+    }
+
+    pub fn update_display_name(
+        conn: &mut diesel::PgConnection,
+        user_id: &str,
+        new_display_name: &str,
+    ) -> QueryResult<User> {
+        let id: uuid::Uuid = user_id
+            .parse()
+            .map_err(|_| diesel::result::Error::NotFound)?;
+        diesel::update(users::table.find(id))
+            .set((
+                users::display_name.eq(new_display_name),
+                users::updated_at.eq(chrono::Utc::now()),
+            ))
+            .get_result::<UserRow>(conn)
+            .map(Into::into)
+    }
+
+    pub fn deactivate(conn: &mut diesel::PgConnection, user_id: &str) -> QueryResult<User> {
+        let id: uuid::Uuid = user_id
+            .parse()
+            .map_err(|_| diesel::result::Error::NotFound)?;
+        diesel::update(users::table.find(id))
+            .set((
+                users::is_active.eq(false),
+                users::updated_at.eq(chrono::Utc::now()),
+            ))
+            .get_result::<UserRow>(conn)
+            .map(Into::into)
+    }
+
+    pub fn activate(conn: &mut diesel::PgConnection, user_id: &str) -> QueryResult<User> {
+        let id: uuid::Uuid = user_id
+            .parse()
+            .map_err(|_| diesel::result::Error::NotFound)?;
+        diesel::update(users::table.find(id))
+            .set((
+                users::is_active.eq(true),
+                users::updated_at.eq(chrono::Utc::now()),
+            ))
+            .get_result::<UserRow>(conn)
+            .map(Into::into)
+    }
 }
 
 #[cfg(feature = "sqlite")]
@@ -84,6 +134,62 @@ pub mod sqlite {
     ) -> QueryResult<User> {
         users::table
             .filter(users::username.eq(username))
+            .first::<UserRow>(conn)
+            .map(Into::into)
+    }
+
+    pub fn list_all(conn: &mut diesel::SqliteConnection) -> QueryResult<Vec<User>> {
+        users::table
+            .order(users::created_at.asc())
+            .load::<UserRow>(conn)
+            .map(|rows| rows.into_iter().map(Into::into).collect())
+    }
+
+    pub fn update_display_name(
+        conn: &mut diesel::SqliteConnection,
+        user_id: &str,
+        new_display_name: &str,
+    ) -> QueryResult<User> {
+        let now = chrono::Utc::now().to_rfc3339();
+        diesel::update(users::table.find(user_id))
+            .set((
+                users::display_name.eq(new_display_name),
+                users::updated_at.eq(&now),
+            ))
+            .execute(conn)?;
+
+        users::table
+            .find(user_id)
+            .first::<UserRow>(conn)
+            .map(Into::into)
+    }
+
+    pub fn deactivate(conn: &mut diesel::SqliteConnection, user_id: &str) -> QueryResult<User> {
+        let now = chrono::Utc::now().to_rfc3339();
+        diesel::update(users::table.find(user_id))
+            .set((
+                users::is_active.eq(0),
+                users::updated_at.eq(&now),
+            ))
+            .execute(conn)?;
+
+        users::table
+            .find(user_id)
+            .first::<UserRow>(conn)
+            .map(Into::into)
+    }
+
+    pub fn activate(conn: &mut diesel::SqliteConnection, user_id: &str) -> QueryResult<User> {
+        let now = chrono::Utc::now().to_rfc3339();
+        diesel::update(users::table.find(user_id))
+            .set((
+                users::is_active.eq(1),
+                users::updated_at.eq(&now),
+            ))
+            .execute(conn)?;
+
+        users::table
+            .find(user_id)
             .first::<UserRow>(conn)
             .map(Into::into)
     }

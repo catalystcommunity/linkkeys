@@ -30,6 +30,7 @@ pub struct User {
     pub id: String,
     pub username: String,
     pub display_name: String,
+    pub is_active: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -42,7 +43,22 @@ pub struct AuthCredential {
     pub credential_type: String,
     pub credential_hash: String,
     pub created_at: String,
+    pub expires_at: Option<String>,
     pub revoked_at: Option<String>,
+    pub updated_at: String,
+}
+
+/// Relation model for ReBAC authorization tuples.
+#[derive(Debug, Clone)]
+pub struct Relation {
+    pub id: String,
+    pub subject_type: String,
+    pub subject_id: String,
+    pub relation: String,
+    pub object_type: String,
+    pub object_id: String,
+    pub created_at: String,
+    pub removed_at: Option<String>,
     pub updated_at: String,
 }
 
@@ -159,6 +175,7 @@ pub mod pg {
         pub id: uuid::Uuid,
         pub username: String,
         pub display_name: String,
+        pub is_active: bool,
         pub created_at: chrono::DateTime<chrono::Utc>,
         pub updated_at: chrono::DateTime<chrono::Utc>,
     }
@@ -169,6 +186,7 @@ pub mod pg {
                 id: row.id.to_string(),
                 username: row.username,
                 display_name: row.display_name,
+                is_active: row.is_active,
                 created_at: row.created_at.to_rfc3339(),
                 updated_at: row.updated_at.to_rfc3339(),
             }
@@ -193,6 +211,7 @@ pub mod pg {
         pub credential_type: String,
         pub credential_hash: String,
         pub created_at: chrono::DateTime<chrono::Utc>,
+        pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
         pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
         pub updated_at: chrono::DateTime<chrono::Utc>,
     }
@@ -205,6 +224,7 @@ pub mod pg {
                 credential_type: row.credential_type,
                 credential_hash: row.credential_hash,
                 created_at: row.created_at.to_rfc3339(),
+                expires_at: row.expires_at.map(|t| t.to_rfc3339()),
                 revoked_at: row.revoked_at.map(|t| t.to_rfc3339()),
                 updated_at: row.updated_at.to_rfc3339(),
             }
@@ -311,6 +331,49 @@ pub mod pg {
         pub signature: Vec<u8>,
         pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
     }
+
+    // -- Relations --
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::pg::relations)]
+    pub struct RelationRow {
+        pub id: uuid::Uuid,
+        pub subject_type: String,
+        pub subject_id: String,
+        pub relation: String,
+        pub object_type: String,
+        pub object_id: String,
+        pub created_at: chrono::DateTime<chrono::Utc>,
+        pub removed_at: Option<chrono::DateTime<chrono::Utc>>,
+        pub updated_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    impl From<RelationRow> for super::Relation {
+        fn from(row: RelationRow) -> Self {
+            Self {
+                id: row.id.to_string(),
+                subject_type: row.subject_type,
+                subject_id: row.subject_id,
+                relation: row.relation,
+                object_type: row.object_type,
+                object_id: row.object_id,
+                created_at: row.created_at.to_rfc3339(),
+                removed_at: row.removed_at.map(|t| t.to_rfc3339()),
+                updated_at: row.updated_at.to_rfc3339(),
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::pg::relations)]
+    pub struct NewRelationRow {
+        pub id: uuid::Uuid,
+        pub subject_type: String,
+        pub subject_id: String,
+        pub relation: String,
+        pub object_type: String,
+        pub object_id: String,
+    }
 }
 
 #[cfg(feature = "sqlite")]
@@ -397,6 +460,7 @@ pub mod sqlite {
         pub id: String,
         pub username: String,
         pub display_name: String,
+        pub is_active: i32,
         pub created_at: String,
         pub updated_at: String,
     }
@@ -407,6 +471,7 @@ pub mod sqlite {
                 id: row.id,
                 username: row.username,
                 display_name: row.display_name,
+                is_active: row.is_active != 0,
                 created_at: row.created_at,
                 updated_at: row.updated_at,
             }
@@ -431,6 +496,7 @@ pub mod sqlite {
         pub credential_type: String,
         pub credential_hash: String,
         pub created_at: String,
+        pub expires_at: Option<String>,
         pub revoked_at: Option<String>,
         pub updated_at: String,
     }
@@ -443,6 +509,7 @@ pub mod sqlite {
                 credential_type: row.credential_type,
                 credential_hash: row.credential_hash,
                 created_at: row.created_at,
+                expires_at: row.expires_at,
                 revoked_at: row.revoked_at,
                 updated_at: row.updated_at,
             }
@@ -548,5 +615,48 @@ pub mod sqlite {
         pub signed_by_key_id: String,
         pub signature: Vec<u8>,
         pub expires_at: Option<String>,
+    }
+
+    // -- Relations --
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::sqlite::relations)]
+    pub struct RelationRow {
+        pub id: String,
+        pub subject_type: String,
+        pub subject_id: String,
+        pub relation: String,
+        pub object_type: String,
+        pub object_id: String,
+        pub created_at: String,
+        pub removed_at: Option<String>,
+        pub updated_at: String,
+    }
+
+    impl From<RelationRow> for super::Relation {
+        fn from(row: RelationRow) -> Self {
+            Self {
+                id: row.id,
+                subject_type: row.subject_type,
+                subject_id: row.subject_id,
+                relation: row.relation,
+                object_type: row.object_type,
+                object_id: row.object_id,
+                created_at: row.created_at,
+                removed_at: row.removed_at,
+                updated_at: row.updated_at,
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::relations)]
+    pub struct NewRelationRow {
+        pub id: String,
+        pub subject_type: String,
+        pub subject_id: String,
+        pub relation: String,
+        pub object_type: String,
+        pub object_id: String,
     }
 }

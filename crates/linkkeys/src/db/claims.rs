@@ -45,6 +45,29 @@ pub mod pg {
             .load::<ClaimDbRow>(conn)
             .map(|rows| rows.into_iter().map(Into::into).collect())
     }
+
+    pub fn find_by_id(conn: &mut diesel::PgConnection, claim_id: &str) -> QueryResult<ClaimRow> {
+        let id: uuid::Uuid = claim_id
+            .parse()
+            .map_err(|_| diesel::result::Error::NotFound)?;
+        claims::table
+            .find(id)
+            .first::<ClaimDbRow>(conn)
+            .map(Into::into)
+    }
+
+    pub fn remove(conn: &mut diesel::PgConnection, claim_id: &str) -> QueryResult<ClaimRow> {
+        let id: uuid::Uuid = claim_id
+            .parse()
+            .map_err(|_| diesel::result::Error::NotFound)?;
+        diesel::update(claims::table.find(id))
+            .set((
+                claims::revoked_at.eq(Some(chrono::Utc::now())),
+                claims::updated_at.eq(chrono::Utc::now()),
+            ))
+            .get_result::<ClaimDbRow>(conn)
+            .map(Into::into)
+    }
 }
 
 #[cfg(feature = "sqlite")]
@@ -95,5 +118,30 @@ pub mod sqlite {
             .order(claims::created_at.asc())
             .load::<ClaimDbRow>(conn)
             .map(|rows| rows.into_iter().map(Into::into).collect())
+    }
+
+    pub fn find_by_id(
+        conn: &mut diesel::SqliteConnection,
+        claim_id: &str,
+    ) -> QueryResult<ClaimRow> {
+        claims::table
+            .find(claim_id)
+            .first::<ClaimDbRow>(conn)
+            .map(Into::into)
+    }
+
+    pub fn remove(conn: &mut diesel::SqliteConnection, claim_id: &str) -> QueryResult<ClaimRow> {
+        let now = chrono::Utc::now().to_rfc3339();
+        diesel::update(claims::table.find(claim_id))
+            .set((
+                claims::revoked_at.eq(Some(&now)),
+                claims::updated_at.eq(&now),
+            ))
+            .execute(conn)?;
+
+        claims::table
+            .find(claim_id)
+            .first::<ClaimDbRow>(conn)
+            .map(Into::into)
     }
 }
