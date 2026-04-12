@@ -60,7 +60,7 @@ pub struct TcpServer {
     thread_pool: ThreadPool,
     ready_flag: Arc<AtomicBool>,
     db_pool: DbPool,
-    tls_config: Option<Arc<rustls::ServerConfig>>,
+    tls_config: Arc<rustls::ServerConfig>,
 }
 
 impl TcpServer {
@@ -75,19 +75,14 @@ impl TcpServer {
         let pool_size = num_cpus::get() * 2;
         let thread_pool = ThreadPool::new(pool_size);
 
-        let tls_config = if env::var("DISABLE_TCP_TLS").unwrap_or_default() == "true" {
-            log::info!("TCP server listening on port {} (TLS disabled)", port);
-            None
-        } else {
-            match build_tls_config(&db_pool) {
-                Ok(config) => {
-                    log::info!("TCP server listening on port {} (TLS enabled)", port);
-                    Some(config)
-                }
-                Err(e) => {
-                    log::error!("TCP TLS setup failed: {}. Set DISABLE_TCP_TLS=true to run without TLS.", e);
-                    return Err(std::io::Error::other(e.to_string()));
-                }
+        let tls_config = match build_tls_config(&db_pool) {
+            Ok(config) => {
+                log::info!("TCP server listening on port {} (mutual TLS)", port);
+                config
+            }
+            Err(e) => {
+                log::error!("TCP TLS setup failed: {}. Ensure domain keys are initialized and DOMAIN_KEY_PASSPHRASE is set.", e);
+                return Err(std::io::Error::other(e.to_string()));
             }
         };
 
@@ -115,7 +110,7 @@ impl TcpServer {
     }
 }
 
-/// Build TLS ServerConfig from the first active domain key.
+/// Build TLS ServerConfig with mutual TLS from the first active domain key.
 fn build_tls_config(db_pool: &DbPool) -> Result<Arc<rustls::ServerConfig>, Box<dyn std::error::Error>> {
     let passphrase = env::var("DOMAIN_KEY_PASSPHRASE")
         .map_err(|_| "DOMAIN_KEY_PASSPHRASE not set")?;
@@ -137,7 +132,16 @@ fn build_tls_config(db_pool: &DbPool) -> Result<Arc<rustls::ServerConfig>, Box<d
     let domain_name = get_domain_name();
     let (cert_der, key_der) = tls::generate_domain_tls_cert(&domain_name, &seed)?;
 
-    tls::build_server_config(cert_der, key_der)
+    // Create a tokio runtime for the client cert verifier's DNS lookups
+    let runtime = Arc::new(
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| format!("Failed to create runtime for TLS verifier: {}", e))?,
+    );
+    let client_verifier = Arc::new(tls::FingerprintClientCertVerifier::new(runtime));
+
+    tls::build_server_config(cert_der, key_der, client_verifier)
 }
 
 fn read_frame(stream: &mut impl Read) -> std::io::Result<Vec<u8>> {
@@ -176,21 +180,16 @@ fn handle_connection(
     stream: TcpStream,
     ready_flag: Arc<AtomicBool>,
     db_pool: &DbPool,
-    tls_config: Option<Arc<rustls::ServerConfig>>,
+    tls_config: Arc<rustls::ServerConfig>,
 ) -> std::io::Result<()> {
     log::debug!("New TCP connection from: {:?}", stream.peer_addr());
     stream.set_read_timeout(Some(Duration::from_secs(300)))?;
     stream.set_nodelay(true)?;
 
-    if let Some(config) = tls_config {
-        let conn = rustls::ServerConnection::new(config)
-            .map_err(std::io::Error::other)?;
-        let mut tls_stream = rustls::StreamOwned::new(conn, stream);
-        handle_message_loop(&mut tls_stream, &ready_flag, db_pool)
-    } else {
-        let mut stream = stream;
-        handle_message_loop(&mut stream, &ready_flag, db_pool)
-    }
+    let conn = rustls::ServerConnection::new(tls_config)
+        .map_err(std::io::Error::other)?;
+    let mut tls_stream = rustls::StreamOwned::new(conn, stream);
+    handle_message_loop(&mut tls_stream, &ready_flag, db_pool)
 }
 
 /// Maximum CBOR nesting depth allowed. Prevents stack overflow from deeply nested payloads.
