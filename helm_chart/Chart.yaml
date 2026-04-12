@@ -4,7 +4,7 @@ description: LinkKeys identity protocol server
 type: application
 
 # Chart version — updated automatically by release workflow
-version: 0.4.6
+version: 0.5.0
 
 # Application version — matches the project release version
-appVersion: "0.4.6"
+appVersion: "0.5.0"
