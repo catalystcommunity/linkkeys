@@ -13,4 +13,4 @@ job:
   command: "bash /job/src/.reactorcide/jobs/scripts/website-build-test.sh"
   timeout: 900
   capabilities:
-    - docker
+    - builder
