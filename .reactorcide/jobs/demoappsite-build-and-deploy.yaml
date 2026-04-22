@@ -12,7 +12,7 @@ job:
   command: "bash /job/src/.reactorcide/jobs/scripts/demoappsite-build-and-deploy.sh"
   timeout: 1800
   capabilities:
-    - docker
+    - builder
 environment:
   REGISTRY_INTERNAL: "10.16.0.1:5000"
   REGISTRY_INTERNAL_PATH: "public/catalystcommunity/linkkeys-demoappsite"

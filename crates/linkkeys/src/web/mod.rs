@@ -7,7 +7,7 @@ pub mod nonce_store;
 pub mod rp;
 
 use rocket::form::FromForm;
-use rocket::http::{ContentType, Status};
+use rocket::http::{ContentType, CookieJar, Status};
 use rocket::response::content::RawHtml;
 use rocket::response::status::Custom;
 use rocket::response::Redirect;
@@ -131,6 +131,24 @@ fn validate_callback_url(url: &str) -> bool {
         allowed.split(',').map(|s| s.trim()).collect()
     };
     origins.iter().any(|origin| url.starts_with(origin))
+}
+
+// -- Landing page --
+
+#[rocket::get("/")]
+fn index(pool: &State<DbPool>, cookies: &CookieJar<'_>) -> RawHtml<String> {
+    let (is_logged_in, is_admin) = match account_ui::get_session_user_id(cookies) {
+        Some(uid) => (true, account_ui::is_user_admin(pool.inner(), &uid)),
+        None => (false, false),
+    };
+    let nav = account_ui::build_nav("", is_admin, is_logged_in);
+    let domain = get_domain_name();
+    let content = format!(
+        r#"<h1>LinkKeys for {domain}</h1>
+<p>Find out more about LinkKeys at <a href="https://github.com/catalystcommunity/linkkeys">https://github.com/catalystcommunity/linkkeys</a> or join the discord!</p>"#,
+        domain = html_escape(&domain),
+    );
+    account_ui::layout(&format!("LinkKeys for {}", domain), &nav, &content)
 }
 
 // -- Healthcheck / Readiness --
@@ -585,6 +603,7 @@ pub async fn launch_rocket(db_pool: DbPool, ready_flag: Arc<AtomicBool>) {
     };
 
     let mut routes = rocket::routes![
+        index,
         healthcheck,
         readiness,
         hello_get,
