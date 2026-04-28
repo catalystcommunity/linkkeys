@@ -27,8 +27,12 @@ job:
     # Create test database
     createdb -h /tmp -U runner linkkeys_test
 
-    git clone --branch "${REACTORCIDE_PR_REF}" "${REACTORCIDE_SOURCE_URL}" /workspace
-    cd /workspace
+    if [ "${REACTORCIDE_WORKER_MODE:-remote}" = "local" ]; then
+      cd /job/src
+    else
+      git clone --branch "${REACTORCIDE_PR_REF}" "${REACTORCIDE_SOURCE_URL}" /workspace
+      cd /workspace
+    fi
 
     echo "=== Running tests (PostgreSQL backend) ==="
     TEST_DATABASE_BACKEND=postgres \

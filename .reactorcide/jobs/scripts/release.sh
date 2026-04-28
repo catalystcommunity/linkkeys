@@ -4,7 +4,7 @@ set -e
 SEMVER_TAGS_VERSION="v0.4.0"
 GHCLI_VERSION="2.63.2"
 
-cd /workspace
+# PWD is set by the caller (release.yaml): /workspace in CI, /job/src in run-local.
 
 # -------------------------------------------------------------------
 # 1. Install semver-tags
@@ -48,13 +48,17 @@ sed -i "s/^appVersion: .*/appVersion: \"${VERSION}\"/" demoappsite/helm/Chart.ya
 echo "${VERSION}" > demoappsite/version/VERSION.txt
 echo "${VERSION}" > version/VERSION.txt
 
-# Commit the version bump (semver-tags already tagged, so this is a follow-up commit)
-git config user.name "Catalyst Community (automation)"
-git config user.email "automation@catalystcommunity.dev"
-git remote set-url origin "https://x-access-token:${GITHUB_PAT}@github.com/${REACTORCIDE_REPO}.git"
-git add helm_chart/Chart.yaml website/content/extra_files/VERSION.txt demoappsite/helm/Chart.yaml demoappsite/version/VERSION.txt version/VERSION.txt
-git commit -m "ci: bump version to ${VERSION}" || echo "No version changes to commit"
-git push || echo "Push failed, continuing with release"
+# SKIP_GITHUB=true skips push and release-create; on-disk file edits and the build still run.
+if [ "${SKIP_GITHUB:-false}" = "true" ]; then
+  echo "=== SKIP_GITHUB=true: skipping version-bump commit and push ==="
+else
+  git config user.name "Catalyst Community (automation)"
+  git config user.email "automation@catalystcommunity.dev"
+  git remote set-url origin "https://x-access-token:${GITHUB_PAT}@github.com/${REACTORCIDE_REPO}.git"
+  git add helm_chart/Chart.yaml website/content/extra_files/VERSION.txt demoappsite/helm/Chart.yaml demoappsite/version/VERSION.txt version/VERSION.txt
+  git commit -m "ci: bump version to ${VERSION}" || echo "No version changes to commit"
+  git push || echo "Push failed, continuing with release"
+fi
 
 # -------------------------------------------------------------------
 # 4. Build the release binary
@@ -71,15 +75,20 @@ tar -czf "${RELEASE_DIR}/${ARCHIVE_NAME}.tar.gz" -C target/release linkkeys
 # -------------------------------------------------------------------
 # 5. Install gh CLI and create GitHub release
 # -------------------------------------------------------------------
-echo "=== Creating GitHub release ==="
-wget -q "https://github.com/cli/cli/releases/download/v${GHCLI_VERSION}/gh_${GHCLI_VERSION}_linux_amd64.tar.gz" -O /tmp/gh.tar.gz
-tar -xzf /tmp/gh.tar.gz -C /tmp
-export PATH="/tmp/gh_${GHCLI_VERSION}_linux_amd64/bin:$PATH"
+if [ "${SKIP_GITHUB:-false}" = "true" ]; then
+  echo "=== SKIP_GITHUB=true: skipping GitHub release create ==="
+  echo "=== Built artifact left in ${RELEASE_DIR} for inspection ==="
+else
+  echo "=== Creating GitHub release ==="
+  wget -q "https://github.com/cli/cli/releases/download/v${GHCLI_VERSION}/gh_${GHCLI_VERSION}_linux_amd64.tar.gz" -O /tmp/gh.tar.gz
+  tar -xzf /tmp/gh.tar.gz -C /tmp
+  export PATH="/tmp/gh_${GHCLI_VERSION}_linux_amd64/bin:$PATH"
 
-GH_TOKEN="${GITHUB_PAT}" gh release create "${NEW_TAG}" \
-  --repo "${REACTORCIDE_REPO}" \
-  --title "${NEW_TAG}" \
-  --generate-notes \
-  ${RELEASE_DIR}/*
+  GH_TOKEN="${GITHUB_PAT}" gh release create "${NEW_TAG}" \
+    --repo "${REACTORCIDE_REPO}" \
+    --title "${NEW_TAG}" \
+    --generate-notes \
+    ${RELEASE_DIR}/*
 
-echo "=== Released ${NEW_TAG} ==="
+  echo "=== Released ${NEW_TAG} ==="
+fi
