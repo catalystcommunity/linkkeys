@@ -10,8 +10,12 @@ job:
   image: 10.16.0.1:5000/public/reactorcide/runnerbase:dev
   command: |
     set -e
-    git clone --branch "${REACTORCIDE_PR_REF}" "${REACTORCIDE_SOURCE_URL}" /job/src
-    cd /job/src
+    if [ "${REACTORCIDE_WORKER_MODE:-remote}" = "local" ]; then
+      cd /job/src
+    else
+      git clone --branch "${REACTORCIDE_PR_REF}" "${REACTORCIDE_SOURCE_URL}" /job/src
+      cd /job/src
+    fi
 
     echo "=== Validating Conventional Commits ==="
     PATTERN='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?!?: .+'

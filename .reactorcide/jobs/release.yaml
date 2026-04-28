@@ -13,8 +13,12 @@ job:
       apt-get update && apt-get install -y --no-install-recommends \
         libpq-dev libsqlite3-dev pkg-config git wget
     fi
-    git clone "https://x-access-token:${GITHUB_PAT}@github.com/${REACTORCIDE_REPO}.git" /workspace
-    cd /workspace
+    if [ "${REACTORCIDE_WORKER_MODE:-remote}" = "local" ]; then
+      cd /job/src
+    else
+      git clone "https://x-access-token:${GITHUB_PAT}@github.com/${REACTORCIDE_REPO}.git" /workspace
+      cd /workspace
+    fi
     sh .reactorcide/jobs/scripts/release.sh
   timeout: 3600
   priority: 15
