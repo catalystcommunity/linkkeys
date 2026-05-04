@@ -1,7 +1,7 @@
 name: linkkeys-server-deploy
 description: "Deploy a LinkKeys server instance via Helm. Use with an overlay to set namespace, release name, values, and secrets."
 job:
-  image: 10.16.0.1:5000/public/reactorcide/runnerbase:dev
+  image: containers.catalystsquad.com/public/reactorcide/runnerbase:dev
   command: "bash /job/src/.reactorcide/jobs/scripts/linkkeys-server-deploy.sh"
   timeout: 600
 environment:
@@ -12,5 +12,4 @@ environment:
   K8S_NAMESPACE: ""
   HELM_RELEASE: ""
   HELM_VALUES_FILE: ""
-  IMAGE_TAG: "0.4.0"
   DOMAIN_KEY_PASSPHRASE: ""

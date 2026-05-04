@@ -1,5 +1,5 @@
 image:
-  repository: 10.16.0.1:5000/public/catalystcommunity/linkkeys
+  repository: containers.catalystsquad.com/public/catalystcommunity/linkkeys
 
 server:
   domainName: "todandlorna.com"
@@ -7,6 +7,14 @@ server:
   publicPort: "443"
   disableTls: "true"
   disableTcpTls: "true"
+
+# Dual-role: this instance serves IDP traffic for todandlorna.com AND
+# acts as an RP for consuming apps (e.g. longhouse). passwordAuth must
+# stay true so the IDP login form remains mounted.
+rp:
+  enabled: true
+  apiKeyAuth: true
+  passwordAuth: true
 
 database:
   backend: postgres

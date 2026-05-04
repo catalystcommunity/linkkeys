@@ -23,7 +23,7 @@ fi
 echo "Namespace:  ${K8S_NAMESPACE}"
 echo "Release:    ${HELM_RELEASE}"
 echo "Values:     ${HELM_VALUES_FILE}"
-echo "Image tag:  ${IMAGE_TAG:-latest}"
+echo "Image tag:  ${IMAGE_TAG:-(chart appVersion)}"
 
 # ================================================
 # Setup tools
@@ -62,7 +62,7 @@ if [[ -n "${REGISTRY_USER:-}" ]] && [[ -n "${REGISTRY_PASSWORD:-}" ]]; then
         --namespace "${K8S_NAMESPACE}" \
         --save-config \
         --dry-run=client \
-        --docker-server="10.16.0.1:5000" \
+        --docker-server="containers.catalystsquad.com" \
         --docker-username="${REGISTRY_USER}" \
         --docker-password="${REGISTRY_PASSWORD}" \
         -o yaml | kubectl apply -f -
@@ -92,11 +92,15 @@ echo "================================================"
 echo "Deploying with Helm"
 echo "================================================"
 
-# Write runtime overrides to a temp values file (no --set needed)
+# Write runtime overrides to a temp values file (no --set needed).
+# IMAGE_TAG defaults to empty so the chart's
+# {{ .Values.image.tag | default .Chart.AppVersion }} fallback picks
+# the released version. Overlays may set IMAGE_TAG explicitly to pin
+# a specific tag (e.g. for rollback).
 RUNTIME_VALUES="/tmp/runtime-values.yaml"
 cat > "${RUNTIME_VALUES}" <<VALS
 image:
-  tag: "${IMAGE_TAG:-latest}"
+  tag: "${IMAGE_TAG:-}"
 server:
   domainKeyPassphrase: "${PASSPHRASE}"
 VALS

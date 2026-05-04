@@ -4,5 +4,5 @@
 domain: catalystlinkkeys.com
 sitefilePath: "/site/root"
 image:
-  repository: 10.16.0.1:5000/public/catalystcommunity/linkkeys-website
+  repository: containers.catalystsquad.com/public/catalystcommunity/linkkeys-website
   # tag will be provided by --set image.tag=...

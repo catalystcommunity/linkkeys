@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  repository: 10.16.0.1:5000/public/catalystcommunity/linkkeys-demoappsite
+  repository: containers.catalystsquad.com/public/catalystcommunity/linkkeys-demoappsite
   pullPolicy: IfNotPresent
   tag: ""
 
