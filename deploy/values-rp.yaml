@@ -1,5 +1,5 @@
 image:
-  repository: 10.16.0.1:5000/public/catalystcommunity/linkkeys
+  repository: containers.catalystsquad.com/public/catalystcommunity/linkkeys
 
 server:
   domainName: "linkidspec.com"

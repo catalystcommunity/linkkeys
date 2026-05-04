@@ -8,13 +8,13 @@ triggers:
 paths:
   include: ["website/content/extra_files/VERSION.txt"]
 job:
-  image: 10.16.0.1:5000/public/reactorcide/runnerbase:dev
+  image: containers.catalystsquad.com/public/reactorcide/runnerbase:dev
   command: "bash /job/src/.reactorcide/jobs/scripts/website-build-and-deploy.sh"
   timeout: 1800
   capabilities:
     - builder
 environment:
-  REGISTRY_INTERNAL: "10.16.0.1:5000"
+  REGISTRY_INTERNAL: "containers.catalystsquad.com"
   REGISTRY_INTERNAL_PATH: "public/catalystcommunity/linkkeys-website"
   REGISTRY_EXTERNAL: "containers.catalystsquad.com"
   REGISTRY_USER: "${secret:catalystcommunity/registry:user}"

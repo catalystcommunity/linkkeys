@@ -1,7 +1,7 @@
 name: linkkeys-test-postgres
 description: "Run tests against PostgreSQL backend"
 job:
-  image: 10.16.0.1:5000/public/reactorcide/runnerbase:dev
+  image: containers.catalystsquad.com/public/reactorcide/runnerbase:dev
   command: |
     set -e
 
