@@ -1,8 +1,8 @@
 use rocket::http::{ContentType, Status};
 use rocket::State;
 
-use linkkeys::db::DbPool;
-use linkkeys::services::account;
+use crate::db::DbPool;
+use crate::services::account;
 
 use liblinkkeys::generated::types::ChangePasswordRequest;
 
