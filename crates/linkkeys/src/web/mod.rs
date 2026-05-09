@@ -19,11 +19,11 @@ use std::sync::Arc;
 
 use rand::Rng;
 
-use linkkeys::conversions::{get_domain_name, html_escape};
-use linkkeys::db::DbPool;
-use linkkeys::services::auth::PasswordAuthenticator;
-use linkkeys::services::handshake::HandshakeHandler;
-use linkkeys::services::hello::HelloHandler;
+use crate::conversions::{get_domain_name, html_escape};
+use crate::db::DbPool;
+use crate::services::auth::PasswordAuthenticator;
+use crate::services::handshake::HandshakeHandler;
+use crate::services::hello::HelloHandler;
 
 use liblinkkeys::generated::types::{
     DomainPublicKey, GetDomainKeysResponse, GetUserKeysResponse, UserInfo,
@@ -62,7 +62,7 @@ fn db_err_to_status(e: diesel::result::Error) -> Status {
 /// Sign an identity assertion for the given user, using the first active domain key.
 fn sign_assertion_for_user(
     pool: &DbPool,
-    user: &linkkeys::db::models::User,
+    user: &crate::db::models::User,
     audience: &str,
     nonce: &str,
 ) -> Result<String, Status> {
@@ -424,7 +424,7 @@ async fn auth_authorize_post(
 
     let authenticator = PasswordAuthenticator::new(pool.inner().clone());
 
-    let user = match linkkeys::services::auth::Authenticator::authenticate(
+    let user = match crate::services::auth::Authenticator::authenticate(
         &authenticator,
         &form.username,
         &form.password,
@@ -456,7 +456,7 @@ async fn auth_authorize_post(
 
     if let Some(ref rp_domain) = form.relying_party {
         // New flow: encrypt the token for the relying party
-        match encrypt_token_for_rp(&token, rp_domain).await {
+        match encrypt_token_for_rp(pool, &token, rp_domain).await {
             Ok(encrypted) => {
                 let redirect_url = format!("{}{}encrypted_token={}", form.callback_url, separator, encrypted);
                 Ok(Redirect::found(redirect_url))
@@ -479,13 +479,30 @@ async fn auth_authorize_post(
 }
 
 /// Encrypt a signed assertion token for a relying party.
-/// Fetches the RP's public keys via DNS + HTTP, converts to X25519, encrypts.
-async fn encrypt_token_for_rp(
+///
+/// If the RP's domain equals this server's `DOMAIN_NAME` (single instance
+/// acting as both IDP and RP), the active domain public keys are read
+/// directly from the local DB. Otherwise, the keys are fetched from the
+/// RP's `_linkkeys.<domain>` TXT api_base via HTTP. Either way, the
+/// first active key is used to derive an X25519 public key, and the
+/// signed assertion is sealed-box-encrypted to that key.
+pub async fn encrypt_token_for_rp(
+    pool: &DbPool,
     token_url_param: &str,
     rp_domain: &str,
 ) -> Result<String, Status> {
-    // Fetch RP's domain keys
-    let rp_keys = rp::fetch_domain_keys(rp_domain).await.map_err(|_| Status::BadGateway)?;
+    // Self-RP fast path: same instance is both IDP and RP. Pull the active
+    // domain keys from our own DB instead of doing a DNS+HTTP round-trip
+    // to ourselves (which fails on clusters without hairpin NAT).
+    let rp_keys: Vec<DomainPublicKey> = if rp_domain == get_domain_name() {
+        pool.list_active_domain_keys()
+            .map_err(|_| Status::InternalServerError)?
+            .iter()
+            .map(Into::into)
+            .collect()
+    } else {
+        rp::fetch_domain_keys(rp_domain).await.map_err(|_| Status::BadGateway)?
+    };
     if rp_keys.is_empty() {
         return Err(Status::BadGateway);
     }

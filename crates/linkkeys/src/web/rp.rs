@@ -4,8 +4,8 @@ use rocket::State;
 use serde::{Deserialize, Serialize};
 use std::env;
 
-use linkkeys::conversions::get_domain_name;
-use linkkeys::db::DbPool;
+use crate::conversions::get_domain_name;
+use crate::db::DbPool;
 
 use super::guard::AuthenticatedUser;
 

@@ -1,6 +1,6 @@
-use linkkeys::db::models::User;
-use linkkeys::db::DbPool;
-use linkkeys::services::auth::ApiKeyAuthenticator;
+use crate::db::models::User;
+use crate::db::DbPool;
+use crate::services::auth::ApiKeyAuthenticator;
 use rocket::http::Status;
 use rocket::request::{FromRequest, Outcome, Request};
 

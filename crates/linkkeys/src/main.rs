@@ -3,7 +3,6 @@ extern crate rocket;
 mod cli;
 mod dns;
 mod tcp;
-mod web;
 
 use clap::Parser;
 use cli::{
@@ -43,7 +42,7 @@ async fn main() {
                 });
             }
 
-            web::launch_rocket(db_pool, ready_flag).await;
+            linkkeys::web::launch_rocket(db_pool, ready_flag).await;
         }
 
         Commands::Domain(DomainCommands::Init) => domain_init(),

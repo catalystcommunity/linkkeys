@@ -1,10 +1,10 @@
 use rocket::http::{ContentType, Status};
 use rocket::State;
 
-use linkkeys::conversions::get_domain_name;
-use linkkeys::db::DbPool;
-use linkkeys::services::admin;
-use linkkeys::services::authorization;
+use crate::conversions::get_domain_name;
+use crate::db::DbPool;
+use crate::services::admin;
+use crate::services::authorization;
 
 use liblinkkeys::generated::types::{
     CheckPermissionRequest, CreateUserRequest, DeactivateUserRequest, GrantRelationRequest,

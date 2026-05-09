@@ -3,10 +3,10 @@ use rocket::response::content::RawHtml;
 use rocket::response::Redirect;
 use rocket::State;
 
-use linkkeys::conversions::{get_domain_name, html_escape};
-use linkkeys::db::DbPool;
-use linkkeys::services::auth::{Authenticator, PasswordAuthenticator};
-use linkkeys::services::{account, authorization};
+use crate::conversions::{get_domain_name, html_escape};
+use crate::db::DbPool;
+use crate::services::auth::{Authenticator, PasswordAuthenticator};
+use crate::services::{account, authorization};
 
 use liblinkkeys::generated::types::ChangePasswordRequest;
 
