@@ -136,18 +136,20 @@ struct GeneratedKey {
     fingerprint: String,
 }
 
-fn generate_and_store_keypairs(
+fn generate_and_store_keypairs<F>(
     db_pool: &linkkeys::db::DbPool,
     passphrase: &str,
     staggered_years: &[i64],
-    store_fn: &dyn Fn(
+    store_fn: F,
+) where
+    F: Fn(
         &linkkeys::db::DbPool,
         &[u8],
         &[u8],
         &str,
         chrono::DateTime<chrono::Utc>,
     ) -> Result<GeneratedKey, String>,
-) {
+{
     for &years in staggered_years {
         let (verifying_key, signing_key) = liblinkkeys::crypto::generate_ed25519_keypair();
         let pk_bytes = verifying_key.as_bytes().to_vec();
@@ -175,7 +177,7 @@ fn domain_init() {
     let db_pool = pool_with_migrations();
 
     println!("Generating 3 domain keypairs...");
-    generate_and_store_keypairs(&db_pool, &passphrase, &[2, 3, 4], &|pool, pk, enc, fp, exp| {
+    generate_and_store_keypairs(&db_pool, &passphrase, &[2, 3, 4], |pool, pk, enc, fp, exp| {
         match pool {
             #[cfg(feature = "postgres")]
             linkkeys::db::DbPool::Postgres(p) => {
@@ -281,7 +283,7 @@ fn user_create(
         &db_pool,
         &passphrase,
         &[2, 3, 4],
-        &|pool, pk, enc, fp, exp| match pool {
+        |pool, pk, enc, fp, exp| match pool {
             #[cfg(feature = "postgres")]
             linkkeys::db::DbPool::Postgres(p) => {
                 let mut conn = p.get().map_err(|e| e.to_string())?;
@@ -685,7 +687,7 @@ fn claim_set(user_id: &str, claim_type: &str, claim_value: &str, expires: Option
         std::process::exit(1);
     });
 
-    let algorithm = liblinkkeys::crypto::SigningAlgorithm::from_str(&domain_key.algorithm)
+    let algorithm = liblinkkeys::crypto::SigningAlgorithm::parse_str(&domain_key.algorithm)
         .unwrap_or_else(|| {
             eprintln!("Unsupported algorithm: {}", domain_key.algorithm);
             std::process::exit(1);
@@ -701,15 +703,19 @@ fn claim_set(user_id: &str, claim_type: &str, claim_value: &str, expires: Option
     });
 
     let claim_value_bytes = claim_value.as_bytes();
+    let claim_id = uuid::Uuid::now_v7().to_string();
+    let expires_str = expires_chrono.as_ref().map(|e| e.to_rfc3339());
     let claim = liblinkkeys::claims::sign_claim(
-        &uuid::Uuid::now_v7().to_string(),
-        claim_type,
-        claim_value_bytes,
-        user_id,
+        &liblinkkeys::claims::ClaimSpec {
+            claim_id: &claim_id,
+            claim_type,
+            claim_value: claim_value_bytes,
+            user_id,
+            expires_at: expires_str.as_deref(),
+        },
         &domain_key.id,
         algorithm,
         &sk_bytes,
-        expires_chrono.as_ref().map(|e| e.to_rfc3339()).as_deref(),
     )
     .unwrap_or_else(|e| {
         eprintln!("Failed to sign claim: {}", e);

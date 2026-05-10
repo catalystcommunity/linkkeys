@@ -38,28 +38,34 @@ fn claim_sign_payload(claim_type: &str, claim_value: &[u8], user_id: &str) -> Ve
     out
 }
 
+/// What is being claimed: the borrowed pieces that go into a `Claim`
+/// independent of *who* is signing it.
+pub struct ClaimSpec<'a> {
+    pub claim_id: &'a str,
+    pub claim_type: &'a str,
+    pub claim_value: &'a [u8],
+    pub user_id: &'a str,
+    pub expires_at: Option<&'a str>,
+}
+
 pub fn sign_claim(
-    claim_id: &str,
-    claim_type: &str,
-    claim_value: &[u8],
-    user_id: &str,
+    spec: &ClaimSpec<'_>,
     key_id: &str,
     algorithm: SigningAlgorithm,
     private_key_bytes: &[u8],
-    expires_at: Option<&str>,
 ) -> Result<Claim, CryptoError> {
-    let payload = claim_sign_payload(claim_type, claim_value, user_id);
+    let payload = claim_sign_payload(spec.claim_type, spec.claim_value, spec.user_id);
     let signature = crypto::sign_with_algorithm(algorithm, &payload, private_key_bytes)?;
 
     Ok(Claim {
-        claim_id: claim_id.to_string(),
-        user_id: user_id.to_string(),
-        claim_type: claim_type.to_string(),
-        claim_value: claim_value.to_vec(),
+        claim_id: spec.claim_id.to_string(),
+        user_id: spec.user_id.to_string(),
+        claim_type: spec.claim_type.to_string(),
+        claim_value: spec.claim_value.to_vec(),
         signed_by_key_id: key_id.to_string(),
         signature,
         created_at: Utc::now().to_rfc3339(),
-        expires_at: expires_at.map(|s| s.to_string()),
+        expires_at: spec.expires_at.map(|s| s.to_string()),
         revoked_at: None,
     })
 }
@@ -101,9 +107,18 @@ mod tests {
         let domain_key = make_domain_key("key-1", &pk);
 
         let claim = sign_claim(
-            "claim-1", "email", b"alice@example.com", "user-123", "key-1",
-            SigningAlgorithm::Ed25519, &sk, None,
-        ).unwrap();
+            &ClaimSpec {
+                claim_id: "claim-1",
+                claim_type: "email",
+                claim_value: b"alice@example.com",
+                user_id: "user-123",
+                expires_at: None,
+            },
+            "key-1",
+            SigningAlgorithm::Ed25519,
+            &sk,
+        )
+        .unwrap();
 
         assert!(verify_claim(&claim, &[domain_key]).is_ok());
     }
@@ -114,9 +129,18 @@ mod tests {
         let domain_key = make_domain_key("key-1", &pk);
 
         let mut claim = sign_claim(
-            "claim-1", "email", b"alice@example.com", "user-123", "key-1",
-            SigningAlgorithm::Ed25519, &sk, None,
-        ).unwrap();
+            &ClaimSpec {
+                claim_id: "claim-1",
+                claim_type: "email",
+                claim_value: b"alice@example.com",
+                user_id: "user-123",
+                expires_at: None,
+            },
+            "key-1",
+            SigningAlgorithm::Ed25519,
+            &sk,
+        )
+        .unwrap();
 
         claim.claim_value = b"eve@evil.com".to_vec();
         assert!(matches!(verify_claim(&claim, &[domain_key]), Err(ClaimError::SignatureInvalid)));
@@ -129,9 +153,18 @@ mod tests {
         let domain_key = make_domain_key("key-2", &pk2);
 
         let claim = sign_claim(
-            "claim-1", "role", b"admin", "user-123", "key-1",
-            SigningAlgorithm::Ed25519, &sk1, None,
-        ).unwrap();
+            &ClaimSpec {
+                claim_id: "claim-1",
+                claim_type: "role",
+                claim_value: b"admin",
+                user_id: "user-123",
+                expires_at: None,
+            },
+            "key-1",
+            SigningAlgorithm::Ed25519,
+            &sk1,
+        )
+        .unwrap();
 
         assert!(matches!(verify_claim(&claim, &[domain_key]), Err(ClaimError::KeyNotFound(_))));
     }
@@ -142,9 +175,18 @@ mod tests {
         let domain_key = make_domain_key("key-1", &pk);
 
         let mut claim = sign_claim(
-            "claim-1", "role", b"admin", "user-123", "key-1",
-            SigningAlgorithm::Ed25519, &sk, None,
-        ).unwrap();
+            &ClaimSpec {
+                claim_id: "claim-1",
+                claim_type: "role",
+                claim_value: b"admin",
+                user_id: "user-123",
+                expires_at: None,
+            },
+            "key-1",
+            SigningAlgorithm::Ed25519,
+            &sk,
+        )
+        .unwrap();
 
         claim.claim_type = "email".to_string();
         assert!(matches!(verify_claim(&claim, &[domain_key]), Err(ClaimError::SignatureInvalid)));
@@ -157,9 +199,18 @@ mod tests {
         domain_key.algorithm = "unknown-alg".to_string();
 
         let claim = sign_claim(
-            "claim-1", "role", b"admin", "user-123", "key-1",
-            SigningAlgorithm::Ed25519, &sk, None,
-        ).unwrap();
+            &ClaimSpec {
+                claim_id: "claim-1",
+                claim_type: "role",
+                claim_value: b"admin",
+                user_id: "user-123",
+                expires_at: None,
+            },
+            "key-1",
+            SigningAlgorithm::Ed25519,
+            &sk,
+        )
+        .unwrap();
 
         assert!(matches!(verify_claim(&claim, &[domain_key]), Err(ClaimError::UnsupportedAlgorithm(_))));
     }

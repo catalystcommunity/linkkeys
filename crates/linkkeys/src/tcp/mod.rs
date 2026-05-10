@@ -535,10 +535,7 @@ mod depth_tests {
     #[test]
     fn test_deeply_nested_array_rejected() {
         // Build CBOR with 100 nested arrays: each is major type 4, additional 1 (one-element array)
-        let mut data = Vec::new();
-        for _ in 0..100 {
-            data.push(0x81); // array of 1 element
-        }
+        let mut data = vec![0x81; 100];
         data.push(0x00); // integer 0 at the bottom
         assert!(!check_cbor_depth(&data));
     }
@@ -546,10 +543,7 @@ mod depth_tests {
     #[test]
     fn test_moderate_nesting_passes() {
         // 10 levels of nesting — well under the limit
-        let mut data = Vec::new();
-        for _ in 0..10 {
-            data.push(0x81); // array of 1
-        }
+        let mut data = vec![0x81; 10];
         data.push(0x00);
         assert!(check_cbor_depth(&data));
     }

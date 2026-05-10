@@ -222,7 +222,7 @@ pub fn set_claim(
         liblinkkeys::crypto::decrypt_private_key(&domain_key.private_key_encrypted, passphrase.as_bytes())
             .map_err(|e| svc_err(&format!("decrypt error: {}", e)))?;
 
-    let algorithm = liblinkkeys::crypto::SigningAlgorithm::from_str(&domain_key.algorithm)
+    let algorithm = liblinkkeys::crypto::SigningAlgorithm::parse_str(&domain_key.algorithm)
         .ok_or_else(|| svc_err(&format!("unsupported algorithm: {}", domain_key.algorithm)))?;
 
     let expires_chrono = req.expires_at.as_deref().map(|s| {
@@ -232,16 +232,19 @@ pub fn set_claim(
 
     let claim_id = uuid::Uuid::now_v7().to_string();
     let claim_value_bytes = req.claim_value.as_bytes();
+    let expires_str = expires_chrono.as_ref().map(|e| e.to_rfc3339());
 
     let signed_claim = liblinkkeys::claims::sign_claim(
-        &claim_id,
-        &req.claim_type,
-        claim_value_bytes,
-        &req.user_id,
+        &liblinkkeys::claims::ClaimSpec {
+            claim_id: &claim_id,
+            claim_type: &req.claim_type,
+            claim_value: claim_value_bytes,
+            user_id: &req.user_id,
+            expires_at: expires_str.as_deref(),
+        },
         &domain_key.id,
         algorithm,
         &sk_bytes,
-        expires_chrono.as_ref().map(|e| e.to_rfc3339()).as_deref(),
     )
     .map_err(|e| svc_err(&format!("sign error: {}", e)))?;
 

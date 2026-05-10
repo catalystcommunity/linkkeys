@@ -19,7 +19,12 @@ pub enum SigningAlgorithm {
 }
 
 impl SigningAlgorithm {
-    pub fn from_str(s: &str) -> Option<SigningAlgorithm> {
+    /// Parse a wire-format algorithm string (e.g. "ed25519") into the
+    /// enum. Returns None for unsupported algorithms. Named `parse_str`
+    /// rather than `from_str` to avoid confusion with `std::str::FromStr`,
+    /// whose contract differs (returns `Result`, takes ownership of the
+    /// error type).
+    pub fn parse_str(s: &str) -> Option<SigningAlgorithm> {
         match s {
             "ed25519" => Some(SigningAlgorithm::Ed25519),
             _ => None,
@@ -152,7 +157,7 @@ pub fn resolve_and_verify(
     signature_bytes: &[u8],
     public_key_bytes: &[u8],
 ) -> Result<(), CryptoError> {
-    let alg = SigningAlgorithm::from_str(algorithm)
+    let alg = SigningAlgorithm::parse_str(algorithm)
         .ok_or_else(|| CryptoError::UnsupportedAlgorithm(algorithm.to_string()))?;
     verify_with_algorithm(alg, message, signature_bytes, public_key_bytes)
 }
@@ -263,11 +268,11 @@ pub fn ed25519_private_to_x25519(ed25519_private: &[u8]) -> Result<[u8; 32], Cry
 /// 3. Derive an AES-256 key from the shared secret via SHA-256
 /// 4. Encrypt with AES-256-GCM using a random 12-byte nonce
 ///
-/// Returns (ephemeral_public_key, nonce, ciphertext) for constructing an EncryptedToken.
+/// Returns the parts needed to construct an `EncryptedToken`.
 pub fn sealed_box_encrypt(
     plaintext: &[u8],
     recipient_x25519_public: &[u8; 32],
-) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), CryptoError> {
+) -> Result<SealedBox, CryptoError> {
     let recipient_pk = X25519PublicKey::from(*recipient_x25519_public);
 
     // Generate ephemeral X25519 keypair
@@ -296,11 +301,20 @@ pub fn sealed_box_encrypt(
         .encrypt(nonce, plaintext)
         .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
 
-    Ok((
-        ephemeral_public.as_bytes().to_vec(),
-        nonce_bytes.to_vec(),
+    Ok(SealedBox {
+        ephemeral_public_key: ephemeral_public.as_bytes().to_vec(),
+        nonce: nonce_bytes.to_vec(),
         ciphertext,
-    ))
+    })
+}
+
+/// Output of `sealed_box_encrypt`: the three byte vectors needed to
+/// construct an `EncryptedToken` for the wire.
+#[derive(Debug, Clone)]
+pub struct SealedBox {
+    pub ephemeral_public_key: Vec<u8>,
+    pub nonce: Vec<u8>,
+    pub ciphertext: Vec<u8>,
 }
 
 /// Sealed-box decrypt using the recipient's X25519 private key.
@@ -446,8 +460,14 @@ mod tests {
         let x_priv = ed25519_private_to_x25519(sk.as_bytes()).unwrap();
 
         let plaintext = b"hello sealed box";
-        let (ephemeral_pk, nonce, ciphertext) = sealed_box_encrypt(plaintext, &x_pub).unwrap();
-        let decrypted = sealed_box_decrypt(&ephemeral_pk, &nonce, &ciphertext, &x_priv).unwrap();
+        let sealed = sealed_box_encrypt(plaintext, &x_pub).unwrap();
+        let decrypted = sealed_box_decrypt(
+            &sealed.ephemeral_public_key,
+            &sealed.nonce,
+            &sealed.ciphertext,
+            &x_priv,
+        )
+        .unwrap();
         assert_eq!(plaintext.as_slice(), decrypted.as_slice());
     }
 
@@ -459,8 +479,14 @@ mod tests {
         let x_priv_wrong = ed25519_private_to_x25519(sk2.as_bytes()).unwrap();
 
         let plaintext = b"secret message";
-        let (ephemeral_pk, nonce, ciphertext) = sealed_box_encrypt(plaintext, &x_pub).unwrap();
-        assert!(sealed_box_decrypt(&ephemeral_pk, &nonce, &ciphertext, &x_priv_wrong).is_err());
+        let sealed = sealed_box_encrypt(plaintext, &x_pub).unwrap();
+        assert!(sealed_box_decrypt(
+            &sealed.ephemeral_public_key,
+            &sealed.nonce,
+            &sealed.ciphertext,
+            &x_priv_wrong
+        )
+        .is_err());
     }
 
     #[test]
@@ -470,11 +496,17 @@ mod tests {
         let x_priv = ed25519_private_to_x25519(sk.as_bytes()).unwrap();
 
         let plaintext = b"secret message";
-        let (ephemeral_pk, nonce, mut ciphertext) = sealed_box_encrypt(plaintext, &x_pub).unwrap();
+        let mut sealed = sealed_box_encrypt(plaintext, &x_pub).unwrap();
         // Tamper with ciphertext
-        if let Some(byte) = ciphertext.first_mut() {
+        if let Some(byte) = sealed.ciphertext.first_mut() {
             *byte ^= 0xff;
         }
-        assert!(sealed_box_decrypt(&ephemeral_pk, &nonce, &ciphertext, &x_priv).is_err());
+        assert!(sealed_box_decrypt(
+            &sealed.ephemeral_public_key,
+            &sealed.nonce,
+            &sealed.ciphertext,
+            &x_priv
+        )
+        .is_err());
     }
 }

@@ -203,9 +203,21 @@ fn test_service_remove_claim() {
 
     // Create a claim through the DB to get a claim_id
     let sk_bytes = liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, b"test-passphrase").unwrap();
-    let algorithm = liblinkkeys::crypto::SigningAlgorithm::from_str(&dk.algorithm).unwrap();
+    let algorithm = liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm).unwrap();
     let claim_id = uuid::Uuid::now_v7().to_string();
-    let signed = liblinkkeys::claims::sign_claim(&claim_id, "role", b"admin", &user.id, &dk.id, algorithm, &sk_bytes, None).unwrap();
+    let signed = liblinkkeys::claims::sign_claim(
+        &liblinkkeys::claims::ClaimSpec {
+            claim_id: &claim_id,
+            claim_type: "role",
+            claim_value: b"admin",
+            user_id: &user.id,
+            expires_at: None,
+        },
+        &dk.id,
+        algorithm,
+        &sk_bytes,
+    )
+    .unwrap();
     let stored = pool.create_claim(&user.id, "role", b"admin", &dk.id, &signed.signature, None).unwrap();
 
     let req = RemoveClaimRequest { claim_id: stored.id.clone() };

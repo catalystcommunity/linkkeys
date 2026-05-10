@@ -64,7 +64,7 @@ pub fn sign_request_json(
     let sk_bytes = liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, passphrase.as_bytes())
         .map_err(|_| Status::InternalServerError)?;
 
-    let algorithm = liblinkkeys::crypto::SigningAlgorithm::from_str(&dk.algorithm)
+    let algorithm = liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm)
         .ok_or(Status::InternalServerError)?;
 
     let request = liblinkkeys::auth_request::build_auth_request(
@@ -159,6 +159,20 @@ pub async fn verify_assertion_json(
 }
 
 use base64ct::Encoding as _;
+
+/// Fetch a relying party's active public keys, preferring the local DB
+/// when this server is the relying party (single instance acts as both
+/// IDP and RP). Falls back to DNS+HTTP fetch otherwise.
+pub async fn fetch_rp_keys(
+    pool: &DbPool,
+    rp_domain: &str,
+) -> Result<Vec<liblinkkeys::generated::types::DomainPublicKey>, Box<dyn std::error::Error>> {
+    if rp_domain == get_domain_name() {
+        let keys = pool.list_active_domain_keys()?;
+        return Ok(keys.iter().map(Into::into).collect());
+    }
+    fetch_domain_keys(rp_domain).await
+}
 
 /// Fetch a domain's public keys by looking up its DNS TXT record and then
 /// fetching from its API base URL.

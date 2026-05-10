@@ -48,9 +48,21 @@ fn test_service_get_my_info() {
 
     // Add a claim
     let sk_bytes = liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, b"test-passphrase").unwrap();
-    let algorithm = liblinkkeys::crypto::SigningAlgorithm::from_str(&dk.algorithm).unwrap();
+    let algorithm = liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm).unwrap();
     let claim_id = uuid::Uuid::now_v7().to_string();
-    let signed = liblinkkeys::claims::sign_claim(&claim_id, "email", b"test@test.com", &user.id, &dk.id, algorithm, &sk_bytes, None).unwrap();
+    let signed = liblinkkeys::claims::sign_claim(
+        &liblinkkeys::claims::ClaimSpec {
+            claim_id: &claim_id,
+            claim_type: "email",
+            claim_value: b"test@test.com",
+            user_id: &user.id,
+            expires_at: None,
+        },
+        &dk.id,
+        algorithm,
+        &sk_bytes,
+    )
+    .unwrap();
     pool.create_claim(&user.id, "email", b"test@test.com", &dk.id, &signed.signature, None).unwrap();
 
     let resp = account::get_my_info(&pool, &user.id).unwrap();
