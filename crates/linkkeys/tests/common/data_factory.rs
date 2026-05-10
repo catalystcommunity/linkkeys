@@ -1,17 +1,25 @@
+// Test data factory: shared via `mod common;` in each test binary.
+// `#[allow(dead_code)]` on each item because not every test binary uses
+// every helper — Rust treats each test binary as its own crate, so any
+// unused helper would otherwise be flagged per-binary.
+
 use serde_json::Value;
 use std::collections::HashMap;
 
 use linkkeys::db::models::{AuthCredential, DomainKey, GuestbookEntry, Relation, User};
 use linkkeys::db::DbPool;
 
+#[allow(dead_code)]
 pub type DataMap = HashMap<String, Value>;
 
+#[allow(dead_code)]
 pub fn create_guestbook_entry(pool: &DbPool, overrides: &DataMap) -> GuestbookEntry {
     let name = extract_str(overrides, "name", || format!("test-guest-{}", rand_suffix()));
     pool.guestbook_create(&name)
         .expect("Failed to create test guestbook entry")
 }
 
+#[allow(dead_code)]
 pub fn create_user(pool: &DbPool, overrides: &DataMap) -> User {
     let username = extract_str(overrides, "username", || format!("test-user-{}", rand_suffix()));
     let display_name = extract_str(overrides, "display_name", || format!("Test User {}", rand_suffix()));
@@ -19,6 +27,7 @@ pub fn create_user(pool: &DbPool, overrides: &DataMap) -> User {
         .expect("Failed to create test user")
 }
 
+#[allow(dead_code)]
 pub fn create_auth_credential(
     pool: &DbPool,
     user_id: &str,
@@ -29,6 +38,7 @@ pub fn create_auth_credential(
         .expect("Failed to create test auth credential")
 }
 
+#[allow(dead_code)]
 pub fn create_domain_key(pool: &DbPool) -> DomainKey {
     let (vk, sk) = liblinkkeys::crypto::generate_ed25519_keypair();
     let pk_bytes = vk.as_bytes().to_vec();
@@ -42,6 +52,7 @@ pub fn create_domain_key(pool: &DbPool) -> DomainKey {
         .expect("Failed to create test domain key")
 }
 
+#[allow(dead_code)]
 pub fn create_relation(
     pool: &DbPool,
     subject_type: &str,
@@ -54,6 +65,7 @@ pub fn create_relation(
         .expect("Failed to create test relation")
 }
 
+#[allow(dead_code)]
 fn extract_str(overrides: &DataMap, key: &str, default: impl Fn() -> String) -> String {
     overrides
         .get(key)
@@ -62,6 +74,7 @@ fn extract_str(overrides: &DataMap, key: &str, default: impl Fn() -> String) -> 
         .unwrap_or_else(default)
 }
 
+#[allow(dead_code)]
 fn rand_suffix() -> String {
     use rand::Rng;
     let n: u32 = rand::thread_rng().gen();

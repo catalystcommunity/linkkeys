@@ -261,7 +261,7 @@ fn test_api_key_credential_stored_and_retrievable() {
     assert_eq!(creds.len(), 1);
 
     // Extract secret from the api_key and verify against stored hash
-    let secret = api_key.splitn(2, '.').nth(1).unwrap();
+    let secret = api_key.split_once('.').unwrap().1;
     assert!(bcrypt::verify(secret, &creds[0].credential_hash).unwrap());
 }
 

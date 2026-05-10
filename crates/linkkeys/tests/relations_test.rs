@@ -1,7 +1,6 @@
 mod common;
 
 use common::data_factory::{create_relation, create_user, DataMap};
-use serde_json::Value;
 
 #[test]
 fn test_create_relation() {

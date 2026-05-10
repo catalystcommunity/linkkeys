@@ -177,7 +177,6 @@ fn load_own_domain_cert() -> Result<(Vec<u8>, Vec<u8>), Box<dyn std::error::Erro
 
     let domain_name = linkkeys::conversions::get_domain_name();
     crate::tcp::tls::generate_domain_tls_cert(&domain_name, &seed)
-        .map_err(|e| e.into())
 }
 
 /// Send a frame: 4-byte big-endian length prefix + payload.

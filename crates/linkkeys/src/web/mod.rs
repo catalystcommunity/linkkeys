@@ -26,8 +26,13 @@ use crate::services::handshake::HandshakeHandler;
 use crate::services::hello::HelloHandler;
 
 use liblinkkeys::generated::types::{
-    DomainPublicKey, GetDomainKeysResponse, GetUserKeysResponse, UserInfo,
+    AuthRequest, DomainPublicKey, GetDomainKeysResponse, GetUserKeysResponse, UserInfo,
 };
+
+/// Wall-clock budget for a `signed_request` to be considered fresh, from
+/// the time the RP signed it to the time the user submits the login form.
+/// Covers the redirect-to-IDP hop, page render, and user typing time.
+const MAX_AUTH_REQUEST_AGE_SECONDS: i64 = 300;
 
 #[derive(Serialize, Deserialize)]
 struct HelloRequest {
@@ -77,7 +82,7 @@ fn sign_assertion_for_user(
         liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, passphrase.as_bytes())
             .map_err(|_| Status::InternalServerError)?;
 
-    let algorithm = liblinkkeys::crypto::SigningAlgorithm::from_str(&dk.algorithm)
+    let algorithm = liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm)
         .ok_or(Status::InternalServerError)?;
 
     let assertion = liblinkkeys::assertions::build_assertion(
@@ -283,20 +288,58 @@ fn handshake_json(body: String) -> Result<(ContentType, Vec<u8>), Status> {
 
 // -- Auth: Browser-facing HTML login flow --
 
+/// Per-flow inputs that round-trip through the login form. The
+/// `SignedRequest` variant carries only the `signed_request` blob — that
+/// alone is sufficient to recover relying_party, callback_url, and
+/// nonce on POST. The `Legacy` variant carries the bare callback_url
+/// and nonce that pre-signed-request callers still rely on.
+enum LoginFormFlow<'a> {
+    SignedRequest {
+        signed_request: &'a str,
+        relying_party: &'a str,
+    },
+    Legacy {
+        callback_url: &'a str,
+        nonce: &'a str,
+    },
+}
+
 fn render_login_form(
-    callback_url: &str,
-    nonce: &str,
+    flow: LoginFormFlow<'_>,
     username: &str,
     error: Option<&str>,
-    relying_party: Option<&str>,
 ) -> RawHtml<String> {
     let error_html = error
         .map(|e| format!(r#"<p class="error">{}</p>"#, html_escape(e)))
         .unwrap_or_default();
 
-    let rp_hidden = relying_party
-        .map(|rp| format!(r#"  <input type="hidden" name="relying_party" value="{}" />"#, html_escape(rp)))
-        .unwrap_or_default();
+    let (label_html, hidden_inputs) = match flow {
+        LoginFormFlow::SignedRequest {
+            signed_request,
+            relying_party,
+        } => (
+            format!(
+                r#"<p>Logging in to <strong>{}</strong></p>"#,
+                html_escape(relying_party)
+            ),
+            format!(
+                r#"  <input type="hidden" name="signed_request" value="{}" />"#,
+                html_escape(signed_request)
+            ),
+        ),
+        LoginFormFlow::Legacy {
+            callback_url,
+            nonce,
+        } => (
+            String::new(),
+            format!(
+                r#"  <input type="hidden" name="callback_url" value="{}" />
+  <input type="hidden" name="nonce" value="{}" />"#,
+                html_escape(callback_url),
+                html_escape(nonce),
+            ),
+        ),
+    };
 
     RawHtml(format!(
         r#"<!DOCTYPE html>
@@ -312,11 +355,10 @@ button {{ padding: 10px 20px; margin-top: 12px; }}
 <body>
 <h2>LinkKeys Login</h2>
 <p>Domain: <strong>{domain}</strong></p>
+{label}
 {error}
 <form method="POST" action="/auth/authorize">
-  <input type="hidden" name="callback_url" value="{callback_url}" />
-  <input type="hidden" name="nonce" value="{nonce}" />
-{rp_hidden}
+{hidden}
   <label>Username</label>
   <input type="text" name="username" value="{username}" autofocus />
   <label>Password</label>
@@ -326,57 +368,65 @@ button {{ padding: 10px 20px; margin-top: 12px; }}
 </body>
 </html>"#,
         domain = html_escape(&get_domain_name()),
+        label = label_html,
         error = error_html,
-        callback_url = html_escape(callback_url),
-        nonce = html_escape(nonce),
-        rp_hidden = rp_hidden,
+        hidden = hidden_inputs,
         username = html_escape(username),
     ))
 }
 
-#[rocket::get("/auth/authorize?<callback_url>&<nonce>&<user_hint>&<relying_party>&<signed_request>")]
-fn auth_authorize_get(
-    callback_url: &str,
-    nonce: &str,
+#[rocket::get("/auth/authorize?<callback_url>&<nonce>&<user_hint>&<signed_request>")]
+async fn auth_authorize_get(
+    pool: &State<DbPool>,
+    callback_url: Option<&str>,
+    nonce: Option<&str>,
     user_hint: Option<&str>,
-    relying_party: Option<&str>,
     signed_request: Option<&str>,
 ) -> Result<RawHtml<String>, Status> {
-    match (relying_party, signed_request) {
-        (Some(rp), Some(_sr)) => {
-            // New flow: verify the callback URL matches the relying party's domain.
-            // This prevents redirect attacks where domain A's login is sent to domain B.
-            let expected_origin = format!("https://{}", rp);
-            if !callback_url.starts_with(&expected_origin) {
-                return Err(Status::BadRequest);
-            }
+    if let Some(sr) = signed_request {
+        // New flow: signed_request is the only thing that matters. Any
+        // callback_url/nonce/relying_party query params are ignored.
+        match validate_signed_request(pool, sr).await {
+            Ok(request) => Ok(render_login_form(
+                LoginFormFlow::SignedRequest {
+                    signed_request: sr,
+                    relying_party: &request.relying_party,
+                },
+                user_hint.unwrap_or(""),
+                None,
+            )),
+            Err(e) => Ok(render_error_page(e.user_message())),
         }
-        (None, None) => {
-            // Legacy flow: validate callback URL against allowlist
-            if !validate_callback_url(callback_url) {
-                return Err(Status::BadRequest);
-            }
-        }
-        _ => {
-            // One present without the other is invalid
+    } else {
+        // Legacy flow: callback_url + nonce, validated against allowlist.
+        let cb = callback_url.ok_or(Status::BadRequest)?;
+        let n = nonce.ok_or(Status::BadRequest)?;
+        if !validate_callback_url(cb) {
             return Err(Status::BadRequest);
         }
+        Ok(render_login_form(
+            LoginFormFlow::Legacy {
+                callback_url: cb,
+                nonce: n,
+            },
+            user_hint.unwrap_or(""),
+            None,
+        ))
     }
-    Ok(render_login_form(
-        callback_url,
-        nonce,
-        user_hint.unwrap_or(""),
-        None,
-        relying_party,
-    ))
 }
 
 #[derive(FromForm)]
 struct AuthorizeForm {
-    callback_url: String,
-    nonce: String,
     username: String,
     password: String,
+    // New flow: a single round-tripping blob carrying everything.
+    signed_request: Option<String>,
+    // Legacy flow: bare callback_url + nonce, plus an unused relying_party
+    // field still emitted by old clients (kept for FromForm compatibility,
+    // never read).
+    callback_url: Option<String>,
+    nonce: Option<String>,
+    #[allow(dead_code)]
     relying_party: Option<String>,
 }
 
@@ -386,123 +436,270 @@ async fn auth_authorize_post(
     nonces: &State<nonce_store::NonceStore>,
     form: rocket::form::Form<AuthorizeForm>,
 ) -> Result<Redirect, RawHtml<String>> {
-    // Check nonce hasn't been used before (replay protection)
-    if !nonces.record(&form.nonce) {
-        return Err(render_login_form(
-            &form.callback_url,
-            &form.nonce,
-            &form.username,
-            Some("This login request has already been used. Please start a new login."),
-            form.relying_party.as_deref(),
+    if let Some(sr) = form.signed_request.as_deref() {
+        handle_signed_request_post(pool, nonces, &form, sr).await
+    } else {
+        handle_legacy_post(pool, nonces, &form).await
+    }
+}
+
+async fn handle_signed_request_post(
+    pool: &State<DbPool>,
+    nonces: &State<nonce_store::NonceStore>,
+    form: &AuthorizeForm,
+    signed_request_param: &str,
+) -> Result<Redirect, RawHtml<String>> {
+    let request = match validate_signed_request(pool, signed_request_param).await {
+        Ok(r) => r,
+        Err(e) => return Err(render_error_page(e.user_message())),
+    };
+
+    // Replay protection: record the *trusted* CBOR nonce, never the form one.
+    if !nonces.record(&request.nonce) {
+        return Err(render_error_page(
+            "This login request has already been used. Please start a new login.",
         ));
     }
 
-    if let Some(ref rp) = form.relying_party {
-        // RP flow: callback URL must match the relying party's domain
-        let expected_origin = format!("https://{}", rp);
-        if !form.callback_url.starts_with(&expected_origin) {
-            return Err(render_login_form(
-                &form.callback_url,
-                &form.nonce,
-                &form.username,
-                Some("Callback URL does not match the relying party domain."),
-                form.relying_party.as_deref(),
-            ));
-        }
-    } else {
-        // Legacy flow: validate callback URL against allowlist
-        if !validate_callback_url(&form.callback_url) {
-            return Err(render_login_form(
-                &form.callback_url,
-                &form.nonce,
-                &form.username,
-                Some("Callback URL not allowed. Contact the domain administrator."),
-                None,
-            ));
-        }
-    }
+    let render_form_error = |msg: &str| {
+        render_login_form(
+            LoginFormFlow::SignedRequest {
+                signed_request: signed_request_param,
+                relying_party: &request.relying_party,
+            },
+            &form.username,
+            Some(msg),
+        )
+    };
 
     let authenticator = PasswordAuthenticator::new(pool.inner().clone());
-
     let user = match crate::services::auth::Authenticator::authenticate(
         &authenticator,
         &form.username,
         &form.password,
     ) {
         Ok(u) => u,
-        Err(_) => {
-            return Err(render_login_form(
-                &form.callback_url,
-                &form.nonce,
-                &form.username,
-                Some("Invalid username or password."),
-                form.relying_party.as_deref(),
-            ));
-        }
+        Err(_) => return Err(render_form_error("Invalid username or password.")),
     };
 
-    let token = sign_assertion_for_user(pool, &user, &form.callback_url, &form.nonce)
-        .map_err(|_| {
-            render_login_form(
-                &form.callback_url,
-                &form.nonce,
-                &form.username,
-                Some("Internal server error during signing."),
-                form.relying_party.as_deref(),
-            )
-        })?;
+    let token = sign_assertion_for_user(pool, &user, &request.callback_url, &request.nonce)
+        .map_err(|_| render_form_error("Internal server error during signing."))?;
 
-    let separator = if form.callback_url.contains('?') { "&" } else { "?" };
+    let encrypted = encrypt_token_for_rp(pool, &token, &request.relying_party)
+        .await
+        .map_err(|_| render_form_error("Failed to encrypt token for relying party."))?;
 
-    if let Some(ref rp_domain) = form.relying_party {
-        // New flow: encrypt the token for the relying party
-        match encrypt_token_for_rp(pool, &token, rp_domain).await {
-            Ok(encrypted) => {
-                let redirect_url = format!("{}{}encrypted_token={}", form.callback_url, separator, encrypted);
-                Ok(Redirect::found(redirect_url))
+    let separator = if request.callback_url.contains('?') {
+        "&"
+    } else {
+        "?"
+    };
+    let redirect_url = format!(
+        "{}{}encrypted_token={}",
+        request.callback_url, separator, encrypted
+    );
+    Ok(Redirect::found(redirect_url))
+}
+
+async fn handle_legacy_post(
+    pool: &State<DbPool>,
+    nonces: &State<nonce_store::NonceStore>,
+    form: &AuthorizeForm,
+) -> Result<Redirect, RawHtml<String>> {
+    let callback_url = form
+        .callback_url
+        .as_deref()
+        .ok_or_else(|| render_error_page("Missing callback_url."))?;
+    let nonce = form
+        .nonce
+        .as_deref()
+        .ok_or_else(|| render_error_page("Missing nonce."))?;
+
+    let render_form_error = |msg: &str| {
+        render_login_form(
+            LoginFormFlow::Legacy {
+                callback_url,
+                nonce,
+            },
+            &form.username,
+            Some(msg),
+        )
+    };
+
+    if !nonces.record(nonce) {
+        return Err(render_form_error(
+            "This login request has already been used. Please start a new login.",
+        ));
+    }
+
+    if !validate_callback_url(callback_url) {
+        return Err(render_form_error(
+            "Callback URL not allowed. Contact the domain administrator.",
+        ));
+    }
+
+    let authenticator = PasswordAuthenticator::new(pool.inner().clone());
+    let user = match crate::services::auth::Authenticator::authenticate(
+        &authenticator,
+        &form.username,
+        &form.password,
+    ) {
+        Ok(u) => u,
+        Err(_) => return Err(render_form_error("Invalid username or password.")),
+    };
+
+    let token = sign_assertion_for_user(pool, &user, callback_url, nonce)
+        .map_err(|_| render_form_error("Internal server error during signing."))?;
+
+    let separator = if callback_url.contains('?') { "&" } else { "?" };
+    let redirect_url = format!("{}{}token={}", callback_url, separator, token);
+    Ok(Redirect::found(redirect_url))
+}
+
+/// Reasons a `signed_request` may be rejected. Each maps to a
+/// user-visible error string; structurally distinct so callers (and
+/// tests) can branch on the failure mode.
+#[derive(Debug)]
+pub enum ValidateAuthRequestError {
+    Malformed,
+    KeyFetchFailed,
+    SignatureInvalid,
+    Expired,
+    CallbackNotHttps,
+    CallbackOffDomain,
+    CallbackUnparseable,
+}
+
+impl ValidateAuthRequestError {
+    pub fn user_message(&self) -> &'static str {
+        match self {
+            Self::Malformed => "The login request was malformed.",
+            Self::KeyFetchFailed => "Could not retrieve the relying party's public keys.",
+            Self::SignatureInvalid => "The login request signature is invalid.",
+            Self::Expired => "The login request has expired. Please start a new login.",
+            Self::CallbackNotHttps => "The callback URL must use https.",
+            Self::CallbackOffDomain => {
+                "The callback URL is not within the relying party's domain."
             }
-            Err(_) => {
-                Err(render_login_form(
-                    &form.callback_url,
-                    &form.nonce,
-                    &form.username,
-                    Some("Failed to encrypt token for relying party."),
-                    form.relying_party.as_deref(),
-                ))
-            }
+            Self::CallbackUnparseable => "The callback URL is malformed.",
+        }
+    }
+}
+
+/// True when the callback URL is `https://` and its host equals
+/// `rp_domain` or is a strict subdomain of it. Used as a defense-in-depth
+/// check on top of the RP's signature: even a misbehaving RP cannot
+/// authorize callbacks to a domain it doesn't own.
+fn callback_within_rp_domain(callback_url: &str, rp_domain: &str) -> Result<bool, ()> {
+    let rest = match callback_url.strip_prefix("https://") {
+        Some(r) => r,
+        None => return Ok(false),
+    };
+    let host_with_extras = rest.split(['/', '?', '#']).next().ok_or(())?;
+    if host_with_extras.is_empty() {
+        return Err(());
+    }
+    let after_userinfo = match host_with_extras.rsplit_once('@') {
+        Some((_, host)) => host,
+        None => host_with_extras,
+    };
+    // Strip port, but only the last ':' segment if it's all digits — this
+    // also leaves bracketed IPv6 hosts intact for the equality check.
+    let host = if let Some((h, port)) = after_userinfo.rsplit_once(':') {
+        if !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) {
+            h
+        } else {
+            after_userinfo
         }
     } else {
-        // Legacy flow: plain token in URL
-        let redirect_url = format!("{}{}token={}", form.callback_url, separator, token);
-        Ok(Redirect::found(redirect_url))
+        after_userinfo
+    };
+    if host.is_empty() {
+        return Err(());
     }
+    Ok(host == rp_domain || host.ends_with(&format!(".{}", rp_domain)))
+}
+
+/// Validate a `signed_request` URL parameter end-to-end:
+/// 1. Decode the base64url+CBOR envelope (untrusted).
+/// 2. Peek at `relying_party` so we know which RP's keys to fetch.
+/// 3. Fetch RP keys (local DB or DNS+HTTP).
+/// 4. Verify signature + timestamp via `verify_auth_request`.
+/// 5. Defense-in-depth: callback must be https and within rp_domain.
+///
+/// On success returns the trusted `AuthRequest`. The URL/form-supplied
+/// `relying_party`, `callback_url`, and `nonce` are *not* consulted —
+/// callers should use the returned `AuthRequest`'s fields exclusively.
+pub async fn validate_signed_request(
+    pool: &DbPool,
+    signed_request_param: &str,
+) -> Result<AuthRequest, ValidateAuthRequestError> {
+    let envelope = liblinkkeys::encoding::signed_auth_request_from_url_param(signed_request_param)
+        .map_err(|_| ValidateAuthRequestError::Malformed)?;
+
+    // Untrusted preview: we only need `relying_party` to know whose keys
+    // to fetch. Every other field is re-read from the verified bytes.
+    let preview: AuthRequest = ciborium::de::from_reader(envelope.request.as_slice())
+        .map_err(|_| ValidateAuthRequestError::Malformed)?;
+    let rp_domain = preview.relying_party.clone();
+
+    let rp_keys = rp::fetch_rp_keys(pool, &rp_domain)
+        .await
+        .map_err(|_| ValidateAuthRequestError::KeyFetchFailed)?;
+    if rp_keys.is_empty() {
+        return Err(ValidateAuthRequestError::KeyFetchFailed);
+    }
+
+    let request = liblinkkeys::auth_request::verify_auth_request(
+        &envelope,
+        &rp_keys,
+        MAX_AUTH_REQUEST_AGE_SECONDS,
+    )
+    .map_err(|e| match e {
+        liblinkkeys::assertions::VerifyError::Expired => ValidateAuthRequestError::Expired,
+        _ => ValidateAuthRequestError::SignatureInvalid,
+    })?;
+
+    if !request.callback_url.starts_with("https://") {
+        return Err(ValidateAuthRequestError::CallbackNotHttps);
+    }
+    match callback_within_rp_domain(&request.callback_url, &request.relying_party) {
+        Ok(true) => {}
+        Ok(false) => return Err(ValidateAuthRequestError::CallbackOffDomain),
+        Err(()) => return Err(ValidateAuthRequestError::CallbackUnparseable),
+    }
+
+    Ok(request)
+}
+
+/// Render a minimal error page (for signed_request validation failures
+/// where re-rendering the login form would be misleading or unsafe).
+fn render_error_page(message: &str) -> RawHtml<String> {
+    RawHtml(format!(
+        r#"<!DOCTYPE html>
+<html><head><title>LinkKeys Login Error</title>
+<style>body {{ font-family: sans-serif; max-width: 400px; margin: 80px auto; }}
+.error {{ color: red; }}</style></head>
+<body><h2>LinkKeys Login</h2>
+<p class="error">{}</p>
+</body></html>"#,
+        html_escape(message)
+    ))
 }
 
 /// Encrypt a signed assertion token for a relying party.
 ///
-/// If the RP's domain equals this server's `DOMAIN_NAME` (single instance
-/// acting as both IDP and RP), the active domain public keys are read
-/// directly from the local DB. Otherwise, the keys are fetched from the
-/// RP's `_linkkeys.<domain>` TXT api_base via HTTP. Either way, the
-/// first active key is used to derive an X25519 public key, and the
-/// signed assertion is sealed-box-encrypted to that key.
+/// Resolves RP keys via `rp::fetch_rp_keys` (local DB if same instance,
+/// DNS+HTTP otherwise), derives an X25519 public key from the first
+/// active key, and seals the assertion to it.
 pub async fn encrypt_token_for_rp(
     pool: &DbPool,
     token_url_param: &str,
     rp_domain: &str,
 ) -> Result<String, Status> {
-    // Self-RP fast path: same instance is both IDP and RP. Pull the active
-    // domain keys from our own DB instead of doing a DNS+HTTP round-trip
-    // to ourselves (which fails on clusters without hairpin NAT).
-    let rp_keys: Vec<DomainPublicKey> = if rp_domain == get_domain_name() {
-        pool.list_active_domain_keys()
-            .map_err(|_| Status::InternalServerError)?
-            .iter()
-            .map(Into::into)
-            .collect()
-    } else {
-        rp::fetch_domain_keys(rp_domain).await.map_err(|_| Status::BadGateway)?
-    };
+    let rp_keys = rp::fetch_rp_keys(pool, rp_domain)
+        .await
+        .map_err(|_| Status::BadGateway)?;
     if rp_keys.is_empty() {
         return Err(Status::BadGateway);
     }
@@ -523,13 +720,13 @@ pub async fn encrypt_token_for_rp(
         .map_err(|_| Status::InternalServerError)?;
 
     // Encrypt with sealed box
-    let (ephemeral_pk, nonce, ciphertext) = liblinkkeys::crypto::sealed_box_encrypt(&cbor_bytes, &x25519_pub)
+    let sealed = liblinkkeys::crypto::sealed_box_encrypt(&cbor_bytes, &x25519_pub)
         .map_err(|_| Status::InternalServerError)?;
 
     let encrypted_token = liblinkkeys::generated::types::EncryptedToken {
-        ephemeral_public_key: ephemeral_pk,
-        nonce,
-        ciphertext,
+        ephemeral_public_key: sealed.ephemeral_public_key,
+        nonce: sealed.nonce,
+        ciphertext: sealed.ciphertext,
     };
 
     liblinkkeys::encoding::encrypted_token_to_url_param(&encrypted_token)
@@ -724,5 +921,82 @@ pub async fn launch_rocket(db_pool: DbPool, ready_flag: Arc<AtomicBool>) {
     if let Err(e) = rocket_instance.launch().await {
         log::error!("Rocket failed: {}", e);
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn callback_host_exact_match() {
+        assert_eq!(
+            callback_within_rp_domain("https://todandlorna.com/cb", "todandlorna.com"),
+            Ok(true)
+        );
+    }
+
+    #[test]
+    fn callback_host_subdomain_match() {
+        assert_eq!(
+            callback_within_rp_domain(
+                "https://longhouse.todandlorna.com/auth/callback",
+                "todandlorna.com",
+            ),
+            Ok(true)
+        );
+    }
+
+    #[test]
+    fn callback_host_off_domain_rejected() {
+        assert_eq!(
+            callback_within_rp_domain("https://attacker.com/x", "todandlorna.com"),
+            Ok(false)
+        );
+    }
+
+    #[test]
+    fn callback_host_lookalike_rejected() {
+        // "evil-todandlorna.com" must NOT match — the dot is required.
+        assert_eq!(
+            callback_within_rp_domain("https://evil-todandlorna.com/x", "todandlorna.com"),
+            Ok(false)
+        );
+    }
+
+    #[test]
+    fn callback_non_https_rejected() {
+        assert_eq!(
+            callback_within_rp_domain("http://todandlorna.com/cb", "todandlorna.com"),
+            Ok(false)
+        );
+    }
+
+    #[test]
+    fn callback_with_port_accepted() {
+        assert_eq!(
+            callback_within_rp_domain("https://app.example.com:8443/cb", "example.com"),
+            Ok(true)
+        );
+    }
+
+    #[test]
+    fn callback_with_userinfo_uses_host() {
+        // userinfo precedes '@'; host check should still apply to the
+        // real host, not get spoofed by a username that contains a dot.
+        assert_eq!(
+            callback_within_rp_domain(
+                "https://user.attacker.com@todandlorna.com/cb",
+                "todandlorna.com"
+            ),
+            Ok(true)
+        );
+        assert_eq!(
+            callback_within_rp_domain(
+                "https://todandlorna.com@attacker.com/cb",
+                "todandlorna.com"
+            ),
+            Ok(false)
+        );
     }
 }

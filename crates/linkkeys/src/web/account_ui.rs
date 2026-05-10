@@ -157,16 +157,16 @@ pub fn login_submit(
     pool: &State<DbPool>,
     cookies: &CookieJar<'_>,
     form: rocket::form::Form<LoginForm>,
-) -> Result<Redirect, Redirect> {
+) -> Result<Redirect, Box<Redirect>> {
     let authenticator = PasswordAuthenticator::new(pool.inner().clone());
     match authenticator.authenticate(&form.username, &form.password) {
         Ok(user) => {
             set_session(cookies, &user.id);
             Ok(Redirect::found("/account"))
         }
-        Err(_) => Err(Redirect::found(
+        Err(_) => Err(Box::new(Redirect::found(
             "/account/login?error=Invalid+username+or+password",
-        )),
+        ))),
     }
 }
 
@@ -186,17 +186,19 @@ pub fn account_dashboard(
     cookies: &CookieJar<'_>,
     msg: Option<&str>,
     error: Option<&str>,
-) -> Result<RawHtml<String>, Redirect> {
+) -> Result<RawHtml<String>, Box<Redirect>> {
     let user_id = match get_session_user_id(cookies) {
         Some(id) => id,
-        None => return Err(Redirect::found("/account/login")),
+        None => return Err(Box::new(Redirect::found("/account/login"))),
     };
 
     let info = match account::get_my_info(pool.inner(), &user_id) {
         Ok(i) => i,
         Err(_) => {
             clear_session(cookies);
-            return Err(Redirect::found("/account/login?error=Session+expired"));
+            return Err(Box::new(Redirect::found(
+                "/account/login?error=Session+expired",
+            )));
         }
     };
 
@@ -276,10 +278,10 @@ pub fn change_password_page(
     cookies: &CookieJar<'_>,
     msg: Option<&str>,
     error: Option<&str>,
-) -> Result<RawHtml<String>, Redirect> {
+) -> Result<RawHtml<String>, Box<Redirect>> {
     let user_id = match get_session_user_id(cookies) {
         Some(id) => id,
-        None => return Err(Redirect::found("/account/login")),
+        None => return Err(Box::new(Redirect::found("/account/login"))),
     };
     let admin = is_user_admin(pool.inner(), &user_id);
     let nav = build_nav("account", admin, true);

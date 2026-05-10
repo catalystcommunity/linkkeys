@@ -47,7 +47,7 @@ fn test_full_mutual_auth_flow() {
     .unwrap();
 
     // Step 2: IDP verifies auth request
-    let verified_req = auth_request::verify_auth_request(&signed_req, &[rp_key.clone()], 300).unwrap();
+    let verified_req = auth_request::verify_auth_request(&signed_req, std::slice::from_ref(&rp_key), 300).unwrap();
     assert_eq!(verified_req.relying_party, "rp.example.com");
     assert_eq!(verified_req.callback_url, "https://rp.example.com/callback");
     assert_eq!(verified_req.nonce, "nonce-12345");
@@ -74,13 +74,12 @@ fn test_full_mutual_auth_flow() {
     ciborium::ser::into_writer(&signed_assertion, &mut assertion_cbor).unwrap();
 
     let rp_x25519_pub = crypto::ed25519_public_to_x25519(&rp_pk).unwrap();
-    let (ephemeral_pk, nonce, ciphertext) =
-        crypto::sealed_box_encrypt(&assertion_cbor, &rp_x25519_pub).unwrap();
+    let sealed = crypto::sealed_box_encrypt(&assertion_cbor, &rp_x25519_pub).unwrap();
 
     let encrypted_token = EncryptedToken {
-        ephemeral_public_key: ephemeral_pk,
-        nonce,
-        ciphertext,
+        ephemeral_public_key: sealed.ephemeral_public_key,
+        nonce: sealed.nonce,
+        ciphertext: sealed.ciphertext,
     };
 
     // Step 5: Encode token as URL parameter (simulating redirect)
@@ -122,15 +121,19 @@ fn test_encrypted_token_wrong_rp_fails() {
 
     let plaintext = b"signed assertion cbor bytes";
     let rp_x25519_pub = crypto::ed25519_public_to_x25519(&rp_pk).unwrap();
-    let (ephemeral_pk, nonce, ciphertext) =
-        crypto::sealed_box_encrypt(plaintext, &rp_x25519_pub).unwrap();
+    let sealed = crypto::sealed_box_encrypt(plaintext, &rp_x25519_pub).unwrap();
 
     // Try to decrypt with the wrong RP's key
     let wrong_x25519_priv = crypto::ed25519_private_to_x25519(
         &wrong_sk.try_into().map(|a: [u8; 32]| a).unwrap(),
     )
     .unwrap();
-    let result = crypto::sealed_box_decrypt(&ephemeral_pk, &nonce, &ciphertext, &wrong_x25519_priv);
+    let result = crypto::sealed_box_decrypt(
+        &sealed.ephemeral_public_key,
+        &sealed.nonce,
+        &sealed.ciphertext,
+        &wrong_x25519_priv,
+    );
     assert!(result.is_err(), "Wrong RP should not be able to decrypt");
 }
 
