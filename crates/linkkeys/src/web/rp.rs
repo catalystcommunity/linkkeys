@@ -55,10 +55,7 @@ pub fn sign_request_json(
     let input: SignRequestInput = serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
 
     let domain_keys = pool.list_active_domain_keys().map_err(|_| Status::InternalServerError)?;
-    if domain_keys.is_empty() {
-        return Err(Status::InternalServerError);
-    }
-    let dk = &domain_keys[rand::thread_rng().gen_range(0..domain_keys.len())];
+    let dk = super::pick_active_signing_key(&domain_keys).ok_or(Status::InternalServerError)?;
 
     let passphrase = env::var("DOMAIN_KEY_PASSPHRASE").map_err(|_| Status::InternalServerError)?;
     let sk_bytes = liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, passphrase.as_bytes())

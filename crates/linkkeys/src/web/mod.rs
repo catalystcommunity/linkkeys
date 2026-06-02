@@ -70,7 +70,24 @@ fn db_err_to_status(e: diesel::result::Error) -> Status {
     }
 }
 
-/// Sign an identity assertion for the given user, using the first active domain key.
+/// Choose a random active *signing* key. Encryption keys (X25519) are excluded:
+/// their algorithm is not a `SigningAlgorithm`, so signing with one fails (and
+/// once a domain has an encryption key, an unfiltered random pick would
+/// intermittently 500). Returns `None` when the domain has no active signing
+/// key. Shared by every signing path so the filter can't be forgotten in one.
+pub fn pick_active_signing_key(
+    domain_keys: &[crate::db::models::DomainKey],
+) -> Option<&crate::db::models::DomainKey> {
+    let signing: Vec<&crate::db::models::DomainKey> =
+        domain_keys.iter().filter(|k| k.key_usage == "sign").collect();
+    if signing.is_empty() {
+        return None;
+    }
+    Some(signing[rand::thread_rng().gen_range(0..signing.len())])
+}
+
+/// Sign an identity assertion for the given user with a randomly chosen active
+/// signing key.
 fn sign_assertion_for_user(
     pool: &DbPool,
     user: &crate::db::models::User,
@@ -78,10 +95,7 @@ fn sign_assertion_for_user(
     nonce: &str,
 ) -> Result<String, Status> {
     let domain_keys = pool.list_active_domain_keys().map_err(|_| Status::InternalServerError)?;
-    if domain_keys.is_empty() {
-        return Err(Status::InternalServerError);
-    }
-    let dk = &domain_keys[rand::thread_rng().gen_range(0..domain_keys.len())];
+    let dk = pick_active_signing_key(&domain_keys).ok_or(Status::InternalServerError)?;
 
     let passphrase = env::var("DOMAIN_KEY_PASSPHRASE").map_err(|_| Status::InternalServerError)?;
     let sk_bytes =
