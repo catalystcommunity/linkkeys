@@ -465,14 +465,17 @@ async fn callback(
         return Err(error_page("Domain mismatch"));
     }
 
-    // 6. Fetch user info from domain server
-    let userinfo_url = format!("{}/v1alpha/userinfo.json", auth_state.api_base);
+    // 6. Fetch user info via our RP service. The IDP's /userinfo now requires a
+    // proof-of-possession signature binding the request to us (the audience),
+    // and only our RP service holds the domain signing key — so we delegate the
+    // sign-and-fetch to it rather than calling the IDP directly.
     let userinfo_resp = client
-        .post(&userinfo_url)
-        .header("Content-Type", "application/json")
-        .body(serde_json::to_string(&serde_json::json!({
-            "token": decrypt_result.signed_assertion
-        })).unwrap())
+        .post(format!("{}/v1alpha/userinfo-fetch.json", rp_config.service_url))
+        .header("Authorization", format!("Bearer {}", rp_config.api_key))
+        .json(&serde_json::json!({
+            "token": decrypt_result.signed_assertion,
+            "api_base": auth_state.api_base,
+        }))
         .send()
         .await
         .map_err(|e| error_page(&format!("Failed to fetch user info: {}", e)))?;

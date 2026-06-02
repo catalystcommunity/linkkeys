@@ -35,6 +35,9 @@ go.work.sum
 # Scratch notes (never commit)
 /scratch/
 
+# Security audit working notes / triage (never commit)
+/sec-explore/
+
 # Added by cargo
 
 /target

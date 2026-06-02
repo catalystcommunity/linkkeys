@@ -26,6 +26,9 @@ RUN mkdir -p /data && chown linkkeys:linkkeys /data
 COPY --from=builder /build/target/release/linkkeys /usr/local/bin/linkkeys
 
 USER linkkeys
-EXPOSE 8443 4987
+# HTTPS + LinkKeys TCP protocol port. These match the Helm chart defaults
+# (server.httpsPort / server.tcpPort); both are configurable via env
+# (HTTPS_PORT / TCP_PORT). EXPOSE is informational only. (deploy-03)
+EXPOSE 8443 9000
 
 CMD ["linkkeys", "serve"]

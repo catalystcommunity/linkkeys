@@ -5,7 +5,6 @@ server:
   domainName: "linkidspec.com"
   publicPort: "443"
   disableTls: "true"
-  disableTcpTls: "true"
 
 database:
   backend: sqlite

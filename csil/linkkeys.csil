@@ -85,15 +85,28 @@ EmptyRequest = {
 ;; Key Types
 ;; ============================================================
 
-;; Fingerprint is SHA-256 of the public key bytes, hex-encoded
+;; Fingerprint is SHA-256 of the public key bytes, hex-encoded.
+;; key_usage is "sign" (Ed25519 identity/signing) or "encrypt" (X25519 sealed-box
+;; recipient). Keys are single-purpose: a sign key never receives sealed boxes and
+;; an encrypt key never verifies signatures.
+;;
+;; Trust anchoring differs by usage. Only SIGN keys are fingerprint-pinned in DNS
+;; (the _linkkeys TXT fp= set). An ENCRYPT key is trusted because a DNS-pinned
+;; signing key vouches for it: signed_by_key_id names that signing key, and
+;; key_signature is its signature over the encrypt key's fingerprint (+ expiry).
+;; This keeps DNS lean (3 sign FPs) and lets encrypt keys rotate without DNS edits.
 DomainPublicKey = {
     key_id: text,
     public_key: bytes,
     fingerprint: text,
     algorithm: text,
+    key_usage: text,
     created_at: text,
     expires_at: text,
-    ? revoked_at: text
+    ? revoked_at: text,
+    ;; encrypt keys only: the signing key that vouches for this key, and its signature
+    ? signed_by_key_id: text,
+    ? key_signature: bytes
 }
 
 GetDomainKeysResponse = {
@@ -107,9 +120,13 @@ UserPublicKey = {
     public_key: bytes,
     fingerprint: text,
     algorithm: text,
+    key_usage: text,
     created_at: text,
     expires_at: text,
-    ? revoked_at: text
+    ? revoked_at: text,
+    ;; encrypt keys only: the signing key that vouches for this key, and its signature
+    ? signed_by_key_id: text,
+    ? key_signature: bytes
 }
 
 GetUserKeysRequest = {
@@ -176,6 +193,25 @@ SignedIdentityAssertion = {
 
 GetUserInfoRequest = {
     token: bytes
+}
+
+;; Signed claims-fetch (crypto-06): the relying party proves it is the
+;; assertion's audience via proof-of-possession of its domain signing key,
+;; rather than presenting a bare bearer token. The IDP verifies the signature
+;; against the RP domain's DNS-pinned signing key (optionally inlined here to
+;; avoid a fetch) and requires relying_party == assertion.audience.
+UserInfoRequest = {
+    token: bytes,        ;; the SignedIdentityAssertion (as today)
+    relying_party: text, ;; the requester's domain — must equal assertion.audience
+    timestamp: text,     ;; RFC3339, freshness
+    nonce: text          ;; single-use redemption key
+}
+
+SignedUserInfoRequest = {
+    request: bytes,                     ;; CBOR(UserInfoRequest) — the signed bytes
+    signing_key_id: text,
+    signature: bytes,
+    ? public_keys: [* DomainPublicKey]  ;; optional inlined RP keys, FP-checked vs DNS
 }
 
 UserInfo = {
@@ -430,10 +466,12 @@ service UserKeys {
 }
 
 service Identity {
-    ;; Relying party calls this with the signed assertion token
-    ;; to get user info + claims. Domain server verifies the token
-    ;; and returns info scoped to the audience.
-    get-user-info: GetUserInfoRequest -> UserInfo
+    ;; Relying party calls this with a SignedUserInfoRequest: the assertion
+    ;; token plus a proof-of-possession signature by the RP's domain key. The
+    ;; domain server verifies the PoP against the RP's DNS-pinned signing key,
+    ;; requires relying_party == assertion.audience, and returns info + claims
+    ;; (scoped to that audience). Single-use within the assertion TTL.
+    get-user-info: SignedUserInfoRequest -> UserInfo
 }
 
 service Handshake {

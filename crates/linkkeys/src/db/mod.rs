@@ -3,6 +3,7 @@ pub mod claims;
 pub mod domain_keys;
 pub mod guestbook;
 pub mod models;
+pub mod nonces;
 pub mod relations;
 pub mod user_keys;
 pub mod users;
@@ -384,6 +385,22 @@ impl DbPool {
         object_type: &str,
         object_id: &str,
     ) -> QueryResult<bool> {
+        // Normalize the same way grant_relation does on the store side (db-05):
+        // the id fields are whitespace-trimmed so the compare path matches stored
+        // grants byte-for-byte. (Types/relation are canonical via VALID_*.)
+        let user_id = user_id.trim();
+        let object_id = object_id.trim();
+
+        // A deactivated or non-existent user holds no permissions, even if stale
+        // relation grants still reference them (db-06). Deactivation thus revokes
+        // access without requiring the grant graph to be cleaned up first.
+        match self.find_user_by_id(user_id) {
+            Ok(u) if u.is_active => {}
+            Ok(_) => return Ok(false),
+            Err(diesel::result::Error::NotFound) => return Ok(false),
+            Err(e) => return Err(e),
+        }
+
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
@@ -727,8 +744,14 @@ impl DbPool {
         }
     }
 
+    /// Persist a claim under a caller-supplied `claim_id`. The id MUST be the
+    /// same one bound into the claim's signed payload (the signature covers
+    /// claim_id), otherwise the stored claim won't verify — so the signer owns
+    /// the id rather than letting the DB mint one.
+    #[allow(clippy::too_many_arguments)]
     pub fn create_claim(
         &self,
+        claim_id: &str,
         user_id: &str,
         claim_type: &str,
         claim_value: &[u8],
@@ -743,13 +766,16 @@ impl DbPool {
                     diesel::result::DatabaseErrorKind::Unknown,
                     Box::new(e.to_string()),
                 ))?;
+                let id: uuid::Uuid = claim_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?;
                 let uid: uuid::Uuid = user_id
                     .parse()
                     .map_err(|_| diesel::result::Error::NotFound)?;
                 let key_id: uuid::Uuid = signed_by_key_id
                     .parse()
                     .map_err(|_| diesel::result::Error::NotFound)?;
-                claims::pg::create(&mut conn, uid, claim_type, claim_value, key_id, signature, expires_at)
+                claims::pg::create(&mut conn, id, uid, claim_type, claim_value, key_id, signature, expires_at)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
@@ -759,6 +785,7 @@ impl DbPool {
                 ))?;
                 claims::sqlite::create(
                     &mut conn,
+                    claim_id,
                     user_id,
                     claim_type,
                     claim_value,
@@ -766,6 +793,31 @@ impl DbPool {
                     signature,
                     expires_at.map(|e| e.to_rfc3339()).as_deref(),
                 )
+            }
+        }
+    }
+
+    /// Record a nonce as used (durable, shared replay protection).
+    /// Returns Ok(true) on first use, Ok(false) if already used (replay).
+    pub fn record_nonce(&self, nonce: &str, ttl: std::time::Duration) -> QueryResult<bool> {
+        let expires_at = chrono::Utc::now()
+            + chrono::Duration::from_std(ttl).unwrap_or_else(|_| chrono::Duration::seconds(300));
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                nonces::pg::record(&mut conn, nonce, expires_at)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                nonces::sqlite::record(&mut conn, nonce, &expires_at.to_rfc3339())
             }
         }
     }
@@ -908,6 +960,47 @@ impl DbPool {
                     private_key_encrypted,
                     fingerprint,
                     algorithm,
+                    &expires_at.to_rfc3339(),
+                )
+            }
+        }
+    }
+
+    /// Create an X25519 encryption domain key vouched for by a signing key.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_domain_encryption_key(
+        &self,
+        public_key: &[u8],
+        private_key_encrypted: &[u8],
+        fingerprint: &str,
+        signed_by_key_id: &str,
+        key_signature: &[u8],
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<models::DomainKey> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                domain_keys::pg::create_encryption_key(
+                    &mut conn, public_key, private_key_encrypted, fingerprint, signed_by_key_id, key_signature, expires_at,
+                )
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                domain_keys::sqlite::create_encryption_key(
+                    &mut conn,
+                    public_key,
+                    private_key_encrypted,
+                    fingerprint,
+                    signed_by_key_id,
+                    key_signature,
                     &expires_at.to_rfc3339(),
                 )
             }

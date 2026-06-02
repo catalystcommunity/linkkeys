@@ -5,3 +5,4 @@ pub mod crypto;
 pub mod dns;
 pub mod encoding;
 pub mod generated;
+pub mod userinfo;

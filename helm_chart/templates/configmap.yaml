@@ -18,7 +18,6 @@ data:
   {{- if .Values.server.publicPort }}
   PUBLIC_PORT: {{ .Values.server.publicPort | quote }}
   {{- end }}
-  DISABLE_TCP_TLS: {{ .Values.server.disableTcpTls | quote }}
   {{- if eq .Values.server.disableTls "true" }}
   DISABLE_TLS: "true"
   {{- end }}

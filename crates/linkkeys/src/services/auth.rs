@@ -89,24 +89,30 @@ impl ApiKeyAuthenticator {
             return Err(AuthError::InvalidCredentials);
         }
 
-        // Find user whose ID starts with this prefix
-        let user = self.find_user_by_id_prefix(prefix)?;
+        // The prefix is only a lookup hint, not a unique key — UUIDv7 prefixes
+        // are timestamp-derived, so users created close in time share one.
+        // Correctness comes from the bcrypt check, so we try EVERY user matching
+        // the prefix rather than an arbitrary `.first()` (which would lock out
+        // all but one of the colliders — db-07). The match set is small.
+        let users = self.find_users_by_id_prefix(prefix)?;
 
-        let creds = self
-            .pool
-            .find_credentials_for_user(&user.id, CREDENTIAL_TYPE_API_KEY)
-            .map_err(|e| AuthError::DbError(e.to_string()))?;
+        for user in users {
+            let creds = self
+                .pool
+                .find_credentials_for_user(&user.id, CREDENTIAL_TYPE_API_KEY)
+                .map_err(|e| AuthError::DbError(e.to_string()))?;
 
-        for cred in &creds {
-            if bcrypt::verify(secret, &cred.credential_hash).unwrap_or(false) {
-                return Ok(user);
+            for cred in &creds {
+                if bcrypt::verify(secret, &cred.credential_hash).unwrap_or(false) {
+                    return Ok(user);
+                }
             }
         }
 
         Err(AuthError::InvalidCredentials)
     }
 
-    fn find_user_by_id_prefix(&self, prefix: &str) -> Result<User, AuthError> {
+    fn find_users_by_id_prefix(&self, prefix: &str) -> Result<Vec<User>, AuthError> {
         // Validate prefix contains only hex chars and dashes (UUID characters)
         if !prefix.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
             return Err(AuthError::InvalidCredentials);
@@ -125,9 +131,9 @@ impl ApiKeyAuthenticator {
                         diesel::dsl::sql::<diesel::sql_types::Text>("CAST(id AS TEXT)")
                             .like(&pattern),
                     )
-                    .first::<crate::db::models::pg::UserRow>(&mut conn)
-                    .map(Into::into)
-                    .map_err(|_| AuthError::InvalidCredentials)
+                    .load::<crate::db::models::pg::UserRow>(&mut conn)
+                    .map(|rows| rows.into_iter().map(Into::into).collect())
+                    .map_err(|e| AuthError::DbError(e.to_string()))
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
@@ -136,9 +142,9 @@ impl ApiKeyAuthenticator {
                 let pattern = format!("{}%", prefix);
                 crate::schema::sqlite::users::table
                     .filter(crate::schema::sqlite::users::id.like(&pattern))
-                    .first::<crate::db::models::sqlite::UserRow>(&mut conn)
-                    .map(Into::into)
-                    .map_err(|_| AuthError::InvalidCredentials)
+                    .load::<crate::db::models::sqlite::UserRow>(&mut conn)
+                    .map(|rows| rows.into_iter().map(Into::into).collect())
+                    .map_err(|e| AuthError::DbError(e.to_string()))
             }
         }
     }

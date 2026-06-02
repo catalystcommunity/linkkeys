@@ -6,7 +6,6 @@ server:
   apiHostname: "linkkeys.todandlorna.com"
   publicPort: "443"
   disableTls: "true"
-  disableTcpTls: "true"
 
 # Dual-role: this instance serves IDP traffic for todandlorna.com AND
 # acts as an RP for consuming apps (e.g. longhouse). passwordAuth must

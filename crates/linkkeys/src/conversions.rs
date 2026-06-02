@@ -14,9 +14,12 @@ impl From<&DomainKey> for DomainPublicKey {
             public_key: dk.public_key.clone(),
             fingerprint: dk.fingerprint.clone(),
             algorithm: dk.algorithm.clone(),
+            key_usage: dk.key_usage.clone(),
             created_at: dk.created_at.clone(),
             expires_at: dk.expires_at.clone(),
             revoked_at: dk.revoked_at.clone(),
+            signed_by_key_id: dk.signed_by_key_id.clone(),
+            key_signature: dk.key_signature.clone(),
         }
     }
 }
@@ -29,9 +32,12 @@ impl From<&UserKey> for UserPublicKey {
             public_key: uk.public_key.clone(),
             fingerprint: uk.fingerprint.clone(),
             algorithm: uk.algorithm.clone(),
+            key_usage: uk.key_usage.clone(),
             created_at: uk.created_at.clone(),
             expires_at: uk.expires_at.clone(),
             revoked_at: uk.revoked_at.clone(),
+            signed_by_key_id: uk.signed_by_key_id.clone(),
+            key_signature: uk.key_signature.clone(),
         }
     }
 }

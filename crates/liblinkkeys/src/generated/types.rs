@@ -86,10 +86,15 @@ pub struct DomainPublicKey {
     pub public_key: Vec<u8>,
     pub fingerprint: String,
     pub algorithm: String,
+    pub key_usage: String,
     pub created_at: String,
     pub expires_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub revoked_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signed_by_key_id: Option<String>,
+    #[serde(with = "serde_bytes", skip_serializing_if = "Option::is_none")]
+    pub key_signature: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -106,10 +111,15 @@ pub struct UserPublicKey {
     pub public_key: Vec<u8>,
     pub fingerprint: String,
     pub algorithm: String,
+    pub key_usage: String,
     pub created_at: String,
     pub expires_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub revoked_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signed_by_key_id: Option<String>,
+    #[serde(with = "serde_bytes", skip_serializing_if = "Option::is_none")]
+    pub key_signature: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -180,6 +190,26 @@ pub struct SignedIdentityAssertion {
 pub struct GetUserInfoRequest {
     #[serde(with = "serde_bytes")]
     pub token: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UserInfoRequest {
+    #[serde(with = "serde_bytes")]
+    pub token: Vec<u8>,
+    pub relying_party: String,
+    pub timestamp: String,
+    pub nonce: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SignedUserInfoRequest {
+    #[serde(with = "serde_bytes")]
+    pub request: Vec<u8>,
+    pub signing_key_id: String,
+    #[serde(with = "serde_bytes")]
+    pub signature: Vec<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_keys: Option<Vec<DomainPublicKey>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

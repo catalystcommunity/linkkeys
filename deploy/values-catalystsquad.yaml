@@ -6,7 +6,6 @@ server:
   apiHostname: "linkkeys.catalystsquad.com"
   publicPort: "443"
   disableTls: "true"
-  disableTcpTls: "true"
 
 database:
   backend: postgres

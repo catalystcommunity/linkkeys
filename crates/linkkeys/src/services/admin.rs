@@ -31,12 +31,21 @@ fn db_err(e: diesel::result::Error) -> ServiceError {
 }
 
 const MIN_PASSWORD_LENGTH: usize = 8;
+/// bcrypt silently truncates input at 72 bytes; reject longer passwords so a
+/// long password isn't quietly authenticated by only its first 72 bytes (db-04).
+const MAX_PASSWORD_LENGTH: usize = 72;
 
 fn validate_password(password: &str) -> Result<(), ServiceError> {
     if password.len() < MIN_PASSWORD_LENGTH {
         return Err(ServiceError {
             code: 400,
             message: format!("Password must be at least {} characters", MIN_PASSWORD_LENGTH),
+        });
+    }
+    if password.len() > MAX_PASSWORD_LENGTH {
+        return Err(ServiceError {
+            code: 400,
+            message: format!("Password must be at most {} bytes", MAX_PASSWORD_LENGTH),
         });
     }
     Ok(())
@@ -225,10 +234,15 @@ pub fn set_claim(
     let algorithm = liblinkkeys::crypto::SigningAlgorithm::parse_str(&domain_key.algorithm)
         .ok_or_else(|| svc_err(&format!("unsupported algorithm: {}", domain_key.algorithm)))?;
 
+    use chrono::Timelike;
     let expires_chrono = req.expires_at.as_deref().map(|s| {
         chrono::DateTime::parse_from_rfc3339(s)
             .map(|dt| dt.with_timezone(&chrono::Utc))
-    }).transpose().map_err(|e| svc_err(&format!("invalid expires_at: {}", e)))?;
+    }).transpose().map_err(|e| svc_err(&format!("invalid expires_at: {}", e)))?
+        // Normalize to whole seconds: the expires_at is part of the claim's
+        // signed payload, so it must round-trip byte-identically through both
+        // Postgres (timestamptz, microsecond) and SQLite (RFC3339 text) storage.
+        .map(|dt| dt.with_nanosecond(0).unwrap_or(dt));
 
     let claim_id = uuid::Uuid::now_v7().to_string();
     let claim_value_bytes = req.claim_value.as_bytes();
@@ -250,6 +264,7 @@ pub fn set_claim(
 
     let stored = pool
         .create_claim(
+            &claim_id,
             &req.user_id,
             &req.claim_type,
             claim_value_bytes,
@@ -304,13 +319,18 @@ pub fn grant_relation(
         });
     }
 
+    // Normalization (db-05): subject_type / relation / object_type are already
+    // canonical — they're validated above against the lowercase VALID_* sets, so
+    // case/variant divergence can't be stored. The free-form id fields are
+    // whitespace-trimmed for consistency; they are NOT case-folded because
+    // identifiers (group names, etc.) may be legitimately case-sensitive.
     let rel = pool
         .create_relation(
             &req.subject_type,
-            &req.subject_id,
+            req.subject_id.trim(),
             &req.relation,
             &req.object_type,
-            &req.object_id,
+            req.object_id.trim(),
         )
         .map_err(db_err)?;
     Ok(GrantRelationResponse {

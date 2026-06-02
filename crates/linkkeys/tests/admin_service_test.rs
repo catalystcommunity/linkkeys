@@ -195,6 +195,40 @@ fn test_service_set_claim() {
 }
 
 #[test]
+fn test_claim_signature_roundtrips_through_storage() {
+    // db-02 invariant: the claim's signed payload includes expires_at, so the
+    // value must round-trip byte-identically from sign -> store -> read ->
+    // verify on BOTH backends (Postgres timestamptz vs SQLite text). The
+    // whole-second normalization in set_claim is what makes this hold; this
+    // test locks it end-to-end (verify_claim has no other server call site).
+    let pool = common::create_test_pool();
+    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
+    let user = create_user(&pool, &DataMap::new());
+    create_domain_key(&pool);
+
+    // Sub-second precision deliberately exercises the normalization path.
+    let req = SetClaimRequest {
+        user_id: user.id.clone(),
+        claim_type: "over-21".to_string(),
+        claim_value: "true".to_string(),
+        expires_at: Some("2099-01-02T03:04:05.123456789Z".to_string()),
+    };
+    let resp = admin::set_claim(&pool, req).unwrap();
+
+    // Re-read the STORED claim (exercises the store->read path) and verify its
+    // signature against the domain's published public keys.
+    let stored = pool.find_claim_by_id(&resp.claim.claim_id).unwrap();
+    let claim: liblinkkeys::generated::types::Claim = (&stored).into();
+
+    let domain_keys = pool.list_active_domain_keys().unwrap();
+    let pub_keys: Vec<liblinkkeys::generated::types::DomainPublicKey> =
+        domain_keys.iter().map(Into::into).collect();
+
+    liblinkkeys::claims::verify_claim(&claim, &pub_keys)
+        .expect("stored claim signature must verify after store+read round-trip");
+}
+
+#[test]
 fn test_service_remove_claim() {
     let pool = common::create_test_pool();
     std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
@@ -218,7 +252,7 @@ fn test_service_remove_claim() {
         &sk_bytes,
     )
     .unwrap();
-    let stored = pool.create_claim(&user.id, "role", b"admin", &dk.id, &signed.signature, None).unwrap();
+    let stored = pool.create_claim(&claim_id, &user.id, "role", b"admin", &dk.id, &signed.signature, None).unwrap();
 
     let req = RemoveClaimRequest { claim_id: stored.id.clone() };
     let resp = admin::remove_claim(&pool, req).unwrap();

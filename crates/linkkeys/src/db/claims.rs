@@ -6,8 +6,10 @@ pub mod pg {
     use crate::db::models::ClaimRow;
     use crate::schema::pg::claims;
 
+    #[allow(clippy::too_many_arguments)]
     pub fn create(
         conn: &mut diesel::PgConnection,
+        id: uuid::Uuid,
         user_id: uuid::Uuid,
         claim_type: &str,
         claim_value: &[u8],
@@ -16,7 +18,7 @@ pub mod pg {
         expires_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> QueryResult<ClaimRow> {
         let new_row = NewClaimDbRow {
-            id: uuid::Uuid::now_v7(),
+            id,
             user_id,
             claim_type: claim_type.to_string(),
             claim_value: claim_value.to_vec(),
@@ -38,9 +40,12 @@ pub mod pg {
         let uid: uuid::Uuid = user_id_str
             .parse()
             .map_err(|_| diesel::result::Error::NotFound)?;
+        // Active = not revoked AND (no expiry OR expiry in the future).
+        let now = chrono::Utc::now();
         claims::table
             .filter(claims::user_id.eq(uid))
             .filter(claims::revoked_at.is_null())
+            .filter(claims::expires_at.is_null().or(claims::expires_at.gt(now)))
             .order(claims::created_at.asc())
             .load::<ClaimDbRow>(conn)
             .map(|rows| rows.into_iter().map(Into::into).collect())
@@ -78,8 +83,10 @@ pub mod sqlite {
     use crate::db::models::ClaimRow;
     use crate::schema::sqlite::claims;
 
+    #[allow(clippy::too_many_arguments)]
     pub fn create(
         conn: &mut diesel::SqliteConnection,
+        id: &str,
         user_id: &str,
         claim_type: &str,
         claim_value: &[u8],
@@ -88,7 +95,7 @@ pub mod sqlite {
         expires_at: Option<&str>,
     ) -> QueryResult<ClaimRow> {
         let new_row = NewClaimDbRow {
-            id: uuid::Uuid::now_v7().to_string(),
+            id: id.to_string(),
             user_id: user_id.to_string(),
             claim_type: claim_type.to_string(),
             claim_value: claim_value.to_vec(),
@@ -112,9 +119,15 @@ pub mod sqlite {
         conn: &mut diesel::SqliteConnection,
         user_id: &str,
     ) -> QueryResult<Vec<ClaimRow>> {
+        // Active = not revoked AND (no expiry OR expiry in the future).
+        // expires_at is stored as RFC3339 UTC text; lexicographic comparison is
+        // correct as long as all timestamps use the same UTC format (they do,
+        // via chrono to_rfc3339).
+        let now = chrono::Utc::now().to_rfc3339();
         claims::table
             .filter(claims::user_id.eq(user_id))
             .filter(claims::revoked_at.is_null())
+            .filter(claims::expires_at.is_null().or(claims::expires_at.gt(now)))
             .order(claims::created_at.asc())
             .load::<ClaimDbRow>(conn)
             .map(|rows| rows.into_iter().map(Into::into).collect())

@@ -13,6 +13,9 @@ fn make_domain_key(key_id: &str, pk_bytes: &[u8]) -> DomainPublicKey {
         public_key: pk_bytes.to_vec(),
         fingerprint: crypto::fingerprint(pk_bytes),
         algorithm: "ed25519".to_string(),
+        key_usage: "sign".to_string(),
+        signed_by_key_id: None,
+        key_signature: None,
         created_at: chrono::Utc::now().to_rfc3339(),
         expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
         revoked_at: None,
@@ -73,8 +76,10 @@ fn test_full_mutual_auth_flow() {
     let mut assertion_cbor = Vec::new();
     ciborium::ser::into_writer(&signed_assertion, &mut assertion_cbor).unwrap();
 
-    let rp_x25519_pub = crypto::ed25519_public_to_x25519(&rp_pk).unwrap();
-    let sealed = crypto::sealed_box_encrypt(&assertion_cbor, &rp_x25519_pub).unwrap();
+    // The RP has a dedicated X25519 encryption key (NOT derived from its signing key).
+    let (rp_enc_pub, rp_enc_priv) = crypto::generate_x25519_keypair();
+    let rp_enc_pub_arr: [u8; 32] = rp_enc_pub.try_into().unwrap();
+    let sealed = crypto::sealed_box_encrypt(&assertion_cbor, &rp_enc_pub_arr).unwrap();
 
     let encrypted_token = EncryptedToken {
         ephemeral_public_key: sealed.ephemeral_public_key,
@@ -89,15 +94,12 @@ fn test_full_mutual_auth_flow() {
     // Step 6: RP decodes and decrypts
     let decoded_token = encoding::encrypted_token_from_url_param(&token_param).unwrap();
 
-    let rp_x25519_priv = crypto::ed25519_private_to_x25519(
-        &rp_sk.try_into().map(|a: [u8; 32]| a).unwrap(),
-    )
-    .unwrap();
+    let rp_enc_priv_arr: [u8; 32] = rp_enc_priv.try_into().unwrap();
     let decrypted = crypto::sealed_box_decrypt(
         &decoded_token.ephemeral_public_key,
         &decoded_token.nonce,
         &decoded_token.ciphertext,
-        &rp_x25519_priv,
+        &rp_enc_priv_arr,
     )
     .unwrap();
 
@@ -116,23 +118,21 @@ fn test_full_mutual_auth_flow() {
 /// Verify that a different RP cannot decrypt the token
 #[test]
 fn test_encrypted_token_wrong_rp_fails() {
-    let (rp_pk, _rp_sk) = crypto::generate_keypair(crypto::SigningAlgorithm::Ed25519);
-    let (_wrong_pk, wrong_sk) = crypto::generate_keypair(crypto::SigningAlgorithm::Ed25519);
+    // The RP's encryption key and a different (wrong) encryption key.
+    let (rp_enc_pub, _rp_enc_priv) = crypto::generate_x25519_keypair();
+    let (_wrong_pub, wrong_enc_priv) = crypto::generate_x25519_keypair();
 
     let plaintext = b"signed assertion cbor bytes";
-    let rp_x25519_pub = crypto::ed25519_public_to_x25519(&rp_pk).unwrap();
-    let sealed = crypto::sealed_box_encrypt(plaintext, &rp_x25519_pub).unwrap();
+    let rp_enc_pub_arr: [u8; 32] = rp_enc_pub.try_into().unwrap();
+    let sealed = crypto::sealed_box_encrypt(plaintext, &rp_enc_pub_arr).unwrap();
 
-    // Try to decrypt with the wrong RP's key
-    let wrong_x25519_priv = crypto::ed25519_private_to_x25519(
-        &wrong_sk.try_into().map(|a: [u8; 32]| a).unwrap(),
-    )
-    .unwrap();
+    // Try to decrypt with the wrong RP's encryption key.
+    let wrong_priv_arr: [u8; 32] = wrong_enc_priv.try_into().unwrap();
     let result = crypto::sealed_box_decrypt(
         &sealed.ephemeral_public_key,
         &sealed.nonce,
         &sealed.ciphertext,
-        &wrong_x25519_priv,
+        &wrong_priv_arr,
     );
     assert!(result.is_err(), "Wrong RP should not be able to decrypt");
 }

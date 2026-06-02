@@ -208,7 +208,84 @@ fn domain_init() {
             }
         }
     });
-    println!("Domain initialized with 3 keys.");
+
+    generate_and_store_encryption_key(&db_pool, &passphrase);
+    println!("Domain initialized with 3 signing keys + 1 encryption key.");
+}
+
+/// Generate the domain's X25519 encryption key (sealed-box recipient), vouched
+/// for by one of the signing keys (the signing key signs the encryption key's
+/// fingerprint + expiry). Encryption keys are NOT published in DNS — verifiers
+/// trust them via this vouch chained to a DNS-pinned signing key.
+fn generate_and_store_encryption_key(db_pool: &linkkeys::db::DbPool, passphrase: &str) {
+    use chrono::Timelike;
+
+    let signing_keys = db_pool.list_active_domain_keys().unwrap_or_else(|e| {
+        eprintln!("Failed to list signing keys: {}", e);
+        std::process::exit(1);
+    });
+    let signer = signing_keys
+        .iter()
+        .find(|k| k.key_usage == "sign")
+        .unwrap_or_else(|| {
+            eprintln!("No signing key available to vouch for the encryption key");
+            std::process::exit(1);
+        });
+    let signer_sk =
+        liblinkkeys::crypto::decrypt_private_key(&signer.private_key_encrypted, passphrase.as_bytes())
+            .unwrap_or_else(|e| {
+                eprintln!("Failed to decrypt signing key: {}", e);
+                std::process::exit(1);
+            });
+    let signer_alg = liblinkkeys::crypto::SigningAlgorithm::parse_str(&signer.algorithm)
+        .unwrap_or_else(|| {
+            eprintln!("Unsupported signing algorithm: {}", signer.algorithm);
+            std::process::exit(1);
+        });
+
+    let (enc_pub, enc_priv) = liblinkkeys::crypto::generate_x25519_keypair();
+    let enc_fp = liblinkkeys::crypto::fingerprint(&enc_pub);
+    let enc_priv_encrypted =
+        liblinkkeys::crypto::encrypt_private_key(&enc_priv, passphrase.as_bytes())
+            .expect("Failed to encrypt encryption private key");
+    // Whole-second expiry so the signed value round-trips byte-identically
+    // through pg timestamptz / sqlite text (the vouch signs this exact string).
+    let expires = (chrono::Utc::now() + chrono::Duration::days(365 * 2))
+        .with_nanosecond(0)
+        .unwrap();
+    let expires_str = expires.to_rfc3339();
+
+    let vouch =
+        liblinkkeys::dns::sign_key_vouch(&enc_fp, &expires_str, signer_alg, &signer_sk)
+            .expect("Failed to sign encryption-key vouch");
+
+    let result = match db_pool {
+        #[cfg(feature = "postgres")]
+        linkkeys::db::DbPool::Postgres(p) => {
+            let mut conn = p.get().expect("Failed to get connection");
+            linkkeys::db::domain_keys::pg::create_encryption_key(
+                &mut conn, &enc_pub, &enc_priv_encrypted, &enc_fp, &signer.id, &vouch, expires,
+            )
+            .map(|k| k.id)
+            .map_err(|e| e.to_string())
+        }
+        #[cfg(feature = "sqlite")]
+        linkkeys::db::DbPool::Sqlite(p) => {
+            let mut conn = p.get().expect("Failed to get connection");
+            linkkeys::db::domain_keys::sqlite::create_encryption_key(
+                &mut conn, &enc_pub, &enc_priv_encrypted, &enc_fp, &signer.id, &vouch, &expires_str,
+            )
+            .map(|k| k.id)
+            .map_err(|e| e.to_string())
+        }
+    };
+    match result {
+        Ok(id) => println!("  Encryption key {}: fingerprint={} (vouched by {})", id, enc_fp, signer.id),
+        Err(e) => {
+            eprintln!("Failed to store encryption key: {}", e);
+            std::process::exit(1);
+        }
+    }
 }
 
 fn user_create(
@@ -693,6 +770,7 @@ fn claim_set(user_id: &str, claim_type: &str, claim_value: &str, expires: Option
             std::process::exit(1);
         });
 
+    use chrono::Timelike;
     let expires_chrono = expires.map(|s| {
         chrono::DateTime::parse_from_rfc3339(s)
             .unwrap_or_else(|e| {
@@ -700,6 +778,10 @@ fn claim_set(user_id: &str, claim_type: &str, claim_value: &str, expires: Option
                 std::process::exit(1);
             })
             .with_timezone(&chrono::Utc)
+            // Whole-second normalization so the signed expires_at round-trips
+            // byte-identically through pg timestamptz / sqlite text (matches set_claim).
+            .with_nanosecond(0)
+            .unwrap()
     });
 
     let claim_value_bytes = claim_value.as_bytes();
@@ -733,6 +815,7 @@ fn claim_set(user_id: &str, claim_type: &str, claim_value: &str, expires: Option
             let key_id: uuid::Uuid = domain_key.id.parse().expect("Invalid key UUID");
             linkkeys::db::claims::pg::create(
                 &mut conn,
+                claim_id.parse().expect("Invalid claim UUID"),
                 uid,
                 claim_type,
                 claim_value_bytes,
@@ -746,12 +829,13 @@ fn claim_set(user_id: &str, claim_type: &str, claim_value: &str, expires: Option
             let mut conn = pool.get().expect("Failed to get connection");
             linkkeys::db::claims::sqlite::create(
                 &mut conn,
+                &claim_id,
                 user_id,
                 claim_type,
                 claim_value_bytes,
                 &domain_key.id,
                 &claim.signature,
-                expires,
+                expires_str.as_deref(),
             )
         }
     };
@@ -781,7 +865,13 @@ async fn domain_dns_check() {
         std::process::exit(1);
     });
 
-    let fingerprints: Vec<String> = domain_keys.iter().map(|k| k.fingerprint.clone()).collect();
+    // Only SIGNING keys are published in DNS. Encryption keys are trusted via a
+    // signing-key vouch carried in the key-fetch, not via DNS fingerprints.
+    let fingerprints: Vec<String> = domain_keys
+        .iter()
+        .filter(|k| k.key_usage == "sign")
+        .map(|k| k.fingerprint.clone())
+        .collect();
 
     // Build the expected API base URL.
     // API_HOSTNAME overrides DOMAIN_NAME for the URL (when API is on a subdomain).
