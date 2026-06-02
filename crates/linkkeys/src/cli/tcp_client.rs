@@ -193,6 +193,11 @@ fn send_frame(stream: &mut impl Write, data: &[u8]) -> Result<(), ClientError> {
         .map_err(|e| ClientError::Connection(e.to_string()))
 }
 
+/// Maximum frame size the client will allocate for a server response. Mirrors
+/// the server's cap so a malicious/compromised peer cannot drive the client to
+/// an unbounded (multi-GiB) allocation via a forged length prefix (tcp-01).
+const MAX_FRAME_SIZE: usize = 1024 * 1024;
+
 /// Read a frame: 4-byte big-endian length prefix + payload.
 fn read_frame(stream: &mut impl Read) -> Result<Vec<u8>, ClientError> {
     let mut len_buf = [0u8; 4];
@@ -200,6 +205,12 @@ fn read_frame(stream: &mut impl Read) -> Result<Vec<u8>, ClientError> {
         .read_exact(&mut len_buf)
         .map_err(|e| ClientError::Connection(e.to_string()))?;
     let resp_len = u32::from_be_bytes(len_buf) as usize;
+    if resp_len > MAX_FRAME_SIZE {
+        return Err(ClientError::Connection(format!(
+            "server frame too large ({} bytes, max {})",
+            resp_len, MAX_FRAME_SIZE
+        )));
+    }
     let mut resp_buf = vec![0u8; resp_len];
     stream
         .read_exact(&mut resp_buf)

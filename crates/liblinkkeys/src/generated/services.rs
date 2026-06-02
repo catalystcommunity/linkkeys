@@ -19,97 +19,97 @@ impl std::error::Error for ServiceError {}
 /// Ops service trait
 pub trait Ops {
     type Context;
-    /// healthcheck operation
+    /// healthcheck (request/response).
     fn healthcheck(&self, ctx: &Self::Context, input: EmptyRequest) -> Result<CheckResult, ServiceError>;
-    /// readiness operation
+    /// readiness (request/response).
     fn readiness(&self, ctx: &Self::Context, input: EmptyRequest) -> Result<CheckResult, ServiceError>;
 }
 
 /// Hello service trait
 pub trait Hello {
     type Context;
-    /// hello operation
+    /// hello (request/response).
     fn hello(&self, ctx: &Self::Context, input: HelloRequest) -> Result<HelloResponse, ServiceError>;
 }
 
 /// Guestbook service trait
 pub trait Guestbook {
     type Context;
-    /// create-entry operation
+    /// create-entry (request/response).
     fn create_entry(&self, ctx: &Self::Context, input: CreateGuestbookRequest) -> Result<GuestbookEntry, ServiceError>;
-    /// list-entries operation
+    /// list-entries (request/response).
     fn list_entries(&self, ctx: &Self::Context, input: GuestbookListRequest) -> Result<GuestbookListResponse, ServiceError>;
-    /// update-entry operation
+    /// update-entry (request/response).
     fn update_entry(&self, ctx: &Self::Context, input: UpdateGuestbookRequest) -> Result<GuestbookEntry, ServiceError>;
-    /// delete-entry operation
+    /// delete-entry (request/response).
     fn delete_entry(&self, ctx: &Self::Context, input: DeleteGuestbookRequest) -> Result<DeleteGuestbookResponse, ServiceError>;
 }
 
 /// DomainKeys service trait
 pub trait DomainKeys {
     type Context;
-    /// get-domain-keys operation
+    /// get-domain-keys (request/response).
     fn get_domain_keys(&self, ctx: &Self::Context, input: EmptyRequest) -> Result<GetDomainKeysResponse, ServiceError>;
 }
 
 /// UserKeys service trait
 pub trait UserKeys {
     type Context;
-    /// get-user-keys operation
+    /// get-user-keys (request/response).
     fn get_user_keys(&self, ctx: &Self::Context, input: GetUserKeysRequest) -> Result<GetUserKeysResponse, ServiceError>;
 }
 
 /// Identity service trait
 pub trait Identity {
     type Context;
-    /// get-user-info operation
-    fn get_user_info(&self, ctx: &Self::Context, input: GetUserInfoRequest) -> Result<UserInfo, ServiceError>;
+    /// get-user-info (request/response).
+    fn get_user_info(&self, ctx: &Self::Context, input: SignedUserInfoRequest) -> Result<UserInfo, ServiceError>;
 }
 
 /// Handshake service trait
 pub trait Handshake {
     type Context;
-    /// handshake operation
+    /// handshake (request/response).
     fn handshake(&self, ctx: &Self::Context, input: HandshakeRequest) -> Result<HandshakeResponse, ServiceError>;
 }
 
 /// Admin service trait
 pub trait Admin {
     type Context;
-    /// list-users operation
+    /// list-users (request/response).
     fn list_users(&self, ctx: &Self::Context, input: ListUsersRequest) -> Result<ListUsersResponse, ServiceError>;
-    /// get-user operation
+    /// get-user (request/response).
     fn get_user(&self, ctx: &Self::Context, input: GetUserRequest) -> Result<GetUserResponse, ServiceError>;
-    /// create-user operation
+    /// create-user (request/response).
     fn create_user(&self, ctx: &Self::Context, input: CreateUserRequest) -> Result<CreateUserResponse, ServiceError>;
-    /// update-user operation
+    /// update-user (request/response).
     fn update_user(&self, ctx: &Self::Context, input: UpdateUserRequest) -> Result<UpdateUserResponse, ServiceError>;
-    /// deactivate-user operation
+    /// deactivate-user (request/response).
     fn deactivate_user(&self, ctx: &Self::Context, input: DeactivateUserRequest) -> Result<DeactivateUserResponse, ServiceError>;
-    /// reset-password operation
+    /// reset-password (request/response).
     fn reset_password(&self, ctx: &Self::Context, input: ResetPasswordRequest) -> Result<ResetPasswordResponse, ServiceError>;
-    /// remove-credential operation
+    /// remove-credential (request/response).
     fn remove_credential(&self, ctx: &Self::Context, input: RemoveCredentialRequest) -> Result<RemoveCredentialResponse, ServiceError>;
-    /// set-claim operation
+    /// set-claim (request/response).
     fn set_claim(&self, ctx: &Self::Context, input: SetClaimRequest) -> Result<SetClaimResponse, ServiceError>;
-    /// remove-claim operation
+    /// remove-claim (request/response).
     fn remove_claim(&self, ctx: &Self::Context, input: RemoveClaimRequest) -> Result<RemoveClaimResponse, ServiceError>;
-    /// grant-relation operation
+    /// grant-relation (request/response).
     fn grant_relation(&self, ctx: &Self::Context, input: GrantRelationRequest) -> Result<GrantRelationResponse, ServiceError>;
-    /// remove-relation operation
+    /// remove-relation (request/response).
     fn remove_relation(&self, ctx: &Self::Context, input: RemoveRelationRequest) -> Result<RemoveRelationResponse, ServiceError>;
-    /// list-relations operation
+    /// list-relations (request/response).
     fn list_relations(&self, ctx: &Self::Context, input: ListRelationsRequest) -> Result<ListRelationsResponse, ServiceError>;
-    /// check-permission operation
+    /// check-permission (request/response).
     fn check_permission(&self, ctx: &Self::Context, input: CheckPermissionRequest) -> Result<CheckPermissionResponse, ServiceError>;
 }
 
 /// Account service trait
 pub trait Account {
     type Context;
-    /// change-password operation
+    /// change-password (request/response).
     fn change_password(&self, ctx: &Self::Context, input: ChangePasswordRequest) -> Result<ChangePasswordResponse, ServiceError>;
-    /// get-my-info operation
+    /// get-my-info (request/response).
     fn get_my_info(&self, ctx: &Self::Context, input: EmptyRequest) -> Result<GetMyInfoResponse, ServiceError>;
 }
 

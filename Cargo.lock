@@ -1666,6 +1666,7 @@ dependencies = [
  "chrono",
  "ciborium",
  "ed25519-dalek",
+ "hkdf",
  "rand 0.8.5",
  "serde",
  "serde_bytes",

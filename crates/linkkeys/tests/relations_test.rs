@@ -37,6 +37,22 @@ fn test_direct_permission_check() {
 }
 
 #[test]
+fn test_deactivated_user_loses_permission() {
+    // db-06: a deactivated user holds no permissions even though their relation
+    // grants still exist in the graph.
+    let pool = common::create_test_pool();
+    let user = create_user(&pool, &DataMap::new());
+    create_relation(&pool, "user", &user.id, "manage_users", "domain", "test.com");
+    assert!(pool.check_permission(&user.id, "manage_users", "domain", "test.com").unwrap());
+
+    pool.deactivate_user(&user.id).unwrap();
+    assert!(
+        !pool.check_permission(&user.id, "manage_users", "domain", "test.com").unwrap(),
+        "deactivated user must not retain permissions"
+    );
+}
+
+#[test]
 fn test_admin_implies_all() {
     let pool = common::create_test_pool();
     let user = create_user(&pool, &DataMap::new());

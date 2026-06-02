@@ -31,17 +31,37 @@ That's it. Everything meaningful to humans — display name, age verification, o
 
 ### Key Hierarchy
 
+There are two distinct relationships here, and the distinction matters. Domain
+and user keys are a **custody** hierarchy held on the server. Device and app keys
+are **not owned** by the user key — they are independent primitives that *enroll*
+into a partnership with the domain, much like joining an Active Directory domain.
+
 ```
-Domain Keys (≥3, equal, held on domain server(s))
-  └── User Keys (held on domain server, never leave it)
-        └── Device Keys (held on device, never leave it)
-              └── App Keys (per-application, signed by device key)
+CUSTODY (server-held):
+  Domain Keys (≥3, equal, held on domain server(s))   ← root of trust
+    └── User Keys (custodied on the domain server, never leave it)
+
+ENROLLMENT / PARTNERSHIP (not user-owned):
+  Device Keys — enrolled to the domain, associated with a user; held on device, never leave it
+    └── App Keys — optionally signed by ("coupled to") a device key
 ```
 
-- **Domain keys** are the root of trust. At least three, for redundancy and rotation without disruption. Published as fingerprints in DNS TXT records at the `@` record for the domain. Keys are equal — no special roles (signing vs encryption vs revocation). Any key can do anything.
-- **User keys** are custodied by the domain server. The user's private keys never leave the domain server and are never stored unencrypted. This means a lost device is an inconvenience, not a catastrophe. The domain admin is a custodian — users must trust their domain admin, just as they trust their email provider today, but with better tooling for accountability.
-- **Device keys** live in the device's secure enclave (or best available equivalent). The device private key never leaves the device. Trust with the domain is established through the device's public key.
-- **App keys** are per-application (browser, email client, etc.) and signed by the device key. Applications enroll in the trust relationship through the device.
+- **Domain keys** are the root of trust. At least three, for redundancy and rotation without disruption. Published as fingerprints in DNS TXT records at the `@` record for the domain. The three domain keys are equal peers — no role-specialized key among them (any one can, e.g., sign a sibling's revocation).
+- **User keys** are custodied by the domain server. The user's private keys never leave the domain server and are never stored unencrypted. This means a lost device is an inconvenience, not a catastrophe. The domain admin is a custodian — users must trust their domain admin (or become their own), just as they trust their email provider today, but with better tooling for accountability.
+- **Device and app keys are separate primitives, not property of the user key.** A device or app key represents *that device/app*. It is *associated with* a user through **enrollment** — but the user key does not own it, and the domain does not control it unless the device/app chooses to enforce that. The relationship is a partnership between the device/app and the domain, not ownership. (On a shared system, two users might use the same app key, or choose separate instances — their call.) The load-bearing fact is that the key is *enrolled*: as long as it doesn't change, it represents the same device/app, tied to a user.
+- **Device keys** live in the device's secure enclave (or best available equivalent); the private key never leaves the device. The domain learns the device's public key at enrollment. How much to trust a given device's attestation mechanism (enclave, OS keystore) is a **human decision** for the user and admin — LinkKeys provides the cryptographic primitive (a signature proving origin), not a judgment that the device is trustworthy. We don't solve trust; we give humans tools to decide.
+- **App keys** are per-application (browser, email client, etc.). An app key **may** be signed by a device key to attest "I'm running on this enrolled device" — an *optional* coupling, only when the app was enrolled to be coupled. Coupling is what makes **cascade revocation** possible: revoking a lost device's enrollment can deny every session and every app coupled to it.
+
+> **Attest, never authorize.** A device or app key proves *origin* ("this came
+> from the enrolled device/app"). It is never, by itself, the authority for a
+> privileged action — authorization remains the domain's signed assertion. For
+> high-value (bank-tier) flows the device additionally signs the specific
+> request, acting as an MFA layer that even a malicious domain admin cannot forge
+> (they hold the domain/user keys, not the device key).
+
+> **Identification, not management.** LinkKeys identifies devices, apps, and
+> users; it does not manage devices. It can integrate with management systems
+> (MDM, etc.), but enrollment is a trust partnership, not device control.
 
 ### Key Properties
 

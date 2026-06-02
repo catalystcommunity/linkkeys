@@ -5,7 +5,6 @@ server:
   domainName: "linkkeys.example.com"
   # domainKeyPassphrase: set via secret
   disableTls: "true"  # TLS terminated at ingress/gateway
-  disableTcpTls: "true"
 
 database:
   backend: postgres

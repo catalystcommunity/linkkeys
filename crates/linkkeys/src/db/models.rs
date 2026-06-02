@@ -18,10 +18,14 @@ pub struct DomainKey {
     pub private_key_encrypted: Vec<u8>,
     pub fingerprint: String,
     pub algorithm: String,
+    pub key_usage: String,
     pub created_at: String,
     pub expires_at: String,
     pub revoked_at: Option<String>,
     pub updated_at: String,
+    /// Encrypt keys only: signing key that vouches + its signature (else None).
+    pub signed_by_key_id: Option<String>,
+    pub key_signature: Option<Vec<u8>>,
 }
 
 /// User model. Identity only — auth credentials are stored separately.
@@ -71,10 +75,14 @@ pub struct UserKey {
     pub private_key_encrypted: Vec<u8>,
     pub fingerprint: String,
     pub algorithm: String,
+    pub key_usage: String,
     pub created_at: String,
     pub expires_at: String,
     pub revoked_at: Option<String>,
     pub updated_at: String,
+    /// Encrypt keys only: signing key that vouches + its signature (else None).
+    pub signed_by_key_id: Option<String>,
+    pub key_signature: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone)]
@@ -134,10 +142,13 @@ pub mod pg {
         pub private_key_encrypted: Vec<u8>,
         pub fingerprint: String,
         pub algorithm: String,
+        pub key_usage: String,
         pub created_at: chrono::DateTime<chrono::Utc>,
         pub expires_at: chrono::DateTime<chrono::Utc>,
         pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
         pub updated_at: chrono::DateTime<chrono::Utc>,
+        pub signed_by_key_id: Option<String>,
+        pub key_signature: Option<Vec<u8>>,
     }
 
     impl From<DomainKeyRow> for super::DomainKey {
@@ -148,10 +159,13 @@ pub mod pg {
                 private_key_encrypted: row.private_key_encrypted,
                 fingerprint: row.fingerprint,
                 algorithm: row.algorithm,
+                key_usage: row.key_usage,
                 created_at: row.created_at.to_rfc3339(),
                 expires_at: row.expires_at.to_rfc3339(),
                 revoked_at: row.revoked_at.map(|t| t.to_rfc3339()),
                 updated_at: row.updated_at.to_rfc3339(),
+                signed_by_key_id: row.signed_by_key_id,
+                key_signature: row.key_signature,
             }
         }
     }
@@ -164,7 +178,10 @@ pub mod pg {
         pub private_key_encrypted: Vec<u8>,
         pub fingerprint: String,
         pub algorithm: String,
+        pub key_usage: String,
         pub expires_at: chrono::DateTime<chrono::Utc>,
+        pub signed_by_key_id: Option<String>,
+        pub key_signature: Option<Vec<u8>>,
     }
 
     // -- Users --
@@ -251,10 +268,13 @@ pub mod pg {
         pub private_key_encrypted: Vec<u8>,
         pub fingerprint: String,
         pub algorithm: String,
+        pub key_usage: String,
         pub created_at: chrono::DateTime<chrono::Utc>,
         pub expires_at: chrono::DateTime<chrono::Utc>,
         pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
         pub updated_at: chrono::DateTime<chrono::Utc>,
+        pub signed_by_key_id: Option<String>,
+        pub key_signature: Option<Vec<u8>>,
     }
 
     impl From<UserKeyRow> for super::UserKey {
@@ -266,10 +286,13 @@ pub mod pg {
                 private_key_encrypted: row.private_key_encrypted,
                 fingerprint: row.fingerprint,
                 algorithm: row.algorithm,
+                key_usage: row.key_usage,
                 created_at: row.created_at.to_rfc3339(),
                 expires_at: row.expires_at.to_rfc3339(),
                 revoked_at: row.revoked_at.map(|t| t.to_rfc3339()),
                 updated_at: row.updated_at.to_rfc3339(),
+                signed_by_key_id: row.signed_by_key_id,
+                key_signature: row.key_signature,
             }
         }
     }
@@ -419,10 +442,13 @@ pub mod sqlite {
         pub private_key_encrypted: Vec<u8>,
         pub fingerprint: String,
         pub algorithm: String,
+        pub key_usage: String,
         pub created_at: String,
         pub expires_at: String,
         pub revoked_at: Option<String>,
         pub updated_at: String,
+        pub signed_by_key_id: Option<String>,
+        pub key_signature: Option<Vec<u8>>,
     }
 
     impl From<DomainKeyRow> for super::DomainKey {
@@ -433,10 +459,13 @@ pub mod sqlite {
                 private_key_encrypted: row.private_key_encrypted,
                 fingerprint: row.fingerprint,
                 algorithm: row.algorithm,
+                key_usage: row.key_usage,
                 created_at: row.created_at,
                 expires_at: row.expires_at,
                 revoked_at: row.revoked_at,
                 updated_at: row.updated_at,
+                signed_by_key_id: row.signed_by_key_id,
+                key_signature: row.key_signature,
             }
         }
     }
@@ -449,7 +478,10 @@ pub mod sqlite {
         pub private_key_encrypted: Vec<u8>,
         pub fingerprint: String,
         pub algorithm: String,
+        pub key_usage: String,
         pub expires_at: String,
+        pub signed_by_key_id: Option<String>,
+        pub key_signature: Option<Vec<u8>>,
     }
 
     // -- Users --
@@ -536,10 +568,13 @@ pub mod sqlite {
         pub private_key_encrypted: Vec<u8>,
         pub fingerprint: String,
         pub algorithm: String,
+        pub key_usage: String,
         pub created_at: String,
         pub expires_at: String,
         pub revoked_at: Option<String>,
         pub updated_at: String,
+        pub signed_by_key_id: Option<String>,
+        pub key_signature: Option<Vec<u8>>,
     }
 
     impl From<UserKeyRow> for super::UserKey {
@@ -551,10 +586,13 @@ pub mod sqlite {
                 private_key_encrypted: row.private_key_encrypted,
                 fingerprint: row.fingerprint,
                 algorithm: row.algorithm,
+                key_usage: row.key_usage,
                 created_at: row.created_at,
                 expires_at: row.expires_at,
                 revoked_at: row.revoked_at,
                 updated_at: row.updated_at,
+                signed_by_key_id: row.signed_by_key_id,
+                key_signature: row.key_signature,
             }
         }
     }

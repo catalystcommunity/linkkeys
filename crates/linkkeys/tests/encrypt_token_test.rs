@@ -29,6 +29,23 @@ async fn encrypt_token_for_rp_self_rp_round_trips() {
         .create_domain_key(&pk_bytes, &encrypted_sk, &fingerprint, "ed25519", expires)
         .expect("create_domain_key");
 
+    // Generate the domain's X25519 ENCRYPTION key, vouched by the signing key,
+    // and persist it. encrypt_token_for_rp seals to this key (not a converted
+    // Ed25519 key).
+    let (enc_pub, enc_priv) = crypto::generate_x25519_keypair();
+    let enc_fp = crypto::fingerprint(&enc_pub);
+    let enc_priv_encrypted = crypto::encrypt_private_key(&enc_priv, TEST_PASSPHRASE).unwrap();
+    let enc_expires_str = expires.to_rfc3339();
+    let vouch = liblinkkeys::dns::sign_key_vouch(
+        &enc_fp,
+        &enc_expires_str,
+        crypto::SigningAlgorithm::Ed25519,
+        &sk_bytes,
+    )
+    .unwrap();
+    pool.create_domain_encryption_key(&enc_pub, &enc_priv_encrypted, &enc_fp, &domain_key.id, &vouch, expires)
+        .expect("create_domain_encryption_key");
+
     // Build and sign an identity assertion the same way the IDP login flow does.
     let user_id = "test-user-id";
     let nonce = "test-nonce";
@@ -55,16 +72,17 @@ async fn encrypt_token_for_rp_self_rp_round_trips() {
         .await
         .expect("encrypt_token_for_rp self-RP path");
 
-    // Decrypt with the same key's private half and check we recover the original assertion.
+    // Decrypt with the domain's X25519 ENCRYPTION private key (used directly,
+    // no conversion) and check we recover the original assertion.
     let token = encoding::encrypted_token_from_url_param(&encrypted).unwrap();
-    let x25519_priv = crypto::ed25519_private_to_x25519(&sk_bytes).unwrap();
+    let x25519_priv: [u8; 32] = enc_priv.as_slice().try_into().unwrap();
     let plaintext = crypto::sealed_box_decrypt(
         &token.ephemeral_public_key,
         &token.nonce,
         &token.ciphertext,
         &x25519_priv,
     )
-    .expect("sealed_box_decrypt with the domain's own X25519 private key");
+    .expect("sealed_box_decrypt with the domain's own X25519 encryption private key");
 
     let recovered: liblinkkeys::generated::types::SignedIdentityAssertion =
         ciborium::de::from_reader(plaintext.as_slice()).unwrap();

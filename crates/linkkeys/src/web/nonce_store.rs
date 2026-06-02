@@ -1,78 +1,33 @@
-use std::collections::HashMap;
-use std::sync::RwLock;
-use std::time::{Duration, Instant};
+use crate::db::DbPool;
+use std::time::Duration;
 
-/// In-memory nonce store with TTL-based expiration.
-/// Prevents replay of assertion tokens within their validity window.
+/// Durable, shared replay-protection store backed by the database
+/// `used_nonces` table.
+///
+/// Unlike a per-process in-memory map, this survives restarts and is consistent
+/// across replicas, so single-use / replay-prevention guarantees actually hold
+/// in production rather than only within one process's lifetime.
 pub struct NonceStore {
-    nonces: RwLock<HashMap<String, Instant>>,
+    pool: DbPool,
     ttl: Duration,
 }
 
 impl NonceStore {
-    pub fn new(ttl: Duration) -> Self {
-        Self {
-            nonces: RwLock::new(HashMap::new()),
-            ttl,
-        }
+    pub fn new(pool: DbPool, ttl: Duration) -> Self {
+        Self { pool, ttl }
     }
 
-    /// Record a nonce as used. Returns false if the nonce was already used
-    /// (replay detected). Returns true if this is the first time.
+    /// Record a nonce as used. Returns `true` only on a confirmed first use.
+    /// Returns `false` on replay OR if the backing store errors — i.e. it
+    /// **fails closed**, so a database problem rejects logins rather than
+    /// silently disabling replay protection.
     pub fn record(&self, nonce: &str) -> bool {
-        let mut map = self.nonces.write().expect("NonceStore lock poisoned");
-
-        // Periodic cleanup: remove expired entries when the map grows
-        if map.len() > 1000 {
-            let cutoff = Instant::now() - self.ttl;
-            map.retain(|_, &mut inserted| inserted > cutoff);
-        }
-
-        let now = Instant::now();
-
-        // Check if nonce already exists and is still within TTL
-        if let Some(&inserted) = map.get(nonce) {
-            if now.duration_since(inserted) < self.ttl {
-                return false; // Replay detected
+        match self.pool.record_nonce(nonce, self.ttl) {
+            Ok(first_use) => first_use,
+            Err(e) => {
+                log::error!("nonce store error (failing closed): {}", e);
+                false
             }
-            // Expired — allow reuse (update timestamp)
         }
-
-        map.insert(nonce.to_string(), now);
-        true
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_first_use_succeeds() {
-        let store = NonceStore::new(Duration::from_secs(300));
-        assert!(store.record("nonce-1"));
-    }
-
-    #[test]
-    fn test_replay_detected() {
-        let store = NonceStore::new(Duration::from_secs(300));
-        assert!(store.record("nonce-1"));
-        assert!(!store.record("nonce-1")); // Replay
-    }
-
-    #[test]
-    fn test_different_nonces_independent() {
-        let store = NonceStore::new(Duration::from_secs(300));
-        assert!(store.record("nonce-1"));
-        assert!(store.record("nonce-2"));
-        assert!(!store.record("nonce-1")); // Replay of first
-    }
-
-    #[test]
-    fn test_expired_nonce_allowed() {
-        let store = NonceStore::new(Duration::from_millis(1));
-        assert!(store.record("nonce-1"));
-        std::thread::sleep(Duration::from_millis(10));
-        assert!(store.record("nonce-1")); // Expired, allowed again
     }
 }

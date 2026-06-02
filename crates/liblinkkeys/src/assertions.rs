@@ -9,8 +9,25 @@ pub enum VerifyError {
     SignatureInvalid,
     UnsupportedAlgorithm(String),
     Expired,
+    /// The signing key has been revoked.
+    KeyRevoked(String),
+    /// The signing key has expired (past its `expires_at`) or has an
+    /// unparseable `expires_at`.
+    KeyExpired(String),
     DeserializationFailed(String),
     Crypto(CryptoError),
+}
+
+/// Reject a signing key that is revoked or expired at verification time.
+/// Shared by every verify path that resolves a key by id.
+pub fn check_signing_key_valid(key: &DomainPublicKey) -> Result<(), VerifyError> {
+    match crypto::signing_key_validity(&key.expires_at, key.revoked_at.as_deref()) {
+        crypto::KeyValidity::Valid => Ok(()),
+        crypto::KeyValidity::Revoked => Err(VerifyError::KeyRevoked(key.key_id.clone())),
+        crypto::KeyValidity::Expired | crypto::KeyValidity::BadExpiry => {
+            Err(VerifyError::KeyExpired(key.key_id.clone()))
+        }
+    }
 }
 
 impl fmt::Display for VerifyError {
@@ -22,6 +39,8 @@ impl fmt::Display for VerifyError {
                 write!(f, "unsupported signing algorithm: {}", alg)
             }
             VerifyError::Expired => write!(f, "assertion has expired"),
+            VerifyError::KeyRevoked(id) => write!(f, "signing key has been revoked: {}", id),
+            VerifyError::KeyExpired(id) => write!(f, "signing key has expired: {}", id),
             VerifyError::DeserializationFailed(msg) => {
                 write!(f, "failed to deserialize assertion: {}", msg)
             }
@@ -94,6 +113,9 @@ pub fn verify_assertion(
         .find(|k| k.key_id == signed.signing_key_id)
         .ok_or_else(|| VerifyError::KeyNotFound(signed.signing_key_id.clone()))?;
 
+    // Reject revoked/expired keys before trusting anything they signed.
+    check_signing_key_valid(key)?;
+
     crypto::resolve_and_verify(
         &key.algorithm,
         &signed.assertion,
@@ -131,6 +153,9 @@ mod tests {
             public_key: pk_bytes.to_vec(),
             fingerprint: fingerprint(pk_bytes),
             algorithm: ALGORITHM_ED25519.to_string(),
+            key_usage: "sign".to_string(),
+            signed_by_key_id: None,
+            key_signature: None,
             created_at: Utc::now().to_rfc3339(),
             expires_at: (Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
             revoked_at: None,
@@ -196,6 +221,32 @@ mod tests {
 
         let result = verify_assertion(&signed, &[domain_key]);
         assert!(matches!(result, Err(VerifyError::SignatureInvalid)));
+    }
+
+    #[test]
+    fn test_assertion_revoked_key_rejected() {
+        let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
+        let mut domain_key = make_domain_key("key-1", &pk);
+        domain_key.revoked_at = Some(Utc::now().to_rfc3339());
+
+        let assertion = build_assertion("user-123", "example.com", "app.example.com", "nonce", None, 300);
+        let signed = sign_assertion(&assertion, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
+
+        let result = verify_assertion(&signed, &[domain_key]);
+        assert!(matches!(result, Err(VerifyError::KeyRevoked(_))));
+    }
+
+    #[test]
+    fn test_assertion_expired_key_rejected() {
+        let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
+        let mut domain_key = make_domain_key("key-1", &pk);
+        domain_key.expires_at = (Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+
+        let assertion = build_assertion("user-123", "example.com", "app.example.com", "nonce", None, 300);
+        let signed = sign_assertion(&assertion, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
+
+        let result = verify_assertion(&signed, &[domain_key]);
+        assert!(matches!(result, Err(VerifyError::KeyExpired(_))));
     }
 
     #[test]

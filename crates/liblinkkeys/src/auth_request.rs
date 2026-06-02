@@ -54,6 +54,9 @@ pub fn verify_auth_request(
         .find(|k| k.key_id == signed.signing_key_id)
         .ok_or_else(|| VerifyError::KeyNotFound(signed.signing_key_id.clone()))?;
 
+    // Reject revoked/expired keys before trusting anything they signed.
+    crate::assertions::check_signing_key_valid(key)?;
+
     crypto::resolve_and_verify(
         &key.algorithm,
         &signed.request,
@@ -92,6 +95,9 @@ mod tests {
             public_key: pk_bytes.to_vec(),
             fingerprint: fingerprint(pk_bytes),
             algorithm: ALGORITHM_ED25519.to_string(),
+            key_usage: "sign".to_string(),
+            signed_by_key_id: None,
+            key_signature: None,
             created_at: Utc::now().to_rfc3339(),
             expires_at: (Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
             revoked_at: None,

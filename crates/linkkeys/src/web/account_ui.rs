@@ -11,18 +11,78 @@ use crate::services::{account, authorization};
 use liblinkkeys::generated::types::ChangePasswordRequest;
 
 // -- Session helpers --
+//
+// The session is a Rocket *private* (encrypted + authenticated) cookie whose
+// value is `user_id|issued_at|last_seen` (unix seconds). Because it's
+// authenticated, the client cannot forge the timestamps, so we enforce an
+// absolute lifetime cap and a sliding idle timeout server-side. Both windows
+// are configurable with safe defaults. A fresh login issues a new cookie
+// (rotation); deactivating a user revokes access at the next request via the
+// is_active check at the handler boundary.
 
-pub(super) fn get_session_user_id(cookies: &CookieJar<'_>) -> Option<String> {
-    cookies.get_private("user_id").map(|c| c.value().to_string())
+/// Absolute session lifetime in seconds (cap regardless of activity).
+fn session_absolute_ttl() -> i64 {
+    std::env::var("SESSION_ABSOLUTE_TTL_SECONDS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(43_200) // 12 hours
 }
 
-fn set_session(cookies: &CookieJar<'_>, user_id: &str) {
-    let mut cookie = Cookie::new("user_id", user_id.to_string());
+/// Idle timeout in seconds (session expires this long after the last request).
+fn session_idle_ttl() -> i64 {
+    std::env::var("SESSION_IDLE_TTL_SECONDS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(3_600) // 1 hour
+}
+
+fn build_session_cookie(value: String) -> Cookie<'static> {
+    let mut cookie = Cookie::new("user_id", value);
     cookie.set_same_site(SameSite::Lax);
     cookie.set_path("/");
     cookie.set_http_only(true);
     cookie.set_secure(true);
-    cookies.add_private(cookie);
+    cookie
+}
+
+/// Read and validate the session. Returns the user_id only if the session is
+/// within both its absolute and idle windows; renews the idle window on a
+/// successful read (sliding session). Clears an expired/malformed cookie.
+pub(super) fn get_session_user_id(cookies: &CookieJar<'_>) -> Option<String> {
+    let raw = cookies.get_private("user_id")?;
+    let mut parts = raw.value().split('|');
+    let user_id = parts.next().unwrap_or("").to_string();
+    let issued: Option<i64> = parts.next().and_then(|s| s.parse().ok());
+    let last_seen: Option<i64> = parts.next().and_then(|s| s.parse().ok());
+
+    let (issued, last_seen) = match (user_id.is_empty(), issued, last_seen) {
+        (false, Some(i), Some(l)) => (i, l),
+        // Malformed or legacy bare-user_id cookie: force re-login.
+        _ => {
+            cookies.remove_private("user_id");
+            return None;
+        }
+    };
+
+    let now = chrono::Utc::now().timestamp();
+    if now < issued
+        || now - issued > session_absolute_ttl()
+        || now - last_seen > session_idle_ttl()
+    {
+        cookies.remove_private("user_id");
+        return None;
+    }
+
+    // Slide the idle window forward.
+    cookies.add_private(build_session_cookie(format!("{}|{}|{}", user_id, issued, now)));
+    Some(user_id)
+}
+
+fn set_session(cookies: &CookieJar<'_>, user_id: &str) {
+    let now = chrono::Utc::now().timestamp();
+    cookies.add_private(build_session_cookie(format!("{}|{}|{}", user_id, now, now)));
 }
 
 fn clear_session(cookies: &CookieJar<'_>) {
@@ -154,6 +214,7 @@ pub struct LoginForm {
 
 #[rocket::post("/account/login", data = "<form>")]
 pub fn login_submit(
+    _csrf: super::guard::SameOriginPost,
     pool: &State<DbPool>,
     cookies: &CookieJar<'_>,
     form: rocket::form::Form<LoginForm>,
@@ -173,7 +234,7 @@ pub fn login_submit(
 // -- Logout --
 
 #[rocket::post("/account/logout")]
-pub fn logout(cookies: &CookieJar<'_>) -> Redirect {
+pub fn logout(_csrf: super::guard::SameOriginPost, cookies: &CookieJar<'_>) -> Redirect {
     clear_session(cookies);
     Redirect::found("/account/login")
 }
@@ -291,6 +352,8 @@ pub fn change_password_page(
         r#"{flash}
 <h1>Change Password</h1>
 <form method="POST" action="/account/change-password">
+  <label>Current Password</label>
+  <input type="password" name="current_password" required />
   <label>New Password</label>
   <input type="password" name="new_password" required minlength="8" />
   <label>Confirm Password</label>
@@ -307,12 +370,14 @@ pub fn change_password_page(
 
 #[derive(rocket::FromForm)]
 pub struct ChangePasswordForm {
+    current_password: String,
     new_password: String,
     confirm_password: String,
 }
 
 #[rocket::post("/account/change-password", data = "<form>")]
 pub fn change_password_submit(
+    _csrf: super::guard::SameOriginPost,
     pool: &State<DbPool>,
     cookies: &CookieJar<'_>,
     form: rocket::form::Form<ChangePasswordForm>,
@@ -321,6 +386,23 @@ pub fn change_password_submit(
         Some(id) => id,
         None => return Redirect::found("/account/login"),
     };
+
+    // Re-authenticate with the current password before allowing a change
+    // (svc-05): a hijacked session alone must not be enough to take over the
+    // account by resetting the password.
+    let user = match pool.find_user_by_id(&user_id) {
+        Ok(u) => u,
+        Err(_) => return Redirect::found("/account/login"),
+    };
+    let authenticator = PasswordAuthenticator::new(pool.inner().clone());
+    if authenticator
+        .authenticate(&user.username, &form.current_password)
+        .is_err()
+    {
+        return Redirect::found(
+            "/account/change-password?error=Current+password+is+incorrect",
+        );
+    }
 
     if form.new_password != form.confirm_password {
         return Redirect::found("/account/change-password?error=Passwords+do+not+match");

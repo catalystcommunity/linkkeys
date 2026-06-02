@@ -19,10 +19,13 @@ pub mod pg {
             private_key_encrypted -> Binary,
             fingerprint -> Varchar,
             algorithm -> Varchar,
+            key_usage -> Varchar,
             created_at -> Timestamptz,
             expires_at -> Timestamptz,
             revoked_at -> Nullable<Timestamptz>,
             updated_at -> Timestamptz,
+            signed_by_key_id -> Nullable<Varchar>,
+            key_signature -> Nullable<Binary>,
         }
     }
 
@@ -72,10 +75,13 @@ pub mod pg {
             private_key_encrypted -> Binary,
             fingerprint -> Varchar,
             algorithm -> Varchar,
+            key_usage -> Varchar,
             created_at -> Timestamptz,
             expires_at -> Timestamptz,
             revoked_at -> Nullable<Timestamptz>,
             updated_at -> Timestamptz,
+            signed_by_key_id -> Nullable<Varchar>,
+            key_signature -> Nullable<Binary>,
         }
     }
 
@@ -91,6 +97,13 @@ pub mod pg {
             expires_at -> Nullable<Timestamptz>,
             revoked_at -> Nullable<Timestamptz>,
             updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        used_nonces (nonce) {
+            nonce -> Varchar,
+            expires_at -> Timestamptz,
         }
     }
 
@@ -127,10 +140,13 @@ pub mod sqlite {
             private_key_encrypted -> Binary,
             fingerprint -> Text,
             algorithm -> Text,
+            key_usage -> Text,
             created_at -> Text,
             expires_at -> Text,
             revoked_at -> Nullable<Text>,
             updated_at -> Text,
+            signed_by_key_id -> Nullable<Text>,
+            key_signature -> Nullable<Binary>,
         }
     }
 
@@ -180,10 +196,13 @@ pub mod sqlite {
             private_key_encrypted -> Binary,
             fingerprint -> Text,
             algorithm -> Text,
+            key_usage -> Text,
             created_at -> Text,
             expires_at -> Text,
             revoked_at -> Nullable<Text>,
             updated_at -> Text,
+            signed_by_key_id -> Nullable<Text>,
+            key_signature -> Nullable<Binary>,
         }
     }
 
@@ -199,6 +218,13 @@ pub mod sqlite {
             expires_at -> Nullable<Text>,
             revoked_at -> Nullable<Text>,
             updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        used_nonces (nonce) {
+            nonce -> Text,
+            expires_at -> Text,
         }
     }
 

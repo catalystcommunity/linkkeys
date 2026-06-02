@@ -198,6 +198,20 @@ impl rustls::server::danger::ClientCertVerifier for FingerprintClientCertVerifie
     }
 }
 
+/// Extract the verified client domain from a peer certificate presented during
+/// the mTLS handshake.
+///
+/// The handshake only succeeds (via [`FingerprintClientCertVerifier`]) when the
+/// cert's public key is pinned to this domain's DNS `fp=` set, so the SAN/CN
+/// domain recovered here is the *proven* identity of the connecting domain —
+/// safe to use for audience binding (tcp-03). Returns `None` if the cert is
+/// unparseable or carries no domain (which cannot happen for a cert that
+/// already passed verification, but we fail closed anyway).
+pub fn verified_client_domain(cert: &CertificateDer<'_>) -> Option<String> {
+    let (_, parsed) = x509_parser::parse_x509_certificate(cert.as_ref()).ok()?;
+    extract_domain_from_cert(&parsed)
+}
+
 /// Extract the domain name from a parsed X.509 certificate.
 /// Checks SAN (dNSName) first, falls back to CN.
 fn extract_domain_from_cert(cert: &x509_parser::certificate::X509Certificate) -> Option<String> {

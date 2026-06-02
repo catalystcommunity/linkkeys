@@ -176,6 +176,16 @@ fn write_frame(stream: &mut impl Write, data: &[u8]) -> std::io::Result<()> {
 
 const MAX_FRAME_SIZE: usize = 1024 * 1024;
 
+/// Per-connection read/write timeout in seconds. Bounds slowloris-style hold
+/// time. Configurable via TCP_IO_TIMEOUT_SECONDS; default 60s.
+fn tcp_io_timeout_secs() -> u64 {
+    env::var("TCP_IO_TIMEOUT_SECONDS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(60)
+}
+
 fn handle_connection(
     stream: TcpStream,
     ready_flag: Arc<AtomicBool>,
@@ -183,13 +193,30 @@ fn handle_connection(
     tls_config: Arc<rustls::ServerConfig>,
 ) -> std::io::Result<()> {
     log::debug!("New TCP connection from: {:?}", stream.peer_addr());
-    stream.set_read_timeout(Some(Duration::from_secs(300)))?;
+    // Bound how long a single connection can hold a worker thread. Both read
+    // and write timeouts are set BEFORE the TLS handshake (which reads/writes
+    // on this stream), so a slowloris that stalls mid-handshake or mid-frame is
+    // dropped rather than pinning a thread (tcp-04). Configurable; safe default.
+    let timeout = Duration::from_secs(tcp_io_timeout_secs());
+    stream.set_read_timeout(Some(timeout))?;
+    stream.set_write_timeout(Some(timeout))?;
     stream.set_nodelay(true)?;
 
     let conn = rustls::ServerConnection::new(tls_config)
         .map_err(std::io::Error::other)?;
     let mut tls_stream = rustls::StreamOwned::new(conn, stream);
-    handle_message_loop(&mut tls_stream, &ready_flag, db_pool)
+
+    // Drive the handshake to completion before serving frames so the verified
+    // client certificate (if the caller is a domain) is available. mTLS client
+    // auth is optional; a caller with no cert yields no client domain.
+    tls_stream.conn.complete_io(&mut tls_stream.sock)?;
+    let client_domain = tls_stream
+        .conn
+        .peer_certificates()
+        .and_then(|certs| certs.first())
+        .and_then(tls::verified_client_domain);
+
+    handle_message_loop(&mut tls_stream, &ready_flag, db_pool, client_domain.as_deref())
 }
 
 /// Maximum CBOR nesting depth allowed. Prevents stack overflow from deeply nested payloads.
@@ -256,6 +283,7 @@ fn handle_message_loop(
     stream: &mut (impl Read + Write),
     ready_flag: &Arc<AtomicBool>,
     db_pool: &DbPool,
+    client_domain: Option<&str>,
 ) -> std::io::Result<()> {
     loop {
         let frame = read_frame(stream)?;
@@ -285,12 +313,34 @@ fn handle_message_loop(
             }
         };
 
-        let response = dispatch(&envelope, ready_flag, db_pool);
+        // The inner payload is decoded per-op inside dispatch; depth-check it
+        // here too so a deeply-nested payload can't stack-overflow a handler
+        // (tcp-05). It's already size-bounded by the 1 MiB frame cap.
+        if !check_cbor_depth(&envelope.payload) {
+            let resp = error_response(1, "Malformed request: excessive nesting depth");
+            write_frame(stream, &resp)?;
+            continue;
+        }
+
+        let response = dispatch(&envelope, ready_flag, db_pool, client_domain);
         write_frame(stream, &response)?;
     }
 }
 
-fn dispatch(envelope: &RequestEnvelope, ready_flag: &Arc<AtomicBool>, db_pool: &DbPool) -> Vec<u8> {
+/// Map an internal database error to a generic client message, logging the
+/// detail server-side. Avoids leaking schema/SQL internals over the wire to
+/// unauthenticated TCP callers (svc-02).
+fn db_error_message(e: impl std::fmt::Display) -> String {
+    log::warn!("TCP dispatch database error: {}", e);
+    "internal database error".to_string()
+}
+
+fn dispatch(
+    envelope: &RequestEnvelope,
+    ready_flag: &Arc<AtomicBool>,
+    db_pool: &DbPool,
+    client_domain: Option<&str>,
+) -> Vec<u8> {
     match (envelope.service.as_str(), envelope.op.as_str()) {
         ("Ops", "healthcheck") => {
             ok_response(&CheckResultResponse { result: true })
@@ -323,7 +373,7 @@ fn dispatch(envelope: &RequestEnvelope, ready_flag: &Arc<AtomicBool>, db_pool: &
                     domain: get_domain_name(),
                     keys: keys.iter().map(Into::into).collect(),
                 }),
-                Err(e) => error_response(4, &format!("DB error: {}", e)),
+                Err(e) => error_response(4, &db_error_message(e)),
             }
         }
         ("UserKeys", "get-user-keys") => {
@@ -337,7 +387,7 @@ fn dispatch(envelope: &RequestEnvelope, ready_flag: &Arc<AtomicBool>, db_pool: &
                     domain: get_domain_name(),
                     keys: keys.iter().map(Into::into).collect(),
                 }),
-                Err(e) => error_response(4, &format!("DB error: {}", e)),
+                Err(e) => error_response(4, &db_error_message(e)),
             }
         }
         ("Identity", "get-user-info") => {
@@ -355,20 +405,41 @@ fn dispatch(envelope: &RequestEnvelope, ready_flag: &Arc<AtomicBool>, db_pool: &
             };
             let domain_keys = match db_pool.list_active_domain_keys() {
                 Ok(keys) => keys,
-                Err(e) => return error_response(4, &format!("DB error: {}", e)),
+                Err(e) => return error_response(4, &db_error_message(e)),
             };
             let csil_keys: Vec<DomainPublicKey> = domain_keys.iter().map(Into::into).collect();
             let assertion = match liblinkkeys::assertions::verify_assertion(&signed, &csil_keys) {
                 Ok(a) => a,
                 Err(_) => return error_response(5, "Token verification failed"),
             };
+            // Audience binding (crypto-06/tcp-02/tcp-03): the assertion may only
+            // be redeemed by the relying party it was issued for. On TCP, the
+            // caller's identity is the FP-pinned mTLS client cert domain proven
+            // during the handshake; require it to equal the assertion audience.
+            // No verified client cert => no proven caller => refuse.
+            match client_domain {
+                Some(domain) if domain == assertion.audience => {}
+                _ => return error_response(5, "Caller is not the assertion audience"),
+            }
+            // Single-use redemption (parity with the web /userinfo path): an
+            // assertion may be exchanged for user info at most once within its
+            // TTL, so a leaked/observed token cannot be replayed. Namespaced
+            // "userinfo:" to match the web burn and stay independent of login.
+            match db_pool.record_nonce(
+                &format!("userinfo:{}", assertion.nonce),
+                std::time::Duration::from_secs(300),
+            ) {
+                Ok(true) => {}
+                Ok(false) => return error_response(5, "Token already redeemed"),
+                Err(e) => return error_response(4, &db_error_message(e)),
+            }
             let user = match db_pool.find_user_by_id(&assertion.user_id) {
                 Ok(u) => u,
                 Err(_) => return error_response(4, "User not found"),
             };
             let claims = match db_pool.list_active_claims(&assertion.user_id) {
                 Ok(c) => c,
-                Err(e) => return error_response(4, &format!("DB error: {}", e)),
+                Err(e) => return error_response(4, &db_error_message(e)),
             };
             ok_response(&UserInfo {
                 user_id: user.id,

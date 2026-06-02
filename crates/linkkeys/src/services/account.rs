@@ -22,12 +22,21 @@ fn db_err(e: diesel::result::Error) -> ServiceError {
 }
 
 const MIN_PASSWORD_LENGTH: usize = 8;
+/// bcrypt silently truncates input at 72 bytes; reject longer passwords so a
+/// long password isn't quietly authenticated by only its first 72 bytes (db-04).
+const MAX_PASSWORD_LENGTH: usize = 72;
 
 fn validate_password(password: &str) -> Result<(), ServiceError> {
     if password.len() < MIN_PASSWORD_LENGTH {
         return Err(ServiceError {
             code: 400,
             message: format!("Password must be at least {} characters", MIN_PASSWORD_LENGTH),
+        });
+    }
+    if password.len() > MAX_PASSWORD_LENGTH {
+        return Err(ServiceError {
+            code: 400,
+            message: format!("Password must be at most {} bytes", MAX_PASSWORD_LENGTH),
         });
     }
     Ok(())

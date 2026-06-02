@@ -6,6 +6,7 @@ pub mod pg {
     use crate::db::models::DomainKey;
     use crate::schema::pg::domain_keys;
 
+    /// Create a signing (Ed25519) domain key.
     pub fn create(
         conn: &mut diesel::PgConnection,
         public_key: &[u8],
@@ -20,7 +21,39 @@ pub mod pg {
             private_key_encrypted: private_key_encrypted.to_vec(),
             fingerprint: fingerprint.to_string(),
             algorithm: algorithm.to_string(),
+            key_usage: "sign".to_string(),
             expires_at,
+            signed_by_key_id: None,
+            key_signature: None,
+        };
+
+        diesel::insert_into(domain_keys::table)
+            .values(&new_row)
+            .get_result::<DomainKeyRow>(conn)
+            .map(Into::into)
+    }
+
+    /// Create an encryption (X25519) domain key vouched for by a signing key.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_encryption_key(
+        conn: &mut diesel::PgConnection,
+        public_key: &[u8],
+        private_key_encrypted: &[u8],
+        fingerprint: &str,
+        signed_by_key_id: &str,
+        key_signature: &[u8],
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<DomainKey> {
+        let new_row = NewDomainKeyRow {
+            id: uuid::Uuid::now_v7(),
+            public_key: public_key.to_vec(),
+            private_key_encrypted: private_key_encrypted.to_vec(),
+            fingerprint: fingerprint.to_string(),
+            algorithm: "x25519".to_string(),
+            key_usage: "encrypt".to_string(),
+            expires_at,
+            signed_by_key_id: Some(signed_by_key_id.to_string()),
+            key_signature: Some(key_signature.to_vec()),
         };
 
         diesel::insert_into(domain_keys::table)
@@ -68,6 +101,7 @@ pub mod sqlite {
     use crate::db::models::DomainKey;
     use crate::schema::sqlite::domain_keys;
 
+    /// Create a signing (Ed25519) domain key.
     pub fn create(
         conn: &mut diesel::SqliteConnection,
         public_key: &[u8],
@@ -82,7 +116,44 @@ pub mod sqlite {
             private_key_encrypted: private_key_encrypted.to_vec(),
             fingerprint: fingerprint.to_string(),
             algorithm: algorithm.to_string(),
+            key_usage: "sign".to_string(),
             expires_at: expires_at.to_string(),
+            signed_by_key_id: None,
+            key_signature: None,
+        };
+        let id = new_row.id.clone();
+
+        diesel::insert_into(domain_keys::table)
+            .values(&new_row)
+            .execute(conn)?;
+
+        domain_keys::table
+            .filter(domain_keys::id.eq(&id))
+            .first::<DomainKeyRow>(conn)
+            .map(Into::into)
+    }
+
+    /// Create an encryption (X25519) domain key vouched for by a signing key.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_encryption_key(
+        conn: &mut diesel::SqliteConnection,
+        public_key: &[u8],
+        private_key_encrypted: &[u8],
+        fingerprint: &str,
+        signed_by_key_id: &str,
+        key_signature: &[u8],
+        expires_at: &str,
+    ) -> QueryResult<DomainKey> {
+        let new_row = NewDomainKeyRow {
+            id: uuid::Uuid::now_v7().to_string(),
+            public_key: public_key.to_vec(),
+            private_key_encrypted: private_key_encrypted.to_vec(),
+            fingerprint: fingerprint.to_string(),
+            algorithm: "x25519".to_string(),
+            key_usage: "encrypt".to_string(),
+            expires_at: expires_at.to_string(),
+            signed_by_key_id: Some(signed_by_key_id.to_string()),
+            key_signature: Some(key_signature.to_vec()),
         };
         let id = new_row.id.clone();
 

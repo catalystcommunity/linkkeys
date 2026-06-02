@@ -39,8 +39,8 @@ server:
   publicPort: ""
   # Passphrase for encrypting/decrypting domain key material
   domainKeyPassphrase: ""
-  # Disable TLS on the TCP transport (for development only)
-  disableTcpTls: "false"
+  # TLS on the LinkKeys TCP protocol is mandatory (FP-pinned mTLS) and cannot be
+  # disabled — there is intentionally no knob for it. (deploy-08)
   # Disable TLS on the HTTP transport (use when behind TLS-terminating ingress/gateway)
   disableTls: "false"
 

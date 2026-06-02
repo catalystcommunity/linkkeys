@@ -136,6 +136,7 @@ pub struct CreateUserForm {
 
 #[rocket::post("/user-admin/users/create", data = "<form>")]
 pub fn admin_ui_create_user_submit(
+    _csrf: super::guard::SameOriginPost,
     pool: &State<DbPool>,
     cookies: &CookieJar<'_>,
     form: rocket::form::Form<CreateUserForm>,
@@ -365,6 +366,7 @@ pub struct UpdateDisplayNameForm {
 
 #[rocket::post("/user-admin/users/<target_user_id>/update", data = "<form>", rank = 2)]
 pub fn admin_ui_update_user(
+    _csrf: super::guard::SameOriginPost,
     pool: &State<DbPool>,
     cookies: &CookieJar<'_>,
     target_user_id: &str,
@@ -394,6 +396,7 @@ pub fn admin_ui_update_user(
 
 #[rocket::post("/user-admin/users/<target_user_id>/deactivate", rank = 2)]
 pub fn admin_ui_deactivate_user(
+    _csrf: super::guard::SameOriginPost,
     pool: &State<DbPool>,
     cookies: &CookieJar<'_>,
     target_user_id: &str,
@@ -428,6 +431,7 @@ pub fn admin_ui_deactivate_user(
 
 #[rocket::post("/user-admin/users/<target_user_id>/activate")]
 pub fn admin_ui_activate_user(
+    _csrf: super::guard::SameOriginPost,
     pool: &State<DbPool>,
     cookies: &CookieJar<'_>,
     target_user_id: &str,
@@ -456,6 +460,7 @@ pub struct ResetPasswordForm {
 
 #[rocket::post("/user-admin/users/<target_user_id>/reset-password", data = "<form>", rank = 2)]
 pub fn admin_ui_reset_password(
+    _csrf: super::guard::SameOriginPost,
     pool: &State<DbPool>,
     cookies: &CookieJar<'_>,
     target_user_id: &str,
@@ -492,6 +497,7 @@ pub struct AddClaimForm {
 
 #[rocket::post("/user-admin/users/<target_user_id>/claims", data = "<form>", rank = 2)]
 pub fn admin_ui_add_claim(
+    _csrf: super::guard::SameOriginPost,
     pool: &State<DbPool>,
     cookies: &CookieJar<'_>,
     target_user_id: &str,
@@ -527,6 +533,7 @@ pub fn admin_ui_add_claim(
 
 #[rocket::post("/user-admin/claims/<claim_id>/remove")]
 pub fn admin_ui_remove_claim(
+    _csrf: super::guard::SameOriginPost,
     pool: &State<DbPool>,
     cookies: &CookieJar<'_>,
     claim_id: &str,
@@ -566,6 +573,7 @@ pub struct GrantRelationForm {
 
 #[rocket::post("/user-admin/relations", data = "<form>", rank = 2)]
 pub fn admin_ui_grant_relation(
+    _csrf: super::guard::SameOriginPost,
     pool: &State<DbPool>,
     cookies: &CookieJar<'_>,
     form: rocket::form::Form<GrantRelationForm>,
@@ -598,6 +606,7 @@ pub fn admin_ui_grant_relation(
 
 #[rocket::post("/user-admin/relations/<relation_id>/remove", rank = 2)]
 pub fn admin_ui_remove_relation(
+    _csrf: super::guard::SameOriginPost,
     pool: &State<DbPool>,
     cookies: &CookieJar<'_>,
     relation_id: &str,
