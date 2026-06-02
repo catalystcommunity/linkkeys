@@ -172,12 +172,49 @@ fn generate_and_store_keypairs<F>(
     }
 }
 
+/// Initialize a domain's keys. Idempotent and strictly additive: it generates
+/// only the key *sets* that are entirely absent and never touches keys that
+/// already exist. Re-running it on a domain created before split
+/// signing/encryption keys backfills the missing encryption key without minting
+/// new signing keys (which would be absent from DNS `fp=` and break pinning).
+///
+/// Safety: the decision is made from the full key list. If that lookup *fails*
+/// we abort rather than generate — "I couldn't find the keys" must never become
+/// "there are no keys, so make new ones" and clobber a working domain.
 fn domain_init() {
     let passphrase = get_passphrase();
     let db_pool = pool_with_migrations();
 
+    let existing = db_pool.list_all_domain_keys().unwrap_or_else(|e| {
+        eprintln!("Failed to read existing domain keys: {e}");
+        eprintln!("Refusing to generate keys when the current state is unknown.");
+        std::process::exit(1);
+    });
+    let has_signing = existing.iter().any(|k| k.key_usage == "sign");
+    let has_encryption = existing.iter().any(|k| k.key_usage == "encrypt");
+
+    if has_signing {
+        println!(
+            "Signing keys already present ({} found); leaving them untouched.",
+            existing.iter().filter(|k| k.key_usage == "sign").count()
+        );
+    } else {
+        generate_signing_keys(&db_pool, &passphrase);
+    }
+
+    if has_encryption {
+        println!("Encryption key already present; leaving it untouched.");
+    } else {
+        generate_and_store_encryption_key(&db_pool, &passphrase);
+    }
+
+    println!("Domain init complete.");
+}
+
+/// Generate the domain's three staggered-expiry Ed25519 signing keypairs.
+fn generate_signing_keys(db_pool: &linkkeys::db::DbPool, passphrase: &str) {
     println!("Generating 3 domain keypairs...");
-    generate_and_store_keypairs(&db_pool, &passphrase, &[2, 3, 4], |pool, pk, enc, fp, exp| {
+    generate_and_store_keypairs(db_pool, passphrase, &[2, 3, 4], |pool, pk, enc, fp, exp| {
         match pool {
             #[cfg(feature = "postgres")]
             linkkeys::db::DbPool::Postgres(p) => {
@@ -208,9 +245,6 @@ fn domain_init() {
             }
         }
     });
-
-    generate_and_store_encryption_key(&db_pool, &passphrase);
-    println!("Domain initialized with 3 signing keys + 1 encryption key.");
 }
 
 /// Generate the domain's X25519 encryption key (sealed-box recipient), vouched
