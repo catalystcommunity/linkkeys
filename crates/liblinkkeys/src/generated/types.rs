@@ -93,7 +93,7 @@ pub struct DomainPublicKey {
     pub revoked_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signed_by_key_id: Option<String>,
-    #[serde(with = "serde_bytes", skip_serializing_if = "Option::is_none")]
+    #[serde(default, with = "serde_bytes", skip_serializing_if = "Option::is_none")]
     pub key_signature: Option<Vec<u8>>,
 }
 
@@ -118,7 +118,7 @@ pub struct UserPublicKey {
     pub revoked_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signed_by_key_id: Option<String>,
-    #[serde(with = "serde_bytes", skip_serializing_if = "Option::is_none")]
+    #[serde(default, with = "serde_bytes", skip_serializing_if = "Option::is_none")]
     pub key_signature: Option<Vec<u8>>,
 }
 
