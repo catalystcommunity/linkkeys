@@ -372,12 +372,26 @@ pub async fn fetch_domain_keys(
         .danger_accept_invalid_certs(accept_invalid)
         .build()?;
 
-    let resp: liblinkkeys::generated::types::GetDomainKeysResponse = client
-        .get(format!("{}/v1alpha/domain-keys.json", api_base))
+    let url = format!("{}/v1alpha/domain-keys.json", api_base);
+    let response = client
+        .get(&url)
         .send()
-        .await?
-        .json()
-        .await?;
+        .await
+        .map_err(|e| format!("GET {} failed: {}", url, e))?;
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("reading {} body failed: {}", url, e))?;
+    if !status.is_success() {
+        let snippet: String = body.chars().take(200).collect();
+        return Err(format!("GET {} returned {}: {}", url, status, snippet).into());
+    }
+    let resp: liblinkkeys::generated::types::GetDomainKeysResponse =
+        serde_json::from_str(&body).map_err(|e| {
+            let snippet: String = body.chars().take(200).collect();
+            format!("parsing domain-keys JSON from {} failed: {} (body: {})", url, e, snippet)
+        })?;
 
     // Establish the trusted key set: signing keys pinned to the DNS fp= set,
     // and encryption keys trusted via a signing-key vouch (verify_key_vouch).

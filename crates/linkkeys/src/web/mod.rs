@@ -546,10 +546,12 @@ pub async fn validate_signed_request(
         .map_err(|_| ValidateAuthRequestError::Malformed)?;
     let rp_domain = preview.relying_party.clone();
 
-    let rp_keys = rp::fetch_rp_keys(pool, &rp_domain)
-        .await
-        .map_err(|_| ValidateAuthRequestError::KeyFetchFailed)?;
+    let rp_keys = rp::fetch_rp_keys(pool, &rp_domain).await.map_err(|e| {
+        log::warn!("RP key fetch failed for relying_party={}: {}", rp_domain, e);
+        ValidateAuthRequestError::KeyFetchFailed
+    })?;
     if rp_keys.is_empty() {
+        log::warn!("RP key fetch for relying_party={} returned no trusted keys", rp_domain);
         return Err(ValidateAuthRequestError::KeyFetchFailed);
     }
 
