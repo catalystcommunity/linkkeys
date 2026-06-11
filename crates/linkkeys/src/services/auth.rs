@@ -58,12 +58,33 @@ impl Authenticator for PasswordAuthenticator {
             .map_err(|e| AuthError::DbError(e.to_string()))?;
 
         for cred in &creds {
-            if bcrypt::verify(password, &cred.credential_hash).unwrap_or(false) {
+            let outcome = crate::services::password::verify(password, &cred.credential_hash);
+            if outcome.verified {
+                if outcome.needs_rehash {
+                    self.rehash_to_argon2id(&cred.id, password);
+                }
                 return Ok(user);
             }
         }
 
         Err(AuthError::InvalidCredentials)
+    }
+}
+
+impl PasswordAuthenticator {
+    /// Upgrade a legacy (bcrypt) credential to Argon2id after a successful
+    /// verify. Best-effort: a hashing or DB failure here must not block a login
+    /// the user already passed, so errors are logged and swallowed — the upgrade
+    /// simply retries on the next login.
+    fn rehash_to_argon2id(&self, credential_id: &str, password: &str) {
+        match liblinkkeys::crypto::hash_password(password) {
+            Ok(new_hash) => {
+                if let Err(e) = self.pool.update_credential_hash(credential_id, &new_hash) {
+                    log::warn!("Failed to upgrade credential hash to Argon2id: {}", e);
+                }
+            }
+            Err(e) => log::warn!("Failed to compute Argon2id hash for upgrade: {}", e),
+        }
     }
 }
 

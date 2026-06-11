@@ -17,11 +17,39 @@ fn test_service_change_password() {
     let resp = account::change_password(&pool, &user.id, req).unwrap();
     assert!(resp.success);
 
-    // Verify new password works
+    // The new credential is stored as Argon2id, and verifies the new password
+    // but not the old one.
     let creds = pool.find_credentials_for_user(&user.id, auth::CREDENTIAL_TYPE_PASSWORD).unwrap();
     assert_eq!(creds.len(), 1);
-    assert!(bcrypt::verify("new-secure-password", &creds[0].credential_hash).unwrap());
-    assert!(!bcrypt::verify("old-password", &creds[0].credential_hash).unwrap());
+    assert!(creds[0].credential_hash.starts_with("$argon2"));
+    assert!(liblinkkeys::crypto::verify_password("new-secure-password", &creds[0].credential_hash));
+    assert!(!liblinkkeys::crypto::verify_password("old-password", &creds[0].credential_hash));
+}
+
+#[test]
+fn test_service_change_password_accepts_long_password() {
+    // Beyond bcrypt's old 72-byte cap; Argon2id hashes the whole thing.
+    let pool = common::create_test_pool();
+    let user = create_user(&pool, &DataMap::new());
+
+    let long = "p".repeat(200);
+    let req = ChangePasswordRequest { new_password: long.clone() };
+    assert!(account::change_password(&pool, &user.id, req).unwrap().success);
+
+    let creds = pool.find_credentials_for_user(&user.id, auth::CREDENTIAL_TYPE_PASSWORD).unwrap();
+    assert!(liblinkkeys::crypto::verify_password(&long, &creds[0].credential_hash));
+}
+
+#[test]
+fn test_service_change_password_rejects_too_long() {
+    let pool = common::create_test_pool();
+    let user = create_user(&pool, &DataMap::new());
+
+    let req = ChangePasswordRequest { new_password: "q".repeat(1025) };
+    assert!(
+        account::change_password(&pool, &user.id, req).is_err(),
+        "password over the length cap should be rejected"
+    );
 }
 
 #[test]

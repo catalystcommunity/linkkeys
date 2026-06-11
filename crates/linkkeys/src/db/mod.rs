@@ -704,6 +704,35 @@ impl DbPool {
         }
     }
 
+    /// Replace a credential's stored hash in place. Used to transparently
+    /// upgrade a legacy bcrypt password hash to Argon2id after a successful
+    /// login, without changing the credential's identity or timestamps beyond
+    /// `updated_at`.
+    pub fn update_credential_hash(
+        &self,
+        credential_id: &str,
+        new_hash: &str,
+    ) -> QueryResult<models::AuthCredential> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                auth_credentials::pg::update_hash(&mut conn, credential_id, new_hash)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                auth_credentials::sqlite::update_hash(&mut conn, credential_id, new_hash)
+            }
+        }
+    }
+
     pub fn create_user_key(
         &self,
         user_id: &str,

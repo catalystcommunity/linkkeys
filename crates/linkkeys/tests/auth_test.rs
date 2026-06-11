@@ -2,6 +2,7 @@ mod common;
 
 use common::data_factory::{create_auth_credential, create_user, DataMap};
 use linkkeys::services::auth;
+use linkkeys::services::auth::{Authenticator, PasswordAuthenticator};
 use serde_json::Value;
 
 // -- User and Auth Credential DB Tests --
@@ -281,5 +282,90 @@ fn test_revoked_credential_not_returned_in_auth_flow() {
     assert!(
         creds.is_empty(),
         "Revoked credentials should not be returned"
+    );
+}
+
+// -- Argon2id password hashing + bcrypt migration --
+
+#[test]
+fn test_password_authenticator_argon2id_credential() {
+    let pool = common::create_test_pool();
+    let user = create_user(
+        &pool,
+        &DataMap::from([("username".into(), Value::String("argon-user".into()))]),
+    );
+    let password = "a-perfectly-fine-argon2id-password";
+    let hash = liblinkkeys::crypto::hash_password(password).unwrap();
+    create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_PASSWORD, &hash);
+
+    let authenticator = PasswordAuthenticator::new(pool.clone());
+    let authed = authenticator
+        .authenticate("argon-user", password)
+        .expect("correct Argon2id password should authenticate");
+    assert_eq!(authed.id, user.id);
+
+    assert!(
+        authenticator.authenticate("argon-user", "wrong").is_err(),
+        "wrong password must not authenticate"
+    );
+}
+
+#[test]
+fn test_password_authenticator_accepts_long_password() {
+    // Argon2id has no 72-byte ceiling. A password well beyond bcrypt's old limit
+    // must authenticate by its full content, not a silent prefix.
+    let pool = common::create_test_pool();
+    let user = create_user(
+        &pool,
+        &DataMap::from([("username".into(), Value::String("long-pw-user".into()))]),
+    );
+    let password = "x".repeat(200);
+    let hash = liblinkkeys::crypto::hash_password(&password).unwrap();
+    create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_PASSWORD, &hash);
+
+    let authenticator = PasswordAuthenticator::new(pool.clone());
+    assert!(authenticator.authenticate("long-pw-user", &password).is_ok());
+    // A password sharing the first 72 bytes but differing after must be rejected.
+    let near_miss = format!("{}y", "x".repeat(199));
+    assert!(authenticator.authenticate("long-pw-user", &near_miss).is_err());
+}
+
+#[test]
+fn test_password_authenticator_verifies_legacy_bcrypt_and_upgrades() {
+    // A credential stored as bcrypt (the legacy scheme) must still verify, and a
+    // successful login must transparently re-hash it to Argon2id in place.
+    let pool = common::create_test_pool();
+    let user = create_user(
+        &pool,
+        &DataMap::from([("username".into(), Value::String("legacy-user".into()))]),
+    );
+    let password = "legacy-bcrypt-password";
+    let bcrypt_hash = bcrypt::hash(password, 4).unwrap();
+    let cred =
+        create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_PASSWORD, &bcrypt_hash);
+    assert!(cred.credential_hash.starts_with("$2"), "precondition: bcrypt hash");
+
+    let authenticator = PasswordAuthenticator::new(pool.clone());
+    let authed = authenticator
+        .authenticate("legacy-user", password)
+        .expect("legacy bcrypt password should still authenticate");
+    assert_eq!(authed.id, user.id);
+
+    // The stored hash should now be Argon2id, upgraded in place under the same id.
+    let creds = pool
+        .find_credentials_for_user(&user.id, auth::CREDENTIAL_TYPE_PASSWORD)
+        .unwrap();
+    assert_eq!(creds.len(), 1, "upgrade must not create a second credential");
+    assert_eq!(creds[0].id, cred.id, "upgrade must reuse the credential id");
+    assert!(
+        creds[0].credential_hash.starts_with("$argon2"),
+        "legacy bcrypt hash should be upgraded to Argon2id after login, got: {}",
+        creds[0].credential_hash
+    );
+
+    // And the upgraded credential must still verify the same password.
+    assert!(
+        authenticator.authenticate("legacy-user", password).is_ok(),
+        "password must still verify after the in-place upgrade"
     );
 }

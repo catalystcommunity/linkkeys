@@ -4,4 +4,5 @@ pub mod auth;
 pub mod authorization;
 pub mod handshake;
 pub mod hello;
+pub mod password;
 pub mod ops;

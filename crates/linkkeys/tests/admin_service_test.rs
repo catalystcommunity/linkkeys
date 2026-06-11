@@ -50,10 +50,11 @@ fn test_service_create_user_with_password() {
     assert!(resp.api_key.is_none());
     assert!(resp.user.is_active);
 
-    // Verify password credential was stored
+    // Verify password credential was stored as Argon2id
     let creds = pool.find_credentials_for_user(&resp.user.id, auth::CREDENTIAL_TYPE_PASSWORD).unwrap();
     assert_eq!(creds.len(), 1);
-    assert!(bcrypt::verify("password123", &creds[0].credential_hash).unwrap());
+    assert!(creds[0].credential_hash.starts_with("$argon2"));
+    assert!(liblinkkeys::crypto::verify_password("password123", &creds[0].credential_hash));
 }
 
 #[test]
@@ -128,11 +129,13 @@ fn test_service_reset_password() {
     let resp = admin::reset_password(&pool, req).unwrap();
     assert!(resp.success);
 
-    // Verify old password no longer works, new password does
+    // Verify the reset credential is Argon2id: old password no longer works,
+    // new password does.
     let creds = pool.find_credentials_for_user(&user.id, auth::CREDENTIAL_TYPE_PASSWORD).unwrap();
     assert_eq!(creds.len(), 1);
-    assert!(!bcrypt::verify("old-password", &creds[0].credential_hash).unwrap());
-    assert!(bcrypt::verify("new-password-123", &creds[0].credential_hash).unwrap());
+    assert!(creds[0].credential_hash.starts_with("$argon2"));
+    assert!(!liblinkkeys::crypto::verify_password("old-password", &creds[0].credential_hash));
+    assert!(liblinkkeys::crypto::verify_password("new-password-123", &creds[0].credential_hash));
 }
 
 #[test]
