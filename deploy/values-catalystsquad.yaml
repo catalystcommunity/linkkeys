@@ -7,6 +7,14 @@ server:
   publicPort: "443"
   disableTls: "true"
 
+# Dual-role: this instance serves IDP traffic for catalystsquad.com AND
+# acts as an RP for consuming apps (e.g. longhouse.catalystsquad.com).
+# passwordAuth must stay true so the IDP login form remains mounted.
+rp:
+  enabled: true
+  apiKeyAuth: true
+  passwordAuth: true
+
 database:
   backend: postgres
 
