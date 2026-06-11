@@ -4,14 +4,7 @@ use liblinkkeys::generated::types::{
 };
 
 use crate::db::DbPool;
-use crate::services::auth;
-
-fn svc_err(msg: &str) -> ServiceError {
-    ServiceError {
-        code: 1,
-        message: msg.to_string(),
-    }
-}
+use crate::services::{auth, password};
 
 fn db_err(e: diesel::result::Error) -> ServiceError {
     log::error!("Database error: {}", e);
@@ -21,33 +14,12 @@ fn db_err(e: diesel::result::Error) -> ServiceError {
     }
 }
 
-const MIN_PASSWORD_LENGTH: usize = 8;
-/// bcrypt silently truncates input at 72 bytes; reject longer passwords so a
-/// long password isn't quietly authenticated by only its first 72 bytes (db-04).
-const MAX_PASSWORD_LENGTH: usize = 72;
-
-fn validate_password(password: &str) -> Result<(), ServiceError> {
-    if password.len() < MIN_PASSWORD_LENGTH {
-        return Err(ServiceError {
-            code: 400,
-            message: format!("Password must be at least {} characters", MIN_PASSWORD_LENGTH),
-        });
-    }
-    if password.len() > MAX_PASSWORD_LENGTH {
-        return Err(ServiceError {
-            code: 400,
-            message: format!("Password must be at most {} bytes", MAX_PASSWORD_LENGTH),
-        });
-    }
-    Ok(())
-}
-
 pub fn change_password(
     pool: &DbPool,
     user_id: &str,
     req: ChangePasswordRequest,
 ) -> Result<ChangePasswordResponse, ServiceError> {
-    validate_password(&req.new_password)?;
+    password::validate(&req.new_password)?;
 
     // Remove old password credentials
     let old_creds = pool
@@ -58,8 +30,7 @@ pub fn change_password(
     }
 
     // Create new password credential
-    let hash =
-        bcrypt::hash(&req.new_password, 12).map_err(|e| svc_err(&format!("hash error: {}", e)))?;
+    let hash = password::hash_for_storage(&req.new_password)?;
     pool.create_auth_credential(user_id, auth::CREDENTIAL_TYPE_PASSWORD, &hash)
         .map_err(db_err)?;
 

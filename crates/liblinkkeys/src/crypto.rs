@@ -2,6 +2,7 @@ use aes_gcm::{
     aead::{Aead, KeyInit, OsRng, Payload},
     Aes256Gcm, Nonce,
 };
+use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::{Algorithm, Argon2, Params, Version};
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use hkdf::Hkdf;
@@ -490,6 +491,39 @@ pub fn sealed_box_decrypt(
         .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))
 }
 
+/// Hash a password for storage using Argon2id, returning a PHC string
+/// (`$argon2id$v=19$m=...,t=...,p=...$salt$hash`). The cost parameters are
+/// embedded in the string, so verification is self-describing and the cost can
+/// be raised later without invalidating already-stored hashes. Argon2id has no
+/// input-length ceiling — unlike bcrypt's silent 72-byte truncation — so the
+/// full password is always hashed.
+///
+/// Uses the same Argon2id cost as private-key encryption (m=19 MiB, t=3, p=1).
+pub fn hash_password(password: &str) -> Result<String, CryptoError> {
+    let params = Params::new(ARGON2_M_COST, ARGON2_T_COST, ARGON2_P_COST, None)
+        .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+    let salt = SaltString::generate(&mut argon2::password_hash::rand_core::OsRng);
+    argon2
+        .hash_password(password.as_bytes(), &salt)
+        .map(|hash| hash.to_string())
+        .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))
+}
+
+/// Verify a password against a stored Argon2 PHC string. The cost parameters are
+/// read from the stored string, so hashes produced with older parameters still
+/// verify. Returns false on any parse error or mismatch — a malformed hash must
+/// be indistinguishable from a wrong password to the caller.
+pub fn verify_password(password: &str, phc: &str) -> bool {
+    let parsed = match PasswordHash::new(phc) {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+    Argon2::default()
+        .verify_password(password.as_bytes(), &parsed)
+        .is_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -649,5 +683,44 @@ mod tests {
             &x_priv
         )
         .is_err());
+    }
+
+    #[test]
+    fn test_hash_password_roundtrip() {
+        let phc = hash_password("correct horse battery staple").unwrap();
+        assert!(phc.starts_with("$argon2id$"));
+        assert!(verify_password("correct horse battery staple", &phc));
+        assert!(!verify_password("wrong password", &phc));
+    }
+
+    #[test]
+    fn test_hash_password_salts_are_unique() {
+        // Same password hashed twice must yield different PHC strings (random
+        // salt), but both must verify.
+        let a = hash_password("same-password").unwrap();
+        let b = hash_password("same-password").unwrap();
+        assert_ne!(a, b);
+        assert!(verify_password("same-password", &a));
+        assert!(verify_password("same-password", &b));
+    }
+
+    #[test]
+    fn test_hash_password_no_72_byte_truncation() {
+        // Two passwords identical in their first 72 bytes but differing after
+        // must NOT verify against each other — the bug bcrypt's 72-byte limit
+        // caused. Argon2id hashes the whole input.
+        let base = "a".repeat(72);
+        let phc = hash_password(&format!("{base}-suffix-one")).unwrap();
+        assert!(verify_password(&format!("{base}-suffix-one"), &phc));
+        assert!(!verify_password(&format!("{base}-suffix-two"), &phc));
+    }
+
+    #[test]
+    fn test_verify_password_rejects_malformed_hash() {
+        // A non-PHC string (e.g. a legacy bcrypt hash, or garbage) must return
+        // false rather than panic — scheme detection lives in the caller.
+        assert!(!verify_password("anything", "not-a-phc-string"));
+        assert!(!verify_password("anything", "$2b$12$abcdefghijklmnopqrstuv"));
+        assert!(!verify_password("anything", ""));
     }
 }
