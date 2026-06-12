@@ -126,6 +126,30 @@ pub fn decrypt_token_json(
     Err(Status::BadRequest)
 }
 
+/// Extract the bare host from an `https://` API base, dropping scheme, any
+/// userinfo, port, and path. Returns `None` if there is no parseable host.
+/// Used only to detect the single-instance IDP+RP self-call; hostnames are
+/// compared case-insensitively by the caller.
+fn api_base_host(api_base: &str) -> Option<&str> {
+    let rest = api_base.strip_prefix("https://")?;
+    let host_with_extras = rest.split(['/', '?', '#']).next()?;
+    let after_userinfo = match host_with_extras.rsplit_once('@') {
+        Some((_, host)) => host,
+        None => host_with_extras,
+    };
+    // Strip a trailing `:port`, but only when it's all digits — this leaves
+    // bracketed IPv6 hosts intact.
+    let host = match after_userinfo.rsplit_once(':') {
+        Some((h, port)) if !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) => h,
+        _ => after_userinfo,
+    };
+    if host.is_empty() {
+        None
+    } else {
+        Some(host)
+    }
+}
+
 #[derive(Deserialize)]
 pub struct FetchUserInfoInput {
     /// URL-param-encoded `SignedIdentityAssertion` the RP received on its
@@ -192,6 +216,20 @@ pub async fn fetch_userinfo_json(
     )
     .map_err(|_| Status::InternalServerError)?;
 
+    // Single-instance IDP+RP: when the IDP API we'd call is our own published
+    // API host, redeem locally instead of POSTing the request to ourselves over
+    // https. There is exactly one IDP per domain, so the host alone identifies
+    // it — port and path are irrelevant. We match against API_HOSTNAME (the host
+    // we actually publish in our `_linkkeys` api= record), which need not equal
+    // our domain name. The local path still runs the full PoP-verify, single-use
+    // nonce burn, and claim lookup that the network round-trip would trigger.
+    let our_api_host = env::var("API_HOSTNAME").unwrap_or_else(|_| get_domain_name());
+    if api_base_host(&input.api_base).is_some_and(|h| h.eq_ignore_ascii_case(&our_api_host)) {
+        let user_info = super::build_userinfo_signed(pool, &signed).await?;
+        let out = serde_json::to_vec(&user_info).map_err(|_| Status::InternalServerError)?;
+        return Ok((ContentType::JSON, out));
+    }
+
     let mut cbor = Vec::new();
     ciborium::ser::into_writer(&signed, &mut cbor).map_err(|_| Status::InternalServerError)?;
 
@@ -226,6 +264,7 @@ pub async fn fetch_userinfo_json(
 #[rocket::post("/v1alpha/verify-assertion.json", data = "<body>")]
 pub async fn verify_assertion_json(
     _user: AuthenticatedUser,
+    pool: &State<DbPool>,
     body: String,
 ) -> Result<(ContentType, Vec<u8>), Status> {
     let input: VerifyAssertionInput = serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
@@ -237,7 +276,7 @@ pub async fn verify_assertion_json(
         ciborium::de::from_reader(cbor_bytes.as_slice()).map_err(|_| Status::BadRequest)?;
 
     // Fetch the domain's public keys
-    let domain_keys = fetch_domain_keys(&input.expected_domain).await.map_err(|_| Status::BadGateway)?;
+    let domain_keys = fetch_domain_keys(pool, &input.expected_domain).await.map_err(|_| Status::BadGateway)?;
 
     // Verify the assertion
     let assertion = liblinkkeys::assertions::verify_assertion(&signed, &domain_keys)
@@ -264,7 +303,7 @@ pub async fn fetch_rp_keys(
         let keys = pool.list_active_domain_keys()?;
         return Ok(keys.iter().map(Into::into).collect());
     }
-    fetch_domain_keys(rp_domain).await
+    fetch_domain_keys(pool, rp_domain).await
 }
 
 /// Fetch a domain's public keys by looking up its DNS TXT record and then
@@ -357,8 +396,16 @@ pub async fn resolve_rp_signing_keys(
 }
 
 pub async fn fetch_domain_keys(
+    pool: &DbPool,
     domain: &str,
 ) -> Result<Vec<liblinkkeys::generated::types::DomainPublicKey>, Box<dyn std::error::Error>> {
+    // A single-instance IDP+RP is authoritative for its own keys: read them
+    // from the local DB rather than fetching them over https from ourselves.
+    if domain == get_domain_name() {
+        let keys = pool.list_active_domain_keys()?;
+        return Ok(keys.iter().map(Into::into).collect());
+    }
+
     let (fingerprints, api_base) = lookup_linkkeys_record(domain).await?;
 
     // The api= endpoint is a transport convenience, but key integrity comes
@@ -404,4 +451,32 @@ pub async fn fetch_domain_keys(
         .into());
     }
     Ok(trusted)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::api_base_host;
+
+    #[test]
+    fn api_base_host_strips_scheme_port_and_path() {
+        assert_eq!(api_base_host("https://idp.example.com"), Some("idp.example.com"));
+        assert_eq!(api_base_host("https://idp.example.com:8443"), Some("idp.example.com"));
+        assert_eq!(
+            api_base_host("https://idp.example.com:8443/v1alpha/userinfo"),
+            Some("idp.example.com")
+        );
+        assert_eq!(api_base_host("https://idp.example.com/path?q=1#frag"), Some("idp.example.com"));
+        // userinfo segment is dropped, host preserved
+        assert_eq!(api_base_host("https://user@idp.example.com:443/x"), Some("idp.example.com"));
+        // bracketed IPv6 host with a port keeps the brackets
+        assert_eq!(api_base_host("https://[::1]:8443/x"), Some("[::1]"));
+    }
+
+    #[test]
+    fn api_base_host_rejects_non_https_or_hostless() {
+        assert_eq!(api_base_host("http://idp.example.com"), None);
+        assert_eq!(api_base_host("idp.example.com"), None);
+        assert_eq!(api_base_host("https:///path"), None);
+        assert_eq!(api_base_host("https://"), None);
+    }
 }
