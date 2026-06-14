@@ -84,6 +84,7 @@ fn test_service_get_my_info() {
             claim_type: "email",
             claim_value: b"test@test.com",
             user_id: &user.id,
+            subject_domain: "test.com",
             expires_at: None,
         },
         &[liblinkkeys::claims::ClaimSigner {

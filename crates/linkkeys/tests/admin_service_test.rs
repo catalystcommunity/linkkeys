@@ -230,12 +230,13 @@ fn test_claim_signature_roundtrips_through_storage() {
     let claim: liblinkkeys::generated::types::Claim = (&stored).into();
 
     let domain_keys = pool.list_active_domain_keys().unwrap();
+    let domain = linkkeys::conversions::get_domain_name();
     let key_sets = vec![liblinkkeys::claims::DomainKeySet {
-        domain: linkkeys::conversions::get_domain_name(),
+        domain: domain.clone(),
         keys: domain_keys.iter().map(Into::into).collect(),
     }];
 
-    liblinkkeys::claims::verify_claim(&claim, &key_sets)
+    liblinkkeys::claims::verify_claim(&claim, &domain, &key_sets)
         .expect("stored claim signature must verify after store+read round-trip");
 }
 
@@ -311,6 +312,7 @@ fn test_service_remove_claim() {
             claim_type: "role",
             claim_value: b"admin",
             user_id: &user.id,
+            subject_domain: "test.com",
             expires_at: None,
         },
         &[liblinkkeys::claims::ClaimSigner {

@@ -219,6 +219,8 @@ pub fn set_claim(
     let claim_id = uuid::Uuid::now_v7().to_string();
     let claim_value_bytes = req.claim_value.as_bytes();
     let expires_str = expires_chrono.as_ref().map(|e| e.to_rfc3339());
+    // The subject is a local user, so the subject's home domain is our own.
+    let subject_domain = crate::conversions::get_domain_name();
 
     let signed_claim = crate::claim_signing::sign_with_active(
         &liblinkkeys::claims::ClaimSpec {
@@ -226,6 +228,7 @@ pub fn set_claim(
             claim_type: &req.claim_type,
             claim_value: claim_value_bytes,
             user_id: &req.user_id,
+            subject_domain: &subject_domain,
             expires_at: expires_str.as_deref(),
         },
         &signers,
