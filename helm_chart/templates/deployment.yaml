@@ -8,6 +8,13 @@ spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
+  {{- if eq .Values.database.backend "sqlite" }}
+  # SQLite stores data on a ReadWriteOnce volume. A rolling update can't attach
+  # it to the new pod while the old pod still holds it (Multi-Attach), so the
+  # rollout deadlocks. Recreate terminates the old pod first, releasing the volume.
+  strategy:
+    type: Recreate
+  {{- end }}
   selector:
     matchLabels:
       {{- include "linkkeys.selectorLabels" . | nindent 6 }}
