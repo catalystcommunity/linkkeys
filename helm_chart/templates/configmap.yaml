@@ -7,6 +7,9 @@ metadata:
 data:
   DATABASE_BACKEND: {{ .Values.database.backend | quote }}
   LOG_LEVEL: {{ .Values.server.logLevel | quote }}
+  # The binary's logger reads RUST_LOG (env_logger), not LOG_LEVEL. Surface our
+  # own crates at the configured level while keeping dependency noise at warn.
+  RUST_LOG: {{ printf "warn,linkkeys=%s,liblinkkeys=%s" .Values.server.logLevel .Values.server.logLevel | quote }}
   TCP_PORT: {{ .Values.server.tcpPort | quote }}
   HTTPS_PORT: {{ .Values.server.httpsPort | quote }}
   {{- if .Values.server.domainName }}
