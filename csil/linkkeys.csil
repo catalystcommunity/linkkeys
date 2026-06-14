@@ -143,13 +143,23 @@ GetUserKeysResponse = {
 ;; Claims
 ;; ============================================================
 
+;; One signature over a claim. A claim is signed by one or more domains; each
+;; domain signs with several of its keys (>=3 by design) for redundancy and
+;; rotation. The signing domain is bound into the signed payload (see
+;; liblinkkeys::claims) so it is tamper-evident: a verifier knows which domain
+;; vouched for the claim, which is what trust policy is keyed on.
+ClaimSignature = {
+    domain: text,
+    signed_by_key_id: text,
+    signature: bytes
+}
+
 Claim = {
     claim_id: text,
     user_id: text,
     claim_type: text,
     claim_value: bytes,
-    signed_by_key_id: text,
-    signature: bytes,
+    signatures: [* ClaimSignature],
     created_at: text,
     ? expires_at: text,
     ? revoked_at: text

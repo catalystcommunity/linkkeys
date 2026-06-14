@@ -206,6 +206,7 @@ fn test_claim_signature_roundtrips_through_storage() {
     // test locks it end-to-end (verify_claim has no other server call site).
     let pool = common::create_test_pool();
     std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
+    std::env::set_var("DOMAIN_NAME", "test.com");
     let user = create_user(&pool, &DataMap::new());
     create_domain_key(&pool);
 
@@ -217,18 +218,80 @@ fn test_claim_signature_roundtrips_through_storage() {
         expires_at: Some("2099-01-02T03:04:05.123456789Z".to_string()),
     };
     let resp = admin::set_claim(&pool, req).unwrap();
+    // set_claim signs with all active domain keys; assert the quorum is recorded.
+    assert!(
+        !resp.claim.signatures.is_empty(),
+        "claim must carry at least one signature"
+    );
 
     // Re-read the STORED claim (exercises the store->read path) and verify its
-    // signature against the domain's published public keys.
+    // signature against the domain's published public keys, grouped by domain.
     let stored = pool.find_claim_by_id(&resp.claim.claim_id).unwrap();
     let claim: liblinkkeys::generated::types::Claim = (&stored).into();
 
     let domain_keys = pool.list_active_domain_keys().unwrap();
-    let pub_keys: Vec<liblinkkeys::generated::types::DomainPublicKey> =
-        domain_keys.iter().map(Into::into).collect();
+    let key_sets = vec![liblinkkeys::claims::DomainKeySet {
+        domain: linkkeys::conversions::get_domain_name(),
+        keys: domain_keys.iter().map(Into::into).collect(),
+    }];
 
-    liblinkkeys::claims::verify_claim(&claim, &pub_keys)
+    liblinkkeys::claims::verify_claim(&claim, &key_sets)
         .expect("stored claim signature must verify after store+read round-trip");
+}
+
+#[test]
+fn test_resign_backfill_query_methods() {
+    // Exercises the pre-alpha re-sign backfill primitives: a fully-signed claim
+    // is not "missing signatures"; stripping its signatures makes it appear;
+    // re-attaching signatures clears it again.
+    let pool = common::create_test_pool();
+    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
+    std::env::set_var("DOMAIN_NAME", "test.com");
+    let user = create_user(&pool, &DataMap::new());
+    create_domain_key(&pool);
+
+    let req = SetClaimRequest {
+        user_id: user.id.clone(),
+        claim_type: "email".to_string(),
+        claim_value: "a@b.com".to_string(),
+        expires_at: None,
+    };
+    let claim_id = admin::set_claim(&pool, req).unwrap().claim.claim_id;
+
+    // Freshly-created claims carry signatures, so none are missing.
+    assert!(pool
+        .list_claims_missing_signatures()
+        .unwrap()
+        .iter()
+        .all(|c| c.id != claim_id));
+
+    // Strip signatures -> the claim now needs re-signing.
+    pool.replace_claim_signatures(&claim_id, &[]).unwrap();
+    let missing = pool.list_claims_missing_signatures().unwrap();
+    assert!(missing.iter().any(|c| c.id == claim_id));
+    assert!(
+        missing.iter().find(|c| c.id == claim_id).unwrap().signatures.is_empty(),
+        "claims missing signatures are returned with an empty signature set"
+    );
+
+    // Re-attach a signature -> the claim is no longer missing.
+    let resigned = ClaimSignature {
+        domain: "test.com".to_string(),
+        signed_by_key_id: pool.list_active_domain_keys().unwrap()[0].id.clone(),
+        signature: vec![1, 2, 3],
+    };
+    pool.replace_claim_signatures(&claim_id, std::slice::from_ref(&resigned))
+        .unwrap();
+    assert!(pool
+        .list_claims_missing_signatures()
+        .unwrap()
+        .iter()
+        .all(|c| c.id != claim_id));
+
+    // And the re-attached signature is what's read back.
+    let stored = pool.find_claim_by_id(&claim_id).unwrap();
+    assert_eq!(stored.signatures.len(), 1);
+    assert_eq!(stored.signatures[0].domain, "test.com");
 }
 
 #[test]
@@ -250,12 +313,15 @@ fn test_service_remove_claim() {
             user_id: &user.id,
             expires_at: None,
         },
-        &dk.id,
-        algorithm,
-        &sk_bytes,
+        &[liblinkkeys::claims::ClaimSigner {
+            domain: "test.com",
+            key_id: &dk.id,
+            algorithm,
+            private_key_bytes: &sk_bytes,
+        }],
     )
     .unwrap();
-    let stored = pool.create_claim(&claim_id, &user.id, "role", b"admin", &dk.id, &signed.signature, None).unwrap();
+    let stored = pool.create_claim(&claim_id, &user.id, "role", b"admin", &signed.signatures, None).unwrap();
 
     let req = RemoveClaimRequest { claim_id: stored.id.clone() };
     let resp = admin::remove_claim(&pool, req).unwrap();

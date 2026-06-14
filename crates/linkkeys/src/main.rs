@@ -30,6 +30,7 @@ async fn main() {
                 let flag = ready_flag.clone();
                 thread::spawn(move || {
                     linkkeys::db::run_migrations_with_locking(&pool, flag);
+                    resign_legacy_claims_on_startup(&pool);
                 });
             }
 
@@ -82,6 +83,81 @@ async fn main() {
         Commands::Relation(cmd) => handle_relation_command(cmd),
         Commands::Account(cmd) => handle_account_command(cmd),
     }
+}
+
+/// TEMPORARY (added 2026-06-14, pre-alpha): re-sign claims that the
+/// claim_signatures migration left unsigned.
+///
+/// That migration dropped the old single-signature columns without porting their
+/// (now domain-unbound, payload-incompatible) values, so pre-existing claims have
+/// no signatures until re-signed with the domain's active keys. Idempotent:
+/// claims that already carry signatures are skipped, so this is a no-op on every
+/// boot after the first. Failures here are logged but never fatal — a server with
+/// no domain keys or passphrase (e.g. RP-only) simply skips. Remove once all
+/// deployments have moved past pre-alpha.
+fn resign_legacy_claims_on_startup(pool: &linkkeys::db::DbPool) {
+    let claims = match pool.list_claims_missing_signatures() {
+        Ok(c) => c,
+        Err(e) => {
+            log::error!("re-sign backfill: failed to list unsigned claims: {}", e);
+            return;
+        }
+    };
+    if claims.is_empty() {
+        return;
+    }
+
+    let passphrase = match std::env::var("DOMAIN_KEY_PASSPHRASE") {
+        Ok(p) => p,
+        Err(_) => {
+            log::warn!(
+                "re-sign backfill: {} claim(s) need re-signing but DOMAIN_KEY_PASSPHRASE \
+                 is not set; skipping",
+                claims.len()
+            );
+            return;
+        }
+    };
+
+    let domain_keys = match pool.list_active_domain_keys() {
+        Ok(k) => k,
+        Err(e) => {
+            log::error!("re-sign backfill: failed to list domain keys: {}", e);
+            return;
+        }
+    };
+    let signers = match linkkeys::claim_signing::active_signers(&domain_keys, passphrase.as_bytes())
+    {
+        Ok(s) => s,
+        Err(e) => {
+            log::warn!("re-sign backfill: cannot sign ({}); skipping", e);
+            return;
+        }
+    };
+
+    let mut resigned = 0usize;
+    for c in &claims {
+        let spec = liblinkkeys::claims::ClaimSpec {
+            claim_id: &c.id,
+            claim_type: &c.claim_type,
+            claim_value: &c.claim_value,
+            user_id: &c.user_id,
+            expires_at: c.expires_at.as_deref(),
+        };
+        let signed = match linkkeys::claim_signing::sign_with_active(&spec, &signers) {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!("re-sign backfill: failed to sign claim {}: {}", c.id, e);
+                continue;
+            }
+        };
+        if let Err(e) = pool.replace_claim_signatures(&c.id, &signed.signatures) {
+            log::error!("re-sign backfill: failed to store signatures for {}: {}", c.id, e);
+            continue;
+        }
+        resigned += 1;
+    }
+    log::info!("re-sign backfill: re-signed {} legacy claim(s)", resigned);
 }
 
 fn get_passphrase() -> String {
@@ -776,31 +852,15 @@ fn claim_set(user_id: &str, claim_type: &str, claim_value: &str, expires: Option
     let passphrase = get_passphrase();
     let db_pool = pool_with_migrations();
 
-    let domain_key = db_pool
-        .list_active_domain_keys()
-        .unwrap_or_else(|e| {
-            eprintln!("Failed to list domain keys: {}", e);
-            std::process::exit(1);
-        })
-        .into_iter()
-        .next()
-        .unwrap_or_else(|| {
-            eprintln!("No active domain keys found. Run 'domain init' first.");
-            std::process::exit(1);
-        });
-
-    let sk_bytes = liblinkkeys::crypto::decrypt_private_key(
-        &domain_key.private_key_encrypted,
-        passphrase.as_bytes(),
-    )
-    .unwrap_or_else(|e| {
-        eprintln!("Failed to decrypt domain key: {}", e);
+    let domain_keys = db_pool.list_active_domain_keys().unwrap_or_else(|e| {
+        eprintln!("Failed to list domain keys: {}", e);
         std::process::exit(1);
     });
 
-    let algorithm = liblinkkeys::crypto::SigningAlgorithm::parse_str(&domain_key.algorithm)
-        .unwrap_or_else(|| {
-            eprintln!("Unsupported algorithm: {}", domain_key.algorithm);
+    // Sign with every active domain key (>=3 by design) for a quorum of signatures.
+    let signers = linkkeys::claim_signing::active_signers(&domain_keys, passphrase.as_bytes())
+        .unwrap_or_else(|e| {
+            eprintln!("Failed to prepare signing keys: {}", e);
             std::process::exit(1);
         });
 
@@ -821,7 +881,7 @@ fn claim_set(user_id: &str, claim_type: &str, claim_value: &str, expires: Option
     let claim_value_bytes = claim_value.as_bytes();
     let claim_id = uuid::Uuid::now_v7().to_string();
     let expires_str = expires_chrono.as_ref().map(|e| e.to_rfc3339());
-    let claim = liblinkkeys::claims::sign_claim(
+    let claim = linkkeys::claim_signing::sign_with_active(
         &liblinkkeys::claims::ClaimSpec {
             claim_id: &claim_id,
             claim_type,
@@ -829,55 +889,26 @@ fn claim_set(user_id: &str, claim_type: &str, claim_value: &str, expires: Option
             user_id,
             expires_at: expires_str.as_deref(),
         },
-        &domain_key.id,
-        algorithm,
-        &sk_bytes,
+        &signers,
     )
     .unwrap_or_else(|e| {
         eprintln!("Failed to sign claim: {}", e);
         std::process::exit(1);
     });
 
-    let result = match &db_pool {
-        #[cfg(feature = "postgres")]
-        linkkeys::db::DbPool::Postgres(pool) => {
-            let mut conn = pool.get().expect("Failed to get connection");
-            let uid: uuid::Uuid = user_id.parse().unwrap_or_else(|_| {
-                eprintln!("Invalid user UUID");
-                std::process::exit(1);
-            });
-            let key_id: uuid::Uuid = domain_key.id.parse().expect("Invalid key UUID");
-            linkkeys::db::claims::pg::create(
-                &mut conn,
-                claim_id.parse().expect("Invalid claim UUID"),
-                uid,
-                claim_type,
-                claim_value_bytes,
-                key_id,
-                &claim.signature,
-                expires_chrono,
-            )
-        }
-        #[cfg(feature = "sqlite")]
-        linkkeys::db::DbPool::Sqlite(pool) => {
-            let mut conn = pool.get().expect("Failed to get connection");
-            linkkeys::db::claims::sqlite::create(
-                &mut conn,
-                &claim_id,
-                user_id,
-                claim_type,
-                claim_value_bytes,
-                &domain_key.id,
-                &claim.signature,
-                expires_str.as_deref(),
-            )
-        }
-    };
-
-    match result {
+    match db_pool.create_claim(
+        &claim_id,
+        user_id,
+        claim_type,
+        claim_value_bytes,
+        &claim.signatures,
+        expires_chrono,
+    ) {
         Ok(stored) => println!(
-            "Claim set: id={} type={} signed_by={}",
-            stored.id, stored.claim_type, stored.signed_by_key_id
+            "Claim set: id={} type={} signatures={}",
+            stored.id,
+            stored.claim_type,
+            stored.signatures.len()
         ),
         Err(e) => {
             eprintln!("Failed to store claim: {}", e);
@@ -907,109 +938,122 @@ async fn domain_dns_check() {
         .map(|k| k.fingerprint.clone())
         .collect();
 
-    // Build the expected API base URL.
-    // API_HOSTNAME overrides DOMAIN_NAME for the URL (when API is on a subdomain).
-    // PUBLIC_PORT overrides HTTPS_PORT for URL construction (when behind a gateway/LB).
+    // Build the expected endpoint values for the `_linkkeys_apis` record.
+    // API_HOSTNAME overrides DOMAIN_NAME for the HTTPS URL (when the API is on a
+    // subdomain). PUBLIC_PORT overrides HTTPS_PORT for URL construction (when
+    // behind a gateway/LB). TCP_HOSTNAME / TCP_PORT locate the protocol service;
+    // the TCP port is omitted from the advert when it is the spec default.
     let api_hostname = std::env::var("API_HOSTNAME").unwrap_or_else(|_| domain_name.clone());
     let public_port: u16 = std::env::var("PUBLIC_PORT")
         .or_else(|_| std::env::var("HTTPS_PORT"))
         .unwrap_or_else(|_| "8443".to_string())
         .parse()
         .unwrap_or(8443);
-    let api_base = if public_port == 443 {
-        format!("https://{}", api_hostname)
+    let https_value = if public_port == 443 {
+        api_hostname.clone()
     } else {
-        format!("https://{}:{}", api_hostname, public_port)
+        format!("{}:{}", api_hostname, public_port)
     };
 
+    let tcp_hostname = std::env::var("TCP_HOSTNAME").unwrap_or_else(|_| domain_name.clone());
+    let tcp_port: u16 = std::env::var("TCP_PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(liblinkkeys::dns::DEFAULT_TCP_PORT);
+    let tcp_value = if tcp_port == liblinkkeys::dns::DEFAULT_TCP_PORT {
+        tcp_hostname.clone()
+    } else {
+        format!("{}:{}", tcp_hostname, tcp_port)
+    };
+
+    let apis_name = liblinkkeys::dns::linkkeys_apis_dns_name(&domain_name);
+    let trust_name = liblinkkeys::dns::linkkeys_dns_name(&domain_name);
+
     println!("Domain: {}", domain_name);
-    println!(
-        "DNS name: {}",
-        liblinkkeys::dns::linkkeys_dns_name(&domain_name)
-    );
     println!();
 
-    // Show expected record
-    let expected_txt = liblinkkeys::dns::build_linkkeys_txt(&api_base, &fingerprints);
-    println!("Expected TXT record:");
-    println!(
-        "  {} TXT \"{}\"",
-        liblinkkeys::dns::linkkeys_dns_name(&domain_name),
-        expected_txt
-    );
+    // Show expected records.
+    let expected_trust = liblinkkeys::dns::build_linkkeys_txt(&fingerprints);
+    let expected_apis =
+        liblinkkeys::dns::build_linkkeys_apis_txt(Some(&tcp_value), Some(&https_value));
+    println!("Expected TXT records:");
+    println!("  {} TXT \"{}\"", trust_name, expected_trust);
+    println!("  {} TXT \"{}\"", apis_name, expected_apis);
+    let warn_if_long = |label: &str, txt: &str| {
+        if liblinkkeys::dns::txt_exceeds_single_string(txt) {
+            println!(
+                "  WARNING: the {} record is {} bytes, over the {}-byte single-string DNS TXT \
+                 limit; it must be split into multiple strings, which some resolvers handle \
+                 poorly. Consider shorter hostnames, default ports, or fewer keys.",
+                label,
+                txt.len(),
+                liblinkkeys::dns::MAX_TXT_STRING_LEN
+            );
+        }
+    };
+    warn_if_long("_linkkeys", &expected_trust);
+    warn_if_long("_linkkeys_apis", &expected_apis);
     println!();
-
-    // Look up actual DNS
-    println!("DNS lookup results:");
-    let dns_name = liblinkkeys::dns::linkkeys_dns_name(&domain_name);
 
     let resolver = TokioAsyncResolver::tokio_from_system_conf().unwrap_or_else(|e| {
         eprintln!("  Failed to create DNS resolver: {}", e);
         std::process::exit(1);
     });
 
-    match resolver.txt_lookup(&dns_name).await {
+    // -- Check the _linkkeys trust-anchor record (fingerprints) --
+    println!("DNS lookup: {}", trust_name);
+    match resolver.txt_lookup(&trust_name).await {
         Ok(response) => {
-            let mut found_linkkeys = false;
+            let mut found = false;
             for record in response.iter() {
                 let txt_str = record.to_string();
-                println!("  TXT: \"{}\"", txt_str);
-
-                match liblinkkeys::dns::parse_linkkeys_txt(&txt_str) {
-                    Ok(parsed) => {
-                        found_linkkeys = true;
-                        println!();
-                        println!("  Parsed LinkKeys record:");
-                        println!("    API base: {}", parsed.api_base);
-                        if parsed.api_base != api_base {
-                            println!(
-                                "    WARNING: API base doesn't match expected ({})",
-                                api_base
-                            );
-                        }
-
-                        println!("    Fingerprints in DNS: {}", parsed.fingerprints.len());
-                        for fp in &parsed.fingerprints {
-                            let status = if fingerprints.contains(fp) {
-                                "OK"
-                            } else {
-                                "NOT IN DB"
-                            };
-                            println!("      {} [{}]", fp, status);
-                        }
-
-                        // Check for DB keys missing from DNS
-                        let missing: Vec<&String> = fingerprints
-                            .iter()
-                            .filter(|fp| !parsed.fingerprints.contains(fp))
-                            .collect();
-                        if !missing.is_empty() {
-                            println!("    Missing from DNS ({}):", missing.len());
-                            for fp in missing {
-                                println!("      {}", fp);
-                            }
-                        }
+                if let Ok(parsed) = liblinkkeys::dns::parse_linkkeys_txt(&txt_str) {
+                    found = true;
+                    println!("  TXT: \"{}\"", txt_str);
+                    println!("    Fingerprints in DNS: {}", parsed.fingerprints.len());
+                    for fp in &parsed.fingerprints {
+                        let status = if fingerprints.contains(fp) { "OK" } else { "NOT IN DB" };
+                        println!("      {} [{}]", fp, status);
                     }
-                    Err(_) => {
-                        // Not a linkkeys record, skip
+                    let missing: Vec<&String> = fingerprints
+                        .iter()
+                        .filter(|fp| !parsed.fingerprints.contains(fp))
+                        .collect();
+                    if !missing.is_empty() {
+                        println!("    Missing from DNS ({}):", missing.len());
+                        for fp in missing {
+                            println!("      {}", fp);
+                        }
                     }
                 }
             }
-
-            if !found_linkkeys {
-                println!();
-                println!(
-                    "  No LinkKeys TXT record found among {} record(s).",
-                    response.iter().count()
-                );
-                println!("  Add the expected TXT record shown above to your DNS.");
+            if !found {
+                println!("  No valid _linkkeys record found. Add the expected record above.");
             }
         }
-        Err(e) => {
-            println!("  No TXT records found: {}", e);
-            println!();
-            println!("  Add the expected TXT record shown above to your DNS.");
+        Err(e) => println!("  No TXT records found: {} (add the expected record above)", e),
+    }
+    println!();
+
+    // -- Check the _linkkeys_apis endpoint record (tcp/https) --
+    println!("DNS lookup: {}", apis_name);
+    match resolver.txt_lookup(&apis_name).await {
+        Ok(response) => {
+            let mut found = false;
+            for record in response.iter() {
+                let txt_str = record.to_string();
+                if let Ok(parsed) = liblinkkeys::dns::parse_linkkeys_apis_txt(&txt_str) {
+                    found = true;
+                    println!("  TXT: \"{}\"", txt_str);
+                    println!("    tcp:   {}", parsed.tcp.as_deref().unwrap_or("(none)"));
+                    println!("    https: {}", parsed.https_base.as_deref().unwrap_or("(none)"));
+                }
+            }
+            if !found {
+                println!("  No valid _linkkeys_apis record found. Add the expected record above.");
+            }
         }
+        Err(e) => println!("  No TXT records found: {} (add the expected record above)", e),
     }
 
     println!();

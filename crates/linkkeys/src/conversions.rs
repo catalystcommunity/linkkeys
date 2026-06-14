@@ -1,7 +1,7 @@
-use liblinkkeys::generated::types::{Claim, DomainPublicKey, UserPublicKey};
+use liblinkkeys::generated::types::{Claim, ClaimSignature, DomainPublicKey, UserPublicKey};
 use std::env;
 
-use crate::db::models::{ClaimRow, DomainKey, UserKey};
+use crate::db::models::{ClaimRow, ClaimSignatureRow, DomainKey, UserKey};
 
 pub fn get_domain_name() -> String {
     env::var("DOMAIN_NAME").unwrap_or_else(|_| "localhost".to_string())
@@ -42,6 +42,16 @@ impl From<&UserKey> for UserPublicKey {
     }
 }
 
+impl From<&ClaimSignatureRow> for ClaimSignature {
+    fn from(s: &ClaimSignatureRow) -> Self {
+        ClaimSignature {
+            domain: s.domain.clone(),
+            signed_by_key_id: s.signed_by_key_id.clone(),
+            signature: s.signature.clone(),
+        }
+    }
+}
+
 impl From<&ClaimRow> for Claim {
     fn from(c: &ClaimRow) -> Self {
         Claim {
@@ -49,8 +59,7 @@ impl From<&ClaimRow> for Claim {
             user_id: c.user_id.clone(),
             claim_type: c.claim_type.clone(),
             claim_value: c.claim_value.clone(),
-            signed_by_key_id: c.signed_by_key_id.clone(),
-            signature: c.signature.clone(),
+            signatures: c.signatures.iter().map(Into::into).collect(),
             created_at: c.created_at.clone(),
             expires_at: c.expires_at.clone(),
             revoked_at: c.revoked_at.clone(),

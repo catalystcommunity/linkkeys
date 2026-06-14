@@ -2,18 +2,48 @@ use crate::crypto::fingerprint;
 use crate::generated::types::DomainPublicKey;
 use std::fmt;
 
-/// Parsed LinkKeys DNS TXT record.
+/// Default TCP port for the LinkKeys protocol service. Advertised `tcp=` values
+/// omit the port when it equals this, and parsing fills it in. Operators are
+/// encouraged to run on this port and leave it unspecified.
+pub const DEFAULT_TCP_PORT: u16 = 4987;
+
+/// Maximum length of a single DNS TXT character-string (RFC 1035). A record
+/// longer than this must be split into multiple strings, which many resolvers
+/// and zone tools handle poorly — so we warn when an advertised record exceeds
+/// it.
+pub const MAX_TXT_STRING_LEN: usize = 255;
+
+/// Parsed `_linkkeys.{domain}` TXT record — the trust anchor.
 ///
-/// Expected format at `_linkkeys.{domain}`:
-///   `v=lk1 api={base_url} fp={fingerprint1} fp={fingerprint2} ...`
+/// Expected format: `v=lk1 fp={fingerprint1} fp={fingerprint2} ...`
 ///
-/// The `v=lk1` tag identifies this as a LinkKeys v1 record.
-/// The `api=` field is the base URL for the LinkKeys API (no trailing slash).
-/// The `fp=` fields are SHA-256 hex fingerprints of domain public keys.
+/// The `v=lk1` tag identifies this as a LinkKeys v1 record. The `fp=` fields are
+/// SHA-256 hex fingerprints of the domain's signing keys. Service *endpoints*
+/// (where to actually connect) live in the separate `_linkkeys_apis` record, so
+/// the trust anchor stays stable while endpoints move.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LinkKeysRecord {
-    pub api_base: String,
     pub fingerprints: Vec<String>,
+}
+
+/// Parsed `_linkkeys_apis.{domain}` TXT record — service endpoints.
+///
+/// Expected format: `v=lk1 tcp={host[:port]} https={host[:port][/path]}`
+///
+/// - `tcp=` is the LinkKeys protocol service (the first-class, server-to-server
+///   transport). The port defaults to [`DEFAULT_TCP_PORT`] when omitted; parsed
+///   values are normalized to always carry an explicit `host:port`.
+/// - `https=` is the browser-facing HTTPS API base. The scheme is implied; the
+///   port defaults to 443 (left implicit in the resulting URL). Parsed into a
+///   full `https://…` base.
+///
+/// At least one of the two must be present.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LinkKeysApis {
+    /// `host:port` for the TCP service, with the default port filled in.
+    pub tcp: Option<String>,
+    /// Full `https://host[:port][/path]` base for the HTTPS API.
+    pub https_base: Option<String>,
 }
 
 #[derive(Debug)]
@@ -21,7 +51,8 @@ pub enum DnsParseError {
     NoLinkKeysRecord,
     MissingVersion,
     UnsupportedVersion(String),
-    MissingApiField,
+    /// The `_linkkeys_apis` record carried neither a `tcp=` nor an `https=` field.
+    MissingApisEndpoint,
     InvalidFormat(String),
 }
 
@@ -33,7 +64,9 @@ impl fmt::Display for DnsParseError {
             DnsParseError::UnsupportedVersion(v) => {
                 write!(f, "unsupported linkkeys version: {}", v)
             }
-            DnsParseError::MissingApiField => write!(f, "missing api= field in TXT record"),
+            DnsParseError::MissingApisEndpoint => {
+                write!(f, "_linkkeys_apis record has neither tcp= nor https=")
+            }
             DnsParseError::InvalidFormat(msg) => write!(f, "invalid TXT record format: {}", msg),
         }
     }
@@ -41,52 +74,82 @@ impl fmt::Display for DnsParseError {
 
 impl std::error::Error for DnsParseError {}
 
-/// The DNS name to query for a given domain.
+/// The `_linkkeys` (trust-anchor) DNS name for a domain.
 pub fn linkkeys_dns_name(domain: &str) -> String {
     format!("_linkkeys.{}", domain)
 }
 
-/// Parse a single TXT record string into a LinkKeysRecord.
-/// Returns None if this TXT record isn't a linkkeys record (no v=lk1 tag).
-pub fn parse_linkkeys_txt(txt: &str) -> Result<LinkKeysRecord, DnsParseError> {
-    let parts: Vec<&str> = txt.split_whitespace().collect();
-    if parts.is_empty() {
-        return Err(DnsParseError::MissingVersion);
-    }
+/// The `_linkkeys_apis` (service-endpoint) DNS name for a domain.
+pub fn linkkeys_apis_dns_name(domain: &str) -> String {
+    format!("_linkkeys_apis.{}", domain)
+}
 
-    // Find version tag
+/// Require a `v=lk1` version tag among the whitespace-split parts.
+fn require_lk1_version(parts: &[&str]) -> Result<(), DnsParseError> {
     let version = parts
         .iter()
         .find(|p| p.starts_with("v="))
         .map(|p| &p[2..])
         .ok_or(DnsParseError::MissingVersion)?;
-
     if version != "lk1" {
         return Err(DnsParseError::UnsupportedVersion(version.to_string()));
     }
+    Ok(())
+}
 
-    // Find api= field
-    let api_base = parts
-        .iter()
-        .find(|p| p.starts_with("api="))
-        .map(|p| p[4..].to_string())
-        .ok_or(DnsParseError::MissingApiField)?;
+/// Parse a single `_linkkeys` TXT record string into a [`LinkKeysRecord`].
+/// Errors if it isn't a LinkKeys v1 record (no `v=lk1` tag).
+pub fn parse_linkkeys_txt(txt: &str) -> Result<LinkKeysRecord, DnsParseError> {
+    let parts: Vec<&str> = txt.split_whitespace().collect();
+    require_lk1_version(&parts)?;
 
-    if api_base.is_empty() {
-        return Err(DnsParseError::MissingApiField);
-    }
-
-    // Collect fingerprints
     let fingerprints: Vec<String> = parts
         .iter()
         .filter(|p| p.starts_with("fp="))
         .map(|p| p[3..].to_string())
         .collect();
 
-    Ok(LinkKeysRecord {
-        api_base,
-        fingerprints,
-    })
+    Ok(LinkKeysRecord { fingerprints })
+}
+
+/// Parse a single `_linkkeys_apis` TXT record string into [`LinkKeysApis`].
+/// Errors if it isn't a LinkKeys v1 record or carries no endpoint.
+pub fn parse_linkkeys_apis_txt(txt: &str) -> Result<LinkKeysApis, DnsParseError> {
+    let parts: Vec<&str> = txt.split_whitespace().collect();
+    require_lk1_version(&parts)?;
+
+    let tcp = parts
+        .iter()
+        .find(|p| p.starts_with("tcp="))
+        .map(|p| normalize_tcp_endpoint(&p[4..]))
+        .filter(|v| !v.is_empty());
+
+    let https_base = parts
+        .iter()
+        .find(|p| p.starts_with("https="))
+        .map(|p| p[6..].to_string())
+        .filter(|v| !v.is_empty())
+        .map(|v| format!("https://{}", v));
+
+    if tcp.is_none() && https_base.is_none() {
+        return Err(DnsParseError::MissingApisEndpoint);
+    }
+
+    Ok(LinkKeysApis { tcp, https_base })
+}
+
+/// Normalize a published `tcp=` value (`host` or `host:port`) into an explicit
+/// `host:port`, filling in [`DEFAULT_TCP_PORT`] when the port is omitted. A raw
+/// TCP connect needs the port, unlike an HTTPS URL where it can stay implicit.
+///
+/// The host is always a hostname (IPv6 is reached via its AAAA record, never an
+/// inline literal), so a bare `:` unambiguously separates host from port.
+fn normalize_tcp_endpoint(value: &str) -> String {
+    if value.is_empty() || value.contains(':') {
+        value.to_string()
+    } else {
+        format!("{}:{}", value, DEFAULT_TCP_PORT)
+    }
 }
 
 /// True if `fp` is a syntactically valid key fingerprint: 64 hex chars
@@ -206,13 +269,33 @@ pub fn trust_keys(keys: Vec<DomainPublicKey>, pinned: &[String]) -> Vec<DomainPu
     trusted
 }
 
-/// Build the expected TXT record string from components.
-pub fn build_linkkeys_txt(api_base: &str, fingerprints: &[String]) -> String {
-    let mut parts = vec![format!("v=lk1 api={}", api_base)];
+/// Build the `_linkkeys` (trust-anchor) TXT record string from fingerprints.
+pub fn build_linkkeys_txt(fingerprints: &[String]) -> String {
+    let mut parts = vec!["v=lk1".to_string()];
     for fp in fingerprints {
         parts.push(format!("fp={}", fp));
     }
     parts.join(" ")
+}
+
+/// Build the `_linkkeys_apis` (service-endpoint) TXT record string. Each value
+/// is published as the operator would type it (`tcp=host[:port]`,
+/// `https=host[:port][/path]`); omit the TCP port to use [`DEFAULT_TCP_PORT`].
+pub fn build_linkkeys_apis_txt(tcp: Option<&str>, https: Option<&str>) -> String {
+    let mut parts = vec!["v=lk1".to_string()];
+    if let Some(tcp) = tcp {
+        parts.push(format!("tcp={}", tcp));
+    }
+    if let Some(https) = https {
+        parts.push(format!("https={}", https));
+    }
+    parts.join(" ")
+}
+
+/// True if a TXT record string exceeds the single-character-string limit
+/// ([`MAX_TXT_STRING_LEN`]) and would need splitting to publish reliably.
+pub fn txt_exceeds_single_string(txt: &str) -> bool {
+    txt.len() > MAX_TXT_STRING_LEN
 }
 
 #[cfg(test)]
@@ -220,24 +303,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_full_record() {
-        let txt = "v=lk1 api=https://auth.example.com/linkkeys fp=abcdef123456 fp=789012345678";
+    fn test_parse_record() {
+        let txt = "v=lk1 fp=abcdef123456 fp=789012345678";
         let record = parse_linkkeys_txt(txt).unwrap();
-        assert_eq!(record.api_base, "https://auth.example.com/linkkeys");
         assert_eq!(record.fingerprints, vec!["abcdef123456", "789012345678"]);
     }
 
     #[test]
-    fn test_parse_api_only() {
-        let txt = "v=lk1 api=https://example.com";
-        let record = parse_linkkeys_txt(txt).unwrap();
-        assert_eq!(record.api_base, "https://example.com");
+    fn test_parse_no_fingerprints() {
+        // A bare versioned record parses to an empty fingerprint set (fail-closed
+        // pinning downstream rejects it; parsing itself does not).
+        let record = parse_linkkeys_txt("v=lk1").unwrap();
         assert!(record.fingerprints.is_empty());
     }
 
     #[test]
     fn test_parse_missing_version() {
-        let txt = "api=https://example.com fp=abc";
+        let txt = "fp=abc";
         assert!(matches!(
             parse_linkkeys_txt(txt),
             Err(DnsParseError::MissingVersion)
@@ -246,7 +328,7 @@ mod tests {
 
     #[test]
     fn test_parse_wrong_version() {
-        let txt = "v=lk99 api=https://example.com";
+        let txt = "v=lk99 fp=abc";
         assert!(matches!(
             parse_linkkeys_txt(txt),
             Err(DnsParseError::UnsupportedVersion(_))
@@ -254,38 +336,78 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_missing_api() {
-        let txt = "v=lk1 fp=abc";
-        assert!(matches!(
-            parse_linkkeys_txt(txt),
-            Err(DnsParseError::MissingApiField)
-        ));
-    }
-
-    #[test]
-    fn test_dns_name() {
+    fn test_dns_names() {
         assert_eq!(linkkeys_dns_name("example.com"), "_linkkeys.example.com");
         assert_eq!(
-            linkkeys_dns_name("auth.example.com"),
-            "_linkkeys.auth.example.com"
+            linkkeys_apis_dns_name("auth.example.com"),
+            "_linkkeys_apis.auth.example.com"
         );
     }
 
     #[test]
     fn test_build_and_parse_roundtrip() {
         let fps = vec!["abc123".to_string(), "def456".to_string()];
-        let txt = build_linkkeys_txt("https://idp.example.com/api", &fps);
-        let record = parse_linkkeys_txt(&txt).unwrap();
-        assert_eq!(record.api_base, "https://idp.example.com/api");
-        assert_eq!(record.fingerprints, fps);
+        let txt = build_linkkeys_txt(&fps);
+        assert_eq!(parse_linkkeys_txt(&txt).unwrap().fingerprints, fps);
     }
 
     #[test]
     fn test_order_independence() {
-        let txt = "fp=aaa v=lk1 fp=bbb api=https://x.com fp=ccc";
+        let txt = "fp=aaa v=lk1 fp=bbb fp=ccc";
         let record = parse_linkkeys_txt(txt).unwrap();
-        assert_eq!(record.api_base, "https://x.com");
         assert_eq!(record.fingerprints, vec!["aaa", "bbb", "ccc"]);
+    }
+
+    // -- _linkkeys_apis record --
+
+    #[test]
+    fn test_parse_apis_full() {
+        let txt = "v=lk1 tcp=auth.example.com:6000 https=auth.example.com/linkkeys";
+        let apis = parse_linkkeys_apis_txt(txt).unwrap();
+        assert_eq!(apis.tcp.as_deref(), Some("auth.example.com:6000"));
+        assert_eq!(apis.https_base.as_deref(), Some("https://auth.example.com/linkkeys"));
+    }
+
+    #[test]
+    fn test_parse_apis_defaults_tcp_port() {
+        // Omitted TCP port is filled with DEFAULT_TCP_PORT; HTTPS port stays
+        // implicit (443) in the URL.
+        let apis = parse_linkkeys_apis_txt("v=lk1 tcp=idp.example.com https=idp.example.com").unwrap();
+        assert_eq!(apis.tcp.as_deref(), Some("idp.example.com:4987"));
+        assert_eq!(apis.https_base.as_deref(), Some("https://idp.example.com"));
+    }
+
+    #[test]
+    fn test_parse_apis_tcp_only_and_https_only() {
+        let tcp_only = parse_linkkeys_apis_txt("v=lk1 tcp=idp.example.com:6000").unwrap();
+        assert_eq!(tcp_only.tcp.as_deref(), Some("idp.example.com:6000"));
+        assert!(tcp_only.https_base.is_none());
+
+        let https_only = parse_linkkeys_apis_txt("v=lk1 https=idp.example.com:8443/x").unwrap();
+        assert!(https_only.tcp.is_none());
+        assert_eq!(https_only.https_base.as_deref(), Some("https://idp.example.com:8443/x"));
+    }
+
+    #[test]
+    fn test_parse_apis_missing_endpoint() {
+        assert!(matches!(
+            parse_linkkeys_apis_txt("v=lk1"),
+            Err(DnsParseError::MissingApisEndpoint)
+        ));
+    }
+
+    #[test]
+    fn test_build_apis_roundtrip() {
+        let txt = build_linkkeys_apis_txt(Some("idp.example.com"), Some("idp.example.com/api"));
+        let apis = parse_linkkeys_apis_txt(&txt).unwrap();
+        assert_eq!(apis.tcp.as_deref(), Some("idp.example.com:4987"));
+        assert_eq!(apis.https_base.as_deref(), Some("https://idp.example.com/api"));
+    }
+
+    #[test]
+    fn test_txt_length_guard() {
+        assert!(!txt_exceeds_single_string("v=lk1 tcp=idp.example.com"));
+        assert!(txt_exceeds_single_string(&"x".repeat(MAX_TXT_STRING_LEN + 1)));
     }
 
     use crate::crypto::{fingerprint, generate_keypair, SigningAlgorithm, ALGORITHM_ED25519};

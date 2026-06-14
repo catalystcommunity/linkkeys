@@ -26,13 +26,13 @@ database:
 
 # Server configuration
 server:
-  tcpPort: 9000
+  tcpPort: 4987
   httpsPort: 8443
   logLevel: "info"
   # Domain identity used in assertions and DNS (e.g., "todandlorna.com")
   domainName: ""
   # API hostname if different from domainName (e.g., "linkkeys.todandlorna.com")
-  # Used in DNS TXT record api= field. Defaults to domainName if not set.
+  # Used as the _linkkeys_apis https= host. Defaults to domainName if not set.
   apiHostname: ""
   # Public-facing port for API URL construction (when behind a gateway/LB).
   # Overrides httpsPort for dns-check output. Set to "443" when TLS is terminated at ingress.
@@ -89,7 +89,7 @@ service:
   tcp:
     # TCP service type (ClusterIP, NodePort, LoadBalancer)
     type: ClusterIP
-    port: 9000
+    port: 4987
     # NodePort for TCP (only used when type is NodePort)
     nodePort: ""
 

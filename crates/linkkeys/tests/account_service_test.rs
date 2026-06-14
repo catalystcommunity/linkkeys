@@ -86,12 +86,15 @@ fn test_service_get_my_info() {
             user_id: &user.id,
             expires_at: None,
         },
-        &dk.id,
-        algorithm,
-        &sk_bytes,
+        &[liblinkkeys::claims::ClaimSigner {
+            domain: "test.com",
+            key_id: &dk.id,
+            algorithm,
+            private_key_bytes: &sk_bytes,
+        }],
     )
     .unwrap();
-    pool.create_claim(&claim_id, &user.id, "email", b"test@test.com", &dk.id, &signed.signature, None).unwrap();
+    pool.create_claim(&claim_id, &user.id, "email", b"test@test.com", &signed.signatures, None).unwrap();
 
     let resp = account::get_my_info(&pool, &user.id).unwrap();
     assert_eq!(resp.user.id, user.id);
