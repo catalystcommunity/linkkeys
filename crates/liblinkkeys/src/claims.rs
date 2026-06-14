@@ -62,41 +62,46 @@ impl std::error::Error for ClaimError {}
 /// this invalidates old signatures by design (versioned construction).
 const CLAIM_PAYLOAD_TAG: &str = "linkkeys-claim-v1";
 
-/// Build the canonical bytes that get signed for a claim by `domain`.
+/// Build the canonical bytes a single signature covers for a claim.
 ///
 /// Uses CBOR encoding for an unambiguous, deterministic payload even when
-/// `claim_value` contains arbitrary bytes (including nulls). The signed payload
-/// binds `claim_id`, `expires_at`, and the issuing `domain` in addition to the
-/// core (type/value/user) so expiry, identity, and the vouching domain are all
-/// tamper-evident — an attacker cannot extend a claim's life, re-id it, or
-/// re-attribute it to a more-trusted domain without breaking the signature.
+/// `claim_value` contains arbitrary bytes (including nulls). The subject is the
+/// single full identity `user_id@subject_domain` (not the bare user_id), so a
+/// claim about a user_id at one domain can't be replayed as the same user_id at
+/// another. `signing_domain` — the attestor for *this* signature — is bound
+/// per-signature so a signature from domain A cannot satisfy a claim presented as
+/// signed by B.
 ///
-/// `domain` is bound per-signature: every signature carries the domain it was
-/// produced for, and a verifier checks the signature against *that* domain's
-/// keys. A signature from domain A therefore cannot satisfy a claim presented as
-/// signed by domain B — the payloads differ.
-///
-/// `expires_at` must be stored and served byte-identical to what was signed
-/// (the caller normalizes it to whole-second RFC3339 so it round-trips through
-/// both Postgres timestamptz and SQLite text). `created_at` is deliberately NOT
-/// signed — it is assigned by the database on insert, so signing it would make
-/// the stored claim unverifiable.
+/// `claim_id` and `expires_at` are also bound, so identity and expiry are
+/// tamper-evident. `expires_at` must be stored and served byte-identical to what
+/// was signed (the caller normalizes it to whole-second RFC3339 so it round-trips
+/// through both Postgres timestamptz and SQLite text). `created_at` is
+/// deliberately NOT signed — it is assigned by the database on insert.
 fn claim_sign_payload(
     claim_id: &str,
     claim_type: &str,
     claim_value: &[u8],
     user_id: &str,
-    domain: &str,
+    subject_domain: &str,
+    signing_domain: &str,
     expires_at: Option<&str>,
 ) -> Vec<u8> {
     // Use a tuple for deterministic CBOR encoding.
+    //
+    // The subject is bound as the single full identity `user_id@subject_domain`
+    // in place of a bare user_id — nothing more elaborate. A user_id (uuid) is
+    // only unique within its home domain, so this prevents a claim about a
+    // user_id at one domain from being replayed as the same user_id at another.
+    // Neither a uuid nor a DNS domain contains '@', so the separator is
+    // unambiguous. `signing_domain` is the per-signature attestor.
+    let subject = format!("{}@{}", user_id, subject_domain);
     let payload = (
         CLAIM_PAYLOAD_TAG,
         claim_id,
         claim_type,
         serde_bytes::Bytes::new(claim_value),
-        user_id,
-        domain,
+        subject.as_str(),
+        signing_domain,
         expires_at,
     );
     let mut out = Vec::new();
@@ -112,6 +117,11 @@ pub struct ClaimSpec<'a> {
     pub claim_type: &'a str,
     pub claim_value: &'a [u8],
     pub user_id: &'a str,
+    /// The subject's home domain — `user_id@subject_domain` is the full identity
+    /// the claim is about. Bound into every signature so the claim can't be
+    /// replayed against the same user_id at a different domain. At issue time
+    /// this is the issuing IDP's own domain.
+    pub subject_domain: &'a str,
     pub expires_at: Option<&'a str>,
 }
 
@@ -137,6 +147,7 @@ pub fn sign_claim(spec: &ClaimSpec<'_>, signers: &[ClaimSigner<'_>]) -> Result<C
             spec.claim_type,
             spec.claim_value,
             spec.user_id,
+            spec.subject_domain,
             signer.domain,
             spec.expires_at,
         );
@@ -199,17 +210,25 @@ fn verify_one_signature(
     )
 }
 
-/// Verify a claim under the per-domain quorum rule: **every** domain that signed
-/// the claim must contribute at least one signature from a currently-valid key
-/// of that domain. The claim's own revocation/expiry are also enforced (both are
-/// tamper-evident, being bound into each signed payload).
+/// Verify only the *cryptographic* per-domain quorum: **every** domain that
+/// signed the claim must contribute at least one signature from a currently-valid
+/// key of that domain, over the payload for `subject_domain`. This does NOT check
+/// the claim's own revocation/expiry — use [`verify_claim`] for the full check.
 ///
-/// `domain_keys` supplies the candidate keys grouped by domain. If a signing
-/// domain has no entry, verification returns [`ClaimError::DomainKeysUnavailable`]
-/// so the caller can fetch that domain's keys and retry; this function never
-/// performs I/O. Trust *policy* (which domains are acceptable, how many, etc.)
-/// is intentionally out of scope — that belongs to the consuming policy engine.
-pub fn verify_claim(claim: &Claim, domain_keys: &[DomainKeySet]) -> Result<(), ClaimError> {
+/// `subject_domain` is the subject's home domain (`user_id@subject_domain`); the
+/// caller supplies it from the authoritative context it fetched the claim from
+/// (e.g. the UserInfo envelope's `domain`), never from attacker-controlled input.
+/// Binding it here is what stops a claim about `user_id@A` from being replayed as
+/// one about `user_id@B`.
+///
+/// `domain_keys` supplies candidate keys grouped by signing domain. A signing
+/// domain with no entry yields [`ClaimError::DomainKeysUnavailable`] so the caller
+/// can fetch and retry; this function never performs I/O.
+pub fn verify_claim_signatures(
+    claim: &Claim,
+    subject_domain: &str,
+    domain_keys: &[DomainKeySet],
+) -> Result<(), ClaimError> {
     if claim.signatures.is_empty() {
         return Err(ClaimError::Unsigned);
     }
@@ -217,27 +236,28 @@ pub fn verify_claim(claim: &Claim, domain_keys: &[DomainKeySet]) -> Result<(), C
     // Distinct signing domains, in stable order for deterministic errors.
     let domains: BTreeSet<&str> = claim.signatures.iter().map(|s| s.domain.as_str()).collect();
 
-    for domain in domains {
+    for signing_domain in domains {
         let set = domain_keys
             .iter()
-            .find(|s| s.domain == domain)
-            .ok_or_else(|| ClaimError::DomainKeysUnavailable(domain.to_string()))?;
+            .find(|s| s.domain == signing_domain)
+            .ok_or_else(|| ClaimError::DomainKeysUnavailable(signing_domain.to_string()))?;
 
         let payload = claim_sign_payload(
             &claim.claim_id,
             &claim.claim_type,
             &claim.claim_value,
             &claim.user_id,
-            domain,
+            subject_domain,
+            signing_domain,
             claim.expires_at.as_deref(),
         );
 
         // The domain is satisfied as soon as one of its signatures verifies. If
         // none do, surface the most recent concrete reason (a single-signature
         // domain therefore yields its exact error: KeyNotFound, KeyRevoked, …).
-        let mut last_err = ClaimError::DomainUnverified(domain.to_string());
+        let mut last_err = ClaimError::DomainUnverified(signing_domain.to_string());
         let mut satisfied = false;
-        for sig in claim.signatures.iter().filter(|s| s.domain == domain) {
+        for sig in claim.signatures.iter().filter(|s| s.domain == signing_domain) {
             match verify_one_signature(sig, &payload, &set.keys) {
                 Ok(()) => {
                     satisfied = true;
@@ -251,8 +271,19 @@ pub fn verify_claim(claim: &Claim, domain_keys: &[DomainKeySet]) -> Result<(), C
         }
     }
 
-    // Enforce the claim's own revocation and expiry (now tamper-evident,
-    // since expires_at is part of the signed payload).
+    Ok(())
+}
+
+/// Full claim verification: the cryptographic per-domain quorum
+/// ([`verify_claim_signatures`]) plus the claim's own revocation and expiry
+/// (both tamper-evident, being bound into each signed payload). All must pass.
+pub fn verify_claim(
+    claim: &Claim,
+    subject_domain: &str,
+    domain_keys: &[DomainKeySet],
+) -> Result<(), ClaimError> {
+    verify_claim_signatures(claim, subject_domain, domain_keys)?;
+
     if claim.revoked_at.is_some() {
         return Err(ClaimError::Revoked);
     }
@@ -306,6 +337,11 @@ mod tests {
         }]
     }
 
+    /// Verify with `DOMAIN` as the subject's home domain (the common case).
+    fn verify(claim: &Claim, domain_keys: &[DomainKeySet]) -> Result<(), ClaimError> {
+        verify_claim(claim, DOMAIN, domain_keys)
+    }
+
     /// Sign a default single-key claim on `DOMAIN`.
     fn signed_claim(key_id: &str, sk: &[u8], expires_at: Option<&str>) -> Claim {
         sign_claim(
@@ -314,6 +350,7 @@ mod tests {
                 claim_type: "over-21",
                 claim_value: b"true",
                 user_id: "user-123",
+                subject_domain: DOMAIN,
                 expires_at,
             },
             &[signer(key_id, sk)],
@@ -325,7 +362,7 @@ mod tests {
     fn test_claim_sign_verify_roundtrip() {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let claim = signed_claim("key-1", &sk, None);
-        assert!(verify_claim(&claim, &keyset(vec![make_domain_key("key-1", &pk)])).is_ok());
+        assert!(verify(&claim, &keyset(vec![make_domain_key("key-1", &pk)])).is_ok());
     }
 
     #[test]
@@ -334,7 +371,7 @@ mod tests {
         let mut claim = signed_claim("key-1", &sk, None);
         claim.claim_value = b"eve@evil.com".to_vec();
         assert!(matches!(
-            verify_claim(&claim, &keyset(vec![make_domain_key("key-1", &pk)])),
+            verify(&claim, &keyset(vec![make_domain_key("key-1", &pk)])),
             Err(ClaimError::SignatureInvalid)
         ));
     }
@@ -346,7 +383,7 @@ mod tests {
         // Claim references key-1, but only key-2 is supplied for the domain.
         let claim = signed_claim("key-1", &sk1, None);
         assert!(matches!(
-            verify_claim(&claim, &keyset(vec![make_domain_key("key-2", &pk2)])),
+            verify(&claim, &keyset(vec![make_domain_key("key-2", &pk2)])),
             Err(ClaimError::KeyNotFound(_))
         ));
     }
@@ -357,7 +394,7 @@ mod tests {
         let mut claim = signed_claim("key-1", &sk, None);
         claim.claim_type = "email".to_string();
         assert!(matches!(
-            verify_claim(&claim, &keyset(vec![make_domain_key("key-1", &pk)])),
+            verify(&claim, &keyset(vec![make_domain_key("key-1", &pk)])),
             Err(ClaimError::SignatureInvalid)
         ));
     }
@@ -368,7 +405,7 @@ mod tests {
         let past = (Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
         let claim = signed_claim("key-1", &sk, Some(&past));
         assert!(matches!(
-            verify_claim(&claim, &keyset(vec![make_domain_key("key-1", &pk)])),
+            verify(&claim, &keyset(vec![make_domain_key("key-1", &pk)])),
             Err(ClaimError::Expired)
         ));
     }
@@ -378,7 +415,7 @@ mod tests {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let future = (Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
         let claim = signed_claim("key-1", &sk, Some(&future));
-        assert!(verify_claim(&claim, &keyset(vec![make_domain_key("key-1", &pk)])).is_ok());
+        assert!(verify(&claim, &keyset(vec![make_domain_key("key-1", &pk)])).is_ok());
     }
 
     #[test]
@@ -387,7 +424,7 @@ mod tests {
         let mut claim = signed_claim("key-1", &sk, None);
         claim.revoked_at = Some(Utc::now().to_rfc3339());
         assert!(matches!(
-            verify_claim(&claim, &keyset(vec![make_domain_key("key-1", &pk)])),
+            verify(&claim, &keyset(vec![make_domain_key("key-1", &pk)])),
             Err(ClaimError::Revoked)
         ));
     }
@@ -400,7 +437,7 @@ mod tests {
         let mut claim = signed_claim("key-1", &sk, Some(&soon));
         claim.expires_at = Some((Utc::now() + chrono::Duration::weeks(520)).to_rfc3339());
         assert!(matches!(
-            verify_claim(&claim, &keyset(vec![make_domain_key("key-1", &pk)])),
+            verify(&claim, &keyset(vec![make_domain_key("key-1", &pk)])),
             Err(ClaimError::SignatureInvalid)
         ));
     }
@@ -412,7 +449,7 @@ mod tests {
         let claim = signed_claim("key-1", &sk, None);
         domain_key.revoked_at = Some(Utc::now().to_rfc3339());
         assert!(matches!(
-            verify_claim(&claim, &keyset(vec![domain_key])),
+            verify(&claim, &keyset(vec![domain_key])),
             Err(ClaimError::KeyRevoked(_))
         ));
     }
@@ -424,7 +461,7 @@ mod tests {
         let claim = signed_claim("key-1", &sk, None);
         domain_key.expires_at = (Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
         assert!(matches!(
-            verify_claim(&claim, &keyset(vec![domain_key])),
+            verify(&claim, &keyset(vec![domain_key])),
             Err(ClaimError::KeyExpired(_))
         ));
     }
@@ -436,7 +473,7 @@ mod tests {
         domain_key.algorithm = "unknown-alg".to_string();
         let claim = signed_claim("key-1", &sk, None);
         assert!(matches!(
-            verify_claim(&claim, &keyset(vec![domain_key])),
+            verify(&claim, &keyset(vec![domain_key])),
             Err(ClaimError::UnsupportedAlgorithm(_))
         ));
     }
@@ -449,12 +486,13 @@ mod tests {
                 claim_type: "over-21",
                 claim_value: b"true",
                 user_id: "user-123",
+                subject_domain: DOMAIN,
                 expires_at: None,
             },
             &[],
         )
         .unwrap();
-        assert!(matches!(verify_claim(&claim, &keyset(vec![])), Err(ClaimError::Unsigned)));
+        assert!(matches!(verify(&claim, &keyset(vec![])), Err(ClaimError::Unsigned)));
     }
 
     #[test]
@@ -462,7 +500,7 @@ mod tests {
         let (_pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let claim = signed_claim("key-1", &sk, None);
         // No key set supplied for the signing domain at all.
-        match verify_claim(&claim, &[]) {
+        match verify(&claim, &[]) {
             Err(ClaimError::DomainKeysUnavailable(d)) => assert_eq!(d, DOMAIN),
             other => panic!("expected DomainKeysUnavailable, got {:?}", other),
         }
@@ -481,6 +519,7 @@ mod tests {
                 claim_type: "role",
                 claim_value: b"admin",
                 user_id: "user-123",
+                subject_domain: DOMAIN,
                 expires_at: None,
             },
             &[signer("key-1", &sk1), signer("key-2", &sk2), signer("key-3", &sk3)],
@@ -494,7 +533,7 @@ mod tests {
         k2.expires_at = (Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
         let k3 = make_domain_key("key-3", &pk3); // still valid
 
-        assert!(verify_claim(&claim, &keyset(vec![k1, k2, k3])).is_ok());
+        assert!(verify(&claim, &keyset(vec![k1, k2, k3])).is_ok());
     }
 
     #[test]
@@ -507,6 +546,7 @@ mod tests {
                 claim_type: "role",
                 claim_value: b"admin",
                 user_id: "user-123",
+                subject_domain: DOMAIN,
                 expires_at: None,
             },
             &[signer("key-1", &sk1), signer("key-2", &sk2)],
@@ -518,7 +558,7 @@ mod tests {
         let mut k2 = make_domain_key("key-2", &pk2);
         k2.revoked_at = Some(Utc::now().to_rfc3339());
         assert!(matches!(
-            verify_claim(&claim, &keyset(vec![k1, k2])),
+            verify(&claim, &keyset(vec![k1, k2])),
             Err(ClaimError::KeyRevoked(_))
         ));
     }
@@ -534,6 +574,7 @@ mod tests {
                 claim_type: "citizen",
                 claim_value: b"yes",
                 user_id: "user-123",
+                subject_domain: DOMAIN,
                 expires_at: None,
             },
             &[
@@ -563,10 +604,10 @@ mod tests {
         };
 
         // Both domains resolvable and valid -> ok.
-        assert!(verify_claim(&claim, &[gov.clone_for_test(), bank.clone_for_test()]).is_ok());
+        assert!(verify(&claim, &[gov.clone_for_test(), bank.clone_for_test()]).is_ok());
 
         // Missing one domain's keys -> DomainKeysUnavailable for it.
-        match verify_claim(&claim, &[gov.clone_for_test()]) {
+        match verify(&claim, &[gov.clone_for_test()]) {
             Err(ClaimError::DomainKeysUnavailable(d)) => assert_eq!(d, "bank.example"),
             other => panic!("expected DomainKeysUnavailable(bank.example), got {:?}", other),
         }
@@ -586,7 +627,48 @@ mod tests {
             domain: "evil.example".to_string(),
             keys: vec![make_domain_key("key-1", &pk)],
         };
-        assert!(matches!(verify_claim(&claim, &[spoof]), Err(ClaimError::SignatureInvalid)));
+        assert!(matches!(verify(&claim, &[spoof]), Err(ClaimError::SignatureInvalid)));
+    }
+
+    #[test]
+    fn test_claim_subject_domain_replay_rejected() {
+        // The attack: gov.example signs "U has SSN=…" for subject U@todandlorna.com.
+        // An attacker copies the claim (bytes + gov signature) and presents it as
+        // U@evil.example. The subject's home domain is bound into the signature, so
+        // it verifies only against the real subject domain.
+        let (gov_pk, gov_sk) = generate_keypair(SigningAlgorithm::Ed25519);
+        let claim = sign_claim(
+            &ClaimSpec {
+                claim_id: "claim-1",
+                claim_type: "ssn",
+                claim_value: b"123-45-6789",
+                user_id: "U",
+                subject_domain: "todandlorna.com",
+                expires_at: None,
+            },
+            &[ClaimSigner {
+                domain: "gov.example",
+                key_id: "gov-1",
+                algorithm: SigningAlgorithm::Ed25519,
+                private_key_bytes: &gov_sk,
+            }],
+        )
+        .unwrap();
+
+        let gov_keys = vec![DomainKeySet {
+            domain: "gov.example".to_string(),
+            keys: vec![make_domain_key("gov-1", &gov_pk)],
+        }];
+
+        // Real subject domain: verifies.
+        assert!(verify_claim(&claim, "todandlorna.com", &gov_keys).is_ok());
+
+        // Same claim + same gov signature, replayed under a different subject
+        // domain: rejected.
+        assert!(matches!(
+            verify_claim(&claim, "evil.example", &gov_keys),
+            Err(ClaimError::SignatureInvalid)
+        ));
     }
 
     // Small helper so multi-domain tests can reuse a key set across two

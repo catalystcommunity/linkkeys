@@ -85,25 +85,68 @@ async fn main() {
     }
 }
 
-/// TEMPORARY (added 2026-06-14, pre-alpha): re-sign claims that the
-/// claim_signatures migration left unsigned.
+/// TEMPORARY (added 2026-06-14, pre-alpha): re-sign claims whose signatures
+/// don't verify under the current signed-payload construction.
 ///
-/// That migration dropped the old single-signature columns without porting their
-/// (now domain-unbound, payload-incompatible) values, so pre-existing claims have
-/// no signatures until re-signed with the domain's active keys. Idempotent:
-/// claims that already carry signatures are skipped, so this is a no-op on every
-/// boot after the first. Failures here are logged but never fatal — a server with
-/// no domain keys or passphrase (e.g. RP-only) simply skips. Remove once all
-/// deployments have moved past pre-alpha.
+/// Pre-existing claims may carry signatures over an older payload (e.g. before
+/// the subject's home domain was bound, or none at all after the
+/// claim_signatures migration). This re-signs them with this domain's active
+/// signing keys so they verify again. Idempotent: a claim that already verifies
+/// is skipped, so this is a no-op on every boot after it converges. Failures are
+/// logged but never fatal — a server with no claims, keys, or passphrase simply
+/// skips. Remove once all deployments have moved past pre-alpha.
 fn resign_legacy_claims_on_startup(pool: &linkkeys::db::DbPool) {
-    let claims = match pool.list_claims_missing_signatures() {
+    let claims = match pool.list_all_claims() {
         Ok(c) => c,
         Err(e) => {
-            log::error!("re-sign backfill: failed to list unsigned claims: {}", e);
+            log::error!("re-sign backfill: failed to list claims: {}", e);
             return;
         }
     };
     if claims.is_empty() {
+        return;
+    }
+
+    let domain_keys = match pool.list_active_domain_keys() {
+        Ok(k) => k,
+        Err(e) => {
+            log::error!("re-sign backfill: failed to list domain keys: {}", e);
+            return;
+        }
+    };
+
+    // The subject of every local claim is a local user, so the subject domain is
+    // our own. Verification uses our public keys (no passphrase needed).
+    let subject_domain = linkkeys::conversions::get_domain_name();
+    let local_keys: Vec<liblinkkeys::generated::types::DomainPublicKey> =
+        domain_keys.iter().map(Into::into).collect();
+    let keysets = vec![liblinkkeys::claims::DomainKeySet {
+        domain: subject_domain.clone(),
+        keys: local_keys,
+    }];
+
+    // Claims whose signatures don't verify under the current payload. Skip any
+    // that carry a signature from another domain — we can't re-create a foreign
+    // domain's signature, so replacing all signatures would drop it.
+    let stale: Vec<&linkkeys::db::models::ClaimRow> = claims
+        .iter()
+        .filter(|c| {
+            let claim: liblinkkeys::generated::types::Claim = (*c).into();
+            if liblinkkeys::claims::verify_claim_signatures(&claim, &subject_domain, &keysets).is_ok()
+            {
+                return false;
+            }
+            if claim.signatures.iter().any(|s| s.domain != subject_domain) {
+                log::warn!(
+                    "re-sign backfill: claim {} has signatures from other domains; skipping",
+                    c.id
+                );
+                return false;
+            }
+            true
+        })
+        .collect();
+    if stale.is_empty() {
         return;
     }
 
@@ -113,16 +156,8 @@ fn resign_legacy_claims_on_startup(pool: &linkkeys::db::DbPool) {
             log::warn!(
                 "re-sign backfill: {} claim(s) need re-signing but DOMAIN_KEY_PASSPHRASE \
                  is not set; skipping",
-                claims.len()
+                stale.len()
             );
-            return;
-        }
-    };
-
-    let domain_keys = match pool.list_active_domain_keys() {
-        Ok(k) => k,
-        Err(e) => {
-            log::error!("re-sign backfill: failed to list domain keys: {}", e);
             return;
         }
     };
@@ -136,12 +171,13 @@ fn resign_legacy_claims_on_startup(pool: &linkkeys::db::DbPool) {
     };
 
     let mut resigned = 0usize;
-    for c in &claims {
+    for c in stale {
         let spec = liblinkkeys::claims::ClaimSpec {
             claim_id: &c.id,
             claim_type: &c.claim_type,
             claim_value: &c.claim_value,
             user_id: &c.user_id,
+            subject_domain: &subject_domain,
             expires_at: c.expires_at.as_deref(),
         };
         let signed = match linkkeys::claim_signing::sign_with_active(&spec, &signers) {
@@ -157,7 +193,7 @@ fn resign_legacy_claims_on_startup(pool: &linkkeys::db::DbPool) {
         }
         resigned += 1;
     }
-    log::info!("re-sign backfill: re-signed {} legacy claim(s)", resigned);
+    log::info!("re-sign backfill: re-signed {} claim(s)", resigned);
 }
 
 fn get_passphrase() -> String {
@@ -881,12 +917,14 @@ fn claim_set(user_id: &str, claim_type: &str, claim_value: &str, expires: Option
     let claim_value_bytes = claim_value.as_bytes();
     let claim_id = uuid::Uuid::now_v7().to_string();
     let expires_str = expires_chrono.as_ref().map(|e| e.to_rfc3339());
+    let subject_domain = linkkeys::conversions::get_domain_name();
     let claim = linkkeys::claim_signing::sign_with_active(
         &liblinkkeys::claims::ClaimSpec {
             claim_id: &claim_id,
             claim_type,
             claim_value: claim_value_bytes,
             user_id,
+            subject_domain: &subject_domain,
             expires_at: expires_str.as_deref(),
         },
         &signers,

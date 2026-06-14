@@ -140,6 +140,15 @@ pub mod pg {
         attach_signatures(conn, db_rows)
     }
 
+    /// All claims with signatures attached, regardless of revocation/expiry.
+    /// Used by the pre-alpha re-sign backfill.
+    pub fn list_all(conn: &mut diesel::PgConnection) -> QueryResult<Vec<ClaimRow>> {
+        let db_rows = claims::table
+            .order(claims::created_at.asc())
+            .load::<ClaimDbRow>(conn)?;
+        attach_signatures(conn, db_rows)
+    }
+
     pub fn find_by_id(conn: &mut diesel::PgConnection, claim_id: &str) -> QueryResult<ClaimRow> {
         let id: uuid::Uuid = claim_id
             .parse()
@@ -312,6 +321,15 @@ pub mod sqlite {
             .filter(claims::user_id.eq(user_id))
             .filter(claims::revoked_at.is_null())
             .filter(claims::expires_at.is_null().or(claims::expires_at.gt(now)))
+            .order(claims::created_at.asc())
+            .load::<ClaimDbRow>(conn)?;
+        attach_signatures(conn, db_rows)
+    }
+
+    /// All claims with signatures attached, regardless of revocation/expiry.
+    /// Used by the pre-alpha re-sign backfill.
+    pub fn list_all(conn: &mut diesel::SqliteConnection) -> QueryResult<Vec<ClaimRow>> {
+        let db_rows = claims::table
             .order(claims::created_at.asc())
             .load::<ClaimDbRow>(conn)?;
         attach_signatures(conn, db_rows)

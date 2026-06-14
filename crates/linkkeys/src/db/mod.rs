@@ -258,6 +258,29 @@ impl DbPool {
         }
     }
 
+    /// All claims (any user, regardless of revocation/expiry), signatures
+    /// attached. Used by the pre-alpha re-sign backfill.
+    pub fn list_all_claims(&self) -> QueryResult<Vec<models::ClaimRow>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                claims::pg::list_all(&mut conn)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                claims::sqlite::list_all(&mut conn)
+            }
+        }
+    }
+
     pub fn list_active_claims(&self, user_id: &str) -> QueryResult<Vec<models::ClaimRow>> {
         match self {
             #[cfg(feature = "postgres")]
