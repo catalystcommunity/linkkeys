@@ -91,12 +91,21 @@ pub mod pg {
             user_id -> Uuid,
             claim_type -> Varchar,
             claim_value -> Binary,
-            signed_by_key_id -> Uuid,
-            signature -> Binary,
             created_at -> Timestamptz,
             expires_at -> Nullable<Timestamptz>,
             revoked_at -> Nullable<Timestamptz>,
             updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        claim_signatures (id) {
+            id -> Uuid,
+            claim_id -> Uuid,
+            domain -> Varchar,
+            signed_by_key_id -> Uuid,
+            signature -> Binary,
+            created_at -> Timestamptz,
         }
     }
 
@@ -109,7 +118,8 @@ pub mod pg {
 
     diesel::joinable!(user_keys -> users (user_id));
     diesel::joinable!(claims -> users (user_id));
-    diesel::joinable!(claims -> domain_keys (signed_by_key_id));
+    diesel::joinable!(claim_signatures -> claims (claim_id));
+    diesel::joinable!(claim_signatures -> domain_keys (signed_by_key_id));
     diesel::joinable!(auth_credentials -> users (user_id));
     diesel::allow_tables_to_appear_in_same_query!(
         guestbook_entries,
@@ -118,6 +128,7 @@ pub mod pg {
         auth_credentials,
         user_keys,
         claims,
+        claim_signatures,
         relations,
     );
 }
@@ -212,12 +223,21 @@ pub mod sqlite {
             user_id -> Text,
             claim_type -> Text,
             claim_value -> Binary,
-            signed_by_key_id -> Text,
-            signature -> Binary,
             created_at -> Text,
             expires_at -> Nullable<Text>,
             revoked_at -> Nullable<Text>,
             updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        claim_signatures (id) {
+            id -> Text,
+            claim_id -> Text,
+            domain -> Text,
+            signed_by_key_id -> Text,
+            signature -> Binary,
+            created_at -> Text,
         }
     }
 
@@ -230,7 +250,8 @@ pub mod sqlite {
 
     diesel::joinable!(user_keys -> users (user_id));
     diesel::joinable!(claims -> users (user_id));
-    diesel::joinable!(claims -> domain_keys (signed_by_key_id));
+    diesel::joinable!(claim_signatures -> claims (claim_id));
+    diesel::joinable!(claim_signatures -> domain_keys (signed_by_key_id));
     diesel::joinable!(auth_credentials -> users (user_id));
     diesel::allow_tables_to_appear_in_same_query!(
         guestbook_entries,
@@ -239,6 +260,7 @@ pub mod sqlite {
         auth_credentials,
         user_keys,
         claims,
+        claim_signatures,
         relations,
     );
 }

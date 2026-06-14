@@ -784,8 +784,7 @@ impl DbPool {
         user_id: &str,
         claim_type: &str,
         claim_value: &[u8],
-        signed_by_key_id: &str,
-        signature: &[u8],
+        signatures: &[liblinkkeys::generated::types::ClaimSignature],
         expires_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> QueryResult<models::ClaimRow> {
         match self {
@@ -801,10 +800,7 @@ impl DbPool {
                 let uid: uuid::Uuid = user_id
                     .parse()
                     .map_err(|_| diesel::result::Error::NotFound)?;
-                let key_id: uuid::Uuid = signed_by_key_id
-                    .parse()
-                    .map_err(|_| diesel::result::Error::NotFound)?;
-                claims::pg::create(&mut conn, id, uid, claim_type, claim_value, key_id, signature, expires_at)
+                claims::pg::create(&mut conn, id, uid, claim_type, claim_value, signatures, expires_at)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
@@ -818,10 +814,61 @@ impl DbPool {
                     user_id,
                     claim_type,
                     claim_value,
-                    signed_by_key_id,
-                    signature,
+                    signatures,
                     expires_at.map(|e| e.to_rfc3339()).as_deref(),
                 )
+            }
+        }
+    }
+
+    /// Claims that have no signature rows — legacy claims the claim_signatures
+    /// migration left unsigned. Used by the pre-alpha re-sign backfill.
+    pub fn list_claims_missing_signatures(&self) -> QueryResult<Vec<models::ClaimRow>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                claims::pg::list_missing_signatures(&mut conn)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                claims::sqlite::list_missing_signatures(&mut conn)
+            }
+        }
+    }
+
+    /// Replace every signature on a claim. Used by the pre-alpha re-sign backfill.
+    pub fn replace_claim_signatures(
+        &self,
+        claim_id: &str,
+        signatures: &[liblinkkeys::generated::types::ClaimSignature],
+    ) -> QueryResult<()> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                let id: uuid::Uuid = claim_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?;
+                claims::pg::replace_signatures(&mut conn, id, signatures)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                ))?;
+                claims::sqlite::replace_signatures(&mut conn, claim_id, signatures)
             }
         }
     }

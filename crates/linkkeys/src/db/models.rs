@@ -91,12 +91,24 @@ pub struct ClaimRow {
     pub user_id: String,
     pub claim_type: String,
     pub claim_value: Vec<u8>,
-    pub signed_by_key_id: String,
-    pub signature: Vec<u8>,
+    /// Signatures over this claim, one per (domain, key). Populated by the query
+    /// layer after the claim row is loaded; a freshly-converted `ClaimDbRow`
+    /// starts empty until signatures are attached.
+    pub signatures: Vec<ClaimSignatureRow>,
     pub created_at: String,
     pub expires_at: Option<String>,
     pub revoked_at: Option<String>,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClaimSignatureRow {
+    pub id: String,
+    pub claim_id: String,
+    pub domain: String,
+    pub signed_by_key_id: String,
+    pub signature: Vec<u8>,
+    pub created_at: String,
 }
 
 #[cfg(feature = "postgres")]
@@ -318,8 +330,6 @@ pub mod pg {
         pub user_id: uuid::Uuid,
         pub claim_type: String,
         pub claim_value: Vec<u8>,
-        pub signed_by_key_id: uuid::Uuid,
-        pub signature: Vec<u8>,
         pub created_at: chrono::DateTime<chrono::Utc>,
         pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
         pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -333,8 +343,7 @@ pub mod pg {
                 user_id: row.user_id.to_string(),
                 claim_type: row.claim_type,
                 claim_value: row.claim_value,
-                signed_by_key_id: row.signed_by_key_id.to_string(),
-                signature: row.signature,
+                signatures: Vec::new(),
                 created_at: row.created_at.to_rfc3339(),
                 expires_at: row.expires_at.map(|t| t.to_rfc3339()),
                 revoked_at: row.revoked_at.map(|t| t.to_rfc3339()),
@@ -350,9 +359,41 @@ pub mod pg {
         pub user_id: uuid::Uuid,
         pub claim_type: String,
         pub claim_value: Vec<u8>,
+        pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::pg::claim_signatures)]
+    pub struct ClaimSignatureDbRow {
+        pub id: uuid::Uuid,
+        pub claim_id: uuid::Uuid,
+        pub domain: String,
         pub signed_by_key_id: uuid::Uuid,
         pub signature: Vec<u8>,
-        pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        pub created_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    impl From<ClaimSignatureDbRow> for super::ClaimSignatureRow {
+        fn from(row: ClaimSignatureDbRow) -> Self {
+            Self {
+                id: row.id.to_string(),
+                claim_id: row.claim_id.to_string(),
+                domain: row.domain,
+                signed_by_key_id: row.signed_by_key_id.to_string(),
+                signature: row.signature,
+                created_at: row.created_at.to_rfc3339(),
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::pg::claim_signatures)]
+    pub struct NewClaimSignatureDbRow {
+        pub id: uuid::Uuid,
+        pub claim_id: uuid::Uuid,
+        pub domain: String,
+        pub signed_by_key_id: uuid::Uuid,
+        pub signature: Vec<u8>,
     }
 
     // -- Relations --
@@ -618,8 +659,6 @@ pub mod sqlite {
         pub user_id: String,
         pub claim_type: String,
         pub claim_value: Vec<u8>,
-        pub signed_by_key_id: String,
-        pub signature: Vec<u8>,
         pub created_at: String,
         pub expires_at: Option<String>,
         pub revoked_at: Option<String>,
@@ -633,8 +672,7 @@ pub mod sqlite {
                 user_id: row.user_id,
                 claim_type: row.claim_type,
                 claim_value: row.claim_value,
-                signed_by_key_id: row.signed_by_key_id,
-                signature: row.signature,
+                signatures: Vec::new(),
                 created_at: row.created_at,
                 expires_at: row.expires_at,
                 revoked_at: row.revoked_at,
@@ -650,9 +688,41 @@ pub mod sqlite {
         pub user_id: String,
         pub claim_type: String,
         pub claim_value: Vec<u8>,
+        pub expires_at: Option<String>,
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::sqlite::claim_signatures)]
+    pub struct ClaimSignatureDbRow {
+        pub id: String,
+        pub claim_id: String,
+        pub domain: String,
         pub signed_by_key_id: String,
         pub signature: Vec<u8>,
-        pub expires_at: Option<String>,
+        pub created_at: String,
+    }
+
+    impl From<ClaimSignatureDbRow> for super::ClaimSignatureRow {
+        fn from(row: ClaimSignatureDbRow) -> Self {
+            Self {
+                id: row.id,
+                claim_id: row.claim_id,
+                domain: row.domain,
+                signed_by_key_id: row.signed_by_key_id,
+                signature: row.signature,
+                created_at: row.created_at,
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::claim_signatures)]
+    pub struct NewClaimSignatureDbRow {
+        pub id: String,
+        pub claim_id: String,
+        pub domain: String,
+        pub signed_by_key_id: String,
+        pub signature: Vec<u8>,
     }
 
     // -- Relations --

@@ -135,15 +135,21 @@ pub struct GetUserKeysResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ClaimSignature {
+    pub domain: String,
+    pub signed_by_key_id: String,
+    #[serde(with = "serde_bytes")]
+    pub signature: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Claim {
     pub claim_id: String,
     pub user_id: String,
     pub claim_type: String,
     #[serde(with = "serde_bytes")]
     pub claim_value: Vec<u8>,
-    pub signed_by_key_id: String,
-    #[serde(with = "serde_bytes")]
-    pub signature: Vec<u8>,
+    pub signatures: Vec<ClaimSignature>,
     pub created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<String>,

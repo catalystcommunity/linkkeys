@@ -201,16 +201,10 @@ pub fn set_claim(
         env::var("DOMAIN_KEY_PASSPHRASE").map_err(|_| svc_err("DOMAIN_KEY_PASSPHRASE not set"))?;
 
     let domain_keys = pool.list_active_domain_keys().map_err(db_err)?;
-    let domain_key = domain_keys
-        .first()
-        .ok_or_else(|| svc_err("No active domain keys"))?;
-
-    let sk_bytes =
-        liblinkkeys::crypto::decrypt_private_key(&domain_key.private_key_encrypted, passphrase.as_bytes())
-            .map_err(|e| svc_err(&format!("decrypt error: {}", e)))?;
-
-    let algorithm = liblinkkeys::crypto::SigningAlgorithm::parse_str(&domain_key.algorithm)
-        .ok_or_else(|| svc_err(&format!("unsupported algorithm: {}", domain_key.algorithm)))?;
+    // Sign with every active domain key (>=3 by design) so the claim carries a
+    // quorum of signatures from this domain.
+    let signers = crate::claim_signing::active_signers(&domain_keys, passphrase.as_bytes())
+        .map_err(|e| svc_err(&e.to_string()))?;
 
     use chrono::Timelike;
     let expires_chrono = req.expires_at.as_deref().map(|s| {
@@ -226,7 +220,7 @@ pub fn set_claim(
     let claim_value_bytes = req.claim_value.as_bytes();
     let expires_str = expires_chrono.as_ref().map(|e| e.to_rfc3339());
 
-    let signed_claim = liblinkkeys::claims::sign_claim(
+    let signed_claim = crate::claim_signing::sign_with_active(
         &liblinkkeys::claims::ClaimSpec {
             claim_id: &claim_id,
             claim_type: &req.claim_type,
@@ -234,11 +228,9 @@ pub fn set_claim(
             user_id: &req.user_id,
             expires_at: expires_str.as_deref(),
         },
-        &domain_key.id,
-        algorithm,
-        &sk_bytes,
+        &signers,
     )
-    .map_err(|e| svc_err(&format!("sign error: {}", e)))?;
+    .map_err(|e| svc_err(&e.to_string()))?;
 
     let stored = pool
         .create_claim(
@@ -246,8 +238,7 @@ pub fn set_claim(
             &req.user_id,
             &req.claim_type,
             claim_value_bytes,
-            &domain_key.id,
-            &signed_claim.signature,
+            &signed_claim.signatures,
             expires_chrono,
         )
         .map_err(db_err)?;

@@ -306,40 +306,33 @@ pub async fn fetch_rp_keys(
     fetch_domain_keys(pool, rp_domain).await
 }
 
-/// Fetch a domain's public keys by looking up its DNS TXT record and then
-/// fetching from its API base URL.
-///
-/// Trust is anchored in DNS: the `_linkkeys` TXT record supplies both the
-/// `api=` base (where to fetch key bodies) and the `fp=` set (which keys are
-/// authoritative for the domain). Fetched keys are **pinned** — each returned
-/// key's recomputed fingerprint must be a member of the published `fp=` set,
-/// or it is dropped. Without a published, valid fingerprint set we cannot pin,
-/// so we **fail closed** rather than trust the HTTP endpoint. The wire
-/// `fingerprint` field on each key is never trusted; it is recomputed.
-/// Resolve a domain's `_linkkeys` TXT record into its valid fingerprint set
-/// and `api=` base. Trust is anchored here: only syntactically valid (64-hex)
-/// fingerprints can pin anything, and a record with none fails closed.
-async fn lookup_linkkeys_record(
-    domain: &str,
-) -> Result<(Vec<String>, String), Box<dyn std::error::Error>> {
+/// Fetch every TXT string published at a DNS name.
+async fn lookup_txt(dns_name: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     use hickory_resolver::TokioAsyncResolver;
 
-    let dns_name = liblinkkeys::dns::linkkeys_dns_name(domain);
     let resolver = TokioAsyncResolver::tokio_from_system_conf()?;
-
     let response = resolver
-        .txt_lookup(&dns_name)
+        .txt_lookup(dns_name)
         .await
-        .map_err(|e| format!("no _linkkeys TXT record for {}: {}", domain, e))?;
+        .map_err(|e| format!("no TXT record at {}: {}", dns_name, e))?;
+    Ok(response.iter().map(|r| r.to_string()).collect())
+}
 
-    let mut record = None;
-    for r in response.iter() {
-        if let Ok(parsed) = liblinkkeys::dns::parse_linkkeys_txt(&r.to_string()) {
-            record = Some(parsed);
-            break;
-        }
-    }
-    let record = record.ok_or_else(|| format!("no valid _linkkeys record for {}", domain))?;
+/// Resolve a domain's `_linkkeys` trust-anchor record into its valid fingerprint
+/// set. Only syntactically valid (64-hex) fingerprints can pin anything, and a
+/// record with none fails closed.
+async fn lookup_linkkeys_fingerprints(
+    domain: &str,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let dns_name = liblinkkeys::dns::linkkeys_dns_name(domain);
+    let txts = lookup_txt(&dns_name)
+        .await
+        .map_err(|e| format!("_linkkeys lookup for {} failed: {}", domain, e))?;
+
+    let record = txts
+        .iter()
+        .find_map(|t| liblinkkeys::dns::parse_linkkeys_txt(t).ok())
+        .ok_or_else(|| format!("no valid _linkkeys record for {}", domain))?;
 
     let fingerprints: Vec<String> = record
         .fingerprints
@@ -354,8 +347,22 @@ async fn lookup_linkkeys_record(
         )
         .into());
     }
+    Ok(fingerprints)
+}
 
-    Ok((fingerprints, record.api_base))
+/// Resolve a domain's `_linkkeys_apis` record into its service endpoints (the
+/// `tcp=` protocol service and/or the `https=` browser API base).
+async fn lookup_linkkeys_apis(
+    domain: &str,
+) -> Result<liblinkkeys::dns::LinkKeysApis, Box<dyn std::error::Error>> {
+    let dns_name = liblinkkeys::dns::linkkeys_apis_dns_name(domain);
+    let txts = lookup_txt(&dns_name)
+        .await
+        .map_err(|e| format!("_linkkeys_apis lookup for {} failed: {}", domain, e))?;
+
+    txts.iter()
+        .find_map(|t| liblinkkeys::dns::parse_linkkeys_apis_txt(t).ok())
+        .ok_or_else(|| format!("no valid _linkkeys_apis record for {}", domain).into())
 }
 
 /// Look up only the DNS-published fingerprint set for a domain (no key fetch).
@@ -363,8 +370,7 @@ async fn lookup_linkkeys_record(
 pub async fn fetch_dns_fingerprints(
     domain: &str,
 ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    let (fingerprints, _api_base) = lookup_linkkeys_record(domain).await?;
-    Ok(fingerprints)
+    lookup_linkkeys_fingerprints(domain).await
 }
 
 /// Resolve the signing keys used to verify a relying party's proof-of-possession
@@ -395,6 +401,14 @@ pub async fn resolve_rp_signing_keys(
     fetch_rp_keys(pool, relying_party).await
 }
 
+/// Fetch a domain's public keys: pin set from `_linkkeys`, key bodies from the
+/// `_linkkeys_apis` `https=` endpoint. Each returned key's recomputed
+/// fingerprint must be a member of the published `fp=` set (or vouched by a
+/// pinned signing key), else it is dropped; an empty result fails closed. The
+/// wire `fingerprint` field is never trusted — it is recomputed.
+///
+/// (HTTPS transport here is the existing browser-adjacent path; server-to-server
+/// key retrieval is moving to the `tcp=` endpoint — see DNS apis record.)
 pub async fn fetch_domain_keys(
     pool: &DbPool,
     domain: &str,
@@ -406,13 +420,14 @@ pub async fn fetch_domain_keys(
         return Ok(keys.iter().map(Into::into).collect());
     }
 
-    let (fingerprints, api_base) = lookup_linkkeys_record(domain).await?;
-
-    // The api= endpoint is a transport convenience, but key integrity comes
-    // from the pin — still require https so the fetch isn't trivially observed.
-    if !api_base.starts_with("https://") {
-        return Err(format!("_linkkeys api= for {} must use https", domain).into());
-    }
+    // Fingerprints (trust anchor) come from `_linkkeys`; the HTTPS endpoint
+    // (transport convenience) from `_linkkeys_apis`. Key integrity comes from the
+    // pin below, not the transport.
+    let fingerprints = lookup_linkkeys_fingerprints(domain).await?;
+    let api_base = lookup_linkkeys_apis(domain)
+        .await?
+        .https_base
+        .ok_or_else(|| format!("_linkkeys_apis for {} advertises no https= endpoint", domain))?;
 
     let accept_invalid = std::env::var("ALLOW_INVALID_CERTS").unwrap_or_default() == "true";
     let client = reqwest::Client::builder()

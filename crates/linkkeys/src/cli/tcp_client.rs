@@ -295,11 +295,13 @@ pub fn get_api_key() -> String {
     })
 }
 
-/// Get the server address from an explicit flag, env vars, or default to localhost:4987.
+/// Get the server address from an explicit flag, env vars, or default to
+/// localhost on the spec default TCP port.
 pub fn get_server_addr(server: Option<&str>) -> String {
     server.map(|s| s.to_string()).unwrap_or_else(|| {
         let host = std::env::var("LINKKEYS_SERVER").unwrap_or_else(|_| "localhost".to_string());
-        let port = std::env::var("TCP_PORT").unwrap_or_else(|_| "4987".to_string());
+        let port = std::env::var("TCP_PORT")
+            .unwrap_or_else(|_| liblinkkeys::dns::DEFAULT_TCP_PORT.to_string());
         format!("{}:{}", host, port)
     })
 }

@@ -66,9 +66,9 @@ pub struct TcpServer {
 impl TcpServer {
     pub fn new(ready_flag: Arc<AtomicBool>, db_pool: DbPool) -> std::io::Result<Self> {
         let port: u16 = env::var("TCP_PORT")
-            .unwrap_or_else(|_| "4987".to_string())
-            .parse()
-            .unwrap_or(4987);
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(liblinkkeys::dns::DEFAULT_TCP_PORT);
 
         let listener = TcpListener::bind(format!("0.0.0.0:{}", port))?;
 

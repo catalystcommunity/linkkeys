@@ -19,7 +19,10 @@ struct Session {
 struct SessionClaim {
     claim_type: String,
     claim_value: String,
-    signed_by_fingerprint: String,
+    /// Distinct domains that signed this claim (the trust-relevant attribution).
+    signing_domains: Vec<String>,
+    /// Number of signatures (keys) over the claim.
+    key_count: usize,
 }
 
 /// Stored in a cookie during the login redirect to verify the callback.
@@ -65,6 +68,83 @@ fn html_escape(s: &str) -> String {
         .replace('\'', "&#x27;")
 }
 
+/// Shared page chrome: responsive, mobile-first, widens to use available space on
+/// desktop. Injected via a `{style}` placeholder so CSS braces need no escaping.
+const PAGE_STYLE: &str = r#"
+:root {
+  --accent: #2563eb; --accent-soft: #eaf1ff;
+  --bg: #f5f7fa; --card: #ffffff; --border: #e4e8ee;
+  --text: #1f2733; --muted: #647084; --ok: #15803d; --ok-soft: #e8f6ec;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg); color: var(--text); line-height: 1.5;
+  margin: 0; padding: clamp(16px, 4vw, 40px);
+}
+.wrap { max-width: 1080px; margin: 0 auto; }
+.narrow { max-width: 460px; margin: 0 auto; }
+h1, h2, h3 { line-height: 1.2; }
+h1 { font-size: clamp(1.5rem, 3.5vw, 2.1rem); margin: 0 0 4px; }
+.sub { color: var(--muted); margin: 0 0 24px; }
+.card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; padding: clamp(16px, 3vw, 24px);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+}
+.card + .card, .card + section, section + section { margin-top: 20px; }
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--ok-soft); color: var(--ok);
+  font-weight: 600; font-size: 0.85rem; padding: 6px 12px; border-radius: 999px;
+}
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; word-break: break-all; }
+code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+code {
+  background: #f0f2f5; padding: 2px 6px; border-radius: 5px; font-size: 0.88em;
+}
+.claims-grid {
+  display: grid; gap: 16px; margin-top: 4px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+.claim {
+  border: 1px solid var(--border); border-radius: 10px; padding: 16px;
+  background: var(--card); display: flex; flex-direction: column; gap: 10px;
+}
+.claim-type {
+  font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--accent); font-weight: 700;
+}
+.claim-value { font-size: 1.05rem; font-weight: 600; word-break: break-word; }
+.claim-meta { margin-top: auto; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.domain-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--accent-soft); color: var(--accent);
+  font-weight: 600; font-size: 0.82rem; padding: 4px 10px; border-radius: 8px;
+}
+.keys { color: var(--muted); font-size: 0.8rem; }
+.empty { color: var(--muted); font-style: italic; }
+form.inline { margin-top: 24px; }
+input[type="text"] {
+  display: block; width: 100%; padding: 12px 14px; margin: 10px 0 4px;
+  border: 1px solid var(--border); border-radius: 8px; font-size: 1rem;
+}
+label { font-weight: 600; font-size: 0.9rem; }
+button {
+  font-size: 1rem; font-weight: 600; padding: 12px 20px; border-radius: 8px;
+  border: none; cursor: pointer; background: var(--accent); color: #fff;
+}
+button.secondary { background: #eef0f3; color: var(--text); }
+button:hover { filter: brightness(0.96); }
+a { color: var(--accent); }
+.info { background: var(--accent-soft); color: #1e3a8a; padding: 12px 14px; border-radius: 8px; font-size: 0.9rem; }
+.error { color: #b42318; background: #fdecec; padding: 12px 14px; border-radius: 8px; }
+@media (max-width: 520px) { .kv { grid-template-columns: 1fr; gap: 2px 0; } .kv dt { margin-top: 8px; } }
+"#;
+
 fn get_session(cookies: &CookieJar<'_>) -> Option<Session> {
     cookies
         .get_private("session")
@@ -89,21 +169,25 @@ fn set_session(cookies: &CookieJar<'_>, session: &Session) {
 fn error_page(message: &str) -> RawHtml<String> {
     RawHtml(format!(
         r#"<!DOCTYPE html>
-<html>
-<head><title>Demo App - Error</title>
-<style>
-body {{ font-family: sans-serif; max-width: 500px; margin: 80px auto; }}
-.error {{ color: red; background: #fff0f0; padding: 16px; border-radius: 4px; }}
-a {{ display: inline-block; margin-top: 16px; }}
-</style>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Demo App - Error</title>
+<style>{style}</style>
 </head>
 <body>
-<h2>Authentication Error</h2>
-<div class="error"><p>{}</p></div>
-<a href="/">Back to login</a>
+<div class="narrow">
+  <section class="card">
+    <h2>Authentication Error</h2>
+    <p class="error">{message}</p>
+    <p style="margin-top:16px"><a href="/">&larr; Back to login</a></p>
+  </section>
+</div>
 </body>
 </html>"#,
-        html_escape(message)
+        style = PAGE_STYLE,
+        message = html_escape(message),
     ))
 }
 
@@ -124,87 +208,113 @@ fn login_form(error: Option<&str>) -> RawHtml<String> {
 
     RawHtml(format!(
         r#"<!DOCTYPE html>
-<html>
-<head><title>Demo App - LinkKeys Login</title>
-<style>
-body {{ font-family: sans-serif; max-width: 500px; margin: 80px auto; }}
-input {{ display: block; width: 100%; padding: 8px; margin: 8px 0; box-sizing: border-box; }}
-button {{ padding: 10px 20px; margin-top: 12px; cursor: pointer; }}
-.error {{ color: red; }}
-h2 {{ color: #333; }}
-.info {{ background: #f0f0f0; padding: 12px; border-radius: 4px; margin: 16px 0; font-size: 0.9em; }}
-</style>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Demo App - LinkKeys Login</title>
+<style>{style}</style>
 </head>
 <body>
-<h2>Demo Application</h2>
-<p>This site uses <strong>LinkKeys</strong> for authentication.</p>
-<div class="info">Enter your identity as <code>username@domain</code> or just <code>domain</code> to log in.</div>
-{error}
-<form method="POST" action="/login">
-  <label>Your Identity</label>
-  <input type="text" name="identity" placeholder="you@example.com" autofocus />
-  <button type="submit">Log In with LinkKeys</button>
-</form>
+<div class="narrow">
+  <h1>Demo Application</h1>
+  <p class="sub">Authenticated with <strong>LinkKeys</strong>.</p>
+  <section class="card">
+    <div class="info">Enter your identity as <code>username@domain</code> or just <code>domain</code> to log in.</div>
+    {error}
+    <form method="POST" action="/login" class="inline">
+      <label for="identity">Your Identity</label>
+      <input id="identity" type="text" name="identity" placeholder="you@example.com" autofocus />
+      <button type="submit">Log In with LinkKeys</button>
+    </form>
+  </section>
+</div>
 </body>
 </html>"#,
+        style = PAGE_STYLE,
         error = error_html,
     ))
 }
 
 fn dashboard(session: &Session) -> RawHtml<String> {
-    let mut claims_html = String::new();
-    if session.claims.is_empty() {
-        claims_html.push_str("<p><em>No claims shared.</em></p>");
+    let claims_html = if session.claims.is_empty() {
+        r#"<p class="empty">No claims shared.</p>"#.to_string()
     } else {
-        claims_html.push_str("<table><tr><th>Type</th><th>Value</th><th>Signed By</th></tr>");
-        for c in &session.claims {
-            let short_fp = if c.signed_by_fingerprint.len() >= 16 {
-                &c.signed_by_fingerprint[..16]
-            } else {
-                &c.signed_by_fingerprint
-            };
-            claims_html.push_str(&format!(
-                "<tr><td><code>{}</code></td><td>{}</td><td><code title=\"{fp}\">{short}...</code></td></tr>",
-                html_escape(&c.claim_type),
-                html_escape(&c.claim_value),
-                fp = html_escape(&c.signed_by_fingerprint),
-                short = html_escape(short_fp),
-            ));
-        }
-        claims_html.push_str("</table>");
-    }
+        let cards: String = session
+            .claims
+            .iter()
+            .map(|c| {
+                // One chip per signing domain — the trust-relevant attribution.
+                let domains: String = if c.signing_domains.is_empty() {
+                    r#"<span class="keys">unsigned</span>"#.to_string()
+                } else {
+                    c.signing_domains
+                        .iter()
+                        .map(|d| {
+                            format!(
+                                r#"<span class="domain-chip">&#x1F510; {}</span>"#,
+                                html_escape(d)
+                            )
+                        })
+                        .collect()
+                };
+                let keys = format!(
+                    "signed by {} key{}",
+                    c.key_count,
+                    if c.key_count == 1 { "" } else { "s" }
+                );
+                format!(
+                    r#"<div class="claim">
+  <div class="claim-type">{ctype}</div>
+  <div class="claim-value">{value}</div>
+  <div class="claim-meta">{domains}<span class="keys">{keys}</span></div>
+</div>"#,
+                    ctype = html_escape(&c.claim_type),
+                    value = html_escape(&c.claim_value),
+                    domains = domains,
+                    keys = keys,
+                )
+            })
+            .collect();
+        format!(r#"<div class="claims-grid">{cards}</div>"#)
+    };
 
     RawHtml(format!(
         r#"<!DOCTYPE html>
-<html>
-<head><title>Demo App - Dashboard</title>
-<style>
-body {{ font-family: sans-serif; max-width: 600px; margin: 80px auto; }}
-table {{ border-collapse: collapse; width: 100%; margin: 16px 0; }}
-th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-th {{ background: #f5f5f5; }}
-code {{ background: #eee; padding: 2px 4px; border-radius: 2px; font-size: 0.85em; }}
-button {{ padding: 10px 20px; margin-top: 12px; cursor: pointer; background: #c00; color: white; border: none; border-radius: 4px; }}
-.identity {{ background: #f0f8f0; padding: 16px; border-radius: 4px; margin: 16px 0; }}
-.verified {{ color: green; font-weight: bold; }}
-</style>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Demo App - Dashboard</title>
+<style>{style}</style>
 </head>
 <body>
-<h2>Demo App Dashboard</h2>
-<p class="verified">Identity cryptographically verified</p>
-<div class="identity">
-  <p><strong>User ID:</strong> <code>{user_id}</code></p>
-  <p><strong>Domain:</strong> <code>{domain}</code></p>
-  <p><strong>Display Name:</strong> {display_name}</p>
-  <p><strong>Identity:</strong> <code>{user_id}@{domain}</code></p>
+<div class="wrap">
+  <h1>Demo App Dashboard</h1>
+  <p class="sub">Welcome back, {display_name}.</p>
+
+  <section class="card">
+    <span class="badge">&#x2714; Identity cryptographically verified</span>
+    <dl class="kv" style="margin-top:16px">
+      <dt>Identity</dt><dd><code>{user_id}@{domain}</code></dd>
+      <dt>User ID</dt><dd><code>{user_id}</code></dd>
+      <dt>Domain</dt><dd><code>{domain}</code></dd>
+      <dt>Display Name</dt><dd>{display_name}</dd>
+    </dl>
+  </section>
+
+  <section>
+    <h3>Claims</h3>
+    {claims}
+  </section>
+
+  <form method="POST" action="/logout" class="inline">
+    <button type="submit" class="secondary">Log Out</button>
+  </form>
 </div>
-<h3>Claims</h3>
-{claims}
-<form method="POST" action="/logout">
-  <button type="submit">Log Out</button>
-</form>
 </body>
 </html>"#,
+        style = PAGE_STYLE,
         user_id = html_escape(&session.user_id),
         domain = html_escape(&session.domain),
         display_name = html_escape(&session.display_name),
@@ -225,18 +335,21 @@ fn parse_identity(input: &str) -> (Option<&str>, &str) {
     }
 }
 
-/// Resolve a domain's LinkKeys API base URL via DNS TXT lookup.
-/// Falls back to `https://{domain}` if no TXT record is found.
+/// Resolve a domain's HTTPS API base URL via its `_linkkeys_apis` DNS TXT
+/// record (the `https=host[:port][/path]` field; the scheme is implied).
+/// Falls back to `https://{domain}` if no record is found. The demo is a
+/// browser-facing relying party, so it uses the HTTPS endpoint by design.
 async fn resolve_api_base(domain: &str) -> String {
     use hickory_resolver::TokioAsyncResolver;
 
-    let dns_name = format!("_linkkeys.{}", domain);
+    let dns_name = format!("_linkkeys_apis.{}", domain);
+    let fallback = || format!("https://{}", domain);
 
     let resolver = match TokioAsyncResolver::tokio_from_system_conf() {
         Ok(r) => r,
         Err(e) => {
             log::warn!("DNS resolver init failed, falling back to direct: {}", e);
-            return format!("https://{}", domain);
+            return fallback();
         }
     };
 
@@ -244,22 +357,23 @@ async fn resolve_api_base(domain: &str) -> String {
         Ok(response) => {
             for record in response.iter() {
                 let txt = record.to_string();
-                // Simple parse: look for "v=lk1 api=<url>"
+                // Look for "v=lk1 ... https=<host[:port][/path]>".
                 if txt.starts_with("v=lk1 ") {
                     for part in txt.split_whitespace() {
-                        if let Some(url) = part.strip_prefix("api=") {
+                        if let Some(value) = part.strip_prefix("https=") {
+                            let url = format!("https://{}", value);
                             log::info!("Resolved {} -> {}", domain, url);
-                            return url.to_string();
+                            return url;
                         }
                     }
                 }
             }
-            log::info!("No LinkKeys TXT record for {}, using direct", domain);
-            format!("https://{}", domain)
+            log::info!("No _linkkeys_apis https= for {}, using direct", domain);
+            fallback()
         }
         Err(e) => {
             log::info!("DNS lookup failed for {}: {}, using direct", dns_name, e);
-            format!("https://{}", domain)
+            fallback()
         }
     }
 }
@@ -324,7 +438,13 @@ struct UserInfoResponse {
 struct ClaimResponse {
     claim_type: String,
     claim_value: serde_json::Value,
-    signed_by_key_id: String,
+    signatures: Vec<ClaimSignatureResponse>,
+}
+
+#[derive(Deserialize)]
+struct ClaimSignatureResponse {
+    domain: String,
+    // signed_by_key_id / signature are present on the wire but unused for display.
 }
 
 #[rocket::post("/login", data = "<form>")]
@@ -500,10 +620,18 @@ async fn callback(
                 serde_json::Value::String(s) => s.clone(),
                 other => other.to_string(),
             };
+            // Distinct signing domains, preserving first-seen order.
+            let mut signing_domains: Vec<String> = Vec::new();
+            for sig in &c.signatures {
+                if !signing_domains.contains(&sig.domain) {
+                    signing_domains.push(sig.domain.clone());
+                }
+            }
             SessionClaim {
                 claim_type: c.claim_type.clone(),
                 claim_value: value,
-                signed_by_fingerprint: c.signed_by_key_id.clone(),
+                signing_domains,
+                key_count: c.signatures.len(),
             }
         }).collect(),
         expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
