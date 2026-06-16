@@ -30,7 +30,13 @@ fn db_err(e: diesel::result::Error) -> ServiceError {
     }
 }
 
-const VALID_RELATIONS: &[&str] = &["admin", "manage_users", "manage_claims", "api_access", "member"];
+const VALID_RELATIONS: &[&str] = &[
+    "admin",
+    "manage_users",
+    "manage_claims",
+    "api_access",
+    "member",
+];
 const VALID_SUBJECT_TYPES: &[&str] = &["user", "group"];
 const VALID_OBJECT_TYPES: &[&str] = &["domain", "group", "user"];
 
@@ -45,9 +51,7 @@ fn user_to_admin_user(user: &models::User) -> AdminUser {
     }
 }
 
-fn relation_to_csil(
-    rel: &models::Relation,
-) -> liblinkkeys::generated::types::Relation {
+fn relation_to_csil(rel: &models::Relation) -> liblinkkeys::generated::types::Relation {
     liblinkkeys::generated::types::Relation {
         id: rel.id.clone(),
         subject_type: rel.subject_type.clone(),
@@ -60,7 +64,10 @@ fn relation_to_csil(
     }
 }
 
-pub fn list_users(pool: &DbPool, _req: ListUsersRequest) -> Result<ListUsersResponse, ServiceError> {
+pub fn list_users(
+    pool: &DbPool,
+    _req: ListUsersRequest,
+) -> Result<ListUsersResponse, ServiceError> {
     let users = pool.list_all_users().map_err(db_err)?;
     Ok(ListUsersResponse {
         users: users.iter().map(user_to_admin_user).collect(),
@@ -104,9 +111,8 @@ pub fn create_user(
         let (verifying_key, signing_key) = liblinkkeys::crypto::generate_ed25519_keypair();
         let pk_bytes = verifying_key.as_bytes().to_vec();
         let sk_bytes = signing_key.to_bytes();
-        let encrypted =
-            liblinkkeys::crypto::encrypt_private_key(&sk_bytes, passphrase.as_bytes())
-                .map_err(|e| svc_err(&format!("encrypt error: {}", e)))?;
+        let encrypted = liblinkkeys::crypto::encrypt_private_key(&sk_bytes, passphrase.as_bytes())
+            .map_err(|e| svc_err(&format!("encrypt error: {}", e)))?;
         let fp = liblinkkeys::crypto::fingerprint(&pk_bytes);
         let expires = chrono::Utc::now() + chrono::Duration::days(365 * years);
         pool.create_user_key(&user.id, &pk_bytes, &encrypted, &fp, "ed25519", expires)
@@ -139,16 +145,14 @@ pub fn deactivate_user(
     req: DeactivateUserRequest,
 ) -> Result<DeactivateUserResponse, ServiceError> {
     let user = pool.deactivate_user(&req.user_id).map_err(db_err)?;
-    pool.revoke_all_credentials_for_user(&req.user_id).map_err(db_err)?;
+    pool.revoke_all_credentials_for_user(&req.user_id)
+        .map_err(db_err)?;
     Ok(DeactivateUserResponse {
         user: user_to_admin_user(&user),
     })
 }
 
-pub fn activate_user(
-    pool: &DbPool,
-    user_id: &str,
-) -> Result<AdminUser, ServiceError> {
+pub fn activate_user(pool: &DbPool, user_id: &str) -> Result<AdminUser, ServiceError> {
     let user = pool.activate_user(user_id).map_err(db_err)?;
     Ok(user_to_admin_user(&user))
 }
@@ -180,23 +184,20 @@ pub fn remove_credential(
     req: RemoveCredentialRequest,
 ) -> Result<RemoveCredentialResponse, ServiceError> {
     // Verify the credential exists before removing
-    let _credential = pool.find_credential_by_id(&req.credential_id).map_err(|e| {
-        match e {
+    let _credential = pool
+        .find_credential_by_id(&req.credential_id)
+        .map_err(|e| match e {
             diesel::result::Error::NotFound => ServiceError {
                 code: 404,
                 message: "Credential not found".to_string(),
             },
             other => db_err(other),
-        }
-    })?;
+        })?;
     pool.remove_credential(&req.credential_id).map_err(db_err)?;
     Ok(RemoveCredentialResponse { success: true })
 }
 
-pub fn set_claim(
-    pool: &DbPool,
-    req: SetClaimRequest,
-) -> Result<SetClaimResponse, ServiceError> {
+pub fn set_claim(pool: &DbPool, req: SetClaimRequest) -> Result<SetClaimResponse, ServiceError> {
     let passphrase =
         env::var("DOMAIN_KEY_PASSPHRASE").map_err(|_| svc_err("DOMAIN_KEY_PASSPHRASE not set"))?;
 
@@ -207,10 +208,12 @@ pub fn set_claim(
         .map_err(|e| svc_err(&e.to_string()))?;
 
     use chrono::Timelike;
-    let expires_chrono = req.expires_at.as_deref().map(|s| {
-        chrono::DateTime::parse_from_rfc3339(s)
-            .map(|dt| dt.with_timezone(&chrono::Utc))
-    }).transpose().map_err(|e| svc_err(&format!("invalid expires_at: {}", e)))?
+    let expires_chrono = req
+        .expires_at
+        .as_deref()
+        .map(|s| chrono::DateTime::parse_from_rfc3339(s).map(|dt| dt.with_timezone(&chrono::Utc)))
+        .transpose()
+        .map_err(|e| svc_err(&format!("invalid expires_at: {}", e)))?
         // Normalize to whole seconds: the expires_at is part of the claim's
         // signed payload, so it must round-trip byte-identically through both
         // Postgres (timestamptz, microsecond) and SQLite (RFC3339 text) storage.
@@ -255,14 +258,12 @@ pub fn remove_claim(
     req: RemoveClaimRequest,
 ) -> Result<RemoveClaimResponse, ServiceError> {
     // Verify the claim exists before removing
-    let _claim = pool.find_claim_by_id(&req.claim_id).map_err(|e| {
-        match e {
-            diesel::result::Error::NotFound => ServiceError {
-                code: 404,
-                message: "Claim not found".to_string(),
-            },
-            other => db_err(other),
-        }
+    let _claim = pool.find_claim_by_id(&req.claim_id).map_err(|e| match e {
+        diesel::result::Error::NotFound => ServiceError {
+            code: 404,
+            message: "Claim not found".to_string(),
+        },
+        other => db_err(other),
     })?;
     pool.remove_claim(&req.claim_id).map_err(db_err)?;
     Ok(RemoveClaimResponse { success: true })
@@ -275,19 +276,28 @@ pub fn grant_relation(
     if !VALID_RELATIONS.contains(&req.relation.as_str()) {
         return Err(ServiceError {
             code: 400,
-            message: format!("Unknown relation type: {}. Valid: {:?}", req.relation, VALID_RELATIONS),
+            message: format!(
+                "Unknown relation type: {}. Valid: {:?}",
+                req.relation, VALID_RELATIONS
+            ),
         });
     }
     if !VALID_SUBJECT_TYPES.contains(&req.subject_type.as_str()) {
         return Err(ServiceError {
             code: 400,
-            message: format!("Unknown subject type: {}. Valid: {:?}", req.subject_type, VALID_SUBJECT_TYPES),
+            message: format!(
+                "Unknown subject type: {}. Valid: {:?}",
+                req.subject_type, VALID_SUBJECT_TYPES
+            ),
         });
     }
     if !VALID_OBJECT_TYPES.contains(&req.object_type.as_str()) {
         return Err(ServiceError {
             code: 400,
-            message: format!("Unknown object type: {}. Valid: {:?}", req.object_type, VALID_OBJECT_TYPES),
+            message: format!(
+                "Unknown object type: {}. Valid: {:?}",
+                req.object_type, VALID_OBJECT_TYPES
+            ),
         });
     }
 
@@ -322,7 +332,12 @@ pub fn list_relations(
     pool: &DbPool,
     req: ListRelationsRequest,
 ) -> Result<ListRelationsResponse, ServiceError> {
-    let relations = match (&req.subject_type, &req.subject_id, &req.object_type, &req.object_id) {
+    let relations = match (
+        &req.subject_type,
+        &req.subject_id,
+        &req.object_type,
+        &req.object_id,
+    ) {
         (Some(st), Some(si), _, _) => pool.list_relations_for_subject(st, si).map_err(db_err)?,
         (_, _, Some(ot), Some(oi)) => pool.list_relations_for_object(ot, oi).map_err(db_err)?,
         _ => {
@@ -342,7 +357,12 @@ pub fn check_permission_handler(
     req: CheckPermissionRequest,
 ) -> Result<CheckPermissionResponse, ServiceError> {
     let allowed = pool
-        .check_permission(&req.user_id, &req.relation, &req.object_type, &req.object_id)
+        .check_permission(
+            &req.user_id,
+            &req.relation,
+            &req.object_type,
+            &req.object_id,
+        )
         .map_err(db_err)?;
     Ok(CheckPermissionResponse { allowed })
 }

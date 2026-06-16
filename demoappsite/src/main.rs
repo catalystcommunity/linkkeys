@@ -457,7 +457,9 @@ async fn login(
     let (user_hint, domain) = parse_identity(form.identity.trim());
 
     if domain.is_empty() {
-        return Err(login_form(Some("Please enter your identity (e.g. you@example.com)")));
+        return Err(login_form(Some(
+            "Please enter your identity (e.g. you@example.com)",
+        )));
     }
 
     if !domain.contains('.') && !domain.contains(':') {
@@ -473,7 +475,10 @@ async fn login(
 
     // Call RP service to sign the auth request
     let sign_resp = client
-        .post(format!("{}/v1alpha/sign-request.json", rp_config.service_url))
+        .post(format!(
+            "{}/v1alpha/sign-request.json",
+            rp_config.service_url
+        ))
         .header("Authorization", format!("Bearer {}", rp_config.api_key))
         .json(&serde_json::json!({
             "callback_url": callback_url,
@@ -536,7 +541,10 @@ async fn callback(
 
     // 2. Call RP service to decrypt the token
     let decrypt_resp = client
-        .post(format!("{}/v1alpha/decrypt-token.json", rp_config.service_url))
+        .post(format!(
+            "{}/v1alpha/decrypt-token.json",
+            rp_config.service_url
+        ))
         .header("Authorization", format!("Bearer {}", rp_config.api_key))
         .json(&serde_json::json!({ "encrypted_token": encrypted_token }))
         .send()
@@ -554,7 +562,10 @@ async fn callback(
 
     // 3. Call RP service to verify the assertion against the domain's keys
     let verify_resp = client
-        .post(format!("{}/v1alpha/verify-assertion.json", rp_config.service_url))
+        .post(format!(
+            "{}/v1alpha/verify-assertion.json",
+            rp_config.service_url
+        ))
         .header("Authorization", format!("Bearer {}", rp_config.api_key))
         .json(&serde_json::json!({
             "signed_assertion": decrypt_result.signed_assertion,
@@ -590,7 +601,10 @@ async fn callback(
     // and only our RP service holds the domain signing key — so we delegate the
     // sign-and-fetch to it rather than calling the IDP directly.
     let userinfo_resp = client
-        .post(format!("{}/v1alpha/userinfo-fetch.json", rp_config.service_url))
+        .post(format!(
+            "{}/v1alpha/userinfo-fetch.json",
+            rp_config.service_url
+        ))
         .header("Authorization", format!("Bearer {}", rp_config.api_key))
         .json(&serde_json::json!({
             "token": decrypt_result.signed_assertion,
@@ -610,30 +624,37 @@ async fn callback(
         user_id: user_info.user_id,
         domain: user_info.domain,
         display_name: user_info.display_name,
-        claims: user_info.claims.iter().map(|c| {
-            let value = match &c.claim_value {
-                serde_json::Value::Array(arr) => {
-                    // CBOR bytes come as JSON array of integers
-                    let bytes: Vec<u8> = arr.iter().filter_map(|v| v.as_u64().map(|n| n as u8)).collect();
-                    String::from_utf8_lossy(&bytes).to_string()
+        claims: user_info
+            .claims
+            .iter()
+            .map(|c| {
+                let value = match &c.claim_value {
+                    serde_json::Value::Array(arr) => {
+                        // CBOR bytes come as JSON array of integers
+                        let bytes: Vec<u8> = arr
+                            .iter()
+                            .filter_map(|v| v.as_u64().map(|n| n as u8))
+                            .collect();
+                        String::from_utf8_lossy(&bytes).to_string()
+                    }
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                // Distinct signing domains, preserving first-seen order.
+                let mut signing_domains: Vec<String> = Vec::new();
+                for sig in &c.signatures {
+                    if !signing_domains.contains(&sig.domain) {
+                        signing_domains.push(sig.domain.clone());
+                    }
                 }
-                serde_json::Value::String(s) => s.clone(),
-                other => other.to_string(),
-            };
-            // Distinct signing domains, preserving first-seen order.
-            let mut signing_domains: Vec<String> = Vec::new();
-            for sig in &c.signatures {
-                if !signing_domains.contains(&sig.domain) {
-                    signing_domains.push(sig.domain.clone());
+                SessionClaim {
+                    claim_type: c.claim_type.clone(),
+                    claim_value: value,
+                    signing_domains,
+                    key_count: c.signatures.len(),
                 }
-            }
-            SessionClaim {
-                claim_type: c.claim_type.clone(),
-                claim_value: value,
-                signing_domains,
-                key_count: c.signatures.len(),
-            }
-        }).collect(),
+            })
+            .collect(),
         expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
     };
 
@@ -652,7 +673,10 @@ fn logout(cookies: &CookieJar<'_>) -> Redirect {
 fn generate_self_signed_cert() -> (String, String) {
     let certified_key = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
         .expect("Failed to generate self-signed cert");
-    (certified_key.cert.pem(), certified_key.key_pair.serialize_pem())
+    (
+        certified_key.cert.pem(),
+        certified_key.key_pair.serialize_pem(),
+    )
 }
 
 #[rocket::main]
@@ -682,8 +706,7 @@ async fn main() {
         port,
         address: "0.0.0.0".parse().unwrap(),
         tls,
-        secret_key: rocket::config::SecretKey::generate()
-            .expect("Failed to generate secret key"),
+        secret_key: rocket::config::SecretKey::generate().expect("Failed to generate secret key"),
         ..Config::default()
     };
 
@@ -692,13 +715,11 @@ async fn main() {
     let rp_config = RpConfig {
         service_url: env::var("RP_SERVICE_URL")
             .unwrap_or_else(|_| "https://127.0.0.1:8443".to_string()),
-        api_key: env::var("RP_API_KEY")
-            .unwrap_or_else(|_| {
-                log::warn!("RP_API_KEY not set — RP service calls will fail");
-                String::new()
-            }),
-        domain: env::var("RP_DOMAIN")
-            .unwrap_or_else(|_| "localhost".to_string()),
+        api_key: env::var("RP_API_KEY").unwrap_or_else(|_| {
+            log::warn!("RP_API_KEY not set — RP service calls will fail");
+            String::new()
+        }),
+        domain: env::var("RP_DOMAIN").unwrap_or_else(|_| "localhost".to_string()),
     };
 
     if let Err(e) = rocket::custom(config)

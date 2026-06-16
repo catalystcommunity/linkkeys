@@ -55,10 +55,11 @@ async fn validates_self_rp_subdomain_callback() {
         "https://longhouse.todandlorna.com/auth/callback",
         "nonce-1",
         &key_id,
+        None,
     );
     let param = mint_signed_request(&request, &key_id, &sk_bytes);
 
-    let validated = validate_signed_request(&pool, &param)
+    let validated = validate_signed_request(&pool, &common::net::offline_net(), &param)
         .await
         .expect("subdomain callback should be accepted");
 
@@ -82,10 +83,13 @@ async fn returns_trusted_cbor_values_only() {
         "https://todandlorna.com/cb",
         "trusted-nonce",
         &key_id,
+        None,
     );
     let param = mint_signed_request(&request, &key_id, &sk_bytes);
 
-    let validated = validate_signed_request(&pool, &param).await.unwrap();
+    let validated = validate_signed_request(&pool, &common::net::offline_net(), &param)
+        .await
+        .unwrap();
     assert_eq!(validated.relying_party, TEST_DOMAIN);
     assert_eq!(validated.callback_url, "https://todandlorna.com/cb");
     assert_eq!(validated.nonce, "trusted-nonce");
@@ -99,6 +103,7 @@ async fn rejects_tampered_signature() {
         "https://todandlorna.com/cb",
         "n",
         &key_id,
+        None,
     );
     // Tamper the signature bytes (not the request bytes): keeps the CBOR
     // valid so the unverified preview decode succeeds, but breaks the
@@ -110,7 +115,9 @@ async fn rejects_tampered_signature() {
     }
     let param = signed_auth_request_to_url_param(&signed).unwrap();
 
-    let err = validate_signed_request(&pool, &param).await.unwrap_err();
+    let err = validate_signed_request(&pool, &common::net::offline_net(), &param)
+        .await
+        .unwrap_err();
     assert!(matches!(err, ValidateAuthRequestError::SignatureInvalid));
 }
 
@@ -125,6 +132,7 @@ async fn rejects_request_with_tampered_payload_bytes() {
         "https://todandlorna.com/cb",
         "n",
         &key_id,
+        None,
     );
     let mut signed =
         sign_auth_request(&request, &key_id, SigningAlgorithm::Ed25519, &sk_bytes).unwrap();
@@ -133,7 +141,9 @@ async fn rejects_request_with_tampered_payload_bytes() {
     }
     let param = signed_auth_request_to_url_param(&signed).unwrap();
 
-    let err = validate_signed_request(&pool, &param).await.unwrap_err();
+    let err = validate_signed_request(&pool, &common::net::offline_net(), &param)
+        .await
+        .unwrap_err();
     assert!(matches!(
         err,
         ValidateAuthRequestError::Malformed | ValidateAuthRequestError::SignatureInvalid
@@ -151,10 +161,14 @@ async fn rejects_expired_request() {
         nonce: "n".to_string(),
         timestamp: (Utc::now() - Duration::seconds(600)).to_rfc3339(),
         signing_key_id: key_id.clone(),
+        requested_claims: None,
+        relying_party_claims: None,
     };
     let param = mint_signed_request(&request, &key_id, &sk_bytes);
 
-    let err = validate_signed_request(&pool, &param).await.unwrap_err();
+    let err = validate_signed_request(&pool, &common::net::offline_net(), &param)
+        .await
+        .unwrap_err();
     assert!(matches!(err, ValidateAuthRequestError::Expired));
 }
 
@@ -169,25 +183,25 @@ async fn rejects_off_domain_callback() {
         "https://attacker.com/auth/callback",
         "n",
         &key_id,
+        None,
     );
     let param = mint_signed_request(&request, &key_id, &sk_bytes);
 
-    let err = validate_signed_request(&pool, &param).await.unwrap_err();
+    let err = validate_signed_request(&pool, &common::net::offline_net(), &param)
+        .await
+        .unwrap_err();
     assert!(matches!(err, ValidateAuthRequestError::CallbackOffDomain));
 }
 
 #[rocket::async_test]
 async fn rejects_non_https_callback() {
     let (pool, key_id, sk_bytes) = self_rp_setup();
-    let request = build_auth_request(
-        TEST_DOMAIN,
-        "http://todandlorna.com/cb",
-        "n",
-        &key_id,
-    );
+    let request = build_auth_request(TEST_DOMAIN, "http://todandlorna.com/cb", "n", &key_id, None);
     let param = mint_signed_request(&request, &key_id, &sk_bytes);
 
-    let err = validate_signed_request(&pool, &param).await.unwrap_err();
+    let err = validate_signed_request(&pool, &common::net::offline_net(), &param)
+        .await
+        .unwrap_err();
     assert!(matches!(err, ValidateAuthRequestError::CallbackNotHttps));
 }
 
@@ -195,7 +209,7 @@ async fn rejects_non_https_callback() {
 async fn rejects_malformed_signed_request() {
     let (pool, _key_id, _sk_bytes) = self_rp_setup();
     // Not valid base64+CBOR.
-    let err = validate_signed_request(&pool, "not!valid!base64!")
+    let err = validate_signed_request(&pool, &common::net::offline_net(), "not!valid!base64!")
         .await
         .unwrap_err();
     assert!(matches!(err, ValidateAuthRequestError::Malformed));

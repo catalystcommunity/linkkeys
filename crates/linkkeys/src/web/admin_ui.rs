@@ -21,8 +21,7 @@ fn require_admin_session(
     pool: &DbPool,
     cookies: &CookieJar<'_>,
 ) -> Result<String, Result<RawHtml<String>, Status>> {
-    let user_id = get_session_user_id(cookies)
-        .ok_or(Err(Status::Unauthorized))?;
+    let user_id = get_session_user_id(cookies).ok_or(Err(Status::Unauthorized))?;
 
     let domain = get_domain_name();
     if !authorization::user_has_permission(pool, &user_id, "manage_users", "domain", &domain) {
@@ -144,7 +143,11 @@ pub fn admin_ui_create_user_submit(
     let _user_id = require_admin_session(pool.inner(), cookies).map_err(|e| e.unwrap_err())?;
 
     let password = form.password.as_deref().and_then(|p| {
-        if p.is_empty() { None } else { Some(p.to_string()) }
+        if p.is_empty() {
+            None
+        } else {
+            Some(p.to_string())
+        }
     });
 
     let req = CreateUserRequest {
@@ -458,7 +461,11 @@ pub struct ResetPasswordForm {
     new_password: String,
 }
 
-#[rocket::post("/user-admin/users/<target_user_id>/reset-password", data = "<form>", rank = 2)]
+#[rocket::post(
+    "/user-admin/users/<target_user_id>/reset-password",
+    data = "<form>",
+    rank = 2
+)]
 pub fn admin_ui_reset_password(
     _csrf: super::guard::SameOriginPost,
     pool: &State<DbPool>,
@@ -506,7 +513,11 @@ pub fn admin_ui_add_claim(
     let _user_id = require_admin_session(pool.inner(), cookies).map_err(|e| e.unwrap_err())?;
 
     let expires_at = form.expires_at.as_deref().and_then(|s| {
-        if s.is_empty() { None } else { Some(s.to_string()) }
+        if s.is_empty() {
+            None
+        } else {
+            Some(s.to_string())
+        }
     });
 
     let req = SetClaimRequest {
@@ -541,7 +552,9 @@ pub fn admin_ui_remove_claim(
     let _user_id = require_admin_session(pool.inner(), cookies).map_err(|e| e.unwrap_err())?;
 
     // Look up the claim to get user_id for redirect
-    let claim = pool.find_claim_by_id(claim_id).map_err(|_| Status::NotFound)?;
+    let claim = pool
+        .find_claim_by_id(claim_id)
+        .map_err(|_| Status::NotFound)?;
 
     let req = RemoveClaimRequest {
         claim_id: claim_id.to_string(),

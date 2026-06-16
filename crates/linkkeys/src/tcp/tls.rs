@@ -71,13 +71,22 @@ pub fn build_server_config(
 #[derive(Debug)]
 pub struct FingerprintClientCertVerifier {
     runtime: Arc<tokio::runtime::Runtime>,
+    dns: Arc<dyn crate::net::DnsResolver>,
     provider: Arc<rustls::crypto::CryptoProvider>,
 }
 
 impl FingerprintClientCertVerifier {
-    pub fn new(runtime: Arc<tokio::runtime::Runtime>) -> Self {
+    /// `dns` is the resolver the verifier consults *inside the handshake* to pin
+    /// the connecting client's cert to its domain's DNS `fp=` set — real in
+    /// production, a static fake in tests. The lookup is blocking (rustls's
+    /// verifier trait is synchronous), driven on `runtime`.
+    pub fn new(
+        runtime: Arc<tokio::runtime::Runtime>,
+        dns: Arc<dyn crate::net::DnsResolver>,
+    ) -> Self {
         Self {
             runtime,
+            dns,
             provider: Arc::new(rustls::crypto::ring::default_provider()),
         }
     }
@@ -109,10 +118,9 @@ impl rustls::server::danger::ClientCertVerifier for FingerprintClientCertVerifie
         _intermediates: &[CertificateDer<'_>],
         now: UnixTime,
     ) -> Result<ClientCertVerified, rustls::Error> {
-        let (_, cert) = x509_parser::parse_x509_certificate(end_entity.as_ref())
-            .map_err(|_| {
-                rustls::Error::InvalidCertificate(rustls::CertificateError::BadEncoding)
-            })?;
+        let (_, cert) = x509_parser::parse_x509_certificate(end_entity.as_ref()).map_err(|_| {
+            rustls::Error::InvalidCertificate(rustls::CertificateError::BadEncoding)
+        })?;
 
         // Check certificate validity period
         let validity = &cert.tbs_certificate.validity;
@@ -126,22 +134,22 @@ impl rustls::server::danger::ClientCertVerifier for FingerprintClientCertVerifie
         }
 
         // Extract the client's domain from SAN (dNSName) or CN
-        let domain = extract_domain_from_cert(&cert)
-            .ok_or_else(|| {
-                log::warn!("Client certificate has no domain in SAN or CN");
-                rustls::Error::InvalidCertificate(
-                    rustls::CertificateError::ApplicationVerificationFailure,
-                )
-            })?;
+        let domain = extract_domain_from_cert(&cert).ok_or_else(|| {
+            log::warn!("Client certificate has no domain in SAN or CN");
+            rustls::Error::InvalidCertificate(
+                rustls::CertificateError::ApplicationVerificationFailure,
+            )
+        })?;
 
-        // Resolve the client domain's fingerprints from DNS
-        let expected_fingerprints = crate::dns::resolve_fingerprints_on(&self.runtime, &domain)
-            .map_err(|e| {
-                log::warn!("DNS fingerprint resolution failed for {}: {}", domain, e);
-                rustls::Error::InvalidCertificate(
-                    rustls::CertificateError::ApplicationVerificationFailure,
-                )
-            })?;
+        // Resolve the client domain's fingerprints from DNS (through the seam).
+        let expected_fingerprints =
+            crate::dns::resolve_fingerprints_with(&self.runtime, self.dns.as_ref(), &domain)
+                .map_err(|e| {
+                    log::warn!("DNS fingerprint resolution failed for {}: {}", domain, e);
+                    rustls::Error::InvalidCertificate(
+                        rustls::CertificateError::ApplicationVerificationFailure,
+                    )
+                })?;
 
         // Extract public key and compute fingerprint
         let spki = cert.tbs_certificate.subject_pki;
@@ -218,9 +226,10 @@ fn extract_domain_from_cert(cert: &x509_parser::certificate::X509Certificate) ->
     use x509_parser::extensions::{GeneralName, ParsedExtension};
 
     // Check Subject Alternative Names first
-    if let Ok(Some(san_ext)) = cert.tbs_certificate.get_extension_unique(
-        &x509_parser::oid_registry::OID_X509_EXT_SUBJECT_ALT_NAME,
-    ) {
+    if let Ok(Some(san_ext)) = cert
+        .tbs_certificate
+        .get_extension_unique(&x509_parser::oid_registry::OID_X509_EXT_SUBJECT_ALT_NAME)
+    {
         if let ParsedExtension::SubjectAlternativeName(san) = san_ext.parsed_extension() {
             for name in &san.general_names {
                 if let GeneralName::DNSName(dns) = name {
@@ -272,10 +281,9 @@ impl rustls::client::danger::ServerCertVerifier for FingerprintVerifier {
         now: UnixTime,
     ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
         // Parse the certificate to extract the public key and validity period
-        let (_, cert) = x509_parser::parse_x509_certificate(end_entity.as_ref())
-            .map_err(|_| {
-                rustls::Error::InvalidCertificate(rustls::CertificateError::BadEncoding)
-            })?;
+        let (_, cert) = x509_parser::parse_x509_certificate(end_entity.as_ref()).map_err(|_| {
+            rustls::Error::InvalidCertificate(rustls::CertificateError::BadEncoding)
+        })?;
 
         // Check certificate validity period
         let validity = &cert.tbs_certificate.validity;
@@ -401,8 +409,7 @@ mod tests {
         let seed = sk.to_bytes();
         let expected_fp = crypto::fingerprint(vk.as_bytes());
 
-        let (cert_der, _key_der) =
-            generate_domain_tls_cert("test.example.com", &seed).unwrap();
+        let (cert_der, _key_der) = generate_domain_tls_cert("test.example.com", &seed).unwrap();
 
         // Parse the cert and extract the public key
         let (_, cert) = x509_parser::parse_x509_certificate(&cert_der).unwrap();
@@ -521,7 +528,10 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        let verifier = Arc::new(FingerprintClientCertVerifier::new(runtime));
+        let verifier = Arc::new(FingerprintClientCertVerifier::new(
+            runtime,
+            crate::net::Net::production().dns,
+        ));
         let config = build_server_config(cert_der, key_der, verifier);
         assert!(config.is_ok(), "Server config should build successfully");
     }
@@ -535,8 +545,7 @@ mod tests {
         let seed = sk.to_bytes();
         let fp = crypto::fingerprint(vk.as_bytes());
 
-        let (cert_der, key_der) =
-            generate_domain_tls_cert("localhost", &seed).unwrap();
+        let (cert_der, key_der) = generate_domain_tls_cert("localhost", &seed).unwrap();
 
         // Build server config without mutual TLS for this basic roundtrip
         let certs = vec![CertificateDer::from(cert_der.clone())];
@@ -618,12 +627,9 @@ mod tests {
         );
 
         // Client config: presents cert, verifies server fingerprint
-        let client_config = build_client_config_with_cert(
-            vec![server_fp],
-            client_cert_der,
-            client_key_der,
-        )
-        .unwrap();
+        let client_config =
+            build_client_config_with_cert(vec![server_fp], client_cert_der, client_key_der)
+                .unwrap();
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
@@ -672,8 +678,8 @@ mod tests {
             _intermediates: &[CertificateDer<'_>],
             now: UnixTime,
         ) -> Result<ClientCertVerified, rustls::Error> {
-            let (_, cert) = x509_parser::parse_x509_certificate(end_entity.as_ref())
-                .map_err(|_| {
+            let (_, cert) =
+                x509_parser::parse_x509_certificate(end_entity.as_ref()).map_err(|_| {
                     rustls::Error::InvalidCertificate(rustls::CertificateError::BadEncoding)
                 })?;
 

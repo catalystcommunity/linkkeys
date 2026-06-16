@@ -92,7 +92,10 @@ pub mod pg {
         conn: &mut diesel::PgConnection,
         claim_id: uuid::Uuid,
     ) -> QueryResult<ClaimRow> {
-        let mut row: ClaimRow = claims::table.find(claim_id).first::<ClaimDbRow>(conn)?.into();
+        let mut row: ClaimRow = claims::table
+            .find(claim_id)
+            .first::<ClaimDbRow>(conn)?
+            .into();
         row.signatures = load_signatures(conn, claim_id)?;
         Ok(row)
     }
@@ -275,7 +278,10 @@ pub mod sqlite {
         conn: &mut diesel::SqliteConnection,
         claim_id: &str,
     ) -> QueryResult<ClaimRow> {
-        let mut row: ClaimRow = claims::table.find(claim_id).first::<ClaimDbRow>(conn)?.into();
+        let mut row: ClaimRow = claims::table
+            .find(claim_id)
+            .first::<ClaimDbRow>(conn)?
+            .into();
         row.signatures = load_signatures(conn, claim_id)?;
         Ok(row)
     }
@@ -335,7 +341,10 @@ pub mod sqlite {
         attach_signatures(conn, db_rows)
     }
 
-    pub fn find_by_id(conn: &mut diesel::SqliteConnection, claim_id: &str) -> QueryResult<ClaimRow> {
+    pub fn find_by_id(
+        conn: &mut diesel::SqliteConnection,
+        claim_id: &str,
+    ) -> QueryResult<ClaimRow> {
         load_with_signatures(conn, claim_id)
     }
 
@@ -353,7 +362,9 @@ pub mod sqlite {
     /// Claims with no signature rows — legacy claims left unsigned by the
     /// claim_signatures migration. Used by the pre-alpha re-sign backfill. The
     /// returned rows intentionally carry empty `signatures`.
-    pub fn list_missing_signatures(conn: &mut diesel::SqliteConnection) -> QueryResult<Vec<ClaimRow>> {
+    pub fn list_missing_signatures(
+        conn: &mut diesel::SqliteConnection,
+    ) -> QueryResult<Vec<ClaimRow>> {
         let signed: Vec<String> = claim_signatures::table
             .select(claim_signatures::claim_id)
             .distinct()

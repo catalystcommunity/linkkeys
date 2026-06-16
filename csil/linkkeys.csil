@@ -178,6 +178,79 @@ GetUserClaimsResponse = {
 }
 
 ;; ============================================================
+;; Consent (claim-release grants)
+;; ============================================================
+
+;; One claim a relying party asks for, with the datatype it expects the value
+;; to carry. `datatype` is advisory metadata for the consent UI and RP-side
+;; validation — one of "text", "int", "float", "bool", "date", "email", "url"
+;; (extensible). The protocol does not enforce it; claim values remain opaque
+;; bytes.
+RequestedClaim = {
+    claim_type: text,
+    datatype: text
+}
+
+;; What a relying party advertises it wants on first contact. `required` gates
+;; login: if the user declines a required claim the RP expects the flow to
+;; abort. `optional` is best-effort. A spec-compliant IDP shows both to the
+;; user; showing is unenforceable (a non-spec server could skip the UI), which
+;; is fine — the IDP still applies its own allow/deny policy server-side
+;; regardless.
+ClaimRequest = {
+    required: [* RequestedClaim],
+    optional: [* RequestedClaim]
+}
+
+;; A user's standing authorization for one relying party (audience) to receive
+;; a specific set of claim_types. Captured on a trusted surface (in the browser
+;; flow, the IDP's own login/consent page) and attested by the user's home
+;; domain. user_id@subject_domain AND audience are bound into the signature
+;; (see liblinkkeys::consent): a grant for one RP cannot be replayed at another,
+;; nor a grant about user@A be replayed as user@B — the same defense as Claim.
+;; Grants expire (default one year, configurable) so consent is periodically
+;; re-affirmed.
+ConsentGrant = {
+    grant_id: text,
+    user_id: text,
+    subject_domain: text,
+    audience: text,
+    claim_types: [* text],
+    issued_at: text,
+    expires_at: text,
+    ? revoked_at: text
+}
+
+;; Same envelope shape as SignedIdentityAssertion, but carrying a signature
+;; LIST like Claim: the home domain attests now, and a user key can co-sign
+;; under key-based auth later without a schema change.
+SignedConsentGrant = {
+    grant: bytes,                   ;; CBOR(ConsentGrant)
+    signatures: [* ClaimSignature]
+}
+
+;; ============================================================
+;; Domain Claims (claims about a domain / relying party)
+;; ============================================================
+
+;; A claim whose subject is a DOMAIN rather than a user — e.g. a relying party
+;; asserting something about itself. Like `Claim` but with no user_id: the
+;; subject is the domain, supplied by the verifier from authoritative context
+;; (never read from attacker input) and bound into every signature so a claim
+;; about domain A cannot be replayed as one about domain B. Signed by one or
+;; more domains via `signatures`, so third parties can attest: e.g. us.gov signs
+;; a `government_entity` claim about us-forestry-service.example, or the RP
+;; self-signs a `privacy_policy` claim naming a standard it agrees to. Values
+;; remain opaque bytes; meaning is by `claim_type` convention. See
+;; liblinkkeys::domain_claims.
+DomainClaim = {
+    claim_type: text,
+    claim_value: bytes,
+    signatures: [* ClaimSignature],
+    ? expires_at: text
+}
+
+;; ============================================================
 ;; Identity Assertions (auth tokens)
 ;; ============================================================
 
@@ -188,6 +261,11 @@ IdentityAssertion = {
     nonce: text,
     issued_at: text,
     expires_at: text,
+    ;; The effective set of claim_types this redemption may release, as resolved
+    ;; by the user's consent plus home-domain policy. Required and fail-closed:
+    ;; an empty list releases no claims. get-user-info scopes its response to
+    ;; exactly this set (liblinkkeys::consent::scope_claims).
+    authorized_claims: [* text],
     ? display_name: text
 }
 
@@ -240,7 +318,16 @@ AuthRequest = {
     callback_url: text,
     nonce: text,
     timestamp: text,
-    signing_key_id: text
+    signing_key_id: text,
+    ;; Claims the RP would like released on first contact. Drives the consent
+    ;; screen. Absent => the RP requests no claims (authentication only).
+    ? requested_claims: ClaimRequest,
+    ;; Claims the RP asserts ABOUT ITSELF, each independently signed (self- or
+    ;; third-party-attested). The IDP verifies these against the signing domains'
+    ;; keys, may apply policy on them, and records them with the consent grant —
+    ;; making the RP's offered terms (e.g. a named privacy policy) a
+    ;; non-repudiable agreement even if no user data is released.
+    ? relying_party_claims: [* DomainClaim]
 }
 
 SignedAuthRequest = {

@@ -111,6 +111,53 @@ pub struct ClaimSignatureRow {
     pub created_at: String,
 }
 
+/// A persisted consent grant: the user's standing authorization for one
+/// `audience` to receive `claim_types`. `claim_types` and `requested_types` are
+/// the decoded JSON arrays; `signed_grant` is CBOR(SignedConsentGrant), the
+/// home-domain-attested artifact, kept so it can be re-verified or re-served.
+#[derive(Debug, Clone)]
+pub struct ConsentGrantRow {
+    pub id: String,
+    pub user_id: String,
+    pub subject_domain: String,
+    pub audience: String,
+    pub claim_types: Vec<String>,
+    pub requested_types: Vec<String>,
+    pub signed_grant: Vec<u8>,
+    /// CBOR([DomainClaim]) the RP asserted about itself, if any.
+    pub offered_claims: Option<Vec<u8>>,
+    pub issued_at: String,
+    pub expires_at: String,
+    pub revoked_at: Option<String>,
+}
+
+/// A pseudonymous identity (UUID@domain) belonging to a human account. One
+/// profile per account is the never-leaked `is_root` anchor; the rest are the
+/// presentable personas.
+#[derive(Debug, Clone)]
+pub struct Profile {
+    pub id: String,
+    pub account_id: String,
+    pub domain: String,
+    pub is_root: bool,
+    pub label: Option<String>,
+}
+
+/// Parse a JSON `[String]` column. A parse failure (only reachable via DB
+/// corruption — the writer always emits valid JSON) yields an empty set, which
+/// is fail-safe (empty claim_types under-releases; empty requested_types
+/// re-prompts), but is logged so it isn't silent.
+fn parse_json_types(field: &str, raw: &str) -> Vec<String> {
+    serde_json::from_str(raw).unwrap_or_else(|e| {
+        log::warn!(
+            "consent_grant.{} is not valid JSON ({}); treating as empty",
+            field,
+            e
+        );
+        Vec::new()
+    })
+}
+
 #[cfg(feature = "postgres")]
 pub mod pg {
     use diesel::prelude::*;
@@ -437,6 +484,91 @@ pub mod pg {
         pub relation: String,
         pub object_type: String,
         pub object_id: String,
+    }
+
+    // -- Consent grants --
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::pg::consent_grants)]
+    pub struct ConsentGrantDbRow {
+        pub id: uuid::Uuid,
+        pub user_id: uuid::Uuid,
+        pub subject_domain: String,
+        pub audience: String,
+        pub claim_types: String,
+        pub requested_types: String,
+        pub signed_grant: Vec<u8>,
+        pub offered_claims: Option<Vec<u8>>,
+        pub issued_at: chrono::DateTime<chrono::Utc>,
+        pub expires_at: chrono::DateTime<chrono::Utc>,
+        pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+    }
+
+    impl From<ConsentGrantDbRow> for super::ConsentGrantRow {
+        fn from(row: ConsentGrantDbRow) -> Self {
+            Self {
+                id: row.id.to_string(),
+                user_id: row.user_id.to_string(),
+                subject_domain: row.subject_domain,
+                audience: row.audience,
+                claim_types: super::parse_json_types("claim_types", &row.claim_types),
+                requested_types: super::parse_json_types("requested_types", &row.requested_types),
+                signed_grant: row.signed_grant,
+                offered_claims: row.offered_claims,
+                issued_at: row.issued_at.to_rfc3339(),
+                expires_at: row.expires_at.to_rfc3339(),
+                revoked_at: row.revoked_at.map(|t| t.to_rfc3339()),
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::pg::consent_grants)]
+    pub struct NewConsentGrantDbRow {
+        pub id: uuid::Uuid,
+        pub user_id: uuid::Uuid,
+        pub subject_domain: String,
+        pub audience: String,
+        pub claim_types: String,
+        pub requested_types: String,
+        pub signed_grant: Vec<u8>,
+        pub offered_claims: Option<Vec<u8>>,
+        pub issued_at: chrono::DateTime<chrono::Utc>,
+        pub expires_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    // -- Profiles --
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::pg::profiles)]
+    pub struct ProfileRow {
+        pub id: uuid::Uuid,
+        pub account_id: uuid::Uuid,
+        pub domain: String,
+        pub is_root: bool,
+        pub label: Option<String>,
+    }
+
+    impl From<ProfileRow> for super::Profile {
+        fn from(row: ProfileRow) -> Self {
+            Self {
+                id: row.id.to_string(),
+                account_id: row.account_id.to_string(),
+                domain: row.domain,
+                is_root: row.is_root,
+                label: row.label,
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::pg::profiles)]
+    pub struct NewProfileRow {
+        pub id: uuid::Uuid,
+        pub account_id: uuid::Uuid,
+        pub domain: String,
+        pub is_root: bool,
+        pub label: Option<String>,
     }
 }
 
@@ -766,5 +898,90 @@ pub mod sqlite {
         pub relation: String,
         pub object_type: String,
         pub object_id: String,
+    }
+
+    // -- Consent grants --
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::sqlite::consent_grants)]
+    pub struct ConsentGrantDbRow {
+        pub id: String,
+        pub user_id: String,
+        pub subject_domain: String,
+        pub audience: String,
+        pub claim_types: String,
+        pub requested_types: String,
+        pub signed_grant: Vec<u8>,
+        pub offered_claims: Option<Vec<u8>>,
+        pub issued_at: String,
+        pub expires_at: String,
+        pub revoked_at: Option<String>,
+    }
+
+    impl From<ConsentGrantDbRow> for super::ConsentGrantRow {
+        fn from(row: ConsentGrantDbRow) -> Self {
+            Self {
+                id: row.id,
+                user_id: row.user_id,
+                subject_domain: row.subject_domain,
+                audience: row.audience,
+                claim_types: super::parse_json_types("claim_types", &row.claim_types),
+                requested_types: super::parse_json_types("requested_types", &row.requested_types),
+                signed_grant: row.signed_grant,
+                offered_claims: row.offered_claims,
+                issued_at: row.issued_at,
+                expires_at: row.expires_at,
+                revoked_at: row.revoked_at,
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::consent_grants)]
+    pub struct NewConsentGrantDbRow {
+        pub id: String,
+        pub user_id: String,
+        pub subject_domain: String,
+        pub audience: String,
+        pub claim_types: String,
+        pub requested_types: String,
+        pub signed_grant: Vec<u8>,
+        pub offered_claims: Option<Vec<u8>>,
+        pub issued_at: String,
+        pub expires_at: String,
+    }
+
+    // -- Profiles --
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::sqlite::profiles)]
+    pub struct ProfileRow {
+        pub id: String,
+        pub account_id: String,
+        pub domain: String,
+        pub is_root: i32,
+        pub label: Option<String>,
+    }
+
+    impl From<ProfileRow> for super::Profile {
+        fn from(row: ProfileRow) -> Self {
+            Self {
+                id: row.id,
+                account_id: row.account_id,
+                domain: row.domain,
+                is_root: row.is_root != 0,
+                label: row.label,
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::profiles)]
+    pub struct NewProfileRow {
+        pub id: String,
+        pub account_id: String,
+        pub domain: String,
+        pub is_root: i32,
+        pub label: Option<String>,
     }
 }

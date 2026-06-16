@@ -17,7 +17,12 @@ pub struct SameOriginPost;
 /// (`scheme://authority[/path...]`).
 fn url_authority(url: &str) -> Option<&str> {
     let after_scheme = url.split_once("://")?.1;
-    Some(after_scheme.split(['/', '?', '#']).next().unwrap_or(after_scheme))
+    Some(
+        after_scheme
+            .split(['/', '?', '#'])
+            .next()
+            .unwrap_or(after_scheme),
+    )
 }
 
 #[rocket::async_trait]

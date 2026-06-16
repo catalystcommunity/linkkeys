@@ -30,10 +30,7 @@ pub mod pg {
         users::table.find(id).first::<UserRow>(conn).map(Into::into)
     }
 
-    pub fn find_by_username(
-        conn: &mut diesel::PgConnection,
-        username: &str,
-    ) -> QueryResult<User> {
+    pub fn find_by_username(conn: &mut diesel::PgConnection, username: &str) -> QueryResult<User> {
         users::table
             .filter(users::username.eq(username))
             .first::<UserRow>(conn)
@@ -167,10 +164,7 @@ pub mod sqlite {
     pub fn deactivate(conn: &mut diesel::SqliteConnection, user_id: &str) -> QueryResult<User> {
         let now = chrono::Utc::now().to_rfc3339();
         diesel::update(users::table.find(user_id))
-            .set((
-                users::is_active.eq(0),
-                users::updated_at.eq(&now),
-            ))
+            .set((users::is_active.eq(0), users::updated_at.eq(&now)))
             .execute(conn)?;
 
         users::table
@@ -182,10 +176,7 @@ pub mod sqlite {
     pub fn activate(conn: &mut diesel::SqliteConnection, user_id: &str) -> QueryResult<User> {
         let now = chrono::Utc::now().to_rfc3339();
         diesel::update(users::table.find(user_id))
-            .set((
-                users::is_active.eq(1),
-                users::updated_at.eq(&now),
-            ))
+            .set((users::is_active.eq(1), users::updated_at.eq(&now)))
             .execute(conn)?;
 
         users::table

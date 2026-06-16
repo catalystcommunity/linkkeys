@@ -92,9 +92,7 @@ pub mod pg {
     }
 
     pub fn find_by_id(conn: &mut diesel::PgConnection, id: &str) -> QueryResult<Relation> {
-        let uid: uuid::Uuid = id
-            .parse()
-            .map_err(|_| diesel::result::Error::NotFound)?;
+        let uid: uuid::Uuid = id.parse().map_err(|_| diesel::result::Error::NotFound)?;
         relations::table
             .find(uid)
             .first::<RelationRow>(conn)
@@ -138,10 +136,7 @@ pub mod sqlite {
             .map(Into::into)
     }
 
-    pub fn remove(
-        conn: &mut diesel::SqliteConnection,
-        relation_id: &str,
-    ) -> QueryResult<Relation> {
+    pub fn remove(conn: &mut diesel::SqliteConnection, relation_id: &str) -> QueryResult<Relation> {
         let now = chrono::Utc::now().to_rfc3339();
         diesel::update(relations::table.find(relation_id))
             .set((

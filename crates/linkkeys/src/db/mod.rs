@@ -1,25 +1,188 @@
 pub mod auth_credentials;
 pub mod claims;
+pub mod consent_grants;
 pub mod domain_keys;
 pub mod guestbook;
 pub mod models;
 pub mod nonces;
+pub mod profiles;
 pub mod relations;
 pub mod user_keys;
 pub mod users;
 
+use diesel::connection::SimpleConnection;
 use diesel::prelude::*;
 use diesel::r2d2::{self, ConnectionManager};
-use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+use std::collections::HashSet;
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+// Single-file, forward-only migrations: each entry is (version, SQL), applied in
+// array order. A `__lk_migrations` table records which versions have run. No
+// rollback by design (no down migrations). Adding a migration = drop one `.sql`
+// file under migrations/<backend>/ and add a line here.
 #[cfg(feature = "postgres")]
-const PG_MIGRATIONS: EmbeddedMigrations = embed_migrations!("../../migrations/postgres");
+const PG_MIGRATIONS: &[(&str, &str)] = &[
+    (
+        "00000000000000_diesel_initial_setup",
+        include_str!("../../../../migrations/postgres/00000000000000_diesel_initial_setup.sql"),
+    ),
+    (
+        "2026-03-15-000001_create_guestbook",
+        include_str!("../../../../migrations/postgres/2026-03-15-000001_create_guestbook.sql"),
+    ),
+    (
+        "2026-04-02-000001_create_identity_tables",
+        include_str!(
+            "../../../../migrations/postgres/2026-04-02-000001_create_identity_tables.sql"
+        ),
+    ),
+    (
+        "2026-04-09-000001_create_relations_and_extensions",
+        include_str!(
+            "../../../../migrations/postgres/2026-04-09-000001_create_relations_and_extensions.sql"
+        ),
+    ),
+    (
+        "2026-04-09-000002_add_relations_unique_index",
+        include_str!(
+            "../../../../migrations/postgres/2026-04-09-000002_add_relations_unique_index.sql"
+        ),
+    ),
+    (
+        "2026-05-30-000001_create_used_nonces",
+        include_str!("../../../../migrations/postgres/2026-05-30-000001_create_used_nonces.sql"),
+    ),
+    (
+        "2026-06-01-000001_add_key_usage",
+        include_str!("../../../../migrations/postgres/2026-06-01-000001_add_key_usage.sql"),
+    ),
+    (
+        "2026-06-14-000001_claim_signatures",
+        include_str!("../../../../migrations/postgres/2026-06-14-000001_claim_signatures.sql"),
+    ),
+    (
+        "2026-06-14-000002_create_consent_grants",
+        include_str!("../../../../migrations/postgres/2026-06-14-000002_create_consent_grants.sql"),
+    ),
+    (
+        "2026-06-15-000001_create_profiles",
+        include_str!("../../../../migrations/postgres/2026-06-15-000001_create_profiles.sql"),
+    ),
+];
 
 #[cfg(feature = "sqlite")]
-const SQLITE_MIGRATIONS: EmbeddedMigrations = embed_migrations!("../../migrations/sqlite");
+const SQLITE_MIGRATIONS: &[(&str, &str)] = &[
+    (
+        "00000000000000_diesel_initial_setup",
+        include_str!("../../../../migrations/sqlite/00000000000000_diesel_initial_setup.sql"),
+    ),
+    (
+        "2026-03-15-000001_create_guestbook",
+        include_str!("../../../../migrations/sqlite/2026-03-15-000001_create_guestbook.sql"),
+    ),
+    (
+        "2026-04-02-000001_create_identity_tables",
+        include_str!("../../../../migrations/sqlite/2026-04-02-000001_create_identity_tables.sql"),
+    ),
+    (
+        "2026-04-09-000001_create_relations_and_extensions",
+        include_str!(
+            "../../../../migrations/sqlite/2026-04-09-000001_create_relations_and_extensions.sql"
+        ),
+    ),
+    (
+        "2026-04-09-000002_add_relations_unique_index",
+        include_str!(
+            "../../../../migrations/sqlite/2026-04-09-000002_add_relations_unique_index.sql"
+        ),
+    ),
+    (
+        "2026-05-30-000001_create_used_nonces",
+        include_str!("../../../../migrations/sqlite/2026-05-30-000001_create_used_nonces.sql"),
+    ),
+    (
+        "2026-06-01-000001_add_key_usage",
+        include_str!("../../../../migrations/sqlite/2026-06-01-000001_add_key_usage.sql"),
+    ),
+    (
+        "2026-06-14-000001_claim_signatures",
+        include_str!("../../../../migrations/sqlite/2026-06-14-000001_claim_signatures.sql"),
+    ),
+    (
+        "2026-06-14-000002_create_consent_grants",
+        include_str!("../../../../migrations/sqlite/2026-06-14-000002_create_consent_grants.sql"),
+    ),
+    (
+        "2026-06-15-000001_create_profiles",
+        include_str!("../../../../migrations/sqlite/2026-06-15-000001_create_profiles.sql"),
+    ),
+];
+
+#[derive(QueryableByName)]
+struct AppliedVersion {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    version: String,
+}
+
+/// Apply forward-only single-file migrations on a concrete connection. Shared by
+/// the server (with locking) and the test harness. Tracks applied versions in
+/// `__lk_migrations`; versions are compile-time constants (not user input), so
+/// inlining them in the INSERT is safe.
+macro_rules! apply_migrations {
+    ($conn:expr, $migrations:expr) => {{
+        // Catch an out-of-order or mismatched array early (versions are applied
+        // in array order; they must be strictly ascending).
+        debug_assert!(
+            $migrations.windows(2).all(|w| w[0].0 < w[1].0),
+            "migrations must be listed in strictly ascending version order"
+        );
+        $conn
+            .batch_execute("CREATE TABLE IF NOT EXISTS __lk_migrations (version TEXT PRIMARY KEY)")
+            .map_err(|e| e.to_string())?;
+        let already: Vec<AppliedVersion> = diesel::sql_query("SELECT version FROM __lk_migrations")
+            .load($conn)
+            .map_err(|e| e.to_string())?;
+        let already: HashSet<String> = already.into_iter().map(|a| a.version).collect();
+        let mut count = 0usize;
+        for (name, sql) in $migrations.iter() {
+            if already.contains(*name) {
+                continue;
+            }
+            // Each migration's statements AND its version bookkeeping commit (or
+            // roll back) together, so an interrupted/failed migration leaves no
+            // partial schema and no orphan version — the restart re-runs it
+            // cleanly. Both backends support transactional DDL, and no migration
+            // uses a non-transactional statement (CREATE EXTENSION/VACUUM/etc.).
+            $conn
+                .transaction::<(), diesel::result::Error, _>(|c| {
+                    c.batch_execute(sql)?;
+                    diesel::sql_query(format!(
+                        "INSERT INTO __lk_migrations (version) VALUES ('{}')",
+                        name
+                    ))
+                    .execute(c)?;
+                    Ok(())
+                })
+                .map_err(|e| format!("migration {} failed: {}", name, e))?;
+            count += 1;
+        }
+        Ok::<usize, String>(count)
+    }};
+}
+
+/// Apply pending migrations on a Postgres connection. Returns the number run.
+#[cfg(feature = "postgres")]
+pub fn migrate_pg(conn: &mut diesel::PgConnection) -> Result<usize, String> {
+    apply_migrations!(conn, PG_MIGRATIONS)
+}
+
+/// Apply pending migrations on a SQLite connection. Returns the number run.
+#[cfg(feature = "sqlite")]
+pub fn migrate_sqlite(conn: &mut diesel::SqliteConnection) -> Result<usize, String> {
+    apply_migrations!(conn, SQLITE_MIGRATIONS)
+}
 
 pub enum DbPool {
     #[cfg(feature = "postgres")]
@@ -41,7 +204,8 @@ impl Clone for DbPool {
 
 pub fn create_pool() -> DbPool {
     let backend = env::var("DATABASE_BACKEND").unwrap_or_else(|_| "postgres".to_string());
-    let url = env::var("DATABASE_URL").unwrap_or_else(|_| default_database_url(&backend).to_string());
+    let url =
+        env::var("DATABASE_URL").unwrap_or_else(|_| default_database_url(&backend).to_string());
 
     match backend.as_str() {
         #[cfg(feature = "postgres")]
@@ -73,6 +237,17 @@ pub fn create_pool() -> DbPool {
     }
 }
 
+/// Per-account cap on presentable profiles (`MAX_PROFILES_PER_ACCOUNT`, default
+/// 1 — keeps the system single-identity and the multi-profile UI hidden until an
+/// operator opts in). The root anchor is separate and not counted.
+fn max_profiles_per_account() -> i64 {
+    std::env::var("MAX_PROFILES_PER_ACCOUNT")
+        .ok()
+        .and_then(|s| s.parse::<i64>().ok())
+        .filter(|n| *n >= 1)
+        .unwrap_or(1)
+}
+
 fn default_database_url(backend: &str) -> &'static str {
     match backend {
         "postgres" => "postgres://devuser:devpass@localhost/linkkeys",
@@ -99,10 +274,7 @@ pub fn run_migrations_with_locking(pool: &DbPool, ready_flag: Arc<AtomicBool>) {
                 .execute(&mut *conn)
                 .expect("Failed to acquire advisory lock");
 
-            let migration_result = conn
-                .run_pending_migrations(PG_MIGRATIONS)
-                .map(|v| v.len())
-                .map_err(|e| e.to_string());
+            let migration_result = migrate_pg(&mut conn);
 
             diesel::sql_query(format!("SELECT pg_advisory_unlock({})", LOCK_KEY))
                 .execute(&mut *conn)
@@ -128,12 +300,9 @@ pub fn run_migrations_with_locking(pool: &DbPool, ready_flag: Arc<AtomicBool>) {
                 .execute(&mut *conn)
                 .expect("Failed to set busy timeout");
 
-            match conn.run_pending_migrations(SQLITE_MIGRATIONS) {
-                Ok(versions) => {
-                    if !versions.is_empty() {
-                        log::info!("Ran {} pending migration(s)", versions.len());
-                    }
-                }
+            match migrate_sqlite(&mut conn) {
+                Ok(count) if count > 0 => log::info!("Ran {} pending migration(s)", count),
+                Ok(_) => {}
                 Err(e) => {
                     log::error!("Migration failed: {}", e);
                     std::process::exit(1);
@@ -153,18 +322,22 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 domain_keys::pg::list_active(&mut conn)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 domain_keys::sqlite::list_active(&mut conn)
             }
         }
@@ -174,18 +347,22 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 domain_keys::pg::list_all(&mut conn)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 domain_keys::sqlite::list_all(&mut conn)
             }
         }
@@ -195,18 +372,22 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 users::pg::find_by_id(&mut conn, user_id)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 users::sqlite::find_by_id(&mut conn, user_id)
             }
         }
@@ -216,18 +397,22 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 user_keys::pg::list_active_for_user(&mut conn, user_id)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 user_keys::sqlite::list_active_for_user(&mut conn, user_id)
             }
         }
@@ -241,18 +426,22 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 auth_credentials::pg::find_for_user(&mut conn, user_id, credential_type)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 auth_credentials::sqlite::find_for_user(&mut conn, user_id, credential_type)
             }
         }
@@ -264,18 +453,22 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 claims::pg::list_all(&mut conn)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 claims::sqlite::list_all(&mut conn)
             }
         }
@@ -285,18 +478,22 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 claims::pg::list_active_for_user(&mut conn, user_id)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 claims::sqlite::list_active_for_user(&mut conn, user_id)
             }
         }
@@ -313,19 +510,37 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
-                relations::pg::create(&mut conn, subject_type, subject_id, relation, object_type, object_id)
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
+                relations::pg::create(
+                    &mut conn,
+                    subject_type,
+                    subject_id,
+                    relation,
+                    object_type,
+                    object_id,
+                )
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
-                relations::sqlite::create(&mut conn, subject_type, subject_id, relation, object_type, object_id)
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
+                relations::sqlite::create(
+                    &mut conn,
+                    subject_type,
+                    subject_id,
+                    relation,
+                    object_type,
+                    object_id,
+                )
             }
         }
     }
@@ -334,18 +549,22 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 relations::pg::remove(&mut conn, id)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 relations::sqlite::remove(&mut conn, id)
             }
         }
@@ -359,18 +578,22 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 relations::pg::list_for_subject(&mut conn, subject_type, subject_id)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 relations::sqlite::list_for_subject(&mut conn, subject_type, subject_id)
             }
         }
@@ -384,18 +607,22 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 relations::pg::list_for_object(&mut conn, object_type, object_id)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 relations::sqlite::list_for_object(&mut conn, object_type, object_id)
             }
         }
@@ -427,16 +654,32 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 // 1. Direct check
-                if relations::pg::check_direct(&mut conn, "user", user_id, relation, object_type, object_id)? {
+                if relations::pg::check_direct(
+                    &mut conn,
+                    "user",
+                    user_id,
+                    relation,
+                    object_type,
+                    object_id,
+                )? {
                     return Ok(true);
                 }
                 // 2. Admin override
-                if relations::pg::check_direct(&mut conn, "user", user_id, "admin", object_type, object_id)? {
+                if relations::pg::check_direct(
+                    &mut conn,
+                    "user",
+                    user_id,
+                    "admin",
+                    object_type,
+                    object_id,
+                )? {
                     return Ok(true);
                 }
                 // 3. Check via group memberships
@@ -444,11 +687,25 @@ impl DbPool {
                 for rel in &user_relations {
                     if rel.relation == "member" && rel.object_type == "group" {
                         // 4. Group direct check
-                        if relations::pg::check_direct(&mut conn, "group", &rel.object_id, relation, object_type, object_id)? {
+                        if relations::pg::check_direct(
+                            &mut conn,
+                            "group",
+                            &rel.object_id,
+                            relation,
+                            object_type,
+                            object_id,
+                        )? {
                             return Ok(true);
                         }
                         // 5. Group admin override
-                        if relations::pg::check_direct(&mut conn, "group", &rel.object_id, "admin", object_type, object_id)? {
+                        if relations::pg::check_direct(
+                            &mut conn,
+                            "group",
+                            &rel.object_id,
+                            "admin",
+                            object_type,
+                            object_id,
+                        )? {
                             return Ok(true);
                         }
                     }
@@ -457,28 +714,59 @@ impl DbPool {
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 // 1. Direct check
-                if relations::sqlite::check_direct(&mut conn, "user", user_id, relation, object_type, object_id)? {
+                if relations::sqlite::check_direct(
+                    &mut conn,
+                    "user",
+                    user_id,
+                    relation,
+                    object_type,
+                    object_id,
+                )? {
                     return Ok(true);
                 }
                 // 2. Admin override
-                if relations::sqlite::check_direct(&mut conn, "user", user_id, "admin", object_type, object_id)? {
+                if relations::sqlite::check_direct(
+                    &mut conn,
+                    "user",
+                    user_id,
+                    "admin",
+                    object_type,
+                    object_id,
+                )? {
                     return Ok(true);
                 }
                 // 3. Check via group memberships
-                let user_relations = relations::sqlite::list_for_subject(&mut conn, "user", user_id)?;
+                let user_relations =
+                    relations::sqlite::list_for_subject(&mut conn, "user", user_id)?;
                 for rel in &user_relations {
                     if rel.relation == "member" && rel.object_type == "group" {
                         // 4. Group direct check
-                        if relations::sqlite::check_direct(&mut conn, "group", &rel.object_id, relation, object_type, object_id)? {
+                        if relations::sqlite::check_direct(
+                            &mut conn,
+                            "group",
+                            &rel.object_id,
+                            relation,
+                            object_type,
+                            object_id,
+                        )? {
                             return Ok(true);
                         }
                         // 5. Group admin override
-                        if relations::sqlite::check_direct(&mut conn, "group", &rel.object_id, "admin", object_type, object_id)? {
+                        if relations::sqlite::check_direct(
+                            &mut conn,
+                            "group",
+                            &rel.object_id,
+                            "admin",
+                            object_type,
+                            object_id,
+                        )? {
                             return Ok(true);
                         }
                     }
@@ -492,18 +780,22 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 users::pg::list_all(&mut conn)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 users::sqlite::list_all(&mut conn)
             }
         }
@@ -513,18 +805,22 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 users::pg::activate(&mut conn, user_id)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 users::sqlite::activate(&mut conn, user_id)
             }
         }
@@ -534,18 +830,22 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 users::pg::deactivate(&mut conn, user_id)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 users::sqlite::deactivate(&mut conn, user_id)
             }
         }
@@ -555,18 +855,22 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 auth_credentials::pg::find_by_id(&mut conn, id)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 auth_credentials::sqlite::find_by_id(&mut conn, id)
             }
         }
@@ -576,18 +880,22 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 claims::pg::find_by_id(&mut conn, id)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 claims::sqlite::find_by_id(&mut conn, id)
             }
         }
@@ -597,18 +905,22 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 auth_credentials::pg::revoke_all_for_user(&mut conn, user_id)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 auth_credentials::sqlite::revoke_all_for_user(&mut conn, user_id)
             }
         }
@@ -618,18 +930,22 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 auth_credentials::pg::remove(&mut conn, credential_id)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 auth_credentials::sqlite::remove(&mut conn, credential_id)
             }
         }
@@ -639,60 +955,256 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 claims::pg::remove(&mut conn, claim_id)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 claims::sqlite::remove(&mut conn, claim_id)
             }
         }
     }
 
+    /// Create a user (human account) and provision its profiles atomically: a
+    /// default presentable profile whose id REUSES the account id (so existing
+    /// claims/assertions that reference the account id keep resolving — the
+    /// migration to profiles is value-preserving), plus a fresh never-leaked
+    /// root anchor profile.
     pub fn create_user(&self, username: &str, display_name: &str) -> QueryResult<models::User> {
+        let domain = crate::conversions::get_domain_name();
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
-                users::pg::create(&mut conn, username, display_name)
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
+                conn.transaction(|conn| {
+                    let user = users::pg::create(conn, username, display_name)?;
+                    let account_id: uuid::Uuid = user
+                        .id
+                        .parse()
+                        .map_err(|_| diesel::result::Error::NotFound)?;
+                    profiles::pg::create(conn, account_id, account_id, &domain, false, None)?;
+                    profiles::pg::create(
+                        conn,
+                        uuid::Uuid::now_v7(),
+                        account_id,
+                        &domain,
+                        true,
+                        Some("root"),
+                    )?;
+                    Ok(user)
+                })
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
-                users::sqlite::create(&mut conn, username, display_name)
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
+                conn.transaction(|conn| {
+                    let user = users::sqlite::create(conn, username, display_name)?;
+                    profiles::sqlite::create(conn, &user.id, &user.id, &domain, false, None)?;
+                    profiles::sqlite::create(
+                        conn,
+                        &uuid::Uuid::now_v7().to_string(),
+                        &user.id,
+                        &domain,
+                        true,
+                        Some("root"),
+                    )?;
+                    Ok(user)
+                })
             }
         }
     }
 
-    pub fn update_display_name(&self, user_id: &str, new_display_name: &str) -> QueryResult<models::User> {
+    /// All profiles for an account (root + presentable), oldest first.
+    pub fn list_profiles_for_account(&self, account_id: &str) -> QueryResult<Vec<models::Profile>> {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
+                let aid: uuid::Uuid = account_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?;
+                profiles::pg::list_for_account(&mut conn, aid)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
+                profiles::sqlite::list_for_account(&mut conn, account_id)
+            }
+        }
+    }
+
+    /// The presentable (non-root) profiles for an account — the personas a login
+    /// may present. The root anchor is excluded (it is never leaked).
+    pub fn list_presentable_profiles_for_account(
+        &self,
+        account_id: &str,
+    ) -> QueryResult<Vec<models::Profile>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
+                let aid: uuid::Uuid = account_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?;
+                profiles::pg::list_presentable_for_account(&mut conn, aid)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
+                profiles::sqlite::list_presentable_for_account(&mut conn, account_id)
+            }
+        }
+    }
+
+    /// Create a presentable profile, enforcing the per-account cap on TOTAL
+    /// presentable profiles (`MAX_PROFILES_PER_ACCOUNT`, default 1). NB: the
+    /// default profile created at account creation already counts, so at the
+    /// default of 1 this always rejects — additional personas require raising
+    /// the cap. `Err` when the cap is reached. (Count-then-create is not atomic;
+    /// a concurrent racer could exceed the cap by one — acceptable pre-alpha.)
+    ///
+    /// NOT YET SAFE to use beyond the default profile: claims and `find_user_by_id`
+    /// are still keyed by the account id, so a non-default persona resolves no
+    /// claims and its userinfo redemption 404s (fail-closed, not a leak). Raising
+    /// the cap and using extra personas must wait for per-profile claim keying +
+    /// threading the resolved subject through the consent grant.
+    pub fn create_presentable_profile(
+        &self,
+        account_id: &str,
+        label: Option<&str>,
+    ) -> Result<models::Profile, String> {
+        let domain = crate::conversions::get_domain_name();
+        let limit = max_profiles_per_account();
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let mut conn = p.get().map_err(|e| e.to_string())?;
+                let aid: uuid::Uuid = account_id
+                    .parse()
+                    .map_err(|_| "invalid account id".to_string())?;
+                let n = profiles::pg::count_presentable_for_account(&mut conn, aid)
+                    .map_err(|e| e.to_string())?;
+                if n >= limit {
+                    return Err("profile limit reached".to_string());
+                }
+                profiles::pg::create(&mut conn, uuid::Uuid::now_v7(), aid, &domain, false, label)
+                    .map_err(|e| e.to_string())
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                let mut conn = p.get().map_err(|e| e.to_string())?;
+                let n = profiles::sqlite::count_presentable_for_account(&mut conn, account_id)
+                    .map_err(|e| e.to_string())?;
+                if n >= limit {
+                    return Err("profile limit reached".to_string());
+                }
+                profiles::sqlite::create(
+                    &mut conn,
+                    &uuid::Uuid::now_v7().to_string(),
+                    account_id,
+                    &domain,
+                    false,
+                    label,
+                )
+                .map_err(|e| e.to_string())
+            }
+        }
+    }
+
+    /// Provision root + default profiles for any pre-existing account that has
+    /// none (one-time data normalization after the profiles migration). Run at
+    /// startup. Returns how many accounts were backfilled.
+    pub fn backfill_profiles(&self) -> QueryResult<usize> {
+        let domain = crate::conversions::get_domain_name();
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
+                profiles::pg::backfill(&mut conn, &domain)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
+                profiles::sqlite::backfill(&mut conn, &domain)
+            }
+        }
+    }
+
+    pub fn update_display_name(
+        &self,
+        user_id: &str,
+        new_display_name: &str,
+    ) -> QueryResult<models::User> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 users::pg::update_display_name(&mut conn, user_id, new_display_name)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 users::sqlite::update_display_name(&mut conn, user_id, new_display_name)
             }
         }
@@ -707,10 +1219,12 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 let uid: uuid::Uuid = user_id
                     .parse()
                     .map_err(|_| diesel::result::Error::NotFound)?;
@@ -718,11 +1232,18 @@ impl DbPool {
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
-                auth_credentials::sqlite::create(&mut conn, user_id, credential_type, credential_hash)
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
+                auth_credentials::sqlite::create(
+                    &mut conn,
+                    user_id,
+                    credential_type,
+                    credential_hash,
+                )
             }
         }
     }
@@ -739,18 +1260,22 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 auth_credentials::pg::update_hash(&mut conn, credential_id, new_hash)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 auth_credentials::sqlite::update_hash(&mut conn, credential_id, new_hash)
             }
         }
@@ -768,21 +1293,33 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 let uid: uuid::Uuid = user_id
                     .parse()
                     .map_err(|_| diesel::result::Error::NotFound)?;
-                user_keys::pg::create(&mut conn, uid, public_key, private_key_encrypted, fingerprint, algorithm, expires_at)
+                user_keys::pg::create(
+                    &mut conn,
+                    uid,
+                    public_key,
+                    private_key_encrypted,
+                    fingerprint,
+                    algorithm,
+                    expires_at,
+                )
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 user_keys::sqlite::create(
                     &mut conn,
                     user_id,
@@ -813,24 +1350,36 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 let id: uuid::Uuid = claim_id
                     .parse()
                     .map_err(|_| diesel::result::Error::NotFound)?;
                 let uid: uuid::Uuid = user_id
                     .parse()
                     .map_err(|_| diesel::result::Error::NotFound)?;
-                claims::pg::create(&mut conn, id, uid, claim_type, claim_value, signatures, expires_at)
+                claims::pg::create(
+                    &mut conn,
+                    id,
+                    uid,
+                    claim_type,
+                    claim_value,
+                    signatures,
+                    expires_at,
+                )
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 claims::sqlite::create(
                     &mut conn,
                     claim_id,
@@ -844,24 +1393,145 @@ impl DbPool {
         }
     }
 
+    /// Store a consent grant, replacing any prior grant for the same
+    /// (user, audience). `claim_types`/`requested_types` are persisted as JSON
+    /// arrays; `signed_grant` is CBOR(SignedConsentGrant). `issued_at` and
+    /// `expires_at` are RFC3339 strings.
+    #[allow(clippy::too_many_arguments)]
+    pub fn upsert_consent_grant(
+        &self,
+        grant_id: &str,
+        user_id: &str,
+        subject_domain: &str,
+        audience: &str,
+        claim_types: &[String],
+        requested_types: &[String],
+        signed_grant: &[u8],
+        offered_claims: Option<&[u8]>,
+        issued_at: &str,
+        expires_at: &str,
+    ) -> QueryResult<()> {
+        let claim_types_json = serde_json::to_string(claim_types)
+            .map_err(|_| diesel::result::Error::RollbackTransaction)?;
+        let requested_types_json = serde_json::to_string(requested_types)
+            .map_err(|_| diesel::result::Error::RollbackTransaction)?;
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
+                let id: uuid::Uuid = grant_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?;
+                let uid: uuid::Uuid = user_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?;
+                let issued = chrono::DateTime::parse_from_rfc3339(issued_at)
+                    .map_err(|_| diesel::result::Error::NotFound)?
+                    .with_timezone(&chrono::Utc);
+                let expires = chrono::DateTime::parse_from_rfc3339(expires_at)
+                    .map_err(|_| diesel::result::Error::NotFound)?
+                    .with_timezone(&chrono::Utc);
+                consent_grants::pg::upsert(
+                    &mut conn,
+                    id,
+                    uid,
+                    subject_domain,
+                    audience,
+                    &claim_types_json,
+                    &requested_types_json,
+                    signed_grant,
+                    offered_claims,
+                    issued,
+                    expires,
+                )
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
+                consent_grants::sqlite::upsert(
+                    &mut conn,
+                    grant_id,
+                    user_id,
+                    subject_domain,
+                    audience,
+                    &claim_types_json,
+                    &requested_types_json,
+                    signed_grant,
+                    offered_claims,
+                    issued_at,
+                    expires_at,
+                )
+            }
+        }
+    }
+
+    /// The current valid consent grant for (user, audience), if any (not revoked,
+    /// not expired).
+    pub fn find_active_consent_grant(
+        &self,
+        user_id: &str,
+        audience: &str,
+    ) -> QueryResult<Option<models::ConsentGrantRow>> {
+        let now = chrono::Utc::now();
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
+                let uid: uuid::Uuid = user_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?;
+                consent_grants::pg::find_active(&mut conn, uid, audience, now)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
+                consent_grants::sqlite::find_active(&mut conn, user_id, audience, &now.to_rfc3339())
+            }
+        }
+    }
+
     /// Claims that have no signature rows — legacy claims the claim_signatures
     /// migration left unsigned. Used by the pre-alpha re-sign backfill.
     pub fn list_claims_missing_signatures(&self) -> QueryResult<Vec<models::ClaimRow>> {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 claims::pg::list_missing_signatures(&mut conn)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 claims::sqlite::list_missing_signatures(&mut conn)
             }
         }
@@ -876,10 +1546,12 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 let id: uuid::Uuid = claim_id
                     .parse()
                     .map_err(|_| diesel::result::Error::NotFound)?;
@@ -887,10 +1559,12 @@ impl DbPool {
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 claims::sqlite::replace_signatures(&mut conn, claim_id, signatures)
             }
         }
@@ -904,18 +1578,22 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 nonces::pg::record(&mut conn, nonce, expires_at)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 nonces::sqlite::record(&mut conn, nonce, &expires_at.to_rfc3339())
             }
         }
@@ -925,18 +1603,22 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 users::pg::find_by_username(&mut conn, username)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 users::sqlite::find_by_username(&mut conn, username)
             }
         }
@@ -946,18 +1628,22 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 guestbook::pg::create(&mut conn, name)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 guestbook::sqlite::create(&mut conn, name)
             }
         }
@@ -971,39 +1657,51 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 guestbook::pg::list(&mut conn, offset, limit)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 guestbook::sqlite::list(&mut conn, offset, limit)
             }
         }
     }
 
-    pub fn guestbook_update(&self, entry_id: &str, new_name: &str) -> QueryResult<models::GuestbookEntry> {
+    pub fn guestbook_update(
+        &self,
+        entry_id: &str,
+        new_name: &str,
+    ) -> QueryResult<models::GuestbookEntry> {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 guestbook::pg::update(&mut conn, entry_id, new_name)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 guestbook::sqlite::update(&mut conn, entry_id, new_name)
             }
         }
@@ -1013,18 +1711,22 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 guestbook::pg::delete(&mut conn, entry_id)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 guestbook::sqlite::delete(&mut conn, entry_id)
             }
         }
@@ -1041,18 +1743,29 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
-                domain_keys::pg::create(&mut conn, public_key, private_key_encrypted, fingerprint, algorithm, expires_at)
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
+                domain_keys::pg::create(
+                    &mut conn,
+                    public_key,
+                    private_key_encrypted,
+                    fingerprint,
+                    algorithm,
+                    expires_at,
+                )
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 domain_keys::sqlite::create(
                     &mut conn,
                     public_key,
@@ -1079,20 +1792,30 @@ impl DbPool {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 domain_keys::pg::create_encryption_key(
-                    &mut conn, public_key, private_key_encrypted, fingerprint, signed_by_key_id, key_signature, expires_at,
+                    &mut conn,
+                    public_key,
+                    private_key_encrypted,
+                    fingerprint,
+                    signed_by_key_id,
+                    key_signature,
+                    expires_at,
                 )
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 domain_keys::sqlite::create_encryption_key(
                     &mut conn,
                     public_key,
@@ -1116,10 +1839,12 @@ impl DbPool {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
                 use crate::schema::pg::auth_credentials;
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 let id: uuid::Uuid = credential_id
                     .parse()
                     .map_err(|_| diesel::result::Error::NotFound)?;
@@ -1134,10 +1859,12 @@ impl DbPool {
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
                 use crate::schema::sqlite::auth_credentials;
-                let mut conn = p.get().map_err(|e| diesel::result::Error::DatabaseError(
-                    diesel::result::DatabaseErrorKind::Unknown,
-                    Box::new(e.to_string()),
-                ))?;
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
                 diesel::update(auth_credentials::table.find(credential_id))
                     .set(auth_credentials::expires_at.eq(Some(expires_at)))
                     .execute(&mut *conn)?;

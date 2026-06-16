@@ -79,10 +79,7 @@ pub mod pg {
             .map(|rows| rows.into_iter().map(Into::into).collect())
     }
 
-    pub fn find_by_id(
-        conn: &mut diesel::PgConnection,
-        key_id: &str,
-    ) -> QueryResult<DomainKey> {
+    pub fn find_by_id(conn: &mut diesel::PgConnection, key_id: &str) -> QueryResult<DomainKey> {
         let id: uuid::Uuid = key_id
             .parse()
             .map_err(|_| diesel::result::Error::NotFound)?;
@@ -184,10 +181,7 @@ pub mod sqlite {
             .map(|rows| rows.into_iter().map(Into::into).collect())
     }
 
-    pub fn find_by_id(
-        conn: &mut diesel::SqliteConnection,
-        key_id: &str,
-    ) -> QueryResult<DomainKey> {
+    pub fn find_by_id(conn: &mut diesel::SqliteConnection, key_id: &str) -> QueryResult<DomainKey> {
         domain_keys::table
             .find(key_id)
             .first::<DomainKeyRow>(conn)

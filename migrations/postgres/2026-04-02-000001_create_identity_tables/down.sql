@@ -1,5 +1,0 @@
-DROP TABLE IF EXISTS claims;
-DROP TABLE IF EXISTS user_keys;
-DROP TABLE IF EXISTS auth_credentials;
-DROP TABLE IF EXISTS users;
-DROP TABLE IF EXISTS domain_keys;

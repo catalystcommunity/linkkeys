@@ -1,7 +1,7 @@
+use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::Arc;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]
 pub enum ClientError {
@@ -107,15 +107,17 @@ fn extract_hostname(server: &str) -> &str {
 /// If this process is also a domain server (has access to its own domain key),
 /// it presents its own cert for mutual TLS — the server can verify us back.
 /// Returns the config and the hostname for SNI.
-fn resolve_tls_config(
-    server: &str,
-) -> Result<(Arc<rustls::ClientConfig>, String), ClientError> {
+fn resolve_tls_config(server: &str) -> Result<(Arc<rustls::ClientConfig>, String), ClientError> {
     let hostname = extract_hostname(server).to_string();
 
     // Check for pinned fingerprints (testing/bootstrap escape hatch)
     let fingerprints = match std::env::var("LINKKEYS_FINGERPRINTS") {
         Ok(pinned) => {
-            let fps: Vec<String> = pinned.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+            let fps: Vec<String> = pinned
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
             if fps.is_empty() {
                 return Err(ClientError::Tls(
                     "LINKKEYS_FINGERPRINTS is set but empty".to_string(),
@@ -125,8 +127,12 @@ fn resolve_tls_config(
         }
         Err(_) => {
             // Resolve from DNS — fail closed
-            crate::dns::resolve_fingerprints(&hostname)
-                .map_err(|e| ClientError::Tls(format!("DNS fingerprint resolution for {}: {}", hostname, e)))?
+            linkkeys::dns::resolve_fingerprints(&hostname).map_err(|e| {
+                ClientError::Tls(format!(
+                    "DNS fingerprint resolution for {}: {}",
+                    hostname, e
+                ))
+            })?
         }
     };
 
@@ -136,13 +142,11 @@ fn resolve_tls_config(
     // can still accept us — client auth is optional, app-layer auth via API key suffices.
     let config = match load_own_domain_cert() {
         Ok((cert_der, key_der)) => {
-            crate::tcp::tls::build_client_config_with_cert(fingerprints, cert_der, key_der)
+            linkkeys::tcp::tls::build_client_config_with_cert(fingerprints, cert_der, key_der)
                 .map_err(|e| ClientError::Tls(format!("TLS config: {}", e)))?
         }
-        Err(_) => {
-            crate::tcp::tls::build_client_config(fingerprints)
-                .map_err(|e| ClientError::Tls(format!("TLS config: {}", e)))?
-        }
+        Err(_) => linkkeys::tcp::tls::build_client_config(fingerprints)
+            .map_err(|e| ClientError::Tls(format!("TLS config: {}", e)))?,
     };
 
     Ok((config, hostname))
@@ -153,30 +157,26 @@ fn resolve_tls_config(
 /// DOMAIN_KEY_PASSPHRASE available. These are our own keys — we never need
 /// or access another domain's private keys.
 fn load_own_domain_cert() -> Result<(Vec<u8>, Vec<u8>), Box<dyn std::error::Error>> {
-    let passphrase = std::env::var("DOMAIN_KEY_PASSPHRASE")
-        .map_err(|_| "DOMAIN_KEY_PASSPHRASE not set")?;
+    let passphrase =
+        std::env::var("DOMAIN_KEY_PASSPHRASE").map_err(|_| "DOMAIN_KEY_PASSPHRASE not set")?;
 
     let db_pool = linkkeys::db::create_pool();
     let domain_keys = db_pool
         .list_active_domain_keys()
         .map_err(|e| format!("Failed to list domain keys: {}", e))?;
 
-    let dk = domain_keys
-        .first()
-        .ok_or("No active domain keys")?;
+    let dk = domain_keys.first().ok_or("No active domain keys")?;
 
-    let sk_bytes = liblinkkeys::crypto::decrypt_private_key(
-        &dk.private_key_encrypted,
-        passphrase.as_bytes(),
-    )
-    .map_err(|e| format!("Failed to decrypt domain key: {}", e))?;
+    let sk_bytes =
+        liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, passphrase.as_bytes())
+            .map_err(|e| format!("Failed to decrypt domain key: {}", e))?;
 
     let seed: [u8; 32] = sk_bytes
         .try_into()
         .map_err(|_| "Domain key is not 32 bytes")?;
 
     let domain_name = linkkeys::conversions::get_domain_name();
-    crate::tcp::tls::generate_domain_tls_cert(&domain_name, &seed)
+    linkkeys::tcp::tls::generate_domain_tls_cert(&domain_name, &seed)
 }
 
 /// Send a frame: 4-byte big-endian length prefix + payload.
@@ -314,7 +314,10 @@ mod tests {
     fn test_extract_hostname_with_port() {
         assert_eq!(extract_hostname("example.com:4987"), "example.com");
         assert_eq!(extract_hostname("localhost:4987"), "localhost");
-        assert_eq!(extract_hostname("auth.example.com:8443"), "auth.example.com");
+        assert_eq!(
+            extract_hostname("auth.example.com:8443"),
+            "auth.example.com"
+        );
     }
 
     #[test]

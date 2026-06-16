@@ -78,7 +78,10 @@ pub fn active_signers(
 }
 
 /// Sign `spec` with all `signers`, binding the local domain into each signature.
-pub fn sign_with_active(spec: &ClaimSpec<'_>, signers: &[ActiveSigner]) -> Result<Claim, SignerError> {
+pub fn sign_with_active(
+    spec: &ClaimSpec<'_>,
+    signers: &[ActiveSigner],
+) -> Result<Claim, SignerError> {
     let domain = get_domain_name();
     let claim_signers: Vec<ClaimSigner> = signers
         .iter()

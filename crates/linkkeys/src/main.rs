@@ -1,12 +1,10 @@
 extern crate rocket;
 
 mod cli;
-mod dns;
-mod tcp;
 
 use clap::Parser;
 use cli::{
-    AccountCommands, Cli, ClaimCommands, Commands, DomainCommands, RelationCommands, UserCommands,
+    AccountCommands, ClaimCommands, Cli, Commands, DomainCommands, RelationCommands, UserCommands,
 };
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -31,16 +29,24 @@ async fn main() {
                 thread::spawn(move || {
                     linkkeys::db::run_migrations_with_locking(&pool, flag);
                     resign_legacy_claims_on_startup(&pool);
+                    match pool.backfill_profiles() {
+                        Ok(n) if n > 0 => log::info!("Backfilled profiles for {} account(s)", n),
+                        Ok(_) => {}
+                        Err(e) => log::error!("Profile backfill failed: {}", e),
+                    }
                 });
             }
 
             {
                 let flag = ready_flag.clone();
                 let pool = db_pool.clone();
-                thread::spawn(move || match tcp::TcpServer::new(flag, pool) {
-                    Ok(server) => server.run(),
-                    Err(e) => log::error!("Failed to start TCP server: {}", e),
-                });
+                let tcp_dns = linkkeys::net::Net::production().dns;
+                thread::spawn(
+                    move || match linkkeys::tcp::TcpServer::new(flag, pool, tcp_dns) {
+                        Ok(server) => server.run(),
+                        Err(e) => log::error!("Failed to start TCP server: {}", e),
+                    },
+                );
             }
 
             linkkeys::web::launch_rocket(db_pool, ready_flag).await;
@@ -55,7 +61,13 @@ async fn main() {
             api_key,
             admin,
         }) => {
-            user_create(&username, &display_name, password.as_deref(), api_key, admin);
+            user_create(
+                &username,
+                &display_name,
+                password.as_deref(),
+                api_key,
+                admin,
+            );
         }
         Commands::User(UserCommands::List { server }) => user_list(server.as_deref()),
         Commands::User(UserCommands::Update {
@@ -132,7 +144,8 @@ fn resign_legacy_claims_on_startup(pool: &linkkeys::db::DbPool) {
         .iter()
         .filter(|c| {
             let claim: liblinkkeys::generated::types::Claim = (*c).into();
-            if liblinkkeys::claims::verify_claim_signatures(&claim, &subject_domain, &keysets).is_ok()
+            if liblinkkeys::claims::verify_claim_signatures(&claim, &subject_domain, &keysets)
+                .is_ok()
             {
                 return false;
             }
@@ -188,7 +201,11 @@ fn resign_legacy_claims_on_startup(pool: &linkkeys::db::DbPool) {
             }
         };
         if let Err(e) = pool.replace_claim_signatures(&c.id, &signed.signatures) {
-            log::error!("re-sign backfill: failed to store signatures for {}: {}", c.id, e);
+            log::error!(
+                "re-sign backfill: failed to store signatures for {}: {}",
+                c.id,
+                e
+            );
             continue;
         }
         resigned += 1;
@@ -326,8 +343,11 @@ fn domain_init() {
 /// Generate the domain's three staggered-expiry Ed25519 signing keypairs.
 fn generate_signing_keys(db_pool: &linkkeys::db::DbPool, passphrase: &str) {
     println!("Generating 3 domain keypairs...");
-    generate_and_store_keypairs(db_pool, passphrase, &[2, 3, 4], |pool, pk, enc, fp, exp| {
-        match pool {
+    generate_and_store_keypairs(
+        db_pool,
+        passphrase,
+        &[2, 3, 4],
+        |pool, pk, enc, fp, exp| match pool {
             #[cfg(feature = "postgres")]
             linkkeys::db::DbPool::Postgres(p) => {
                 let mut conn = p.get().map_err(|e| e.to_string())?;
@@ -355,8 +375,8 @@ fn generate_signing_keys(db_pool: &linkkeys::db::DbPool, passphrase: &str) {
                 })
                 .map_err(|e| e.to_string())
             }
-        }
-    });
+        },
+    );
 }
 
 /// Generate the domain's X25519 encryption key (sealed-box recipient), vouched
@@ -377,12 +397,14 @@ fn generate_and_store_encryption_key(db_pool: &linkkeys::db::DbPool, passphrase:
             eprintln!("No signing key available to vouch for the encryption key");
             std::process::exit(1);
         });
-    let signer_sk =
-        liblinkkeys::crypto::decrypt_private_key(&signer.private_key_encrypted, passphrase.as_bytes())
-            .unwrap_or_else(|e| {
-                eprintln!("Failed to decrypt signing key: {}", e);
-                std::process::exit(1);
-            });
+    let signer_sk = liblinkkeys::crypto::decrypt_private_key(
+        &signer.private_key_encrypted,
+        passphrase.as_bytes(),
+    )
+    .unwrap_or_else(|e| {
+        eprintln!("Failed to decrypt signing key: {}", e);
+        std::process::exit(1);
+    });
     let signer_alg = liblinkkeys::crypto::SigningAlgorithm::parse_str(&signer.algorithm)
         .unwrap_or_else(|| {
             eprintln!("Unsupported signing algorithm: {}", signer.algorithm);
@@ -401,16 +423,21 @@ fn generate_and_store_encryption_key(db_pool: &linkkeys::db::DbPool, passphrase:
         .unwrap();
     let expires_str = expires.to_rfc3339();
 
-    let vouch =
-        liblinkkeys::dns::sign_key_vouch(&enc_fp, &expires_str, signer_alg, &signer_sk)
-            .expect("Failed to sign encryption-key vouch");
+    let vouch = liblinkkeys::dns::sign_key_vouch(&enc_fp, &expires_str, signer_alg, &signer_sk)
+        .expect("Failed to sign encryption-key vouch");
 
     let result = match db_pool {
         #[cfg(feature = "postgres")]
         linkkeys::db::DbPool::Postgres(p) => {
             let mut conn = p.get().expect("Failed to get connection");
             linkkeys::db::domain_keys::pg::create_encryption_key(
-                &mut conn, &enc_pub, &enc_priv_encrypted, &enc_fp, &signer.id, &vouch, expires,
+                &mut conn,
+                &enc_pub,
+                &enc_priv_encrypted,
+                &enc_fp,
+                &signer.id,
+                &vouch,
+                expires,
             )
             .map(|k| k.id)
             .map_err(|e| e.to_string())
@@ -419,14 +446,23 @@ fn generate_and_store_encryption_key(db_pool: &linkkeys::db::DbPool, passphrase:
         linkkeys::db::DbPool::Sqlite(p) => {
             let mut conn = p.get().expect("Failed to get connection");
             linkkeys::db::domain_keys::sqlite::create_encryption_key(
-                &mut conn, &enc_pub, &enc_priv_encrypted, &enc_fp, &signer.id, &vouch, &expires_str,
+                &mut conn,
+                &enc_pub,
+                &enc_priv_encrypted,
+                &enc_fp,
+                &signer.id,
+                &vouch,
+                &expires_str,
             )
             .map(|k| k.id)
             .map_err(|e| e.to_string())
         }
     };
     match result {
-        Ok(id) => println!("  Encryption key {}: fingerprint={} (vouched by {})", id, enc_fp, signer.id),
+        Ok(id) => println!(
+            "  Encryption key {}: fingerprint={} (vouched by {})",
+            id, enc_fp, signer.id
+        ),
         Err(e) => {
             eprintln!("Failed to store encryption key: {}", e);
             std::process::exit(1);
@@ -763,7 +799,12 @@ fn handle_relation_command(cmd: RelationCommands) {
                     .unwrap_or_default();
                 println!(
                     "  {} ({} {} -> {} {} {}){}",
-                    r.id, r.subject_type, r.subject_id, r.relation, r.object_type, r.object_id,
+                    r.id,
+                    r.subject_type,
+                    r.subject_id,
+                    r.relation,
+                    r.object_type,
+                    r.object_id,
                     removed
                 );
             }
@@ -786,17 +827,11 @@ fn handle_relation_command(cmd: RelationCommands) {
             };
 
             let resp: liblinkkeys::generated::types::CheckPermissionResponse =
-                cli::tcp_client::send_request(
-                    &addr,
-                    "Admin",
-                    "check-permission",
-                    &req,
-                    Some(&key),
-                )
-                .unwrap_or_else(|e| {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                });
+                cli::tcp_client::send_request(&addr, "Admin", "check-permission", &req, Some(&key))
+                    .unwrap_or_else(|e| {
+                        eprintln!("Error: {}", e);
+                        std::process::exit(1);
+                    });
 
             if resp.allowed {
                 println!(
@@ -835,11 +870,17 @@ fn handle_account_command(cmd: AccountCommands) {
             };
 
             let resp: liblinkkeys::generated::types::ChangePasswordResponse =
-                cli::tcp_client::send_request(&addr, "Account", "change-password", &req, Some(&key))
-                    .unwrap_or_else(|e| {
-                        eprintln!("Error: {}", e);
-                        std::process::exit(1);
-                    });
+                cli::tcp_client::send_request(
+                    &addr,
+                    "Account",
+                    "change-password",
+                    &req,
+                    Some(&key),
+                )
+                .unwrap_or_else(|e| {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                });
 
             if resp.success {
                 println!("Password changed successfully.");
@@ -862,7 +903,10 @@ fn handle_account_command(cmd: AccountCommands) {
                         std::process::exit(1);
                     });
 
-            println!("User: {} {} ({})", resp.user.id, resp.user.username, resp.user.display_name);
+            println!(
+                "User: {} {} ({})",
+                resp.user.id, resp.user.username, resp.user.display_name
+            );
             if !resp.relations.is_empty() {
                 println!("Relations:");
                 for r in &resp.relations {
@@ -1050,7 +1094,11 @@ async fn domain_dns_check() {
                     println!("  TXT: \"{}\"", txt_str);
                     println!("    Fingerprints in DNS: {}", parsed.fingerprints.len());
                     for fp in &parsed.fingerprints {
-                        let status = if fingerprints.contains(fp) { "OK" } else { "NOT IN DB" };
+                        let status = if fingerprints.contains(fp) {
+                            "OK"
+                        } else {
+                            "NOT IN DB"
+                        };
                         println!("      {} [{}]", fp, status);
                     }
                     let missing: Vec<&String> = fingerprints
@@ -1069,7 +1117,10 @@ async fn domain_dns_check() {
                 println!("  No valid _linkkeys record found. Add the expected record above.");
             }
         }
-        Err(e) => println!("  No TXT records found: {} (add the expected record above)", e),
+        Err(e) => println!(
+            "  No TXT records found: {} (add the expected record above)",
+            e
+        ),
     }
     println!();
 
@@ -1084,14 +1135,20 @@ async fn domain_dns_check() {
                     found = true;
                     println!("  TXT: \"{}\"", txt_str);
                     println!("    tcp:   {}", parsed.tcp.as_deref().unwrap_or("(none)"));
-                    println!("    https: {}", parsed.https_base.as_deref().unwrap_or("(none)"));
+                    println!(
+                        "    https: {}",
+                        parsed.https_base.as_deref().unwrap_or("(none)")
+                    );
                 }
             }
             if !found {
                 println!("  No valid _linkkeys_apis record found. Add the expected record above.");
             }
         }
-        Err(e) => println!("  No TXT records found: {} (add the expected record above)", e),
+        Err(e) => println!(
+            "  No TXT records found: {} (add the expected record above)",
+            e
+        ),
     }
 
     println!();

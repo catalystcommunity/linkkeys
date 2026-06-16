@@ -44,8 +44,15 @@ fn add_encryption_key(pool: &linkkeys::db::DbPool, signer_id: &str, signer_sk: &
         signer_sk,
     )
     .unwrap();
-    pool.create_domain_encryption_key(&enc_pub, &enc_priv_encrypted, &enc_fp, signer_id, &vouch, expires)
-        .expect("create_domain_encryption_key");
+    pool.create_domain_encryption_key(
+        &enc_pub,
+        &enc_priv_encrypted,
+        &enc_fp,
+        signer_id,
+        &vouch,
+        expires,
+    )
+    .expect("create_domain_encryption_key");
 }
 
 #[test]
@@ -73,7 +80,10 @@ fn pick_active_signing_key_never_returns_encryption_key() {
     // Pre-fix this fails with overwhelming probability (1/4 per draw).
     for _ in 0..512 {
         let k = pick_active_signing_key(&keys).expect("a signing key is available");
-        assert_eq!(k.key_usage, "sign", "a signing path selected an encryption key");
+        assert_eq!(
+            k.key_usage, "sign",
+            "a signing path selected an encryption key"
+        );
     }
 }
 

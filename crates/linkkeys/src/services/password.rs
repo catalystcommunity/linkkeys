@@ -22,7 +22,10 @@ pub fn validate(password: &str) -> Result<(), ServiceError> {
     if password.len() < MIN_PASSWORD_LENGTH {
         return Err(ServiceError {
             code: 400,
-            message: format!("Password must be at least {} characters", MIN_PASSWORD_LENGTH),
+            message: format!(
+                "Password must be at least {} characters",
+                MIN_PASSWORD_LENGTH
+            ),
         });
     }
     if password.len() > MAX_PASSWORD_LENGTH {

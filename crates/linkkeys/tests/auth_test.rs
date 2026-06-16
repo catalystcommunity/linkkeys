@@ -99,7 +99,11 @@ fn test_generate_api_key_format() {
     let parts: Vec<&str> = api_key.splitn(2, '.').collect();
     assert_eq!(parts.len(), 2, "API key should have prefix.secret format");
     assert_eq!(parts[0].len(), 8, "Prefix should be 8 chars");
-    assert_eq!(parts[0], &user_id[..8], "Prefix should match first 8 chars of user_id");
+    assert_eq!(
+        parts[0],
+        &user_id[..8],
+        "Prefix should match first 8 chars of user_id"
+    );
     assert!(!parts[1].is_empty(), "Secret should not be empty");
 
     // Hash should be valid bcrypt
@@ -138,12 +142,20 @@ fn test_domain_key_private_key_encrypted() {
     let dk = common::data_factory::create_domain_key(&pool);
 
     // The stored private key should not be the raw 32-byte seed
-    assert_ne!(dk.private_key_encrypted.len(), 32, "Private key should be encrypted, not raw");
+    assert_ne!(
+        dk.private_key_encrypted.len(),
+        32,
+        "Private key should be encrypted, not raw"
+    );
     // Encrypted format: 16 salt + 12 nonce + ciphertext (32 + 16 tag = 48)
-    assert!(dk.private_key_encrypted.len() >= 76, "Encrypted key should be at least 76 bytes");
+    assert!(
+        dk.private_key_encrypted.len() >= 76,
+        "Encrypted key should be at least 76 bytes"
+    );
 
     // Should decrypt with the right passphrase
-    let decrypted = liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, b"test-passphrase");
+    let decrypted =
+        liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, b"test-passphrase");
     assert!(decrypted.is_ok());
     assert_eq!(decrypted.unwrap().len(), 32);
 
@@ -180,7 +192,10 @@ fn test_password_auth_flow_correct_password() {
     let verified = creds
         .iter()
         .any(|c| bcrypt::verify(password, &c.credential_hash).unwrap_or(false));
-    assert!(verified, "Correct password should authenticate successfully");
+    assert!(
+        verified,
+        "Correct password should authenticate successfully"
+    );
 }
 
 #[test]
@@ -201,10 +216,7 @@ fn test_password_auth_flow_wrong_password() {
     let verified = creds
         .iter()
         .any(|c| bcrypt::verify("wrong-password", &c.credential_hash).unwrap_or(false));
-    assert!(
-        !verified,
-        "Wrong password should not authenticate"
-    );
+    assert!(!verified, "Wrong password should not authenticate");
 }
 
 #[test]
@@ -212,8 +224,7 @@ fn test_expired_credential_rejected_in_auth_flow() {
     let pool = common::create_test_pool();
     let user = create_user(&pool, &DataMap::new());
     let hash = bcrypt::hash("will-expire", 4).unwrap();
-    let cred =
-        create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_PASSWORD, &hash);
+    let cred = create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_PASSWORD, &hash);
 
     // Expire the credential
     let past = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
@@ -271,8 +282,7 @@ fn test_revoked_credential_not_returned_in_auth_flow() {
     let pool = common::create_test_pool();
     let user = create_user(&pool, &DataMap::new());
     let hash = bcrypt::hash("revoke-me", 4).unwrap();
-    let cred =
-        create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_PASSWORD, &hash);
+    let cred = create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_PASSWORD, &hash);
 
     pool.remove_credential(&cred.id).unwrap();
 
@@ -324,10 +334,14 @@ fn test_password_authenticator_accepts_long_password() {
     create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_PASSWORD, &hash);
 
     let authenticator = PasswordAuthenticator::new(pool.clone());
-    assert!(authenticator.authenticate("long-pw-user", &password).is_ok());
+    assert!(authenticator
+        .authenticate("long-pw-user", &password)
+        .is_ok());
     // A password sharing the first 72 bytes but differing after must be rejected.
     let near_miss = format!("{}y", "x".repeat(199));
-    assert!(authenticator.authenticate("long-pw-user", &near_miss).is_err());
+    assert!(authenticator
+        .authenticate("long-pw-user", &near_miss)
+        .is_err());
 }
 
 #[test]
@@ -341,9 +355,16 @@ fn test_password_authenticator_verifies_legacy_bcrypt_and_upgrades() {
     );
     let password = "legacy-bcrypt-password";
     let bcrypt_hash = bcrypt::hash(password, 4).unwrap();
-    let cred =
-        create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_PASSWORD, &bcrypt_hash);
-    assert!(cred.credential_hash.starts_with("$2"), "precondition: bcrypt hash");
+    let cred = create_auth_credential(
+        &pool,
+        &user.id,
+        auth::CREDENTIAL_TYPE_PASSWORD,
+        &bcrypt_hash,
+    );
+    assert!(
+        cred.credential_hash.starts_with("$2"),
+        "precondition: bcrypt hash"
+    );
 
     let authenticator = PasswordAuthenticator::new(pool.clone());
     let authed = authenticator
@@ -355,7 +376,11 @@ fn test_password_authenticator_verifies_legacy_bcrypt_and_upgrades() {
     let creds = pool
         .find_credentials_for_user(&user.id, auth::CREDENTIAL_TYPE_PASSWORD)
         .unwrap();
-    assert_eq!(creds.len(), 1, "upgrade must not create a second credential");
+    assert_eq!(
+        creds.len(),
+        1,
+        "upgrade must not create a second credential"
+    );
     assert_eq!(creds[0].id, cred.id, "upgrade must reuse the credential id");
     assert!(
         creds[0].credential_hash.starts_with("$argon2"),

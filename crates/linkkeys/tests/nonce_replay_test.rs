@@ -10,8 +10,14 @@ use std::time::Duration;
 fn test_first_use_then_replay_rejected() {
     let pool = common::create_test_pool();
     let ttl = Duration::from_secs(300);
-    assert!(pool.record_nonce("nonce-a", ttl).unwrap(), "first use must succeed");
-    assert!(!pool.record_nonce("nonce-a", ttl).unwrap(), "replay must be rejected");
+    assert!(
+        pool.record_nonce("nonce-a", ttl).unwrap(),
+        "first use must succeed"
+    );
+    assert!(
+        !pool.record_nonce("nonce-a", ttl).unwrap(),
+        "replay must be rejected"
+    );
 }
 
 #[test]

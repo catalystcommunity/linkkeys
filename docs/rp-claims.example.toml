@@ -1,0 +1,37 @@
+# Example relying-party claim requirements.
+#
+# Point the server at this file with the RP_CLAIMS_CONFIG env var when it acts
+# as a relying party. It drives the `requested_claims` of the AuthRequest the RP
+# signs, which in turn drives the IDP's consent screen. Absent/empty => the RP
+# requests nothing (authentication only).
+#
+# `datatype` is advisory metadata for the consent UI and RP-side validation —
+# one of "text", "int", "float", "bool", "date", "email", "url" (extensible).
+# Claim values remain opaque bytes on the wire.
+
+# Declining a `required` claim aborts the login (the RP won't function without it).
+[[required]]
+claim_type = "email"
+datatype   = "email"
+
+# `optional` claims are best-effort: the user may grant any subset.
+[[optional]]
+claim_type = "display_name"
+datatype   = "text"
+
+[[optional]]
+claim_type = "avatar"
+datatype   = "url"
+
+# Claims the RP asserts ABOUT ITSELF, self-signed with the RP's own domain key
+# at request time. The IDP verifies, may apply policy on them, and RECORDS them
+# with the consent grant — so e.g. a named privacy policy the RP offers becomes
+# a non-repudiable agreement, recorded even if no user data is released.
+[[self_claims]]
+claim_type = "privacy_policy"
+value      = "example-privacy-standard-v1"
+
+# Third-party-attested claims about this RP (e.g. a government registry signing
+# `government_entity`) are NOT configured here — the RP doesn't hold the
+# signer's key. Instead, point RP_DOMAIN_CLAIMS_SIGNED at a file with one
+# base64url(CBOR(DomainClaim)) per line; they are attached verbatim.

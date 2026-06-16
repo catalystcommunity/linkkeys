@@ -184,7 +184,7 @@ pub struct DomainKeySet {
 /// Verify one signature against a set of candidate keys for its domain: the
 /// referenced key must exist, be currently valid, and the signature must check
 /// out over `payload`.
-fn verify_one_signature(
+pub(crate) fn verify_one_signature(
     sig: &ClaimSignature,
     payload: &[u8],
     keys: &[DomainPublicKey],
@@ -229,20 +229,8 @@ pub fn verify_claim_signatures(
     subject_domain: &str,
     domain_keys: &[DomainKeySet],
 ) -> Result<(), ClaimError> {
-    if claim.signatures.is_empty() {
-        return Err(ClaimError::Unsigned);
-    }
-
-    // Distinct signing domains, in stable order for deterministic errors.
-    let domains: BTreeSet<&str> = claim.signatures.iter().map(|s| s.domain.as_str()).collect();
-
-    for signing_domain in domains {
-        let set = domain_keys
-            .iter()
-            .find(|s| s.domain == signing_domain)
-            .ok_or_else(|| ClaimError::DomainKeysUnavailable(signing_domain.to_string()))?;
-
-        let payload = claim_sign_payload(
+    verify_signature_quorum(&claim.signatures, domain_keys, |signing_domain| {
+        claim_sign_payload(
             &claim.claim_id,
             &claim.claim_type,
             &claim.claim_value,
@@ -250,14 +238,47 @@ pub fn verify_claim_signatures(
             subject_domain,
             signing_domain,
             claim.expires_at.as_deref(),
-        );
+        )
+    })
+}
+
+/// The cryptographic per-domain quorum shared by claim and consent-grant
+/// verification: **every** distinct domain that signed must contribute at least
+/// one signature from a currently-valid key of that domain, over the payload
+/// `payload_for(signing_domain)` produces for it. Empty signatures is
+/// [`ClaimError::Unsigned`]; a domain with no supplied keys is
+/// [`ClaimError::DomainKeysUnavailable`] so the caller can fetch and retry. This
+/// function performs no I/O.
+///
+/// `payload_for` is invoked once per distinct signing domain because each
+/// signature binds its own attesting domain into the signed bytes — the payload
+/// is not the same for two different domains.
+pub(crate) fn verify_signature_quorum(
+    signatures: &[ClaimSignature],
+    domain_keys: &[DomainKeySet],
+    payload_for: impl Fn(&str) -> Vec<u8>,
+) -> Result<(), ClaimError> {
+    if signatures.is_empty() {
+        return Err(ClaimError::Unsigned);
+    }
+
+    // Distinct signing domains, in stable order for deterministic errors.
+    let domains: BTreeSet<&str> = signatures.iter().map(|s| s.domain.as_str()).collect();
+
+    for signing_domain in domains {
+        let set = domain_keys
+            .iter()
+            .find(|s| s.domain == signing_domain)
+            .ok_or_else(|| ClaimError::DomainKeysUnavailable(signing_domain.to_string()))?;
+
+        let payload = payload_for(signing_domain);
 
         // The domain is satisfied as soon as one of its signatures verifies. If
         // none do, surface the most recent concrete reason (a single-signature
         // domain therefore yields its exact error: KeyNotFound, KeyRevoked, …).
         let mut last_err = ClaimError::DomainUnverified(signing_domain.to_string());
         let mut satisfied = false;
-        for sig in claim.signatures.iter().filter(|s| s.domain == signing_domain) {
+        for sig in signatures.iter().filter(|s| s.domain == signing_domain) {
             match verify_one_signature(sig, &payload, &set.keys) {
                 Ok(()) => {
                     satisfied = true;
@@ -288,7 +309,8 @@ pub fn verify_claim(
         return Err(ClaimError::Revoked);
     }
     if let Some(exp) = claim.expires_at.as_deref() {
-        let expires = chrono::DateTime::parse_from_rfc3339(exp).map_err(|_| ClaimError::BadExpiry)?;
+        let expires =
+            chrono::DateTime::parse_from_rfc3339(exp).map_err(|_| ClaimError::BadExpiry)?;
         if Utc::now() > expires {
             return Err(ClaimError::Expired);
         }
@@ -492,7 +514,10 @@ mod tests {
             &[],
         )
         .unwrap();
-        assert!(matches!(verify(&claim, &keyset(vec![])), Err(ClaimError::Unsigned)));
+        assert!(matches!(
+            verify(&claim, &keyset(vec![])),
+            Err(ClaimError::Unsigned)
+        ));
     }
 
     #[test]
@@ -522,7 +547,11 @@ mod tests {
                 subject_domain: DOMAIN,
                 expires_at: None,
             },
-            &[signer("key-1", &sk1), signer("key-2", &sk2), signer("key-3", &sk3)],
+            &[
+                signer("key-1", &sk1),
+                signer("key-2", &sk2),
+                signer("key-3", &sk3),
+            ],
         )
         .unwrap();
         assert_eq!(claim.signatures.len(), 3);
@@ -609,7 +638,10 @@ mod tests {
         // Missing one domain's keys -> DomainKeysUnavailable for it.
         match verify(&claim, &[gov.clone_for_test()]) {
             Err(ClaimError::DomainKeysUnavailable(d)) => assert_eq!(d, "bank.example"),
-            other => panic!("expected DomainKeysUnavailable(bank.example), got {:?}", other),
+            other => panic!(
+                "expected DomainKeysUnavailable(bank.example), got {:?}",
+                other
+            ),
         }
     }
 
@@ -627,7 +659,10 @@ mod tests {
             domain: "evil.example".to_string(),
             keys: vec![make_domain_key("key-1", &pk)],
         };
-        assert!(matches!(verify(&claim, &[spoof]), Err(ClaimError::SignatureInvalid)));
+        assert!(matches!(
+            verify(&claim, &[spoof]),
+            Err(ClaimError::SignatureInvalid)
+        ));
     }
 
     #[test]
