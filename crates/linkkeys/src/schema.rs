@@ -37,6 +37,7 @@ pub mod pg {
             is_active -> Bool,
             created_at -> Timestamptz,
             updated_at -> Timestamptz,
+            is_admin_account -> Bool,
         }
     }
 
@@ -203,6 +204,7 @@ pub mod sqlite {
             is_active -> Integer,
             created_at -> Text,
             updated_at -> Text,
+            is_admin_account -> Integer,
         }
     }
 

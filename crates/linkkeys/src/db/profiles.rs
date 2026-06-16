@@ -95,7 +95,11 @@ pub mod pg {
     /// returns how many accounts were backfilled.
     pub fn backfill(conn: &mut diesel::PgConnection, domain: &str) -> QueryResult<usize> {
         use crate::schema::pg::users;
-        let user_ids: Vec<uuid::Uuid> = users::table.select(users::id).load(conn)?;
+        // Admin accounts must never get a presentable profile.
+        let user_ids: Vec<uuid::Uuid> = users::table
+            .filter(users::is_admin_account.eq(false))
+            .select(users::id)
+            .load(conn)?;
         let existing: Vec<uuid::Uuid> = profiles::table.select(profiles::account_id).load(conn)?;
         let have: std::collections::HashSet<uuid::Uuid> = existing.into_iter().collect();
         let mut count = 0;
@@ -205,7 +209,10 @@ pub mod sqlite {
 
     pub fn backfill(conn: &mut diesel::SqliteConnection, domain: &str) -> QueryResult<usize> {
         use crate::schema::sqlite::users;
-        let user_ids: Vec<String> = users::table.select(users::id).load(conn)?;
+        let user_ids: Vec<String> = users::table
+            .filter(users::is_admin_account.eq(0))
+            .select(users::id)
+            .load(conn)?;
         let existing: Vec<String> = profiles::table.select(profiles::account_id).load(conn)?;
         let have: std::collections::HashSet<String> = existing.into_iter().collect();
         let mut count = 0;

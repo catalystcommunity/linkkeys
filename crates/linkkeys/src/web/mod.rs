@@ -1077,6 +1077,15 @@ async fn handle_signed_request_post(
         Err(_) => return Err(render_form_error("Invalid username or password.")),
     };
 
+    // Administrator accounts administer the domain and do not "go elsewhere":
+    // they have no presentable profile and may not be presented to a relying
+    // party. Refuse before showing any consent screen.
+    if user.is_admin_account {
+        return Err(render_error_page(
+            "This is an administrator account and cannot be used to sign in to applications.",
+        ));
+    }
+
     // Audience is the relying-party DOMAIN (what a verifier checks), not the
     // full callback URL. The login-request nonce is burned inside finalize_login
     // at token issuance — not here — so an abandoned consent screen doesn't
