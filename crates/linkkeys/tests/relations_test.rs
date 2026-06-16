@@ -30,10 +30,21 @@ fn test_remove_relation() {
 fn test_direct_permission_check() {
     let pool = common::create_test_pool();
     let user = create_user(&pool, &DataMap::new());
-    create_relation(&pool, "user", &user.id, "manage_users", "domain", "test.com");
+    create_relation(
+        &pool,
+        "user",
+        &user.id,
+        "manage_users",
+        "domain",
+        "test.com",
+    );
 
-    assert!(pool.check_permission(&user.id, "manage_users", "domain", "test.com").unwrap());
-    assert!(!pool.check_permission(&user.id, "manage_claims", "domain", "test.com").unwrap());
+    assert!(pool
+        .check_permission(&user.id, "manage_users", "domain", "test.com")
+        .unwrap());
+    assert!(!pool
+        .check_permission(&user.id, "manage_claims", "domain", "test.com")
+        .unwrap());
 }
 
 #[test]
@@ -42,12 +53,23 @@ fn test_deactivated_user_loses_permission() {
     // grants still exist in the graph.
     let pool = common::create_test_pool();
     let user = create_user(&pool, &DataMap::new());
-    create_relation(&pool, "user", &user.id, "manage_users", "domain", "test.com");
-    assert!(pool.check_permission(&user.id, "manage_users", "domain", "test.com").unwrap());
+    create_relation(
+        &pool,
+        "user",
+        &user.id,
+        "manage_users",
+        "domain",
+        "test.com",
+    );
+    assert!(pool
+        .check_permission(&user.id, "manage_users", "domain", "test.com")
+        .unwrap());
 
     pool.deactivate_user(&user.id).unwrap();
     assert!(
-        !pool.check_permission(&user.id, "manage_users", "domain", "test.com").unwrap(),
+        !pool
+            .check_permission(&user.id, "manage_users", "domain", "test.com")
+            .unwrap(),
         "deactivated user must not retain permissions"
     );
 }
@@ -59,13 +81,23 @@ fn test_admin_implies_all() {
     create_relation(&pool, "user", &user.id, "admin", "domain", "test.com");
 
     // Admin should pass any permission check on the same object
-    assert!(pool.check_permission(&user.id, "manage_users", "domain", "test.com").unwrap());
-    assert!(pool.check_permission(&user.id, "manage_claims", "domain", "test.com").unwrap());
-    assert!(pool.check_permission(&user.id, "api_access", "domain", "test.com").unwrap());
-    assert!(pool.check_permission(&user.id, "admin", "domain", "test.com").unwrap());
+    assert!(pool
+        .check_permission(&user.id, "manage_users", "domain", "test.com")
+        .unwrap());
+    assert!(pool
+        .check_permission(&user.id, "manage_claims", "domain", "test.com")
+        .unwrap());
+    assert!(pool
+        .check_permission(&user.id, "api_access", "domain", "test.com")
+        .unwrap());
+    assert!(pool
+        .check_permission(&user.id, "admin", "domain", "test.com")
+        .unwrap());
 
     // But not on a different object
-    assert!(!pool.check_permission(&user.id, "admin", "domain", "other.com").unwrap());
+    assert!(!pool
+        .check_permission(&user.id, "admin", "domain", "other.com")
+        .unwrap());
 }
 
 #[test]
@@ -74,11 +106,15 @@ fn test_removed_relation_not_checked() {
     let user = create_user(&pool, &DataMap::new());
     let rel = create_relation(&pool, "user", &user.id, "admin", "domain", "test.com");
 
-    assert!(pool.check_permission(&user.id, "admin", "domain", "test.com").unwrap());
+    assert!(pool
+        .check_permission(&user.id, "admin", "domain", "test.com")
+        .unwrap());
 
     pool.remove_relation(&rel.id).unwrap();
 
-    assert!(!pool.check_permission(&user.id, "admin", "domain", "test.com").unwrap());
+    assert!(!pool
+        .check_permission(&user.id, "admin", "domain", "test.com")
+        .unwrap());
 }
 
 #[test]
@@ -90,13 +126,24 @@ fn test_group_transitive_permission() {
     create_relation(&pool, "user", &user.id, "member", "group", "engineering");
 
     // Engineering group has manage_users on domain
-    create_relation(&pool, "group", "engineering", "manage_users", "domain", "test.com");
+    create_relation(
+        &pool,
+        "group",
+        "engineering",
+        "manage_users",
+        "domain",
+        "test.com",
+    );
 
     // User should have manage_users through group membership
-    assert!(pool.check_permission(&user.id, "manage_users", "domain", "test.com").unwrap());
+    assert!(pool
+        .check_permission(&user.id, "manage_users", "domain", "test.com")
+        .unwrap());
 
     // But not manage_claims (group doesn't have it)
-    assert!(!pool.check_permission(&user.id, "manage_claims", "domain", "test.com").unwrap());
+    assert!(!pool
+        .check_permission(&user.id, "manage_claims", "domain", "test.com")
+        .unwrap());
 }
 
 #[test]
@@ -108,8 +155,12 @@ fn test_group_admin_implies_all() {
     create_relation(&pool, "group", "admins", "admin", "domain", "test.com");
 
     // Group admin should imply all permissions
-    assert!(pool.check_permission(&user.id, "manage_users", "domain", "test.com").unwrap());
-    assert!(pool.check_permission(&user.id, "manage_claims", "domain", "test.com").unwrap());
+    assert!(pool
+        .check_permission(&user.id, "manage_users", "domain", "test.com")
+        .unwrap());
+    assert!(pool
+        .check_permission(&user.id, "manage_claims", "domain", "test.com")
+        .unwrap());
 }
 
 #[test]
@@ -118,8 +169,12 @@ fn test_no_permission_without_relation() {
     let user = create_user(&pool, &DataMap::new());
 
     // No relations at all
-    assert!(!pool.check_permission(&user.id, "admin", "domain", "test.com").unwrap());
-    assert!(!pool.check_permission(&user.id, "manage_users", "domain", "test.com").unwrap());
+    assert!(!pool
+        .check_permission(&user.id, "admin", "domain", "test.com")
+        .unwrap());
+    assert!(!pool
+        .check_permission(&user.id, "manage_users", "domain", "test.com")
+        .unwrap());
 }
 
 #[test]

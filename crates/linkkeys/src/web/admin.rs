@@ -14,11 +14,7 @@ use liblinkkeys::generated::types::{
 
 use super::guard::AuthenticatedUser;
 
-fn require_permission(
-    pool: &DbPool,
-    user_id: &str,
-    relation: &str,
-) -> Result<(), Status> {
+fn require_permission(pool: &DbPool, user_id: &str, relation: &str) -> Result<(), Status> {
     let domain = get_domain_name();
     if !authorization::user_has_permission(pool, user_id, relation, "domain", &domain) {
         return Err(Status::Forbidden);
@@ -42,7 +38,11 @@ pub fn admin_list_users(
     pool: &State<DbPool>,
     user: AuthenticatedUser,
 ) -> Result<(ContentType, Vec<u8>), Status> {
-    require_permission(pool.inner(), &user.0.id, authorization::RELATION_MANAGE_USERS)?;
+    require_permission(
+        pool.inner(),
+        &user.0.id,
+        authorization::RELATION_MANAGE_USERS,
+    )?;
     let req = ListUsersRequest {
         offset: None,
         limit: None,
@@ -57,7 +57,11 @@ pub fn admin_get_user(
     user: AuthenticatedUser,
     user_id: &str,
 ) -> Result<(ContentType, Vec<u8>), Status> {
-    require_permission(pool.inner(), &user.0.id, authorization::RELATION_MANAGE_USERS)?;
+    require_permission(
+        pool.inner(),
+        &user.0.id,
+        authorization::RELATION_MANAGE_USERS,
+    )?;
     let req = liblinkkeys::generated::types::GetUserRequest {
         user_id: user_id.to_string(),
     };
@@ -71,7 +75,11 @@ pub fn admin_create_user(
     user: AuthenticatedUser,
     body: String,
 ) -> Result<(ContentType, Vec<u8>), Status> {
-    require_permission(pool.inner(), &user.0.id, authorization::RELATION_MANAGE_USERS)?;
+    require_permission(
+        pool.inner(),
+        &user.0.id,
+        authorization::RELATION_MANAGE_USERS,
+    )?;
     let req: CreateUserRequest = serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
     let resp = admin::create_user(pool.inner(), req).map_err(svc_err_to_status)?;
     json_ok(&resp)
@@ -84,9 +92,12 @@ pub fn admin_update_user(
     user_id: &str,
     body: String,
 ) -> Result<(ContentType, Vec<u8>), Status> {
-    require_permission(pool.inner(), &user.0.id, authorization::RELATION_MANAGE_USERS)?;
-    let mut req: UpdateUserRequest =
-        serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
+    require_permission(
+        pool.inner(),
+        &user.0.id,
+        authorization::RELATION_MANAGE_USERS,
+    )?;
+    let mut req: UpdateUserRequest = serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
     req.user_id = user_id.to_string();
     let resp = admin::update_user(pool.inner(), req).map_err(svc_err_to_status)?;
     json_ok(&resp)
@@ -98,7 +109,11 @@ pub fn admin_deactivate_user(
     user: AuthenticatedUser,
     user_id: &str,
 ) -> Result<(ContentType, Vec<u8>), Status> {
-    require_permission(pool.inner(), &user.0.id, authorization::RELATION_MANAGE_USERS)?;
+    require_permission(
+        pool.inner(),
+        &user.0.id,
+        authorization::RELATION_MANAGE_USERS,
+    )?;
     if user_id == user.0.id {
         return Err(Status::BadRequest); // Cannot deactivate yourself
     }
@@ -116,7 +131,11 @@ pub fn admin_reset_password(
     user_id: &str,
     body: String,
 ) -> Result<(ContentType, Vec<u8>), Status> {
-    require_permission(pool.inner(), &user.0.id, authorization::RELATION_MANAGE_USERS)?;
+    require_permission(
+        pool.inner(),
+        &user.0.id,
+        authorization::RELATION_MANAGE_USERS,
+    )?;
     let mut req: ResetPasswordRequest =
         serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
     req.user_id = user_id.to_string();
@@ -130,7 +149,11 @@ pub fn admin_remove_credential(
     user: AuthenticatedUser,
     id: &str,
 ) -> Result<(ContentType, Vec<u8>), Status> {
-    require_permission(pool.inner(), &user.0.id, authorization::RELATION_MANAGE_USERS)?;
+    require_permission(
+        pool.inner(),
+        &user.0.id,
+        authorization::RELATION_MANAGE_USERS,
+    )?;
     let req = RemoveCredentialRequest {
         credential_id: id.to_string(),
     };
@@ -145,9 +168,12 @@ pub fn admin_set_claim(
     user_id: &str,
     body: String,
 ) -> Result<(ContentType, Vec<u8>), Status> {
-    require_permission(pool.inner(), &user.0.id, authorization::RELATION_MANAGE_CLAIMS)?;
-    let mut req: SetClaimRequest =
-        serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
+    require_permission(
+        pool.inner(),
+        &user.0.id,
+        authorization::RELATION_MANAGE_CLAIMS,
+    )?;
+    let mut req: SetClaimRequest = serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
     req.user_id = user_id.to_string();
     let resp = admin::set_claim(pool.inner(), req).map_err(svc_err_to_status)?;
     json_ok(&resp)
@@ -159,7 +185,11 @@ pub fn admin_remove_claim(
     user: AuthenticatedUser,
     claim_id: &str,
 ) -> Result<(ContentType, Vec<u8>), Status> {
-    require_permission(pool.inner(), &user.0.id, authorization::RELATION_MANAGE_CLAIMS)?;
+    require_permission(
+        pool.inner(),
+        &user.0.id,
+        authorization::RELATION_MANAGE_CLAIMS,
+    )?;
     let req = RemoveClaimRequest {
         claim_id: claim_id.to_string(),
     };
@@ -174,8 +204,7 @@ pub fn admin_grant_relation(
     body: String,
 ) -> Result<(ContentType, Vec<u8>), Status> {
     require_permission(pool.inner(), &user.0.id, authorization::RELATION_ADMIN)?;
-    let req: GrantRelationRequest =
-        serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
+    let req: GrantRelationRequest = serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
     let resp = admin::grant_relation(pool.inner(), req).map_err(svc_err_to_status)?;
     json_ok(&resp)
 }

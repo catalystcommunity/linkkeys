@@ -29,8 +29,7 @@ pub mod pg {
         expires_at: chrono::DateTime<chrono::Utc>,
     ) -> QueryResult<bool> {
         let now = chrono::Utc::now();
-        diesel::delete(used_nonces::table.filter(used_nonces::expires_at.lt(now)))
-            .execute(conn)?;
+        diesel::delete(used_nonces::table.filter(used_nonces::expires_at.lt(now))).execute(conn)?;
         let inserted = diesel::insert_into(used_nonces::table)
             .values(NewUsedNonce { nonce, expires_at })
             .on_conflict_do_nothing()
@@ -61,8 +60,7 @@ pub mod sqlite {
         expires_at: &str,
     ) -> QueryResult<bool> {
         let now = chrono::Utc::now().to_rfc3339();
-        diesel::delete(used_nonces::table.filter(used_nonces::expires_at.lt(now)))
-            .execute(conn)?;
+        diesel::delete(used_nonces::table.filter(used_nonces::expires_at.lt(now))).execute(conn)?;
         let inserted = diesel::insert_into(used_nonces::table)
             .values(NewUsedNonce { nonce, expires_at })
             .on_conflict_do_nothing()

@@ -14,15 +14,21 @@ pub type DataMap = HashMap<String, Value>;
 
 #[allow(dead_code)]
 pub fn create_guestbook_entry(pool: &DbPool, overrides: &DataMap) -> GuestbookEntry {
-    let name = extract_str(overrides, "name", || format!("test-guest-{}", rand_suffix()));
+    let name = extract_str(overrides, "name", || {
+        format!("test-guest-{}", rand_suffix())
+    });
     pool.guestbook_create(&name)
         .expect("Failed to create test guestbook entry")
 }
 
 #[allow(dead_code)]
 pub fn create_user(pool: &DbPool, overrides: &DataMap) -> User {
-    let username = extract_str(overrides, "username", || format!("test-user-{}", rand_suffix()));
-    let display_name = extract_str(overrides, "display_name", || format!("Test User {}", rand_suffix()));
+    let username = extract_str(overrides, "username", || {
+        format!("test-user-{}", rand_suffix())
+    });
+    let display_name = extract_str(overrides, "display_name", || {
+        format!("Test User {}", rand_suffix())
+    });
     pool.create_user(&username, &display_name)
         .expect("Failed to create test user")
 }

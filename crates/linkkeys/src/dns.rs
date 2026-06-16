@@ -27,7 +27,7 @@ impl fmt::Display for DnsFingerprintError {
 
 impl std::error::Error for DnsFingerprintError {}
 
-/// Resolve domain key fingerprints from DNS TXT records.
+/// Resolve domain key fingerprints from DNS TXT records via the real resolver.
 /// Creates a short-lived single-threaded tokio runtime for the async DNS call.
 /// Fails closed: returns an error if DNS fails or no fingerprints are found.
 pub fn resolve_fingerprints(domain: &str) -> Result<Vec<String>, DnsFingerprintError> {
@@ -35,33 +35,27 @@ pub fn resolve_fingerprints(domain: &str) -> Result<Vec<String>, DnsFingerprintE
         .enable_all()
         .build()
         .map_err(|e| DnsFingerprintError::ResolverInit(e.to_string()))?;
-    resolve_fingerprints_on(&rt, domain)
+    let dns = crate::net::Net::production().dns;
+    resolve_fingerprints_with(&rt, dns.as_ref(), domain)
 }
 
-/// Resolve domain key fingerprints using an existing tokio runtime.
-/// Used by the ClientCertVerifier which keeps a runtime for its lifetime.
-pub fn resolve_fingerprints_on(
+/// Resolve domain key fingerprints through an injected [`DnsResolver`], using an
+/// existing runtime to drive the async lookup. This is the seam: the TLS client-
+/// cert verifier calls it with the process `Net`'s resolver in production and a
+/// static fake in tests, so the synchronous (rustls-invoked) handshake path can
+/// be exercised end-to-end without real DNS. Fails closed.
+pub fn resolve_fingerprints_with(
     runtime: &tokio::runtime::Runtime,
+    dns: &dyn crate::net::DnsResolver,
     domain: &str,
 ) -> Result<Vec<String>, DnsFingerprintError> {
-    runtime.block_on(async_resolve(domain))
-}
-
-async fn async_resolve(domain: &str) -> Result<Vec<String>, DnsFingerprintError> {
-    use hickory_resolver::TokioAsyncResolver;
-
     let dns_name = linkkeys_dns_name(domain);
-    let resolver = TokioAsyncResolver::tokio_from_system_conf()
-        .map_err(|e| DnsFingerprintError::ResolverInit(e.to_string()))?;
-
-    let response = resolver
-        .txt_lookup(&dns_name)
-        .await
+    let txts = runtime
+        .block_on(dns.txt_lookup(&dns_name))
         .map_err(|e| DnsFingerprintError::Lookup(e.to_string()))?;
 
-    for record in response.iter() {
-        let txt = record.to_string();
-        match parse_linkkeys_txt(&txt) {
+    for txt in &txts {
+        match parse_linkkeys_txt(txt) {
             Ok(parsed) => {
                 if parsed.fingerprints.is_empty() {
                     return Err(DnsFingerprintError::NoFingerprints);
@@ -91,14 +85,25 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        let result = resolve_fingerprints_on(&rt, "this-domain-does-not-exist-linkkeys-test.invalid");
+        let dns = crate::net::Net::production().dns;
+        let result = resolve_fingerprints_with(
+            &rt,
+            dns.as_ref(),
+            "this-domain-does-not-exist-linkkeys-test.invalid",
+        );
         assert!(result.is_err());
     }
 
     #[test]
     fn test_error_display() {
-        assert!(DnsFingerprintError::NoRecord.to_string().contains("no _linkkeys"));
-        assert!(DnsFingerprintError::NoFingerprints.to_string().contains("no fingerprints"));
-        assert!(DnsFingerprintError::Lookup("timeout".into()).to_string().contains("timeout"));
+        assert!(DnsFingerprintError::NoRecord
+            .to_string()
+            .contains("no _linkkeys"));
+        assert!(DnsFingerprintError::NoFingerprints
+            .to_string()
+            .contains("no fingerprints"));
+        assert!(DnsFingerprintError::Lookup("timeout".into())
+            .to_string()
+            .contains("timeout"));
     }
 }

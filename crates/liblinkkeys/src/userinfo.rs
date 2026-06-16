@@ -106,10 +106,8 @@ pub fn verify_user_info_request(
         _ => VerifyError::SignatureInvalid,
     })?;
 
-    let request: UserInfoRequest =
-        ciborium::de::from_reader(signed.request.as_slice()).map_err(|e| {
-            VerifyError::DeserializationFailed(format!("CBOR decode failed: {}", e))
-        })?;
+    let request: UserInfoRequest = ciborium::de::from_reader(signed.request.as_slice())
+        .map_err(|e| VerifyError::DeserializationFailed(format!("CBOR decode failed: {}", e)))?;
 
     let timestamp = chrono::DateTime::parse_from_rfc3339(&request.timestamp)
         .map_err(|e| VerifyError::DeserializationFailed(format!("invalid timestamp: {}", e)))?;
@@ -149,14 +147,9 @@ mod tests {
 
         let request =
             build_user_info_request(b"token-bytes".to_vec(), "app.example.com", "nonce-123");
-        let signed = sign_user_info_request(
-            &request,
-            "rp-key-1",
-            SigningAlgorithm::Ed25519,
-            &sk,
-            None,
-        )
-        .unwrap();
+        let signed =
+            sign_user_info_request(&request, "rp-key-1", SigningAlgorithm::Ed25519, &sk, None)
+                .unwrap();
 
         let verified = verify_user_info_request(&signed, &[key], 300).unwrap();
         assert_eq!(verified.relying_party, "app.example.com");
@@ -175,14 +168,9 @@ mod tests {
             timestamp: (Utc::now() - chrono::Duration::seconds(120)).to_rfc3339(),
             nonce: "nonce".to_string(),
         };
-        let signed = sign_user_info_request(
-            &request,
-            "rp-key-1",
-            SigningAlgorithm::Ed25519,
-            &sk,
-            None,
-        )
-        .unwrap();
+        let signed =
+            sign_user_info_request(&request, "rp-key-1", SigningAlgorithm::Ed25519, &sk, None)
+                .unwrap();
 
         let result = verify_user_info_request(&signed, &[key], 60);
         assert!(matches!(result, Err(VerifyError::Expired)));
@@ -195,14 +183,9 @@ mod tests {
         let key = make_signing_key("rp-key-2", &pk2);
 
         let request = build_user_info_request(b"token".to_vec(), "app.example.com", "nonce");
-        let signed = sign_user_info_request(
-            &request,
-            "rp-key-1",
-            SigningAlgorithm::Ed25519,
-            &sk1,
-            None,
-        )
-        .unwrap();
+        let signed =
+            sign_user_info_request(&request, "rp-key-1", SigningAlgorithm::Ed25519, &sk1, None)
+                .unwrap();
 
         let result = verify_user_info_request(&signed, &[key], 300);
         assert!(matches!(result, Err(VerifyError::KeyNotFound(_))));
@@ -214,14 +197,9 @@ mod tests {
         let key = make_signing_key("rp-key-1", &pk);
 
         let request = build_user_info_request(b"token".to_vec(), "app.example.com", "nonce");
-        let mut signed = sign_user_info_request(
-            &request,
-            "rp-key-1",
-            SigningAlgorithm::Ed25519,
-            &sk,
-            None,
-        )
-        .unwrap();
+        let mut signed =
+            sign_user_info_request(&request, "rp-key-1", SigningAlgorithm::Ed25519, &sk, None)
+                .unwrap();
 
         if let Some(byte) = signed.request.first_mut() {
             *byte ^= 0xff;
@@ -240,14 +218,9 @@ mod tests {
         key.key_usage = "encrypt".to_string();
 
         let request = build_user_info_request(b"token".to_vec(), "app.example.com", "nonce");
-        let signed = sign_user_info_request(
-            &request,
-            "rp-key-1",
-            SigningAlgorithm::Ed25519,
-            &sk,
-            None,
-        )
-        .unwrap();
+        let signed =
+            sign_user_info_request(&request, "rp-key-1", SigningAlgorithm::Ed25519, &sk, None)
+                .unwrap();
 
         let result = verify_user_info_request(&signed, &[key], 300);
         assert!(matches!(result, Err(VerifyError::SignatureInvalid)));

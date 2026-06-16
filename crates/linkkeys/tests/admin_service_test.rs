@@ -3,8 +3,8 @@ mod common;
 use common::data_factory::{
     create_auth_credential, create_domain_key, create_relation, create_user, DataMap,
 };
-use linkkeys::services::{admin, auth};
 use liblinkkeys::generated::types::*;
+use linkkeys::services::{admin, auth};
 use serde_json::Value;
 
 // -- User Management via Service Layer --
@@ -17,7 +17,10 @@ fn test_service_list_users() {
         &DataMap::from([("username".into(), Value::String("svc-list-user".into()))]),
     );
 
-    let req = ListUsersRequest { offset: None, limit: None };
+    let req = ListUsersRequest {
+        offset: None,
+        limit: None,
+    };
     let resp = admin::list_users(&pool, req).unwrap();
     assert!(resp.users.iter().any(|u| u.username == "svc-list-user"));
 }
@@ -27,7 +30,9 @@ fn test_service_get_user() {
     let pool = common::create_test_pool();
     let user = create_user(&pool, &DataMap::new());
 
-    let req = GetUserRequest { user_id: user.id.clone() };
+    let req = GetUserRequest {
+        user_id: user.id.clone(),
+    };
     let resp = admin::get_user(&pool, req).unwrap();
     assert_eq!(resp.user.id, user.id);
     assert_eq!(resp.user.username, user.username);
@@ -51,10 +56,15 @@ fn test_service_create_user_with_password() {
     assert!(resp.user.is_active);
 
     // Verify password credential was stored as Argon2id
-    let creds = pool.find_credentials_for_user(&resp.user.id, auth::CREDENTIAL_TYPE_PASSWORD).unwrap();
+    let creds = pool
+        .find_credentials_for_user(&resp.user.id, auth::CREDENTIAL_TYPE_PASSWORD)
+        .unwrap();
     assert_eq!(creds.len(), 1);
     assert!(creds[0].credential_hash.starts_with("$argon2"));
-    assert!(liblinkkeys::crypto::verify_password("password123", &creds[0].credential_hash));
+    assert!(liblinkkeys::crypto::verify_password(
+        "password123",
+        &creds[0].credential_hash
+    ));
 }
 
 #[test]
@@ -69,9 +79,15 @@ fn test_service_create_user_with_api_key() {
         password: None,
     };
     let resp = admin::create_user(&pool, req).unwrap();
-    assert!(resp.api_key.is_some(), "Should return an API key when no password provided");
+    assert!(
+        resp.api_key.is_some(),
+        "Should return an API key when no password provided"
+    );
     let api_key = resp.api_key.unwrap();
-    assert!(api_key.contains('.'), "API key should have prefix.secret format");
+    assert!(
+        api_key.contains('.'),
+        "API key should have prefix.secret format"
+    );
 }
 
 #[test]
@@ -94,13 +110,20 @@ fn test_service_deactivate_user() {
     let hash = bcrypt::hash("password", 4).unwrap();
     create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_PASSWORD, &hash);
 
-    let req = DeactivateUserRequest { user_id: user.id.clone() };
+    let req = DeactivateUserRequest {
+        user_id: user.id.clone(),
+    };
     let resp = admin::deactivate_user(&pool, req).unwrap();
     assert!(!resp.user.is_active);
 
     // Service should have revoked credentials too
-    let creds = pool.find_credentials_for_user(&user.id, auth::CREDENTIAL_TYPE_PASSWORD).unwrap();
-    assert!(creds.is_empty(), "Credentials should be revoked after deactivation");
+    let creds = pool
+        .find_credentials_for_user(&user.id, auth::CREDENTIAL_TYPE_PASSWORD)
+        .unwrap();
+    assert!(
+        creds.is_empty(),
+        "Credentials should be revoked after deactivation"
+    );
 }
 
 #[test]
@@ -131,11 +154,19 @@ fn test_service_reset_password() {
 
     // Verify the reset credential is Argon2id: old password no longer works,
     // new password does.
-    let creds = pool.find_credentials_for_user(&user.id, auth::CREDENTIAL_TYPE_PASSWORD).unwrap();
+    let creds = pool
+        .find_credentials_for_user(&user.id, auth::CREDENTIAL_TYPE_PASSWORD)
+        .unwrap();
     assert_eq!(creds.len(), 1);
     assert!(creds[0].credential_hash.starts_with("$argon2"));
-    assert!(!liblinkkeys::crypto::verify_password("old-password", &creds[0].credential_hash));
-    assert!(liblinkkeys::crypto::verify_password("new-password-123", &creds[0].credential_hash));
+    assert!(!liblinkkeys::crypto::verify_password(
+        "old-password",
+        &creds[0].credential_hash
+    ));
+    assert!(liblinkkeys::crypto::verify_password(
+        "new-password-123",
+        &creds[0].credential_hash
+    ));
 }
 
 #[test]
@@ -160,11 +191,15 @@ fn test_service_remove_credential() {
     let hash = bcrypt::hash("pw", 4).unwrap();
     let cred = create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_PASSWORD, &hash);
 
-    let req = RemoveCredentialRequest { credential_id: cred.id.clone() };
+    let req = RemoveCredentialRequest {
+        credential_id: cred.id.clone(),
+    };
     let resp = admin::remove_credential(&pool, req).unwrap();
     assert!(resp.success);
 
-    let remaining = pool.find_credentials_for_user(&user.id, auth::CREDENTIAL_TYPE_PASSWORD).unwrap();
+    let remaining = pool
+        .find_credentials_for_user(&user.id, auth::CREDENTIAL_TYPE_PASSWORD)
+        .unwrap();
     assert!(remaining.is_empty());
 }
 
@@ -172,7 +207,9 @@ fn test_service_remove_credential() {
 fn test_service_remove_credential_not_found() {
     let pool = common::create_test_pool();
 
-    let req = RemoveCredentialRequest { credential_id: "nonexistent-id".to_string() };
+    let req = RemoveCredentialRequest {
+        credential_id: "nonexistent-id".to_string(),
+    };
     let result = admin::remove_credential(&pool, req);
     assert!(result.is_err(), "Should fail for nonexistent credential");
 }
@@ -271,7 +308,12 @@ fn test_resign_backfill_query_methods() {
     let missing = pool.list_claims_missing_signatures().unwrap();
     assert!(missing.iter().any(|c| c.id == claim_id));
     assert!(
-        missing.iter().find(|c| c.id == claim_id).unwrap().signatures.is_empty(),
+        missing
+            .iter()
+            .find(|c| c.id == claim_id)
+            .unwrap()
+            .signatures
+            .is_empty(),
         "claims missing signatures are returned with an empty signature set"
     );
 
@@ -303,7 +345,9 @@ fn test_service_remove_claim() {
     let dk = create_domain_key(&pool);
 
     // Create a claim through the DB to get a claim_id
-    let sk_bytes = liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, b"test-passphrase").unwrap();
+    let sk_bytes =
+        liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, b"test-passphrase")
+            .unwrap();
     let algorithm = liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm).unwrap();
     let claim_id = uuid::Uuid::now_v7().to_string();
     let signed = liblinkkeys::claims::sign_claim(
@@ -323,9 +367,20 @@ fn test_service_remove_claim() {
         }],
     )
     .unwrap();
-    let stored = pool.create_claim(&claim_id, &user.id, "role", b"admin", &signed.signatures, None).unwrap();
+    let stored = pool
+        .create_claim(
+            &claim_id,
+            &user.id,
+            "role",
+            b"admin",
+            &signed.signatures,
+            None,
+        )
+        .unwrap();
 
-    let req = RemoveClaimRequest { claim_id: stored.id.clone() };
+    let req = RemoveClaimRequest {
+        claim_id: stored.id.clone(),
+    };
     let resp = admin::remove_claim(&pool, req).unwrap();
     assert!(resp.success);
 
@@ -374,7 +429,9 @@ fn test_service_remove_relation() {
     let user = create_user(&pool, &DataMap::new());
     let rel = create_relation(&pool, "user", &user.id, "admin", "domain", "test.com");
 
-    let req = RemoveRelationRequest { relation_id: rel.id.clone() };
+    let req = RemoveRelationRequest {
+        relation_id: rel.id.clone(),
+    };
     let resp = admin::remove_relation(&pool, req).unwrap();
     assert!(resp.success);
 }
@@ -423,8 +480,13 @@ fn test_expired_credential_filtered_by_find_for_user() {
     let past = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
     pool.set_credential_expires_at(&cred.id, &past).unwrap();
 
-    let active = pool.find_credentials_for_user(&user.id, auth::CREDENTIAL_TYPE_PASSWORD).unwrap();
-    assert!(active.is_empty(), "Expired credentials should not be returned");
+    let active = pool
+        .find_credentials_for_user(&user.id, auth::CREDENTIAL_TYPE_PASSWORD)
+        .unwrap();
+    assert!(
+        active.is_empty(),
+        "Expired credentials should not be returned"
+    );
 }
 
 // -- Duplicate Relation Prevention --
@@ -434,9 +496,13 @@ fn test_duplicate_active_relation_rejected() {
     let pool = common::create_test_pool();
     let user = create_user(&pool, &DataMap::new());
 
-    pool.create_relation("user", &user.id, "admin", "domain", "dup.com").unwrap();
+    pool.create_relation("user", &user.id, "admin", "domain", "dup.com")
+        .unwrap();
     let result = pool.create_relation("user", &user.id, "admin", "domain", "dup.com");
-    assert!(result.is_err(), "Duplicate active relation should be rejected");
+    assert!(
+        result.is_err(),
+        "Duplicate active relation should be rejected"
+    );
 }
 
 #[test]
@@ -447,6 +513,8 @@ fn test_removed_relation_allows_re_grant() {
     let rel = create_relation(&pool, "user", &user.id, "admin", "domain", "regrant.com");
     pool.remove_relation(&rel.id).unwrap();
 
-    let new_rel = pool.create_relation("user", &user.id, "admin", "domain", "regrant.com").unwrap();
+    let new_rel = pool
+        .create_relation("user", &user.id, "admin", "domain", "regrant.com")
+        .unwrap();
     assert_ne!(new_rel.id, rel.id);
 }

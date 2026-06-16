@@ -1,8 +1,10 @@
 mod common;
 
-use common::data_factory::{create_auth_credential, create_domain_key, create_relation, create_user, DataMap};
-use linkkeys::services::{account, auth};
+use common::data_factory::{
+    create_auth_credential, create_domain_key, create_relation, create_user, DataMap,
+};
 use liblinkkeys::generated::types::*;
+use linkkeys::services::{account, auth};
 
 #[test]
 fn test_service_change_password() {
@@ -19,11 +21,19 @@ fn test_service_change_password() {
 
     // The new credential is stored as Argon2id, and verifies the new password
     // but not the old one.
-    let creds = pool.find_credentials_for_user(&user.id, auth::CREDENTIAL_TYPE_PASSWORD).unwrap();
+    let creds = pool
+        .find_credentials_for_user(&user.id, auth::CREDENTIAL_TYPE_PASSWORD)
+        .unwrap();
     assert_eq!(creds.len(), 1);
     assert!(creds[0].credential_hash.starts_with("$argon2"));
-    assert!(liblinkkeys::crypto::verify_password("new-secure-password", &creds[0].credential_hash));
-    assert!(!liblinkkeys::crypto::verify_password("old-password", &creds[0].credential_hash));
+    assert!(liblinkkeys::crypto::verify_password(
+        "new-secure-password",
+        &creds[0].credential_hash
+    ));
+    assert!(!liblinkkeys::crypto::verify_password(
+        "old-password",
+        &creds[0].credential_hash
+    ));
 }
 
 #[test]
@@ -33,11 +43,22 @@ fn test_service_change_password_accepts_long_password() {
     let user = create_user(&pool, &DataMap::new());
 
     let long = "p".repeat(200);
-    let req = ChangePasswordRequest { new_password: long.clone() };
-    assert!(account::change_password(&pool, &user.id, req).unwrap().success);
+    let req = ChangePasswordRequest {
+        new_password: long.clone(),
+    };
+    assert!(
+        account::change_password(&pool, &user.id, req)
+            .unwrap()
+            .success
+    );
 
-    let creds = pool.find_credentials_for_user(&user.id, auth::CREDENTIAL_TYPE_PASSWORD).unwrap();
-    assert!(liblinkkeys::crypto::verify_password(&long, &creds[0].credential_hash));
+    let creds = pool
+        .find_credentials_for_user(&user.id, auth::CREDENTIAL_TYPE_PASSWORD)
+        .unwrap();
+    assert!(liblinkkeys::crypto::verify_password(
+        &long,
+        &creds[0].credential_hash
+    ));
 }
 
 #[test]
@@ -45,7 +66,9 @@ fn test_service_change_password_rejects_too_long() {
     let pool = common::create_test_pool();
     let user = create_user(&pool, &DataMap::new());
 
-    let req = ChangePasswordRequest { new_password: "q".repeat(1025) };
+    let req = ChangePasswordRequest {
+        new_password: "q".repeat(1025),
+    };
     assert!(
         account::change_password(&pool, &user.id, req).is_err(),
         "password over the length cap should be rejected"
@@ -75,7 +98,9 @@ fn test_service_get_my_info() {
     create_relation(&pool, "user", &user.id, "admin", "domain", "test.com");
 
     // Add a claim
-    let sk_bytes = liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, b"test-passphrase").unwrap();
+    let sk_bytes =
+        liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, b"test-passphrase")
+            .unwrap();
     let algorithm = liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm).unwrap();
     let claim_id = uuid::Uuid::now_v7().to_string();
     let signed = liblinkkeys::claims::sign_claim(
@@ -95,7 +120,15 @@ fn test_service_get_my_info() {
         }],
     )
     .unwrap();
-    pool.create_claim(&claim_id, &user.id, "email", b"test@test.com", &signed.signatures, None).unwrap();
+    pool.create_claim(
+        &claim_id,
+        &user.id,
+        "email",
+        b"test@test.com",
+        &signed.signatures,
+        None,
+    )
+    .unwrap();
 
     let resp = account::get_my_info(&pool, &user.id).unwrap();
     assert_eq!(resp.user.id, user.id);

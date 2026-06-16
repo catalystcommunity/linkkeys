@@ -64,6 +64,7 @@ pub fn build_assertion(
     nonce: &str,
     display_name: Option<&str>,
     ttl_seconds: u64,
+    authorized_claims: Vec<String>,
 ) -> IdentityAssertion {
     let now = Utc::now();
     let expires = now + chrono::Duration::seconds(ttl_seconds as i64);
@@ -74,6 +75,7 @@ pub fn build_assertion(
         nonce: nonce.to_string(),
         issued_at: now.to_rfc3339(),
         expires_at: expires.to_rfc3339(),
+        authorized_claims,
         display_name: display_name.map(|s| s.to_string()),
     }
 }
@@ -127,10 +129,8 @@ pub fn verify_assertion(
         _ => VerifyError::SignatureInvalid,
     })?;
 
-    let assertion: IdentityAssertion =
-        ciborium::de::from_reader(signed.assertion.as_slice()).map_err(|e| {
-            VerifyError::DeserializationFailed(format!("CBOR decode failed: {}", e))
-        })?;
+    let assertion: IdentityAssertion = ciborium::de::from_reader(signed.assertion.as_slice())
+        .map_err(|e| VerifyError::DeserializationFailed(format!("CBOR decode failed: {}", e)))?;
 
     let expires_at = chrono::DateTime::parse_from_rfc3339(&assertion.expires_at)
         .map_err(|e| VerifyError::DeserializationFailed(format!("invalid expires_at: {}", e)))?;
@@ -167,8 +167,15 @@ mod tests {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let domain_key = make_domain_key("key-1", &pk);
 
-        let assertion =
-            build_assertion("user-123", "example.com", "app.example.com", "nonce-abc", Some("Alice"), 300);
+        let assertion = build_assertion(
+            "user-123",
+            "example.com",
+            "app.example.com",
+            "nonce-abc",
+            Some("Alice"),
+            300,
+            vec!["email".to_string()],
+        );
 
         let signed = sign_assertion(&assertion, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
         let verified = verify_assertion(&signed, &[domain_key]).unwrap();
@@ -178,6 +185,7 @@ mod tests {
         assert_eq!(verified.audience, "app.example.com");
         assert_eq!(verified.nonce, "nonce-abc");
         assert_eq!(verified.display_name.as_deref(), Some("Alice"));
+        assert_eq!(verified.authorized_claims, vec!["email".to_string()]);
     }
 
     #[test]
@@ -185,7 +193,15 @@ mod tests {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let domain_key = make_domain_key("key-1", &pk);
 
-        let assertion = build_assertion("user-123", "example.com", "app.example.com", "nonce", None, 0);
+        let assertion = build_assertion(
+            "user-123",
+            "example.com",
+            "app.example.com",
+            "nonce",
+            None,
+            0,
+            vec![],
+        );
         let signed = sign_assertion(&assertion, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
 
         std::thread::sleep(std::time::Duration::from_millis(10));
@@ -200,7 +216,15 @@ mod tests {
         let (pk2, _sk2) = generate_keypair(SigningAlgorithm::Ed25519);
         let domain_key = make_domain_key("key-2", &pk2);
 
-        let assertion = build_assertion("user-123", "example.com", "app.example.com", "nonce", None, 300);
+        let assertion = build_assertion(
+            "user-123",
+            "example.com",
+            "app.example.com",
+            "nonce",
+            None,
+            300,
+            vec![],
+        );
         let signed = sign_assertion(&assertion, "key-1", SigningAlgorithm::Ed25519, &sk1).unwrap();
 
         let result = verify_assertion(&signed, &[domain_key]);
@@ -212,8 +236,17 @@ mod tests {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let domain_key = make_domain_key("key-1", &pk);
 
-        let assertion = build_assertion("user-123", "example.com", "app.example.com", "nonce", None, 300);
-        let mut signed = sign_assertion(&assertion, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
+        let assertion = build_assertion(
+            "user-123",
+            "example.com",
+            "app.example.com",
+            "nonce",
+            None,
+            300,
+            vec![],
+        );
+        let mut signed =
+            sign_assertion(&assertion, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
 
         if let Some(byte) = signed.assertion.first_mut() {
             *byte ^= 0xff;
@@ -229,7 +262,15 @@ mod tests {
         let mut domain_key = make_domain_key("key-1", &pk);
         domain_key.revoked_at = Some(Utc::now().to_rfc3339());
 
-        let assertion = build_assertion("user-123", "example.com", "app.example.com", "nonce", None, 300);
+        let assertion = build_assertion(
+            "user-123",
+            "example.com",
+            "app.example.com",
+            "nonce",
+            None,
+            300,
+            vec![],
+        );
         let signed = sign_assertion(&assertion, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
 
         let result = verify_assertion(&signed, &[domain_key]);
@@ -242,7 +283,15 @@ mod tests {
         let mut domain_key = make_domain_key("key-1", &pk);
         domain_key.expires_at = (Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
 
-        let assertion = build_assertion("user-123", "example.com", "app.example.com", "nonce", None, 300);
+        let assertion = build_assertion(
+            "user-123",
+            "example.com",
+            "app.example.com",
+            "nonce",
+            None,
+            300,
+            vec![],
+        );
         let signed = sign_assertion(&assertion, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
 
         let result = verify_assertion(&signed, &[domain_key]);
@@ -255,7 +304,15 @@ mod tests {
         let mut domain_key = make_domain_key("key-1", &pk);
         domain_key.algorithm = "dilithium3".to_string();
 
-        let assertion = build_assertion("user-123", "example.com", "app.example.com", "nonce", None, 300);
+        let assertion = build_assertion(
+            "user-123",
+            "example.com",
+            "app.example.com",
+            "nonce",
+            None,
+            300,
+            vec![],
+        );
         let signed = sign_assertion(&assertion, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
 
         let result = verify_assertion(&signed, &[domain_key]);

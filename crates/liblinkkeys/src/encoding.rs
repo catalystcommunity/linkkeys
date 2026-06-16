@@ -85,6 +85,7 @@ mod tests {
             "nonce-xyz",
             Some("Alice"),
             300,
+            vec![],
         );
         let signed = sign_assertion(&assertion, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
 
@@ -119,6 +120,7 @@ mod tests {
             "https://linkidspec.com/callback",
             "nonce-xyz",
             "key-1",
+            None,
         );
         let signed = sign_auth_request(&request, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
 

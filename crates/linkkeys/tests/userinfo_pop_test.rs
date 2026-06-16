@@ -25,11 +25,22 @@ fn make_token(
     nonce: &str,
 ) -> String {
     let sk_bytes = crypto::decrypt_private_key(&dk.private_key_encrypted, TEST_PASSPHRASE).unwrap();
-    let assertion =
-        assertions::build_assertion(user_id, TEST_DOMAIN, audience, nonce, Some("Test User"), 300);
-    let signed =
-        assertions::sign_assertion(&assertion, &dk.id, crypto::SigningAlgorithm::Ed25519, &sk_bytes)
-            .unwrap();
+    let assertion = assertions::build_assertion(
+        user_id,
+        TEST_DOMAIN,
+        audience,
+        nonce,
+        Some("Test User"),
+        300,
+        vec![],
+    );
+    let signed = assertions::sign_assertion(
+        &assertion,
+        &dk.id,
+        crypto::SigningAlgorithm::Ed25519,
+        &sk_bytes,
+    )
+    .unwrap();
     encoding::assertion_to_url_param(&signed).unwrap()
 }
 
@@ -66,7 +77,7 @@ async fn signed_userinfo_request_returns_claims() {
     let token = make_token(&dk, &user.id, TEST_DOMAIN, "nonce-ok");
     let signed = sign_request(&dk, &token, TEST_DOMAIN, "req-nonce-ok");
 
-    let info = linkkeys::web::build_userinfo_signed(&pool, &signed)
+    let info = linkkeys::web::build_userinfo_signed(&pool, &common::net::offline_net(), &signed)
         .await
         .expect("valid signed userinfo request from the audience domain");
 
@@ -87,12 +98,13 @@ async fn signed_userinfo_request_is_single_use() {
     let signed = sign_request(&dk, &token, TEST_DOMAIN, "req-nonce-single");
 
     // First redemption succeeds.
-    linkkeys::web::build_userinfo_signed(&pool, &signed)
+    linkkeys::web::build_userinfo_signed(&pool, &common::net::offline_net(), &signed)
         .await
         .expect("first redemption");
 
     // A second redemption of the same assertion is rejected (the nonce is burned).
-    let again = linkkeys::web::build_userinfo_signed(&pool, &signed).await;
+    let again =
+        linkkeys::web::build_userinfo_signed(&pool, &common::net::offline_net(), &signed).await;
     assert_eq!(again.err(), Some(rocket::http::Status::Unauthorized));
 }
 
@@ -111,7 +123,8 @@ async fn signed_userinfo_request_audience_mismatch_rejected() {
     let token = make_token(&dk, &user.id, "someone-else.test", "nonce-aud");
     let signed = sign_request(&dk, &token, TEST_DOMAIN, "req-nonce-aud");
 
-    let result = linkkeys::web::build_userinfo_signed(&pool, &signed).await;
+    let result =
+        linkkeys::web::build_userinfo_signed(&pool, &common::net::offline_net(), &signed).await;
     assert_eq!(result.err(), Some(rocket::http::Status::Unauthorized));
 }
 
@@ -133,6 +146,7 @@ async fn signed_userinfo_request_tampered_rejected() {
         *byte ^= 0xff;
     }
 
-    let result = linkkeys::web::build_userinfo_signed(&pool, &signed).await;
+    let result =
+        linkkeys::web::build_userinfo_signed(&pool, &common::net::offline_net(), &signed).await;
     assert_eq!(result.err(), Some(rocket::http::Status::Unauthorized));
 }

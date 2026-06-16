@@ -1,14 +1,17 @@
 use crate::assertions::VerifyError;
 use crate::crypto::{self, CryptoError, SigningAlgorithm};
-use crate::generated::types::{AuthRequest, DomainPublicKey, SignedAuthRequest};
+use crate::generated::types::{AuthRequest, ClaimRequest, DomainPublicKey, SignedAuthRequest};
 use chrono::Utc;
 
-/// Build an unsigned auth request with the current timestamp.
+/// Build an unsigned auth request with the current timestamp. `requested_claims`
+/// advertises the claims the RP wants released on first contact (drives the
+/// IDP consent screen); pass `None` for authentication-only.
 pub fn build_auth_request(
     relying_party: &str,
     callback_url: &str,
     nonce: &str,
     signing_key_id: &str,
+    requested_claims: Option<ClaimRequest>,
 ) -> AuthRequest {
     AuthRequest {
         relying_party: relying_party.to_string(),
@@ -16,6 +19,10 @@ pub fn build_auth_request(
         nonce: nonce.to_string(),
         timestamp: Utc::now().to_rfc3339(),
         signing_key_id: signing_key_id.to_string(),
+        requested_claims,
+        // The caller sets `relying_party_claims` on the returned request if it
+        // wants to assert claims about itself (signed self/third-party).
+        relying_party_claims: None,
     }
 }
 
@@ -68,10 +75,8 @@ pub fn verify_auth_request(
         _ => VerifyError::SignatureInvalid,
     })?;
 
-    let request: AuthRequest =
-        ciborium::de::from_reader(signed.request.as_slice()).map_err(|e| {
-            VerifyError::DeserializationFailed(format!("CBOR decode failed: {}", e))
-        })?;
+    let request: AuthRequest = ciborium::de::from_reader(signed.request.as_slice())
+        .map_err(|e| VerifyError::DeserializationFailed(format!("CBOR decode failed: {}", e)))?;
 
     let timestamp = chrono::DateTime::parse_from_rfc3339(&request.timestamp)
         .map_err(|e| VerifyError::DeserializationFailed(format!("invalid timestamp: {}", e)))?;
@@ -114,10 +119,10 @@ mod tests {
             "https://linkidspec.com/callback",
             "nonce-123",
             "key-1",
+            None,
         );
 
-        let signed =
-            sign_auth_request(&request, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
+        let signed = sign_auth_request(&request, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
         let verified = verify_auth_request(&signed, &[domain_key], 300).unwrap();
 
         assert_eq!(verified.relying_party, "linkidspec.com");
@@ -137,10 +142,11 @@ mod tests {
             nonce: "nonce".to_string(),
             timestamp: (Utc::now() - chrono::Duration::seconds(120)).to_rfc3339(),
             signing_key_id: "key-1".to_string(),
+            requested_claims: None,
+            relying_party_claims: None,
         };
 
-        let signed =
-            sign_auth_request(&request, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
+        let signed = sign_auth_request(&request, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
 
         // max_age of 60 seconds, but request is 120 seconds old
         let result = verify_auth_request(&signed, &[domain_key], 60);
@@ -158,10 +164,10 @@ mod tests {
             "https://linkidspec.com/callback",
             "nonce",
             "key-1",
+            None,
         );
 
-        let signed =
-            sign_auth_request(&request, "key-1", SigningAlgorithm::Ed25519, &sk1).unwrap();
+        let signed = sign_auth_request(&request, "key-1", SigningAlgorithm::Ed25519, &sk1).unwrap();
 
         let result = verify_auth_request(&signed, &[domain_key], 300);
         assert!(matches!(result, Err(VerifyError::KeyNotFound(_))));
@@ -177,6 +183,7 @@ mod tests {
             "https://linkidspec.com/callback",
             "nonce",
             "key-1",
+            None,
         );
 
         let mut signed =

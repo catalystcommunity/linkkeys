@@ -1,15 +1,13 @@
+// Shared test helpers: any given test binary uses only a subset, so unused
+// items here are expected (e.g. the mTLS test needs no DB pool).
+#![allow(dead_code)]
+
 pub mod data_factory;
+pub mod net;
 
 use diesel::prelude::*;
 use diesel::r2d2::{self, ConnectionManager};
-use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use linkkeys::db::DbPool;
-
-#[cfg(feature = "postgres")]
-const PG_MIGRATIONS: EmbeddedMigrations = embed_migrations!("../../migrations/postgres");
-
-#[cfg(feature = "sqlite")]
-const SQLITE_MIGRATIONS: EmbeddedMigrations = embed_migrations!("../../migrations/sqlite");
 
 /// Create a test DbPool backed by a single connection in a test transaction.
 ///
@@ -18,8 +16,7 @@ const SQLITE_MIGRATIONS: EmbeddedMigrations = embed_migrations!("../../migration
 /// `pool.get()` call. When the pool is dropped at the end of the test,
 /// the connection is dropped and the transaction rolls back automatically.
 pub fn create_test_pool() -> DbPool {
-    let backend =
-        std::env::var("TEST_DATABASE_BACKEND").unwrap_or_else(|_| "postgres".to_string());
+    let backend = std::env::var("TEST_DATABASE_BACKEND").unwrap_or_else(|_| "postgres".to_string());
     let url = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| default_test_url(&backend));
 
     match backend.as_str() {
@@ -37,8 +34,7 @@ pub fn create_test_pool() -> DbPool {
                 diesel::sql_query(format!("SELECT pg_advisory_lock({})", LOCK_KEY))
                     .execute(&mut migration_conn)
                     .expect("Failed to acquire advisory lock");
-                migration_conn
-                    .run_pending_migrations(PG_MIGRATIONS)
+                linkkeys::db::migrate_pg(&mut migration_conn)
                     .expect("Failed to run test migrations");
                 diesel::sql_query(format!("SELECT pg_advisory_unlock({})", LOCK_KEY))
                     .execute(&mut migration_conn)
@@ -73,8 +69,7 @@ pub fn create_test_pool() -> DbPool {
 
             {
                 let mut conn = pool.get().expect("Failed to get test connection");
-                conn.run_pending_migrations(SQLITE_MIGRATIONS)
-                    .expect("Failed to run test migrations");
+                linkkeys::db::migrate_sqlite(&mut conn).expect("Failed to run test migrations");
                 conn.begin_test_transaction()
                     .expect("Failed to begin test transaction");
             }

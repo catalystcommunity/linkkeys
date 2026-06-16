@@ -40,6 +40,7 @@ fn test_full_mutual_auth_flow() {
         "https://rp.example.com/callback",
         "nonce-12345",
         "rp-key-1",
+        None,
     );
     let signed_req = auth_request::sign_auth_request(
         &auth_req,
@@ -50,7 +51,8 @@ fn test_full_mutual_auth_flow() {
     .unwrap();
 
     // Step 2: IDP verifies auth request
-    let verified_req = auth_request::verify_auth_request(&signed_req, std::slice::from_ref(&rp_key), 300).unwrap();
+    let verified_req =
+        auth_request::verify_auth_request(&signed_req, std::slice::from_ref(&rp_key), 300).unwrap();
     assert_eq!(verified_req.relying_party, "rp.example.com");
     assert_eq!(verified_req.callback_url, "https://rp.example.com/callback");
     assert_eq!(verified_req.nonce, "nonce-12345");
@@ -63,6 +65,7 @@ fn test_full_mutual_auth_flow() {
         "nonce-12345",
         Some("Alice"),
         300,
+        vec![],
     );
     let signed_assertion = assertions::sign_assertion(
         &assertion,
@@ -106,8 +109,7 @@ fn test_full_mutual_auth_flow() {
     // Step 7: RP deserializes and verifies the assertion
     let recovered_signed: liblinkkeys::generated::types::SignedIdentityAssertion =
         ciborium::de::from_reader(decrypted.as_slice()).unwrap();
-    let verified_assertion =
-        assertions::verify_assertion(&recovered_signed, &[idp_key]).unwrap();
+    let verified_assertion = assertions::verify_assertion(&recovered_signed, &[idp_key]).unwrap();
 
     assert_eq!(verified_assertion.user_id, "user-uuid-123");
     assert_eq!(verified_assertion.domain, "idp.example.com");
@@ -149,6 +151,7 @@ fn test_auth_request_wrong_rp_key_rejected() {
         "https://rp.example.com/callback",
         "nonce",
         "rp-key-1",
+        None,
     );
     let signed_req = auth_request::sign_auth_request(
         &auth_req,

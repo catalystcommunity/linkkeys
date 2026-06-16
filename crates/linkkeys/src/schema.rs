@@ -116,11 +116,43 @@ pub mod pg {
         }
     }
 
+    diesel::table! {
+        profiles (id) {
+            id -> Uuid,
+            account_id -> Uuid,
+            domain -> Varchar,
+            is_root -> Bool,
+            label -> Nullable<Varchar>,
+            created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        consent_grants (id) {
+            id -> Uuid,
+            user_id -> Uuid,
+            subject_domain -> Varchar,
+            audience -> Varchar,
+            claim_types -> Text,
+            requested_types -> Text,
+            signed_grant -> Binary,
+            offered_claims -> Nullable<Binary>,
+            issued_at -> Timestamptz,
+            expires_at -> Timestamptz,
+            revoked_at -> Nullable<Timestamptz>,
+            created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+        }
+    }
+
     diesel::joinable!(user_keys -> users (user_id));
     diesel::joinable!(claims -> users (user_id));
     diesel::joinable!(claim_signatures -> claims (claim_id));
     diesel::joinable!(claim_signatures -> domain_keys (signed_by_key_id));
     diesel::joinable!(auth_credentials -> users (user_id));
+    diesel::joinable!(consent_grants -> users (user_id));
+    diesel::joinable!(profiles -> users (account_id));
     diesel::allow_tables_to_appear_in_same_query!(
         guestbook_entries,
         domain_keys,
@@ -130,6 +162,8 @@ pub mod pg {
         claims,
         claim_signatures,
         relations,
+        consent_grants,
+        profiles,
     );
 }
 
@@ -248,11 +282,43 @@ pub mod sqlite {
         }
     }
 
+    diesel::table! {
+        profiles (id) {
+            id -> Text,
+            account_id -> Text,
+            domain -> Text,
+            is_root -> Integer,
+            label -> Nullable<Text>,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        consent_grants (id) {
+            id -> Text,
+            user_id -> Text,
+            subject_domain -> Text,
+            audience -> Text,
+            claim_types -> Text,
+            requested_types -> Text,
+            signed_grant -> Binary,
+            offered_claims -> Nullable<Binary>,
+            issued_at -> Text,
+            expires_at -> Text,
+            revoked_at -> Nullable<Text>,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
     diesel::joinable!(user_keys -> users (user_id));
     diesel::joinable!(claims -> users (user_id));
     diesel::joinable!(claim_signatures -> claims (claim_id));
     diesel::joinable!(claim_signatures -> domain_keys (signed_by_key_id));
     diesel::joinable!(auth_credentials -> users (user_id));
+    diesel::joinable!(consent_grants -> users (user_id));
+    diesel::joinable!(profiles -> users (account_id));
     diesel::allow_tables_to_appear_in_same_query!(
         guestbook_entries,
         domain_keys,
@@ -262,5 +328,7 @@ pub mod sqlite {
         claims,
         claim_signatures,
         relations,
+        consent_grants,
+        profiles,
     );
 }

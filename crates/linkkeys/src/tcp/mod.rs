@@ -1,19 +1,19 @@
 pub mod tls;
 
+use std::env;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use std::env;
 
 use serde::{Deserialize, Serialize};
 use threadpool::ThreadPool;
 
-use linkkeys::conversions::get_domain_name;
-use linkkeys::db::DbPool;
-use linkkeys::services::handshake::HandshakeHandler;
-use linkkeys::services::hello::HelloHandler;
+use crate::conversions::get_domain_name;
+use crate::db::DbPool;
+use crate::services::handshake::HandshakeHandler;
+use crate::services::hello::HelloHandler;
 
 use liblinkkeys::generated::types::{
     DomainPublicKey, GetDomainKeysResponse, GetUserInfoRequest, GetUserKeysRequest,
@@ -64,7 +64,11 @@ pub struct TcpServer {
 }
 
 impl TcpServer {
-    pub fn new(ready_flag: Arc<AtomicBool>, db_pool: DbPool) -> std::io::Result<Self> {
+    pub fn new(
+        ready_flag: Arc<AtomicBool>,
+        db_pool: DbPool,
+        dns: Arc<dyn crate::net::DnsResolver>,
+    ) -> std::io::Result<Self> {
         let port: u16 = env::var("TCP_PORT")
             .ok()
             .and_then(|s| s.parse().ok())
@@ -75,7 +79,7 @@ impl TcpServer {
         let pool_size = num_cpus::get() * 2;
         let thread_pool = ThreadPool::new(pool_size);
 
-        let tls_config = match build_tls_config(&db_pool) {
+        let tls_config = match build_tls_config(&db_pool, dns) {
             Ok(config) => {
                 log::info!("TCP server listening on port {} (mutual TLS)", port);
                 config
@@ -86,7 +90,13 @@ impl TcpServer {
             }
         };
 
-        Ok(TcpServer { listener, thread_pool, ready_flag, db_pool, tls_config })
+        Ok(TcpServer {
+            listener,
+            thread_pool,
+            ready_flag,
+            db_pool,
+            tls_config,
+        })
     }
 
     pub fn run(self) {
@@ -97,7 +107,8 @@ impl TcpServer {
                     let db_pool = self.db_pool.clone();
                     let tls_config = self.tls_config.clone();
                     self.thread_pool.execute(move || {
-                        if let Err(e) = handle_connection(stream, ready_flag, &db_pool, tls_config) {
+                        if let Err(e) = handle_connection(stream, ready_flag, &db_pool, tls_config)
+                        {
                             log::debug!("Connection closed: {}", e);
                         }
                     });
@@ -111,22 +122,27 @@ impl TcpServer {
 }
 
 /// Build TLS ServerConfig with mutual TLS from the first active domain key.
-fn build_tls_config(db_pool: &DbPool) -> Result<Arc<rustls::ServerConfig>, Box<dyn std::error::Error>> {
-    let passphrase = env::var("DOMAIN_KEY_PASSPHRASE")
-        .map_err(|_| "DOMAIN_KEY_PASSPHRASE not set")?;
+fn build_tls_config(
+    db_pool: &DbPool,
+    dns: Arc<dyn crate::net::DnsResolver>,
+) -> Result<Arc<rustls::ServerConfig>, Box<dyn std::error::Error>> {
+    let passphrase =
+        env::var("DOMAIN_KEY_PASSPHRASE").map_err(|_| "DOMAIN_KEY_PASSPHRASE not set")?;
 
-    let domain_keys = db_pool.list_active_domain_keys()
+    let domain_keys = db_pool
+        .list_active_domain_keys()
         .map_err(|e| format!("Failed to list domain keys: {}", e))?;
 
-    let dk = domain_keys.first()
+    let dk = domain_keys
+        .first()
         .ok_or("No active domain keys — run 'domain init' first")?;
 
-    let sk_bytes = liblinkkeys::crypto::decrypt_private_key(
-        &dk.private_key_encrypted,
-        passphrase.as_bytes(),
-    ).map_err(|e| format!("Failed to decrypt domain key: {}", e))?;
+    let sk_bytes =
+        liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, passphrase.as_bytes())
+            .map_err(|e| format!("Failed to decrypt domain key: {}", e))?;
 
-    let seed: [u8; 32] = sk_bytes.try_into()
+    let seed: [u8; 32] = sk_bytes
+        .try_into()
         .map_err(|_| "Domain key is not 32 bytes")?;
 
     let domain_name = get_domain_name();
@@ -139,7 +155,7 @@ fn build_tls_config(db_pool: &DbPool) -> Result<Arc<rustls::ServerConfig>, Box<d
             .build()
             .map_err(|e| format!("Failed to create runtime for TLS verifier: {}", e))?,
     );
-    let client_verifier = Arc::new(tls::FingerprintClientCertVerifier::new(runtime));
+    let client_verifier = Arc::new(tls::FingerprintClientCertVerifier::new(runtime, dns));
 
     tls::build_server_config(cert_der, key_der, client_verifier)
 }
@@ -202,8 +218,7 @@ fn handle_connection(
     stream.set_write_timeout(Some(timeout))?;
     stream.set_nodelay(true)?;
 
-    let conn = rustls::ServerConnection::new(tls_config)
-        .map_err(std::io::Error::other)?;
+    let conn = rustls::ServerConnection::new(tls_config).map_err(std::io::Error::other)?;
     let mut tls_stream = rustls::StreamOwned::new(conn, stream);
 
     // Drive the handshake to completion before serving frames so the verified
@@ -216,7 +231,12 @@ fn handle_connection(
         .and_then(|certs| certs.first())
         .and_then(tls::verified_client_domain);
 
-    handle_message_loop(&mut tls_stream, &ready_flag, db_pool, client_domain.as_deref())
+    handle_message_loop(
+        &mut tls_stream,
+        &ready_flag,
+        db_pool,
+        client_domain.as_deref(),
+    )
 }
 
 /// Maximum CBOR nesting depth allowed. Prevents stack overflow from deeply nested payloads.
@@ -235,11 +255,11 @@ fn check_cbor_depth(data: &[u8]) -> bool {
 
         // Skip additional info bytes (determines the length/value encoding)
         match additional {
-            0..=23 => {}       // value is in the additional bits
-            24 => i += 1,      // 1-byte value follows
-            25 => i += 2,      // 2-byte value
-            26 => i += 4,      // 4-byte value
-            27 => i += 8,      // 8-byte value
+            0..=23 => {}             // value is in the additional bits
+            24 => i += 1,            // 1-byte value follows
+            25 => i += 2,            // 2-byte value
+            26 => i += 4,            // 4-byte value
+            27 => i += 8,            // 8-byte value
             28..=30 => return false, // reserved, malformed
             31 => {
                 // Indefinite length — arrays and maps increase depth
@@ -255,19 +275,22 @@ fn check_cbor_depth(data: &[u8]) -> bool {
         }
 
         match major {
-            0 | 1 => {}                          // unsigned/negative int — no nesting
-            2 | 3 if additional <= 23 => {        // byte/text string with inline length
+            0 | 1 => {} // unsigned/negative int — no nesting
+            2 | 3 if additional <= 23 => {
+                // byte/text string with inline length
                 i += additional as usize;
             }
-            2 | 3 => {}                           // byte/text string — length already skipped above
-            4 | 5 => {                            // array or map — increase depth
+            2 | 3 => {} // byte/text string — length already skipped above
+            4 | 5 => {
+                // array or map — increase depth
                 depth += 1;
                 if depth > MAX_CBOR_DEPTH {
                     return false;
                 }
             }
-            6 => {}                               // tag — next item is the tagged value
-            7 => {                                // simple/float/break
+            6 => {} // tag — next item is the tagged value
+            7 => {
+                // simple/float/break
                 if additional == 31 {
                     // "break" — end of indefinite container
                     depth = depth.saturating_sub(1);
@@ -306,7 +329,10 @@ fn handle_message_loop(
             }
             Err(_) => {
                 // Deserialization panicked (e.g. stack overflow) — don't crash the thread
-                log::warn!("CBOR deserialization panicked on frame of {} bytes", frame.len());
+                log::warn!(
+                    "CBOR deserialization panicked on frame of {} bytes",
+                    frame.len()
+                );
                 let resp = error_response(1, "Malformed request");
                 write_frame(stream, &resp)?;
                 continue;
@@ -335,6 +361,33 @@ fn db_error_message(e: impl std::fmt::Display) -> String {
     "internal database error".to_string()
 }
 
+/// Test/diagnostic harness entry point: run the TCP service dispatch directly,
+/// bypassing the socket, TLS, and framing entirely. `client_domain` is the
+/// mTLS-proven caller domain the real server would have extracted from the
+/// client certificate (`None` = unauthenticated peer). Returns the response
+/// envelope's `(status, payload)` — status 0 is success. This is the
+/// network-bypass seam for TCP end-to-end tests.
+pub fn dispatch_for_test(
+    service: &str,
+    op: &str,
+    payload: Vec<u8>,
+    db_pool: &DbPool,
+    client_domain: Option<&str>,
+) -> (i32, Vec<u8>) {
+    let envelope = RequestEnvelope {
+        v: 1,
+        service: service.to_string(),
+        op: op.to_string(),
+        payload,
+        auth: None,
+    };
+    let ready = Arc::new(AtomicBool::new(true));
+    let bytes = dispatch(&envelope, &ready, db_pool, client_domain);
+    let resp: ResponseEnvelope =
+        ciborium::de::from_reader(&bytes[..]).expect("response envelope decodes");
+    (resp.status, resp.payload)
+}
+
 fn dispatch(
     envelope: &RequestEnvelope,
     ready_flag: &Arc<AtomicBool>,
@@ -342,19 +395,19 @@ fn dispatch(
     client_domain: Option<&str>,
 ) -> Vec<u8> {
     match (envelope.service.as_str(), envelope.op.as_str()) {
-        ("Ops", "healthcheck") => {
-            ok_response(&CheckResultResponse { result: true })
-        }
-        ("Ops", "readiness") => {
-            ok_response(&CheckResultResponse { result: ready_flag.load(Ordering::SeqCst) })
-        }
+        ("Ops", "healthcheck") => ok_response(&CheckResultResponse { result: true }),
+        ("Ops", "readiness") => ok_response(&CheckResultResponse {
+            result: ready_flag.load(Ordering::SeqCst),
+        }),
         ("Hello", "hello") => {
             let request: HelloRequest = match ciborium::de::from_reader(&envelope.payload[..]) {
                 Ok(r) => r,
                 Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
             };
             let handler = HelloHandler;
-            ok_response(&HelloResponse { greeting: handler.hello(request.name) })
+            ok_response(&HelloResponse {
+                greeting: handler.hello(request.name),
+            })
         }
         ("Handshake", "handshake") => {
             use liblinkkeys::generated::services::Handshake;
@@ -367,17 +420,16 @@ fn dispatch(
                 Err(e) => error_response(4, &e.message),
             }
         }
-        ("DomainKeys", "get-domain-keys") => {
-            match db_pool.list_active_domain_keys() {
-                Ok(keys) => ok_response(&GetDomainKeysResponse {
-                    domain: get_domain_name(),
-                    keys: keys.iter().map(Into::into).collect(),
-                }),
-                Err(e) => error_response(4, &db_error_message(e)),
-            }
-        }
+        ("DomainKeys", "get-domain-keys") => match db_pool.list_active_domain_keys() {
+            Ok(keys) => ok_response(&GetDomainKeysResponse {
+                domain: get_domain_name(),
+                keys: keys.iter().map(Into::into).collect(),
+            }),
+            Err(e) => error_response(4, &db_error_message(e)),
+        },
         ("UserKeys", "get-user-keys") => {
-            let request: GetUserKeysRequest = match ciborium::de::from_reader(&envelope.payload[..]) {
+            let request: GetUserKeysRequest = match ciborium::de::from_reader(&envelope.payload[..])
+            {
                 Ok(r) => r,
                 Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
             };
@@ -391,7 +443,8 @@ fn dispatch(
             }
         }
         ("Identity", "get-user-info") => {
-            let request: GetUserInfoRequest = match ciborium::de::from_reader(&envelope.payload[..]) {
+            let request: GetUserInfoRequest = match ciborium::de::from_reader(&envelope.payload[..])
+            {
                 Ok(r) => r,
                 Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
             };
@@ -441,11 +494,18 @@ fn dispatch(
                 Ok(c) => c,
                 Err(e) => return error_response(4, &db_error_message(e)),
             };
+            // Scope to exactly the claim types the user consented to for this
+            // audience, recorded in the assertion. Parity with the web
+            // /userinfo path; fail-closed (empty authorized_claims => nothing).
+            let all_claims: Vec<liblinkkeys::generated::types::Claim> =
+                claims.iter().map(Into::into).collect();
+            let scoped =
+                liblinkkeys::consent::scope_claims(&all_claims, &assertion.authorized_claims);
             ok_response(&UserInfo {
                 user_id: user.id,
                 domain: get_domain_name(),
                 display_name: user.display_name,
-                claims: claims.iter().map(Into::into).collect(),
+                claims: scoped,
             })
         }
         ("Admin", op) => {
@@ -454,8 +514,12 @@ fn dispatch(
                 Err(resp) => return resp,
             };
             let domain = get_domain_name();
-            if let Some(required) = linkkeys::services::authorization::required_relation_for_op("Admin", op) {
-                if !linkkeys::services::authorization::user_has_permission(db_pool, &user.id, required, "domain", &domain) {
+            if let Some(required) =
+                crate::services::authorization::required_relation_for_op("Admin", op)
+            {
+                if !crate::services::authorization::user_has_permission(
+                    db_pool, &user.id, required, "domain", &domain,
+                ) {
                     return error_response(5, "Forbidden");
                 }
             }
@@ -470,13 +534,16 @@ fn dispatch(
         }
         _ => error_response(
             3,
-            &format!("Unknown service/operation: {}/{}", envelope.service, envelope.op),
+            &format!(
+                "Unknown service/operation: {}/{}",
+                envelope.service, envelope.op
+            ),
         ),
     }
 }
 
 fn dispatch_admin(op: &str, payload: &[u8], db_pool: &DbPool) -> Vec<u8> {
-    use linkkeys::services::admin;
+    use crate::services::admin;
     use liblinkkeys::generated::types::*;
 
     macro_rules! admin_op {
@@ -514,9 +581,9 @@ fn dispatch_account(
     op: &str,
     payload: &[u8],
     db_pool: &DbPool,
-    user: &linkkeys::db::models::User,
+    user: &crate::db::models::User,
 ) -> Vec<u8> {
-    use linkkeys::services::account;
+    use crate::services::account;
     use liblinkkeys::generated::types::*;
 
     match op {
@@ -551,7 +618,8 @@ fn ok_response<T: Serialize>(payload: &T) -> Vec<u8> {
     };
 
     let mut out = Vec::new();
-    ciborium::ser::into_writer(&envelope, &mut out).expect("CBOR serialization of response envelope");
+    ciborium::ser::into_writer(&envelope, &mut out)
+        .expect("CBOR serialization of response envelope");
     out
 }
 
@@ -573,13 +641,13 @@ fn error_response(status: i32, message: &str) -> Vec<u8> {
 fn authenticate_tcp_request(
     auth: &Option<String>,
     db_pool: &DbPool,
-) -> Result<linkkeys::db::models::User, Vec<u8>> {
+) -> Result<crate::db::models::User, Vec<u8>> {
     let api_key = match auth {
         Some(key) => key,
         None => return Err(error_response(5, "Authentication required")),
     };
 
-    let authenticator = linkkeys::services::auth::ApiKeyAuthenticator::new(db_pool.clone());
+    let authenticator = crate::services::auth::ApiKeyAuthenticator::new(db_pool.clone());
     match authenticator.authenticate_key(api_key) {
         Ok(user) => {
             if !user.is_active {
@@ -631,7 +699,7 @@ mod depth_tests {
         for _ in 0..50 {
             data.push(0xa1); // map of 1 entry
             data.push(0x61); // text string of length 1
-            data.push(b'k');  // key "k"
+            data.push(b'k'); // key "k"
         }
         data.push(0x00); // value 0
         assert!(!check_cbor_depth(&data));
@@ -664,7 +732,10 @@ mod serde_bytes {
                 Ok(v)
             }
 
-            fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<u8>, A::Error> {
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> Result<Vec<u8>, A::Error> {
                 let mut bytes = Vec::with_capacity(seq.size_hint().unwrap_or(0));
                 while let Some(b) = seq.next_element()? {
                     bytes.push(b);

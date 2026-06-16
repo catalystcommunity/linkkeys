@@ -67,16 +67,17 @@ pub(super) fn get_session_user_id(cookies: &CookieJar<'_>) -> Option<String> {
     };
 
     let now = chrono::Utc::now().timestamp();
-    if now < issued
-        || now - issued > session_absolute_ttl()
-        || now - last_seen > session_idle_ttl()
+    if now < issued || now - issued > session_absolute_ttl() || now - last_seen > session_idle_ttl()
     {
         cookies.remove_private("user_id");
         return None;
     }
 
     // Slide the idle window forward.
-    cookies.add_private(build_session_cookie(format!("{}|{}|{}", user_id, issued, now)));
+    cookies.add_private(build_session_cookie(format!(
+        "{}|{}|{}",
+        user_id, issued, now
+    )));
     Some(user_id)
 }
 
@@ -399,9 +400,7 @@ pub fn change_password_submit(
         .authenticate(&user.username, &form.current_password)
         .is_err()
     {
-        return Redirect::found(
-            "/account/change-password?error=Current+password+is+incorrect",
-        );
+        return Redirect::found("/account/change-password?error=Current+password+is+incorrect");
     }
 
     if form.new_password != form.confirm_password {

@@ -260,8 +260,13 @@ fn derive_key_argon2id(
 /// they can be strengthened over time while old blobs remain decryptable.
 pub fn encrypt_private_key(key_bytes: &[u8], passphrase: &[u8]) -> Result<Vec<u8>, CryptoError> {
     let salt: [u8; 16] = rand::random();
-    let derived_key =
-        derive_key_argon2id(passphrase, &salt, ARGON2_M_COST, ARGON2_T_COST, ARGON2_P_COST)?;
+    let derived_key = derive_key_argon2id(
+        passphrase,
+        &salt,
+        ARGON2_M_COST,
+        ARGON2_T_COST,
+        ARGON2_P_COST,
+    )?;
     let cipher = Aes256Gcm::new_from_slice(&derived_key)
         .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
 
@@ -292,7 +297,9 @@ pub fn decrypt_private_key(encrypted: &[u8], passphrase: &[u8]) -> Result<Vec<u8
     if encrypted.len() >= 4 && encrypted[..4] == KEYENC_MAGIC_V2 {
         // v2: magic(4) || m(4) || t(4) || p(4) || salt(16) || nonce(12) || ct
         if encrypted.len() < 4 + 12 + 16 + 12 {
-            return Err(CryptoError::DecryptionFailed("ciphertext too short".to_string()));
+            return Err(CryptoError::DecryptionFailed(
+                "ciphertext too short".to_string(),
+            ));
         }
         let m = u32::from_be_bytes(encrypted[4..8].try_into().unwrap());
         let t = u32::from_be_bytes(encrypted[8..12].try_into().unwrap());
@@ -311,7 +318,9 @@ pub fn decrypt_private_key(encrypted: &[u8], passphrase: &[u8]) -> Result<Vec<u8
 
     // Legacy headerless format.
     if encrypted.len() < 28 {
-        return Err(CryptoError::DecryptionFailed("ciphertext too short".to_string()));
+        return Err(CryptoError::DecryptionFailed(
+            "ciphertext too short".to_string(),
+        ));
     }
     let (salt, rest) = encrypted.split_at(16);
     let (nonce_bytes, ciphertext) = rest.split_at(12);
@@ -720,7 +729,10 @@ mod tests {
         // A non-PHC string (e.g. a legacy bcrypt hash, or garbage) must return
         // false rather than panic — scheme detection lives in the caller.
         assert!(!verify_password("anything", "not-a-phc-string"));
-        assert!(!verify_password("anything", "$2b$12$abcdefghijklmnopqrstuv"));
+        assert!(!verify_password(
+            "anything",
+            "$2b$12$abcdefghijklmnopqrstuv"
+        ));
         assert!(!verify_password("anything", ""));
     }
 }

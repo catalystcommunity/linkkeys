@@ -8,7 +8,11 @@ pub struct HandshakeHandler;
 impl Handshake for HandshakeHandler {
     type Context = ();
 
-    fn handshake(&self, _ctx: &(), input: HandshakeRequest) -> Result<HandshakeResponse, ServiceError> {
+    fn handshake(
+        &self,
+        _ctx: &(),
+        input: HandshakeRequest,
+    ) -> Result<HandshakeResponse, ServiceError> {
         let server_signing = liblinkkeys::crypto::SigningAlgorithm::all_supported();
         let negotiated_signing: Vec<String> = input
             .algorithms

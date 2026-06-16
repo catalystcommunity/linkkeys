@@ -50,34 +50,73 @@ pub struct VerifyAssertionOutput {
 pub fn sign_request_json(
     _user: AuthenticatedUser,
     pool: &State<DbPool>,
+    rp_config: &State<crate::rp_config::RpClaimsConfig>,
     body: String,
 ) -> Result<(ContentType, Vec<u8>), Status> {
     let input: SignRequestInput = serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
 
-    let domain_keys = pool.list_active_domain_keys().map_err(|_| Status::InternalServerError)?;
+    let domain_keys = pool
+        .list_active_domain_keys()
+        .map_err(|_| Status::InternalServerError)?;
     let dk = super::pick_active_signing_key(&domain_keys).ok_or(Status::InternalServerError)?;
 
     let passphrase = env::var("DOMAIN_KEY_PASSPHRASE").map_err(|_| Status::InternalServerError)?;
-    let sk_bytes = liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, passphrase.as_bytes())
-        .map_err(|_| Status::InternalServerError)?;
+    let sk_bytes =
+        liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, passphrase.as_bytes())
+            .map_err(|_| Status::InternalServerError)?;
 
     let algorithm = liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm)
         .ok_or(Status::InternalServerError)?;
 
-    let request = liblinkkeys::auth_request::build_auth_request(
+    let mut request = liblinkkeys::auth_request::build_auth_request(
         &get_domain_name(),
         &input.callback_url,
         &input.nonce,
         &dk.id,
+        rp_config.to_claim_request(),
     );
 
-    let signed = liblinkkeys::auth_request::sign_auth_request(&request, &dk.id, algorithm, &sk_bytes)
+    // Attach claims the RP asserts about itself: self-asserted ones signed now
+    // with our domain key, plus any pre-signed third-party claims loaded from a
+    // file. The whole request is signed below, so these ride inside the RP's
+    // authenticated request.
+    let domain = get_domain_name();
+    let mut rp_claims: Vec<liblinkkeys::generated::types::DomainClaim> = rp_config
+        .self_claims
+        .iter()
+        .map(|c| {
+            liblinkkeys::domain_claims::sign_domain_claim(
+                &liblinkkeys::domain_claims::DomainClaimSpec {
+                    claim_type: &c.claim_type,
+                    claim_value: c.value.as_bytes(),
+                    subject_domain: &domain,
+                    expires_at: None,
+                },
+                &[liblinkkeys::claims::ClaimSigner {
+                    domain: &domain,
+                    key_id: &dk.id,
+                    algorithm,
+                    private_key_bytes: &sk_bytes,
+                }],
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()
         .map_err(|_| Status::InternalServerError)?;
+    rp_claims.extend(crate::rp_config::load_signed_domain_claims());
+    if !rp_claims.is_empty() {
+        request.relying_party_claims = Some(rp_claims);
+    }
+
+    let signed =
+        liblinkkeys::auth_request::sign_auth_request(&request, &dk.id, algorithm, &sk_bytes)
+            .map_err(|_| Status::InternalServerError)?;
 
     let encoded = liblinkkeys::encoding::signed_auth_request_to_url_param(&signed)
         .map_err(|_| Status::InternalServerError)?;
 
-    let output = SignRequestOutput { signed_request: encoded };
+    let output = SignRequestOutput {
+        signed_request: encoded,
+    };
     let out = serde_json::to_vec(&output).map_err(|_| Status::InternalServerError)?;
     Ok((ContentType::JSON, out))
 }
@@ -91,17 +130,23 @@ pub fn decrypt_token_json(
 ) -> Result<(ContentType, Vec<u8>), Status> {
     let input: DecryptTokenInput = serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
 
-    let encrypted_token = liblinkkeys::encoding::encrypted_token_from_url_param(&input.encrypted_token)
-        .map_err(|_| Status::BadRequest)?;
+    let encrypted_token =
+        liblinkkeys::encoding::encrypted_token_from_url_param(&input.encrypted_token)
+            .map_err(|_| Status::BadRequest)?;
 
-    let domain_keys = pool.list_active_domain_keys().map_err(|_| Status::InternalServerError)?;
+    let domain_keys = pool
+        .list_active_domain_keys()
+        .map_err(|_| Status::InternalServerError)?;
 
     let passphrase = env::var("DOMAIN_KEY_PASSPHRASE").map_err(|_| Status::InternalServerError)?;
 
     // Try each active ENCRYPTION key (key_usage == "encrypt"); its decrypted
     // private is an X25519 secret used directly — no Ed25519→X25519 conversion.
     for dk in domain_keys.iter().filter(|k| k.key_usage == "encrypt") {
-        let sk_bytes = match liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, passphrase.as_bytes()) {
+        let sk_bytes = match liblinkkeys::crypto::decrypt_private_key(
+            &dk.private_key_encrypted,
+            passphrase.as_bytes(),
+        ) {
             Ok(b) => b,
             Err(_) => continue,
         };
@@ -172,6 +217,7 @@ pub struct FetchUserInfoInput {
 pub async fn fetch_userinfo_json(
     _user: AuthenticatedUser,
     pool: &State<DbPool>,
+    net: &State<crate::net::Net>,
     body: String,
 ) -> Result<(ContentType, Vec<u8>), Status> {
     let input: FetchUserInfoInput = serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
@@ -180,8 +226,13 @@ pub async fn fetch_userinfo_json(
         return Err(Status::BadRequest);
     }
 
-    let domain_keys = pool.list_active_domain_keys().map_err(|_| Status::InternalServerError)?;
-    let signing_keys: Vec<_> = domain_keys.iter().filter(|k| k.key_usage == "sign").collect();
+    let domain_keys = pool
+        .list_active_domain_keys()
+        .map_err(|_| Status::InternalServerError)?;
+    let signing_keys: Vec<_> = domain_keys
+        .iter()
+        .filter(|k| k.key_usage == "sign")
+        .collect();
     if signing_keys.is_empty() {
         return Err(Status::InternalServerError);
     }
@@ -225,7 +276,7 @@ pub async fn fetch_userinfo_json(
     // nonce burn, and claim lookup that the network round-trip would trigger.
     let our_api_host = env::var("API_HOSTNAME").unwrap_or_else(|_| get_domain_name());
     if api_base_host(&input.api_base).is_some_and(|h| h.eq_ignore_ascii_case(&our_api_host)) {
-        let user_info = super::build_userinfo_signed(pool, &signed).await?;
+        let user_info = super::build_userinfo_signed(pool, net, &signed).await?;
         let out = serde_json::to_vec(&user_info).map_err(|_| Status::InternalServerError)?;
         return Ok((ContentType::JSON, out));
     }
@@ -233,27 +284,17 @@ pub async fn fetch_userinfo_json(
     let mut cbor = Vec::new();
     ciborium::ser::into_writer(&signed, &mut cbor).map_err(|_| Status::InternalServerError)?;
 
-    let accept_invalid = std::env::var("ALLOW_INVALID_CERTS").unwrap_or_default() == "true";
-    let client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(accept_invalid)
-        .build()
-        .map_err(|_| Status::InternalServerError)?;
-
-    let resp = client
-        .post(format!("{}/v1alpha/userinfo", input.api_base))
-        .header("Content-Type", "application/cbor")
-        .body(cbor)
-        .send()
+    let url = format!("{}/v1alpha/userinfo", input.api_base);
+    let resp = net
+        .http
+        .post_cbor(&url, cbor)
         .await
         .map_err(|_| Status::BadGateway)?;
-
-    if !resp.status().is_success() {
+    if !resp.success {
         return Err(Status::BadGateway);
     }
-
-    let resp_bytes = resp.bytes().await.map_err(|_| Status::BadGateway)?;
     let user_info: liblinkkeys::generated::types::UserInfo =
-        ciborium::de::from_reader(&resp_bytes[..]).map_err(|_| Status::BadGateway)?;
+        ciborium::de::from_reader(&resp.body[..]).map_err(|_| Status::BadGateway)?;
 
     let out = serde_json::to_vec(&user_info).map_err(|_| Status::InternalServerError)?;
     Ok((ContentType::JSON, out))
@@ -265,9 +306,11 @@ pub async fn fetch_userinfo_json(
 pub async fn verify_assertion_json(
     _user: AuthenticatedUser,
     pool: &State<DbPool>,
+    net: &State<crate::net::Net>,
     body: String,
 ) -> Result<(ContentType, Vec<u8>), Status> {
-    let input: VerifyAssertionInput = serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
+    let input: VerifyAssertionInput =
+        serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
 
     // Decode the signed assertion from base64url
     let cbor_bytes = base64ct::Base64UrlUnpadded::decode_vec(&input.signed_assertion)
@@ -276,7 +319,9 @@ pub async fn verify_assertion_json(
         ciborium::de::from_reader(cbor_bytes.as_slice()).map_err(|_| Status::BadRequest)?;
 
     // Fetch the domain's public keys
-    let domain_keys = fetch_domain_keys(pool, &input.expected_domain).await.map_err(|_| Status::BadGateway)?;
+    let domain_keys = fetch_domain_keys(pool, net, &input.expected_domain)
+        .await
+        .map_err(|_| Status::BadGateway)?;
 
     // Verify the assertion
     let assertion = liblinkkeys::assertions::verify_assertion(&signed, &domain_keys)
@@ -297,35 +342,27 @@ use base64ct::Encoding as _;
 /// IDP and RP). Falls back to DNS+HTTP fetch otherwise.
 pub async fn fetch_rp_keys(
     pool: &DbPool,
+    net: &crate::net::Net,
     rp_domain: &str,
 ) -> Result<Vec<liblinkkeys::generated::types::DomainPublicKey>, Box<dyn std::error::Error>> {
     if rp_domain == get_domain_name() {
         let keys = pool.list_active_domain_keys()?;
         return Ok(keys.iter().map(Into::into).collect());
     }
-    fetch_domain_keys(pool, rp_domain).await
-}
-
-/// Fetch every TXT string published at a DNS name.
-async fn lookup_txt(dns_name: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    use hickory_resolver::TokioAsyncResolver;
-
-    let resolver = TokioAsyncResolver::tokio_from_system_conf()?;
-    let response = resolver
-        .txt_lookup(dns_name)
-        .await
-        .map_err(|e| format!("no TXT record at {}: {}", dns_name, e))?;
-    Ok(response.iter().map(|r| r.to_string()).collect())
+    fetch_domain_keys(pool, net, rp_domain).await
 }
 
 /// Resolve a domain's `_linkkeys` trust-anchor record into its valid fingerprint
 /// set. Only syntactically valid (64-hex) fingerprints can pin anything, and a
 /// record with none fails closed.
 async fn lookup_linkkeys_fingerprints(
+    net: &crate::net::Net,
     domain: &str,
 ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let dns_name = liblinkkeys::dns::linkkeys_dns_name(domain);
-    let txts = lookup_txt(&dns_name)
+    let txts = net
+        .dns
+        .txt_lookup(&dns_name)
         .await
         .map_err(|e| format!("_linkkeys lookup for {} failed: {}", domain, e))?;
 
@@ -353,10 +390,13 @@ async fn lookup_linkkeys_fingerprints(
 /// Resolve a domain's `_linkkeys_apis` record into its service endpoints (the
 /// `tcp=` protocol service and/or the `https=` browser API base).
 async fn lookup_linkkeys_apis(
+    net: &crate::net::Net,
     domain: &str,
 ) -> Result<liblinkkeys::dns::LinkKeysApis, Box<dyn std::error::Error>> {
     let dns_name = liblinkkeys::dns::linkkeys_apis_dns_name(domain);
-    let txts = lookup_txt(&dns_name)
+    let txts = net
+        .dns
+        .txt_lookup(&dns_name)
         .await
         .map_err(|e| format!("_linkkeys_apis lookup for {} failed: {}", domain, e))?;
 
@@ -368,9 +408,10 @@ async fn lookup_linkkeys_apis(
 /// Look up only the DNS-published fingerprint set for a domain (no key fetch).
 /// Used to pin RP-inlined public keys on the `/userinfo` PoP fast path.
 pub async fn fetch_dns_fingerprints(
+    net: &crate::net::Net,
     domain: &str,
 ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    lookup_linkkeys_fingerprints(domain).await
+    lookup_linkkeys_fingerprints(net, domain).await
 }
 
 /// Resolve the signing keys used to verify a relying party's proof-of-possession
@@ -384,13 +425,14 @@ pub async fn fetch_dns_fingerprints(
 /// authoritative fetch (DNS + HTTP, already pinned) when no inlined key pins.
 pub async fn resolve_rp_signing_keys(
     pool: &DbPool,
+    net: &crate::net::Net,
     relying_party: &str,
     inlined: Option<&[liblinkkeys::generated::types::DomainPublicKey]>,
 ) -> Result<Vec<liblinkkeys::generated::types::DomainPublicKey>, Box<dyn std::error::Error>> {
     if relying_party != get_domain_name() {
         if let Some(keys) = inlined {
             if !keys.is_empty() {
-                let fps = fetch_dns_fingerprints(relying_party).await?;
+                let fps = fetch_dns_fingerprints(net, relying_party).await?;
                 let pinned = liblinkkeys::dns::pin_keys_to_fingerprints(keys.to_vec(), &fps);
                 if !pinned.is_empty() {
                     return Ok(pinned);
@@ -398,7 +440,7 @@ pub async fn resolve_rp_signing_keys(
             }
         }
     }
-    fetch_rp_keys(pool, relying_party).await
+    fetch_rp_keys(pool, net, relying_party).await
 }
 
 /// Fetch a domain's public keys: pin set from `_linkkeys`, key bodies from the
@@ -411,6 +453,7 @@ pub async fn resolve_rp_signing_keys(
 /// key retrieval is moving to the `tcp=` endpoint — see DNS apis record.)
 pub async fn fetch_domain_keys(
     pool: &DbPool,
+    net: &crate::net::Net,
     domain: &str,
 ) -> Result<Vec<liblinkkeys::generated::types::DomainPublicKey>, Box<dyn std::error::Error>> {
     // A single-instance IDP+RP is authoritative for its own keys: read them
@@ -423,36 +466,36 @@ pub async fn fetch_domain_keys(
     // Fingerprints (trust anchor) come from `_linkkeys`; the HTTPS endpoint
     // (transport convenience) from `_linkkeys_apis`. Key integrity comes from the
     // pin below, not the transport.
-    let fingerprints = lookup_linkkeys_fingerprints(domain).await?;
-    let api_base = lookup_linkkeys_apis(domain)
+    let fingerprints = lookup_linkkeys_fingerprints(net, domain).await?;
+    let api_base = lookup_linkkeys_apis(net, domain)
         .await?
         .https_base
-        .ok_or_else(|| format!("_linkkeys_apis for {} advertises no https= endpoint", domain))?;
-
-    let accept_invalid = std::env::var("ALLOW_INVALID_CERTS").unwrap_or_default() == "true";
-    let client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(accept_invalid)
-        .build()?;
+        .ok_or_else(|| {
+            format!(
+                "_linkkeys_apis for {} advertises no https= endpoint",
+                domain
+            )
+        })?;
 
     let url = format!("{}/v1alpha/domain-keys.json", api_base);
-    let response = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("GET {} failed: {}", url, e))?;
-    let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|e| format!("reading {} body failed: {}", url, e))?;
-    if !status.is_success() {
-        let snippet: String = body.chars().take(200).collect();
-        return Err(format!("GET {} returned {}: {}", url, status, snippet).into());
+    let response = net.http.get(&url).await?;
+    if !response.success {
+        let snippet: String = String::from_utf8_lossy(&response.body)
+            .chars()
+            .take(200)
+            .collect();
+        return Err(format!("GET {} returned an error: {}", url, snippet).into());
     }
     let resp: liblinkkeys::generated::types::GetDomainKeysResponse =
-        serde_json::from_str(&body).map_err(|e| {
-            let snippet: String = body.chars().take(200).collect();
-            format!("parsing domain-keys JSON from {} failed: {} (body: {})", url, e, snippet)
+        serde_json::from_slice(&response.body).map_err(|e| {
+            let snippet: String = String::from_utf8_lossy(&response.body)
+                .chars()
+                .take(200)
+                .collect();
+            format!(
+                "parsing domain-keys JSON from {} failed: {} (body: {})",
+                url, e, snippet
+            )
         })?;
 
     // Establish the trusted key set: signing keys pinned to the DNS fp= set,
@@ -474,15 +517,27 @@ mod tests {
 
     #[test]
     fn api_base_host_strips_scheme_port_and_path() {
-        assert_eq!(api_base_host("https://idp.example.com"), Some("idp.example.com"));
-        assert_eq!(api_base_host("https://idp.example.com:8443"), Some("idp.example.com"));
+        assert_eq!(
+            api_base_host("https://idp.example.com"),
+            Some("idp.example.com")
+        );
+        assert_eq!(
+            api_base_host("https://idp.example.com:8443"),
+            Some("idp.example.com")
+        );
         assert_eq!(
             api_base_host("https://idp.example.com:8443/v1alpha/userinfo"),
             Some("idp.example.com")
         );
-        assert_eq!(api_base_host("https://idp.example.com/path?q=1#frag"), Some("idp.example.com"));
+        assert_eq!(
+            api_base_host("https://idp.example.com/path?q=1#frag"),
+            Some("idp.example.com")
+        );
         // userinfo segment is dropped, host preserved
-        assert_eq!(api_base_host("https://user@idp.example.com:443/x"), Some("idp.example.com"));
+        assert_eq!(
+            api_base_host("https://user@idp.example.com:443/x"),
+            Some("idp.example.com")
+        );
         // bracketed IPv6 host with a port keeps the brackets
         assert_eq!(api_base_host("https://[::1]:8443/x"), Some("[::1]"));
     }

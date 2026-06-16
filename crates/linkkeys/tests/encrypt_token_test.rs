@@ -43,8 +43,15 @@ async fn encrypt_token_for_rp_self_rp_round_trips() {
         &sk_bytes,
     )
     .unwrap();
-    pool.create_domain_encryption_key(&enc_pub, &enc_priv_encrypted, &enc_fp, &domain_key.id, &vouch, expires)
-        .expect("create_domain_encryption_key");
+    pool.create_domain_encryption_key(
+        &enc_pub,
+        &enc_priv_encrypted,
+        &enc_fp,
+        &domain_key.id,
+        &vouch,
+        expires,
+    )
+    .expect("create_domain_encryption_key");
 
     // Build and sign an identity assertion the same way the IDP login flow does.
     let user_id = "test-user-id";
@@ -57,6 +64,7 @@ async fn encrypt_token_for_rp_self_rp_round_trips() {
         nonce,
         Some("Test User"),
         300,
+        vec![],
     );
     let signed = assertions::sign_assertion(
         &assertion,
@@ -68,9 +76,14 @@ async fn encrypt_token_for_rp_self_rp_round_trips() {
     let token_param = encoding::assertion_to_url_param(&signed).unwrap();
 
     // Self-RP path: rp_domain == DOMAIN_NAME, so the DB branch is taken.
-    let encrypted = linkkeys::web::encrypt_token_for_rp(&pool, &token_param, TEST_DOMAIN)
-        .await
-        .expect("encrypt_token_for_rp self-RP path");
+    let encrypted = linkkeys::web::encrypt_token_for_rp(
+        &pool,
+        &common::net::offline_net(),
+        &token_param,
+        TEST_DOMAIN,
+    )
+    .await
+    .expect("encrypt_token_for_rp self-RP path");
 
     // Decrypt with the domain's X25519 ENCRYPTION private key (used directly,
     // no conversion) and check we recover the original assertion.

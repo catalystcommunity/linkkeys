@@ -223,8 +223,10 @@ pub fn verify_key_vouch(enc_key: &DomainPublicKey, signing_key: &DomainPublicKey
     if enc_key.signed_by_key_id.as_deref() != Some(signing_key.key_id.as_str()) {
         return false;
     }
-    if crate::crypto::signing_key_validity(&signing_key.expires_at, signing_key.revoked_at.as_deref())
-        != crate::crypto::KeyValidity::Valid
+    if crate::crypto::signing_key_validity(
+        &signing_key.expires_at,
+        signing_key.revoked_at.as_deref(),
+    ) != crate::crypto::KeyValidity::Valid
     {
         return false;
     }
@@ -256,8 +258,11 @@ pub fn verify_key_vouch(enc_key: &DomainPublicKey, signing_key: &DomainPublicKey
 /// Anything not pinned or not vouched is dropped. An empty result means "no
 /// trustworthy keys" — callers MUST fail closed.
 pub fn trust_keys(keys: Vec<DomainPublicKey>, pinned: &[String]) -> Vec<DomainPublicKey> {
-    let signing: Vec<DomainPublicKey> =
-        keys.iter().filter(|k| k.key_usage == "sign").cloned().collect();
+    let signing: Vec<DomainPublicKey> = keys
+        .iter()
+        .filter(|k| k.key_usage == "sign")
+        .cloned()
+        .collect();
     let pinned_signing = pin_keys_to_fingerprints(signing, pinned);
 
     let mut trusted = pinned_signing.clone();
@@ -365,14 +370,18 @@ mod tests {
         let txt = "v=lk1 tcp=auth.example.com:6000 https=auth.example.com/linkkeys";
         let apis = parse_linkkeys_apis_txt(txt).unwrap();
         assert_eq!(apis.tcp.as_deref(), Some("auth.example.com:6000"));
-        assert_eq!(apis.https_base.as_deref(), Some("https://auth.example.com/linkkeys"));
+        assert_eq!(
+            apis.https_base.as_deref(),
+            Some("https://auth.example.com/linkkeys")
+        );
     }
 
     #[test]
     fn test_parse_apis_defaults_tcp_port() {
         // Omitted TCP port is filled with DEFAULT_TCP_PORT; HTTPS port stays
         // implicit (443) in the URL.
-        let apis = parse_linkkeys_apis_txt("v=lk1 tcp=idp.example.com https=idp.example.com").unwrap();
+        let apis =
+            parse_linkkeys_apis_txt("v=lk1 tcp=idp.example.com https=idp.example.com").unwrap();
         assert_eq!(apis.tcp.as_deref(), Some("idp.example.com:4987"));
         assert_eq!(apis.https_base.as_deref(), Some("https://idp.example.com"));
     }
@@ -385,7 +394,10 @@ mod tests {
 
         let https_only = parse_linkkeys_apis_txt("v=lk1 https=idp.example.com:8443/x").unwrap();
         assert!(https_only.tcp.is_none());
-        assert_eq!(https_only.https_base.as_deref(), Some("https://idp.example.com:8443/x"));
+        assert_eq!(
+            https_only.https_base.as_deref(),
+            Some("https://idp.example.com:8443/x")
+        );
     }
 
     #[test]
@@ -401,13 +413,18 @@ mod tests {
         let txt = build_linkkeys_apis_txt(Some("idp.example.com"), Some("idp.example.com/api"));
         let apis = parse_linkkeys_apis_txt(&txt).unwrap();
         assert_eq!(apis.tcp.as_deref(), Some("idp.example.com:4987"));
-        assert_eq!(apis.https_base.as_deref(), Some("https://idp.example.com/api"));
+        assert_eq!(
+            apis.https_base.as_deref(),
+            Some("https://idp.example.com/api")
+        );
     }
 
     #[test]
     fn test_txt_length_guard() {
         assert!(!txt_exceeds_single_string("v=lk1 tcp=idp.example.com"));
-        assert!(txt_exceeds_single_string(&"x".repeat(MAX_TXT_STRING_LEN + 1)));
+        assert!(txt_exceeds_single_string(
+            &"x".repeat(MAX_TXT_STRING_LEN + 1)
+        ));
     }
 
     use crate::crypto::{fingerprint, generate_keypair, SigningAlgorithm, ALGORITHM_ED25519};
@@ -468,7 +485,9 @@ mod tests {
         let (pk_a, _) = generate_keypair(SigningAlgorithm::Ed25519);
         assert!(pin_keys_to_fingerprints(vec![make_key(&pk_a)], &[]).is_empty());
         // Invalid pins are ignored, so still empty.
-        assert!(pin_keys_to_fingerprints(vec![make_key(&pk_a)], &["nothex".to_string()]).is_empty());
+        assert!(
+            pin_keys_to_fingerprints(vec![make_key(&pk_a)], &["nothex".to_string()]).is_empty()
+        );
     }
 
     #[test]
@@ -492,8 +511,10 @@ mod tests {
         enc_key.key_signature = Some(vouch);
 
         // DNS pins ONLY the signing key fingerprint; encrypt key is vouched.
-        let trusted =
-            trust_keys(vec![sign_key.clone(), enc_key.clone()], std::slice::from_ref(&sign_fp));
+        let trusted = trust_keys(
+            vec![sign_key.clone(), enc_key.clone()],
+            std::slice::from_ref(&sign_fp),
+        );
         assert_eq!(trusted.len(), 2, "sign pinned + encrypt vouched");
 
         // Tampered vouch -> encrypt dropped, sign kept.

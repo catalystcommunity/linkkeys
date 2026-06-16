@@ -76,8 +76,7 @@ pub struct GuestbookListResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct EmptyRequest {
-}
+pub struct EmptyRequest {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DomainPublicKey {
@@ -172,6 +171,48 @@ pub struct GetUserClaimsResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RequestedClaim {
+    pub claim_type: String,
+    pub datatype: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ClaimRequest {
+    pub required: Vec<RequestedClaim>,
+    pub optional: Vec<RequestedClaim>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ConsentGrant {
+    pub grant_id: String,
+    pub user_id: String,
+    pub subject_domain: String,
+    pub audience: String,
+    pub claim_types: Vec<String>,
+    pub issued_at: String,
+    pub expires_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revoked_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SignedConsentGrant {
+    #[serde(with = "serde_bytes")]
+    pub grant: Vec<u8>,
+    pub signatures: Vec<ClaimSignature>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DomainClaim {
+    pub claim_type: String,
+    #[serde(with = "serde_bytes")]
+    pub claim_value: Vec<u8>,
+    pub signatures: Vec<ClaimSignature>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct IdentityAssertion {
     pub user_id: String,
     pub domain: String,
@@ -179,6 +220,7 @@ pub struct IdentityAssertion {
     pub nonce: String,
     pub issued_at: String,
     pub expires_at: String,
+    pub authorized_claims: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
 }
@@ -233,6 +275,10 @@ pub struct AuthRequest {
     pub nonce: String,
     pub timestamp: String,
     pub signing_key_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested_claims: Option<ClaimRequest>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relying_party_claims: Option<Vec<DomainClaim>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -471,4 +517,3 @@ pub struct GetMyInfoResponse {
     pub relations: Vec<Relation>,
     pub claims: Vec<Claim>,
 }
-
