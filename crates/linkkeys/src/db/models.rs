@@ -37,6 +37,9 @@ pub struct User {
     pub is_active: bool,
     pub created_at: String,
     pub updated_at: String,
+    /// A domain administrator account — has the admin relation + credentials but
+    /// no presentable profile, and is refused on the RP (app) login path.
+    pub is_admin_account: bool,
 }
 
 /// Auth credential model. Stores hashed credentials per user per auth method.
@@ -254,6 +257,7 @@ pub mod pg {
         pub is_active: bool,
         pub created_at: chrono::DateTime<chrono::Utc>,
         pub updated_at: chrono::DateTime<chrono::Utc>,
+        pub is_admin_account: bool,
     }
 
     impl From<UserRow> for super::User {
@@ -265,6 +269,7 @@ pub mod pg {
                 is_active: row.is_active,
                 created_at: row.created_at.to_rfc3339(),
                 updated_at: row.updated_at.to_rfc3339(),
+                is_admin_account: row.is_admin_account,
             }
         }
     }
@@ -668,6 +673,7 @@ pub mod sqlite {
         pub is_active: i32,
         pub created_at: String,
         pub updated_at: String,
+        pub is_admin_account: i32,
     }
 
     impl From<UserRow> for super::User {
@@ -679,6 +685,7 @@ pub mod sqlite {
                 is_active: row.is_active != 0,
                 created_at: row.created_at,
                 updated_at: row.updated_at,
+                is_admin_account: row.is_admin_account != 0,
             }
         }
     }

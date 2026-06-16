@@ -34,6 +34,13 @@ async fn main() {
                         Ok(_) => {}
                         Err(e) => log::error!("Profile backfill failed: {}", e),
                     }
+                    match pool.split_admins() {
+                        Ok(n) if n > 0 => {
+                            log::info!("Split {} admin(s) into separate admin accounts", n)
+                        }
+                        Ok(_) => {}
+                        Err(e) => log::error!("Admin split failed: {}", e),
+                    }
                 });
             }
 

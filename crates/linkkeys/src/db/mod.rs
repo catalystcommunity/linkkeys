@@ -70,6 +70,10 @@ const PG_MIGRATIONS: &[(&str, &str)] = &[
         "2026-06-15-000001_create_profiles",
         include_str!("../../../../migrations/postgres/2026-06-15-000001_create_profiles.sql"),
     ),
+    (
+        "2026-06-16-000001_admin_accounts",
+        include_str!("../../../../migrations/postgres/2026-06-16-000001_admin_accounts.sql"),
+    ),
 ];
 
 #[cfg(feature = "sqlite")]
@@ -117,6 +121,10 @@ const SQLITE_MIGRATIONS: &[(&str, &str)] = &[
     (
         "2026-06-15-000001_create_profiles",
         include_str!("../../../../migrations/sqlite/2026-06-15-000001_create_profiles.sql"),
+    ),
+    (
+        "2026-06-16-000001_admin_accounts",
+        include_str!("../../../../migrations/sqlite/2026-06-16-000001_admin_accounts.sql"),
     ),
 ];
 
@@ -1179,6 +1187,130 @@ impl DbPool {
                 profiles::sqlite::backfill(&mut conn, &domain)
             }
         }
+    }
+
+    /// Create a domain administrator account: a user with `is_admin_account`
+    /// set, a password credential, and the `admin` relation on the domain — and
+    /// crucially NO profiles, so it cannot be presented to a relying party. All
+    /// in one transaction. This is the "admin that doesn't go elsewhere".
+    pub fn create_admin_account(
+        &self,
+        username: &str,
+        display_name: &str,
+        password_hash: &str,
+    ) -> QueryResult<models::User> {
+        let domain = crate::conversions::get_domain_name();
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
+                conn.transaction(|conn| {
+                    let mut user = users::pg::create(conn, username, display_name)?;
+                    let uid: uuid::Uuid = user
+                        .id
+                        .parse()
+                        .map_err(|_| diesel::result::Error::NotFound)?;
+                    diesel::update(crate::schema::pg::users::table.find(uid))
+                        .set(crate::schema::pg::users::is_admin_account.eq(true))
+                        .execute(conn)?;
+                    auth_credentials::pg::create(conn, uid, "password", password_hash)?;
+                    relations::pg::create(conn, "user", &user.id, "admin", "domain", &domain)?;
+                    user.is_admin_account = true;
+                    Ok(user)
+                })
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
+                conn.transaction(|conn| {
+                    let mut user = users::sqlite::create(conn, username, display_name)?;
+                    diesel::update(crate::schema::sqlite::users::table.find(user.id.as_str()))
+                        .set(crate::schema::sqlite::users::is_admin_account.eq(1))
+                        .execute(conn)?;
+                    auth_credentials::sqlite::create(conn, &user.id, "password", password_hash)?;
+                    relations::sqlite::create(conn, "user", &user.id, "admin", "domain", &domain)?;
+                    user.is_admin_account = true;
+                    Ok(user)
+                })
+            }
+        }
+    }
+
+    /// Split existing administrators into a normal user + a separate
+    /// `<username>_admin` admin account (with a copy of the user's password), and
+    /// demote the original to a normal user. Idempotent: an account that is
+    /// already an admin account, or whose `_admin` twin already exists, is
+    /// skipped; demoted originals no longer match. Best-effort per admin (logs +
+    /// skips on error) so one bad account can't abort the pass. Returns how many
+    /// admins were split.
+    pub fn split_admins(&self) -> QueryResult<usize> {
+        // Relations that confer administrative power on the domain.
+        const ADMIN_RELATIONS: &[&str] = &["admin", "manage_users", "manage_claims", "api_access"];
+        let domain = crate::conversions::get_domain_name();
+        let rels = self.list_relations_for_object("domain", &domain)?;
+
+        let admin_ids: std::collections::BTreeSet<String> = rels
+            .iter()
+            .filter(|r| {
+                r.subject_type == "user" && (r.relation == "admin" || r.relation == "manage_users")
+            })
+            .map(|r| r.subject_id.clone())
+            .collect();
+
+        let mut count = 0;
+        for uid in admin_ids {
+            let user = match self.find_user_by_id(&uid) {
+                Ok(u) => u,
+                Err(_) => continue,
+            };
+            if user.is_admin_account {
+                continue; // already a separated admin account
+            }
+            let target = format!("{}_admin", user.username);
+            if self.find_user_by_username(&target).is_ok() {
+                continue; // already split
+            }
+            let hash = match self
+                .find_credentials_for_user(&uid, "password")
+                .ok()
+                .and_then(|c| c.into_iter().next())
+            {
+                Some(cred) => cred.credential_hash,
+                None => {
+                    log::warn!(
+                        "admin split skipped {}: no password credential to copy",
+                        user.username
+                    );
+                    continue;
+                }
+            };
+            if let Err(e) = self.create_admin_account(&target, &user.display_name, &hash) {
+                log::warn!("admin split: creating {} failed: {:?}", target, e);
+                continue;
+            }
+            // Demote the original: drop its administrative relations on the domain.
+            for r in rels.iter().filter(|r| {
+                r.subject_type == "user"
+                    && r.subject_id == uid
+                    && r.object_type == "domain"
+                    && r.object_id == domain
+                    && ADMIN_RELATIONS.contains(&r.relation.as_str())
+            }) {
+                let _ = self.remove_relation(&r.id);
+            }
+            count += 1;
+        }
+        Ok(count)
     }
 
     pub fn update_display_name(
