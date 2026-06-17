@@ -14,8 +14,6 @@ use diesel::connection::SimpleConnection;
 use diesel::prelude::*;
 use diesel::r2d2::{self, ConnectionManager};
 use std::env;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 
 // Single-file, forward-only migrations: each entry is (version, SQL), applied in
 // array order. A `__lk_migrations` table records which versions have run. No
@@ -268,8 +266,11 @@ fn default_database_url(backend: &str) -> &'static str {
 /// For Postgres: uses advisory locks so concurrent pods don't race.
 /// For SQLite: uses WAL mode + busy timeout for serialized writes.
 ///
-/// Sets `ready_flag` to true once migrations complete.
-pub fn run_migrations_with_locking(pool: &DbPool, ready_flag: Arc<AtomicBool>) {
+/// Runs all pending migrations under a cross-process lock (advisory lock on
+/// Postgres, WAL on SQLite). Does not signal readiness — the caller sets the
+/// ready flag once *all* startup DB writes (migrations + data backfills) are
+/// done, so nothing contends on the SQLite lock while reading domain keys.
+pub fn run_migrations_with_locking(pool: &DbPool) {
     match pool {
         #[cfg(feature = "postgres")]
         DbPool::Postgres(pool) => {
@@ -318,8 +319,7 @@ pub fn run_migrations_with_locking(pool: &DbPool, ready_flag: Arc<AtomicBool>) {
         }
     }
 
-    ready_flag.store(true, Ordering::SeqCst);
-    log::info!("Migrations complete, server ready");
+    log::info!("Migrations complete");
 }
 
 // -- Convenience methods to eliminate match-on-DbPool boilerplate --
