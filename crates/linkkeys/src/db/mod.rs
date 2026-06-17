@@ -13,7 +13,6 @@ pub mod users;
 use diesel::connection::SimpleConnection;
 use diesel::prelude::*;
 use diesel::r2d2::{self, ConnectionManager};
-use std::collections::HashSet;
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -128,53 +127,53 @@ const SQLITE_MIGRATIONS: &[(&str, &str)] = &[
     ),
 ];
 
-#[derive(QueryableByName)]
-struct AppliedVersion {
-    #[diesel(sql_type = diesel::sql_types::Text)]
-    version: String,
+/// True for the benign "this object already exists" class of DB errors that
+/// means a migration was already applied (so we skip it), as opposed to a real
+/// failure (which propagates). Covers both Postgres ("... already exists") and
+/// SQLite ("table ... already exists", "duplicate column name", ...).
+fn is_already_applied(e: &diesel::result::Error) -> bool {
+    if let diesel::result::Error::DatabaseError(_, info) = e {
+        let msg = info.message().to_lowercase();
+        msg.contains("already exists") || msg.contains("duplicate column")
+    } else {
+        false
+    }
 }
 
-/// Apply forward-only single-file migrations on a concrete connection. Shared by
-/// the server (with locking) and the test harness. Tracks applied versions in
-/// `__lk_migrations`; versions are compile-time constants (not user input), so
-/// inlining them in the INSERT is safe.
+/// Apply forward-only, single-file migrations on a concrete connection. There is
+/// NO migration-tracking table — the runner is idempotent: it runs every
+/// migration on each boot and treats an "already exists / duplicate column"
+/// failure as "already applied, skip". This works because each migration's first
+/// statement is a uniquely-named CREATE/ALTER, so a previously-applied migration
+/// fails on that first statement (rolling back its transaction untouched) and is
+/// skipped wholesale, while a genuinely-new migration applies. Any OTHER error
+/// is a real failure and propagates. Each migration runs in its own transaction,
+/// so a partial/failed apply rolls back cleanly.
+///
+/// SOUND ONLY FOR DDL migrations (the convention here): a data statement would
+/// not error on re-run and would silently execute every boot. Data backfills
+/// must be idempotent startup hooks instead (see `backfill_profiles` /
+/// `split_admins`), never SQL migrations.
 macro_rules! apply_migrations {
     ($conn:expr, $migrations:expr) => {{
-        // Catch an out-of-order or mismatched array early (versions are applied
-        // in array order; they must be strictly ascending).
+        // Migrations apply in array order, which must be strictly ascending so a
+        // fresh DB builds the schema in the right sequence.
         debug_assert!(
             $migrations.windows(2).all(|w| w[0].0 < w[1].0),
             "migrations must be listed in strictly ascending version order"
         );
-        $conn
-            .batch_execute("CREATE TABLE IF NOT EXISTS __lk_migrations (version TEXT PRIMARY KEY)")
-            .map_err(|e| e.to_string())?;
-        let already: Vec<AppliedVersion> = diesel::sql_query("SELECT version FROM __lk_migrations")
-            .load($conn)
-            .map_err(|e| e.to_string())?;
-        let already: HashSet<String> = already.into_iter().map(|a| a.version).collect();
         let mut count = 0usize;
         for (name, sql) in $migrations.iter() {
-            if already.contains(*name) {
-                continue;
+            match $conn.transaction::<(), diesel::result::Error, _>(|c| c.batch_execute(sql)) {
+                Ok(()) => {
+                    log::info!("applied migration {}", name);
+                    count += 1;
+                }
+                Err(e) if is_already_applied(&e) => {
+                    log::debug!("migration {} already applied; skipping", name);
+                }
+                Err(e) => return Err(format!("migration {} failed: {}", name, e)),
             }
-            // Each migration's statements AND its version bookkeeping commit (or
-            // roll back) together, so an interrupted/failed migration leaves no
-            // partial schema and no orphan version — the restart re-runs it
-            // cleanly. Both backends support transactional DDL, and no migration
-            // uses a non-transactional statement (CREATE EXTENSION/VACUUM/etc.).
-            $conn
-                .transaction::<(), diesel::result::Error, _>(|c| {
-                    c.batch_execute(sql)?;
-                    diesel::sql_query(format!(
-                        "INSERT INTO __lk_migrations (version) VALUES ('{}')",
-                        name
-                    ))
-                    .execute(c)?;
-                    Ok(())
-                })
-                .map_err(|e| format!("migration {} failed: {}", name, e))?;
-            count += 1;
         }
         Ok::<usize, String>(count)
     }};
