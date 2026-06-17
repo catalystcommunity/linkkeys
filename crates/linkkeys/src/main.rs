@@ -6,9 +6,10 @@ use clap::Parser;
 use cli::{
     AccountCommands, ClaimCommands, Cli, Commands, DomainCommands, RelationCommands, UserCommands,
 };
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
 
 #[rocket::main]
 async fn main() {
@@ -27,7 +28,7 @@ async fn main() {
                 let pool = db_pool.clone();
                 let flag = ready_flag.clone();
                 thread::spawn(move || {
-                    linkkeys::db::run_migrations_with_locking(&pool, flag);
+                    linkkeys::db::run_migrations_with_locking(&pool);
                     resign_legacy_claims_on_startup(&pool);
                     match pool.backfill_profiles() {
                         Ok(n) if n > 0 => log::info!("Backfilled profiles for {} account(s)", n),
@@ -41,6 +42,11 @@ async fn main() {
                         Ok(_) => {}
                         Err(e) => log::error!("Admin split failed: {}", e),
                     }
+                    // Signal readiness only after every startup DB write is done,
+                    // so the TCP server's domain-key read can't contend on the
+                    // SQLite lock (which previously failed its TLS setup).
+                    flag.store(true, Ordering::SeqCst);
+                    log::info!("Startup complete, server ready");
                 });
             }
 
@@ -48,12 +54,20 @@ async fn main() {
                 let flag = ready_flag.clone();
                 let pool = db_pool.clone();
                 let tcp_dns = linkkeys::net::Net::production().dns;
-                thread::spawn(
-                    move || match linkkeys::tcp::TcpServer::new(flag, pool, tcp_dns) {
+                thread::spawn(move || {
+                    // Wait until startup DB writes finish before constructing the
+                    // server: TcpServer::new reads domain keys for its TLS config,
+                    // which would otherwise contend on the SQLite lock held by the
+                    // migration/backfill thread, erroring out of new() (the bound
+                    // listener is dropped) so the port never serves.
+                    while !flag.load(Ordering::SeqCst) {
+                        thread::sleep(Duration::from_millis(100));
+                    }
+                    match linkkeys::tcp::TcpServer::new(flag, pool, tcp_dns) {
                         Ok(server) => server.run(),
                         Err(e) => log::error!("Failed to start TCP server: {}", e),
-                    },
-                );
+                    }
+                });
             }
 
             linkkeys::web::launch_rocket(db_pool, ready_flag).await;
@@ -229,8 +243,7 @@ fn get_passphrase() -> String {
 
 fn pool_with_migrations() -> linkkeys::db::DbPool {
     let pool = linkkeys::db::create_pool();
-    let flag = Arc::new(AtomicBool::new(false));
-    linkkeys::db::run_migrations_with_locking(&pool, flag);
+    linkkeys::db::run_migrations_with_locking(&pool);
     pool
 }
 

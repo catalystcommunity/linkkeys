@@ -78,16 +78,22 @@ spec:
             - name: data
               mountPath: /data
           {{- end }}
-          livenessProbe:
-            tcpSocket:
-              port: tcp
-            initialDelaySeconds: 15
-            periodSeconds: 10
+          # Readiness gates Service traffic and goes green as soon as the TCP
+          # listener opens (after migrations + backfills complete). Liveness is
+          # deliberately lenient so it never restarts the pod during that
+          # startup window — only if the process is genuinely wedged for ~2min.
           readinessProbe:
             tcpSocket:
               port: tcp
-            initialDelaySeconds: 15
-            periodSeconds: 10
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: tcp
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 6
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       {{- with .Values.nodeSelector }}
