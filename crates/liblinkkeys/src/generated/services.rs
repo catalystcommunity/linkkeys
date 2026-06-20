@@ -216,3 +216,14 @@ pub trait Account {
         input: EmptyRequest,
     ) -> Result<GetMyInfoResponse, ServiceError>;
 }
+
+/// Attestation service trait
+pub trait Attestation {
+    type Context;
+    /// deposit-claim (request/response).
+    fn deposit_claim(
+        &self,
+        ctx: &Self::Context,
+        input: DepositClaimRequest,
+    ) -> Result<DepositClaimResponse, ServiceError>;
+}

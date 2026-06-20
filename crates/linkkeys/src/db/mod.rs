@@ -1,192 +1,134 @@
 pub mod auth_credentials;
+pub mod claim_policy;
 pub mod claims;
 pub mod consent_grants;
 pub mod domain_keys;
+pub mod email_verification;
 pub mod guestbook;
 pub mod models;
 pub mod nonces;
+pub mod peer_keys;
 pub mod profiles;
 pub mod relations;
 pub mod user_keys;
+pub mod user_release_prefs;
 pub mod users;
 
-use diesel::connection::SimpleConnection;
 use diesel::prelude::*;
 use diesel::r2d2::{self, ConnectionManager};
 use std::env;
 
-// Single-file, forward-only migrations: each entry is (version, SQL), applied in
-// array order. A `__lk_migrations` table records which versions have run. No
-// rollback by design (no down migrations). Adding a migration = drop one `.sql`
-// file under migrations/<backend>/ and add a line here.
+use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+
+// Schema migrations are tracked by diesel (the `__diesel_schema_migrations`
+// table); diesel runs only the pending ones. Migrations are pure SCHEMA DDL,
+// living under migrations/<backend>/<version>_<name>/up.sql. Idempotent DATA
+// backfills are NOT migrations — they are "transforms" run separately at
+// startup (see main.rs). Paths are relative to this crate's manifest dir; the
+// migrations tree is at the workspace root.
 #[cfg(feature = "postgres")]
-const PG_MIGRATIONS: &[(&str, &str)] = &[
-    (
-        "00000000000000_diesel_initial_setup",
-        include_str!("../../../../migrations/postgres/00000000000000_diesel_initial_setup.sql"),
-    ),
-    (
-        "2026-03-15-000001_create_guestbook",
-        include_str!("../../../../migrations/postgres/2026-03-15-000001_create_guestbook.sql"),
-    ),
-    (
-        "2026-04-02-000001_create_identity_tables",
-        include_str!(
-            "../../../../migrations/postgres/2026-04-02-000001_create_identity_tables.sql"
-        ),
-    ),
-    (
-        "2026-04-09-000001_create_relations_and_extensions",
-        include_str!(
-            "../../../../migrations/postgres/2026-04-09-000001_create_relations_and_extensions.sql"
-        ),
-    ),
-    (
-        "2026-04-09-000002_add_relations_unique_index",
-        include_str!(
-            "../../../../migrations/postgres/2026-04-09-000002_add_relations_unique_index.sql"
-        ),
-    ),
-    (
-        "2026-05-30-000001_create_used_nonces",
-        include_str!("../../../../migrations/postgres/2026-05-30-000001_create_used_nonces.sql"),
-    ),
-    (
-        "2026-06-01-000001_add_key_usage",
-        include_str!("../../../../migrations/postgres/2026-06-01-000001_add_key_usage.sql"),
-    ),
-    (
-        "2026-06-14-000001_claim_signatures",
-        include_str!("../../../../migrations/postgres/2026-06-14-000001_claim_signatures.sql"),
-    ),
-    (
-        "2026-06-14-000002_create_consent_grants",
-        include_str!("../../../../migrations/postgres/2026-06-14-000002_create_consent_grants.sql"),
-    ),
-    (
-        "2026-06-15-000001_create_profiles",
-        include_str!("../../../../migrations/postgres/2026-06-15-000001_create_profiles.sql"),
-    ),
-    (
-        "2026-06-16-000001_admin_accounts",
-        include_str!("../../../../migrations/postgres/2026-06-16-000001_admin_accounts.sql"),
-    ),
-];
-
+const PG_MIGRATIONS: EmbeddedMigrations = embed_migrations!("../../migrations/postgres");
 #[cfg(feature = "sqlite")]
-const SQLITE_MIGRATIONS: &[(&str, &str)] = &[
-    (
-        "00000000000000_diesel_initial_setup",
-        include_str!("../../../../migrations/sqlite/00000000000000_diesel_initial_setup.sql"),
-    ),
-    (
-        "2026-03-15-000001_create_guestbook",
-        include_str!("../../../../migrations/sqlite/2026-03-15-000001_create_guestbook.sql"),
-    ),
-    (
-        "2026-04-02-000001_create_identity_tables",
-        include_str!("../../../../migrations/sqlite/2026-04-02-000001_create_identity_tables.sql"),
-    ),
-    (
-        "2026-04-09-000001_create_relations_and_extensions",
-        include_str!(
-            "../../../../migrations/sqlite/2026-04-09-000001_create_relations_and_extensions.sql"
-        ),
-    ),
-    (
-        "2026-04-09-000002_add_relations_unique_index",
-        include_str!(
-            "../../../../migrations/sqlite/2026-04-09-000002_add_relations_unique_index.sql"
-        ),
-    ),
-    (
-        "2026-05-30-000001_create_used_nonces",
-        include_str!("../../../../migrations/sqlite/2026-05-30-000001_create_used_nonces.sql"),
-    ),
-    (
-        "2026-06-01-000001_add_key_usage",
-        include_str!("../../../../migrations/sqlite/2026-06-01-000001_add_key_usage.sql"),
-    ),
-    (
-        "2026-06-14-000001_claim_signatures",
-        include_str!("../../../../migrations/sqlite/2026-06-14-000001_claim_signatures.sql"),
-    ),
-    (
-        "2026-06-14-000002_create_consent_grants",
-        include_str!("../../../../migrations/sqlite/2026-06-14-000002_create_consent_grants.sql"),
-    ),
-    (
-        "2026-06-15-000001_create_profiles",
-        include_str!("../../../../migrations/sqlite/2026-06-15-000001_create_profiles.sql"),
-    ),
-    (
-        "2026-06-16-000001_admin_accounts",
-        include_str!("../../../../migrations/sqlite/2026-06-16-000001_admin_accounts.sql"),
-    ),
-];
+const SQLITE_MIGRATIONS: EmbeddedMigrations = embed_migrations!("../../migrations/sqlite");
 
-/// True for the benign "this object already exists" class of DB errors that
-/// means a migration was already applied (so we skip it), as opposed to a real
-/// failure (which propagates). Covers both Postgres ("... already exists") and
-/// SQLite ("table ... already exists", "duplicate column name", ...).
-fn is_already_applied(e: &diesel::result::Error) -> bool {
-    if let diesel::result::Error::DatabaseError(_, info) = e {
-        let msg = info.message().to_lowercase();
-        msg.contains("already exists") || msg.contains("duplicate column")
-    } else {
-        false
-    }
+#[derive(diesel::QueryableByName)]
+struct MigCount {
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    n: i64,
 }
 
-/// Apply forward-only, single-file migrations on a concrete connection. There is
-/// NO migration-tracking table — the runner is idempotent: it runs every
-/// migration on each boot and treats an "already exists / duplicate column"
-/// failure as "already applied, skip". This works because each migration's first
-/// statement is a uniquely-named CREATE/ALTER, so a previously-applied migration
-/// fails on that first statement (rolling back its transaction untouched) and is
-/// skipped wholesale, while a genuinely-new migration applies. Any OTHER error
-/// is a real failure and propagates. Each migration runs in its own transaction,
-/// so a partial/failed apply rolls back cleanly.
+/// ONE-TIME diesel-tracking baseline (2026-06-18 migration-system transition).
 ///
-/// SOUND ONLY FOR DDL migrations (the convention here): a data statement would
-/// not error on re-run and would silently execute every boot. Data backfills
-/// must be idempotent startup hooks instead (see `backfill_profiles` /
-/// `split_admins`), never SQL migrations.
-macro_rules! apply_migrations {
-    ($conn:expr, $migrations:expr) => {{
-        // Migrations apply in array order, which must be strictly ascending so a
-        // fresh DB builds the schema in the right sequence.
-        debug_assert!(
-            $migrations.windows(2).all(|w| w[0].0 < w[1].0),
-            "migrations must be listed in strictly ascending version order"
-        );
-        let mut count = 0usize;
-        for (name, sql) in $migrations.iter() {
-            match $conn.transaction::<(), diesel::result::Error, _>(|c| c.batch_execute(sql)) {
-                Ok(()) => {
-                    log::info!("applied migration {}", name);
-                    count += 1;
-                }
-                Err(e) if is_already_applied(&e) => {
-                    log::debug!("migration {} already applied; skipping", name);
-                }
-                Err(e) => return Err(format!("migration {} failed: {}", name, e)),
-            }
-        }
-        Ok::<usize, String>(count)
-    }};
-}
+/// Deployed DBs were originally diesel-migrated through `20260614000001`
+/// (`claim_signatures`), then the interim custom runner applied
+/// `create_consent_grants`, `create_profiles`, and `admin_accounts` WITHOUT
+/// recording them in `__diesel_schema_migrations`. Now that diesel tracks
+/// migrations again, those three would be seen as pending and re-run → "already
+/// exists" crash. Record them as applied (they exist) so diesel skips them and
+/// runs only genuinely-new migrations (e.g. `claim_policy`).
+///
+/// Guarded + idempotent: acts only when diesel's table exists AND carries the
+/// pre-transition cutoff version (so a fresh DB — table absent — is untouched and
+/// diesel builds the whole schema normally). `ON CONFLICT DO NOTHING` makes
+/// re-runs no-ops. The version strings are compile-time constants, not input.
+/// Safe to delete once every deployment has booted on diesel tracking.
+const LEGACY_APPLIED_UNTRACKED: &[&str] = &["20260614000002", "20260615000001", "20260616000001"];
+const LEGACY_TRACKING_CUTOFF: &str = "20260614000001";
 
-/// Apply pending migrations on a Postgres connection. Returns the number run.
+/// Run pending schema migrations on a Postgres connection. Returns the number run.
 #[cfg(feature = "postgres")]
 pub fn migrate_pg(conn: &mut diesel::PgConnection) -> Result<usize, String> {
-    apply_migrations!(conn, PG_MIGRATIONS)
+    let applied = diesel::sql_query(format!(
+        "SELECT count(*) AS n FROM __diesel_schema_migrations WHERE version = '{}'",
+        LEGACY_TRACKING_CUTOFF
+    ))
+    .get_result::<MigCount>(conn)
+    .map(|c| c.n > 0)
+    .unwrap_or(false); // table absent (fresh DB) → nothing to baseline
+    if applied {
+        for v in LEGACY_APPLIED_UNTRACKED {
+            diesel::sql_query(format!(
+                "INSERT INTO __diesel_schema_migrations (version) VALUES ('{}') ON CONFLICT (version) DO NOTHING",
+                v
+            ))
+            .execute(conn)
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    conn.run_pending_migrations(PG_MIGRATIONS)
+        .map(|v| v.len())
+        .map_err(|e| e.to_string())
 }
 
-/// Apply pending migrations on a SQLite connection. Returns the number run.
+/// Run pending schema migrations on a SQLite connection. Returns the number run.
 #[cfg(feature = "sqlite")]
 pub fn migrate_sqlite(conn: &mut diesel::SqliteConnection) -> Result<usize, String> {
-    apply_migrations!(conn, SQLITE_MIGRATIONS)
+    let applied = diesel::sql_query(format!(
+        "SELECT count(*) AS n FROM __diesel_schema_migrations WHERE version = '{}'",
+        LEGACY_TRACKING_CUTOFF
+    ))
+    .get_result::<MigCount>(conn)
+    .map(|c| c.n > 0)
+    .unwrap_or(false);
+    if applied {
+        for v in LEGACY_APPLIED_UNTRACKED {
+            diesel::sql_query(format!(
+                "INSERT INTO __diesel_schema_migrations (version) VALUES ('{}') ON CONFLICT (version) DO NOTHING",
+                v
+            ))
+            .execute(conn)
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    conn.run_pending_migrations(SQLITE_MIGRATIONS)
+        .map(|v| v.len())
+        .map_err(|e| e.to_string())
+}
+
+/// Fetch a pooled connection, mapping the r2d2 checkout error into a diesel
+/// error so call sites stay `QueryResult`-shaped.
+#[cfg(feature = "postgres")]
+fn pg_conn(
+    p: &r2d2::Pool<ConnectionManager<diesel::PgConnection>>,
+) -> QueryResult<r2d2::PooledConnection<ConnectionManager<diesel::PgConnection>>> {
+    p.get().map_err(|e| {
+        diesel::result::Error::DatabaseError(
+            diesel::result::DatabaseErrorKind::Unknown,
+            Box::new(e.to_string()),
+        )
+    })
+}
+
+#[cfg(feature = "sqlite")]
+fn sqlite_conn(
+    p: &r2d2::Pool<ConnectionManager<diesel::SqliteConnection>>,
+) -> QueryResult<r2d2::PooledConnection<ConnectionManager<diesel::SqliteConnection>>> {
+    p.get().map_err(|e| {
+        diesel::result::Error::DatabaseError(
+            diesel::result::DatabaseErrorKind::Unknown,
+            Box::new(e.to_string()),
+        )
+    })
 }
 
 pub enum DbPool {
@@ -245,7 +187,7 @@ pub fn create_pool() -> DbPool {
 /// Per-account cap on presentable profiles (`MAX_PROFILES_PER_ACCOUNT`, default
 /// 1 — keeps the system single-identity and the multi-profile UI hidden until an
 /// operator opts in). The root anchor is separate and not counted.
-fn max_profiles_per_account() -> i64 {
+pub fn max_profiles_per_account() -> i64 {
     std::env::var("MAX_PROFILES_PER_ACCOUNT")
         .ok()
         .and_then(|s| s.parse::<i64>().ok())
@@ -450,33 +392,6 @@ impl DbPool {
                     )
                 })?;
                 auth_credentials::sqlite::find_for_user(&mut conn, user_id, credential_type)
-            }
-        }
-    }
-
-    /// All claims (any user, regardless of revocation/expiry), signatures
-    /// attached. Used by the pre-alpha re-sign backfill.
-    pub fn list_all_claims(&self) -> QueryResult<Vec<models::ClaimRow>> {
-        match self {
-            #[cfg(feature = "postgres")]
-            DbPool::Postgres(p) => {
-                let mut conn = p.get().map_err(|e| {
-                    diesel::result::Error::DatabaseError(
-                        diesel::result::DatabaseErrorKind::Unknown,
-                        Box::new(e.to_string()),
-                    )
-                })?;
-                claims::pg::list_all(&mut conn)
-            }
-            #[cfg(feature = "sqlite")]
-            DbPool::Sqlite(p) => {
-                let mut conn = p.get().map_err(|e| {
-                    diesel::result::Error::DatabaseError(
-                        diesel::result::DatabaseErrorKind::Unknown,
-                        Box::new(e.to_string()),
-                    )
-                })?;
-                claims::sqlite::list_all(&mut conn)
             }
         }
     }
@@ -1159,11 +1074,27 @@ impl DbPool {
         }
     }
 
-    /// Provision root + default profiles for any pre-existing account that has
-    /// none (one-time data normalization after the profiles migration). Run at
-    /// startup. Returns how many accounts were backfilled.
-    pub fn backfill_profiles(&self) -> QueryResult<usize> {
-        let domain = crate::conversions::get_domain_name();
+    /// Idempotently seed the claim-type policy registry with the starter
+    /// defaults (insert-if-absent, so admin edits are never overwritten) and, on
+    /// first boot only, seed the per-audience release policy from the deprecated
+    /// `CONSENT_FORCED_ALLOW` / `CONSENT_FORCED_DENY` env vars into the global
+    /// `*` audience. Run at startup after migrations. Returns how many registry
+    /// entries were newly inserted.
+    pub fn seed_default_policies(&self) -> QueryResult<usize> {
+        // TODO(later-session): remove the env-var seed once all deployments have
+        // migrated their release policy into the database. `release_policies` is
+        // the source of truth; the env vars are a one-time bootstrap.
+        let parse_env = |var: &str| {
+            std::env::var(var)
+                .unwrap_or_default()
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<String>>()
+        };
+        let forced_allow = parse_env("CONSENT_FORCED_ALLOW");
+        let forced_deny = parse_env("CONSENT_FORCED_DENY");
+
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
@@ -1173,7 +1104,24 @@ impl DbPool {
                         Box::new(e.to_string()),
                     )
                 })?;
-                profiles::pg::backfill(&mut conn, &domain)
+                let mut inserted = 0;
+                for policy in claim_policy::default_registry() {
+                    inserted += claim_policy::pg::insert_policy_if_absent(&mut conn, policy)?;
+                }
+                if claim_policy::pg::count_release_policies(&mut conn)? == 0 {
+                    for ct in &forced_allow {
+                        claim_policy::pg::upsert_release_policy(
+                            &mut conn,
+                            "*",
+                            ct,
+                            "forced_allow",
+                        )?;
+                    }
+                    for ct in &forced_deny {
+                        claim_policy::pg::upsert_release_policy(&mut conn, "*", ct, "forced_deny")?;
+                    }
+                }
+                Ok(inserted)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
@@ -1183,7 +1131,510 @@ impl DbPool {
                         Box::new(e.to_string()),
                     )
                 })?;
-                profiles::sqlite::backfill(&mut conn, &domain)
+                let mut inserted = 0;
+                for policy in claim_policy::default_registry() {
+                    inserted += claim_policy::sqlite::insert_policy_if_absent(&mut conn, policy)?;
+                }
+                if claim_policy::sqlite::count_release_policies(&mut conn)? == 0 {
+                    for ct in &forced_allow {
+                        claim_policy::sqlite::upsert_release_policy(
+                            &mut conn,
+                            "*",
+                            ct,
+                            "forced_allow",
+                        )?;
+                    }
+                    for ct in &forced_deny {
+                        claim_policy::sqlite::upsert_release_policy(
+                            &mut conn,
+                            "*",
+                            ct,
+                            "forced_deny",
+                        )?;
+                    }
+                }
+                Ok(inserted)
+            }
+        }
+    }
+
+    // ---- Claim-type policy registry & related policy tables ----
+    //
+    // Thin DbPool wrappers over `claim_policy::{pg,sqlite}`, dispatching on the
+    // backend. The pure set/sign decision lives in `liblinkkeys::claim_policy`;
+    // these are storage only.
+
+    pub fn list_claim_policies(&self) -> QueryResult<Vec<models::ClaimTypePolicy>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => claim_policy::pg::list_policies(&mut *pg_conn(p)?),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => claim_policy::sqlite::list_policies(&mut *sqlite_conn(p)?),
+        }
+    }
+
+    pub fn find_claim_policy(
+        &self,
+        claim_type: &str,
+    ) -> QueryResult<Option<models::ClaimTypePolicy>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => claim_policy::pg::find_policy(&mut *pg_conn(p)?, claim_type),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                claim_policy::sqlite::find_policy(&mut *sqlite_conn(p)?, claim_type)
+            }
+        }
+    }
+
+    pub fn upsert_claim_policy(&self, policy: models::ClaimTypePolicy) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => claim_policy::pg::upsert_policy(&mut *pg_conn(p)?, policy),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => claim_policy::sqlite::upsert_policy(&mut *sqlite_conn(p)?, policy),
+        }
+    }
+
+    pub fn delete_claim_policy(&self, claim_type: &str) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => claim_policy::pg::delete_policy(&mut *pg_conn(p)?, claim_type),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                claim_policy::sqlite::delete_policy(&mut *sqlite_conn(p)?, claim_type)
+            }
+        }
+    }
+
+    pub fn get_profile_pref(
+        &self,
+        profile_id: &str,
+        claim_type: &str,
+    ) -> QueryResult<Option<bool>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                claim_policy::pg::get_pref(&mut *pg_conn(p)?, profile_id, claim_type)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                claim_policy::sqlite::get_pref(&mut *sqlite_conn(p)?, profile_id, claim_type)
+            }
+        }
+    }
+
+    pub fn list_profile_prefs(
+        &self,
+        profile_id: &str,
+    ) -> QueryResult<Vec<models::ProfileClaimPref>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                claim_policy::pg::list_prefs_for_profile(&mut *pg_conn(p)?, profile_id)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                claim_policy::sqlite::list_prefs_for_profile(&mut *sqlite_conn(p)?, profile_id)
+            }
+        }
+    }
+
+    pub fn upsert_profile_pref(
+        &self,
+        profile_id: &str,
+        claim_type: &str,
+        auto_sign: bool,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                claim_policy::pg::upsert_pref(&mut *pg_conn(p)?, profile_id, claim_type, auto_sign)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => claim_policy::sqlite::upsert_pref(
+                &mut *sqlite_conn(p)?,
+                profile_id,
+                claim_type,
+                auto_sign,
+            ),
+        }
+    }
+
+    pub fn list_trusted_issuers_for(&self, claim_type: &str) -> QueryResult<Vec<String>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                claim_policy::pg::list_trusted_issuers_for(&mut *pg_conn(p)?, claim_type)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                claim_policy::sqlite::list_trusted_issuers_for(&mut *sqlite_conn(p)?, claim_type)
+            }
+        }
+    }
+
+    pub fn list_all_trusted_issuers(&self) -> QueryResult<Vec<models::TrustedIssuer>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => claim_policy::pg::list_all_trusted_issuers(&mut *pg_conn(p)?),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                claim_policy::sqlite::list_all_trusted_issuers(&mut *sqlite_conn(p)?)
+            }
+        }
+    }
+
+    pub fn add_trusted_issuer(&self, claim_type: &str, issuer_domain: &str) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                claim_policy::pg::add_trusted_issuer(&mut *pg_conn(p)?, claim_type, issuer_domain)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => claim_policy::sqlite::add_trusted_issuer(
+                &mut *sqlite_conn(p)?,
+                claim_type,
+                issuer_domain,
+            ),
+        }
+    }
+
+    pub fn remove_trusted_issuer(
+        &self,
+        claim_type: &str,
+        issuer_domain: &str,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => claim_policy::pg::remove_trusted_issuer(
+                &mut *pg_conn(p)?,
+                claim_type,
+                issuer_domain,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => claim_policy::sqlite::remove_trusted_issuer(
+                &mut *sqlite_conn(p)?,
+                claim_type,
+                issuer_domain,
+            ),
+        }
+    }
+
+    pub fn list_release_policies(&self) -> QueryResult<Vec<models::ReleasePolicy>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => claim_policy::pg::list_release_policies(&mut *pg_conn(p)?),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => claim_policy::sqlite::list_release_policies(&mut *sqlite_conn(p)?),
+        }
+    }
+
+    pub fn list_release_policies_for_audience(
+        &self,
+        audience: &str,
+    ) -> QueryResult<Vec<models::ReleasePolicy>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                claim_policy::pg::list_release_policies_for_audience(&mut *pg_conn(p)?, audience)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => claim_policy::sqlite::list_release_policies_for_audience(
+                &mut *sqlite_conn(p)?,
+                audience,
+            ),
+        }
+    }
+
+    pub fn upsert_release_policy(
+        &self,
+        audience: &str,
+        claim_type: &str,
+        disposition: &str,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => claim_policy::pg::upsert_release_policy(
+                &mut *pg_conn(p)?,
+                audience,
+                claim_type,
+                disposition,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => claim_policy::sqlite::upsert_release_policy(
+                &mut *sqlite_conn(p)?,
+                audience,
+                claim_type,
+                disposition,
+            ),
+        }
+    }
+
+    pub fn delete_release_policy(&self, audience: &str, claim_type: &str) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                claim_policy::pg::delete_release_policy(&mut *pg_conn(p)?, audience, claim_type)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => claim_policy::sqlite::delete_release_policy(
+                &mut *sqlite_conn(p)?,
+                audience,
+                claim_type,
+            ),
+        }
+    }
+
+    pub fn list_pending_approvals(&self) -> QueryResult<Vec<models::ClaimApproval>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => claim_policy::pg::list_pending_approvals(&mut *pg_conn(p)?),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                claim_policy::sqlite::list_pending_approvals(&mut *sqlite_conn(p)?)
+            }
+        }
+    }
+
+    pub fn find_approval(&self, id: &str) -> QueryResult<models::ClaimApproval> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let uid: uuid::Uuid = id.parse().map_err(|_| diesel::result::Error::NotFound)?;
+                claim_policy::pg::find_approval(&mut *pg_conn(p)?, uid)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => claim_policy::sqlite::find_approval(&mut *sqlite_conn(p)?, id),
+        }
+    }
+
+    pub fn enqueue_approval(
+        &self,
+        user_id: &str,
+        claim_type: &str,
+        claim_value: &[u8],
+    ) -> QueryResult<String> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let id = uuid::Uuid::now_v7();
+                let uid: uuid::Uuid = user_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?;
+                claim_policy::pg::enqueue_approval(
+                    &mut *pg_conn(p)?,
+                    id,
+                    uid,
+                    claim_type,
+                    claim_value,
+                )?;
+                Ok(id.to_string())
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                let id = uuid::Uuid::now_v7().to_string();
+                claim_policy::sqlite::enqueue_approval(
+                    &mut *sqlite_conn(p)?,
+                    &id,
+                    user_id,
+                    claim_type,
+                    claim_value,
+                )?;
+                Ok(id)
+            }
+        }
+    }
+
+    pub fn resolve_approval(
+        &self,
+        id: &str,
+        status: &str,
+        resolved_by: &str,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let uid: uuid::Uuid = id.parse().map_err(|_| diesel::result::Error::NotFound)?;
+                claim_policy::pg::resolve_approval(&mut *pg_conn(p)?, uid, status, resolved_by)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => claim_policy::sqlite::resolve_approval(
+                &mut *sqlite_conn(p)?,
+                id,
+                status,
+                resolved_by,
+            ),
+        }
+    }
+
+    pub fn revoke_active_claims_of_type(
+        &self,
+        user_id: &str,
+        claim_type: &str,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                claims::pg::revoke_active_of_type(&mut *pg_conn(p)?, user_id, claim_type)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                claims::sqlite::revoke_active_of_type(&mut *sqlite_conn(p)?, user_id, claim_type)
+            }
+        }
+    }
+
+    pub fn create_email_verification(
+        &self,
+        token: &str,
+        user_id: &str,
+        email: &str,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let uid: uuid::Uuid = user_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?;
+                email_verification::pg::create(&mut *pg_conn(p)?, token, uid, email, expires_at)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => email_verification::sqlite::create(
+                &mut *sqlite_conn(p)?,
+                token,
+                user_id,
+                email,
+                &expires_at.to_rfc3339(),
+            ),
+        }
+    }
+
+    pub fn find_email_verification(
+        &self,
+        token: &str,
+    ) -> QueryResult<Option<models::EmailVerification>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => email_verification::pg::find(&mut *pg_conn(p)?, token),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => email_verification::sqlite::find(&mut *sqlite_conn(p)?, token),
+        }
+    }
+
+    pub fn delete_email_verification(&self, token: &str) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => email_verification::pg::delete(&mut *pg_conn(p)?, token),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => email_verification::sqlite::delete(&mut *sqlite_conn(p)?, token),
+        }
+    }
+
+    /// Append a peer domain's public key to the cache (no-op if already cached).
+    pub fn cache_peer_key(&self, key: &models::PeerKey) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => peer_keys::pg::cache(&mut *pg_conn(p)?, key),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => peer_keys::sqlite::cache(&mut *sqlite_conn(p)?, key),
+        }
+    }
+
+    /// All cached public keys for a peer domain (for verifying stored external
+    /// signatures).
+    pub fn list_peer_keys_for_domain(&self, domain: &str) -> QueryResult<Vec<models::PeerKey>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => peer_keys::pg::list_for_domain(&mut *pg_conn(p)?, domain),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => peer_keys::sqlite::list_for_domain(&mut *sqlite_conn(p)?, domain),
+        }
+    }
+
+    pub fn add_user_release_pref(
+        &self,
+        user_id: &str,
+        audience: &str,
+        claim_type: &str,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let uid: uuid::Uuid = user_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?;
+                user_release_prefs::pg::add(&mut *pg_conn(p)?, uid, audience, claim_type)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => user_release_prefs::sqlite::add(
+                &mut *sqlite_conn(p)?,
+                user_id,
+                audience,
+                claim_type,
+            ),
+        }
+    }
+
+    pub fn remove_user_release_pref(
+        &self,
+        user_id: &str,
+        audience: &str,
+        claim_type: &str,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let uid: uuid::Uuid = user_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?;
+                user_release_prefs::pg::remove(&mut *pg_conn(p)?, uid, audience, claim_type)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => user_release_prefs::sqlite::remove(
+                &mut *sqlite_conn(p)?,
+                user_id,
+                audience,
+                claim_type,
+            ),
+        }
+    }
+
+    /// Claim types the user pre-allows for `audience` (plus their global `*`).
+    pub fn list_user_release_allows(
+        &self,
+        user_id: &str,
+        audience: &str,
+    ) -> QueryResult<Vec<String>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let uid: uuid::Uuid = user_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?;
+                user_release_prefs::pg::list_allows(&mut *pg_conn(p)?, uid, audience)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                user_release_prefs::sqlite::list_allows(&mut *sqlite_conn(p)?, user_id, audience)
+            }
+        }
+    }
+
+    /// All (audience, claim_type) standing prefs for the user.
+    pub fn list_user_release_prefs(&self, user_id: &str) -> QueryResult<Vec<(String, String)>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let uid: uuid::Uuid = user_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?;
+                user_release_prefs::pg::list_all(&mut *pg_conn(p)?, uid)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                user_release_prefs::sqlite::list_all(&mut *sqlite_conn(p)?, user_id)
             }
         }
     }
@@ -1243,73 +1694,6 @@ impl DbPool {
                 })
             }
         }
-    }
-
-    /// Split existing administrators into a normal user + a separate
-    /// `<username>_admin` admin account (with a copy of the user's password), and
-    /// demote the original to a normal user. Idempotent: an account that is
-    /// already an admin account, or whose `_admin` twin already exists, is
-    /// skipped; demoted originals no longer match. Best-effort per admin (logs +
-    /// skips on error) so one bad account can't abort the pass. Returns how many
-    /// admins were split.
-    pub fn split_admins(&self) -> QueryResult<usize> {
-        // Relations that confer administrative power on the domain.
-        const ADMIN_RELATIONS: &[&str] = &["admin", "manage_users", "manage_claims", "api_access"];
-        let domain = crate::conversions::get_domain_name();
-        let rels = self.list_relations_for_object("domain", &domain)?;
-
-        let admin_ids: std::collections::BTreeSet<String> = rels
-            .iter()
-            .filter(|r| {
-                r.subject_type == "user" && (r.relation == "admin" || r.relation == "manage_users")
-            })
-            .map(|r| r.subject_id.clone())
-            .collect();
-
-        let mut count = 0;
-        for uid in admin_ids {
-            let user = match self.find_user_by_id(&uid) {
-                Ok(u) => u,
-                Err(_) => continue,
-            };
-            if user.is_admin_account {
-                continue; // already a separated admin account
-            }
-            let target = format!("{}_admin", user.username);
-            if self.find_user_by_username(&target).is_ok() {
-                continue; // already split
-            }
-            let hash = match self
-                .find_credentials_for_user(&uid, "password")
-                .ok()
-                .and_then(|c| c.into_iter().next())
-            {
-                Some(cred) => cred.credential_hash,
-                None => {
-                    log::warn!(
-                        "admin split skipped {}: no password credential to copy",
-                        user.username
-                    );
-                    continue;
-                }
-            };
-            if let Err(e) = self.create_admin_account(&target, &user.display_name, &hash) {
-                log::warn!("admin split: creating {} failed: {:?}", target, e);
-                continue;
-            }
-            // Demote the original: drop its administrative relations on the domain.
-            for r in rels.iter().filter(|r| {
-                r.subject_type == "user"
-                    && r.subject_id == uid
-                    && r.object_type == "domain"
-                    && r.object_id == domain
-                    && ADMIN_RELATIONS.contains(&r.relation.as_str())
-            }) {
-                let _ = self.remove_relation(&r.id);
-            }
-            count += 1;
-        }
-        Ok(count)
     }
 
     pub fn update_display_name(

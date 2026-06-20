@@ -213,6 +213,37 @@ pub struct DomainClaim {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SigningRequest {
+    pub request_id: String,
+    pub subject_user_id: String,
+    pub subject_domain: String,
+    pub issuer_domain: String,
+    pub requested_claim_types: Vec<String>,
+    pub nonce: String,
+    pub issued_at: String,
+    pub expires_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub callback: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SignedSigningRequest {
+    #[serde(with = "serde_bytes")]
+    pub request: Vec<u8>,
+    pub signatures: Vec<ClaimSignature>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DepositClaimRequest {
+    pub claim: Claim,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DepositClaimResponse {
+    pub stored: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct IdentityAssertion {
     pub user_id: String,
     pub domain: String,

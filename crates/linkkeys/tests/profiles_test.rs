@@ -60,11 +60,3 @@ fn presentable_profile_limit_default_one_is_enforced() {
         .unwrap();
     assert_eq!(presentable.len(), 1);
 }
-
-#[test]
-fn backfill_is_idempotent_when_all_accounts_have_profiles() {
-    let pool = common::create_test_pool();
-    create_user(&pool, &DataMap::new());
-    // create_user already provisions profiles, so a backfill finds nothing to do.
-    assert_eq!(pool.backfill_profiles().expect("backfill"), 0);
-}

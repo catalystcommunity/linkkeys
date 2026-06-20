@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/csilgen-transport",
     "crates/liblinkkeys",
     "crates/linkkeys",
     "demoappsite",

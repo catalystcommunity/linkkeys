@@ -1,5 +1,6 @@
 pub mod assertions;
 pub mod auth_request;
+pub mod claim_policy;
 pub mod claims;
 pub mod consent;
 pub mod crypto;
@@ -7,4 +8,5 @@ pub mod dns;
 pub mod domain_claims;
 pub mod encoding;
 pub mod generated;
+pub mod signing_request;
 pub mod userinfo;

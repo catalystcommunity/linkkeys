@@ -146,6 +146,85 @@ pub struct Profile {
     pub label: Option<String>,
 }
 
+/// One entry in the claim-type policy registry: the rules for setting and
+/// signing a single claim type. See `liblinkkeys::claim_policy`.
+#[derive(Debug, Clone)]
+pub struct ClaimTypePolicy {
+    pub claim_type: String,
+    pub label: String,
+    pub description: String,
+    pub value_type: String,
+    pub max_bytes: i64,
+    pub set_rule: String,
+    pub signing_rule: String,
+    pub requires_approval: bool,
+    pub user_settable: bool,
+    pub default_auto_sign: bool,
+    pub suggested: bool,
+}
+
+/// A domain whose signature is accepted as attestation for a claim type (lane C).
+#[derive(Debug, Clone)]
+pub struct TrustedIssuer {
+    pub claim_type: String,
+    pub issuer_domain: String,
+}
+
+/// A user's per-profile auto-sign preference for one claim type.
+#[derive(Debug, Clone)]
+pub struct ProfileClaimPref {
+    pub profile_id: String,
+    pub claim_type: String,
+    pub auto_sign: bool,
+}
+
+/// A per-audience release-policy row (forced_allow / forced_deny). Audience `*`
+/// is the global default.
+#[derive(Debug, Clone)]
+pub struct ReleasePolicy {
+    pub audience: String,
+    pub claim_type: String,
+    pub disposition: String,
+}
+
+/// A self-asserted claim awaiting admin approval before the IDP signs it.
+#[derive(Debug, Clone)]
+pub struct ClaimApproval {
+    pub id: String,
+    pub user_id: String,
+    pub claim_type: String,
+    pub claim_value: Vec<u8>,
+    pub status: String,
+    pub resolved_by: Option<String>,
+    pub resolved_at: Option<String>,
+    pub created_at: String,
+}
+
+/// A pending email-verification challenge. `expires_at` is RFC3339 UTC.
+#[derive(Debug, Clone)]
+pub struct EmailVerification {
+    pub token: String,
+    pub user_id: String,
+    pub email: String,
+    pub expires_at: String,
+}
+
+/// A cached public key of another domain (append-only). Lets us verify stored
+/// external (attested) signatures even after the issuer rotates or disappears.
+#[derive(Debug, Clone)]
+pub struct PeerKey {
+    pub domain: String,
+    pub key_id: String,
+    pub public_key: Vec<u8>,
+    pub algorithm: String,
+    pub fingerprint: String,
+    pub key_usage: String,
+    /// RFC3339; honoured at verify time so an expired issuer key won't verify.
+    pub expires_at: String,
+    /// RFC3339 if the issuer revoked the key; honoured at verify time.
+    pub revoked_at: Option<String>,
+}
+
 /// Parse a JSON `[String]` column. A parse failure (only reachable via DB
 /// corruption — the writer always emits valid JSON) yields an empty set, which
 /// is fail-safe (empty claim_types under-releases; empty requested_types
@@ -420,7 +499,9 @@ pub mod pg {
         pub id: uuid::Uuid,
         pub claim_id: uuid::Uuid,
         pub domain: String,
-        pub signed_by_key_id: uuid::Uuid,
+        // VARCHAR, not UUID: a signature may come from an external issuer whose
+        // key id is not one of our domain_keys UUIDs.
+        pub signed_by_key_id: String,
         pub signature: Vec<u8>,
         pub created_at: chrono::DateTime<chrono::Utc>,
     }
@@ -431,7 +512,7 @@ pub mod pg {
                 id: row.id.to_string(),
                 claim_id: row.claim_id.to_string(),
                 domain: row.domain,
-                signed_by_key_id: row.signed_by_key_id.to_string(),
+                signed_by_key_id: row.signed_by_key_id,
                 signature: row.signature,
                 created_at: row.created_at.to_rfc3339(),
             }
@@ -444,7 +525,7 @@ pub mod pg {
         pub id: uuid::Uuid,
         pub claim_id: uuid::Uuid,
         pub domain: String,
-        pub signed_by_key_id: uuid::Uuid,
+        pub signed_by_key_id: String,
         pub signature: Vec<u8>,
     }
 
@@ -574,6 +655,200 @@ pub mod pg {
         pub domain: String,
         pub is_root: bool,
         pub label: Option<String>,
+    }
+
+    // -- Claim-type policy registry --
+
+    #[derive(Queryable, Selectable, Insertable, AsChangeset)]
+    #[diesel(table_name = crate::schema::pg::claim_type_policies)]
+    #[diesel(primary_key(claim_type))]
+    pub struct ClaimTypePolicyRow {
+        pub claim_type: String,
+        pub label: String,
+        pub description: String,
+        pub value_type: String,
+        pub max_bytes: i64,
+        pub set_rule: String,
+        pub signing_rule: String,
+        pub requires_approval: bool,
+        pub user_settable: bool,
+        pub default_auto_sign: bool,
+        pub suggested: bool,
+    }
+
+    impl From<ClaimTypePolicyRow> for super::ClaimTypePolicy {
+        fn from(r: ClaimTypePolicyRow) -> Self {
+            Self {
+                claim_type: r.claim_type,
+                label: r.label,
+                description: r.description,
+                value_type: r.value_type,
+                max_bytes: r.max_bytes,
+                set_rule: r.set_rule,
+                signing_rule: r.signing_rule,
+                requires_approval: r.requires_approval,
+                user_settable: r.user_settable,
+                default_auto_sign: r.default_auto_sign,
+                suggested: r.suggested,
+            }
+        }
+    }
+
+    impl From<super::ClaimTypePolicy> for ClaimTypePolicyRow {
+        fn from(p: super::ClaimTypePolicy) -> Self {
+            Self {
+                claim_type: p.claim_type,
+                label: p.label,
+                description: p.description,
+                value_type: p.value_type,
+                max_bytes: p.max_bytes,
+                set_rule: p.set_rule,
+                signing_rule: p.signing_rule,
+                requires_approval: p.requires_approval,
+                user_settable: p.user_settable,
+                default_auto_sign: p.default_auto_sign,
+                suggested: p.suggested,
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable, Insertable)]
+    #[diesel(table_name = crate::schema::pg::trusted_issuers)]
+    pub struct TrustedIssuerRow {
+        pub claim_type: String,
+        pub issuer_domain: String,
+    }
+
+    impl From<TrustedIssuerRow> for super::TrustedIssuer {
+        fn from(r: TrustedIssuerRow) -> Self {
+            Self {
+                claim_type: r.claim_type,
+                issuer_domain: r.issuer_domain,
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable, Insertable, AsChangeset)]
+    #[diesel(table_name = crate::schema::pg::profile_claim_prefs)]
+    #[diesel(primary_key(profile_id, claim_type))]
+    pub struct ProfileClaimPrefRow {
+        pub profile_id: String,
+        pub claim_type: String,
+        pub auto_sign: bool,
+    }
+
+    impl From<ProfileClaimPrefRow> for super::ProfileClaimPref {
+        fn from(r: ProfileClaimPrefRow) -> Self {
+            Self {
+                profile_id: r.profile_id,
+                claim_type: r.claim_type,
+                auto_sign: r.auto_sign,
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable, Insertable)]
+    #[diesel(table_name = crate::schema::pg::release_policies)]
+    pub struct ReleasePolicyRow {
+        pub audience: String,
+        pub claim_type: String,
+        pub disposition: String,
+    }
+
+    impl From<ReleasePolicyRow> for super::ReleasePolicy {
+        fn from(r: ReleasePolicyRow) -> Self {
+            Self {
+                audience: r.audience,
+                claim_type: r.claim_type,
+                disposition: r.disposition,
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::pg::claim_approval_queue)]
+    pub struct ClaimApprovalRow {
+        pub id: uuid::Uuid,
+        pub user_id: uuid::Uuid,
+        pub claim_type: String,
+        pub claim_value: Vec<u8>,
+        pub status: String,
+        pub resolved_by: Option<String>,
+        pub resolved_at: Option<chrono::DateTime<chrono::Utc>>,
+        pub created_at: chrono::DateTime<chrono::Utc>,
+        pub updated_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    impl From<ClaimApprovalRow> for super::ClaimApproval {
+        fn from(r: ClaimApprovalRow) -> Self {
+            Self {
+                id: r.id.to_string(),
+                user_id: r.user_id.to_string(),
+                claim_type: r.claim_type,
+                claim_value: r.claim_value,
+                status: r.status,
+                resolved_by: r.resolved_by,
+                resolved_at: r.resolved_at.map(|t| t.to_rfc3339()),
+                created_at: r.created_at.to_rfc3339(),
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::pg::claim_approval_queue)]
+    pub struct NewClaimApprovalRow {
+        pub id: uuid::Uuid,
+        pub user_id: uuid::Uuid,
+        pub claim_type: String,
+        pub claim_value: Vec<u8>,
+    }
+
+    #[derive(Queryable, Selectable, Insertable)]
+    #[diesel(table_name = crate::schema::pg::email_verifications)]
+    pub struct EmailVerificationRow {
+        pub token: String,
+        pub user_id: uuid::Uuid,
+        pub email: String,
+        pub expires_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    impl From<EmailVerificationRow> for super::EmailVerification {
+        fn from(r: EmailVerificationRow) -> Self {
+            Self {
+                token: r.token,
+                user_id: r.user_id.to_string(),
+                email: r.email,
+                expires_at: r.expires_at.to_rfc3339(),
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable, Insertable)]
+    #[diesel(table_name = crate::schema::pg::peer_keys)]
+    pub struct PeerKeyRow {
+        pub domain: String,
+        pub key_id: String,
+        pub public_key: Vec<u8>,
+        pub algorithm: String,
+        pub fingerprint: String,
+        pub key_usage: String,
+        pub expires_at: String,
+        pub revoked_at: Option<String>,
+    }
+
+    impl From<PeerKeyRow> for super::PeerKey {
+        fn from(r: PeerKeyRow) -> Self {
+            Self {
+                domain: r.domain,
+                key_id: r.key_id,
+                public_key: r.public_key,
+                algorithm: r.algorithm,
+                fingerprint: r.fingerprint,
+                key_usage: r.key_usage,
+                expires_at: r.expires_at,
+                revoked_at: r.revoked_at,
+            }
+        }
     }
 }
 
@@ -990,5 +1265,199 @@ pub mod sqlite {
         pub domain: String,
         pub is_root: i32,
         pub label: Option<String>,
+    }
+
+    // -- Claim-type policy registry --
+
+    #[derive(Queryable, Selectable, Insertable, AsChangeset)]
+    #[diesel(table_name = crate::schema::sqlite::claim_type_policies)]
+    #[diesel(primary_key(claim_type))]
+    pub struct ClaimTypePolicyRow {
+        pub claim_type: String,
+        pub label: String,
+        pub description: String,
+        pub value_type: String,
+        pub max_bytes: i64,
+        pub set_rule: String,
+        pub signing_rule: String,
+        pub requires_approval: i32,
+        pub user_settable: i32,
+        pub default_auto_sign: i32,
+        pub suggested: i32,
+    }
+
+    impl From<ClaimTypePolicyRow> for super::ClaimTypePolicy {
+        fn from(r: ClaimTypePolicyRow) -> Self {
+            Self {
+                claim_type: r.claim_type,
+                label: r.label,
+                description: r.description,
+                value_type: r.value_type,
+                max_bytes: r.max_bytes,
+                set_rule: r.set_rule,
+                signing_rule: r.signing_rule,
+                requires_approval: r.requires_approval != 0,
+                user_settable: r.user_settable != 0,
+                default_auto_sign: r.default_auto_sign != 0,
+                suggested: r.suggested != 0,
+            }
+        }
+    }
+
+    impl From<super::ClaimTypePolicy> for ClaimTypePolicyRow {
+        fn from(p: super::ClaimTypePolicy) -> Self {
+            Self {
+                claim_type: p.claim_type,
+                label: p.label,
+                description: p.description,
+                value_type: p.value_type,
+                max_bytes: p.max_bytes,
+                set_rule: p.set_rule,
+                signing_rule: p.signing_rule,
+                requires_approval: i32::from(p.requires_approval),
+                user_settable: i32::from(p.user_settable),
+                default_auto_sign: i32::from(p.default_auto_sign),
+                suggested: i32::from(p.suggested),
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable, Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::trusted_issuers)]
+    pub struct TrustedIssuerRow {
+        pub claim_type: String,
+        pub issuer_domain: String,
+    }
+
+    impl From<TrustedIssuerRow> for super::TrustedIssuer {
+        fn from(r: TrustedIssuerRow) -> Self {
+            Self {
+                claim_type: r.claim_type,
+                issuer_domain: r.issuer_domain,
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable, Insertable, AsChangeset)]
+    #[diesel(table_name = crate::schema::sqlite::profile_claim_prefs)]
+    #[diesel(primary_key(profile_id, claim_type))]
+    pub struct ProfileClaimPrefRow {
+        pub profile_id: String,
+        pub claim_type: String,
+        pub auto_sign: i32,
+    }
+
+    impl From<ProfileClaimPrefRow> for super::ProfileClaimPref {
+        fn from(r: ProfileClaimPrefRow) -> Self {
+            Self {
+                profile_id: r.profile_id,
+                claim_type: r.claim_type,
+                auto_sign: r.auto_sign != 0,
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable, Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::release_policies)]
+    pub struct ReleasePolicyRow {
+        pub audience: String,
+        pub claim_type: String,
+        pub disposition: String,
+    }
+
+    impl From<ReleasePolicyRow> for super::ReleasePolicy {
+        fn from(r: ReleasePolicyRow) -> Self {
+            Self {
+                audience: r.audience,
+                claim_type: r.claim_type,
+                disposition: r.disposition,
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::sqlite::claim_approval_queue)]
+    pub struct ClaimApprovalRow {
+        pub id: String,
+        pub user_id: String,
+        pub claim_type: String,
+        pub claim_value: Vec<u8>,
+        pub status: String,
+        pub resolved_by: Option<String>,
+        pub resolved_at: Option<String>,
+        pub created_at: String,
+        pub updated_at: String,
+    }
+
+    impl From<ClaimApprovalRow> for super::ClaimApproval {
+        fn from(r: ClaimApprovalRow) -> Self {
+            Self {
+                id: r.id,
+                user_id: r.user_id,
+                claim_type: r.claim_type,
+                claim_value: r.claim_value,
+                status: r.status,
+                resolved_by: r.resolved_by,
+                resolved_at: r.resolved_at,
+                created_at: r.created_at,
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::claim_approval_queue)]
+    pub struct NewClaimApprovalRow {
+        pub id: String,
+        pub user_id: String,
+        pub claim_type: String,
+        pub claim_value: Vec<u8>,
+    }
+
+    #[derive(Queryable, Selectable, Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::email_verifications)]
+    pub struct EmailVerificationRow {
+        pub token: String,
+        pub user_id: String,
+        pub email: String,
+        pub expires_at: String,
+    }
+
+    impl From<EmailVerificationRow> for super::EmailVerification {
+        fn from(r: EmailVerificationRow) -> Self {
+            Self {
+                token: r.token,
+                user_id: r.user_id,
+                email: r.email,
+                expires_at: r.expires_at,
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable, Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::peer_keys)]
+    pub struct PeerKeyRow {
+        pub domain: String,
+        pub key_id: String,
+        pub public_key: Vec<u8>,
+        pub algorithm: String,
+        pub fingerprint: String,
+        pub key_usage: String,
+        pub expires_at: String,
+        pub revoked_at: Option<String>,
+    }
+
+    impl From<PeerKeyRow> for super::PeerKey {
+        fn from(r: PeerKeyRow) -> Self {
+            Self {
+                domain: r.domain,
+                key_id: r.key_id,
+                public_key: r.public_key,
+                algorithm: r.algorithm,
+                fingerprint: r.fingerprint,
+                key_usage: r.key_usage,
+                expires_at: r.expires_at,
+                revoked_at: r.revoked_at,
+            }
+        }
     }
 }

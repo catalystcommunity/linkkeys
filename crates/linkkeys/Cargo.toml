@@ -11,6 +11,10 @@ sqlite = ["diesel/sqlite"]
 
 [dependencies]
 liblinkkeys = { path = "../liblinkkeys" }
+# CSIL transport family. Vendored copy for now while the crate is iterated; the
+# git dep is verified working (public repo) — SWAP at the end:
+#   csilgen-transport = { git = "https://github.com/catalystcommunity/csilgen.git" }
+csilgen-transport = { path = "../csilgen-transport" }
 
 # CLI argument parsing
 clap = { version = "4.5", features = ["derive"] }
@@ -20,6 +24,7 @@ rocket = { version = "0.5", features = ["json", "tls", "secrets"] }
 
 # Database
 diesel = { version = "2.2", features = ["r2d2", "uuid", "chrono"] }
+diesel_migrations = "2.2"
 r2d2 = "0.8"
 
 # UUID support
@@ -59,6 +64,9 @@ tokio = { version = "1", features = ["rt-multi-thread"] }
 
 # Encoding
 base64ct = { version = "1", features = ["alloc"] }
+
+# QR code rendering (SVG) for the verification-request UI convenience.
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 
 # Utilities
 env_logger = "0.11"

@@ -251,6 +251,58 @@ DomainClaim = {
 }
 
 ;; ============================================================
+;; Signing Requests (user asks a third party to attest a claim)
+;; ============================================================
+
+;; A user-initiated, home-domain-attested request asking a third-party issuer
+;; (issuer_domain) to sign claim(s) about the user. The user gets the signed
+;; envelope from their IDP and conveys it to the issuer however they like
+;; (base64 in a QR code, a file, an HTTP POST, …) — the issuer verifies it
+;; against the user's DNS-pinned domain keys, does its own real-world checks, and
+;; (if it agrees) issues a Claim about subject_user_id@subject_domain signed with
+;; its own domain keys, which is then deposited back. subject_user_id@subject_domain
+;; AND issuer_domain are bound into the signature so a request meant for one
+;; issuer about one subject can't be replayed for another.
+SigningRequest = {
+    request_id: text,
+    ;; The subject the issued claim will be ABOUT (account UUID + home domain).
+    subject_user_id: text,
+    subject_domain: text,
+    ;; The issuer this request is addressed to (the would-be signer).
+    issuer_domain: text,
+    ;; The claim types the user is asking to have attested (e.g. "age_over_21").
+    ;; The issuer decides the values it will actually sign.
+    requested_claim_types: [* text],
+    nonce: text,
+    issued_at: text,
+    expires_at: text,
+    ;; Optional hint for where to deposit the resulting signed claim. Absent =>
+    ;; out-of-band return (the user collects it and deposits it themselves).
+    ? callback: text
+}
+
+;; Same envelope shape as SignedConsentGrant: CBOR(SigningRequest) plus a
+;; signature LIST attesting it. Signed by the user's HOME DOMAIN keys (the IDP
+;; vouches the request is genuinely from that user); a user key may co-sign later
+;; without a schema change.
+SignedSigningRequest = {
+    request: bytes,
+    signatures: [* ClaimSignature]
+}
+
+;; Deposit of an externally-signed (attested) claim about a local account. The
+;; claim carries the issuer's signature(s); the receiving domain verifies them
+;; against the issuer's (cached) keys, gates on its trusted-issuer policy, and
+;; stores the claim verbatim. Server-to-server (issuer -> subject's domain).
+DepositClaimRequest = {
+    claim: Claim
+}
+
+DepositClaimResponse = {
+    stored: bool
+}
+
+;; ============================================================
 ;; Identity Assertions (auth tokens)
 ;; ============================================================
 
@@ -597,4 +649,10 @@ service Admin {
 service Account {
     change-password: ChangePasswordRequest -> ChangePasswordResponse,
     get-my-info: EmptyRequest -> GetMyInfoResponse
+}
+
+;; Attested claims (server-to-server). An issuer deposits a claim it signed about
+;; a subject to the subject's home domain, which verifies + stores it.
+service Attestation {
+    deposit-claim: DepositClaimRequest -> DepositClaimResponse
 }

@@ -89,39 +89,6 @@ pub mod pg {
             .load::<ProfileRow>(conn)
             .map(|rows| rows.into_iter().map(Into::into).collect())
     }
-
-    /// Provision a default presentable profile (id reuses the account id) + a
-    /// fresh root anchor for every account that has no profiles yet. Idempotent;
-    /// returns how many accounts were backfilled.
-    pub fn backfill(conn: &mut diesel::PgConnection, domain: &str) -> QueryResult<usize> {
-        use crate::schema::pg::users;
-        // Admin accounts must never get a presentable profile.
-        let user_ids: Vec<uuid::Uuid> = users::table
-            .filter(users::is_admin_account.eq(false))
-            .select(users::id)
-            .load(conn)?;
-        let existing: Vec<uuid::Uuid> = profiles::table.select(profiles::account_id).load(conn)?;
-        let have: std::collections::HashSet<uuid::Uuid> = existing.into_iter().collect();
-        let mut count = 0;
-        for uid in user_ids {
-            if have.contains(&uid) {
-                continue;
-            }
-            // Per-account atomic provisioning. If a concurrent backfiller on
-            // another node won the race, our insert hits the PK and rolls back —
-            // skip and continue rather than aborting the whole pass.
-            if let Err(e) = conn.transaction::<(), diesel::result::Error, _>(|conn| {
-                create(conn, uid, uid, domain, false, None)?;
-                create(conn, uuid::Uuid::now_v7(), uid, domain, true, Some("root"))?;
-                Ok(())
-            }) {
-                log::warn!("profile backfill skipped account {}: {}", uid, e);
-                continue;
-            }
-            count += 1;
-        }
-        Ok(count)
-    }
 }
 
 #[cfg(feature = "sqlite")]
@@ -205,38 +172,5 @@ pub mod sqlite {
             .select(ProfileRow::as_select())
             .load::<ProfileRow>(conn)
             .map(|rows| rows.into_iter().map(Into::into).collect())
-    }
-
-    pub fn backfill(conn: &mut diesel::SqliteConnection, domain: &str) -> QueryResult<usize> {
-        use crate::schema::sqlite::users;
-        let user_ids: Vec<String> = users::table
-            .filter(users::is_admin_account.eq(0))
-            .select(users::id)
-            .load(conn)?;
-        let existing: Vec<String> = profiles::table.select(profiles::account_id).load(conn)?;
-        let have: std::collections::HashSet<String> = existing.into_iter().collect();
-        let mut count = 0;
-        for uid in user_ids {
-            if have.contains(&uid) {
-                continue;
-            }
-            if let Err(e) = conn.transaction::<(), diesel::result::Error, _>(|conn| {
-                create(conn, &uid, &uid, domain, false, None)?;
-                create(
-                    conn,
-                    &uuid::Uuid::now_v7().to_string(),
-                    &uid,
-                    domain,
-                    true,
-                    Some("root"),
-                )?;
-                Ok(())
-            }) {
-                log::warn!("profile backfill skipped account {}: {}", uid, e);
-                continue;
-            }
-            count += 1;
-        }
-        Ok(count)
     }
 }

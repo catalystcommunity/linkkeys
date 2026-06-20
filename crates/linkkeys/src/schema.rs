@@ -104,9 +104,23 @@ pub mod pg {
             id -> Uuid,
             claim_id -> Uuid,
             domain -> Varchar,
-            signed_by_key_id -> Uuid,
+            signed_by_key_id -> Varchar,
             signature -> Binary,
             created_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        peer_keys (domain, key_id) {
+            domain -> Varchar,
+            key_id -> Varchar,
+            public_key -> Binary,
+            algorithm -> Varchar,
+            fingerprint -> Varchar,
+            key_usage -> Varchar,
+            expires_at -> Varchar,
+            revoked_at -> Nullable<Varchar>,
+            first_seen -> Timestamptz,
         }
     }
 
@@ -147,13 +161,92 @@ pub mod pg {
         }
     }
 
+    diesel::table! {
+        claim_type_policies (claim_type) {
+            claim_type -> Varchar,
+            label -> Varchar,
+            description -> Varchar,
+            value_type -> Varchar,
+            max_bytes -> BigInt,
+            set_rule -> Varchar,
+            signing_rule -> Varchar,
+            requires_approval -> Bool,
+            user_settable -> Bool,
+            default_auto_sign -> Bool,
+            suggested -> Bool,
+            created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        trusted_issuers (claim_type, issuer_domain) {
+            claim_type -> Varchar,
+            issuer_domain -> Varchar,
+            created_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        profile_claim_prefs (profile_id, claim_type) {
+            profile_id -> Varchar,
+            claim_type -> Varchar,
+            auto_sign -> Bool,
+            created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        release_policies (audience, claim_type) {
+            audience -> Varchar,
+            claim_type -> Varchar,
+            disposition -> Varchar,
+            created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        claim_approval_queue (id) {
+            id -> Uuid,
+            user_id -> Uuid,
+            claim_type -> Varchar,
+            claim_value -> Binary,
+            status -> Varchar,
+            resolved_by -> Nullable<Varchar>,
+            resolved_at -> Nullable<Timestamptz>,
+            created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        email_verifications (token) {
+            token -> Varchar,
+            user_id -> Uuid,
+            email -> Varchar,
+            expires_at -> Timestamptz,
+            created_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        user_release_prefs (user_id, audience, claim_type) {
+            user_id -> Uuid,
+            audience -> Varchar,
+            claim_type -> Varchar,
+            created_at -> Timestamptz,
+        }
+    }
+
     diesel::joinable!(user_keys -> users (user_id));
     diesel::joinable!(claims -> users (user_id));
     diesel::joinable!(claim_signatures -> claims (claim_id));
-    diesel::joinable!(claim_signatures -> domain_keys (signed_by_key_id));
     diesel::joinable!(auth_credentials -> users (user_id));
     diesel::joinable!(consent_grants -> users (user_id));
     diesel::joinable!(profiles -> users (account_id));
+    diesel::joinable!(claim_approval_queue -> users (user_id));
     diesel::allow_tables_to_appear_in_same_query!(
         guestbook_entries,
         domain_keys,
@@ -162,9 +255,17 @@ pub mod pg {
         user_keys,
         claims,
         claim_signatures,
+        peer_keys,
         relations,
         consent_grants,
         profiles,
+        claim_type_policies,
+        trusted_issuers,
+        profile_claim_prefs,
+        release_policies,
+        claim_approval_queue,
+        email_verifications,
+        user_release_prefs,
     );
 }
 
@@ -278,6 +379,20 @@ pub mod sqlite {
     }
 
     diesel::table! {
+        peer_keys (domain, key_id) {
+            domain -> Text,
+            key_id -> Text,
+            public_key -> Binary,
+            algorithm -> Text,
+            fingerprint -> Text,
+            key_usage -> Text,
+            expires_at -> Text,
+            revoked_at -> Nullable<Text>,
+            first_seen -> Text,
+        }
+    }
+
+    diesel::table! {
         used_nonces (nonce) {
             nonce -> Text,
             expires_at -> Text,
@@ -314,13 +429,92 @@ pub mod sqlite {
         }
     }
 
+    diesel::table! {
+        claim_type_policies (claim_type) {
+            claim_type -> Text,
+            label -> Text,
+            description -> Text,
+            value_type -> Text,
+            max_bytes -> BigInt,
+            set_rule -> Text,
+            signing_rule -> Text,
+            requires_approval -> Integer,
+            user_settable -> Integer,
+            default_auto_sign -> Integer,
+            suggested -> Integer,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        trusted_issuers (claim_type, issuer_domain) {
+            claim_type -> Text,
+            issuer_domain -> Text,
+            created_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        profile_claim_prefs (profile_id, claim_type) {
+            profile_id -> Text,
+            claim_type -> Text,
+            auto_sign -> Integer,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        release_policies (audience, claim_type) {
+            audience -> Text,
+            claim_type -> Text,
+            disposition -> Text,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        claim_approval_queue (id) {
+            id -> Text,
+            user_id -> Text,
+            claim_type -> Text,
+            claim_value -> Binary,
+            status -> Text,
+            resolved_by -> Nullable<Text>,
+            resolved_at -> Nullable<Text>,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        email_verifications (token) {
+            token -> Text,
+            user_id -> Text,
+            email -> Text,
+            expires_at -> Text,
+            created_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        user_release_prefs (user_id, audience, claim_type) {
+            user_id -> Text,
+            audience -> Text,
+            claim_type -> Text,
+            created_at -> Text,
+        }
+    }
+
     diesel::joinable!(user_keys -> users (user_id));
     diesel::joinable!(claims -> users (user_id));
     diesel::joinable!(claim_signatures -> claims (claim_id));
-    diesel::joinable!(claim_signatures -> domain_keys (signed_by_key_id));
     diesel::joinable!(auth_credentials -> users (user_id));
     diesel::joinable!(consent_grants -> users (user_id));
     diesel::joinable!(profiles -> users (account_id));
+    diesel::joinable!(claim_approval_queue -> users (user_id));
     diesel::allow_tables_to_appear_in_same_query!(
         guestbook_entries,
         domain_keys,
@@ -329,8 +523,16 @@ pub mod sqlite {
         user_keys,
         claims,
         claim_signatures,
+        peer_keys,
         relations,
         consent_grants,
         profiles,
+        claim_type_policies,
+        trusted_issuers,
+        profile_claim_prefs,
+        release_policies,
+        claim_approval_queue,
+        email_verifications,
+        user_release_prefs,
     );
 }

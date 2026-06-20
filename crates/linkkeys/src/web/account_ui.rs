@@ -145,6 +145,15 @@ pub(super) fn build_nav(current: &str, is_admin: bool, is_logged_in: bool) -> St
             r#"<a href="/account"{}>Account</a>"#,
             account_class
         ));
+        let identity_class = if current == "identity" {
+            " class=\"active\""
+        } else {
+            ""
+        };
+        nav.push_str(&format!(
+            r#"<a href="/account/identity"{}>My Identity</a>"#,
+            identity_class
+        ));
         if is_admin {
             let admin_class = if current == "admin" {
                 " class=\"active\""
@@ -154,6 +163,15 @@ pub(super) fn build_nav(current: &str, is_admin: bool, is_logged_in: bool) -> St
             nav.push_str(&format!(
                 r#"<a href="/user-admin"{}>User Admin</a>"#,
                 admin_class
+            ));
+            let policy_class = if current == "policy" {
+                " class=\"active\""
+            } else {
+                ""
+            };
+            nav.push_str(&format!(
+                r#"<a href="/policy-admin"{}>Policy Admin</a>"#,
+                policy_class
             ));
         }
         nav.push_str(r#"<span class="spacer"></span>"#);
@@ -170,7 +188,7 @@ pub(super) fn is_user_admin(pool: &DbPool, user_id: &str) -> bool {
     authorization::user_has_permission(pool, user_id, "manage_users", "domain", &domain)
 }
 
-fn flash_html(msg: Option<&str>, error: Option<&str>) -> String {
+pub(super) fn flash_html(msg: Option<&str>, error: Option<&str>) -> String {
     let mut html = String::new();
     if let Some(m) = msg {
         html.push_str(&format!(r#"<div class="success">{}</div>"#, html_escape(m)));
