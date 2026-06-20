@@ -57,15 +57,13 @@ pub mod pg {
     ) -> QueryResult<()> {
         let mut rows = Vec::with_capacity(signatures.len());
         for s in signatures {
-            let key_id: uuid::Uuid = s
-                .signed_by_key_id
-                .parse()
-                .map_err(|_| diesel::result::Error::NotFound)?;
+            // signed_by_key_id is stored verbatim (VARCHAR): our own key ids are
+            // UUIDs, but an external issuer's key id can be any string.
             rows.push(NewClaimSignatureDbRow {
                 id: uuid::Uuid::now_v7(),
                 claim_id,
                 domain: s.domain.clone(),
-                signed_by_key_id: key_id,
+                signed_by_key_id: s.signed_by_key_id.clone(),
                 signature: s.signature.clone(),
             });
         }
@@ -170,6 +168,28 @@ pub mod pg {
             ))
             .execute(conn)?;
         load_with_signatures(conn, id)
+    }
+
+    /// Soft-revoke every currently-active claim of a given type for a user — used
+    /// by self-service set, which keeps one active claim per type by revoking the
+    /// prior value before writing the new one. Returns rows revoked.
+    pub fn revoke_active_of_type(
+        conn: &mut diesel::PgConnection,
+        user_id_str: &str,
+        claim_type: &str,
+    ) -> QueryResult<usize> {
+        let uid: uuid::Uuid = user_id_str
+            .parse()
+            .map_err(|_| diesel::result::Error::NotFound)?;
+        let now = chrono::Utc::now();
+        diesel::update(
+            claims::table
+                .filter(claims::user_id.eq(uid))
+                .filter(claims::claim_type.eq(claim_type))
+                .filter(claims::revoked_at.is_null()),
+        )
+        .set((claims::revoked_at.eq(Some(now)), claims::updated_at.eq(now)))
+        .execute(conn)
     }
 
     /// Claims with no signature rows — legacy claims left unsigned by the
@@ -357,6 +377,27 @@ pub mod sqlite {
             ))
             .execute(conn)?;
         load_with_signatures(conn, claim_id)
+    }
+
+    /// Soft-revoke every currently-active claim of a given type for a user — see
+    /// the postgres variant.
+    pub fn revoke_active_of_type(
+        conn: &mut diesel::SqliteConnection,
+        user_id: &str,
+        claim_type: &str,
+    ) -> QueryResult<usize> {
+        let now = chrono::Utc::now().to_rfc3339();
+        diesel::update(
+            claims::table
+                .filter(claims::user_id.eq(user_id))
+                .filter(claims::claim_type.eq(claim_type))
+                .filter(claims::revoked_at.is_null()),
+        )
+        .set((
+            claims::revoked_at.eq(Some(&now)),
+            claims::updated_at.eq(&now),
+        ))
+        .execute(conn)
     }
 
     /// Claims with no signature rows — legacy claims left unsigned by the

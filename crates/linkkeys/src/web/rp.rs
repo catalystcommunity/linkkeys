@@ -511,6 +511,46 @@ pub async fn fetch_domain_keys(
     Ok(trusted)
 }
 
+/// Deposit a signed claim to `domain`'s IDP over its generic CBOR-RPC carrier
+/// (`/csil/v1/rpc`, the `Attestation/deposit-claim` op). Server-to-server: an
+/// issuer pushes an attestation it signed to the subject's home domain, which
+/// verifies + stores it. Returns Err with a human message on any failure so the
+/// caller can fall back (e.g. hand the claim to the user out-of-band).
+pub(super) async fn deposit_claim_to_domain(
+    net: &crate::net::Net,
+    domain: &str,
+    claim: &liblinkkeys::generated::types::Claim,
+) -> Result<(), String> {
+    let apis = lookup_linkkeys_apis(net, domain)
+        .await
+        .map_err(|e| e.to_string())?;
+    let base = apis
+        .https_base
+        .ok_or_else(|| format!("{} advertises no https endpoint", domain))?;
+    let mut payload = Vec::new();
+    ciborium::ser::into_writer(
+        &liblinkkeys::generated::types::DepositClaimRequest {
+            claim: claim.clone(),
+        },
+        &mut payload,
+    )
+    .map_err(|e| e.to_string())?;
+    let envelope = crate::tcp::encode_request_envelope("Attestation", "deposit-claim", payload);
+    let url = format!("{}/csil/v1/rpc", base);
+    let resp = net
+        .http
+        .post_cbor(&url, envelope)
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.success {
+        return Err(format!("{} rejected the deposit (transport)", domain));
+    }
+    if crate::tcp::response_status(&resp.body) != 0 {
+        return Err(format!("{} rejected the claim", domain));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::api_base_host;

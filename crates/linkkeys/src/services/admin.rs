@@ -253,6 +253,39 @@ pub fn set_claim(pool: &DbPool, req: SetClaimRequest) -> Result<SetClaimResponse
     Ok(SetClaimResponse { claim })
 }
 
+/// Approve a queued self-asserted claim: sign the held value with the domain's
+/// active keys, store it for the subject, and mark the queue entry approved.
+/// Signs with our own keys (the IDP is vouching), so there is no foreign-key
+/// concern with the held value.
+pub fn approve_claim(pool: &DbPool, approval_id: &str, admin_id: &str) -> Result<(), ServiceError> {
+    let approval = pool.find_approval(approval_id).map_err(|e| match e {
+        diesel::result::Error::NotFound => ServiceError {
+            code: 404,
+            message: "Approval not found".to_string(),
+        },
+        other => db_err(other),
+    })?;
+    if approval.status != "pending" {
+        return Err(svc_err("approval already resolved"));
+    }
+    crate::services::self_service::sign_and_store(
+        pool,
+        &approval.user_id,
+        &approval.claim_type,
+        &approval.claim_value,
+    )?;
+    pool.resolve_approval(approval_id, "approved", admin_id)
+        .map_err(db_err)?;
+    Ok(())
+}
+
+/// Reject a queued claim: mark it rejected without signing anything.
+pub fn reject_claim(pool: &DbPool, approval_id: &str, admin_id: &str) -> Result<(), ServiceError> {
+    pool.resolve_approval(approval_id, "rejected", admin_id)
+        .map_err(db_err)?;
+    Ok(())
+}
+
 pub fn remove_claim(
     pool: &DbPool,
     req: RemoveClaimRequest,

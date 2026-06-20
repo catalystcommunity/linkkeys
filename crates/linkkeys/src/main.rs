@@ -28,20 +28,13 @@ async fn main() {
                 let pool = db_pool.clone();
                 let flag = ready_flag.clone();
                 thread::spawn(move || {
+                    // Schema migrations (diesel-tracked), then startup TRANSFORMS:
+                    // idempotent data ops that must run at least once, in order.
+                    // Transforms that were applied to every deployment from main
+                    // (legacy-claim re-sign, profile backfill, admin split) have
+                    // been removed; new transforms join the ordered list below.
                     linkkeys::db::run_migrations_with_locking(&pool);
-                    resign_legacy_claims_on_startup(&pool);
-                    match pool.backfill_profiles() {
-                        Ok(n) if n > 0 => log::info!("Backfilled profiles for {} account(s)", n),
-                        Ok(_) => {}
-                        Err(e) => log::error!("Profile backfill failed: {}", e),
-                    }
-                    match pool.split_admins() {
-                        Ok(n) if n > 0 => {
-                            log::info!("Split {} admin(s) into separate admin accounts", n)
-                        }
-                        Ok(_) => {}
-                        Err(e) => log::error!("Admin split failed: {}", e),
-                    }
+                    run_startup_transforms(&pool);
                     // Signal readiness only after every startup DB write is done,
                     // so the TCP server's domain-key read can't contend on the
                     // SQLite lock (which previously failed its TLS setup).
@@ -118,120 +111,19 @@ async fn main() {
     }
 }
 
-/// TEMPORARY (added 2026-06-14, pre-alpha): re-sign claims whose signatures
-/// don't verify under the current signed-payload construction.
+/// Run startup TRANSFORMS in order. A transform is an idempotent data operation
+/// that must run at least once; unlike a schema migration (diesel-tracked) it is
+/// safe to re-run every boot. Each is best-effort: a failure is logged but never
+/// aborts the boot. The list is the single source of order.
 ///
-/// Pre-existing claims may carry signatures over an older payload (e.g. before
-/// the subject's home domain was bound, or none at all after the
-/// claim_signatures migration). This re-signs them with this domain's active
-/// signing keys so they verify again. Idempotent: a claim that already verifies
-/// is skipped, so this is a no-op on every boot after it converges. Failures are
-/// logged but never fatal — a server with no claims, keys, or passphrase simply
-/// skips. Remove once all deployments have moved past pre-alpha.
-fn resign_legacy_claims_on_startup(pool: &linkkeys::db::DbPool) {
-    let claims = match pool.list_all_claims() {
-        Ok(c) => c,
-        Err(e) => {
-            log::error!("re-sign backfill: failed to list claims: {}", e);
-            return;
-        }
-    };
-    if claims.is_empty() {
-        return;
+/// (Transforms that had been applied to every deployment from main — legacy
+/// claim re-signing, profile backfill, admin split — were removed once universal.)
+fn run_startup_transforms(pool: &linkkeys::db::DbPool) {
+    match pool.seed_default_policies() {
+        Ok(n) if n > 0 => log::info!("Seeded {} default claim-type polic(ies)", n),
+        Ok(_) => {}
+        Err(e) => log::error!("Policy seed transform failed: {}", e),
     }
-
-    let domain_keys = match pool.list_active_domain_keys() {
-        Ok(k) => k,
-        Err(e) => {
-            log::error!("re-sign backfill: failed to list domain keys: {}", e);
-            return;
-        }
-    };
-
-    // The subject of every local claim is a local user, so the subject domain is
-    // our own. Verification uses our public keys (no passphrase needed).
-    let subject_domain = linkkeys::conversions::get_domain_name();
-    let local_keys: Vec<liblinkkeys::generated::types::DomainPublicKey> =
-        domain_keys.iter().map(Into::into).collect();
-    let keysets = vec![liblinkkeys::claims::DomainKeySet {
-        domain: subject_domain.clone(),
-        keys: local_keys,
-    }];
-
-    // Claims whose signatures don't verify under the current payload. Skip any
-    // that carry a signature from another domain — we can't re-create a foreign
-    // domain's signature, so replacing all signatures would drop it.
-    let stale: Vec<&linkkeys::db::models::ClaimRow> = claims
-        .iter()
-        .filter(|c| {
-            let claim: liblinkkeys::generated::types::Claim = (*c).into();
-            if liblinkkeys::claims::verify_claim_signatures(&claim, &subject_domain, &keysets)
-                .is_ok()
-            {
-                return false;
-            }
-            if claim.signatures.iter().any(|s| s.domain != subject_domain) {
-                log::warn!(
-                    "re-sign backfill: claim {} has signatures from other domains; skipping",
-                    c.id
-                );
-                return false;
-            }
-            true
-        })
-        .collect();
-    if stale.is_empty() {
-        return;
-    }
-
-    let passphrase = match std::env::var("DOMAIN_KEY_PASSPHRASE") {
-        Ok(p) => p,
-        Err(_) => {
-            log::warn!(
-                "re-sign backfill: {} claim(s) need re-signing but DOMAIN_KEY_PASSPHRASE \
-                 is not set; skipping",
-                stale.len()
-            );
-            return;
-        }
-    };
-    let signers = match linkkeys::claim_signing::active_signers(&domain_keys, passphrase.as_bytes())
-    {
-        Ok(s) => s,
-        Err(e) => {
-            log::warn!("re-sign backfill: cannot sign ({}); skipping", e);
-            return;
-        }
-    };
-
-    let mut resigned = 0usize;
-    for c in stale {
-        let spec = liblinkkeys::claims::ClaimSpec {
-            claim_id: &c.id,
-            claim_type: &c.claim_type,
-            claim_value: &c.claim_value,
-            user_id: &c.user_id,
-            subject_domain: &subject_domain,
-            expires_at: c.expires_at.as_deref(),
-        };
-        let signed = match linkkeys::claim_signing::sign_with_active(&spec, &signers) {
-            Ok(s) => s,
-            Err(e) => {
-                log::error!("re-sign backfill: failed to sign claim {}: {}", c.id, e);
-                continue;
-            }
-        };
-        if let Err(e) = pool.replace_claim_signatures(&c.id, &signed.signatures) {
-            log::error!(
-                "re-sign backfill: failed to store signatures for {}: {}",
-                c.id,
-                e
-            );
-            continue;
-        }
-        resigned += 1;
-    }
-    log::info!("re-sign backfill: re-signed {} claim(s)", resigned);
 }
 
 fn get_passphrase() -> String {

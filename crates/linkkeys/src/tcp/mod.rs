@@ -16,29 +16,18 @@ use crate::services::handshake::HandshakeHandler;
 use crate::services::hello::HelloHandler;
 
 use liblinkkeys::generated::types::{
-    DomainPublicKey, GetDomainKeysResponse, GetUserInfoRequest, GetUserKeysRequest,
-    GetUserKeysResponse, HandshakeRequest, UserInfo,
+    DepositClaimRequest, DepositClaimResponse, DomainPublicKey, GetDomainKeysResponse,
+    GetUserInfoRequest, GetUserKeysRequest, GetUserKeysResponse, HandshakeRequest, UserInfo,
 };
 
-#[derive(Serialize, Deserialize)]
-struct RequestEnvelope {
-    v: u32,
-    service: String,
-    op: String,
-    #[serde(with = "serde_bytes")]
-    payload: Vec<u8>,
-    #[serde(default)]
-    auth: Option<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct ResponseEnvelope {
-    v: u32,
-    status: i32,
-    error: Option<String>,
-    #[serde(with = "serde_bytes")]
-    payload: Vec<u8>,
-}
+// The RPC envelope is the canonical CSIL-RPC transport (`csilgen-transport`),
+// not a bespoke struct — `RpcRequest` / `RpcResponse` carry the tag-24 payload,
+// version, status registry, and `variant`. Framing on this TCP carrier is the
+// length-prefixed frames in `read_frame`/`write_frame` (matches the spec's
+// length-delimited stream carrier). `RpcRequest`'s fields (`service`, `op`,
+// `payload`, `auth`) line up with what `dispatch` already reads.
+use csilgen_transport::rpc::{RpcRequest, RpcResponse};
+use csilgen_transport::Status;
 
 #[derive(Serialize, Deserialize)]
 struct HelloRequest {
@@ -318,9 +307,7 @@ fn handle_message_loop(
             continue;
         }
 
-        let envelope: RequestEnvelope = match std::panic::catch_unwind(|| {
-            ciborium::de::from_reader::<RequestEnvelope, _>(&frame[..])
-        }) {
+        let envelope: RpcRequest = match std::panic::catch_unwind(|| RpcRequest::decode(&frame)) {
             Ok(Ok(env)) => env,
             Ok(Err(e)) => {
                 let resp = error_response(1, &format!("Invalid request envelope: {}", e));
@@ -374,22 +361,50 @@ pub fn dispatch_for_test(
     db_pool: &DbPool,
     client_domain: Option<&str>,
 ) -> (i32, Vec<u8>) {
-    let envelope = RequestEnvelope {
-        v: 1,
-        service: service.to_string(),
-        op: op.to_string(),
-        payload,
-        auth: None,
-    };
+    let request = RpcRequest::new(service, op, payload);
     let ready = Arc::new(AtomicBool::new(true));
-    let bytes = dispatch(&envelope, &ready, db_pool, client_domain);
-    let resp: ResponseEnvelope =
-        ciborium::de::from_reader(&bytes[..]).expect("response envelope decodes");
-    (resp.status, resp.payload)
+    let bytes = dispatch(&request, &ready, db_pool, client_domain);
+    let resp = RpcResponse::decode(&bytes).expect("response decodes");
+    (resp.status.code() as i32, resp.payload)
+}
+
+/// Encode a CSIL-RPC request (no auth) for an outbound call — e.g. one domain
+/// depositing a signed claim to another via its `/csil/v1/rpc` carrier.
+pub fn encode_request_envelope(service: &str, op: &str, payload: Vec<u8>) -> Vec<u8> {
+    RpcRequest::new(service, op, payload)
+        .encode()
+        .expect("encode CSIL-RPC request cannot fail")
+}
+
+/// Decode a CSIL-RPC request envelope and dispatch it, returning the response
+/// envelope bytes. This is the single entry the generic CBOR-RPC carrier (the
+/// web `POST /csil/v1/rpc`) shares with the TCP server, so the web carries the
+/// same RPC surface without per-op routes. `client_domain` is the mTLS-proven
+/// peer over TCP, `None` over the web.
+pub fn dispatch_envelope(
+    envelope_bytes: &[u8],
+    ready_flag: &Arc<AtomicBool>,
+    db_pool: &DbPool,
+    client_domain: Option<&str>,
+) -> Vec<u8> {
+    let request = match RpcRequest::decode(envelope_bytes) {
+        Ok(r) => r,
+        Err(e) => return error_response(1, &format!("Invalid envelope: {}", e)),
+    };
+    dispatch(&request, ready_flag, db_pool, client_domain)
+}
+
+/// The CSIL-RPC status code of a response (0 = success), or a non-zero sentinel
+/// if it can't be decoded. Lets an outbound caller tell whether the remote op
+/// succeeded.
+pub fn response_status(bytes: &[u8]) -> i32 {
+    RpcResponse::decode(bytes)
+        .map(|r| r.status.code() as i32)
+        .unwrap_or(i32::MAX)
 }
 
 fn dispatch(
-    envelope: &RequestEnvelope,
+    envelope: &RpcRequest,
     ready_flag: &Arc<AtomicBool>,
     db_pool: &DbPool,
     client_domain: Option<&str>,
@@ -532,6 +547,29 @@ fn dispatch(
             };
             dispatch_account(op, &envelope.payload, db_pool, &user)
         }
+        // Server-to-server: an issuer deposits a claim it signed about one of our
+        // accounts. The issuer's signature is the authority (verified against its
+        // cached keys + our trusted-issuer policy), so no caller auth is required
+        // beyond that — anyone may carry a valid trusted attestation to us.
+        ("Attestation", "deposit-claim") => {
+            let request: DepositClaimRequest =
+                match ciborium::de::from_reader(&envelope.payload[..]) {
+                    Ok(r) => r,
+                    Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+                };
+            let claim = request.claim;
+            if db_pool.find_user_by_id(&claim.user_id).is_err() {
+                return error_response(4, "Unknown subject");
+            }
+            match crate::services::attestation::verify_and_store_attested(
+                db_pool,
+                &claim.user_id,
+                &claim,
+            ) {
+                Ok(()) => ok_response(&DepositClaimResponse { stored: true }),
+                Err(e) => error_response(5, &e.message),
+            }
+        }
         _ => error_response(
             3,
             &format!(
@@ -605,35 +643,38 @@ fn dispatch_account(
     }
 }
 
+/// A successful CSIL-RPC reply carrying a typed payload. Our operations declare a
+/// single output type (no `/ ErrorType` arms yet), so `variant` is omitted; if we
+/// later add typed error arms, set it to the chosen arm's CSIL type name.
 fn ok_response<T: Serialize>(payload: &T) -> Vec<u8> {
     let mut payload_bytes = Vec::new();
     ciborium::ser::into_writer(payload, &mut payload_bytes)
         .expect("CBOR serialization of response payload");
-
-    let envelope = ResponseEnvelope {
-        v: 1,
-        status: 0,
+    RpcResponse {
+        id: None,
+        status: Status::Ok,
+        variant: None,
         error: None,
         payload: payload_bytes,
-    };
-
-    let mut out = Vec::new();
-    ciborium::ser::into_writer(&envelope, &mut out)
-        .expect("CBOR serialization of response envelope");
-    out
+    }
+    .encode()
+    .expect("encode RPC response")
 }
 
+/// Map our historical transport status ints onto the CSIL-RPC status registry and
+/// build a transport-error response (no typed payload). These are *transport*
+/// failures, never application errors (which would ride as a status-0 variant).
 fn error_response(status: i32, message: &str) -> Vec<u8> {
-    let envelope = ResponseEnvelope {
-        v: 1,
-        status,
-        error: Some(message.to_string()),
-        payload: Vec::new(),
+    let status = match status {
+        1 | 2 => Status::MalformedEnvelope,
+        3 => Status::UnknownServiceOrOp,
+        4 => Status::Internal,
+        5 => Status::Forbidden,
+        other => Status::Other(other as i64),
     };
-
-    let mut out = Vec::new();
-    ciborium::ser::into_writer(&envelope, &mut out).expect("CBOR serialization of error envelope");
-    out
+    RpcResponse::transport_error(status, message)
+        .encode()
+        .expect("encode RPC error response")
 }
 
 /// Authenticate a TCP request using the auth field from the envelope.
@@ -703,47 +744,5 @@ mod depth_tests {
         }
         data.push(0x00); // value 0
         assert!(!check_cbor_depth(&data));
-    }
-}
-
-mod serde_bytes {
-    use serde::{Deserializer, Serializer};
-
-    pub fn serialize<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_bytes(bytes)
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
-        use serde::de::Visitor;
-
-        struct BytesVisitor;
-        impl<'de> Visitor<'de> for BytesVisitor {
-            type Value = Vec<u8>;
-
-            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                f.write_str("bytes or byte string")
-            }
-
-            fn visit_bytes<E: serde::de::Error>(self, v: &[u8]) -> Result<Vec<u8>, E> {
-                Ok(v.to_vec())
-            }
-
-            fn visit_byte_buf<E: serde::de::Error>(self, v: Vec<u8>) -> Result<Vec<u8>, E> {
-                Ok(v)
-            }
-
-            fn visit_seq<A: serde::de::SeqAccess<'de>>(
-                self,
-                mut seq: A,
-            ) -> Result<Vec<u8>, A::Error> {
-                let mut bytes = Vec::with_capacity(seq.size_hint().unwrap_or(0));
-                while let Some(b) = seq.next_element()? {
-                    bytes.push(b);
-                }
-                Ok(bytes)
-            }
-        }
-
-        deserializer.deserialize_any(BytesVisitor)
     }
 }

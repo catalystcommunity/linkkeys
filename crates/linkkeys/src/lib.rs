@@ -5,6 +5,7 @@ pub mod claim_signing;
 pub mod conversions;
 pub mod db;
 pub mod dns;
+pub mod email;
 pub mod net;
 pub mod rp_config;
 pub mod schema;

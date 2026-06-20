@@ -1,0 +1,16 @@
+[package]
+name = "csilgen-transport"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+# VENDORED from catalystcommunity/csilgen @ 17c59ef (transports/rust). Temporary:
+# the git dependency already works (public repo), but we run the copy while the
+# crate is still being iterated, then swap to the git dep at the end. Do NOT
+# hand-edit beyond the conformance test below — re-sync from upstream instead.
+description = "Vendored CSIL transport family reference implementation."
+
+[dependencies]
+ciborium = "0.2"
+ciborium-io = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "1.0"

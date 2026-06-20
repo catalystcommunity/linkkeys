@@ -4,6 +4,8 @@ mod admin;
 mod admin_ui;
 mod guard;
 pub mod nonce_store;
+mod policy_admin_ui;
+mod profile_ui;
 pub mod rp;
 
 use rocket::form::FromForm;
@@ -94,19 +96,14 @@ pub fn pick_active_signing_key(
     Some(signing[rand::thread_rng().gen_range(0..signing.len())])
 }
 
-/// Resolve the profile an assertion is issued FOR. The subject is always a
-/// presentable profile, NEVER the root anchor. For a default (single-profile)
-/// account the presentable profile's id equals the account id, so this is
-/// behavior-preserving; it falls back to the account id only for an account not
-/// yet backfilled with profiles. (Multi-profile *selection* — picking among
-/// several personas — is a later step; for now the oldest presentable wins,
-/// which is the account-id default profile.)
-fn resolve_subject_profile(pool: &DbPool, account_id: &str) -> String {
-    pool.list_presentable_profiles_for_account(account_id)
-        .ok()
-        .and_then(|ps| ps.into_iter().next())
-        .map(|p| p.id)
-        .unwrap_or_else(|| account_id.to_string())
+/// The subject an assertion/claim is issued FOR. Per the trust model
+/// (docs/claim-trust-verification.md) this is ALWAYS the account UUID: profiles
+/// are presentation override sets, not separate cryptographic subjects, so they
+/// never become the subject. Unlinkable personas are separate accounts, not
+/// profiles. Kept as a function so the single source of truth is documented and
+/// any future per-presentation re-binding lives in one place.
+fn resolve_subject_profile(_pool: &DbPool, account_id: &str) -> String {
+    account_id.to_string()
 }
 
 /// Sign an identity assertion for the given user with a randomly chosen active
@@ -160,23 +157,31 @@ fn consent_ttl_seconds() -> i64 {
         .unwrap_or(DEFAULT_CONSENT_TTL_SECONDS)
 }
 
-/// Home-domain claim-release policy, from comma-separated `CONSENT_FORCED_ALLOW`
-/// / `CONSENT_FORCED_DENY` claim-type lists. Forced rows are shown to the user
-/// but cannot be toggled; deny wins over allow. (Prototype: global, not yet
-/// per-audience.)
-fn domain_policy() -> DomainPolicy {
-    let parse = |var: &str| {
-        env::var(var)
-            .unwrap_or_default()
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<String>>()
-    };
-    DomainPolicy {
-        forced_allow: parse("CONSENT_FORCED_ALLOW"),
-        forced_deny: parse("CONSENT_FORCED_DENY"),
+/// Home-domain claim-release policy for an audience, from the `release_policies`
+/// table: rows for that audience plus the global `*` defaults. Forced rows are
+/// shown to the user but cannot be toggled; deny wins over allow. The table is
+/// seeded on first boot from the deprecated `CONSENT_FORCED_ALLOW` /
+/// `CONSENT_FORCED_DENY` env vars (see `DbPool::seed_default_policies`).
+fn domain_policy_for(pool: &DbPool, audience: &str) -> Result<DomainPolicy, ()> {
+    // Fail CLOSED: `forced_deny` is a security control. If the policy can't be
+    // loaded, do NOT fall back to an empty (allow-everything) policy — propagate
+    // the error so the caller aborts rather than releasing claims an admin denied.
+    let rows = pool
+        .list_release_policies_for_audience(audience)
+        .map_err(|e| log::error!("release policy load failed for {}: {}", audience, e))?;
+    let mut forced_allow = Vec::new();
+    let mut forced_deny = Vec::new();
+    for r in rows {
+        match r.disposition.as_str() {
+            "forced_allow" => forced_allow.push(r.claim_type),
+            "forced_deny" => forced_deny.push(r.claim_type),
+            other => log::warn!("release_policies: unknown disposition {:?}", other),
+        }
     }
+    Ok(DomainPolicy {
+        forced_allow,
+        forced_deny,
+    })
 }
 
 /// The claim types an RP requested (required ∪ optional), as a flat list.
@@ -256,7 +261,23 @@ fn build_consent_screen(
         .ok()
         .flatten();
     let prior_obj = prior.as_ref().map(prior_grant_object);
-    resolve_consent_screen(req, &available, prior_obj.as_ref(), policy)
+    let mut screen = resolve_consent_screen(req, &available, prior_obj.as_ref(), policy);
+
+    // Fold in the user's standing release preferences (claims they chose to
+    // pre-share with this audience or with any domain). These rows arrive
+    // pre-checked — the user still confirms, but with zero friction. Locked
+    // (policy-forced) rows are left untouched.
+    let standing = pool
+        .list_user_release_allows(user_id, audience)
+        .unwrap_or_default();
+    let allow: std::collections::BTreeSet<&str> = standing.iter().map(String::as_str).collect();
+    for row in &mut screen.rows {
+        if row.policy == consent::PolicyDisposition::User && allow.contains(row.claim_type.as_str())
+        {
+            row.previously_granted = true;
+        }
+    }
+    screen
 }
 
 /// A relying-party self-claim with its verification status, for display and
@@ -1090,7 +1111,11 @@ async fn handle_signed_request_post(
     // full callback URL. The login-request nonce is burned inside finalize_login
     // at token issuance — not here — so an abandoned consent screen doesn't
     // consume a legitimate request.
-    let policy = domain_policy();
+    let Ok(policy) = domain_policy_for(pool, &request.relying_party) else {
+        return Err(render_form_error(
+            "Could not load the release policy. Please try again.",
+        ));
+    };
     match request.requested_claims.clone() {
         // Authentication only: no claims requested, nothing to consent to.
         None => finalize_login(pool, net, nonces, &user, &request, vec![], vec![])
@@ -1201,7 +1226,11 @@ async fn auth_consent_post(
         Err(_) => return Err(render_error_page("Your account could not be found.")),
     };
 
-    let policy = domain_policy();
+    let Ok(policy) = domain_policy_for(pool, &request.relying_party) else {
+        return Err(render_error_page(
+            "Could not load the release policy. Please try again.",
+        ));
+    };
     let authorized = compute_authorized_claims(&req, &form.grant, &policy);
 
     // A required claim the user declined (and policy didn't deny) blocks
@@ -1523,6 +1552,28 @@ async fn userinfo_cbor(
     Ok(cbor_response(out))
 }
 
+/// Generic CBOR-RPC carrier: the web's second-class mirror of the TCP service
+/// dispatch. The body is a CBOR `RequestEnvelope`; we run the same `dispatch()`
+/// and return the CBOR `ResponseEnvelope`. This is how the web carries the whole
+/// RPC surface (e.g. `Attestation/deposit-claim`) without per-op routes — a
+/// browser is never the intended caller here, another server is. `dispatch` is
+/// synchronous (diesel), so run it on a blocking thread.
+#[rocket::post("/csil/v1/rpc", data = "<body>")]
+async fn rpc_cbor(
+    pool: &State<DbPool>,
+    ready: &State<Arc<AtomicBool>>,
+    body: Vec<u8>,
+) -> (ContentType, Vec<u8>) {
+    let pool = pool.inner().clone();
+    let ready = ready.inner().clone();
+    let resp = rocket::tokio::task::spawn_blocking(move || {
+        crate::tcp::dispatch_envelope(&body, &ready, &pool, None)
+    })
+    .await
+    .unwrap_or_default();
+    cbor_response(resp)
+}
+
 // -- TLS + Launch --
 
 fn generate_self_signed_cert() -> (String, String) {
@@ -1620,6 +1671,7 @@ pub fn build_rocket(
         handshake_cbor,
         handshake_json,
         userinfo_cbor,
+        rpc_cbor,
     ];
 
     // Mount password auth routes (login form) when enabled (default: true)
@@ -1696,6 +1748,13 @@ pub fn build_rocket(
             account_ui::account_dashboard,
             account_ui::change_password_page,
             account_ui::change_password_submit,
+            profile_ui::identity_editor,
+            profile_ui::set_claim_submit,
+            profile_ui::create_profile_submit,
+            profile_ui::verify_email,
+            profile_ui::set_share_submit,
+            profile_ui::request_verification,
+            profile_ui::request_verification_download,
         ],
     );
 
@@ -1715,6 +1774,26 @@ pub fn build_rocket(
             admin_ui::admin_ui_remove_claim,
             admin_ui::admin_ui_grant_relation,
             admin_ui::admin_ui_remove_relation,
+        ],
+    );
+
+    // Mount the admin policy editor (claim-type registry, trusted issuers,
+    // release defaults, approval queue).
+    rocket_instance = rocket_instance.mount(
+        "/",
+        rocket::routes![
+            policy_admin_ui::policy_admin,
+            policy_admin_ui::upsert_policy,
+            policy_admin_ui::delete_policy,
+            policy_admin_ui::add_issuer,
+            policy_admin_ui::remove_issuer,
+            policy_admin_ui::upsert_release,
+            policy_admin_ui::delete_release,
+            policy_admin_ui::approve,
+            policy_admin_ui::reject,
+            policy_admin_ui::issue_page,
+            policy_admin_ui::issue_verify,
+            policy_admin_ui::issue_sign,
         ],
     );
 
