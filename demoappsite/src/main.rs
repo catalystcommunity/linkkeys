@@ -33,11 +33,43 @@ struct AuthState {
     api_base: String,
 }
 
-/// Configuration for the RP service connection.
+/// Configuration for the RP service connection over the LinkKeys TCP transport.
 struct RpConfig {
-    service_url: String,
+    /// The RP server's TCP endpoint (`host:port`).
+    tcp_addr: String,
+    /// DNS-published fingerprints pinning the RP server's TLS cert. The demo
+    /// holds no domain key, so it presents no client cert and authenticates with
+    /// the API key; it still pins the server cert so it only talks to its RP.
+    fingerprints: Vec<String>,
     api_key: String,
     domain: String,
+}
+
+/// Call an `Rp` helper op on the RP server over the CSIL-RPC TCP transport. The
+/// client is blocking, so it runs on a blocking thread; the demo presents no
+/// client cert and authenticates with its API key.
+async fn rp_call<Req, Resp>(rp: &RpConfig, op: &'static str, req: Req) -> Result<Resp, String>
+where
+    Req: serde::Serialize + Send + 'static,
+    Resp: serde::de::DeserializeOwned + Send + 'static,
+{
+    let addr = rp.tcp_addr.clone();
+    let fingerprints = rp.fingerprints.clone();
+    let api_key = rp.api_key.clone();
+    tokio::task::spawn_blocking(move || {
+        linkkeys_rpc_client::send_request::<Req, Resp>(
+            &addr,
+            fingerprints,
+            None,
+            "Rp",
+            op,
+            &req,
+            Some(&api_key),
+        )
+    })
+    .await
+    .map_err(|e| format!("RP task join failed: {}", e))?
+    .map_err(|e| format!("RP {} failed: {}", op, e))
 }
 
 fn get_own_origin() -> String {
@@ -49,15 +81,6 @@ fn get_own_origin() -> String {
         .parse()
         .unwrap_or(9090);
     format!("https://localhost:{}", port)
-}
-
-fn build_reqwest_client() -> reqwest::Client {
-    let mut builder = reqwest::Client::builder();
-    if env::var("ALLOW_INVALID_CERTS").unwrap_or_default() == "true" {
-        log::warn!("TLS certificate verification disabled (ALLOW_INVALID_CERTS=true)");
-        builder = builder.danger_accept_invalid_certs(true);
-    }
-    builder.build().expect("Failed to build HTTP client")
 }
 
 fn html_escape(s: &str) -> String {
@@ -393,64 +416,15 @@ fn simple_url_encode(s: &str) -> String {
     out
 }
 
-/// Response from the RP service's /v1alpha/sign-request.json endpoint
-#[derive(Deserialize)]
-struct SignRequestResponse {
-    signed_request: String,
-}
-
-/// Response from the RP service's /v1alpha/decrypt-token.json endpoint
-#[derive(Deserialize)]
-struct DecryptTokenResponse {
-    signed_assertion: String,
-}
-
-/// Response from the RP service's /v1alpha/verify-assertion.json endpoint
-#[derive(Deserialize)]
-struct VerifyAssertionResponse {
-    assertion: AssertionData,
-    #[allow(dead_code)]
-    verified: bool,
-}
-
-#[derive(Deserialize)]
-struct AssertionData {
-    #[allow(dead_code)]
-    user_id: String,
-    domain: String,
-    nonce: String,
-    #[allow(dead_code)]
-    audience: String,
-    #[allow(dead_code)]
-    display_name: Option<String>,
-}
-
-/// User info response from the domain server's /v1alpha/userinfo.json endpoint
-#[derive(Deserialize)]
-struct UserInfoResponse {
-    user_id: String,
-    domain: String,
-    display_name: String,
-    claims: Vec<ClaimResponse>,
-}
-
-#[derive(Deserialize)]
-struct ClaimResponse {
-    claim_type: String,
-    claim_value: serde_json::Value,
-    signatures: Vec<ClaimSignatureResponse>,
-}
-
-#[derive(Deserialize)]
-struct ClaimSignatureResponse {
-    domain: String,
-    // signed_by_key_id / signature are present on the wire but unused for display.
-}
+// The RP `Rp` service responses are the generated CSIL types
+// (`liblinkkeys::generated::types`): RpSignResponse, RpDecryptResponse,
+// RpVerifyResponse (carrying IdentityAssertion), and UserInfo. The demo decodes
+// straight into them — no hand-rolled mirror structs.
+use liblinkkeys::generated::types as lk;
 
 #[rocket::post("/login", data = "<form>")]
 async fn login(
     cookies: &CookieJar<'_>,
-    client: &State<reqwest::Client>,
     rp_config: &State<RpConfig>,
     form: rocket::form::Form<LoginForm>,
 ) -> Result<Redirect, RawHtml<String>> {
@@ -473,29 +447,17 @@ async fn login(
     let origin = get_own_origin();
     let callback_url = format!("{}/callback", origin);
 
-    // Call RP service to sign the auth request
-    let sign_resp = client
-        .post(format!(
-            "{}/v1alpha/sign-request.json",
-            rp_config.service_url
-        ))
-        .header("Authorization", format!("Bearer {}", rp_config.api_key))
-        .json(&serde_json::json!({
-            "callback_url": callback_url,
-            "nonce": nonce,
-        }))
-        .send()
-        .await
-        .map_err(|e| login_form(Some(&format!("Failed to contact RP service: {}", e))))?;
-
-    if !sign_resp.status().is_success() {
-        return Err(login_form(Some("RP service failed to sign auth request")));
-    }
-
-    let sign_result: SignRequestResponse = sign_resp
-        .json()
-        .await
-        .map_err(|e| login_form(Some(&format!("Invalid RP service response: {}", e))))?;
+    // Call the RP server over TCP to sign the auth request.
+    let sign_result: lk::RpSignResponse = rp_call(
+        rp_config,
+        "sign-request",
+        lk::RpSignRequest {
+            callback_url: callback_url.clone(),
+            nonce: nonce.clone(),
+        },
+    )
+    .await
+    .map_err(|e| login_form(Some(&format!("Failed to contact RP service: {}", e))))?;
 
     // Store auth state for callback verification
     let auth_state = AuthState {
@@ -528,7 +490,6 @@ async fn login(
 #[rocket::get("/callback?<encrypted_token>")]
 async fn callback(
     cookies: &CookieJar<'_>,
-    client: &State<reqwest::Client>,
     rp_config: &State<RpConfig>,
     encrypted_token: &str,
 ) -> Result<Redirect, RawHtml<String>> {
@@ -539,50 +500,28 @@ async fn callback(
         .ok_or_else(|| error_page("No auth state found — login flow may have expired"))?;
     cookies.remove_private("auth_state");
 
-    // 2. Call RP service to decrypt the token
-    let decrypt_resp = client
-        .post(format!(
-            "{}/v1alpha/decrypt-token.json",
-            rp_config.service_url
-        ))
-        .header("Authorization", format!("Bearer {}", rp_config.api_key))
-        .json(&serde_json::json!({ "encrypted_token": encrypted_token }))
-        .send()
-        .await
-        .map_err(|e| error_page(&format!("Failed to decrypt token: {}", e)))?;
+    // 2. Call the RP server (over TCP) to decrypt the token.
+    let decrypt_result: lk::RpDecryptResponse = rp_call(
+        rp_config,
+        "decrypt-token",
+        lk::RpDecryptRequest {
+            encrypted_token: encrypted_token.to_string(),
+        },
+    )
+    .await
+    .map_err(|e| error_page(&format!("Failed to decrypt token: {}", e)))?;
 
-    if !decrypt_resp.status().is_success() {
-        return Err(error_page("RP service failed to decrypt token"));
-    }
-
-    let decrypt_result: DecryptTokenResponse = decrypt_resp
-        .json()
-        .await
-        .map_err(|e| error_page(&format!("Invalid decrypt response: {}", e)))?;
-
-    // 3. Call RP service to verify the assertion against the domain's keys
-    let verify_resp = client
-        .post(format!(
-            "{}/v1alpha/verify-assertion.json",
-            rp_config.service_url
-        ))
-        .header("Authorization", format!("Bearer {}", rp_config.api_key))
-        .json(&serde_json::json!({
-            "signed_assertion": decrypt_result.signed_assertion,
-            "expected_domain": auth_state.domain,
-        }))
-        .send()
-        .await
-        .map_err(|e| error_page(&format!("Failed to verify assertion: {}", e)))?;
-
-    if !verify_resp.status().is_success() {
-        return Err(error_page("Assertion verification failed"));
-    }
-
-    let verify_result: VerifyAssertionResponse = verify_resp
-        .json()
-        .await
-        .map_err(|e| error_page(&format!("Invalid verify response: {}", e)))?;
+    // 3. Call the RP server to verify the assertion against the domain's keys.
+    let verify_result: lk::RpVerifyResponse = rp_call(
+        rp_config,
+        "verify-assertion",
+        lk::RpVerifyRequest {
+            signed_assertion: decrypt_result.signed_assertion.clone(),
+            expected_domain: auth_state.domain.clone(),
+        },
+    )
+    .await
+    .map_err(|e| error_page(&format!("Failed to verify assertion: {}", e)))?;
 
     let assertion = &verify_result.assertion;
 
@@ -596,28 +535,20 @@ async fn callback(
         return Err(error_page("Domain mismatch"));
     }
 
-    // 6. Fetch user info via our RP service. The IDP's /userinfo now requires a
-    // proof-of-possession signature binding the request to us (the audience),
-    // and only our RP service holds the domain signing key — so we delegate the
-    // sign-and-fetch to it rather than calling the IDP directly.
-    let userinfo_resp = client
-        .post(format!(
-            "{}/v1alpha/userinfo-fetch.json",
-            rp_config.service_url
-        ))
-        .header("Authorization", format!("Bearer {}", rp_config.api_key))
-        .json(&serde_json::json!({
-            "token": decrypt_result.signed_assertion,
-            "api_base": auth_state.api_base,
-        }))
-        .send()
-        .await
-        .map_err(|e| error_page(&format!("Failed to fetch user info: {}", e)))?;
-
-    let user_info: UserInfoResponse = userinfo_resp
-        .json()
-        .await
-        .map_err(|e| error_page(&format!("Failed to decode user info: {}", e)))?;
+    // 6. Fetch user info via our RP server. The IDP's /userinfo binds the
+    // redemption to the audience (us), and only our RP server holds the domain
+    // key — so we delegate the fetch to it rather than calling the IDP directly.
+    let user_info: lk::UserInfo = rp_call(
+        rp_config,
+        "userinfo-fetch",
+        lk::RpUserInfoRequest {
+            token: decrypt_result.signed_assertion.clone(),
+            api_base: auth_state.api_base.clone(),
+            domain: auth_state.domain.clone(),
+        },
+    )
+    .await
+    .map_err(|e| error_page(&format!("Failed to fetch user info: {}", e)))?;
 
     // 7. Build session
     let session = Session {
@@ -628,18 +559,8 @@ async fn callback(
             .claims
             .iter()
             .map(|c| {
-                let value = match &c.claim_value {
-                    serde_json::Value::Array(arr) => {
-                        // CBOR bytes come as JSON array of integers
-                        let bytes: Vec<u8> = arr
-                            .iter()
-                            .filter_map(|v| v.as_u64().map(|n| n as u8))
-                            .collect();
-                        String::from_utf8_lossy(&bytes).to_string()
-                    }
-                    serde_json::Value::String(s) => s.clone(),
-                    other => other.to_string(),
-                };
+                // claim_value is raw bytes (UTF-8 for the demo's text claims).
+                let value = String::from_utf8_lossy(&c.claim_value).to_string();
                 // Distinct signing domains, preserving first-seen order.
                 let mut signing_domains: Vec<String> = Vec::new();
                 for sig in &c.signatures {
@@ -710,21 +631,29 @@ async fn main() {
         ..Config::default()
     };
 
-    let client = build_reqwest_client();
-
     let rp_config = RpConfig {
-        service_url: env::var("RP_SERVICE_URL")
-            .unwrap_or_else(|_| "https://127.0.0.1:8443".to_string()),
+        tcp_addr: env::var("RP_TCP_ADDR")
+            .unwrap_or_else(|_| format!("127.0.0.1:{}", liblinkkeys::dns::DEFAULT_TCP_PORT)),
+        fingerprints: env::var("RP_FINGERPRINTS")
+            .unwrap_or_default()
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
         api_key: env::var("RP_API_KEY").unwrap_or_else(|_| {
             log::warn!("RP_API_KEY not set — RP service calls will fail");
             String::new()
         }),
         domain: env::var("RP_DOMAIN").unwrap_or_else(|_| "localhost".to_string()),
     };
+    if rp_config.fingerprints.is_empty() {
+        log::warn!(
+            "RP_FINGERPRINTS not set — TCP calls to the RP server will fail to pin its cert"
+        );
+    }
 
     if let Err(e) = rocket::custom(config)
         .mount("/", rocket::routes![index, login, callback, logout])
-        .manage(client)
         .manage(rp_config)
         .launch()
         .await

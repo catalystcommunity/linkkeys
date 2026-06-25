@@ -1,0 +1,30 @@
+{{- if .Values.gateway.tlsRoute.enabled }}
+# SNI-routed TLS passthrough for the LinkKeys protocol port. The gateway does NOT
+# terminate TLS — the app does its own mutual TLS with the domain keys — so the
+# parent Gateway listener must be `protocol: TLS` with `tls.mode: Passthrough`.
+# Matches on the SNI hostname(s) the client presents (the `tcp=` host from the
+# domain's _linkkeys_apis record), letting multiple domains share one listener.
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TLSRoute
+metadata:
+  name: {{ include "linkkeys.fullname" . }}-tls
+  labels:
+    {{- include "linkkeys.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.gateway.tlsRoute.parentGateway }}
+      {{- if .Values.gateway.tlsRoute.parentNamespace }}
+      namespace: {{ .Values.gateway.tlsRoute.parentNamespace }}
+      {{- end }}
+      {{- if .Values.gateway.tlsRoute.parentSection }}
+      sectionName: {{ .Values.gateway.tlsRoute.parentSection }}
+      {{- end }}
+  {{- with .Values.gateway.tlsRoute.hostnames }}
+  hostnames:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - backendRefs:
+        - name: {{ include "linkkeys.fullname" . }}
+          port: {{ .Values.service.tcp.port }}
+{{- end }}

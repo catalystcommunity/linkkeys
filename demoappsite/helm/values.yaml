@@ -14,11 +14,15 @@ demoapp:
   # Accept invalid TLS certs (development only — self-signed certs)
   allowInvalidCerts: "false"
 
-# The LinkKeys RP service this demo app delegates crypto to
+# The LinkKeys RP service this demo app delegates crypto to, over the LinkKeys
+# TCP (CSIL-RPC) transport — the demo holds only an API key, no domain key.
 rp:
-  # URL of the RP service (linkkeys server in RP mode)
-  serviceUrl: ""
-  # Bearer token for authenticating to the RP service
+  # The RP server's TCP endpoint (host:port), e.g. linkkeys-rp:4987
+  tcpAddr: ""
+  # Comma-separated DNS-published fingerprints pinning the RP server's TLS cert
+  # (the RP domain's _linkkeys fp= values).
+  fingerprints: ""
+  # Bearer token (API key) for authenticating to the RP service
   apiKey: ""
   # The RP's domain name (used in auth requests)
   domain: ""

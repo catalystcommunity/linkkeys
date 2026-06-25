@@ -33,6 +33,7 @@ fn svc_err_to_status(e: liblinkkeys::generated::services::ServiceError) -> Statu
     Status::InternalServerError
 }
 
+// TODO: deprecated, remove later — use the `Admin` CSIL-RPC service over TCP (CLI/server-to-server).
 #[rocket::get("/admin/v1alpha/users")]
 pub fn admin_list_users(
     pool: &State<DbPool>,
@@ -51,6 +52,7 @@ pub fn admin_list_users(
     json_ok(&resp)
 }
 
+// TODO: deprecated, remove later — use the `Admin` CSIL-RPC service over TCP (CLI/server-to-server).
 #[rocket::get("/admin/v1alpha/users/<user_id>")]
 pub fn admin_get_user(
     pool: &State<DbPool>,
@@ -69,6 +71,7 @@ pub fn admin_get_user(
     json_ok(&resp)
 }
 
+// TODO: deprecated, remove later — use the `Admin` CSIL-RPC service over TCP (CLI/server-to-server).
 #[rocket::post("/admin/v1alpha/users", data = "<body>")]
 pub fn admin_create_user(
     pool: &State<DbPool>,
@@ -85,6 +88,7 @@ pub fn admin_create_user(
     json_ok(&resp)
 }
 
+// TODO: deprecated, remove later — use the `Admin` CSIL-RPC service over TCP (CLI/server-to-server).
 #[rocket::post("/admin/v1alpha/users/<user_id>/update", data = "<body>")]
 pub fn admin_update_user(
     pool: &State<DbPool>,
@@ -103,6 +107,7 @@ pub fn admin_update_user(
     json_ok(&resp)
 }
 
+// TODO: deprecated, remove later — use the `Admin` CSIL-RPC service over TCP (CLI/server-to-server).
 #[rocket::post("/admin/v1alpha/users/<user_id>/deactivate")]
 pub fn admin_deactivate_user(
     pool: &State<DbPool>,
@@ -124,6 +129,7 @@ pub fn admin_deactivate_user(
     json_ok(&resp)
 }
 
+// TODO: deprecated, remove later — use the `Admin` CSIL-RPC service over TCP (CLI/server-to-server).
 #[rocket::post("/admin/v1alpha/users/<user_id>/reset-password", data = "<body>")]
 pub fn admin_reset_password(
     pool: &State<DbPool>,
@@ -143,6 +149,7 @@ pub fn admin_reset_password(
     json_ok(&resp)
 }
 
+// TODO: deprecated, remove later — use the `Admin` CSIL-RPC service over TCP (CLI/server-to-server).
 #[rocket::post("/admin/v1alpha/credentials/<id>/remove")]
 pub fn admin_remove_credential(
     pool: &State<DbPool>,
@@ -161,6 +168,7 @@ pub fn admin_remove_credential(
     json_ok(&resp)
 }
 
+// TODO: deprecated, remove later — use the `Admin` CSIL-RPC service over TCP (CLI/server-to-server).
 #[rocket::post("/admin/v1alpha/users/<user_id>/claims", data = "<body>")]
 pub fn admin_set_claim(
     pool: &State<DbPool>,
@@ -179,6 +187,7 @@ pub fn admin_set_claim(
     json_ok(&resp)
 }
 
+// TODO: deprecated, remove later — use the `Admin` CSIL-RPC service over TCP (CLI/server-to-server).
 #[rocket::post("/admin/v1alpha/claims/<claim_id>/remove")]
 pub fn admin_remove_claim(
     pool: &State<DbPool>,
@@ -197,6 +206,7 @@ pub fn admin_remove_claim(
     json_ok(&resp)
 }
 
+// TODO: deprecated, remove later — use the `Admin` CSIL-RPC service over TCP (CLI/server-to-server).
 #[rocket::post("/admin/v1alpha/relations", data = "<body>")]
 pub fn admin_grant_relation(
     pool: &State<DbPool>,
@@ -209,6 +219,7 @@ pub fn admin_grant_relation(
     json_ok(&resp)
 }
 
+// TODO: deprecated, remove later — use the `Admin` CSIL-RPC service over TCP (CLI/server-to-server).
 #[rocket::post("/admin/v1alpha/relations/<id>/remove")]
 pub fn admin_remove_relation(
     pool: &State<DbPool>,
@@ -223,6 +234,7 @@ pub fn admin_remove_relation(
     json_ok(&resp)
 }
 
+// TODO: deprecated, remove later — use the `Admin` CSIL-RPC service over TCP (CLI/server-to-server).
 #[rocket::get("/admin/v1alpha/relations?<subject_type>&<subject_id>&<object_type>&<object_id>")]
 pub fn admin_list_relations(
     pool: &State<DbPool>,
@@ -243,6 +255,7 @@ pub fn admin_list_relations(
     json_ok(&resp)
 }
 
+// TODO: deprecated, remove later — use the `Admin` CSIL-RPC service over TCP (CLI/server-to-server).
 #[rocket::post("/admin/v1alpha/check-permission", data = "<body>")]
 pub fn admin_check_permission(
     pool: &State<DbPool>,

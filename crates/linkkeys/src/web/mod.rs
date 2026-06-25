@@ -532,6 +532,7 @@ fn build_domain_keys_response(pool: &DbPool) -> Result<GetDomainKeysResponse, St
     })
 }
 
+// TODO: deprecated, remove later — server-to-server key/handshake/userinfo retrieval moved to the TCP CSIL-RPC transport.
 #[rocket::get("/v1alpha/domain-keys")]
 fn domain_keys_cbor(pool: &State<DbPool>) -> Result<(ContentType, Vec<u8>), Status> {
     let resp = build_domain_keys_response(pool)?;
@@ -540,6 +541,7 @@ fn domain_keys_cbor(pool: &State<DbPool>) -> Result<(ContentType, Vec<u8>), Stat
     Ok(cbor_response(out))
 }
 
+// TODO: deprecated, remove later — server-to-server key/handshake/userinfo retrieval moved to the TCP CSIL-RPC transport.
 #[rocket::get("/v1alpha/domain-keys.json")]
 fn domain_keys_json(pool: &State<DbPool>) -> Result<(ContentType, Vec<u8>), Status> {
     let resp = build_domain_keys_response(pool)?;
@@ -561,6 +563,7 @@ fn build_user_keys_response(pool: &DbPool, user_id: &str) -> Result<GetUserKeysR
     })
 }
 
+// TODO: deprecated, remove later — server-to-server key/handshake/userinfo retrieval moved to the TCP CSIL-RPC transport.
 #[rocket::get("/v1alpha/users/<user_id>/keys")]
 fn user_keys_cbor(pool: &State<DbPool>, user_id: &str) -> Result<(ContentType, Vec<u8>), Status> {
     let resp = build_user_keys_response(pool, user_id)?;
@@ -569,6 +572,7 @@ fn user_keys_cbor(pool: &State<DbPool>, user_id: &str) -> Result<(ContentType, V
     Ok(cbor_response(out))
 }
 
+// TODO: deprecated, remove later — server-to-server key/handshake/userinfo retrieval moved to the TCP CSIL-RPC transport.
 #[rocket::get("/v1alpha/users/<user_id>/keys.json")]
 fn user_keys_json(pool: &State<DbPool>, user_id: &str) -> Result<(ContentType, Vec<u8>), Status> {
     let resp = build_user_keys_response(pool, user_id)?;
@@ -578,6 +582,7 @@ fn user_keys_json(pool: &State<DbPool>, user_id: &str) -> Result<(ContentType, V
 
 // -- Handshake --
 
+// TODO: deprecated, remove later — server-to-server key/handshake/userinfo retrieval moved to the TCP CSIL-RPC transport.
 #[rocket::post("/v1alpha/handshake", data = "<body>")]
 fn handshake_cbor(body: Vec<u8>) -> Result<(ContentType, Vec<u8>), Status> {
     use liblinkkeys::generated::services::Handshake;
@@ -591,6 +596,7 @@ fn handshake_cbor(body: Vec<u8>) -> Result<(ContentType, Vec<u8>), Status> {
     Ok(cbor_response(out))
 }
 
+// TODO: deprecated, remove later — server-to-server key/handshake/userinfo retrieval moved to the TCP CSIL-RPC transport.
 #[rocket::post("/v1alpha/handshake.json", data = "<body>")]
 fn handshake_json(body: String) -> Result<(ContentType, Vec<u8>), Status> {
     use liblinkkeys::generated::services::Handshake;
@@ -1537,6 +1543,7 @@ pub async fn build_userinfo_signed(
     })
 }
 
+// TODO: deprecated, remove later — server-to-server key/handshake/userinfo retrieval moved to the TCP CSIL-RPC transport.
 #[rocket::post("/v1alpha/userinfo", data = "<body>")]
 async fn userinfo_cbor(
     pool: &State<DbPool>,

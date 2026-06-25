@@ -1,47 +1,17 @@
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, UnixTime};
 use rustls::server::danger::ClientCertVerified;
 use rustls::SignatureScheme;
 use std::sync::Arc;
 
-/// PKCS8 v1 DER prefix for Ed25519 private keys (RFC 8410).
-/// This is the fixed ASN.1 encoding: SEQUENCE { version=0, algorithm=Ed25519, OCTET STRING { seed } }
-const ED25519_PKCS8_PREFIX: [u8; 16] = [
-    0x30, 0x2e, // SEQUENCE, 46 bytes total
-    0x02, 0x01, 0x00, // INTEGER version = 0
-    0x30, 0x05, // SEQUENCE (AlgorithmIdentifier)
-    0x06, 0x03, 0x2b, 0x65, 0x70, // OID 1.3.101.112 (Ed25519)
-    0x04, 0x22, // OCTET STRING, 34 bytes
-    0x04, 0x20, // OCTET STRING, 32 bytes (the seed)
-];
-
-/// Wrap a 32-byte Ed25519 seed in PKCS8 v1 DER format.
-fn ed25519_seed_to_pkcs8_der(seed: &[u8; 32]) -> Vec<u8> {
-    let mut der = Vec::with_capacity(48);
-    der.extend_from_slice(&ED25519_PKCS8_PREFIX);
-    der.extend_from_slice(seed);
-    der
-}
-
-/// Generate a self-signed TLS certificate from a domain Ed25519 key.
-/// The certificate's public key will match the domain key, so its fingerprint
-/// is already published in DNS.
-pub fn generate_domain_tls_cert(
-    domain_name: &str,
-    ed25519_seed: &[u8; 32],
-) -> Result<(Vec<u8>, Vec<u8>), Box<dyn std::error::Error>> {
-    let pkcs8_der = ed25519_seed_to_pkcs8_der(ed25519_seed);
-    let key_pair = rcgen::KeyPair::try_from(pkcs8_der.as_slice())?;
-
-    let mut params = rcgen::CertificateParams::new(vec![domain_name.to_string()])?;
-    params.distinguished_name = rcgen::DistinguishedName::new();
-    params
-        .distinguished_name
-        .push(rcgen::DnType::CommonName, domain_name);
-
-    let cert = params.self_signed(&key_pair)?;
-
-    Ok((cert.der().to_vec(), pkcs8_der))
-}
+// Client-side TLS (cert generation from a domain key, server-cert fingerprint
+// pinning, client config builders) lives in the shared `linkkeys-rpc-client`
+// crate so the CLI, the demo site, and the server's own outbound paths share one
+// implementation. Re-exported here so existing `tcp::tls::` call sites keep
+// working.
+pub use linkkeys_rpc_client::tls::{
+    build_client_config, build_client_config_with_cert, generate_domain_tls_cert,
+    FingerprintVerifier,
+};
 
 /// Build a rustls ServerConfig with the domain certificate and mutual TLS.
 /// The server presents its domain cert and requires clients to present theirs.
@@ -249,179 +219,11 @@ fn extract_domain_from_cert(cert: &x509_parser::certificate::X509Certificate) ->
     None
 }
 
-// ---------------------------------------------------------------------------
-// Client-side: verify the server's certificate via expected fingerprints
-// ---------------------------------------------------------------------------
-
-/// Custom ServerCertVerifier that checks the certificate's public key fingerprint
-/// against expected fingerprints (from DNS TXT records).
-/// This replaces CA chain verification — trust is rooted in DNS-published fingerprints.
-#[derive(Debug)]
-pub struct FingerprintVerifier {
-    expected_fingerprints: Vec<String>,
-    provider: Arc<rustls::crypto::CryptoProvider>,
-}
-
-impl FingerprintVerifier {
-    pub fn new(expected_fingerprints: Vec<String>) -> Self {
-        Self {
-            expected_fingerprints,
-            provider: Arc::new(rustls::crypto::ring::default_provider()),
-        }
-    }
-}
-
-impl rustls::client::danger::ServerCertVerifier for FingerprintVerifier {
-    fn verify_server_cert(
-        &self,
-        end_entity: &CertificateDer<'_>,
-        _intermediates: &[CertificateDer<'_>],
-        _server_name: &ServerName<'_>,
-        _ocsp: &[u8],
-        now: UnixTime,
-    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        // Parse the certificate to extract the public key and validity period
-        let (_, cert) = x509_parser::parse_x509_certificate(end_entity.as_ref()).map_err(|_| {
-            rustls::Error::InvalidCertificate(rustls::CertificateError::BadEncoding)
-        })?;
-
-        // Check certificate validity period
-        let validity = &cert.tbs_certificate.validity;
-        let now_secs = now.as_secs();
-        let not_before = validity.not_before.timestamp() as u64;
-        let not_after = validity.not_after.timestamp() as u64;
-        if now_secs < not_before || now_secs > not_after {
-            return Err(rustls::Error::InvalidCertificate(
-                rustls::CertificateError::Expired,
-            ));
-        }
-
-        // Extract the raw public key bytes from SubjectPublicKeyInfo
-        let spki = cert.tbs_certificate.subject_pki;
-        let public_key_bytes = spki.subject_public_key.data;
-
-        // Compute fingerprint (SHA-256 hex)
-        let fp = liblinkkeys::crypto::fingerprint(&public_key_bytes);
-
-        if self.expected_fingerprints.contains(&fp) {
-            Ok(rustls::client::danger::ServerCertVerified::assertion())
-        } else {
-            log::warn!(
-                "Certificate fingerprint {} does not match any expected fingerprint",
-                fp
-            );
-            Err(rustls::Error::InvalidCertificate(
-                rustls::CertificateError::ApplicationVerificationFailure,
-            ))
-        }
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        message: &[u8],
-        cert: &CertificateDer<'_>,
-        dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        rustls::crypto::verify_tls12_signature(
-            message,
-            cert,
-            dss,
-            &self.provider.signature_verification_algorithms,
-        )
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        message: &[u8],
-        cert: &CertificateDer<'_>,
-        dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        rustls::crypto::verify_tls13_signature(
-            message,
-            cert,
-            dss,
-            &self.provider.signature_verification_algorithms,
-        )
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        self.provider
-            .signature_verification_algorithms
-            .supported_schemes()
-    }
-}
-
-/// Build a rustls ClientConfig that uses fingerprint-based verification
-/// and presents a client certificate for mutual TLS.
-/// Used when the connecting process is itself a domain server and can
-/// present its own domain key to prove its identity.
-pub fn build_client_config_with_cert(
-    expected_fingerprints: Vec<String>,
-    client_cert_der: Vec<u8>,
-    client_key_der: Vec<u8>,
-) -> Result<Arc<rustls::ClientConfig>, Box<dyn std::error::Error>> {
-    let verifier = FingerprintVerifier::new(expected_fingerprints);
-    let certs = vec![CertificateDer::from(client_cert_der)];
-    let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(client_key_der));
-
-    let config = rustls::ClientConfig::builder()
-        .dangerous()
-        .with_custom_certificate_verifier(Arc::new(verifier))
-        .with_client_auth_cert(certs, key)?;
-
-    Ok(Arc::new(config))
-}
-
-/// Build a rustls ClientConfig with fingerprint verification but no client cert.
-/// Used in tests or when the client doesn't need to present its own identity.
-pub fn build_client_config(
-    expected_fingerprints: Vec<String>,
-) -> Result<Arc<rustls::ClientConfig>, Box<dyn std::error::Error>> {
-    let verifier = FingerprintVerifier::new(expected_fingerprints);
-
-    let config = rustls::ClientConfig::builder()
-        .dangerous()
-        .with_custom_certificate_verifier(Arc::new(verifier))
-        .with_no_client_auth();
-
-    Ok(Arc::new(config))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use liblinkkeys::crypto;
-    use rustls::client::danger::ServerCertVerifier;
-
-    #[test]
-    fn test_ed25519_seed_to_pkcs8_roundtrip() {
-        let (_, sk) = crypto::generate_ed25519_keypair();
-        let seed = sk.to_bytes();
-        let pkcs8 = ed25519_seed_to_pkcs8_der(&seed);
-        // Verify rcgen can parse it
-        let key_pair = rcgen::KeyPair::try_from(pkcs8.as_slice());
-        assert!(key_pair.is_ok(), "rcgen should accept PKCS8 DER");
-    }
-
-    #[test]
-    fn test_generate_cert_fingerprint_matches() {
-        let (vk, sk) = crypto::generate_ed25519_keypair();
-        let seed = sk.to_bytes();
-        let expected_fp = crypto::fingerprint(vk.as_bytes());
-
-        let (cert_der, _key_der) = generate_domain_tls_cert("test.example.com", &seed).unwrap();
-
-        // Parse the cert and extract the public key
-        let (_, cert) = x509_parser::parse_x509_certificate(&cert_der).unwrap();
-        let spki = cert.tbs_certificate.subject_pki;
-        let pub_key_bytes = spki.subject_public_key.data;
-        let cert_fp = crypto::fingerprint(&pub_key_bytes);
-
-        assert_eq!(
-            expected_fp, cert_fp,
-            "Cert public key fingerprint must match domain key fingerprint"
-        );
-    }
+    use rustls::pki_types::ServerName;
 
     #[test]
     fn test_extract_domain_from_cert() {
@@ -435,81 +237,20 @@ mod tests {
     }
 
     #[test]
-    fn test_fingerprint_verifier_accepts_matching() {
-        let (vk, sk) = crypto::generate_ed25519_keypair();
-        let seed = sk.to_bytes();
-        let fp = crypto::fingerprint(vk.as_bytes());
-
-        let (cert_der, _) = generate_domain_tls_cert("test.example.com", &seed).unwrap();
-        let cert = CertificateDer::from(cert_der);
-
-        let verifier = FingerprintVerifier::new(vec![fp]);
-        let result = verifier.verify_server_cert(
-            &cert,
-            &[],
-            &ServerName::try_from("test.example.com").unwrap(),
-            &[],
-            UnixTime::now(),
-        );
-        assert!(result.is_ok(), "Should accept matching fingerprint");
-    }
-
-    #[test]
-    fn test_fingerprint_verifier_rejects_wrong() {
-        let (_, sk) = crypto::generate_ed25519_keypair();
-        let seed = sk.to_bytes();
-
-        let (cert_der, _) = generate_domain_tls_cert("test.example.com", &seed).unwrap();
-        let cert = CertificateDer::from(cert_der);
-
-        let verifier = FingerprintVerifier::new(vec!["wrong_fingerprint".to_string()]);
-        let result = verifier.verify_server_cert(
-            &cert,
-            &[],
-            &ServerName::try_from("test.example.com").unwrap(),
-            &[],
-            UnixTime::now(),
-        );
-        assert!(result.is_err(), "Should reject wrong fingerprint");
-    }
-
-    #[test]
-    fn test_fingerprint_verifier_rejects_empty() {
-        let (_, sk) = crypto::generate_ed25519_keypair();
-        let seed = sk.to_bytes();
-
-        let (cert_der, _) = generate_domain_tls_cert("test.example.com", &seed).unwrap();
-        let cert = CertificateDer::from(cert_der);
-
-        let verifier = FingerprintVerifier::new(vec![]);
-        let result = verifier.verify_server_cert(
-            &cert,
-            &[],
-            &ServerName::try_from("test.example.com").unwrap(),
-            &[],
-            UnixTime::now(),
-        );
-        assert!(result.is_err(), "Should reject with empty fingerprint list");
-    }
-
-    #[test]
-    fn test_client_cert_verifier_accepts_matching() {
-        // For this test, we simulate the DNS lookup by directly testing the
-        // fingerprint verification logic. Full DNS integration is tested at
-        // a higher level. Here we test that the verifier correctly extracts
-        // the domain and verifies the fingerprint when DNS would succeed.
+    fn test_client_cert_verifier_extracts_and_fingerprints() {
+        // The full client-cert verifier path does a DNS lookup, which a unit
+        // test can't drive. Here we confirm the two pieces it relies on: domain
+        // extraction from the cert and fingerprint computation matching the key.
         let (vk, sk) = crypto::generate_ed25519_keypair();
         let seed = sk.to_bytes();
         let fp = crypto::fingerprint(vk.as_bytes());
 
         let (cert_der, _) = generate_domain_tls_cert("test.example.com", &seed).unwrap();
 
-        // Verify domain extraction works
         let (_, cert) = x509_parser::parse_x509_certificate(&cert_der).unwrap();
         let domain = extract_domain_from_cert(&cert);
         assert_eq!(domain, Some("test.example.com".to_string()));
 
-        // Verify fingerprint computation matches
         let spki = cert.tbs_certificate.subject_pki;
         let public_key_bytes = spki.subject_public_key.data;
         let cert_fp = crypto::fingerprint(&public_key_bytes);
@@ -607,7 +348,6 @@ mod tests {
             generate_domain_tls_cert("client.example.com", &client_seed).unwrap();
 
         // Server config: expects client fingerprint directly (bypassing DNS for test)
-        // We build the server config manually to use a simple fingerprint check
         let server_certs = vec![CertificateDer::from(server_cert_der)];
         let server_key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(server_key_der));
 

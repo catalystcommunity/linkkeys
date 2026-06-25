@@ -131,3 +131,43 @@ _linkkeys.linkidspec.com TXT "v=lk1 api=https://linkidspec.com fp=<fingerprint1>
 
 The `domain dns-check` command shows the expected record. Identity providers
 look up this record to fetch your public keys for token encryption.
+
+Also publish a `_linkkeys_apis` record advertising your service endpoints. The
+`tcp=` endpoint is the first-class, server-to-server transport (the
+CSIL-RPC/LinkKeys protocol); `https=` is the browser-adjacent API base:
+
+```
+_linkkeys_apis.linkidspec.com TXT "v=lk1 tcp=linkidspec.com https=linkidspec.com"
+```
+
+The `tcp=` host (port defaults to 4987) is what peer IDPs/RPs dial — and, behind
+a gateway, the SNI hostname they present. Server-to-server traffic
+(domain-key fetch, userinfo redemption, attestation deposit, and an RP delegating
+to its RP server) flows over `tcp=`; only browsers use the `https=` web API.
+
+## Gateway: TLS passthrough for the protocol port
+
+The LinkKeys TCP protocol does its own mutual TLS, authenticating both ends
+against their DNS-published key fingerprints. A gateway must therefore **not**
+terminate TLS on the protocol port — it must pass the connection through.
+
+With the Gateway API, enable the chart's `gateway.tlsRoute` (SNI-routed
+passthrough). It requires a Gateway listener with `protocol: TLS` and
+`tls.mode: Passthrough` on the protocol port; the route matches the client's SNI
+(your `tcp=` host) and forwards to the service's `tcp` port. Several domains can
+share one passthrough listener, distinguished by SNI. Example values:
+
+```yaml
+gateway:
+  tlsRoute:
+    enabled: true
+    parentGateway: contour
+    parentNamespace: projectcontour
+    parentSection: linkkeys-tls   # a protocol: TLS, mode: Passthrough listener
+    hostnames:
+      - linkidspec.com
+```
+
+For a gateway that routes a whole port (no SNI sharing), use `gateway.tcpRoute`
+instead. Both work on any cluster with the Gateway API installed (TLSRoute is in
+the experimental channel).

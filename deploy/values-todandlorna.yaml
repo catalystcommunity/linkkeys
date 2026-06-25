@@ -35,3 +35,17 @@ gateway:
     parentSection: http
     hostnames:
       - linkkeys.todandlorna.com
+  # SNI-routed TLS passthrough for the LinkKeys protocol port (4987). The app
+  # does its own mutual TLS with the domain keys, so the gateway must NOT
+  # terminate: the referenced listener (parentSection) must be `protocol: TLS`
+  # with `tls.mode: Passthrough`. Add that listener to the contour Gateway (a
+  # section named `linkkeys-tls` on port 4987) and point parentSection at it.
+  # Also publish the protocol endpoint in DNS:
+  #   _linkkeys_apis.todandlorna.com  TXT  "v=lk1 tcp=linkkeys.todandlorna.com https=linkkeys.todandlorna.com"
+  tlsRoute:
+    enabled: true
+    parentGateway: contour
+    parentNamespace: projectcontour
+    parentSection: linkkeys-tls
+    hostnames:
+      - linkkeys.todandlorna.com

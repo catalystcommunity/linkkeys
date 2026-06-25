@@ -46,7 +46,7 @@ async fn main() {
             {
                 let flag = ready_flag.clone();
                 let pool = db_pool.clone();
-                let tcp_dns = linkkeys::net::Net::production().dns;
+                let tcp_net = linkkeys::net::Net::production();
                 thread::spawn(move || {
                     // Wait until startup DB writes finish before constructing the
                     // server: TcpServer::new reads domain keys for its TLS config,
@@ -56,7 +56,7 @@ async fn main() {
                     while !flag.load(Ordering::SeqCst) {
                         thread::sleep(Duration::from_millis(100));
                     }
-                    match linkkeys::tcp::TcpServer::new(flag, pool, tcp_dns) {
+                    match linkkeys::tcp::TcpServer::new(flag, pool, tcp_net) {
                         Ok(server) => server.run(),
                         Err(e) => log::error!("Failed to start TCP server: {}", e),
                     }

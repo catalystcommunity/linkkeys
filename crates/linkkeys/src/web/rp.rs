@@ -1,7 +1,7 @@
 use rand::Rng;
 use rocket::http::{ContentType, Status};
 use rocket::State;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::env;
 
 use crate::conversions::get_domain_name;
@@ -9,7 +9,9 @@ use crate::db::DbPool;
 
 use super::guard::AuthenticatedUser;
 
-// -- Request/Response types for JSON API --
+// -- JSON request types for the browser-facing web API. Responses reuse the
+// generated CSIL types (RpSignResponse, RpDecryptResponse, RpVerifyResponse,
+// UserInfo), serialized to JSON — the same shape the `Rp` TCP service returns. --
 
 #[derive(Deserialize)]
 pub struct SignRequestInput {
@@ -17,19 +19,9 @@ pub struct SignRequestInput {
     nonce: String,
 }
 
-#[derive(Serialize)]
-pub struct SignRequestOutput {
-    signed_request: String,
-}
-
 #[derive(Deserialize)]
 pub struct DecryptTokenInput {
     encrypted_token: String,
-}
-
-#[derive(Serialize)]
-pub struct DecryptTokenOutput {
-    signed_assertion: String,
 }
 
 #[derive(Deserialize)]
@@ -38,23 +30,15 @@ pub struct VerifyAssertionInput {
     expected_domain: String,
 }
 
-#[derive(Serialize)]
-pub struct VerifyAssertionOutput {
-    assertion: liblinkkeys::generated::types::IdentityAssertion,
-    verified: bool,
-}
-
-/// Sign an auth request using this server's domain key.
-/// Called by the web app when initiating a login redirect.
-#[rocket::post("/v1alpha/sign-request.json", data = "<body>")]
-pub fn sign_request_json(
-    _user: AuthenticatedUser,
-    pool: &State<DbPool>,
-    rp_config: &State<crate::rp_config::RpClaimsConfig>,
-    body: String,
-) -> Result<(ContentType, Vec<u8>), Status> {
-    let input: SignRequestInput = serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
-
+/// Core of sign-request: build and sign an auth request for the login redirect
+/// using this server's domain key. Shared by the web JSON route and the
+/// `Rp/sign-request` TCP op.
+pub(crate) fn sign_request_core(
+    pool: &DbPool,
+    rp_config: &crate::rp_config::RpClaimsConfig,
+    callback_url: &str,
+    nonce: &str,
+) -> Result<liblinkkeys::generated::types::RpSignResponse, Status> {
     let domain_keys = pool
         .list_active_domain_keys()
         .map_err(|_| Status::InternalServerError)?;
@@ -70,8 +54,8 @@ pub fn sign_request_json(
 
     let mut request = liblinkkeys::auth_request::build_auth_request(
         &get_domain_name(),
-        &input.callback_url,
-        &input.nonce,
+        callback_url,
+        nonce,
         &dk.id,
         rp_config.to_claim_request(),
     );
@@ -114,25 +98,36 @@ pub fn sign_request_json(
     let encoded = liblinkkeys::encoding::signed_auth_request_to_url_param(&signed)
         .map_err(|_| Status::InternalServerError)?;
 
-    let output = SignRequestOutput {
+    Ok(liblinkkeys::generated::types::RpSignResponse {
         signed_request: encoded,
-    };
+    })
+}
+
+/// Sign an auth request using this server's domain key.
+/// Called by the web app when initiating a login redirect.
+// TODO: deprecated, remove later — superseded by the `Rp` CSIL-RPC service over TCP; only the browser still needs the web API.
+#[rocket::post("/v1alpha/sign-request.json", data = "<body>")]
+pub fn sign_request_json(
+    _user: AuthenticatedUser,
+    pool: &State<DbPool>,
+    rp_config: &State<crate::rp_config::RpClaimsConfig>,
+    body: String,
+) -> Result<(ContentType, Vec<u8>), Status> {
+    let input: SignRequestInput = serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
+    let output = sign_request_core(pool, rp_config, &input.callback_url, &input.nonce)?;
     let out = serde_json::to_vec(&output).map_err(|_| Status::InternalServerError)?;
     Ok((ContentType::JSON, out))
 }
 
-/// Decrypt an encrypted token using this server's domain key converted to X25519.
-#[rocket::post("/v1alpha/decrypt-token.json", data = "<body>")]
-pub fn decrypt_token_json(
-    _user: AuthenticatedUser,
-    pool: &State<DbPool>,
-    body: String,
-) -> Result<(ContentType, Vec<u8>), Status> {
-    let input: DecryptTokenInput = serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
-
-    let encrypted_token =
-        liblinkkeys::encoding::encrypted_token_from_url_param(&input.encrypted_token)
-            .map_err(|_| Status::BadRequest)?;
+/// Core of decrypt-token: decrypt the RP's encrypted callback token with one of
+/// this server's encryption keys. Shared by the web JSON route and the
+/// `Rp/decrypt-token` TCP op.
+pub(crate) fn decrypt_token_core(
+    pool: &DbPool,
+    encrypted_token: &str,
+) -> Result<liblinkkeys::generated::types::RpDecryptResponse, Status> {
+    let encrypted_token = liblinkkeys::encoding::encrypted_token_from_url_param(encrypted_token)
+        .map_err(|_| Status::BadRequest)?;
 
     let domain_keys = pool
         .list_active_domain_keys()
@@ -162,13 +157,25 @@ pub fn decrypt_token_json(
         ) {
             // The plaintext is CBOR-encoded SignedIdentityAssertion — re-encode as base64url
             let signed_assertion = base64ct::Base64UrlUnpadded::encode_string(&plaintext);
-            let output = DecryptTokenOutput { signed_assertion };
-            let out = serde_json::to_vec(&output).map_err(|_| Status::InternalServerError)?;
-            return Ok((ContentType::JSON, out));
+            return Ok(liblinkkeys::generated::types::RpDecryptResponse { signed_assertion });
         }
     }
 
     Err(Status::BadRequest)
+}
+
+/// Decrypt an encrypted token using this server's domain key converted to X25519.
+// TODO: deprecated, remove later — superseded by the `Rp` CSIL-RPC service over TCP; only the browser still needs the web API.
+#[rocket::post("/v1alpha/decrypt-token.json", data = "<body>")]
+pub fn decrypt_token_json(
+    _user: AuthenticatedUser,
+    pool: &State<DbPool>,
+    body: String,
+) -> Result<(ContentType, Vec<u8>), Status> {
+    let input: DecryptTokenInput = serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
+    let output = decrypt_token_core(pool, &input.encrypted_token)?;
+    let out = serde_json::to_vec(&output).map_err(|_| Status::InternalServerError)?;
+    Ok((ContentType::JSON, out))
 }
 
 /// Extract the bare host from an `https://` API base, dropping scheme, any
@@ -201,18 +208,89 @@ pub struct FetchUserInfoInput {
     /// callback (the same value `decrypt-token` returns).
     token: String,
     /// The identity provider's API base (`https://…`), taken from the domain's
-    /// `_linkkeys` `api=` record.
+    /// `_linkkeys` `api=` record. Used only to detect the single-instance
+    /// IDP+RP self-call (redeem locally instead of over the network).
     api_base: String,
+    /// The user's domain (identity), used to resolve the IDP's `_linkkeys_apis`
+    /// `tcp=` endpoint and DNS-pinned fingerprints for the server-to-server
+    /// redemption over TCP.
+    domain: String,
+}
+
+/// Core of userinfo-fetch: fetch a user's claims from the IDP on the relying
+/// party's behalf. Shared by the web JSON route and the `Rp/userinfo-fetch` TCP
+/// op. On the single-instance self path it redeems locally with a proof-of-
+/// possession request; on the remote path it redeems over the server-to-server
+/// CSIL-RPC transport, where mutual TLS with our domain cert proves we are the
+/// assertion's audience (so the token alone suffices — no PoP signature).
+pub(crate) async fn fetch_userinfo_core(
+    pool: &DbPool,
+    net: &crate::net::Net,
+    token: String,
+    api_base: &str,
+    domain: &str,
+) -> Result<liblinkkeys::generated::types::UserInfo, Status> {
+    if !api_base.starts_with("https://") {
+        return Err(Status::BadRequest);
+    }
+
+    // Single-instance IDP+RP: when the IDP API we'd call is our own published
+    // API host, redeem locally instead of going over the network to ourselves.
+    // There is exactly one IDP per domain, so the host alone identifies it —
+    // port and path are irrelevant. We match against API_HOSTNAME (the host we
+    // actually publish in our `_linkkeys` api= record), which need not equal our
+    // domain name. The local path builds a self-signed PoP request and runs the
+    // full PoP-verify, single-use nonce burn, and claim lookup that the network
+    // round-trip would trigger.
+    let our_api_host = env::var("API_HOSTNAME").unwrap_or_else(|_| get_domain_name());
+    if api_base_host(api_base).is_some_and(|h| h.eq_ignore_ascii_case(&our_api_host)) {
+        let signed = build_self_signed_userinfo_request(pool, token)?;
+        return super::build_userinfo_signed(pool, net, &signed).await;
+    }
+
+    // Remote IDP: redeem over the server-to-server CSIL-RPC transport
+    // (`Identity/get-user-info`). Mutual TLS with our domain cert proves we are
+    // the assertion's audience — the IDP binds the redemption to the FP-pinned
+    // mTLS client domain — so the token alone suffices over TCP; the explicit
+    // proof-of-possession signature the HTTPS path carries is unnecessary here.
+    let fingerprints = lookup_linkkeys_fingerprints(net, domain)
+        .await
+        .map_err(|_| Status::BadGateway)?;
+    let (addr, hostname) = lookup_tcp_target(net, domain)
+        .await
+        .map_err(|_| Status::BadGateway)?;
+    let client_cert = own_client_cert(pool);
+    let mut payload = Vec::new();
+    ciborium::ser::into_writer(
+        &liblinkkeys::generated::types::GetUserInfoRequest {
+            token: token.into_bytes(),
+        },
+        &mut payload,
+    )
+    .map_err(|_| Status::InternalServerError)?;
+    let resp_bytes = net
+        .rpc
+        .call(
+            &addr,
+            &hostname,
+            fingerprints,
+            client_cert,
+            "Identity",
+            "get-user-info",
+            payload,
+            None,
+        )
+        .await
+        .map_err(|_| Status::BadGateway)?;
+    ciborium::de::from_reader(&resp_bytes[..]).map_err(|_| Status::BadGateway)
 }
 
 /// Fetch a user's claims from the IDP on the relying party's behalf, proving
 /// we are the assertion's audience (crypto-06).
 ///
 /// This is the RP-side counterpart to the IDP's `/v1alpha/userinfo`: the calling
-/// app (which holds no domain key) delegates here, and we sign a
-/// `SignedUserInfoRequest` with our domain signing key so the IDP can bind the
-/// redemption to us via proof-of-possession. Our signing keys are inlined so a
-/// first-contact IDP can pin them to our DNS `fp=` without a second fetch.
+/// app (which holds no domain key) delegates here.
+// TODO: deprecated, remove later — superseded by the `Rp` CSIL-RPC service over TCP; only the browser still needs the web API.
 #[rocket::post("/v1alpha/userinfo-fetch.json", data = "<body>")]
 pub async fn fetch_userinfo_json(
     _user: AuthenticatedUser,
@@ -221,11 +299,20 @@ pub async fn fetch_userinfo_json(
     body: String,
 ) -> Result<(ContentType, Vec<u8>), Status> {
     let input: FetchUserInfoInput = serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
+    let user_info =
+        fetch_userinfo_core(pool, net, input.token, &input.api_base, &input.domain).await?;
+    let out = serde_json::to_vec(&user_info).map_err(|_| Status::InternalServerError)?;
+    Ok((ContentType::JSON, out))
+}
 
-    if !input.api_base.starts_with("https://") {
-        return Err(Status::BadRequest);
-    }
-
+/// Build a proof-of-possession `SignedUserInfoRequest` signed with one of this
+/// domain's signing keys, inlining our signing keys so a first-contact IDP can
+/// pin them to our DNS `fp=`. Used only on the single-instance self-redeem path,
+/// where the IDP being called is us.
+fn build_self_signed_userinfo_request(
+    pool: &DbPool,
+    token: String,
+) -> Result<liblinkkeys::generated::types::SignedUserInfoRequest, Status> {
     let domain_keys = pool
         .list_active_domain_keys()
         .map_err(|_| Status::InternalServerError)?;
@@ -250,7 +337,7 @@ pub async fn fetch_userinfo_json(
     let nonce = base64ct::Base64UrlUnpadded::encode_string(&nonce_bytes);
 
     let request = liblinkkeys::userinfo::build_user_info_request(
-        input.token.into_bytes(),
+        token.into_bytes(),
         &get_domain_name(),
         &nonce,
     );
@@ -258,50 +345,49 @@ pub async fn fetch_userinfo_json(
     let inlined: Vec<liblinkkeys::generated::types::DomainPublicKey> =
         signing_keys.iter().map(|k| (*k).into()).collect();
 
-    let signed = liblinkkeys::userinfo::sign_user_info_request(
+    liblinkkeys::userinfo::sign_user_info_request(
         &request,
         &dk.id,
         algorithm,
         &sk_bytes,
         Some(inlined),
     )
-    .map_err(|_| Status::InternalServerError)?;
+    .map_err(|_| Status::InternalServerError)
+}
 
-    // Single-instance IDP+RP: when the IDP API we'd call is our own published
-    // API host, redeem locally instead of POSTing the request to ourselves over
-    // https. There is exactly one IDP per domain, so the host alone identifies
-    // it — port and path are irrelevant. We match against API_HOSTNAME (the host
-    // we actually publish in our `_linkkeys` api= record), which need not equal
-    // our domain name. The local path still runs the full PoP-verify, single-use
-    // nonce burn, and claim lookup that the network round-trip would trigger.
-    let our_api_host = env::var("API_HOSTNAME").unwrap_or_else(|_| get_domain_name());
-    if api_base_host(&input.api_base).is_some_and(|h| h.eq_ignore_ascii_case(&our_api_host)) {
-        let user_info = super::build_userinfo_signed(pool, net, &signed).await?;
-        let out = serde_json::to_vec(&user_info).map_err(|_| Status::InternalServerError)?;
-        return Ok((ContentType::JSON, out));
-    }
+/// Core of verify-assertion: verify a signed assertion against the issuing
+/// domain's published keys (fetched via DNS + the server-to-server transport).
+/// Shared by the web JSON route and the `Rp/verify-assertion` TCP op.
+pub(crate) async fn verify_assertion_core(
+    pool: &DbPool,
+    net: &crate::net::Net,
+    signed_assertion: &str,
+    expected_domain: &str,
+) -> Result<liblinkkeys::generated::types::RpVerifyResponse, Status> {
+    // Decode the signed assertion from base64url
+    let cbor_bytes = base64ct::Base64UrlUnpadded::decode_vec(signed_assertion)
+        .map_err(|_| Status::BadRequest)?;
+    let signed: liblinkkeys::generated::types::SignedIdentityAssertion =
+        ciborium::de::from_reader(cbor_bytes.as_slice()).map_err(|_| Status::BadRequest)?;
 
-    let mut cbor = Vec::new();
-    ciborium::ser::into_writer(&signed, &mut cbor).map_err(|_| Status::InternalServerError)?;
-
-    let url = format!("{}/v1alpha/userinfo", input.api_base);
-    let resp = net
-        .http
-        .post_cbor(&url, cbor)
+    // Fetch the domain's public keys
+    let domain_keys = fetch_domain_keys(pool, net, expected_domain)
         .await
         .map_err(|_| Status::BadGateway)?;
-    if !resp.success {
-        return Err(Status::BadGateway);
-    }
-    let user_info: liblinkkeys::generated::types::UserInfo =
-        ciborium::de::from_reader(&resp.body[..]).map_err(|_| Status::BadGateway)?;
 
-    let out = serde_json::to_vec(&user_info).map_err(|_| Status::InternalServerError)?;
-    Ok((ContentType::JSON, out))
+    // Verify the assertion
+    let assertion = liblinkkeys::assertions::verify_assertion(&signed, &domain_keys)
+        .map_err(|_| Status::Unauthorized)?;
+
+    Ok(liblinkkeys::generated::types::RpVerifyResponse {
+        assertion,
+        verified: true,
+    })
 }
 
 /// Verify a signed assertion against a domain's published keys.
 /// Performs DNS lookup and key fetch for the expected domain.
+// TODO: deprecated, remove later — superseded by the `Rp` CSIL-RPC service over TCP; only the browser still needs the web API.
 #[rocket::post("/v1alpha/verify-assertion.json", data = "<body>")]
 pub async fn verify_assertion_json(
     _user: AuthenticatedUser,
@@ -311,26 +397,8 @@ pub async fn verify_assertion_json(
 ) -> Result<(ContentType, Vec<u8>), Status> {
     let input: VerifyAssertionInput =
         serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
-
-    // Decode the signed assertion from base64url
-    let cbor_bytes = base64ct::Base64UrlUnpadded::decode_vec(&input.signed_assertion)
-        .map_err(|_| Status::BadRequest)?;
-    let signed: liblinkkeys::generated::types::SignedIdentityAssertion =
-        ciborium::de::from_reader(cbor_bytes.as_slice()).map_err(|_| Status::BadRequest)?;
-
-    // Fetch the domain's public keys
-    let domain_keys = fetch_domain_keys(pool, net, &input.expected_domain)
-        .await
-        .map_err(|_| Status::BadGateway)?;
-
-    // Verify the assertion
-    let assertion = liblinkkeys::assertions::verify_assertion(&signed, &domain_keys)
-        .map_err(|_| Status::Unauthorized)?;
-
-    let output = VerifyAssertionOutput {
-        assertion,
-        verified: true,
-    };
+    let output =
+        verify_assertion_core(pool, net, &input.signed_assertion, &input.expected_domain).await?;
     let out = serde_json::to_vec(&output).map_err(|_| Status::InternalServerError)?;
     Ok((ContentType::JSON, out))
 }
@@ -405,6 +473,38 @@ async fn lookup_linkkeys_apis(
         .ok_or_else(|| format!("no valid _linkkeys_apis record for {}", domain).into())
 }
 
+/// Resolve a domain's server-to-server TCP target from its `_linkkeys_apis`
+/// `tcp=` record: the `host:port` to dial and the SNI/cert hostname to pin. The
+/// `tcp=` endpoint is the first-class transport for peer calls; fails closed when
+/// the domain advertises no `tcp=` endpoint.
+async fn lookup_tcp_target(
+    net: &crate::net::Net,
+    domain: &str,
+) -> Result<(String, String), Box<dyn std::error::Error>> {
+    let addr = lookup_linkkeys_apis(net, domain)
+        .await?
+        .tcp
+        .ok_or_else(|| format!("_linkkeys_apis for {} advertises no tcp= endpoint", domain))?;
+    let hostname = linkkeys_rpc_client::extract_hostname(&addr).to_string();
+    Ok((addr, hostname))
+}
+
+/// Load this domain's own TLS client certificate (DER cert, DER key) for mutual
+/// TLS on outbound server-to-server calls, or `None` when this process holds no
+/// usable domain key. When present, the peer can verify us back and bind the
+/// call to our domain (e.g. audience binding on `/userinfo`). Mirrors the TCP
+/// server's own-cert selection (first active domain key).
+fn own_client_cert(pool: &DbPool) -> Option<(Vec<u8>, Vec<u8>)> {
+    let passphrase = env::var("DOMAIN_KEY_PASSPHRASE").ok()?;
+    let domain_keys = pool.list_active_domain_keys().ok()?;
+    let dk = domain_keys.first()?;
+    let sk_bytes =
+        liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, passphrase.as_bytes())
+            .ok()?;
+    let seed: [u8; 32] = sk_bytes.try_into().ok()?;
+    crate::tcp::tls::generate_domain_tls_cert(&get_domain_name(), &seed).ok()
+}
+
 /// Look up only the DNS-published fingerprint set for a domain (no key fetch).
 /// Used to pin RP-inlined public keys on the `/userinfo` PoP fast path.
 pub async fn fetch_dns_fingerprints(
@@ -444,57 +544,54 @@ pub async fn resolve_rp_signing_keys(
 }
 
 /// Fetch a domain's public keys: pin set from `_linkkeys`, key bodies from the
-/// `_linkkeys_apis` `https=` endpoint. Each returned key's recomputed
-/// fingerprint must be a member of the published `fp=` set (or vouched by a
-/// pinned signing key), else it is dropped; an empty result fails closed. The
-/// wire `fingerprint` field is never trusted — it is recomputed.
-///
-/// (HTTPS transport here is the existing browser-adjacent path; server-to-server
-/// key retrieval is moving to the `tcp=` endpoint — see DNS apis record.)
+/// `_linkkeys_apis` `tcp=` endpoint over the server-to-server CSIL-RPC transport
+/// (`DomainKeys/get-domain-keys`). Each returned key's recomputed fingerprint
+/// must be a member of the published `fp=` set (or vouched by a pinned signing
+/// key), else it is dropped; an empty result fails closed. The wire
+/// `fingerprint` field is never trusted — it is recomputed.
 pub async fn fetch_domain_keys(
     pool: &DbPool,
     net: &crate::net::Net,
     domain: &str,
 ) -> Result<Vec<liblinkkeys::generated::types::DomainPublicKey>, Box<dyn std::error::Error>> {
     // A single-instance IDP+RP is authoritative for its own keys: read them
-    // from the local DB rather than fetching them over https from ourselves.
+    // from the local DB rather than fetching them over the network from ourselves.
     if domain == get_domain_name() {
         let keys = pool.list_active_domain_keys()?;
         return Ok(keys.iter().map(Into::into).collect());
     }
 
-    // Fingerprints (trust anchor) come from `_linkkeys`; the HTTPS endpoint
-    // (transport convenience) from `_linkkeys_apis`. Key integrity comes from the
-    // pin below, not the transport.
+    // Fingerprints (trust anchor) come from `_linkkeys`; the TCP endpoint
+    // (transport) from `_linkkeys_apis`. Key integrity comes from the pin below,
+    // not the transport — but the pinned fingerprints also authenticate the TLS
+    // server cert, so we only ever speak to the real domain.
     let fingerprints = lookup_linkkeys_fingerprints(net, domain).await?;
-    let api_base = lookup_linkkeys_apis(net, domain)
-        .await?
-        .https_base
-        .ok_or_else(|| {
-            format!(
-                "_linkkeys_apis for {} advertises no https= endpoint",
-                domain
-            )
-        })?;
+    let (addr, hostname) = lookup_tcp_target(net, domain).await?;
 
-    let url = format!("{}/v1alpha/domain-keys.json", api_base);
-    let response = net.http.get(&url).await?;
-    if !response.success {
-        let snippet: String = String::from_utf8_lossy(&response.body)
-            .chars()
-            .take(200)
-            .collect();
-        return Err(format!("GET {} returned an error: {}", url, snippet).into());
-    }
+    // get-domain-keys is a public read; no client cert needed (server-auth TLS).
+    let mut payload = Vec::new();
+    ciborium::ser::into_writer(
+        &liblinkkeys::generated::types::EmptyRequest {},
+        &mut payload,
+    )?;
+    let resp_bytes = net
+        .rpc
+        .call(
+            &addr,
+            &hostname,
+            fingerprints.clone(),
+            None,
+            "DomainKeys",
+            "get-domain-keys",
+            payload,
+            None,
+        )
+        .await?;
     let resp: liblinkkeys::generated::types::GetDomainKeysResponse =
-        serde_json::from_slice(&response.body).map_err(|e| {
-            let snippet: String = String::from_utf8_lossy(&response.body)
-                .chars()
-                .take(200)
-                .collect();
+        ciborium::de::from_reader(&resp_bytes[..]).map_err(|e| {
             format!(
-                "parsing domain-keys JSON from {} failed: {} (body: {})",
-                url, e, snippet
+                "decoding get-domain-keys response from {} failed: {}",
+                domain, e
             )
         })?;
 
@@ -511,22 +608,25 @@ pub async fn fetch_domain_keys(
     Ok(trusted)
 }
 
-/// Deposit a signed claim to `domain`'s IDP over its generic CBOR-RPC carrier
-/// (`/csil/v1/rpc`, the `Attestation/deposit-claim` op). Server-to-server: an
-/// issuer pushes an attestation it signed to the subject's home domain, which
-/// verifies + stores it. Returns Err with a human message on any failure so the
+/// Deposit a signed claim to `domain`'s IDP over the server-to-server CSIL-RPC
+/// transport (the `tcp=` endpoint, `Attestation/deposit-claim` op).
+/// Server-to-server: an issuer pushes an attestation it signed to the subject's
+/// home domain, which verifies + stores it. The claim's own signature is the
+/// authority, so no client cert is required — but we still pin the subject
+/// domain's TLS server cert to its DNS fingerprints so we only ever deliver to
+/// the real domain. Returns Err with a human message on any failure so the
 /// caller can fall back (e.g. hand the claim to the user out-of-band).
 pub(super) async fn deposit_claim_to_domain(
     net: &crate::net::Net,
     domain: &str,
     claim: &liblinkkeys::generated::types::Claim,
 ) -> Result<(), String> {
-    let apis = lookup_linkkeys_apis(net, domain)
+    let fingerprints = lookup_linkkeys_fingerprints(net, domain)
         .await
         .map_err(|e| e.to_string())?;
-    let base = apis
-        .https_base
-        .ok_or_else(|| format!("{} advertises no https endpoint", domain))?;
+    let (addr, hostname) = lookup_tcp_target(net, domain)
+        .await
+        .map_err(|e| e.to_string())?;
     let mut payload = Vec::new();
     ciborium::ser::into_writer(
         &liblinkkeys::generated::types::DepositClaimRequest {
@@ -535,17 +635,23 @@ pub(super) async fn deposit_claim_to_domain(
         &mut payload,
     )
     .map_err(|e| e.to_string())?;
-    let envelope = crate::tcp::encode_request_envelope("Attestation", "deposit-claim", payload);
-    let url = format!("{}/csil/v1/rpc", base);
-    let resp = net
-        .http
-        .post_cbor(&url, envelope)
+    let resp_bytes = net
+        .rpc
+        .call(
+            &addr,
+            &hostname,
+            fingerprints,
+            None,
+            "Attestation",
+            "deposit-claim",
+            payload,
+            None,
+        )
         .await
-        .map_err(|e| e.to_string())?;
-    if !resp.success {
-        return Err(format!("{} rejected the deposit (transport)", domain));
-    }
-    if crate::tcp::response_status(&resp.body) != 0 {
+        .map_err(|_| format!("{} rejected the claim", domain))?;
+    let resp: liblinkkeys::generated::types::DepositClaimResponse =
+        ciborium::de::from_reader(&resp_bytes[..]).map_err(|e| e.to_string())?;
+    if !resp.stored {
         return Err(format!("{} rejected the claim", domain));
     }
     Ok(())

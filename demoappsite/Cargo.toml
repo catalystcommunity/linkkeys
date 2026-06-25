@@ -7,14 +7,17 @@ edition = "2021"
 # Web framework
 rocket = { version = "0.5", features = ["tls", "secrets"] }
 
-# HTTP client for calling RP service and domain server
-reqwest = { version = "0.12", features = ["rustls-tls", "json"] }
+# LinkKeys protocol types + the shared CSIL-RPC TCP client. The demo is a thin
+# browser-facing relying party: it calls its RP server over TCP (the primary
+# LinkKeys transport), holding only an API key — no domain key.
+liblinkkeys = { path = "../crates/liblinkkeys" }
+linkkeys-rpc-client = { path = "../crates/linkkeys-rpc-client" }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-# Async runtime (reqwest needs it)
+# Async runtime
 tokio = { version = "1", features = ["full"] }
 
 # UUID for nonce generation

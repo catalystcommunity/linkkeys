@@ -587,6 +587,61 @@ GetMyInfoResponse = {
 }
 
 ;; ============================================================
+;; Relying Party (Rp) helper Types
+;; ============================================================
+;;
+;; These back the browser login flow: a thin browser-facing relying party (e.g.
+;; the demo site) holds no domain key, so it delegates the key-bearing steps to
+;; its RP server over the CSIL-RPC transport. The RP server signs the auth
+;; request, decrypts the returned token, verifies the assertion against the
+;; issuing domain's keys, and fetches user info on the RP's behalf. Authenticated
+;; by API key (the envelope `auth` field).
+
+;; Sign an auth request for the login redirect.
+RpSignRequest = {
+    callback_url: text,
+    nonce: text
+}
+
+RpSignResponse = {
+    ;; URL-param-encoded SignedAuthRequest.
+    signed_request: text
+}
+
+;; Decrypt the encrypted token the RP received on its callback.
+RpDecryptRequest = {
+    ;; URL-param-encoded encrypted token.
+    encrypted_token: text
+}
+
+RpDecryptResponse = {
+    ;; base64url(CBOR(SignedIdentityAssertion)).
+    signed_assertion: text
+}
+
+;; Verify a signed assertion against the issuing domain's published keys.
+RpVerifyRequest = {
+    signed_assertion: text,
+    expected_domain: text
+}
+
+RpVerifyResponse = {
+    assertion: IdentityAssertion,
+    verified: bool
+}
+
+;; Fetch a user's claims from the IDP on the RP's behalf (proof-of-possession via
+;; the RP's domain cert over mutual TLS to the IDP).
+RpUserInfoRequest = {
+    ;; URL-param-encoded SignedIdentityAssertion (the decrypt-token result).
+    token: text,
+    ;; The IDP's https API base, used only to detect the single-instance self-call.
+    api_base: text,
+    ;; The user's domain, used to resolve the IDP's tcp= endpoint + fingerprints.
+    domain: text
+}
+
+;; ============================================================
 ;; Services
 ;; ============================================================
 
@@ -655,4 +710,14 @@ service Account {
 ;; a subject to the subject's home domain, which verifies + stores it.
 service Attestation {
     deposit-claim: DepositClaimRequest -> DepositClaimResponse
+}
+
+;; Relying-party helpers a browser-facing RP delegates to its RP server (it holds
+;; no domain key). API-key authenticated. verify-assertion and userinfo-fetch
+;; make an onward server-to-server call to the issuing IDP.
+service Rp {
+    sign-request: RpSignRequest -> RpSignResponse,
+    decrypt-token: RpDecryptRequest -> RpDecryptResponse,
+    verify-assertion: RpVerifyRequest -> RpVerifyResponse,
+    userinfo-fetch: RpUserInfoRequest -> UserInfo
 }

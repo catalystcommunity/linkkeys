@@ -1,12 +1,13 @@
 //! End-to-end test of the cross-domain key-fetch path through the network seam:
 //! a third party's keys are resolved via mocked DNS (`_linkkeys` fp= +
-//! `_linkkeys_apis` https=) and mocked HTTPS (`domain-keys.json`), with NO
-//! socket. This is the path an IDP uses to verify a third-party-attested domain
-//! claim, and it exercises both the `DnsResolver` and `DomainFetcher` seams.
+//! `_linkkeys_apis` tcp=) and a mocked CSIL-RPC response
+//! (`DomainKeys/get-domain-keys`), with NO socket. This is the path an IDP uses
+//! to verify a third-party-attested domain claim, and it exercises both the
+//! `DnsResolver` and `DomainRpc` seams.
 
 mod common;
 
-use common::net::{net_with, CannedHttp, StaticDns};
+use common::net::{net_with_rpc, CannedRpc, StaticDns};
 use liblinkkeys::crypto;
 use liblinkkeys::generated::types::{DomainPublicKey, GetDomainKeysResponse};
 
@@ -40,7 +41,8 @@ async fn fetch_domain_keys_resolves_via_dns_and_http_seam() {
         domain: THIRD.to_string(),
         keys: vec![key],
     };
-    let body = serde_json::to_vec(&response).unwrap();
+    let mut body = Vec::new();
+    ciborium::ser::into_writer(&response, &mut body).unwrap();
 
     let dns = StaticDns::new()
         .with(
@@ -49,14 +51,16 @@ async fn fetch_domain_keys_resolves_via_dns_and_http_seam() {
         )
         .with(
             &liblinkkeys::dns::linkkeys_apis_dns_name(THIRD),
-            &["v=lk1 https=third.example"],
+            &["v=lk1 tcp=third.example"],
         );
-    let http = CannedHttp::new().with("https://third.example/v1alpha/domain-keys.json", body);
-    let net = net_with(dns, http);
+    // The pinned host is the `tcp=` host (port normalized to the default), and
+    // the CSIL-RPC fake answers the `DomainKeys/get-domain-keys` op for it.
+    let rpc = CannedRpc::new().with("third.example", "DomainKeys", "get-domain-keys", body);
+    let net = net_with_rpc(dns, rpc);
 
     let keys = linkkeys::web::rp::fetch_domain_keys(&pool, &net, THIRD)
         .await
-        .expect("third-party keys resolve through the DNS + HTTP seam");
+        .expect("third-party keys resolve through the DNS + RPC seam");
     assert_eq!(keys.len(), 1);
     assert_eq!(keys[0].key_id, "third-1");
     assert_eq!(keys[0].fingerprint, fp);

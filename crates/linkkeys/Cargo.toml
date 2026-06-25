@@ -11,6 +11,7 @@ sqlite = ["diesel/sqlite"]
 
 [dependencies]
 liblinkkeys = { path = "../liblinkkeys" }
+linkkeys-rpc-client = { path = "../linkkeys-rpc-client" }
 # CSIL transport family. Vendored copy for now while the crate is iterated; the
 # git dep is verified working (public repo) — SWAP at the end:
 #   csilgen-transport = { git = "https://github.com/catalystcommunity/csilgen.git" }

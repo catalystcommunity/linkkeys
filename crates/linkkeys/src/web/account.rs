@@ -30,6 +30,7 @@ struct ChangePasswordJsonRequest {
     new_password: String,
 }
 
+// TODO: deprecated, remove later — use the `Account` CSIL-RPC service over TCP (CLI/server-to-server).
 #[rocket::post("/account/v1alpha/change-password", data = "<body>")]
 pub fn account_change_password(
     pool: &State<DbPool>,
@@ -60,6 +61,7 @@ pub fn account_change_password(
     json_ok(&resp)
 }
 
+// TODO: deprecated, remove later — use the `Account` CSIL-RPC service over TCP (CLI/server-to-server).
 #[rocket::get("/account/v1alpha/me")]
 pub fn account_get_my_info(
     pool: &State<DbPool>,

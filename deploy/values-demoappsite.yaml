@@ -5,8 +5,11 @@ demoapp:
   disableTls: "true"
 
 rp:
-  # The RP service is in a different namespace — use cross-namespace DNS
-  serviceUrl: "http://linkkeys-rp.linkkeys-rp.svc.cluster.local:8443"
+  # The RP server's TCP (CSIL-RPC) endpoint — cross-namespace DNS, protocol port.
+  tcpAddr: "linkkeys-rp.linkkeys-rp.svc.cluster.local:4987"
+  # Pin the RP server's TLS cert to its published fingerprints (the RP domain's
+  # _linkkeys fp= values). Comma-separated. Set via overlay if it varies.
+  fingerprints: ""
   # apiKey: set via overlay secret
   domain: "linkidspec.com"
 
