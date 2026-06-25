@@ -1,0 +1,30 @@
+[package]
+name = "linkkeys-rpc-client"
+version = "0.1.0"
+edition = "2021"
+
+# Pure CSIL-RPC client transport over TLS, shared by the server's outbound
+# server-to-server paths, the CLI, and the demo site. It depends only on
+# liblinkkeys (for fingerprinting) — never on the server crate, diesel, or the
+# network seam — so it stays a thin, reusable client. DNS resolution and domain
+# key loading are the caller's responsibility: callers build the TLS config (or
+# hand in fingerprints + an optional client cert) and this crate does framing,
+# the CBOR envelope, and the blocking TLS round-trip.
+
+[dependencies]
+liblinkkeys = { path = "../liblinkkeys" }
+
+# Serialization
+ciborium = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+
+# TLS
+rcgen = "0.13"
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std"] }
+rustls-pki-types = "1"
+x509-parser = "0.16"
+
+# Logging
+log = "0.4"
+
+[dev-dependencies]

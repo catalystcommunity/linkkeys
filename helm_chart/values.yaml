@@ -124,12 +124,30 @@ gateway:
     pathPrefixes: []
     #  - /v1alpha
     #  - /auth
-  # TCPRoute for the LinkKeys protocol port
+  # TCPRoute for the LinkKeys protocol port — plain L4 (port-based) routing.
+  # Use this when a gateway listener routes a whole port to this service.
   tcpRoute:
     enabled: false
     parentGateway: ""
     parentNamespace: ""
     parentSection: ""
+  # TLSRoute for the LinkKeys protocol port — SNI-based routing with TLS
+  # PASSTHROUGH. The LinkKeys TCP protocol does its own mutual TLS with the
+  # domain keys, so the gateway must NOT terminate TLS: the parent Gateway
+  # listener has to be `protocol: TLS` with `tls.mode: Passthrough`. The client
+  # sends SNI = the target domain hostname, which is what `hostnames` matches —
+  # so several domains can share one gateway listener on the protocol port.
+  # Prefer this over tcpRoute when the listener is shared by SNI. Needs the
+  # Gateway API experimental channel (which provides TLSRoute) on the cluster.
+  tlsRoute:
+    enabled: false
+    parentGateway: ""
+    parentNamespace: ""
+    parentSection: ""
+    # SNI hostnames routed to this service (the domain's protocol hostname,
+    # i.e. the `tcp=` host published in its _linkkeys_apis record).
+    hostnames: []
+    #  - linkkeys.example.com
 
 resources: {}
 

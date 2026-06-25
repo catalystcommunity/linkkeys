@@ -42,9 +42,13 @@ spec:
                 secretKeyRef:
                   name: {{ include "demoappsite.fullname" . }}
                   key: ROCKET_SECRET_KEY
-            {{- if .Values.rp.serviceUrl }}
-            - name: RP_SERVICE_URL
-              value: {{ .Values.rp.serviceUrl | quote }}
+            {{- if .Values.rp.tcpAddr }}
+            - name: RP_TCP_ADDR
+              value: {{ .Values.rp.tcpAddr | quote }}
+            {{- end }}
+            {{- if .Values.rp.fingerprints }}
+            - name: RP_FINGERPRINTS
+              value: {{ .Values.rp.fingerprints | quote }}
             {{- end }}
             {{- if .Values.rp.domain }}
             - name: RP_DOMAIN

@@ -3,6 +3,7 @@ members = [
     "crates/csilgen-transport",
     "crates/liblinkkeys",
     "crates/linkkeys",
+    "crates/linkkeys-rpc-client",
     "demoappsite",
 ]
 resolver = "2"

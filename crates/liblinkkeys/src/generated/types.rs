@@ -548,3 +548,43 @@ pub struct GetMyInfoResponse {
     pub relations: Vec<Relation>,
     pub claims: Vec<Claim>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RpSignRequest {
+    pub callback_url: String,
+    pub nonce: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RpSignResponse {
+    pub signed_request: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RpDecryptRequest {
+    pub encrypted_token: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RpDecryptResponse {
+    pub signed_assertion: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RpVerifyRequest {
+    pub signed_assertion: String,
+    pub expected_domain: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RpVerifyResponse {
+    pub assertion: IdentityAssertion,
+    pub verified: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RpUserInfoRequest {
+    pub token: String,
+    pub api_base: String,
+    pub domain: String,
+}

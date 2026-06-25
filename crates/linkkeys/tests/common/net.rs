@@ -4,7 +4,7 @@
 
 #![allow(dead_code)]
 
-use linkkeys::net::{DnsResolver, DomainFetcher, HttpResponse, Net, NetError};
+use linkkeys::net::{DnsResolver, DomainFetcher, DomainRpc, HttpResponse, Net, NetError};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -82,20 +82,75 @@ impl DomainFetcher for CannedHttp {
     }
 }
 
-/// A `Net` whose DNS and HTTP both error on use: the safe default for tests that
-/// stay on the self-RP (local-DB) path and must never touch the network. If such
-/// a test accidentally goes off-domain, it fails loudly instead of doing I/O.
+/// CSIL-RPC fake: answers only from a fixed map keyed by
+/// `"{hostname}|{service}|{op}"` -> success-response payload bytes. Any other
+/// call errors (so an unexpected server-to-server call fails loudly rather than
+/// touching a socket). The mirror of [`CannedHttp`] for the TCP seam.
+#[derive(Debug, Default)]
+pub struct CannedRpc {
+    responses: HashMap<String, Vec<u8>>,
+}
+
+impl CannedRpc {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with(mut self, hostname: &str, service: &str, op: &str, payload: Vec<u8>) -> Self {
+        self.responses
+            .insert(format!("{}|{}|{}", hostname, service, op), payload);
+        self
+    }
+}
+
+#[rocket::async_trait]
+impl DomainRpc for CannedRpc {
+    async fn call(
+        &self,
+        _addr: &str,
+        hostname: &str,
+        _fingerprints: Vec<String>,
+        _client_cert: Option<(Vec<u8>, Vec<u8>)>,
+        service: &str,
+        op: &str,
+        _payload: Vec<u8>,
+        _auth: Option<String>,
+    ) -> Result<Vec<u8>, NetError> {
+        let key = format!("{}|{}|{}", hostname, service, op);
+        self.responses
+            .get(&key)
+            .cloned()
+            .ok_or_else(|| NetError(format!("no canned RPC response for {}", key)))
+    }
+}
+
+/// A `Net` whose DNS, HTTP, and RPC all error on use: the safe default for tests
+/// that stay on the self-RP (local-DB) path and must never touch the network. If
+/// such a test accidentally goes off-domain, it fails loudly instead of doing I/O.
 pub fn offline_net() -> Net {
     Net {
         dns: Arc::new(StaticDns::new()),
         http: Arc::new(CannedHttp::new()),
+        rpc: Arc::new(CannedRpc::new()),
     }
 }
 
-/// A `Net` backed by the given static DNS + canned HTTP, for cross-domain tests.
+/// A `Net` backed by the given static DNS + canned HTTP (RPC errors on use), for
+/// cross-domain tests still exercising the HTTP path.
 pub fn net_with(dns: StaticDns, http: CannedHttp) -> Net {
     Net {
         dns: Arc::new(dns),
         http: Arc::new(http),
+        rpc: Arc::new(CannedRpc::new()),
+    }
+}
+
+/// A `Net` backed by static DNS + canned RPC (HTTP errors on use), for
+/// cross-domain tests exercising the server-to-server TCP path.
+pub fn net_with_rpc(dns: StaticDns, rpc: CannedRpc) -> Net {
+    Net {
+        dns: Arc::new(dns),
+        http: Arc::new(CannedHttp::new()),
+        rpc: Arc::new(rpc),
     }
 }

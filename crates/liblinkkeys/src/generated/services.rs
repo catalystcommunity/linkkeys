@@ -227,3 +227,32 @@ pub trait Attestation {
         input: DepositClaimRequest,
     ) -> Result<DepositClaimResponse, ServiceError>;
 }
+
+/// Rp service trait
+pub trait Rp {
+    type Context;
+    /// sign-request (request/response).
+    fn sign_request(
+        &self,
+        ctx: &Self::Context,
+        input: RpSignRequest,
+    ) -> Result<RpSignResponse, ServiceError>;
+    /// decrypt-token (request/response).
+    fn decrypt_token(
+        &self,
+        ctx: &Self::Context,
+        input: RpDecryptRequest,
+    ) -> Result<RpDecryptResponse, ServiceError>;
+    /// verify-assertion (request/response).
+    fn verify_assertion(
+        &self,
+        ctx: &Self::Context,
+        input: RpVerifyRequest,
+    ) -> Result<RpVerifyResponse, ServiceError>;
+    /// userinfo-fetch (request/response).
+    fn userinfo_fetch(
+        &self,
+        ctx: &Self::Context,
+        input: RpUserInfoRequest,
+    ) -> Result<UserInfo, ServiceError>;
+}

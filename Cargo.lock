@@ -605,9 +605,10 @@ dependencies = [
  "chrono",
  "env_logger",
  "hickory-resolver",
+ "liblinkkeys",
+ "linkkeys-rpc-client",
  "log",
  "rcgen",
- "reqwest",
  "rocket",
  "serde",
  "serde_json",
@@ -1716,6 +1717,7 @@ dependencies = [
  "env_logger",
  "hickory-resolver",
  "liblinkkeys",
+ "linkkeys-rpc-client",
  "log",
  "num_cpus",
  "qrcode",
@@ -1733,6 +1735,20 @@ dependencies = [
  "toml 0.8.23",
  "urlencoding",
  "uuid",
+ "x509-parser",
+]
+
+[[package]]
+name = "linkkeys-rpc-client"
+version = "0.1.0"
+dependencies = [
+ "ciborium",
+ "liblinkkeys",
+ "log",
+ "rcgen",
+ "rustls 0.23.37",
+ "rustls-pki-types",
+ "serde",
  "x509-parser",
 ]
 

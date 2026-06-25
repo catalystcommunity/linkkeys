@@ -38,19 +38,49 @@ pub trait DomainFetcher: Send + Sync + std::fmt::Debug {
     async fn post_cbor(&self, url: &str, body: Vec<u8>) -> Result<HttpResponse, NetError>;
 }
 
+/// Server-to-server CSIL-RPC over the LinkKeys TCP protocol. This is the
+/// first-class transport for peer (IDP↔IDP / RP↔IDP) calls; HTTPS via
+/// [`DomainFetcher`] is the browser-adjacent path. Real in production (the
+/// blocking `linkkeys-rpc-client`, driven on a blocking thread), an in-process
+/// dispatch fake in tests.
+#[rocket::async_trait]
+pub trait DomainRpc: Send + Sync + std::fmt::Debug {
+    /// CSIL-RPC call to `addr` (`host:port`). `hostname` is the SNI / cert name
+    /// pinned against `fingerprints`; `client_cert` (DER cert, DER key) is
+    /// presented for mutual TLS when `Some`. `payload` is the CBOR-encoded
+    /// request body, `auth` an optional API key. Returns the success-response
+    /// payload bytes; any transport error or non-zero server status is a
+    /// [`NetError`].
+    #[allow(clippy::too_many_arguments)]
+    async fn call(
+        &self,
+        addr: &str,
+        hostname: &str,
+        fingerprints: Vec<String>,
+        client_cert: Option<(Vec<u8>, Vec<u8>)>,
+        service: &str,
+        op: &str,
+        payload: Vec<u8>,
+        auth: Option<String>,
+    ) -> Result<Vec<u8>, NetError>;
+}
+
 /// The network capabilities a request handler may use. Cloning is cheap (Arc).
 #[derive(Clone)]
 pub struct Net {
     pub dns: Arc<dyn DnsResolver>,
     pub http: Arc<dyn DomainFetcher>,
+    pub rpc: Arc<dyn DomainRpc>,
 }
 
 impl Net {
-    /// The real network: hickory for DNS, reqwest for HTTPS.
+    /// The real network: hickory for DNS, reqwest for HTTPS, the blocking
+    /// CSIL-RPC client for server-to-server TCP.
     pub fn production() -> Self {
         Net {
             dns: Arc::new(HickoryDnsResolver),
             http: Arc::new(ReqwestFetcher),
+            rpc: Arc::new(TcpRpcClient),
         }
     }
 }
@@ -117,5 +147,48 @@ impl DomainFetcher for ReqwestFetcher {
             .map_err(|e| NetError(format!("reading {} body failed: {}", url, e)))?
             .to_vec();
         Ok(HttpResponse { success, body })
+    }
+}
+
+/// Production [`DomainRpc`]: the blocking `linkkeys-rpc-client` transport, run on
+/// a blocking thread so it doesn't stall the async runtime. Fingerprint
+/// resolution and own-cert loading happen in the caller (which holds the DNS
+/// seam and the DB); this just performs the TLS round-trip.
+#[derive(Debug)]
+struct TcpRpcClient;
+
+#[rocket::async_trait]
+impl DomainRpc for TcpRpcClient {
+    async fn call(
+        &self,
+        addr: &str,
+        hostname: &str,
+        fingerprints: Vec<String>,
+        client_cert: Option<(Vec<u8>, Vec<u8>)>,
+        service: &str,
+        op: &str,
+        payload: Vec<u8>,
+        auth: Option<String>,
+    ) -> Result<Vec<u8>, NetError> {
+        let addr = addr.to_string();
+        let hostname = hostname.to_string();
+        let service = service.to_string();
+        let op = op.to_string();
+        tokio::task::spawn_blocking(move || {
+            let config = linkkeys_rpc_client::tls::client_config(fingerprints, client_cert)
+                .map_err(|e| NetError(format!("TLS config: {}", e)))?;
+            linkkeys_rpc_client::send_raw_with_config(
+                &addr,
+                config,
+                &hostname,
+                &service,
+                &op,
+                payload,
+                auth.as_deref(),
+            )
+            .map_err(|e| NetError(e.to_string()))
+        })
+        .await
+        .map_err(|e| NetError(format!("rpc task join failed: {}", e)))?
     }
 }

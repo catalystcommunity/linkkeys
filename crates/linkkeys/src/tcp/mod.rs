@@ -44,19 +44,32 @@ struct CheckResultResponse {
     result: bool,
 }
 
+/// Capabilities the dispatch needs for ops that make an onward server-to-server
+/// call (the `Rp` service's verify-assertion / userinfo-fetch reach the issuing
+/// IDP). Only the TCP server provides this: its worker threads are plain blocking
+/// threads, so they may `block_on` the runtime. The web `/csil/v1/rpc` carrier
+/// and the test harness pass `None` — they already run inside tokio (cannot
+/// `block_on`) and those ops have dedicated routes/tests elsewhere.
+pub struct OutboundCtx<'a> {
+    pub net: &'a crate::net::Net,
+    pub rt: &'a tokio::runtime::Handle,
+}
+
 pub struct TcpServer {
     listener: TcpListener,
     thread_pool: ThreadPool,
     ready_flag: Arc<AtomicBool>,
     db_pool: DbPool,
     tls_config: Arc<rustls::ServerConfig>,
+    net: crate::net::Net,
+    runtime: Arc<tokio::runtime::Runtime>,
 }
 
 impl TcpServer {
     pub fn new(
         ready_flag: Arc<AtomicBool>,
         db_pool: DbPool,
-        dns: Arc<dyn crate::net::DnsResolver>,
+        net: crate::net::Net,
     ) -> std::io::Result<Self> {
         let port: u16 = env::var("TCP_PORT")
             .ok()
@@ -68,7 +81,7 @@ impl TcpServer {
         let pool_size = num_cpus::get() * 2;
         let thread_pool = ThreadPool::new(pool_size);
 
-        let tls_config = match build_tls_config(&db_pool, dns) {
+        let tls_config = match build_tls_config(&db_pool, net.dns.clone()) {
             Ok(config) => {
                 log::info!("TCP server listening on port {} (mutual TLS)", port);
                 config
@@ -79,12 +92,26 @@ impl TcpServer {
             }
         };
 
+        // A small multi-thread runtime backs the onward server-to-server calls
+        // the `Rp` ops make. Worker threads `block_on` it; multi-thread lets
+        // several connections do so concurrently without contending a single
+        // current-thread scheduler.
+        let runtime = Arc::new(
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()
+                .map_err(|e| std::io::Error::other(format!("TCP runtime build failed: {}", e)))?,
+        );
+
         Ok(TcpServer {
             listener,
             thread_pool,
             ready_flag,
             db_pool,
             tls_config,
+            net,
+            runtime,
         })
     }
 
@@ -95,8 +122,11 @@ impl TcpServer {
                     let ready_flag = self.ready_flag.clone();
                     let db_pool = self.db_pool.clone();
                     let tls_config = self.tls_config.clone();
+                    let net = self.net.clone();
+                    let rt = self.runtime.handle().clone();
                     self.thread_pool.execute(move || {
-                        if let Err(e) = handle_connection(stream, ready_flag, &db_pool, tls_config)
+                        if let Err(e) =
+                            handle_connection(stream, ready_flag, &db_pool, tls_config, &net, &rt)
                         {
                             log::debug!("Connection closed: {}", e);
                         }
@@ -196,6 +226,8 @@ fn handle_connection(
     ready_flag: Arc<AtomicBool>,
     db_pool: &DbPool,
     tls_config: Arc<rustls::ServerConfig>,
+    net: &crate::net::Net,
+    rt: &tokio::runtime::Handle,
 ) -> std::io::Result<()> {
     log::debug!("New TCP connection from: {:?}", stream.peer_addr());
     // Bound how long a single connection can hold a worker thread. Both read
@@ -225,6 +257,8 @@ fn handle_connection(
         &ready_flag,
         db_pool,
         client_domain.as_deref(),
+        net,
+        rt,
     )
 }
 
@@ -296,6 +330,8 @@ fn handle_message_loop(
     ready_flag: &Arc<AtomicBool>,
     db_pool: &DbPool,
     client_domain: Option<&str>,
+    net: &crate::net::Net,
+    rt: &tokio::runtime::Handle,
 ) -> std::io::Result<()> {
     loop {
         let frame = read_frame(stream)?;
@@ -335,7 +371,14 @@ fn handle_message_loop(
             continue;
         }
 
-        let response = dispatch(&envelope, ready_flag, db_pool, client_domain);
+        let outbound = OutboundCtx { net, rt };
+        let response = dispatch(
+            &envelope,
+            ready_flag,
+            db_pool,
+            client_domain,
+            Some(&outbound),
+        );
         write_frame(stream, &response)?;
     }
 }
@@ -361,19 +404,29 @@ pub fn dispatch_for_test(
     db_pool: &DbPool,
     client_domain: Option<&str>,
 ) -> (i32, Vec<u8>) {
-    let request = RpcRequest::new(service, op, payload);
-    let ready = Arc::new(AtomicBool::new(true));
-    let bytes = dispatch(&request, &ready, db_pool, client_domain);
-    let resp = RpcResponse::decode(&bytes).expect("response decodes");
-    (resp.status.code() as i32, resp.payload)
+    dispatch_for_test_authed(service, op, payload, None, db_pool, client_domain)
 }
 
-/// Encode a CSIL-RPC request (no auth) for an outbound call — e.g. one domain
-/// depositing a signed claim to another via its `/csil/v1/rpc` carrier.
-pub fn encode_request_envelope(service: &str, op: &str, payload: Vec<u8>) -> Vec<u8> {
-    RpcRequest::new(service, op, payload)
-        .encode()
-        .expect("encode CSIL-RPC request cannot fail")
+/// Like [`dispatch_for_test`] but carries an `auth` API key in the envelope, for
+/// exercising the authenticated services (Admin/Account/Rp) through the dispatch.
+/// Like the plain helper it provides no outbound context, so `Rp` ops that make
+/// an onward server-to-server call return "unavailable on this carrier".
+pub fn dispatch_for_test_authed(
+    service: &str,
+    op: &str,
+    payload: Vec<u8>,
+    auth: Option<&str>,
+    db_pool: &DbPool,
+    client_domain: Option<&str>,
+) -> (i32, Vec<u8>) {
+    let mut request = RpcRequest::new(service, op, payload);
+    if let Some(a) = auth {
+        request = request.with_auth(a);
+    }
+    let ready = Arc::new(AtomicBool::new(true));
+    let bytes = dispatch(&request, &ready, db_pool, client_domain, None);
+    let resp = RpcResponse::decode(&bytes).expect("response decodes");
+    (resp.status.code() as i32, resp.payload)
 }
 
 /// Decode a CSIL-RPC request envelope and dispatch it, returning the response
@@ -391,16 +444,10 @@ pub fn dispatch_envelope(
         Ok(r) => r,
         Err(e) => return error_response(1, &format!("Invalid envelope: {}", e)),
     };
-    dispatch(&request, ready_flag, db_pool, client_domain)
-}
-
-/// The CSIL-RPC status code of a response (0 = success), or a non-zero sentinel
-/// if it can't be decoded. Lets an outbound caller tell whether the remote op
-/// succeeded.
-pub fn response_status(bytes: &[u8]) -> i32 {
-    RpcResponse::decode(bytes)
-        .map(|r| r.status.code() as i32)
-        .unwrap_or(i32::MAX)
+    // The web carrier runs inside tokio and cannot `block_on`, so it provides no
+    // outbound context; the `Rp` helper ops (which need it) have dedicated HTTP
+    // routes and are not served over `/csil/v1/rpc`.
+    dispatch(&request, ready_flag, db_pool, client_domain, None)
 }
 
 fn dispatch(
@@ -408,6 +455,7 @@ fn dispatch(
     ready_flag: &Arc<AtomicBool>,
     db_pool: &DbPool,
     client_domain: Option<&str>,
+    outbound: Option<&OutboundCtx>,
 ) -> Vec<u8> {
     match (envelope.service.as_str(), envelope.op.as_str()) {
         ("Ops", "healthcheck") => ok_response(&CheckResultResponse { result: true }),
@@ -547,6 +595,16 @@ fn dispatch(
             };
             dispatch_account(op, &envelope.payload, db_pool, &user)
         }
+        // Relying-party helpers a browser-facing RP (e.g. the demo site) delegates
+        // to its RP server over TCP. API-key authenticated. verify-assertion and
+        // userinfo-fetch make an onward server-to-server call to the issuing IDP,
+        // so they require the outbound context (TCP carrier only).
+        ("Rp", op) => {
+            if let Err(resp) = authenticate_tcp_request(&envelope.auth, db_pool) {
+                return resp;
+            }
+            dispatch_rp(op, &envelope.payload, db_pool, outbound)
+        }
         // Server-to-server: an issuer deposits a claim it signed about one of our
         // accounts. The issuer's signature is the authority (verified against its
         // cached keys + our trusted-issuer policy), so no caller auth is required
@@ -640,6 +698,97 @@ fn dispatch_account(
             Err(e) => error_response(4, &e.message),
         },
         _ => error_response(3, &format!("Unknown Account operation: {}", op)),
+    }
+}
+
+/// Map a web-layer `Status` (the Rp cores' error type) to a CSIL error response.
+fn rp_status_to_error(status: rocket::http::Status) -> Vec<u8> {
+    let code = match status.code {
+        400 => 2,       // BadRequest -> invalid payload
+        401 | 403 => 5, // Unauthorized / Forbidden -> auth/verification
+        _ => 4,         // BadGateway / InternalServerError -> internal
+    };
+    error_response(code, status.reason().unwrap_or("error"))
+}
+
+/// Dispatch a `Rp` helper op, reusing the same core functions the web JSON routes
+/// call. `sign-request` and `decrypt-token` are local; `verify-assertion` and
+/// `userinfo-fetch` make an onward call to the issuing IDP and so require the
+/// outbound context (present on the TCP carrier, absent on the web carrier and in
+/// the test harness, where they return an error).
+fn dispatch_rp(
+    op: &str,
+    payload: &[u8],
+    db_pool: &DbPool,
+    outbound: Option<&OutboundCtx>,
+) -> Vec<u8> {
+    use crate::web::rp;
+    use liblinkkeys::generated::types::{
+        RpDecryptRequest, RpSignRequest, RpUserInfoRequest, RpVerifyRequest,
+    };
+
+    match op {
+        "sign-request" => {
+            let req: RpSignRequest = match ciborium::de::from_reader(payload) {
+                Ok(r) => r,
+                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+            };
+            let cfg = crate::rp_config::RpClaimsConfig::load_from_env();
+            match rp::sign_request_core(db_pool, &cfg, &req.callback_url, &req.nonce) {
+                Ok(resp) => ok_response(&resp),
+                Err(s) => rp_status_to_error(s),
+            }
+        }
+        "decrypt-token" => {
+            let req: RpDecryptRequest = match ciborium::de::from_reader(payload) {
+                Ok(r) => r,
+                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+            };
+            match rp::decrypt_token_core(db_pool, &req.encrypted_token) {
+                Ok(resp) => ok_response(&resp),
+                Err(s) => rp_status_to_error(s),
+            }
+        }
+        "verify-assertion" => {
+            let req: RpVerifyRequest = match ciborium::de::from_reader(payload) {
+                Ok(r) => r,
+                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+            };
+            let ctx = match outbound {
+                Some(c) => c,
+                None => return error_response(4, "operation unavailable on this carrier"),
+            };
+            match ctx.rt.block_on(rp::verify_assertion_core(
+                db_pool,
+                ctx.net,
+                &req.signed_assertion,
+                &req.expected_domain,
+            )) {
+                Ok(resp) => ok_response(&resp),
+                Err(s) => rp_status_to_error(s),
+            }
+        }
+        "userinfo-fetch" => {
+            let req: RpUserInfoRequest = match ciborium::de::from_reader(payload) {
+                Ok(r) => r,
+                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+            };
+            let ctx = match outbound {
+                Some(c) => c,
+                None => return error_response(4, "operation unavailable on this carrier"),
+            };
+            match ctx.rt.block_on(rp::fetch_userinfo_core(
+                db_pool,
+                ctx.net,
+                req.token,
+                &req.api_base,
+                &req.domain,
+            )) {
+                Ok(resp) => ok_response(&resp),
+                Err(s) => rp_status_to_error(s),
+            }
+        }
+        _ => error_response(3, &format!("Unknown Rp operation: {}", op)),
     }
 }
 
