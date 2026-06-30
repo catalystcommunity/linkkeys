@@ -85,6 +85,41 @@ if [[ -z "${PASSPHRASE}" ]]; then
 fi
 
 # ================================================
+# Wait for the server image to be published
+# ================================================
+# This job may be triggered by the same version bump that builds the image, and
+# reactorcide has no cross-job ordering — so poll the registry for the target
+# tag before deploying. Otherwise the new pod ImagePullBackOffs until the build
+# finishes. Skipped entirely when WAIT_FOR_IMAGE_REPO is unset (manual deploys
+# of an already-published tag don't need it).
+if [[ -n "${WAIT_FOR_IMAGE_REPO:-}" ]]; then
+    WAIT_TAG="${IMAGE_TAG:-$(cat version/VERSION.txt)}"
+    WAIT_HOST="${WAIT_FOR_IMAGE_REPO%%/*}"
+    WAIT_PATH="${WAIT_FOR_IMAGE_REPO#*/}"
+    MANIFEST_URL="https://${WAIT_HOST}/v2/${WAIT_PATH}/manifests/${WAIT_TAG}"
+
+    CURL_AUTH=()
+    if [[ -n "${REGISTRY_USER:-}" ]] && [[ -n "${REGISTRY_PASSWORD:-}" ]]; then
+        CURL_AUTH=(-u "${REGISTRY_USER}:${REGISTRY_PASSWORD}")
+    fi
+
+    echo "Waiting for image ${WAIT_FOR_IMAGE_REPO}:${WAIT_TAG} ..."
+    DEADLINE=$(( $(date +%s) + ${WAIT_FOR_IMAGE_TIMEOUT:-1500} ))
+    until curl -fsS -o /dev/null "${CURL_AUTH[@]}" \
+        -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+        -H "Accept: application/vnd.oci.image.index.v1+json" \
+        "${MANIFEST_URL}"; do
+        if [[ $(date +%s) -ge ${DEADLINE} ]]; then
+            echo "ERROR: image ${WAIT_FOR_IMAGE_REPO}:${WAIT_TAG} not published within timeout"
+            exit 1
+        fi
+        echo "  not yet available; retrying in 15s..."
+        sleep 15
+    done
+    echo "Image is available."
+fi
+
+# ================================================
 # Deploy with Helm
 # ================================================
 echo ""
