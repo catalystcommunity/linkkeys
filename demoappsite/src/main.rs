@@ -48,28 +48,32 @@ struct RpConfig {
 /// Call an `Rp` helper op on the RP server over the CSIL-RPC TCP transport. The
 /// client is blocking, so it runs on a blocking thread; the demo presents no
 /// client cert and authenticates with its API key.
-async fn rp_call<Req, Resp>(rp: &RpConfig, op: &'static str, req: Req) -> Result<Resp, String>
-where
-    Req: serde::Serialize + Send + 'static,
-    Resp: serde::de::DeserializeOwned + Send + 'static,
-{
+async fn rp_call<Req, Resp>(
+    rp: &RpConfig,
+    op: &'static str,
+    req: Req,
+    encode: fn(&Req) -> Vec<u8>,
+    decode: fn(&[u8]) -> Result<Resp, liblinkkeys::generated::codec::CsilCborError>,
+) -> Result<Resp, String> {
     let addr = rp.tcp_addr.clone();
     let fingerprints = rp.fingerprints.clone();
     let api_key = rp.api_key.clone();
-    tokio::task::spawn_blocking(move || {
-        linkkeys_rpc_client::send_request::<Req, Resp>(
+    let payload = encode(&req);
+    let resp_bytes = tokio::task::spawn_blocking(move || {
+        linkkeys_rpc_client::send_request(
             &addr,
             fingerprints,
             None,
             "Rp",
             op,
-            &req,
+            payload,
             Some(&api_key),
         )
     })
     .await
     .map_err(|e| format!("RP task join failed: {}", e))?
-    .map_err(|e| format!("RP {} failed: {}", op, e))
+    .map_err(|e| format!("RP {} failed: {}", op, e))?;
+    decode(&resp_bytes).map_err(|e| format!("RP {} decode failed: {}", op, e))
 }
 
 fn get_own_origin() -> String {
@@ -448,13 +452,15 @@ async fn login(
     let callback_url = format!("{}/callback", origin);
 
     // Call the RP server over TCP to sign the auth request.
-    let sign_result: lk::RpSignResponse = rp_call(
+    let sign_result = rp_call(
         rp_config,
         "sign-request",
         lk::RpSignRequest {
             callback_url: callback_url.clone(),
             nonce: nonce.clone(),
         },
+        liblinkkeys::generated::encode_rp_sign_request,
+        liblinkkeys::generated::decode_rp_sign_response,
     )
     .await
     .map_err(|e| login_form(Some(&format!("Failed to contact RP service: {}", e))))?;
@@ -501,24 +507,28 @@ async fn callback(
     cookies.remove_private("auth_state");
 
     // 2. Call the RP server (over TCP) to decrypt the token.
-    let decrypt_result: lk::RpDecryptResponse = rp_call(
+    let decrypt_result = rp_call(
         rp_config,
         "decrypt-token",
         lk::RpDecryptRequest {
             encrypted_token: encrypted_token.to_string(),
         },
+        liblinkkeys::generated::encode_rp_decrypt_request,
+        liblinkkeys::generated::decode_rp_decrypt_response,
     )
     .await
     .map_err(|e| error_page(&format!("Failed to decrypt token: {}", e)))?;
 
     // 3. Call the RP server to verify the assertion against the domain's keys.
-    let verify_result: lk::RpVerifyResponse = rp_call(
+    let verify_result = rp_call(
         rp_config,
         "verify-assertion",
         lk::RpVerifyRequest {
             signed_assertion: decrypt_result.signed_assertion.clone(),
             expected_domain: auth_state.domain.clone(),
         },
+        liblinkkeys::generated::encode_rp_verify_request,
+        liblinkkeys::generated::decode_rp_verify_response,
     )
     .await
     .map_err(|e| error_page(&format!("Failed to verify assertion: {}", e)))?;
@@ -538,7 +548,7 @@ async fn callback(
     // 6. Fetch user info via our RP server. The IDP's /userinfo binds the
     // redemption to the audience (us), and only our RP server holds the domain
     // key — so we delegate the fetch to it rather than calling the IDP directly.
-    let user_info: lk::UserInfo = rp_call(
+    let user_info = rp_call(
         rp_config,
         "userinfo-fetch",
         lk::RpUserInfoRequest {
@@ -546,6 +556,8 @@ async fn callback(
             api_base: auth_state.api_base.clone(),
             domain: auth_state.domain.clone(),
         },
+        liblinkkeys::generated::encode_rp_user_info_request,
+        liblinkkeys::generated::decode_user_info,
     )
     .await
     .map_err(|e| error_page(&format!("Failed to fetch user info: {}", e)))?;

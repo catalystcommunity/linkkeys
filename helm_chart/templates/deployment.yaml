@@ -73,10 +73,17 @@ spec:
             - name: DATABASE_URL
               value: "postgresql://$(PGUSER):$(PGPASSWORD)@{{ include "linkkeys.fullname" . }}-postgres:5432/{{ .Values.postgresql.database | default "linkkeys" }}?sslmode=require"
             {{- end }}
-          {{- if eq .Values.database.backend "sqlite" }}
+          {{- if or (eq .Values.database.backend "sqlite") .Values.rp.claimsConfig }}
           volumeMounts:
+            {{- if eq .Values.database.backend "sqlite" }}
             - name: data
               mountPath: /data
+            {{- end }}
+            {{- if .Values.rp.claimsConfig }}
+            - name: rp-claims
+              mountPath: /config
+              readOnly: true
+            {{- end }}
           {{- end }}
           # Readiness gates Service traffic and goes green as soon as the TCP
           # listener opens (after migrations + backfills complete). Liveness is
@@ -104,11 +111,18 @@ spec:
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if eq .Values.database.backend "sqlite" }}
+      {{- if or (eq .Values.database.backend "sqlite") .Values.rp.claimsConfig }}
       volumes:
+        {{- if eq .Values.database.backend "sqlite" }}
         - name: data
           persistentVolumeClaim:
             claimName: {{ include "linkkeys.fullname" . }}-data
+        {{- end }}
+        {{- if .Values.rp.claimsConfig }}
+        - name: rp-claims
+          configMap:
+            name: {{ include "linkkeys.fullname" . }}-rp-claims
+        {{- end }}
       {{- end }}
       {{- with .Values.tolerations }}
       tolerations:

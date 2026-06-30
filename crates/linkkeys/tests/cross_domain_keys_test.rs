@@ -41,8 +41,7 @@ async fn fetch_domain_keys_resolves_via_dns_and_http_seam() {
         domain: THIRD.to_string(),
         keys: vec![key],
     };
-    let mut body = Vec::new();
-    ciborium::ser::into_writer(&response, &mut body).unwrap();
+    let body = liblinkkeys::generated::encode_get_domain_keys_response(&response);
 
     let dns = StaticDns::new()
         .with(

@@ -1,34 +1,9 @@
 use rand::Rng;
-use rocket::http::{ContentType, Status};
-use rocket::State;
-use serde::Deserialize;
+use rocket::http::Status;
 use std::env;
 
 use crate::conversions::get_domain_name;
 use crate::db::DbPool;
-
-use super::guard::AuthenticatedUser;
-
-// -- JSON request types for the browser-facing web API. Responses reuse the
-// generated CSIL types (RpSignResponse, RpDecryptResponse, RpVerifyResponse,
-// UserInfo), serialized to JSON — the same shape the `Rp` TCP service returns. --
-
-#[derive(Deserialize)]
-pub struct SignRequestInput {
-    callback_url: String,
-    nonce: String,
-}
-
-#[derive(Deserialize)]
-pub struct DecryptTokenInput {
-    encrypted_token: String,
-}
-
-#[derive(Deserialize)]
-pub struct VerifyAssertionInput {
-    signed_assertion: String,
-    expected_domain: String,
-}
 
 /// Core of sign-request: build and sign an auth request for the login redirect
 /// using this server's domain key. Shared by the web JSON route and the
@@ -103,22 +78,6 @@ pub(crate) fn sign_request_core(
     })
 }
 
-/// Sign an auth request using this server's domain key.
-/// Called by the web app when initiating a login redirect.
-// TODO: deprecated, remove later — superseded by the `Rp` CSIL-RPC service over TCP; only the browser still needs the web API.
-#[rocket::post("/v1alpha/sign-request.json", data = "<body>")]
-pub fn sign_request_json(
-    _user: AuthenticatedUser,
-    pool: &State<DbPool>,
-    rp_config: &State<crate::rp_config::RpClaimsConfig>,
-    body: String,
-) -> Result<(ContentType, Vec<u8>), Status> {
-    let input: SignRequestInput = serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
-    let output = sign_request_core(pool, rp_config, &input.callback_url, &input.nonce)?;
-    let out = serde_json::to_vec(&output).map_err(|_| Status::InternalServerError)?;
-    Ok((ContentType::JSON, out))
-}
-
 /// Core of decrypt-token: decrypt the RP's encrypted callback token with one of
 /// this server's encryption keys. Shared by the web JSON route and the
 /// `Rp/decrypt-token` TCP op.
@@ -164,20 +123,6 @@ pub(crate) fn decrypt_token_core(
     Err(Status::BadRequest)
 }
 
-/// Decrypt an encrypted token using this server's domain key converted to X25519.
-// TODO: deprecated, remove later — superseded by the `Rp` CSIL-RPC service over TCP; only the browser still needs the web API.
-#[rocket::post("/v1alpha/decrypt-token.json", data = "<body>")]
-pub fn decrypt_token_json(
-    _user: AuthenticatedUser,
-    pool: &State<DbPool>,
-    body: String,
-) -> Result<(ContentType, Vec<u8>), Status> {
-    let input: DecryptTokenInput = serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
-    let output = decrypt_token_core(pool, &input.encrypted_token)?;
-    let out = serde_json::to_vec(&output).map_err(|_| Status::InternalServerError)?;
-    Ok((ContentType::JSON, out))
-}
-
 /// Extract the bare host from an `https://` API base, dropping scheme, any
 /// userinfo, port, and path. Returns `None` if there is no parseable host.
 /// Used only to detect the single-instance IDP+RP self-call; hostnames are
@@ -200,21 +145,6 @@ fn api_base_host(api_base: &str) -> Option<&str> {
     } else {
         Some(host)
     }
-}
-
-#[derive(Deserialize)]
-pub struct FetchUserInfoInput {
-    /// URL-param-encoded `SignedIdentityAssertion` the RP received on its
-    /// callback (the same value `decrypt-token` returns).
-    token: String,
-    /// The identity provider's API base (`https://…`), taken from the domain's
-    /// `_linkkeys` `api=` record. Used only to detect the single-instance
-    /// IDP+RP self-call (redeem locally instead of over the network).
-    api_base: String,
-    /// The user's domain (identity), used to resolve the IDP's `_linkkeys_apis`
-    /// `tcp=` endpoint and DNS-pinned fingerprints for the server-to-server
-    /// redemption over TCP.
-    domain: String,
 }
 
 /// Core of userinfo-fetch: fetch a user's claims from the IDP on the relying
@@ -260,14 +190,11 @@ pub(crate) async fn fetch_userinfo_core(
         .await
         .map_err(|_| Status::BadGateway)?;
     let client_cert = own_client_cert(pool);
-    let mut payload = Vec::new();
-    ciborium::ser::into_writer(
+    let payload = liblinkkeys::generated::encode_get_user_info_request(
         &liblinkkeys::generated::types::GetUserInfoRequest {
             token: token.into_bytes(),
         },
-        &mut payload,
-    )
-    .map_err(|_| Status::InternalServerError)?;
+    );
     let resp_bytes = net
         .rpc
         .call(
@@ -282,7 +209,7 @@ pub(crate) async fn fetch_userinfo_core(
         )
         .await
         .map_err(|_| Status::BadGateway)?;
-    ciborium::de::from_reader(&resp_bytes[..]).map_err(|_| Status::BadGateway)
+    liblinkkeys::generated::decode_user_info(&resp_bytes).map_err(|_| Status::BadGateway)
 }
 
 /// Fetch a user's claims from the IDP on the relying party's behalf, proving
@@ -290,21 +217,6 @@ pub(crate) async fn fetch_userinfo_core(
 ///
 /// This is the RP-side counterpart to the IDP's `/v1alpha/userinfo`: the calling
 /// app (which holds no domain key) delegates here.
-// TODO: deprecated, remove later — superseded by the `Rp` CSIL-RPC service over TCP; only the browser still needs the web API.
-#[rocket::post("/v1alpha/userinfo-fetch.json", data = "<body>")]
-pub async fn fetch_userinfo_json(
-    _user: AuthenticatedUser,
-    pool: &State<DbPool>,
-    net: &State<crate::net::Net>,
-    body: String,
-) -> Result<(ContentType, Vec<u8>), Status> {
-    let input: FetchUserInfoInput = serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
-    let user_info =
-        fetch_userinfo_core(pool, net, input.token, &input.api_base, &input.domain).await?;
-    let out = serde_json::to_vec(&user_info).map_err(|_| Status::InternalServerError)?;
-    Ok((ContentType::JSON, out))
-}
-
 /// Build a proof-of-possession `SignedUserInfoRequest` signed with one of this
 /// domain's signing keys, inlining our signing keys so a first-contact IDP can
 /// pin them to our DNS `fp=`. Used only on the single-instance self-redeem path,
@@ -367,8 +279,8 @@ pub(crate) async fn verify_assertion_core(
     // Decode the signed assertion from base64url
     let cbor_bytes = base64ct::Base64UrlUnpadded::decode_vec(signed_assertion)
         .map_err(|_| Status::BadRequest)?;
-    let signed: liblinkkeys::generated::types::SignedIdentityAssertion =
-        ciborium::de::from_reader(cbor_bytes.as_slice()).map_err(|_| Status::BadRequest)?;
+    let signed = liblinkkeys::generated::decode_signed_identity_assertion(cbor_bytes.as_slice())
+        .map_err(|_| Status::BadRequest)?;
 
     // Fetch the domain's public keys
     let domain_keys = fetch_domain_keys(pool, net, expected_domain)
@@ -383,24 +295,6 @@ pub(crate) async fn verify_assertion_core(
         assertion,
         verified: true,
     })
-}
-
-/// Verify a signed assertion against a domain's published keys.
-/// Performs DNS lookup and key fetch for the expected domain.
-// TODO: deprecated, remove later — superseded by the `Rp` CSIL-RPC service over TCP; only the browser still needs the web API.
-#[rocket::post("/v1alpha/verify-assertion.json", data = "<body>")]
-pub async fn verify_assertion_json(
-    _user: AuthenticatedUser,
-    pool: &State<DbPool>,
-    net: &State<crate::net::Net>,
-    body: String,
-) -> Result<(ContentType, Vec<u8>), Status> {
-    let input: VerifyAssertionInput =
-        serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
-    let output =
-        verify_assertion_core(pool, net, &input.signed_assertion, &input.expected_domain).await?;
-    let out = serde_json::to_vec(&output).map_err(|_| Status::InternalServerError)?;
-    Ok((ContentType::JSON, out))
 }
 
 use base64ct::Encoding as _;
@@ -569,11 +463,9 @@ pub async fn fetch_domain_keys(
     let (addr, hostname) = lookup_tcp_target(net, domain).await?;
 
     // get-domain-keys is a public read; no client cert needed (server-auth TLS).
-    let mut payload = Vec::new();
-    ciborium::ser::into_writer(
+    let payload = liblinkkeys::generated::encode_empty_request(
         &liblinkkeys::generated::types::EmptyRequest {},
-        &mut payload,
-    )?;
+    );
     let resp_bytes = net
         .rpc
         .call(
@@ -587,8 +479,8 @@ pub async fn fetch_domain_keys(
             None,
         )
         .await?;
-    let resp: liblinkkeys::generated::types::GetDomainKeysResponse =
-        ciborium::de::from_reader(&resp_bytes[..]).map_err(|e| {
+    let resp =
+        liblinkkeys::generated::decode_get_domain_keys_response(&resp_bytes).map_err(|e| {
             format!(
                 "decoding get-domain-keys response from {} failed: {}",
                 domain, e
@@ -627,14 +519,11 @@ pub(super) async fn deposit_claim_to_domain(
     let (addr, hostname) = lookup_tcp_target(net, domain)
         .await
         .map_err(|e| e.to_string())?;
-    let mut payload = Vec::new();
-    ciborium::ser::into_writer(
+    let payload = liblinkkeys::generated::encode_deposit_claim_request(
         &liblinkkeys::generated::types::DepositClaimRequest {
             claim: claim.clone(),
         },
-        &mut payload,
-    )
-    .map_err(|e| e.to_string())?;
+    );
     let resp_bytes = net
         .rpc
         .call(
@@ -649,8 +538,8 @@ pub(super) async fn deposit_claim_to_domain(
         )
         .await
         .map_err(|_| format!("{} rejected the claim", domain))?;
-    let resp: liblinkkeys::generated::types::DepositClaimResponse =
-        ciborium::de::from_reader(&resp_bytes[..]).map_err(|e| e.to_string())?;
+    let resp = liblinkkeys::generated::decode_deposit_claim_response(&resp_bytes)
+        .map_err(|e| e.to_string())?;
     if !resp.stored {
         return Err(format!("{} rejected the claim", domain));
     }

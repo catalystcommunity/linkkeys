@@ -35,9 +35,7 @@ pub fn sign_auth_request(
     algorithm: SigningAlgorithm,
     private_key_bytes: &[u8],
 ) -> Result<SignedAuthRequest, CryptoError> {
-    let mut request_bytes = Vec::new();
-    ciborium::ser::into_writer(request, &mut request_bytes)
-        .map_err(|e| CryptoError::SigningFailed(format!("CBOR encode failed: {}", e)))?;
+    let request_bytes = crate::generated::encode_auth_request(request);
 
     let signature = crypto::sign_with_algorithm(algorithm, &request_bytes, private_key_bytes)?;
 
@@ -75,7 +73,7 @@ pub fn verify_auth_request(
         _ => VerifyError::SignatureInvalid,
     })?;
 
-    let request: AuthRequest = ciborium::de::from_reader(signed.request.as_slice())
+    let request = crate::generated::decode_auth_request(signed.request.as_slice())
         .map_err(|e| VerifyError::DeserializationFailed(format!("CBOR decode failed: {}", e)))?;
 
     let timestamp = chrono::DateTime::parse_from_rfc3339(&request.timestamp)

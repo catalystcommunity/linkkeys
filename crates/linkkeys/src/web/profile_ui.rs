@@ -400,8 +400,8 @@ pub fn request_verification(
         match attestation::mint_signing_request(pool.inner(), &account_id, &issuer_val, &type_list)
         {
             Ok(signed) => {
-                let mut cbor = Vec::new();
-                if ciborium::ser::into_writer(&signed, &mut cbor).is_ok() {
+                let cbor = liblinkkeys::generated::encode_signed_signing_request(&signed);
+                {
                     use base64ct::{Base64UrlUnpadded, Encoding as _};
                     let b64 = Base64UrlUnpadded::encode_string(&cbor);
                     let qr = qr_svg(&b64)
@@ -470,8 +470,7 @@ pub fn request_verification_download(
     let signed =
         attestation::mint_signing_request(pool.inner(), &account_id, issuer.trim(), &type_list)
             .map_err(|_| Status::InternalServerError)?;
-    let mut cbor = Vec::new();
-    ciborium::ser::into_writer(&signed, &mut cbor).map_err(|_| Status::InternalServerError)?;
+    let cbor = liblinkkeys::generated::encode_signed_signing_request(&signed);
     Ok((ContentType::Binary, cbor))
 }
 

@@ -3,6 +3,10 @@ image:
 
 server:
   domainName: "linkidspec.com"
+  # The protocol (TCP/4987) endpoint is served at a dedicated, DNS-only host so
+  # peers' S2S key fetches reach the cluster (the apex stays Cloudflare-proxied
+  # for the browser demo). Matches _linkkeys_apis.linkidspec.com tcp=.
+  tcpHostname: "linkkeys.linkidspec.com"
   publicPort: "443"
   disableTls: "true"
 
@@ -14,6 +18,24 @@ rp:
   enabled: true
   apiKeyAuth: true
   passwordAuth: false
+  # Claims linkidspec requests at login: email (required), display_name, handle,
+  # and address (optional). Notably NOT country, so it never appears at consent.
+  claimsConfig: |
+    [[required]]
+    claim_type = "email"
+    datatype = "email"
+
+    [[optional]]
+    claim_type = "display_name"
+    datatype = "text"
+
+    [[optional]]
+    claim_type = "handle"
+    datatype = "text"
+
+    [[optional]]
+    claim_type = "address"
+    datatype = "text"
 
 # The RP needs /v1alpha/* and /auth/* publicly reachable on linkidspec.com
 # so IDPs can fetch domain keys and the auth flow works.
@@ -30,3 +52,14 @@ gateway:
       - /v1alpha
       - /healthcheck
       - /readiness
+  # SNI-routed TLS passthrough for the protocol port (4987), so peers (IDPs) can
+  # fetch this RP's keys over S2S. SNI = the DNS-only protocol host; the gateway
+  # controller derives the listener port from the backendRef. The RP's mutual TLS
+  # terminates at the pod (cert pinned to _linkkeys.linkidspec.com).
+  tlsRoute:
+    enabled: true
+    parentGateway: contour
+    parentNamespace: projectcontour
+    parentSection: ""
+    hostnames:
+      - linkkeys.linkidspec.com

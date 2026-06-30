@@ -51,9 +51,7 @@ pub fn sign_user_info_request(
     private_key_bytes: &[u8],
     public_keys: Option<Vec<DomainPublicKey>>,
 ) -> Result<SignedUserInfoRequest, CryptoError> {
-    let mut request_bytes = Vec::new();
-    ciborium::ser::into_writer(request, &mut request_bytes)
-        .map_err(|e| CryptoError::SigningFailed(format!("CBOR encode failed: {}", e)))?;
+    let request_bytes = crate::generated::encode_user_info_request(request);
 
     let signature = crypto::sign_with_algorithm(algorithm, &request_bytes, private_key_bytes)?;
 
@@ -106,7 +104,7 @@ pub fn verify_user_info_request(
         _ => VerifyError::SignatureInvalid,
     })?;
 
-    let request: UserInfoRequest = ciborium::de::from_reader(signed.request.as_slice())
+    let request = crate::generated::decode_user_info_request(signed.request.as_slice())
         .map_err(|e| VerifyError::DeserializationFailed(format!("CBOR decode failed: {}", e)))?;
 
     let timestamp = chrono::DateTime::parse_from_rfc3339(&request.timestamp)

@@ -11,7 +11,7 @@
 
 pub mod tls;
 
-use serde::{Deserialize, Serialize};
+use csilgen_transport::rpc::{RpcRequest, RpcResponse};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::Arc;
@@ -38,69 +38,6 @@ impl std::fmt::Display for ClientError {
 }
 
 impl std::error::Error for ClientError {}
-
-#[derive(Serialize)]
-struct RequestEnvelope {
-    v: u32,
-    service: String,
-    op: String,
-    #[serde(with = "serde_bytes")]
-    payload: Vec<u8>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    auth: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct ResponseEnvelope {
-    #[allow(dead_code)]
-    v: u32,
-    status: i32,
-    error: Option<String>,
-    #[serde(with = "serde_bytes")]
-    payload: Vec<u8>,
-}
-
-mod serde_bytes {
-    use serde::{Deserializer, Serializer};
-
-    pub fn serialize<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_bytes(bytes)
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
-        use serde::de::Visitor;
-
-        struct BytesVisitor;
-        impl<'de> Visitor<'de> for BytesVisitor {
-            type Value = Vec<u8>;
-
-            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                f.write_str("bytes or byte string")
-            }
-
-            fn visit_bytes<E: serde::de::Error>(self, v: &[u8]) -> Result<Vec<u8>, E> {
-                Ok(v.to_vec())
-            }
-
-            fn visit_byte_buf<E: serde::de::Error>(self, v: Vec<u8>) -> Result<Vec<u8>, E> {
-                Ok(v)
-            }
-
-            fn visit_seq<A: serde::de::SeqAccess<'de>>(
-                self,
-                mut seq: A,
-            ) -> Result<Vec<u8>, A::Error> {
-                let mut bytes = Vec::with_capacity(seq.size_hint().unwrap_or(0));
-                while let Some(b) = seq.next_element()? {
-                    bytes.push(b);
-                }
-                Ok(bytes)
-            }
-        }
-
-        deserializer.deserialize_any(BytesVisitor)
-    }
-}
 
 /// Extract the hostname from a "host:port" server address string.
 pub fn extract_hostname(server: &str) -> &str {
@@ -157,21 +94,21 @@ fn read_frame(stream: &mut impl Read) -> Result<Vec<u8>, ClientError> {
 }
 
 /// Send a request envelope and receive the response over an established stream.
+/// Uses the canonical CSIL-RPC envelope codec (tag-24 payload framing) so the
+/// wire format matches the server exactly.
 fn send_and_receive(
     stream: &mut (impl Read + Write),
-    envelope: &RequestEnvelope,
-) -> Result<ResponseEnvelope, ClientError> {
-    // Send frame
-    let mut envelope_bytes = Vec::new();
-    ciborium::ser::into_writer(envelope, &mut envelope_bytes)
-        .map_err(|e| ClientError::Protocol(format!("CBOR encode envelope: {}", e)))?;
+    request: &RpcRequest,
+) -> Result<RpcResponse, ClientError> {
+    let envelope_bytes = request
+        .encode()
+        .map_err(|e| ClientError::Protocol(format!("encode RPC envelope: {}", e)))?;
     send_frame(stream, &envelope_bytes)?;
 
-    // Read response frame
     let resp_buf = read_frame(stream)?;
 
-    ciborium::de::from_reader(resp_buf.as_slice())
-        .map_err(|e| ClientError::Protocol(format!("CBOR decode response: {}", e)))
+    RpcResponse::decode(&resp_buf)
+        .map_err(|e| ClientError::Protocol(format!("decode RPC response: {}", e)))
 }
 
 /// Send a pre-encoded CBOR `payload` to a LinkKeys server over a caller-provided
@@ -191,13 +128,10 @@ pub fn send_raw_with_config(
     payload: Vec<u8>,
     api_key: Option<&str>,
 ) -> Result<Vec<u8>, ClientError> {
-    let envelope = RequestEnvelope {
-        v: 1,
-        service: service.to_string(),
-        op: op.to_string(),
-        payload,
-        auth: api_key.map(|k| k.to_string()),
-    };
+    let mut request = RpcRequest::new(service, op, payload);
+    if let Some(key) = api_key {
+        request = request.with_auth(key);
+    }
 
     let stream = TcpStream::connect(server)
         .map_err(|e| ClientError::Connection(format!("{}: {}", server, e)))?;
@@ -211,61 +145,39 @@ pub fn send_raw_with_config(
         .map_err(|e| ClientError::Tls(format!("TLS connection setup: {}", e)))?;
     let mut tls_stream = rustls::StreamOwned::new(tls_conn, stream);
 
-    let resp_envelope = send_and_receive(&mut tls_stream, &envelope)?;
+    let resp = send_and_receive(&mut tls_stream, &request)?;
 
-    if resp_envelope.status != 0 {
+    if !resp.status.is_ok() {
         return Err(ClientError::ServerError {
-            status: resp_envelope.status,
-            message: resp_envelope
-                .error
-                .unwrap_or_else(|| "Unknown error".to_string()),
+            status: resp.status.code() as i32,
+            message: resp.error.unwrap_or_else(|| "Unknown error".to_string()),
         });
     }
 
-    Ok(resp_envelope.payload)
+    Ok(resp.payload)
 }
 
-/// Typed convenience over [`send_raw_with_config`]: CBOR-encodes `request` and
-/// decodes the response payload into `Resp`.
-pub fn send_request_with_config<Req: Serialize, Resp: serde::de::DeserializeOwned>(
-    server: &str,
-    tls_config: Arc<rustls::ClientConfig>,
-    hostname: &str,
-    service: &str,
-    op: &str,
-    request: &Req,
-    api_key: Option<&str>,
-) -> Result<Resp, ClientError> {
-    let mut payload = Vec::new();
-    ciborium::ser::into_writer(request, &mut payload)
-        .map_err(|e| ClientError::Protocol(format!("CBOR encode: {}", e)))?;
-
-    let resp_payload =
-        send_raw_with_config(server, tls_config, hostname, service, op, payload, api_key)?;
-
-    ciborium::de::from_reader(resp_payload.as_slice())
-        .map_err(|e| ClientError::Protocol(format!("CBOR decode payload: {}", e)))
-}
-
-/// Send a request to a LinkKeys server, pinning its certificate to
-/// `fingerprints`. When `client_cert` is `Some((cert_der, key_der))` the client
-/// presents it for mutual TLS so the server can verify us back; otherwise it
-/// connects without a client cert and relies on `api_key` for app-layer auth.
-/// SNI is derived from `server` (the host portion of `host:port`).
+/// Send a pre-encoded CBOR `payload` to a LinkKeys server, pinning its
+/// certificate to `fingerprints`, and return the raw success-response payload
+/// bytes. When `client_cert` is `Some((cert_der, key_der))` the client presents
+/// it for mutual TLS so the server can verify us back; otherwise it connects
+/// without a client cert and relies on `api_key` for app-layer auth. SNI is
+/// derived from `server` (the host portion of `host:port`). The caller encodes
+/// the request and decodes the response with the CSIL codec.
 #[allow(clippy::too_many_arguments)]
-pub fn send_request<Req: Serialize, Resp: serde::de::DeserializeOwned>(
+pub fn send_request(
     server: &str,
     fingerprints: Vec<String>,
     client_cert: Option<(Vec<u8>, Vec<u8>)>,
     service: &str,
     op: &str,
-    request: &Req,
+    payload: Vec<u8>,
     api_key: Option<&str>,
-) -> Result<Resp, ClientError> {
+) -> Result<Vec<u8>, ClientError> {
     let hostname = extract_hostname(server).to_string();
     let tls_config = tls::client_config(fingerprints, client_cert)
         .map_err(|e| ClientError::Tls(format!("TLS config: {}", e)))?;
-    send_request_with_config(server, tls_config, &hostname, service, op, request, api_key)
+    send_raw_with_config(server, tls_config, &hostname, service, op, payload, api_key)
 }
 
 #[cfg(test)]

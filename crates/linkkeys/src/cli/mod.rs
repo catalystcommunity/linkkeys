@@ -34,6 +34,37 @@ pub enum Commands {
     /// Account self-service commands
     #[command(subcommand)]
     Account(AccountCommands),
+
+    /// Create an encrypted, storage-agnostic backup of the whole database.
+    ///
+    /// The artifact is encrypted in-process with a per-domain 256-bit backup key
+    /// (shown once on first use / rotation — store it offline). Restoring it
+    /// rebuilds the domain with identical signing keys, so public DNS is
+    /// unaffected.
+    Backup {
+        /// Write the encrypted artifact here (default: stdout).
+        #[arg(long, short)]
+        out: Option<String>,
+        /// Rotate the backup key before backing up (prints the new key).
+        #[arg(long)]
+        rotate: bool,
+        /// Do NOT embed DOMAIN_KEY_PASSPHRASE in the bundle (store it separately).
+        #[arg(long)]
+        no_passphrase: bool,
+    },
+
+    /// Restore the database from an encrypted backup artifact.
+    Restore {
+        /// Read the encrypted artifact from here (default: stdin).
+        #[arg(long = "in", short = 'i')]
+        in_file: Option<String>,
+        /// The backup key (64 hex chars). Falls back to LINKKEYS_BACKUP_KEY.
+        #[arg(long)]
+        key: Option<String>,
+        /// Overwrite a non-empty database / restore across domains.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Subcommand)]

@@ -89,9 +89,7 @@ pub fn sign_assertion(
     algorithm: SigningAlgorithm,
     private_key_bytes: &[u8],
 ) -> Result<SignedIdentityAssertion, CryptoError> {
-    let mut assertion_bytes = Vec::new();
-    ciborium::ser::into_writer(assertion, &mut assertion_bytes)
-        .map_err(|e| CryptoError::SigningFailed(format!("CBOR encode failed: {}", e)))?;
+    let assertion_bytes = crate::generated::encode_identity_assertion(assertion);
 
     let signature = crypto::sign_with_algorithm(algorithm, &assertion_bytes, private_key_bytes)?;
 
@@ -129,7 +127,7 @@ pub fn verify_assertion(
         _ => VerifyError::SignatureInvalid,
     })?;
 
-    let assertion: IdentityAssertion = ciborium::de::from_reader(signed.assertion.as_slice())
+    let assertion = crate::generated::decode_identity_assertion(signed.assertion.as_slice())
         .map_err(|e| VerifyError::DeserializationFailed(format!("CBOR decode failed: {}", e)))?;
 
     let expires_at = chrono::DateTime::parse_from_rfc3339(&assertion.expires_at)

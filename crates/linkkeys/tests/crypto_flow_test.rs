@@ -76,8 +76,8 @@ fn test_full_mutual_auth_flow() {
     .unwrap();
 
     // Step 4: IDP encrypts the signed assertion for the RP
-    let mut assertion_cbor = Vec::new();
-    ciborium::ser::into_writer(&signed_assertion, &mut assertion_cbor).unwrap();
+    let assertion_cbor =
+        liblinkkeys::generated::encode_signed_identity_assertion(&signed_assertion);
 
     // The RP has a dedicated X25519 encryption key (NOT derived from its signing key).
     let (rp_enc_pub, rp_enc_priv) = crypto::generate_x25519_keypair();
@@ -107,8 +107,8 @@ fn test_full_mutual_auth_flow() {
     .unwrap();
 
     // Step 7: RP deserializes and verifies the assertion
-    let recovered_signed: liblinkkeys::generated::types::SignedIdentityAssertion =
-        ciborium::de::from_reader(decrypted.as_slice()).unwrap();
+    let recovered_signed =
+        liblinkkeys::generated::decode_signed_identity_assertion(decrypted.as_slice()).unwrap();
     let verified_assertion = assertions::verify_assertion(&recovered_signed, &[idp_key]).unwrap();
 
     assert_eq!(verified_assertion.user_id, "user-uuid-123");

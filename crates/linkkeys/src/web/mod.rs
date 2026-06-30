@@ -1,6 +1,4 @@
-mod account;
 mod account_ui;
-mod admin;
 mod admin_ui;
 mod guard;
 pub mod nonce_store;
@@ -67,8 +65,20 @@ fn cbor_response(data: Vec<u8>) -> (ContentType, Vec<u8>) {
     (ContentType::new("application", "cbor"), data)
 }
 
-fn json_response(data: Vec<u8>) -> (ContentType, Vec<u8>) {
-    (ContentType::JSON, data)
+/// Encode a list of CSIL `DomainClaim`s for opaque storage (the consent grant's
+/// recorded "offered claims"). The generated codec emits one encode/decode per
+/// record type, not for `Vec<T>`, so the list container is a plain CBOR array
+/// whose elements are each claim's canonical codec bytes. Symmetric with
+/// [`decode_domain_claim_list`].
+fn encode_domain_claim_list(claims: &[liblinkkeys::generated::types::DomainClaim]) -> Vec<u8> {
+    let encoded: Vec<Vec<u8>> = claims
+        .iter()
+        .map(liblinkkeys::generated::encode_domain_claim)
+        .collect();
+    let mut out = Vec::new();
+    ciborium::ser::into_writer(&encoded, &mut out)
+        .expect("CBOR serialization of byte-string array cannot fail");
+    out
 }
 
 fn db_err_to_status(e: diesel::result::Error) -> Status {
@@ -536,17 +546,8 @@ fn build_domain_keys_response(pool: &DbPool) -> Result<GetDomainKeysResponse, St
 #[rocket::get("/v1alpha/domain-keys")]
 fn domain_keys_cbor(pool: &State<DbPool>) -> Result<(ContentType, Vec<u8>), Status> {
     let resp = build_domain_keys_response(pool)?;
-    let mut out = Vec::new();
-    ciborium::ser::into_writer(&resp, &mut out).map_err(|_| Status::InternalServerError)?;
+    let out = liblinkkeys::generated::encode_get_domain_keys_response(&resp);
     Ok(cbor_response(out))
-}
-
-// TODO: deprecated, remove later — server-to-server key/handshake/userinfo retrieval moved to the TCP CSIL-RPC transport.
-#[rocket::get("/v1alpha/domain-keys.json")]
-fn domain_keys_json(pool: &State<DbPool>) -> Result<(ContentType, Vec<u8>), Status> {
-    let resp = build_domain_keys_response(pool)?;
-    let out = serde_json::to_vec(&resp).map_err(|_| Status::InternalServerError)?;
-    Ok(json_response(out))
 }
 
 // -- User Keys --
@@ -567,17 +568,8 @@ fn build_user_keys_response(pool: &DbPool, user_id: &str) -> Result<GetUserKeysR
 #[rocket::get("/v1alpha/users/<user_id>/keys")]
 fn user_keys_cbor(pool: &State<DbPool>, user_id: &str) -> Result<(ContentType, Vec<u8>), Status> {
     let resp = build_user_keys_response(pool, user_id)?;
-    let mut out = Vec::new();
-    ciborium::ser::into_writer(&resp, &mut out).map_err(|_| Status::InternalServerError)?;
+    let out = liblinkkeys::generated::encode_get_user_keys_response(&resp);
     Ok(cbor_response(out))
-}
-
-// TODO: deprecated, remove later — server-to-server key/handshake/userinfo retrieval moved to the TCP CSIL-RPC transport.
-#[rocket::get("/v1alpha/users/<user_id>/keys.json")]
-fn user_keys_json(pool: &State<DbPool>, user_id: &str) -> Result<(ContentType, Vec<u8>), Status> {
-    let resp = build_user_keys_response(pool, user_id)?;
-    let out = serde_json::to_vec(&resp).map_err(|_| Status::InternalServerError)?;
-    Ok(json_response(out))
 }
 
 // -- Handshake --
@@ -586,27 +578,13 @@ fn user_keys_json(pool: &State<DbPool>, user_id: &str) -> Result<(ContentType, V
 #[rocket::post("/v1alpha/handshake", data = "<body>")]
 fn handshake_cbor(body: Vec<u8>) -> Result<(ContentType, Vec<u8>), Status> {
     use liblinkkeys::generated::services::Handshake;
-    let request: liblinkkeys::generated::types::HandshakeRequest =
-        ciborium::de::from_reader(&body[..]).map_err(|_| Status::BadRequest)?;
+    let request =
+        liblinkkeys::generated::decode_handshake_request(&body).map_err(|_| Status::BadRequest)?;
     let resp = HandshakeHandler
         .handshake(&(), request)
         .map_err(|_| Status::InternalServerError)?;
-    let mut out = Vec::new();
-    ciborium::ser::into_writer(&resp, &mut out).map_err(|_| Status::InternalServerError)?;
+    let out = liblinkkeys::generated::encode_handshake_response(&resp);
     Ok(cbor_response(out))
-}
-
-// TODO: deprecated, remove later — server-to-server key/handshake/userinfo retrieval moved to the TCP CSIL-RPC transport.
-#[rocket::post("/v1alpha/handshake.json", data = "<body>")]
-fn handshake_json(body: String) -> Result<(ContentType, Vec<u8>), Status> {
-    use liblinkkeys::generated::services::Handshake;
-    let request: liblinkkeys::generated::types::HandshakeRequest =
-        serde_json::from_str(&body).map_err(|_| Status::BadRequest)?;
-    let resp = HandshakeHandler
-        .handshake(&(), request)
-        .map_err(|_| Status::InternalServerError)?;
-    let out = serde_json::to_vec(&resp).map_err(|_| Status::InternalServerError)?;
-    Ok(json_response(out))
 }
 
 // -- Auth: Browser-facing HTML login flow --
@@ -956,12 +934,7 @@ async fn finalize_login(
     // CBOR-record the claims the RP asserted about itself: the non-repudiable
     // evidence of what it offered, recorded even when no user data is released.
     let offered_cbor: Option<Vec<u8>> = match request.relying_party_claims.as_deref() {
-        Some(claims) if !claims.is_empty() => {
-            let mut b = Vec::new();
-            ciborium::ser::into_writer(claims, &mut b)
-                .map_err(|_| "Failed to encode offered claims.".to_string())?;
-            Some(b)
-        }
+        Some(claims) if !claims.is_empty() => Some(encode_domain_claim_list(claims)),
         _ => None,
     };
 
@@ -983,9 +956,7 @@ async fn finalize_login(
             &expires_at,
         )
         .map_err(|_| "Failed to sign consent grant.".to_string())?;
-        let mut grant_bytes = Vec::new();
-        ciborium::ser::into_writer(&signed, &mut grant_bytes)
-            .map_err(|_| "Failed to encode consent grant.".to_string())?;
+        let grant_bytes = liblinkkeys::generated::encode_signed_consent_grant(&signed);
         pool.upsert_consent_grant(
             &grant_id,
             &user.id,
@@ -1355,7 +1326,7 @@ pub async fn validate_signed_request(
 
     // Untrusted preview: we only need `relying_party` to know whose keys
     // to fetch. Every other field is re-read from the verified bytes.
-    let preview: AuthRequest = ciborium::de::from_reader(envelope.request.as_slice())
+    let preview = liblinkkeys::generated::decode_auth_request(envelope.request.as_slice())
         .map_err(|_| ValidateAuthRequestError::Malformed)?;
     let rp_domain = preview.relying_party.clone();
 
@@ -1441,9 +1412,7 @@ pub async fn encrypt_token_for_rp(
     // Decode it back to raw CBOR bytes for encryption.
     let signed_assertion = liblinkkeys::encoding::assertion_from_url_param(token_url_param)
         .map_err(|_| Status::InternalServerError)?;
-    let mut cbor_bytes = Vec::new();
-    ciborium::ser::into_writer(&signed_assertion, &mut cbor_bytes)
-        .map_err(|_| Status::InternalServerError)?;
+    let cbor_bytes = liblinkkeys::generated::encode_signed_identity_assertion(&signed_assertion);
 
     // Encrypt with sealed box
     let sealed = liblinkkeys::crypto::sealed_box_encrypt(&cbor_bytes, &x25519_pub)
@@ -1477,8 +1446,8 @@ pub async fn build_userinfo_signed(
     // Read the (still untrusted) inner request only to learn which relying
     // party is asking. The signature below is verified over these exact bytes,
     // so decoding-before-verifying leaks no trust.
-    let claimed: liblinkkeys::generated::types::UserInfoRequest =
-        ciborium::de::from_reader(signed.request.as_slice()).map_err(|_| Status::BadRequest)?;
+    let claimed = liblinkkeys::generated::decode_user_info_request(signed.request.as_slice())
+        .map_err(|_| Status::BadRequest)?;
 
     // Resolve the relying party's signing keys (RP-inlined + DNS-pinned, or an
     // authoritative fetch) and verify the proof-of-possession over the request.
@@ -1550,12 +1519,11 @@ async fn userinfo_cbor(
     net: &State<Net>,
     body: Vec<u8>,
 ) -> Result<(ContentType, Vec<u8>), Status> {
-    let signed: liblinkkeys::generated::types::SignedUserInfoRequest =
-        ciborium::de::from_reader(&body[..]).map_err(|_| Status::BadRequest)?;
+    let signed = liblinkkeys::generated::decode_signed_user_info_request(&body)
+        .map_err(|_| Status::BadRequest)?;
 
     let resp = build_userinfo_signed(pool, net, &signed).await?;
-    let mut out = Vec::new();
-    ciborium::ser::into_writer(&resp, &mut out).map_err(|_| Status::InternalServerError)?;
+    let out = liblinkkeys::generated::encode_user_info(&resp);
     Ok(cbor_response(out))
 }
 
@@ -1672,11 +1640,8 @@ pub fn build_rocket(
         hello_get,
         hello_post,
         domain_keys_cbor,
-        domain_keys_json,
         user_keys_cbor,
-        user_keys_json,
         handshake_cbor,
-        handshake_json,
         userinfo_cbor,
         rpc_cbor,
     ];
@@ -1701,49 +1666,6 @@ pub fn build_rocket(
         .manage(nonce_store)
         .manage(rp_claims_config)
         .manage(net);
-
-    // Mount RP endpoints when enabled
-    if env::var("ENABLE_RP_ENDPOINTS").unwrap_or_default() == "true" {
-        log::info!("RP endpoints enabled");
-        rocket_instance = rocket_instance.mount(
-            "/",
-            rocket::routes![
-                rp::sign_request_json,
-                rp::decrypt_token_json,
-                rp::verify_assertion_json,
-                rp::fetch_userinfo_json,
-            ],
-        );
-    }
-
-    // Mount admin API endpoints (permission checked in handlers)
-    rocket_instance = rocket_instance.mount(
-        "/",
-        rocket::routes![
-            admin::admin_list_users,
-            admin::admin_get_user,
-            admin::admin_create_user,
-            admin::admin_update_user,
-            admin::admin_deactivate_user,
-            admin::admin_reset_password,
-            admin::admin_remove_credential,
-            admin::admin_set_claim,
-            admin::admin_remove_claim,
-            admin::admin_grant_relation,
-            admin::admin_remove_relation,
-            admin::admin_list_relations,
-            admin::admin_check_permission,
-        ],
-    );
-
-    // Mount account (self-service) API endpoints
-    rocket_instance = rocket_instance.mount(
-        "/",
-        rocket::routes![
-            account::account_change_password,
-            account::account_get_my_info,
-        ],
-    );
 
     // Mount server-rendered HTML UI for account self-service
     rocket_instance = rocket_instance.mount(

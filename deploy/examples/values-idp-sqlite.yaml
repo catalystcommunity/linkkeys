@@ -1,0 +1,47 @@
+# Example: a full LinkKeys IDP for a domain you control, backed by SQLite.
+#
+# SQLite keeps the whole durable identity in one file on a PVC, which makes the
+# encrypted-backup / teardown-rebuild story (docs/LIVE-ENV.md) simple and
+# portable — no postgres-operator required. Copy this, change the hostnames, and
+# point your DNS at the gateway entrypoint.
+
+image:
+  repository: containers.catalystsquad.com/public/catalystcommunity/linkkeys
+
+server:
+  # The domain this IDP is authoritative for (the apex you publish _linkkeys on).
+  domainName: "example.com"
+  # Where the browser-facing HTTPS API is served (the _linkkeys_apis https= host).
+  apiHostname: "linkkeys.example.com"
+  # Public port for URL construction when TLS is terminated at the gateway.
+  publicPort: "443"
+  # TLS is terminated at the gateway/ingress, so the app speaks plain HTTP inward.
+  disableTls: "true"
+  # domainKeyPassphrase is injected as a secret by the deploy tooling, never here.
+
+# Dual-role: serve the IDP login UI AND act as an RP for your own apps.
+# passwordAuth must stay true to keep the login form mounted.
+rp:
+  enabled: true
+  apiKeyAuth: true
+  passwordAuth: true
+
+database:
+  backend: sqlite
+  url: "/data/linkkeys.db"
+
+sqlite:
+  persistence:
+    size: 1Gi
+    # A durable, node-independent storage class is strongly recommended so the
+    # PVC survives pod rescheduling.
+    storageClassName: ""
+
+gateway:
+  httpRoute:
+    enabled: true
+    parentGateway: contour
+    parentNamespace: projectcontour
+    parentSection: http
+    hostnames:
+      - linkkeys.example.com

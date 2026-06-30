@@ -97,8 +97,8 @@ async fn encrypt_token_for_rp_self_rp_round_trips() {
     )
     .expect("sealed_box_decrypt with the domain's own X25519 encryption private key");
 
-    let recovered: liblinkkeys::generated::types::SignedIdentityAssertion =
-        ciborium::de::from_reader(plaintext.as_slice()).unwrap();
+    let recovered =
+        liblinkkeys::generated::decode_signed_identity_assertion(plaintext.as_slice()).unwrap();
     let domain_pub = liblinkkeys::generated::types::DomainPublicKey::from(&domain_key);
     let verified = assertions::verify_assertion(&recovered, &[domain_pub]).unwrap();
 

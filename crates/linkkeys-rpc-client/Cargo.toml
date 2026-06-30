@@ -13,6 +13,9 @@ edition = "2021"
 
 [dependencies]
 liblinkkeys = { path = "../liblinkkeys" }
+# Canonical CSIL-RPC envelope codec (tag-24 payload framing). Reusing this keeps
+# the client's wire format in lockstep with the server, which speaks the same.
+csilgen-transport = { path = "../csilgen-transport" }
 
 # Serialization
 ciborium = "0.2"

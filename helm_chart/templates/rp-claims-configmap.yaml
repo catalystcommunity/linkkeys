@@ -1,0 +1,14 @@
+{{- if .Values.rp.claimsConfig }}
+# The RP claims request config (rp-claims.toml), mounted at /config/rp-claims.toml
+# and pointed to by RP_CLAIMS_CONFIG. Declares the `[[required]]` / `[[optional]]`
+# claims this server requests from an IDP at login.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "linkkeys.fullname" . }}-rp-claims
+  labels:
+    {{- include "linkkeys.labels" . | nindent 4 }}
+data:
+  rp-claims.toml: |
+{{ .Values.rp.claimsConfig | indent 4 }}
+{{- end }}

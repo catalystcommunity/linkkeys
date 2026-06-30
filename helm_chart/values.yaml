@@ -34,6 +34,10 @@ server:
   # API hostname if different from domainName (e.g., "linkkeys.todandlorna.com")
   # Used as the _linkkeys_apis https= host. Defaults to domainName if not set.
   apiHostname: ""
+  # TCP protocol hostname advertised in the _linkkeys_apis tcp= value. Defaults
+  # to domainName if not set; set to the API host (e.g. "linkkeys.example.com")
+  # when the protocol port is reached at the same host as the API.
+  tcpHostname: ""
   # Public-facing port for API URL construction (when behind a gateway/LB).
   # Overrides httpsPort for dns-check output. Set to "443" when TLS is terminated at ingress.
   publicPort: ""
@@ -43,6 +47,12 @@ server:
   # disabled — there is intentionally no knob for it. (deploy-08)
   # Disable TLS on the HTTP transport (use when behind TLS-terminating ingress/gateway)
   disableTls: "false"
+  # Comma-separated claim types this domain ALWAYS releases at consent (audience *),
+  # shown locked (not user-choosable). Seeded on first boot when no release policies
+  # exist. e.g. "email,display_name".
+  consentForcedAllow: ""
+  # Comma-separated claim types this domain NEVER releases (deny wins).
+  consentForcedDeny: ""
 
 # Relying party mode — set these to run the same image as an RP server.
 # An RP is a LinkKeys server that holds domain keys and signs/decrypts
@@ -56,6 +66,17 @@ rp:
   passwordAuth: false
   # Accept invalid TLS certs when fetching domain keys (development only)
   allowInvalidCerts: "false"
+  # TOML declaring the claims this server requests from an IDP at login (when it
+  # acts as a relying party). Rendered to /config/rp-claims.toml + RP_CLAIMS_CONFIG.
+  # Example:
+  #   claimsConfig: |
+  #     [[required]]
+  #     claim_type = "email"
+  #     datatype = "email"
+  #     [[optional]]
+  #     claim_type = "handle"
+  #     datatype = "text"
+  claimsConfig: ""
 
 # SQLite persistent storage — enabled automatically when database.backend is sqlite
 sqlite:

@@ -131,7 +131,7 @@ pub fn load_signed_domain_claims() -> Vec<DomainClaim> {
             );
             continue;
         };
-        match ciborium::de::from_reader::<DomainClaim, _>(&cbor[..]) {
+        match liblinkkeys::generated::decode_domain_claim(&cbor) {
             Ok(claim) => out.push(claim),
             Err(e) => log::warn!(
                 "RP_DOMAIN_CLAIMS_SIGNED line {} is not a DomainClaim ({}); skipping",

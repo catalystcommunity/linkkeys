@@ -1,0 +1,60 @@
+# squizzlezig.com — a SQLite-backed IDP test instance in the foundry cluster.
+#
+# Mirrors the live todandlorna IDP pattern but on SQLite, which keeps the whole
+# durable identity in one PVC file — making the encrypted-backup / teardown-
+# rebuild story (docs/LIVE-ENV.md) simple. Used for testing real login flows
+# against the linkidspec.com demo with squizzlezig accounts.
+image:
+  repository: containers.catalystsquad.com/public/catalystcommunity/linkkeys
+
+server:
+  domainName: "squizzlezig.com"
+  apiHostname: "linkkeys.squizzlezig.com"
+  # The protocol (TCP) endpoint is reached at the same host as the API.
+  tcpHostname: "linkkeys.squizzlezig.com"
+  publicPort: "443"
+  disableTls: "true"
+  # Domain policy: always release email + display_name (locked on consent); the
+  # user decides on everything else (e.g. handle, address).
+  consentForcedAllow: "email,display_name"
+
+# Dual-role: serve the IDP login UI AND act as an RP. passwordAuth stays true so
+# the login form remains mounted.
+rp:
+  enabled: true
+  apiKeyAuth: true
+  passwordAuth: true
+
+database:
+  backend: sqlite
+  url: "/data/linkkeys-squizzlezig.db"
+
+sqlite:
+  persistence:
+    size: 1Gi
+    storageClassName: longhorn
+
+gateway:
+  httpRoute:
+    enabled: true
+    parentGateway: contour
+    parentNamespace: projectcontour
+    parentSection: http
+    hostnames:
+      - linkkeys.squizzlezig.com
+  # SNI-routed TLS passthrough for the LinkKeys protocol port (4987). The app
+  # does its own mutual TLS with the domain keys, so the gateway must NOT
+  # terminate — the parent listener is protocol: TLS, mode: Passthrough. The
+  # gateway controller (foundry) materializes the `linkkeys-tls` listener from
+  # this TLSRoute.
+  tlsRoute:
+    enabled: true
+    parentGateway: contour
+    parentNamespace: projectcontour
+    # No sectionName: the foundry gateway controller materializes a listener
+    # named `gw-tls-4987`, and TLSRoutes attach to it by port + SNI (multiple
+    # domains share the listener). Pinning a sectionName like "linkkeys-tls"
+    # never matches the controller's `gw-<proto>-<port>` naming.
+    parentSection: ""
+    hostnames:
+      - linkkeys.squizzlezig.com
