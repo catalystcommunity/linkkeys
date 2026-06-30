@@ -9,7 +9,9 @@ rp:
   tcpAddr: "linkkeys-rp.linkkeys-rp.svc.cluster.local:4987"
   # Pin the RP server's TLS cert to its published fingerprints (the RP domain's
   # _linkkeys fp= values). Comma-separated. Set via overlay if it varies.
-  fingerprints: ""
+  # These are linkidspec.com's current signing-key fingerprints (must match
+  # _linkkeys.linkidspec.com). If the RP's keys change, update these.
+  fingerprints: "90e325451819c1b7d78346fbcd9b9625b46a86256844546ca9ce57079a9ff14d,cb8092fca98941607b5e428d9ac2c002915864768667f8a2e811a93bfb3dacbf,0b779e9ef24bd3fb42c1cc805af66efae90570b74bc34d744efd61ed94a7dacb"
   # apiKey: set via overlay secret
   domain: "linkidspec.com"
 

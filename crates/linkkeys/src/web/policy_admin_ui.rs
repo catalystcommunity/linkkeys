@@ -456,8 +456,8 @@ pub fn reject(
 fn decode_request(b64: &str) -> Option<(SignedSigningRequest, SigningRequest)> {
     use base64ct::{Base64UrlUnpadded, Encoding as _};
     let bytes = Base64UrlUnpadded::decode_vec(b64.trim()).ok()?;
-    let signed: SignedSigningRequest = ciborium::de::from_reader(&bytes[..]).ok()?;
-    let req: SigningRequest = ciborium::de::from_reader(&signed.request[..]).ok()?;
+    let signed = liblinkkeys::generated::decode_signed_signing_request(&bytes).ok()?;
+    let req = liblinkkeys::generated::decode_signing_request(&signed.request).ok()?;
     Some((signed, req))
 }
 
@@ -659,10 +659,7 @@ pub async fn issue_sign(
                         dom = html_escape(&req.subject_domain),
                     )),
                     Err(e) => {
-                        let mut cbor = Vec::new();
-                        if ciborium::ser::into_writer(&claim, &mut cbor).is_err() {
-                            continue;
-                        }
+                        let cbor = liblinkkeys::generated::encode_claim(&claim);
                         let b64 = Base64UrlUnpadded::encode_string(&cbor);
                         let qr = qr_svg(&b64)
                             .unwrap_or_else(|| "<p>(too large for a QR code)</p>".to_string());

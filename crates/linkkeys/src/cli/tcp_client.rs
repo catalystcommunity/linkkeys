@@ -6,7 +6,6 @@
 //! the `LINKKEYS_FINGERPRINTS` escape hatch) and loading this process's own
 //! domain cert from the database for mutual TLS.
 
-use serde::Serialize;
 use std::sync::Arc;
 
 pub use linkkeys_rpc_client::ClientError;
@@ -82,19 +81,21 @@ fn load_own_domain_cert() -> Result<(Vec<u8>, Vec<u8>), Box<dyn std::error::Erro
     linkkeys::tcp::tls::generate_domain_tls_cert(&domain_name, &seed)
 }
 
-/// Send a request to a LinkKeys server and return the response payload.
-/// All connections use TLS with fingerprint-based verification.
-/// The server's certificate is verified against DNS-published fingerprints.
-pub fn send_request<Req: Serialize, Resp: serde::de::DeserializeOwned>(
+/// Send a pre-encoded CBOR `payload` to a LinkKeys server and return the raw
+/// response payload bytes. All connections use TLS with fingerprint-based
+/// verification; the server's certificate is verified against DNS-published
+/// fingerprints. Callers encode the request and decode the response with the
+/// CSIL codec.
+pub fn send_request(
     server: &str,
     service: &str,
     op: &str,
-    request: &Req,
+    payload: Vec<u8>,
     api_key: Option<&str>,
-) -> Result<Resp, ClientError> {
+) -> Result<Vec<u8>, ClientError> {
     let (tls_config, hostname) = resolve_tls_config(server)?;
-    linkkeys_rpc_client::send_request_with_config(
-        server, tls_config, &hostname, service, op, request, api_key,
+    linkkeys_rpc_client::send_raw_with_config(
+        server, tls_config, &hostname, service, op, payload, api_key,
     )
 }
 

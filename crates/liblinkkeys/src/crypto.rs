@@ -341,6 +341,49 @@ pub fn decrypt_private_key(encrypted: &[u8], passphrase: &[u8]) -> Result<Vec<u8
         .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))
 }
 
+/// Magic header for backup bundles encrypted with a full-entropy 256-bit key.
+const BACKUP_MAGIC_V1: [u8; 4] = *b"LKB1";
+
+/// Encrypt arbitrary bytes under a full-entropy 256-bit key using AES-256-GCM.
+///
+/// Unlike [`encrypt_private_key`], this takes the AES key directly — no Argon2id
+/// key-derivation — because the key is already 256 bits of randomness (e.g. a
+/// per-domain backup key). This is the right primitive when the secret is a
+/// generated key stored separately, not a human passphrase.
+///
+/// Output (v1): `magic(4) || nonce(12) || ciphertext`.
+pub fn encrypt_with_key(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+    let cipher =
+        Aes256Gcm::new_from_slice(key).map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
+    let nonce_bytes: [u8; 12] = rand::random();
+    let ciphertext = cipher
+        .encrypt(Nonce::from_slice(&nonce_bytes), plaintext)
+        .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
+
+    let mut result = Vec::with_capacity(4 + 12 + ciphertext.len());
+    result.extend_from_slice(&BACKUP_MAGIC_V1);
+    result.extend_from_slice(&nonce_bytes);
+    result.extend_from_slice(&ciphertext);
+    Ok(result)
+}
+
+/// Decrypt bytes produced by [`encrypt_with_key`]. Fails (AEAD auth error) on a
+/// wrong key or any tampering.
+pub fn decrypt_with_key(key: &[u8; 32], encrypted: &[u8]) -> Result<Vec<u8>, CryptoError> {
+    if encrypted.len() < 4 + 12 || encrypted[..4] != BACKUP_MAGIC_V1 {
+        return Err(CryptoError::DecryptionFailed(
+            "not a recognized backup bundle (bad magic or too short)".to_string(),
+        ));
+    }
+    let cipher =
+        Aes256Gcm::new_from_slice(key).map_err(|e| CryptoError::DecryptionFailed(e.to_string()))?;
+    let nonce_bytes = &encrypted[4..16];
+    let ciphertext = &encrypted[16..];
+    cipher
+        .decrypt(Nonce::from_slice(nonce_bytes), ciphertext)
+        .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))
+}
+
 // NOTE: Ed25519→X25519 conversion helpers were removed (crypto-03). Signing and
 // encryption keys are now separate: encryption keys are generated independently
 // via `generate_x25519_keypair`, never derived from a signing key.
@@ -591,6 +634,39 @@ mod tests {
     #[test]
     fn test_decrypt_too_short_fails() {
         assert!(decrypt_private_key(b"short", b"pass").is_err());
+    }
+
+    #[test]
+    fn test_encrypt_with_key_roundtrip() {
+        let key: [u8; 32] = rand::random();
+        let plaintext = b"a backup bundle of arbitrary length \x00\x01\x02";
+        let blob = encrypt_with_key(&key, plaintext).unwrap();
+        assert_eq!(&blob[..4], &BACKUP_MAGIC_V1);
+        let out = decrypt_with_key(&key, &blob).unwrap();
+        assert_eq!(plaintext.as_slice(), out.as_slice());
+    }
+
+    #[test]
+    fn test_decrypt_with_wrong_key_fails() {
+        let key: [u8; 32] = rand::random();
+        let wrong: [u8; 32] = rand::random();
+        let blob = encrypt_with_key(&key, b"secret").unwrap();
+        assert!(decrypt_with_key(&wrong, &blob).is_err());
+    }
+
+    #[test]
+    fn test_decrypt_with_key_tamper_fails() {
+        let key: [u8; 32] = rand::random();
+        let mut blob = encrypt_with_key(&key, b"secret payload").unwrap();
+        let last = blob.len() - 1;
+        blob[last] ^= 0xff;
+        assert!(decrypt_with_key(&key, &blob).is_err());
+    }
+
+    #[test]
+    fn test_decrypt_with_key_bad_magic_fails() {
+        let key: [u8; 32] = rand::random();
+        assert!(decrypt_with_key(&key, b"XXXXnotabundle").is_err());
     }
 
     #[test]

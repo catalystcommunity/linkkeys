@@ -7,7 +7,7 @@
 mod common;
 
 use common::data_factory::{create_auth_credential, create_domain_key, create_user, DataMap};
-use liblinkkeys::generated::types::{RpSignRequest, RpSignResponse, RpVerifyRequest};
+use liblinkkeys::generated::types::{RpSignRequest, RpVerifyRequest};
 use linkkeys::services::auth;
 
 const TEST_DOMAIN: &str = "rp.test";
@@ -26,16 +26,10 @@ fn api_key_for(pool: &linkkeys::db::DbPool, user_id: &str) -> String {
 }
 
 fn sign_request_payload() -> Vec<u8> {
-    let mut payload = Vec::new();
-    ciborium::ser::into_writer(
-        &RpSignRequest {
-            callback_url: "https://rp.test/callback".to_string(),
-            nonce: "nonce-1".to_string(),
-        },
-        &mut payload,
-    )
-    .unwrap();
-    payload
+    liblinkkeys::generated::encode_rp_sign_request(&RpSignRequest {
+        callback_url: "https://rp.test/callback".to_string(),
+        nonce: "nonce-1".to_string(),
+    })
 }
 
 #[test]
@@ -73,7 +67,8 @@ fn rp_sign_request_happy_path() {
         status, 0,
         "sign-request should succeed with auth + a signing key"
     );
-    let resp: RpSignResponse = ciborium::de::from_reader(&body[..]).expect("decode RpSignResponse");
+    let resp =
+        liblinkkeys::generated::decode_rp_sign_response(&body).expect("decode RpSignResponse");
     assert!(
         !resp.signed_request.is_empty(),
         "a signed auth request is returned"
@@ -102,15 +97,10 @@ fn rp_verify_assertion_needs_outbound_context() {
     let user = create_user(&pool, &DataMap::new());
     let api_key = api_key_for(&pool, &user.id);
 
-    let mut payload = Vec::new();
-    ciborium::ser::into_writer(
-        &RpVerifyRequest {
-            signed_assertion: "AAAA".to_string(),
-            expected_domain: "other.test".to_string(),
-        },
-        &mut payload,
-    )
-    .unwrap();
+    let payload = liblinkkeys::generated::encode_rp_verify_request(&RpVerifyRequest {
+        signed_assertion: "AAAA".to_string(),
+        expected_domain: "other.test".to_string(),
+    });
 
     // The test seam provides no outbound context, so the onward call to the
     // issuing IDP is refused before any network access — authenticated, but

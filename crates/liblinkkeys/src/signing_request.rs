@@ -125,9 +125,7 @@ pub fn sign_signing_request(
         callback: spec.callback.map(str::to_string),
     };
 
-    let mut request_bytes = Vec::new();
-    ciborium::ser::into_writer(&request, &mut request_bytes)
-        .expect("CBOR serialization of signing request cannot fail");
+    let request_bytes = crate::generated::encode_signing_request(&request);
 
     let mut signatures = Vec::with_capacity(signers.len());
     for signer in signers {
@@ -173,7 +171,7 @@ pub fn verify_signing_request(
     issuer_domain: &str,
     domain_keys: &[DomainKeySet],
 ) -> Result<SigningRequest, SigningRequestError> {
-    let request: SigningRequest = ciborium::de::from_reader(&signed.request[..])
+    let request = crate::generated::decode_signing_request(&signed.request[..])
         .map_err(|_| SigningRequestError::Malformed)?;
 
     if signed.signatures.is_empty() {
@@ -300,10 +298,9 @@ mod tests {
         let (mut signed, pk, kid) = spec_signed(&exp);
         // Flip a byte in the encoded request → decoded fields no longer match the
         // signed payload.
-        let mut req: SigningRequest = ciborium::de::from_reader(&signed.request[..]).unwrap();
+        let mut req = crate::generated::decode_signing_request(&signed.request[..]).unwrap();
         req.subject_user_id = "user-2".to_string();
-        let mut bytes = Vec::new();
-        ciborium::ser::into_writer(&req, &mut bytes).unwrap();
+        let bytes = crate::generated::encode_signing_request(&req);
         signed.request = bytes;
         let keys = vec![keyset("home.test", &kid, &pk)];
         assert!(matches!(

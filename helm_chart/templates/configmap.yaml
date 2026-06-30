@@ -18,11 +18,28 @@ data:
   {{- if .Values.server.apiHostname }}
   API_HOSTNAME: {{ .Values.server.apiHostname | quote }}
   {{- end }}
+  {{- if .Values.server.tcpHostname }}
+  TCP_HOSTNAME: {{ .Values.server.tcpHostname | quote }}
+  {{- end }}
   {{- if .Values.server.publicPort }}
   PUBLIC_PORT: {{ .Values.server.publicPort | quote }}
   {{- end }}
   {{- if eq .Values.server.disableTls "true" }}
   DISABLE_TLS: "true"
+  {{- end }}
+  {{- if .Values.server.consentForcedAllow }}
+  # Comma-separated claim types this domain ALWAYS releases (audience *), shown
+  # locked (not user-choosable) on the consent screen. Seeded into release_policies
+  # on first boot (when no release policies exist yet).
+  CONSENT_FORCED_ALLOW: {{ .Values.server.consentForcedAllow | quote }}
+  {{- end }}
+  {{- if .Values.server.consentForcedDeny }}
+  CONSENT_FORCED_DENY: {{ .Values.server.consentForcedDeny | quote }}
+  {{- end }}
+  {{- if .Values.rp.claimsConfig }}
+  # When this server acts as a relying party, the TOML at this path declares the
+  # claims it requests at login (rendered from .Values.rp.claimsConfig).
+  RP_CLAIMS_CONFIG: "/config/rp-claims.toml"
   {{- end }}
   {{- if .Values.rp.enabled }}
   ENABLE_RP_ENDPOINTS: "true"

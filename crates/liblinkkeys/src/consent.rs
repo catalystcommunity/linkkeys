@@ -158,9 +158,7 @@ pub fn sign_consent(
         revoked_at: None,
     };
 
-    let mut grant_bytes = Vec::new();
-    ciborium::ser::into_writer(&grant, &mut grant_bytes)
-        .expect("CBOR serialization of consent grant cannot fail");
+    let grant_bytes = crate::generated::encode_consent_grant(&grant);
 
     let mut signatures = Vec::with_capacity(signers.len());
     for signer in signers {
@@ -208,8 +206,8 @@ pub fn verify_consent(
     audience: &str,
     domain_keys: &[DomainKeySet],
 ) -> Result<ConsentGrant, ConsentError> {
-    let grant: ConsentGrant =
-        ciborium::de::from_reader(&signed.grant[..]).map_err(|_| ConsentError::Malformed)?;
+    let grant = crate::generated::decode_consent_grant(&signed.grant[..])
+        .map_err(|_| ConsentError::Malformed)?;
 
     if signed.signatures.is_empty() {
         return Err(ConsentError::Unsigned);
@@ -531,10 +529,9 @@ mod tests {
         let signed = signed_grant("key-1", &sk, &types(&["email"]), RP);
         // Decode, widen the authorized set, re-encode the grant bytes. The
         // signature is over the original set, so verification must fail.
-        let mut grant: ConsentGrant = ciborium::de::from_reader(&signed.grant[..]).unwrap();
+        let mut grant = crate::generated::decode_consent_grant(&signed.grant[..]).unwrap();
         grant.claim_types = types(&["email", "ssn"]);
-        let mut grant_bytes = Vec::new();
-        ciborium::ser::into_writer(&grant, &mut grant_bytes).unwrap();
+        let grant_bytes = crate::generated::encode_consent_grant(&grant);
         let tampered = SignedConsentGrant {
             grant: grant_bytes,
             signatures: signed.signatures,
@@ -557,10 +554,9 @@ mod tests {
         // is bound into the signature.
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let signed = signed_grant("key-1", &sk, &types(&["email"]), RP);
-        let mut grant: ConsentGrant = ciborium::de::from_reader(&signed.grant[..]).unwrap();
+        let mut grant = crate::generated::decode_consent_grant(&signed.grant[..]).unwrap();
         grant.audience = "other.example".to_string();
-        let mut grant_bytes = Vec::new();
-        ciborium::ser::into_writer(&grant, &mut grant_bytes).unwrap();
+        let grant_bytes = crate::generated::encode_consent_grant(&grant);
         let tampered = SignedConsentGrant {
             grant: grant_bytes,
             signatures: signed.signatures,
@@ -611,10 +607,9 @@ mod tests {
     fn test_consent_revoked_rejected() {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let signed = signed_grant("key-1", &sk, &types(&["email"]), RP);
-        let mut grant: ConsentGrant = ciborium::de::from_reader(&signed.grant[..]).unwrap();
+        let mut grant = crate::generated::decode_consent_grant(&signed.grant[..]).unwrap();
         grant.revoked_at = Some(Utc::now().to_rfc3339());
-        let mut grant_bytes = Vec::new();
-        ciborium::ser::into_writer(&grant, &mut grant_bytes).unwrap();
+        let grant_bytes = crate::generated::encode_consent_grant(&grant);
         let revoked = SignedConsentGrant {
             grant: grant_bytes,
             signatures: signed.signatures,

@@ -71,8 +71,9 @@ fn call_get_user_info(
     token_bytes: Vec<u8>,
     client_domain: &str,
 ) -> (i32, Option<UserInfo>) {
-    let mut payload = Vec::new();
-    ciborium::ser::into_writer(&GetUserInfoRequest { token: token_bytes }, &mut payload).unwrap();
+    let payload = liblinkkeys::generated::encode_get_user_info_request(&GetUserInfoRequest {
+        token: token_bytes,
+    });
     let (status, body) = linkkeys::tcp::dispatch_for_test(
         "Identity",
         "get-user-info",
@@ -81,7 +82,7 @@ fn call_get_user_info(
         Some(client_domain),
     );
     let info = if status == 0 {
-        Some(ciborium::de::from_reader(&body[..]).expect("decode UserInfo"))
+        Some(liblinkkeys::generated::decode_user_info(&body).expect("decode UserInfo"))
     } else {
         None
     };

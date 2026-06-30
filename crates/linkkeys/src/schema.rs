@@ -13,6 +13,15 @@ pub mod pg {
     }
 
     diesel::table! {
+        backup_keys (id) {
+            id -> Uuid,
+            key_encrypted -> Binary,
+            created_at -> Timestamptz,
+            rotated_at -> Nullable<Timestamptz>,
+        }
+    }
+
+    diesel::table! {
         domain_keys (id) {
             id -> Uuid,
             public_key -> Binary,
@@ -249,6 +258,7 @@ pub mod pg {
     diesel::joinable!(claim_approval_queue -> users (user_id));
     diesel::allow_tables_to_appear_in_same_query!(
         guestbook_entries,
+        backup_keys,
         domain_keys,
         users,
         auth_credentials,
@@ -277,6 +287,15 @@ pub mod sqlite {
             name -> Text,
             created_at -> Text,
             updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        backup_keys (id) {
+            id -> Text,
+            key_encrypted -> Binary,
+            created_at -> Text,
+            rotated_at -> Nullable<Text>,
         }
     }
 
@@ -517,6 +536,7 @@ pub mod sqlite {
     diesel::joinable!(claim_approval_queue -> users (user_id));
     diesel::allow_tables_to_appear_in_same_query!(
         guestbook_entries,
+        backup_keys,
         domain_keys,
         users,
         auth_credentials,

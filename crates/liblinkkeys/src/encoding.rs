@@ -22,9 +22,7 @@ impl std::error::Error for DecodeError {}
 /// Encode a SignedIdentityAssertion to a URL-safe string.
 /// CBOR-encodes the struct, then base64url-encodes (no padding).
 pub fn assertion_to_url_param(signed: &SignedIdentityAssertion) -> Result<String, DecodeError> {
-    let mut cbor_bytes = Vec::new();
-    ciborium::ser::into_writer(signed, &mut cbor_bytes)
-        .map_err(|e| DecodeError::CborFailed(format!("encode: {}", e)))?;
+    let cbor_bytes = crate::generated::encode_signed_identity_assertion(signed);
     Ok(Base64UrlUnpadded::encode_string(&cbor_bytes))
 }
 
@@ -33,15 +31,13 @@ pub fn assertion_to_url_param(signed: &SignedIdentityAssertion) -> Result<String
 pub fn assertion_from_url_param(param: &str) -> Result<SignedIdentityAssertion, DecodeError> {
     let cbor_bytes = Base64UrlUnpadded::decode_vec(param)
         .map_err(|e| DecodeError::Base64Failed(e.to_string()))?;
-    ciborium::de::from_reader(cbor_bytes.as_slice())
+    crate::generated::decode_signed_identity_assertion(cbor_bytes.as_slice())
         .map_err(|e| DecodeError::CborFailed(format!("decode: {}", e)))
 }
 
 /// Encode a SignedAuthRequest to a URL-safe string.
 pub fn signed_auth_request_to_url_param(signed: &SignedAuthRequest) -> Result<String, DecodeError> {
-    let mut cbor_bytes = Vec::new();
-    ciborium::ser::into_writer(signed, &mut cbor_bytes)
-        .map_err(|e| DecodeError::CborFailed(format!("encode: {}", e)))?;
+    let cbor_bytes = crate::generated::encode_signed_auth_request(signed);
     Ok(Base64UrlUnpadded::encode_string(&cbor_bytes))
 }
 
@@ -49,15 +45,13 @@ pub fn signed_auth_request_to_url_param(signed: &SignedAuthRequest) -> Result<St
 pub fn signed_auth_request_from_url_param(param: &str) -> Result<SignedAuthRequest, DecodeError> {
     let cbor_bytes = Base64UrlUnpadded::decode_vec(param)
         .map_err(|e| DecodeError::Base64Failed(e.to_string()))?;
-    ciborium::de::from_reader(cbor_bytes.as_slice())
+    crate::generated::decode_signed_auth_request(cbor_bytes.as_slice())
         .map_err(|e| DecodeError::CborFailed(format!("decode: {}", e)))
 }
 
 /// Encode an EncryptedToken to a URL-safe string.
 pub fn encrypted_token_to_url_param(token: &EncryptedToken) -> Result<String, DecodeError> {
-    let mut cbor_bytes = Vec::new();
-    ciborium::ser::into_writer(token, &mut cbor_bytes)
-        .map_err(|e| DecodeError::CborFailed(format!("encode: {}", e)))?;
+    let cbor_bytes = crate::generated::encode_encrypted_token(token);
     Ok(Base64UrlUnpadded::encode_string(&cbor_bytes))
 }
 
@@ -65,7 +59,7 @@ pub fn encrypted_token_to_url_param(token: &EncryptedToken) -> Result<String, De
 pub fn encrypted_token_from_url_param(param: &str) -> Result<EncryptedToken, DecodeError> {
     let cbor_bytes = Base64UrlUnpadded::decode_vec(param)
         .map_err(|e| DecodeError::Base64Failed(e.to_string()))?;
-    ciborium::de::from_reader(cbor_bytes.as_slice())
+    crate::generated::decode_encrypted_token(cbor_bytes.as_slice())
         .map_err(|e| DecodeError::CborFailed(format!("decode: {}", e)))
 }
 

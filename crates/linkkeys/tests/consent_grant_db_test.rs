@@ -34,9 +34,16 @@ fn consent_grant_records_offered_claims() {
         }],
     )
     .unwrap();
+    // Offered claims are stored as a CBOR array of each claim's canonical codec
+    // bytes (the generated codec has no `Vec<DomainClaim>` helper), matching the
+    // server's `encode_domain_claim_list`.
     let offered = vec![claim];
+    let encoded: Vec<Vec<u8>> = offered
+        .iter()
+        .map(liblinkkeys::generated::encode_domain_claim)
+        .collect();
     let mut offered_cbor = Vec::new();
-    ciborium::ser::into_writer(&offered, &mut offered_cbor).unwrap();
+    ciborium::ser::into_writer(&encoded, &mut offered_cbor).unwrap();
 
     let now = chrono::Utc::now();
     let issued = now.to_rfc3339();
@@ -62,7 +69,11 @@ fn consent_grant_records_offered_claims() {
 
     assert_eq!(row.claim_types, vec!["email".to_string()]);
     let recorded = row.offered_claims.expect("offered_claims recorded");
-    let decoded: Vec<DomainClaim> = ciborium::de::from_reader(&recorded[..]).unwrap();
+    let encoded: Vec<Vec<u8>> = ciborium::de::from_reader(&recorded[..]).unwrap();
+    let decoded: Vec<DomainClaim> = encoded
+        .iter()
+        .map(|b| liblinkkeys::generated::decode_domain_claim(b).unwrap())
+        .collect();
     assert_eq!(decoded.len(), 1);
     assert_eq!(decoded[0].claim_type, "privacy_policy");
     assert_eq!(decoded[0].claim_value, b"GDPR-strict-v1");

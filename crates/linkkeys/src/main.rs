@@ -108,7 +108,138 @@ async fn main() {
         }
         Commands::Relation(cmd) => handle_relation_command(cmd),
         Commands::Account(cmd) => handle_account_command(cmd),
+        Commands::Backup {
+            out,
+            rotate,
+            no_passphrase,
+        } => backup_run(out.as_deref(), rotate, !no_passphrase),
+        Commands::Restore {
+            in_file,
+            key,
+            force,
+        } => restore_run(in_file.as_deref(), key.as_deref(), force),
     }
+}
+
+/// Create an encrypted backup and write it to `--out` (or stdout). The backup
+/// key is printed to stderr only when it was just generated or rotated.
+fn backup_run(out: Option<&str>, rotate: bool, include_passphrase: bool) {
+    let passphrase = get_passphrase();
+    let db_pool = pool_with_migrations();
+
+    let result = linkkeys::backup::create_backup(
+        &db_pool,
+        &passphrase,
+        linkkeys::backup::BackupOptions {
+            rotate,
+            include_passphrase,
+        },
+    )
+    .unwrap_or_else(|e| {
+        eprintln!("Backup failed: {e}");
+        std::process::exit(1);
+    });
+
+    match out {
+        Some(path) => {
+            std::fs::write(path, &result.ciphertext).unwrap_or_else(|e| {
+                eprintln!("Failed to write {path}: {e}");
+                std::process::exit(1);
+            });
+            eprintln!(
+                "Backup written to {path} ({} bytes) for domain {}",
+                result.ciphertext.len(),
+                result.domain
+            );
+        }
+        None => {
+            use std::io::Write;
+            std::io::stdout()
+                .write_all(&result.ciphertext)
+                .unwrap_or_else(|e| {
+                    eprintln!("Failed to write backup to stdout: {e}");
+                    std::process::exit(1);
+                });
+        }
+    }
+
+    if let Some(key) = result.new_key {
+        eprintln!();
+        eprintln!("==================== BACKUP KEY (SAVE THIS NOW) ====================");
+        eprintln!("{}", linkkeys::backup::key_to_hex(&key));
+        eprintln!("This is the ONLY way to decrypt your backups. Store it offline");
+        eprintln!("(password manager / safe deposit box). It will not be shown again.");
+        eprintln!("===================================================================");
+    }
+}
+
+/// Restore the database from an encrypted backup artifact.
+fn restore_run(in_file: Option<&str>, key: Option<&str>, force: bool) {
+    let db_pool = pool_with_migrations();
+
+    let key_hex = key
+        .map(|s| s.to_string())
+        .or_else(|| std::env::var("LINKKEYS_BACKUP_KEY").ok())
+        .unwrap_or_else(|| {
+            eprintln!("Error: provide --key <hex> or set LINKKEYS_BACKUP_KEY");
+            std::process::exit(1);
+        });
+    let key = linkkeys::backup::key_from_hex(&key_hex).unwrap_or_else(|e| {
+        eprintln!("Invalid backup key: {e}");
+        std::process::exit(1);
+    });
+
+    let bytes = match in_file {
+        Some(path) => std::fs::read(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read {path}: {e}");
+            std::process::exit(1);
+        }),
+        None => {
+            use std::io::Read;
+            let mut buf = Vec::new();
+            std::io::stdin().read_to_end(&mut buf).unwrap_or_else(|e| {
+                eprintln!("Failed to read backup from stdin: {e}");
+                std::process::exit(1);
+            });
+            buf
+        }
+    };
+
+    let result = linkkeys::backup::restore_backup(
+        &db_pool,
+        &bytes,
+        linkkeys::backup::RestoreOptions { key, force },
+    )
+    .unwrap_or_else(|e| {
+        eprintln!("Restore failed: {e}");
+        std::process::exit(1);
+    });
+
+    println!("Restored domain: {}", result.domain);
+    println!(
+        "Recovered signing fingerprints ({}):",
+        result.fingerprints.len()
+    );
+    for fp in &result.fingerprints {
+        println!("  {fp}");
+    }
+
+    if let Some(bundle_pass) = &result.passphrase_in_bundle {
+        match std::env::var("DOMAIN_KEY_PASSPHRASE") {
+            Ok(env_pass) if &env_pass == bundle_pass => {}
+            Ok(_) => eprintln!(
+                "WARNING: the DOMAIN_KEY_PASSPHRASE in this environment does NOT match the \
+                 backup's. The restored domain keys will not decrypt until the server runs \
+                 with the original passphrase."
+            ),
+            Err(_) => eprintln!(
+                "NOTE: run the server with the DOMAIN_KEY_PASSPHRASE from when this backup was \
+                 taken so the restored domain keys decrypt."
+            ),
+        }
+    }
+
+    println!("Restore complete. Confirm the fingerprints above match your _linkkeys DNS record.");
 }
 
 /// Run startup TRANSFORMS in order. A transform is an idempotent data operation
@@ -503,6 +634,30 @@ fn user_create(
 
 // --- TCP-based command handlers ---
 
+/// Encode `req` with the CSIL codec, send it over TCP to the given service/op,
+/// and decode the response — exiting with a message on any transport or decode
+/// error. Centralizes the uniform CLI error handling for the typed admin/account
+/// calls.
+fn tcp_call<Req, Resp>(
+    addr: &str,
+    service: &str,
+    op: &str,
+    req: &Req,
+    api_key: &str,
+    encode: impl Fn(&Req) -> Vec<u8>,
+    decode: impl Fn(&[u8]) -> Result<Resp, liblinkkeys::generated::codec::CsilCborError>,
+) -> Resp {
+    let resp_bytes = cli::tcp_client::send_request(addr, service, op, encode(req), Some(api_key))
+        .unwrap_or_else(|e| {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        });
+    decode(&resp_bytes).unwrap_or_else(|e| {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
+    })
+}
+
 fn user_list(server: Option<&str>) {
     let addr = cli::tcp_client::get_server_addr(server);
     let key = cli::tcp_client::get_api_key();
@@ -511,12 +666,15 @@ fn user_list(server: Option<&str>) {
         limit: None,
     };
 
-    let resp: liblinkkeys::generated::types::ListUsersResponse =
-        cli::tcp_client::send_request(&addr, "Admin", "list-users", &req, Some(&key))
-            .unwrap_or_else(|e| {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
-            });
+    let resp = tcp_call(
+        &addr,
+        "Admin",
+        "list-users",
+        &req,
+        &key,
+        liblinkkeys::generated::encode_list_users_request,
+        liblinkkeys::generated::decode_list_users_response,
+    );
 
     for user in &resp.users {
         let status = if user.is_active { "" } else { " [deactivated]" };
@@ -536,12 +694,15 @@ fn user_update(user_id: &str, display_name: Option<&str>, server: Option<&str>) 
         display_name: display_name.map(|s| s.to_string()),
     };
 
-    let resp: liblinkkeys::generated::types::UpdateUserResponse =
-        cli::tcp_client::send_request(&addr, "Admin", "update-user", &req, Some(&key))
-            .unwrap_or_else(|e| {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
-            });
+    let resp = tcp_call(
+        &addr,
+        "Admin",
+        "update-user",
+        &req,
+        &key,
+        liblinkkeys::generated::encode_update_user_request,
+        liblinkkeys::generated::decode_update_user_response,
+    );
 
     println!(
         "User updated: {} {} ({})",
@@ -556,12 +717,15 @@ fn user_deactivate(user_id: &str, server: Option<&str>) {
         user_id: user_id.to_string(),
     };
 
-    let resp: liblinkkeys::generated::types::DeactivateUserResponse =
-        cli::tcp_client::send_request(&addr, "Admin", "deactivate-user", &req, Some(&key))
-            .unwrap_or_else(|e| {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
-            });
+    let resp = tcp_call(
+        &addr,
+        "Admin",
+        "deactivate-user",
+        &req,
+        &key,
+        liblinkkeys::generated::encode_deactivate_user_request,
+        liblinkkeys::generated::decode_deactivate_user_response,
+    );
 
     println!("User deactivated: {} {}", resp.user.id, resp.user.username);
 }
@@ -586,12 +750,15 @@ fn user_reset_password(user_id: &str, server: Option<&str>) {
         new_password: password,
     };
 
-    let resp: liblinkkeys::generated::types::ResetPasswordResponse =
-        cli::tcp_client::send_request(&addr, "Admin", "reset-password", &req, Some(&key))
-            .unwrap_or_else(|e| {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
-            });
+    let resp = tcp_call(
+        &addr,
+        "Admin",
+        "reset-password",
+        &req,
+        &key,
+        liblinkkeys::generated::encode_reset_password_request,
+        liblinkkeys::generated::decode_reset_password_response,
+    );
 
     if resp.success {
         println!("Password reset successfully.");
@@ -608,12 +775,15 @@ fn claim_remove(claim_id: &str, server: Option<&str>) {
         claim_id: claim_id.to_string(),
     };
 
-    let resp: liblinkkeys::generated::types::RemoveClaimResponse =
-        cli::tcp_client::send_request(&addr, "Admin", "remove-claim", &req, Some(&key))
-            .unwrap_or_else(|e| {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
-            });
+    let resp = tcp_call(
+        &addr,
+        "Admin",
+        "remove-claim",
+        &req,
+        &key,
+        liblinkkeys::generated::encode_remove_claim_request,
+        liblinkkeys::generated::decode_remove_claim_response,
+    );
 
     if resp.success {
         println!("Claim removed.");
@@ -643,12 +813,15 @@ fn handle_relation_command(cmd: RelationCommands) {
                 object_id,
             };
 
-            let resp: liblinkkeys::generated::types::GrantRelationResponse =
-                cli::tcp_client::send_request(&addr, "Admin", "grant-relation", &req, Some(&key))
-                    .unwrap_or_else(|e| {
-                        eprintln!("Error: {}", e);
-                        std::process::exit(1);
-                    });
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "grant-relation",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_grant_relation_request,
+                liblinkkeys::generated::decode_grant_relation_response,
+            );
 
             let r = &resp.relation;
             println!(
@@ -666,12 +839,15 @@ fn handle_relation_command(cmd: RelationCommands) {
                 relation_id: relation_id.to_string(),
             };
 
-            let resp: liblinkkeys::generated::types::RemoveRelationResponse =
-                cli::tcp_client::send_request(&addr, "Admin", "remove-relation", &req, Some(&key))
-                    .unwrap_or_else(|e| {
-                        eprintln!("Error: {}", e);
-                        std::process::exit(1);
-                    });
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "remove-relation",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_remove_relation_request,
+                liblinkkeys::generated::decode_remove_relation_response,
+            );
 
             if resp.success {
                 println!("Relation removed.");
@@ -696,12 +872,15 @@ fn handle_relation_command(cmd: RelationCommands) {
                 object_id,
             };
 
-            let resp: liblinkkeys::generated::types::ListRelationsResponse =
-                cli::tcp_client::send_request(&addr, "Admin", "list-relations", &req, Some(&key))
-                    .unwrap_or_else(|e| {
-                        eprintln!("Error: {}", e);
-                        std::process::exit(1);
-                    });
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "list-relations",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_list_relations_request,
+                liblinkkeys::generated::decode_list_relations_response,
+            );
 
             for r in &resp.relations {
                 let removed = r
@@ -738,12 +917,15 @@ fn handle_relation_command(cmd: RelationCommands) {
                 object_id: object_id.clone(),
             };
 
-            let resp: liblinkkeys::generated::types::CheckPermissionResponse =
-                cli::tcp_client::send_request(&addr, "Admin", "check-permission", &req, Some(&key))
-                    .unwrap_or_else(|e| {
-                        eprintln!("Error: {}", e);
-                        std::process::exit(1);
-                    });
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "check-permission",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_check_permission_request,
+                liblinkkeys::generated::decode_check_permission_response,
+            );
 
             if resp.allowed {
                 println!(
@@ -781,18 +963,15 @@ fn handle_account_command(cmd: AccountCommands) {
                 new_password: password,
             };
 
-            let resp: liblinkkeys::generated::types::ChangePasswordResponse =
-                cli::tcp_client::send_request(
-                    &addr,
-                    "Account",
-                    "change-password",
-                    &req,
-                    Some(&key),
-                )
-                .unwrap_or_else(|e| {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                });
+            let resp = tcp_call(
+                &addr,
+                "Account",
+                "change-password",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_change_password_request,
+                liblinkkeys::generated::decode_change_password_response,
+            );
 
             if resp.success {
                 println!("Password changed successfully.");
@@ -805,15 +984,18 @@ fn handle_account_command(cmd: AccountCommands) {
             let addr = cli::tcp_client::get_server_addr(server.as_deref());
             let key = cli::tcp_client::get_api_key();
 
-            // GetMyInfo has no request fields, send an empty map
-            let req = std::collections::HashMap::<String, String>::new();
+            // GetMyInfo has no request fields, send an empty request.
+            let req = liblinkkeys::generated::types::EmptyRequest {};
 
-            let resp: liblinkkeys::generated::types::GetMyInfoResponse =
-                cli::tcp_client::send_request(&addr, "Account", "get-my-info", &req, Some(&key))
-                    .unwrap_or_else(|e| {
-                        eprintln!("Error: {}", e);
-                        std::process::exit(1);
-                    });
+            let resp = tcp_call(
+                &addr,
+                "Account",
+                "get-my-info",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_empty_request,
+                liblinkkeys::generated::decode_get_my_info_response,
+            );
 
             println!(
                 "User: {} {} ({})",

@@ -16,6 +16,9 @@ spec:
       {{- if .Values.gateway.tlsRoute.parentNamespace }}
       namespace: {{ .Values.gateway.tlsRoute.parentNamespace }}
       {{- end }}
+      # No parentRef port: the foundry gateway controller (>= 0.2.2) derives the
+      # listener port from the rule's backendRef below, so the port is declared
+      # once. Attaches to `gw-tls-<port>` by port + SNI.
       {{- if .Values.gateway.tlsRoute.parentSection }}
       sectionName: {{ .Values.gateway.tlsRoute.parentSection }}
       {{- end }}

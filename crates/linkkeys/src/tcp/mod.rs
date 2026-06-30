@@ -16,8 +16,7 @@ use crate::services::handshake::HandshakeHandler;
 use crate::services::hello::HelloHandler;
 
 use liblinkkeys::generated::types::{
-    DepositClaimRequest, DepositClaimResponse, DomainPublicKey, GetDomainKeysResponse,
-    GetUserInfoRequest, GetUserKeysRequest, GetUserKeysResponse, HandshakeRequest, UserInfo,
+    DepositClaimResponse, DomainPublicKey, GetDomainKeysResponse, GetUserKeysResponse, UserInfo,
 };
 
 // The RPC envelope is the canonical CSIL-RPC transport (`csilgen-transport`),
@@ -458,59 +457,64 @@ fn dispatch(
     outbound: Option<&OutboundCtx>,
 ) -> Vec<u8> {
     match (envelope.service.as_str(), envelope.op.as_str()) {
-        ("Ops", "healthcheck") => ok_response(&CheckResultResponse { result: true }),
-        ("Ops", "readiness") => ok_response(&CheckResultResponse {
+        ("Ops", "healthcheck") => ok_response(cbor_response(&CheckResultResponse { result: true })),
+        ("Ops", "readiness") => ok_response(cbor_response(&CheckResultResponse {
             result: ready_flag.load(Ordering::SeqCst),
-        }),
+        })),
         ("Hello", "hello") => {
             let request: HelloRequest = match ciborium::de::from_reader(&envelope.payload[..]) {
                 Ok(r) => r,
                 Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
             };
             let handler = HelloHandler;
-            ok_response(&HelloResponse {
+            ok_response(cbor_response(&HelloResponse {
                 greeting: handler.hello(request.name),
-            })
+            }))
         }
         ("Handshake", "handshake") => {
             use liblinkkeys::generated::services::Handshake;
-            let request: HandshakeRequest = match ciborium::de::from_reader(&envelope.payload[..]) {
+            let request = match liblinkkeys::generated::decode_handshake_request(&envelope.payload)
+            {
                 Ok(r) => r,
                 Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
             };
             match HandshakeHandler.handshake(&(), request) {
-                Ok(resp) => ok_response(&resp),
+                Ok(resp) => ok_response(liblinkkeys::generated::encode_handshake_response(&resp)),
                 Err(e) => error_response(4, &e.message),
             }
         }
         ("DomainKeys", "get-domain-keys") => match db_pool.list_active_domain_keys() {
-            Ok(keys) => ok_response(&GetDomainKeysResponse {
-                domain: get_domain_name(),
-                keys: keys.iter().map(Into::into).collect(),
-            }),
+            Ok(keys) => ok_response(liblinkkeys::generated::encode_get_domain_keys_response(
+                &GetDomainKeysResponse {
+                    domain: get_domain_name(),
+                    keys: keys.iter().map(Into::into).collect(),
+                },
+            )),
             Err(e) => error_response(4, &db_error_message(e)),
         },
         ("UserKeys", "get-user-keys") => {
-            let request: GetUserKeysRequest = match ciborium::de::from_reader(&envelope.payload[..])
-            {
-                Ok(r) => r,
-                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
-            };
+            let request =
+                match liblinkkeys::generated::decode_get_user_keys_request(&envelope.payload) {
+                    Ok(r) => r,
+                    Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+                };
             match db_pool.list_active_user_keys(&request.user_id) {
-                Ok(keys) => ok_response(&GetUserKeysResponse {
-                    user_id: request.user_id,
-                    domain: get_domain_name(),
-                    keys: keys.iter().map(Into::into).collect(),
-                }),
+                Ok(keys) => ok_response(liblinkkeys::generated::encode_get_user_keys_response(
+                    &GetUserKeysResponse {
+                        user_id: request.user_id,
+                        domain: get_domain_name(),
+                        keys: keys.iter().map(Into::into).collect(),
+                    },
+                )),
                 Err(e) => error_response(4, &db_error_message(e)),
             }
         }
         ("Identity", "get-user-info") => {
-            let request: GetUserInfoRequest = match ciborium::de::from_reader(&envelope.payload[..])
-            {
-                Ok(r) => r,
-                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
-            };
+            let request =
+                match liblinkkeys::generated::decode_get_user_info_request(&envelope.payload) {
+                    Ok(r) => r,
+                    Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+                };
             let token_str = match String::from_utf8(request.token) {
                 Ok(s) => s,
                 Err(_) => return error_response(2, "Invalid token encoding"),
@@ -564,12 +568,12 @@ fn dispatch(
                 claims.iter().map(Into::into).collect();
             let scoped =
                 liblinkkeys::consent::scope_claims(&all_claims, &assertion.authorized_claims);
-            ok_response(&UserInfo {
+            ok_response(liblinkkeys::generated::encode_user_info(&UserInfo {
                 user_id: user.id,
                 domain: get_domain_name(),
                 display_name: user.display_name,
                 claims: scoped,
-            })
+            }))
         }
         ("Admin", op) => {
             let user = match authenticate_tcp_request(&envelope.auth, db_pool) {
@@ -610,8 +614,8 @@ fn dispatch(
         // cached keys + our trusted-issuer policy), so no caller auth is required
         // beyond that — anyone may carry a valid trusted attestation to us.
         ("Attestation", "deposit-claim") => {
-            let request: DepositClaimRequest =
-                match ciborium::de::from_reader(&envelope.payload[..]) {
+            let request =
+                match liblinkkeys::generated::decode_deposit_claim_request(&envelope.payload) {
                     Ok(r) => r,
                     Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
                 };
@@ -624,7 +628,9 @@ fn dispatch(
                 &claim.user_id,
                 &claim,
             ) {
-                Ok(()) => ok_response(&DepositClaimResponse { stored: true }),
+                Ok(()) => ok_response(liblinkkeys::generated::encode_deposit_claim_response(
+                    &DepositClaimResponse { stored: true },
+                )),
                 Err(e) => error_response(5, &e.message),
             }
         }
@@ -640,35 +646,87 @@ fn dispatch(
 
 fn dispatch_admin(op: &str, payload: &[u8], db_pool: &DbPool) -> Vec<u8> {
     use crate::services::admin;
-    use liblinkkeys::generated::types::*;
+    use liblinkkeys::generated::codec;
 
     macro_rules! admin_op {
-        ($req_type:ty, $handler:expr) => {{
-            let request: $req_type = match ciborium::de::from_reader(payload) {
+        ($decode:path, $handler:expr, $encode:path) => {{
+            let request = match $decode(payload) {
                 Ok(r) => r,
                 Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
             };
             match $handler(db_pool, request) {
-                Ok(resp) => ok_response(&resp),
+                Ok(resp) => ok_response($encode(&resp)),
                 Err(e) => error_response(4, &e.message),
             }
         }};
     }
 
     match op {
-        "list-users" => admin_op!(ListUsersRequest, admin::list_users),
-        "get-user" => admin_op!(GetUserRequest, admin::get_user),
-        "create-user" => admin_op!(CreateUserRequest, admin::create_user),
-        "update-user" => admin_op!(UpdateUserRequest, admin::update_user),
-        "deactivate-user" => admin_op!(DeactivateUserRequest, admin::deactivate_user),
-        "reset-password" => admin_op!(ResetPasswordRequest, admin::reset_password),
-        "remove-credential" => admin_op!(RemoveCredentialRequest, admin::remove_credential),
-        "set-claim" => admin_op!(SetClaimRequest, admin::set_claim),
-        "remove-claim" => admin_op!(RemoveClaimRequest, admin::remove_claim),
-        "grant-relation" => admin_op!(GrantRelationRequest, admin::grant_relation),
-        "remove-relation" => admin_op!(RemoveRelationRequest, admin::remove_relation),
-        "list-relations" => admin_op!(ListRelationsRequest, admin::list_relations),
-        "check-permission" => admin_op!(CheckPermissionRequest, admin::check_permission_handler),
+        "list-users" => admin_op!(
+            codec::decode_list_users_request,
+            admin::list_users,
+            codec::encode_list_users_response
+        ),
+        "get-user" => admin_op!(
+            codec::decode_get_user_request,
+            admin::get_user,
+            codec::encode_get_user_response
+        ),
+        "create-user" => admin_op!(
+            codec::decode_create_user_request,
+            admin::create_user,
+            codec::encode_create_user_response
+        ),
+        "update-user" => admin_op!(
+            codec::decode_update_user_request,
+            admin::update_user,
+            codec::encode_update_user_response
+        ),
+        "deactivate-user" => admin_op!(
+            codec::decode_deactivate_user_request,
+            admin::deactivate_user,
+            codec::encode_deactivate_user_response
+        ),
+        "reset-password" => admin_op!(
+            codec::decode_reset_password_request,
+            admin::reset_password,
+            codec::encode_reset_password_response
+        ),
+        "remove-credential" => admin_op!(
+            codec::decode_remove_credential_request,
+            admin::remove_credential,
+            codec::encode_remove_credential_response
+        ),
+        "set-claim" => admin_op!(
+            codec::decode_set_claim_request,
+            admin::set_claim,
+            codec::encode_set_claim_response
+        ),
+        "remove-claim" => admin_op!(
+            codec::decode_remove_claim_request,
+            admin::remove_claim,
+            codec::encode_remove_claim_response
+        ),
+        "grant-relation" => admin_op!(
+            codec::decode_grant_relation_request,
+            admin::grant_relation,
+            codec::encode_grant_relation_response
+        ),
+        "remove-relation" => admin_op!(
+            codec::decode_remove_relation_request,
+            admin::remove_relation,
+            codec::encode_remove_relation_response
+        ),
+        "list-relations" => admin_op!(
+            codec::decode_list_relations_request,
+            admin::list_relations,
+            codec::encode_list_relations_response
+        ),
+        "check-permission" => admin_op!(
+            codec::decode_check_permission_request,
+            admin::check_permission_handler,
+            codec::encode_check_permission_response
+        ),
         _ => error_response(3, &format!("Unknown Admin operation: {}", op)),
     }
 }
@@ -680,21 +738,22 @@ fn dispatch_account(
     user: &crate::db::models::User,
 ) -> Vec<u8> {
     use crate::services::account;
-    use liblinkkeys::generated::types::*;
 
     match op {
         "change-password" => {
-            let request: ChangePasswordRequest = match ciborium::de::from_reader(payload) {
+            let request = match liblinkkeys::generated::decode_change_password_request(payload) {
                 Ok(r) => r,
                 Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
             };
             match account::change_password(db_pool, &user.id, request) {
-                Ok(resp) => ok_response(&resp),
+                Ok(resp) => ok_response(liblinkkeys::generated::encode_change_password_response(
+                    &resp,
+                )),
                 Err(e) => error_response(4, &e.message),
             }
         }
         "get-my-info" => match account::get_my_info(db_pool, &user.id) {
-            Ok(resp) => ok_response(&resp),
+            Ok(resp) => ok_response(liblinkkeys::generated::encode_get_my_info_response(&resp)),
             Err(e) => error_response(4, &e.message),
         },
         _ => error_response(3, &format!("Unknown Account operation: {}", op)),
@@ -723,34 +782,32 @@ fn dispatch_rp(
     outbound: Option<&OutboundCtx>,
 ) -> Vec<u8> {
     use crate::web::rp;
-    use liblinkkeys::generated::types::{
-        RpDecryptRequest, RpSignRequest, RpUserInfoRequest, RpVerifyRequest,
-    };
+    use liblinkkeys::generated::codec;
 
     match op {
         "sign-request" => {
-            let req: RpSignRequest = match ciborium::de::from_reader(payload) {
+            let req = match codec::decode_rp_sign_request(payload) {
                 Ok(r) => r,
                 Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
             };
             let cfg = crate::rp_config::RpClaimsConfig::load_from_env();
             match rp::sign_request_core(db_pool, &cfg, &req.callback_url, &req.nonce) {
-                Ok(resp) => ok_response(&resp),
+                Ok(resp) => ok_response(codec::encode_rp_sign_response(&resp)),
                 Err(s) => rp_status_to_error(s),
             }
         }
         "decrypt-token" => {
-            let req: RpDecryptRequest = match ciborium::de::from_reader(payload) {
+            let req = match codec::decode_rp_decrypt_request(payload) {
                 Ok(r) => r,
                 Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
             };
             match rp::decrypt_token_core(db_pool, &req.encrypted_token) {
-                Ok(resp) => ok_response(&resp),
+                Ok(resp) => ok_response(codec::encode_rp_decrypt_response(&resp)),
                 Err(s) => rp_status_to_error(s),
             }
         }
         "verify-assertion" => {
-            let req: RpVerifyRequest = match ciborium::de::from_reader(payload) {
+            let req = match codec::decode_rp_verify_request(payload) {
                 Ok(r) => r,
                 Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
             };
@@ -764,12 +821,12 @@ fn dispatch_rp(
                 &req.signed_assertion,
                 &req.expected_domain,
             )) {
-                Ok(resp) => ok_response(&resp),
+                Ok(resp) => ok_response(codec::encode_rp_verify_response(&resp)),
                 Err(s) => rp_status_to_error(s),
             }
         }
         "userinfo-fetch" => {
-            let req: RpUserInfoRequest = match ciborium::de::from_reader(payload) {
+            let req = match codec::decode_rp_user_info_request(payload) {
                 Ok(r) => r,
                 Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
             };
@@ -784,7 +841,7 @@ fn dispatch_rp(
                 &req.api_base,
                 &req.domain,
             )) {
-                Ok(resp) => ok_response(&resp),
+                Ok(resp) => ok_response(codec::encode_user_info(&resp)),
                 Err(s) => rp_status_to_error(s),
             }
         }
@@ -795,10 +852,7 @@ fn dispatch_rp(
 /// A successful CSIL-RPC reply carrying a typed payload. Our operations declare a
 /// single output type (no `/ ErrorType` arms yet), so `variant` is omitted; if we
 /// later add typed error arms, set it to the chosen arm's CSIL type name.
-fn ok_response<T: Serialize>(payload: &T) -> Vec<u8> {
-    let mut payload_bytes = Vec::new();
-    ciborium::ser::into_writer(payload, &mut payload_bytes)
-        .expect("CBOR serialization of response payload");
+fn ok_response(payload_bytes: Vec<u8>) -> Vec<u8> {
     RpcResponse {
         id: None,
         status: Status::Ok,
@@ -808,6 +862,16 @@ fn ok_response<T: Serialize>(payload: &T) -> Vec<u8> {
     }
     .encode()
     .expect("encode RPC response")
+}
+
+/// CBOR-encode a hand-written (non-CSIL) response struct still carrying serde.
+/// The generated CSIL types use the codec instead; this is only for the small
+/// local structs (`HelloResponse`, `CheckResultResponse`) served on TCP.
+fn cbor_response<T: Serialize>(payload: &T) -> Vec<u8> {
+    let mut payload_bytes = Vec::new();
+    ciborium::ser::into_writer(payload, &mut payload_bytes)
+        .expect("CBOR serialization of response payload");
+    payload_bytes
 }
 
 /// Map our historical transport status ints onto the CSIL-RPC status registry and

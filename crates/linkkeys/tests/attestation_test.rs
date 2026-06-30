@@ -99,13 +99,11 @@ fn deposit_via_rpc_dispatch_stores_claim() {
     // Deposit over the CBOR-RPC dispatch (the server-to-server API), not a REST
     // route — issuer's server -> subject's domain.
     let req = liblinkkeys::generated::types::DepositClaimRequest { claim };
-    let mut payload = Vec::new();
-    ciborium::ser::into_writer(&req, &mut payload).unwrap();
+    let payload = liblinkkeys::generated::encode_deposit_claim_request(&req);
     let (status, resp) =
         linkkeys::tcp::dispatch_for_test("Attestation", "deposit-claim", payload, &pool, None);
     assert_eq!(status, 0, "deposit should succeed");
-    let r: liblinkkeys::generated::types::DepositClaimResponse =
-        ciborium::de::from_reader(&resp[..]).unwrap();
+    let r = liblinkkeys::generated::decode_deposit_claim_response(&resp).unwrap();
     assert!(r.stored);
     assert!(pool
         .list_active_claims(&uid)
