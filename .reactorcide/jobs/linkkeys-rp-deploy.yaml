@@ -1,0 +1,34 @@
+name: linkkeys-rp-deploy
+description: "Deploy the linkidspec.com RP server (linkkeys-rp) on each release, in step with the demoappsite it backs."
+# linkkeys-rp is the relying-party backend for the linkidspec.com demo. It runs
+# the shared linkkeys server image, so it version-bumps via version/VERSION.txt
+# (same trigger as linkkeys-server-build-and-deploy, which publishes the image).
+# The live IDPs (todandlorna, catalystsquad) are deliberately NOT auto-deployed
+# here — those are human-gated via ~/linkkeys-redeploy.sh. Only the demo RP rolls
+# automatically so it stays in lockstep with the demoappsite.
+triggers:
+  events:
+    - push
+  branches:
+    - main
+paths:
+  include: ["version/VERSION.txt"]
+job:
+  image: containers.catalystsquad.com/public/reactorcide/runnerbase:dev
+  command: "bash /job/src/.reactorcide/jobs/scripts/linkkeys-server-deploy.sh"
+  # Long timeout: the deploy polls the registry for the freshly-built image
+  # (WAIT_FOR_IMAGE_REPO) since the build job runs concurrently on the same bump.
+  timeout: 1800
+environment:
+  REGISTRY_USER: "${secret:catalystcommunity/registry:user}"
+  REGISTRY_PASSWORD: "${secret:catalystcommunity/registry:password}"
+  KUBECONFIG_CONTENT: "${secret:catalystcommunity/k8s:kubeconfig}"
+  K8S_NAMESPACE: "linkkeys-rp"
+  HELM_RELEASE: "linkkeys-rp"
+  HELM_VALUES_FILE: "deploy/values-rp.yaml"
+  # Block the helm upgrade until the build job has pushed this release's image.
+  WAIT_FOR_IMAGE_REPO: "containers.catalystsquad.com/public/catalystcommunity/linkkeys"
+  # DOMAIN_KEY_PASSPHRASE is intentionally NOT set: the deploy script preserves
+  # the existing one from the linkkeys-rp namespace secret. rp holds the
+  # linkidspec.com domain keys encrypted under it — regenerating it would orphan
+  # those keys and change the published _linkkeys fingerprints/DNS.
