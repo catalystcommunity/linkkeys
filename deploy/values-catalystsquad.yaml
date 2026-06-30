@@ -35,3 +35,19 @@ gateway:
     parentSection: http
     hostnames:
       - linkkeys.catalystsquad.com
+  # SNI-routed TLS passthrough for the LinkKeys protocol port (4987). The app
+  # does its own mutual TLS with the domain keys, so the gateway must NOT
+  # terminate: the parent listener must be `protocol: TLS` with
+  # `tls.mode: Passthrough`. Also publish the protocol endpoint in DNS:
+  #   _linkkeys_apis.catalystsquad.com  TXT  "v=lk1 tcp=linkkeys.catalystsquad.com https=linkkeys.catalystsquad.com"
+  tlsRoute:
+    enabled: true
+    parentGateway: contour
+    parentNamespace: projectcontour
+    # No sectionName: the foundry gateway controller materializes a listener
+    # named `gw-tls-4987`, and TLSRoutes attach to it by port + SNI (multiple
+    # domains share the listener). Pinning a sectionName like "linkkeys-tls"
+    # never matches the controller's `gw-<proto>-<port>` naming.
+    parentSection: ""
+    hostnames:
+      - linkkeys.catalystsquad.com
