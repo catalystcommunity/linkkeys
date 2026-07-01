@@ -43,6 +43,7 @@ struct RpConfig {
     fingerprints: Vec<String>,
     api_key: String,
     domain: String,
+    required_claims: Vec<String>,
 }
 
 /// Call an `Rp` helper op on the RP server over the CSIL-RPC TCP transport. The
@@ -93,6 +94,15 @@ fn html_escape(s: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#x27;")
+}
+
+fn parse_claim_list(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 /// Shared page chrome: responsive, mobile-first, widens to use available space on
@@ -335,6 +345,11 @@ fn dashboard(session: &Session) -> RawHtml<String> {
     {claims}
   </section>
 
+  <form method="POST" action="/claims/age-checks" class="inline">
+    <button type="submit">Request Age Checks</button>
+  </form>
+  <p><a href="/attest/linkidspec">Get a linkidspec signature</a></p>
+
   <form method="POST" action="/logout" class="inline">
     <button type="submit" class="secondary">Log Out</button>
   </form>
@@ -352,6 +367,11 @@ fn dashboard(session: &Session) -> RawHtml<String> {
 #[derive(FromForm)]
 struct LoginForm {
     identity: String,
+}
+
+#[derive(FromForm)]
+struct AttestationForm {
+    request: String,
 }
 
 /// Parse "user@domain" or just "domain" into (user_hint, domain).
@@ -426,6 +446,108 @@ fn simple_url_encode(s: &str) -> String {
 // straight into them — no hand-rolled mirror structs.
 use liblinkkeys::generated::types as lk;
 
+fn demo_initial_claim_request() -> lk::ClaimRequest {
+    lk::ClaimRequest {
+        required: vec![
+            lk::RequestedClaim {
+                claim_type: "display_name".to_string(),
+                datatype: "text".to_string(),
+            },
+            lk::RequestedClaim {
+                claim_type: "handle".to_string(),
+                datatype: "text".to_string(),
+            },
+        ],
+        optional: vec![
+            lk::RequestedClaim {
+                claim_type: "email".to_string(),
+                datatype: "email".to_string(),
+            },
+            lk::RequestedClaim {
+                claim_type: "over_21".to_string(),
+                datatype: "bool".to_string(),
+            },
+            lk::RequestedClaim {
+                claim_type: "address".to_string(),
+                datatype: "text".to_string(),
+            },
+        ],
+    }
+}
+
+fn demo_age_update_claim_request() -> lk::ClaimRequest {
+    let mut request = demo_initial_claim_request();
+    request.optional.extend([
+        lk::RequestedClaim {
+            claim_type: "over_13".to_string(),
+            datatype: "bool".to_string(),
+        },
+        lk::RequestedClaim {
+            claim_type: "over_16".to_string(),
+            datatype: "bool".to_string(),
+        },
+        lk::RequestedClaim {
+            claim_type: "over_18".to_string(),
+            datatype: "bool".to_string(),
+        },
+    ]);
+    request
+}
+
+async fn begin_linkkeys_redirect(
+    cookies: &CookieJar<'_>,
+    rp_config: &RpConfig,
+    domain: &str,
+    user_hint: Option<&str>,
+    requested_claims: lk::ClaimRequest,
+    flow_context: Option<lk::AuthFlowContext>,
+) -> Result<Redirect, RawHtml<String>> {
+    let api_base = resolve_api_base(domain).await;
+    let nonce = uuid::Uuid::new_v4().to_string();
+    let origin = get_own_origin();
+    let callback_url = format!("{}/callback", origin);
+
+    let sign_result = rp_call(
+        rp_config,
+        "sign-request",
+        lk::RpSignRequest {
+            callback_url: callback_url.clone(),
+            nonce: nonce.clone(),
+            requested_claims: Some(requested_claims),
+            flow_context,
+        },
+        liblinkkeys::generated::encode_rp_sign_request,
+        liblinkkeys::generated::decode_rp_sign_response,
+    )
+    .await
+    .map_err(|e| login_form(Some(&format!("Failed to contact RP service: {}", e))))?;
+
+    let auth_state = AuthState {
+        nonce: nonce.clone(),
+        domain: domain.to_string(),
+        api_base: api_base.clone(),
+    };
+    let state_json = serde_json::to_string(&auth_state).expect("AuthState serialization");
+    let mut state_cookie = Cookie::new("auth_state", state_json);
+    state_cookie.set_same_site(SameSite::Lax);
+    state_cookie.set_path("/");
+    state_cookie.set_http_only(true);
+    state_cookie.set_secure(true);
+    cookies.add_private(state_cookie);
+
+    let redirect_url = format!(
+        "{}/auth/authorize?callback_url={}&nonce={}&user_hint={}&relying_party={}&signed_request={}",
+        api_base,
+        simple_url_encode(&callback_url),
+        simple_url_encode(&nonce),
+        simple_url_encode(user_hint.unwrap_or("")),
+        simple_url_encode(&rp_config.domain),
+        simple_url_encode(&sign_result.signed_request),
+    );
+
+    Ok(Redirect::found(redirect_url))
+}
+
 #[rocket::post("/login", data = "<form>")]
 async fn login(
     cookies: &CookieJar<'_>,
@@ -446,51 +568,132 @@ async fn login(
         )));
     }
 
-    let api_base = resolve_api_base(domain).await;
-    let nonce = uuid::Uuid::new_v4().to_string();
-    let origin = get_own_origin();
-    let callback_url = format!("{}/callback", origin);
-
-    // Call the RP server over TCP to sign the auth request.
-    let sign_result = rp_call(
+    begin_linkkeys_redirect(
+        cookies,
         rp_config,
-        "sign-request",
-        lk::RpSignRequest {
-            callback_url: callback_url.clone(),
-            nonce: nonce.clone(),
-        },
-        liblinkkeys::generated::encode_rp_sign_request,
-        liblinkkeys::generated::decode_rp_sign_response,
+        domain,
+        user_hint,
+        demo_initial_claim_request(),
+        None,
     )
     .await
-    .map_err(|e| login_form(Some(&format!("Failed to contact RP service: {}", e))))?;
+}
 
-    // Store auth state for callback verification
-    let auth_state = AuthState {
-        nonce: nonce.clone(),
-        domain: domain.to_string(),
-        api_base: api_base.clone(),
+#[rocket::post("/claims/age-checks")]
+async fn request_age_checks(
+    cookies: &CookieJar<'_>,
+    rp_config: &State<RpConfig>,
+) -> Result<Redirect, RawHtml<String>> {
+    let session =
+        get_session(cookies).ok_or_else(|| error_page("No active session found — log in first"))?;
+    begin_linkkeys_redirect(
+        cookies,
+        rp_config,
+        &session.domain,
+        None,
+        demo_age_update_claim_request(),
+        Some(lk::AuthFlowContext {
+            flow: "claims_update".to_string(),
+            prior_session: Some(session.user_id),
+            request_reason: Some("linkidspec.com now supports age-tier checks".to_string()),
+        }),
+    )
+    .await
+}
+
+fn attestation_page(message: Option<&str>, error: Option<&str>) -> RawHtml<String> {
+    let msg_html = message
+        .map(|m| format!(r#"<p class="ok">{}</p>"#, html_escape(m)))
+        .unwrap_or_default();
+    let error_html = error
+        .map(|e| format!(r#"<p class="err">{}</p>"#, html_escape(e)))
+        .unwrap_or_default();
+    RawHtml(format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Demo App - Sign Claim</title>
+<style>{style}</style>
+</head>
+<body>
+<div class="narrow">
+  <h1>LinkIDSpec Signature</h1>
+  <p class="sub">Paste a LinkKeys signing request addressed to <strong>linkidspec.com</strong>. This demo will automatically sign <code>linkidspec_signed</code> with today's UTC date and try to deposit it back to your home domain.</p>
+  <section class="card">
+    {msg}
+    {err}
+    <form method="POST" action="/attest/linkidspec">
+      <label for="request">Signing Request</label>
+      <textarea id="request" name="request" rows="8" style="width:100%" required></textarea>
+      <button type="submit">Sign Request</button>
+    </form>
+  </section>
+  <p><a href="/">Back</a></p>
+</div>
+</body>
+</html>"#,
+        style = PAGE_STYLE,
+        msg = msg_html,
+        err = error_html,
+    ))
+}
+
+#[rocket::get("/attest/linkidspec")]
+fn attest_linkidspec_form() -> RawHtml<String> {
+    attestation_page(None, None)
+}
+
+#[rocket::post("/attest/linkidspec", data = "<form>")]
+async fn attest_linkidspec_submit(
+    rp_config: &State<RpConfig>,
+    form: rocket::form::Form<AttestationForm>,
+) -> RawHtml<String> {
+    use base64ct::{Base64UrlUnpadded, Encoding as _};
+
+    let request_bytes = match Base64UrlUnpadded::decode_vec(form.request.trim()) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            return attestation_page(
+                None,
+                Some("That does not look like base64url(CBOR(SignedSigningRequest))."),
+            )
+        }
     };
-    let state_json = serde_json::to_string(&auth_state).expect("AuthState serialization");
-    let mut state_cookie = Cookie::new("auth_state", state_json);
-    state_cookie.set_same_site(SameSite::Lax);
-    state_cookie.set_path("/");
-    state_cookie.set_http_only(true);
-    state_cookie.set_secure(true);
-    cookies.add_private(state_cookie);
-
-    // Redirect to domain server with signed request
-    let redirect_url = format!(
-        "{}/auth/authorize?callback_url={}&nonce={}&user_hint={}&relying_party={}&signed_request={}",
-        api_base,
-        simple_url_encode(&callback_url),
-        simple_url_encode(&nonce),
-        simple_url_encode(user_hint.unwrap_or("")),
-        simple_url_encode(&rp_config.domain),
-        simple_url_encode(&sign_result.signed_request),
-    );
-
-    Ok(Redirect::found(redirect_url))
+    let signed_request = match liblinkkeys::generated::decode_signed_signing_request(&request_bytes)
+    {
+        Ok(request) => request,
+        Err(_) => {
+            return attestation_page(None, Some("That signing request could not be decoded."))
+        }
+    };
+    let today = chrono::Utc::now().date_naive().to_string();
+    let resp = match rp_call(
+        rp_config,
+        "issue-attestation",
+        lk::RpIssueAttestationRequest {
+            signed_request,
+            claim_type: "linkidspec_signed".to_string(),
+            claim_value: today.as_bytes().to_vec(),
+        },
+        liblinkkeys::generated::encode_rp_issue_attestation_request,
+        liblinkkeys::generated::decode_rp_issue_attestation_response,
+    )
+    .await
+    {
+        Ok(resp) => resp,
+        Err(e) => return attestation_page(None, Some(&format!("Could not sign request: {}", e))),
+    };
+    let status = if resp.deposited {
+        "signed and deposited to your home domain"
+    } else {
+        "signed, but deposit failed; try again later"
+    };
+    attestation_page(
+        Some(&format!("Issued linkidspec_signed={} ({})", today, status)),
+        None,
+    )
 }
 
 #[rocket::get("/callback?<encrypted_token>")]
@@ -562,32 +765,47 @@ async fn callback(
     .await
     .map_err(|e| error_page(&format!("Failed to fetch user info: {}", e)))?;
 
+    let claims: Vec<SessionClaim> = user_info
+        .claims
+        .iter()
+        .map(|c| {
+            // claim_value is raw bytes (UTF-8 for the demo's text claims).
+            let value = String::from_utf8_lossy(&c.claim_value).to_string();
+            // Distinct signing domains, preserving first-seen order.
+            let mut signing_domains: Vec<String> = Vec::new();
+            for sig in &c.signatures {
+                if !signing_domains.contains(&sig.domain) {
+                    signing_domains.push(sig.domain.clone());
+                }
+            }
+            SessionClaim {
+                claim_type: c.claim_type.clone(),
+                claim_value: value,
+                signing_domains,
+                key_count: c.signatures.len(),
+            }
+        })
+        .collect();
+
+    let missing_required: Vec<&str> = rp_config
+        .required_claims
+        .iter()
+        .map(String::as_str)
+        .filter(|required| !claims.iter().any(|c| c.claim_type == *required))
+        .collect();
+    if !missing_required.is_empty() {
+        return Err(error_page(&format!(
+            "Required claims were not shared: {}",
+            missing_required.join(", ")
+        )));
+    }
+
     // 7. Build session
     let session = Session {
         user_id: user_info.user_id,
         domain: user_info.domain,
         display_name: user_info.display_name,
-        claims: user_info
-            .claims
-            .iter()
-            .map(|c| {
-                // claim_value is raw bytes (UTF-8 for the demo's text claims).
-                let value = String::from_utf8_lossy(&c.claim_value).to_string();
-                // Distinct signing domains, preserving first-seen order.
-                let mut signing_domains: Vec<String> = Vec::new();
-                for sig in &c.signatures {
-                    if !signing_domains.contains(&sig.domain) {
-                        signing_domains.push(sig.domain.clone());
-                    }
-                }
-                SessionClaim {
-                    claim_type: c.claim_type.clone(),
-                    claim_value: value,
-                    signing_domains,
-                    key_count: c.signatures.len(),
-                }
-            })
-            .collect(),
+        claims,
         expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
     };
 
@@ -657,6 +875,9 @@ async fn main() {
             String::new()
         }),
         domain: env::var("RP_DOMAIN").unwrap_or_else(|_| "localhost".to_string()),
+        required_claims: parse_claim_list(
+            &env::var("REQUIRED_CLAIMS").unwrap_or_else(|_| "display_name,handle".to_string()),
+        ),
     };
     if rp_config.fingerprints.is_empty() {
         log::warn!(
@@ -665,7 +886,18 @@ async fn main() {
     }
 
     if let Err(e) = rocket::custom(config)
-        .mount("/", rocket::routes![index, login, callback, logout])
+        .mount(
+            "/",
+            rocket::routes![
+                index,
+                login,
+                request_age_checks,
+                attest_linkidspec_form,
+                attest_linkidspec_submit,
+                callback,
+                logout
+            ],
+        )
         .manage(rp_config)
         .launch()
         .await

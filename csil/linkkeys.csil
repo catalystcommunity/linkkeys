@@ -191,15 +191,29 @@ RequestedClaim = {
     datatype: text
 }
 
-;; What a relying party advertises it wants on first contact. `required` gates
-;; login: if the user declines a required claim the RP expects the flow to
-;; abort. `optional` is best-effort. A spec-compliant IDP shows both to the
-;; user; showing is unenforceable (a non-spec server could skip the UI), which
-;; is fine — the IDP still applies its own allow/deny policy server-side
-;; regardless.
+;; What a relying party advertises it wants on first contact. `required` means
+;; the RP says the app cannot function without the claim; `optional` is
+;; best-effort. A spec-compliant IDP shows both to the user and lets the user
+;; decline user-controlled claims. The RP receives the narrowed authorization
+;; set and decides whether to reject or degrade the app session. Showing is
+;; unenforceable (a non-spec server could skip the UI), which is fine — the IDP
+;; still applies its own allow/deny policy server-side regardless.
 ClaimRequest = {
     required: [* RequestedClaim],
     optional: [* RequestedClaim]
+}
+
+;; Browser/native flows can attach context explaining why this auth request is
+;; being made. IDPs treat this as signed RP metadata for display/audit only; the
+;; claim request itself remains the source of truth for consent decisions.
+AuthFlowContext = {
+    ;; "login" is the default when absent; "claims_update" means the RP is
+    ;; asking the already-signed-in user to review changed claim requirements.
+    flow: text,
+    ;; RP-local session/grant handle. Opaque to the IDP, signed by the RP.
+    ? prior_session: text,
+    ;; Human-readable reason the RP wants the changed claims.
+    ? request_reason: text
 }
 
 ;; A user's standing authorization for one relying party (audience) to receive
@@ -374,6 +388,8 @@ AuthRequest = {
     ;; Claims the RP would like released on first contact. Drives the consent
     ;; screen. Absent => the RP requests no claims (authentication only).
     ? requested_claims: ClaimRequest,
+    ;; Optional signed context for first login vs later claims update flows.
+    ? flow_context: AuthFlowContext,
     ;; Claims the RP asserts ABOUT ITSELF, each independently signed (self- or
     ;; third-party-attested). The IDP verifies these against the signing domains'
     ;; keys, may apply policy on them, and records them with the consent grant —
@@ -600,7 +616,11 @@ GetMyInfoResponse = {
 ;; Sign an auth request for the login redirect.
 RpSignRequest = {
     callback_url: text,
-    nonce: text
+    nonce: text,
+    ;; Optional per-request override. Absent => use RP_CLAIMS_CONFIG.
+    ? requested_claims: ClaimRequest,
+    ;; Optional signed flow context displayed by the IDP.
+    ? flow_context: AuthFlowContext
 }
 
 RpSignResponse = {
@@ -639,6 +659,21 @@ RpUserInfoRequest = {
     api_base: text,
     ;; The user's domain, used to resolve the IDP's tcp= endpoint + fingerprints.
     domain: text
+}
+
+;; Ask this RP server, acting as its domain, to issue an attested claim from a
+;; user-supplied SignedSigningRequest. The caller must be API-key authenticated
+;; to this RP helper; the server also enforces its issuer policy and allowed
+;; claim list before signing.
+RpIssueAttestationRequest = {
+    signed_request: SignedSigningRequest,
+    claim_type: text,
+    claim_value: bytes
+}
+
+RpIssueAttestationResponse = {
+    claim: Claim,
+    deposited: bool
 }
 
 ;; ============================================================
@@ -719,5 +754,6 @@ service Rp {
     sign-request: RpSignRequest -> RpSignResponse,
     decrypt-token: RpDecryptRequest -> RpDecryptResponse,
     verify-assertion: RpVerifyRequest -> RpVerifyResponse,
-    userinfo-fetch: RpUserInfoRequest -> UserInfo
+    userinfo-fetch: RpUserInfoRequest -> UserInfo,
+    issue-attestation: RpIssueAttestationRequest -> RpIssueAttestationResponse
 }

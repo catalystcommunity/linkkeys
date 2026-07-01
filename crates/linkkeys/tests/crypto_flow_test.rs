@@ -41,6 +41,7 @@ fn test_full_mutual_auth_flow() {
         "nonce-12345",
         "rp-key-1",
         None,
+        None,
     );
     let signed_req = auth_request::sign_auth_request(
         &auth_req,
@@ -151,6 +152,7 @@ fn test_auth_request_wrong_rp_key_rejected() {
         "https://rp.example.com/callback",
         "nonce",
         "rp-key-1",
+        None,
         None,
     );
     let signed_req = auth_request::sign_auth_request(

@@ -115,6 +115,7 @@ mod tests {
             "nonce-xyz",
             "key-1",
             None,
+            None,
         );
         let signed = sign_auth_request(&request, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
 

@@ -20,7 +20,10 @@ use crate::services::{admin, attestation, authorization};
 
 use super::account_ui::{build_nav, flash_html, get_session_user_id, is_user_admin, layout};
 use super::profile_ui::qr_svg;
-use liblinkkeys::generated::types::{SignedSigningRequest, SigningRequest};
+use liblinkkeys::consent::{compute_authorized_claims, resolve_consent_screen, DomainPolicy};
+use liblinkkeys::generated::types::{
+    Claim, ClaimRequest, RequestedClaim, SignedSigningRequest, SigningRequest,
+};
 
 fn require_manage_claims(pool: &DbPool, cookies: &CookieJar<'_>) -> Result<String, Status> {
     let user_id = get_session_user_id(cookies).ok_or(Status::Unauthorized)?;
@@ -29,6 +32,32 @@ fn require_manage_claims(pool: &DbPool, cookies: &CookieJar<'_>) -> Result<Strin
         return Err(Status::Forbidden);
     }
     Ok(user_id)
+}
+
+fn require_issue_page_access(pool: &DbPool, cookies: &CookieJar<'_>) -> Result<String, Status> {
+    let user_id = get_session_user_id(cookies).ok_or(Status::Unauthorized)?;
+    let domain = get_domain_name();
+    if authorization::user_has_permission(
+        pool,
+        &user_id,
+        authorization::RELATION_MANAGE_CLAIMS,
+        "domain",
+        &domain,
+    ) {
+        return Ok(user_id);
+    }
+    if pool
+        .list_relations_for_subject("user", &user_id)
+        .map(|rels| {
+            rels.iter().any(|r| {
+                r.relation == authorization::RELATION_ISSUE_CLAIMS && r.object_type == "claim_type"
+            })
+        })
+        .unwrap_or(false)
+    {
+        return Ok(user_id);
+    }
+    Err(Status::Forbidden)
 }
 
 fn select(name: &str, options: &[&str], current: &str) -> String {
@@ -73,8 +102,18 @@ pub fn policy_admin(
     msg: Option<&str>,
     error: Option<&str>,
 ) -> Result<RawHtml<String>, Status> {
-    let user_id = require_manage_claims(pool.inner(), cookies)?;
-    let admin_nav = is_user_admin(pool.inner(), &user_id);
+    render_policy_admin(pool.inner(), cookies, msg, error, "")
+}
+
+fn render_policy_admin(
+    pool: &DbPool,
+    cookies: &CookieJar<'_>,
+    msg: Option<&str>,
+    error: Option<&str>,
+    test_panel: &str,
+) -> Result<RawHtml<String>, Status> {
+    let user_id = require_manage_claims(pool, cookies)?;
+    let admin_nav = is_user_admin(pool, &user_id);
     let nav = build_nav("policy", admin_nav, true);
     let flash = flash_html(msg, error);
 
@@ -120,6 +159,16 @@ pub fn policy_admin(
             flags = flags,
         ));
     }
+    let claim_type_datalist = format!(
+        r#"<datalist id="claim-type-options">{}</datalist>"#,
+        policies
+            .iter()
+            .map(|p| format!(
+                r#"<option value="{}"></option>"#,
+                html_escape(&p.claim_type)
+            ))
+            .collect::<String>()
+    );
 
     // -- Trusted issuers --
     let mut issuer_rows = String::new();
@@ -161,16 +210,18 @@ pub fn policy_admin(
 
     let content = format!(
         r#"{flash}
+{claim_type_datalist}
 <h1>Policy Administration</h1>
 <p>Control which claims this domain recognises, how they get signed, who you trust to attest them, and what is released to relying parties by default.</p>
 <p><a href="/policy-admin/issue">Issue an attestation from a user's request →</a></p>
+{test_panel}
 
 <h2>Claim types</h2>
 <table><tr><th>Type</th><th>Label</th><th>Value</th><th>Set rule</th><th>Signing</th><th>Flags</th><th></th></tr>{reg_rows}</table>
 
 <h3>Add / edit a claim type</h3>
 <form method="POST" action="/policy-admin/claim-types">
-  <label>Claim type (id)</label><input type="text" name="claim_type" required placeholder="e.g. pronouns"/>
+  <label>Claim type (id)</label><input type="text" name="claim_type" list="claim-type-options" required placeholder="e.g. pronouns"/>
   <label>Label</label><input type="text" name="label" required/>
   <label>Description</label><input type="text" name="description"/>
   <label>Value type</label>{value_type_sel}
@@ -188,9 +239,20 @@ pub fn policy_admin(
 <p>Domains whose signature you accept as attestation for a claim type (e.g. a government entity for <code>age_over_21</code>).</p>
 <table><tr><th>Claim type</th><th>Issuer domain</th><th></th></tr>{issuer_rows}</table>
 <form method="POST" action="/policy-admin/trusted-issuers">
-  <input type="text" name="claim_type" required placeholder="claim type"/>
+  <input type="text" name="claim_type" list="claim-type-options" required placeholder="claim type"/>
   <input type="text" name="issuer_domain" required placeholder="issuer.example"/>
   <button type="submit" class="btn-primary">Add issuer</button>
+</form>
+
+<h3>Test issuer signing policy</h3>
+<p>Evaluate subject-domain deny rules and, optionally, whether a specific user may issue a claim type. This does not save anything.</p>
+<form method="POST" action="/policy-admin/issuer/test">
+  <label>Subject domain</label><input type="text" name="subject_domain" required placeholder="example.com"/>
+  <label>Denied subject domains</label><input type="text" name="denied_domains" value="{deny_domains}" placeholder="bad.example, blocked.example"/>
+  <label>Denied TLDs</label><input type="text" name="denied_tlds" value="{deny_tlds}" placeholder="ru, zip"/>
+  <label>Issuer user id (optional)</label><input type="text" name="issuer_user_id" placeholder="uuid"/>
+  <label>Claim type for user authorization test</label><input type="text" name="claim_type" list="claim-type-options" placeholder="claim type"/>
+  <br/><button type="submit" class="btn-primary">Test issuer policy</button>
 </form>
 
 <h2>Release defaults</h2>
@@ -198,23 +260,48 @@ pub fn policy_admin(
 <table><tr><th>Audience</th><th>Claim type</th><th>Disposition</th><th></th></tr>{release_rows}</table>
 <form method="POST" action="/policy-admin/release">
   <input type="text" name="audience" required placeholder="* or app.example"/>
-  <input type="text" name="claim_type" required placeholder="claim type"/>
+  <input type="text" name="claim_type" list="claim-type-options" required placeholder="claim type"/>
   {disposition_sel}
   <button type="submit" class="btn-primary">Save rule</button>
+</form>
+
+<h3>Test release policy</h3>
+<p>Exercise the consent resolver with a temporary unsaved rule. Required claims remain user-toggleable unless a domain policy locks them.</p>
+<form method="POST" action="/policy-admin/release/test">
+  <label>Audience</label><input type="text" name="audience" required value="linkidspec.com"/>
+  <label>Required requested claims</label><input type="text" name="required_claims" value="display_name, handle"/>
+  <label>Optional requested claims</label><input type="text" name="optional_claims" value="email, over_21, address"/>
+  <label>User selected claims</label><input type="text" name="user_choices" value="display_name, handle, email"/>
+  <label>Available claims (blank = all requested)</label><input type="text" name="available_claims" placeholder="display_name, handle, email, over_21, address"/>
+  <label>Temporary unsaved audience</label><input type="text" name="temp_audience" placeholder="* or app.example"/>
+  <label>Temporary unsaved claim type</label><input type="text" name="temp_claim_type" list="claim-type-options" placeholder="claim type"/>
+  {temp_disposition_sel}
+  <br/><button type="submit" class="btn-primary">Test release policy</button>
 </form>
 
 <h2>Pending approvals</h2>
 <table><tr><th>Subject</th><th>Claim</th><th>Value</th><th></th></tr>{approval_rows}</table>
 "#,
         flash = flash,
+        claim_type_datalist = claim_type_datalist,
+        test_panel = test_panel,
         reg_rows = reg_rows,
         value_type_sel = select("value_type", VALUE_TYPES, "text"),
         set_rule_sel = select("set_rule", SET_RULES, "user_self"),
         signing_rule_sel = select("signing_rule", SIGNING_RULES, "self_signed"),
         issuer_rows = issuer_rows,
+        deny_domains =
+            html_escape(&std::env::var("ATTESTATION_DENY_SUBJECT_DOMAINS").unwrap_or_default()),
+        deny_tlds =
+            html_escape(&std::env::var("ATTESTATION_DENY_SUBJECT_TLDS").unwrap_or_default()),
         release_rows = release_rows,
         disposition_sel = select(
             "disposition",
+            &["forced_allow", "forced_deny"],
+            "forced_allow"
+        ),
+        temp_disposition_sel = select(
+            "temp_disposition",
             &["forced_allow", "forced_deny"],
             "forced_allow"
         ),
@@ -416,6 +503,221 @@ pub fn delete_release(
     }
 }
 
+fn csv_list(input: &str) -> Vec<String> {
+    input
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn requested_claims(types: &[String]) -> Vec<RequestedClaim> {
+    types
+        .iter()
+        .map(|claim_type| RequestedClaim {
+            claim_type: claim_type.clone(),
+            datatype: "string".to_string(),
+        })
+        .collect()
+}
+
+fn test_claim(claim_type: &str) -> Claim {
+    Claim {
+        claim_id: format!("test-{}", claim_type),
+        user_id: "test-user".to_string(),
+        claim_type: claim_type.to_string(),
+        claim_value: b"test".to_vec(),
+        signatures: Vec::new(),
+        created_at: "2026-07-01T00:00:00Z".to_string(),
+        expires_at: None,
+        revoked_at: None,
+    }
+}
+
+fn release_policy_for_test(
+    pool: &DbPool,
+    audience: &str,
+    temp_audience: &str,
+    temp_claim_type: &str,
+    temp_disposition: &str,
+) -> Result<DomainPolicy, Status> {
+    let rows = pool
+        .list_release_policies_for_audience(audience)
+        .map_err(|_| Status::InternalServerError)?;
+    let mut policy = DomainPolicy::default();
+    for r in rows {
+        match r.disposition.as_str() {
+            "forced_allow" => policy.forced_allow.push(r.claim_type),
+            "forced_deny" => policy.forced_deny.push(r.claim_type),
+            _ => {}
+        }
+    }
+
+    let temp_audience = temp_audience.trim();
+    let temp_claim_type = temp_claim_type.trim();
+    if !temp_audience.is_empty()
+        && !temp_claim_type.is_empty()
+        && (temp_audience == "*" || temp_audience == audience)
+    {
+        match temp_disposition {
+            "forced_allow" => policy.forced_allow.push(temp_claim_type.to_string()),
+            "forced_deny" => policy.forced_deny.push(temp_claim_type.to_string()),
+            _ => {}
+        }
+    }
+    Ok(policy)
+}
+
+#[derive(rocket::FromForm)]
+pub struct ReleaseTestForm {
+    audience: String,
+    required_claims: String,
+    optional_claims: String,
+    user_choices: String,
+    available_claims: Option<String>,
+    temp_audience: Option<String>,
+    temp_claim_type: Option<String>,
+    temp_disposition: String,
+}
+
+#[rocket::post("/policy-admin/release/test", data = "<form>")]
+pub fn test_release_policy(
+    _csrf: super::guard::SameOriginPost,
+    pool: &State<DbPool>,
+    cookies: &CookieJar<'_>,
+    form: rocket::form::Form<ReleaseTestForm>,
+) -> Result<RawHtml<String>, Status> {
+    require_manage_claims(pool.inner(), cookies)?;
+    let audience = form.audience.trim();
+    if form.temp_disposition != "forced_allow" && form.temp_disposition != "forced_deny" {
+        return render_policy_admin(
+            pool.inner(),
+            cookies,
+            None,
+            Some("invalid temporary disposition"),
+            "",
+        );
+    }
+
+    let required = csv_list(&form.required_claims);
+    let optional = csv_list(&form.optional_claims);
+    let mut default_available = required.clone();
+    default_available.extend(optional.clone());
+    let available_names = form
+        .available_claims
+        .as_deref()
+        .map(csv_list)
+        .filter(|v| !v.is_empty())
+        .unwrap_or(default_available);
+    let available: Vec<Claim> = available_names.iter().map(|ct| test_claim(ct)).collect();
+    let req = ClaimRequest {
+        required: requested_claims(&required),
+        optional: requested_claims(&optional),
+    };
+    let temp_audience = form.temp_audience.as_deref().unwrap_or("");
+    let temp_claim_type = form.temp_claim_type.as_deref().unwrap_or("");
+    let policy = release_policy_for_test(
+        pool.inner(),
+        audience,
+        temp_audience,
+        temp_claim_type,
+        &form.temp_disposition,
+    )?;
+    let screen = resolve_consent_screen(&req, &available, None, &policy);
+    let user_choices = csv_list(&form.user_choices);
+    let authorized = compute_authorized_claims(&req, &user_choices, &policy);
+
+    let mut rows = String::new();
+    for row in screen.rows {
+        rows.push_str(&format!(
+            r#"<tr><td><code>{ct}</code></td><td>{req}</td><td>{avail}</td><td>{locked}</td><td>{policy}</td><td>{defaulted}</td></tr>"#,
+            ct = html_escape(&row.claim_type),
+            req = if row.required { "required" } else { "optional" },
+            avail = if row.available { "yes" } else { "no" },
+            locked = if row.locked { "yes" } else { "no" },
+            policy = html_escape(&format!("{:?}", row.policy)),
+            defaulted = if row.default_granted() { "checked" } else { "unchecked" },
+        ));
+    }
+    let panel = format!(
+        r#"<div class="success">
+<h2>Release policy test result</h2>
+<p><strong>Audience:</strong> {audience}<br/>
+<strong>Effective allow:</strong> {allow}<br/>
+<strong>Effective deny:</strong> {deny}<br/>
+<strong>Authorized after user choices:</strong> {authorized}</p>
+<table><tr><th>Claim</th><th>RP marked</th><th>Available</th><th>Locked</th><th>Policy</th><th>Initial checkbox</th></tr>{rows}</table>
+</div>"#,
+        audience = html_escape(audience),
+        allow = html_escape(&policy.forced_allow.join(", ")),
+        deny = html_escape(&policy.forced_deny.join(", ")),
+        authorized = html_escape(&authorized.join(", ")),
+        rows = rows,
+    );
+    render_policy_admin(pool.inner(), cookies, None, None, &panel)
+}
+
+#[derive(rocket::FromForm)]
+pub struct IssuerPolicyTestForm {
+    subject_domain: String,
+    denied_domains: String,
+    denied_tlds: String,
+    issuer_user_id: Option<String>,
+    claim_type: Option<String>,
+}
+
+#[rocket::post("/policy-admin/issuer/test", data = "<form>")]
+pub fn test_issuer_policy(
+    _csrf: super::guard::SameOriginPost,
+    pool: &State<DbPool>,
+    cookies: &CookieJar<'_>,
+    form: rocket::form::Form<IssuerPolicyTestForm>,
+) -> Result<RawHtml<String>, Status> {
+    require_manage_claims(pool.inner(), cookies)?;
+    let denied_domains = csv_list(&form.denied_domains);
+    let denied_tlds = csv_list(&form.denied_tlds);
+    let domain_decision = attestation::subject_domain_policy_decision_with_denies(
+        &form.subject_domain,
+        &denied_domains,
+        &denied_tlds,
+    );
+    let user_result = match (
+        form.issuer_user_id.as_deref().map(str::trim),
+        form.claim_type.as_deref().map(str::trim),
+    ) {
+        (Some(user_id), Some(claim_type)) if !user_id.is_empty() && !claim_type.is_empty() => {
+            let can_issue = attestation::user_can_issue_claim(pool.inner(), user_id, claim_type);
+            format!(
+                "{} may {}issue {}",
+                html_escape(user_id),
+                if can_issue { "" } else { "not " },
+                html_escape(claim_type)
+            )
+        }
+        _ => "No user authorization check requested".to_string(),
+    };
+    let panel = format!(
+        r#"<div class="success">
+<h2>Issuer policy test result</h2>
+<p><strong>Subject domain:</strong> {subject}<br/>
+<strong>Subject-domain decision:</strong> {decision} ({reason})<br/>
+<strong>User issue authorization:</strong> {user_result}<br/>
+<strong>Attested claim TTL:</strong> {ttl} seconds</p>
+</div>"#,
+        subject = html_escape(form.subject_domain.trim()),
+        decision = if domain_decision.allowed {
+            "allowed"
+        } else {
+            "denied"
+        },
+        reason = html_escape(&domain_decision.reason),
+        user_result = user_result,
+        ttl = attestation::attested_claim_ttl_seconds(),
+    );
+    render_policy_admin(pool.inner(), cookies, None, None, &panel)
+}
+
 #[derive(rocket::FromForm)]
 pub struct ApprovalForm {
     id: String,
@@ -499,7 +801,7 @@ pub fn issue_page(
     cookies: &CookieJar<'_>,
     error: Option<&str>,
 ) -> Result<RawHtml<String>, Status> {
-    let user_id = require_manage_claims(pool.inner(), cookies)?;
+    let user_id = require_issue_page_access(pool.inner(), cookies)?;
     let nav = build_nav("policy", is_user_admin(pool.inner(), &user_id), true);
     let content = format!(
         r#"{flash}
@@ -530,7 +832,7 @@ pub async fn issue_verify(
     cookies: &CookieJar<'_>,
     form: rocket::form::Form<IssueForm>,
 ) -> Result<RawHtml<String>, Status> {
-    let user_id = require_manage_claims(pool.inner(), cookies)?;
+    let user_id = require_issue_page_access(pool.inner(), cookies)?;
     let nav = build_nav("policy", is_user_admin(pool.inner(), &user_id), true);
 
     let (signed, req) = match decode_request(&form.request) {
@@ -599,7 +901,7 @@ pub async fn issue_sign(
     cookies: &CookieJar<'_>,
     form: rocket::form::Form<IssueSignForm>,
 ) -> Result<RawHtml<String>, Status> {
-    let user_id = require_manage_claims(pool.inner(), cookies)?;
+    let user_id = require_issue_page_access(pool.inner(), cookies)?;
     let nav = build_nav("policy", is_user_admin(pool.inner(), &user_id), true);
 
     let (signed, req) = match decode_request(&form.request) {
@@ -634,6 +936,13 @@ pub async fn issue_sign(
         if !requested.contains(ct) {
             out.push_str(&format!(
                 r#"<div class="error">{} was not requested — skipped.</div>"#,
+                html_escape(ct)
+            ));
+            continue;
+        }
+        if !attestation::user_can_issue_claim(pool.inner(), &user_id, ct) {
+            out.push_str(&format!(
+                r#"<div class="error">You are not authorized to issue {} — skipped.</div>"#,
                 html_escape(ct)
             ));
             continue;

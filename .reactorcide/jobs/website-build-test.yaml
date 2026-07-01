@@ -10,7 +10,9 @@ paths:
   include: ["website/**"]
 job:
   image: containers.catalystsquad.com/public/reactorcide/runnerbase:dev
-  command: "bash /job/src/.reactorcide/jobs/scripts/website-build-test.sh"
+  command: "bash ${REACTORCIDE_CODE_DIR:-/job/src}/.reactorcide/jobs/scripts/website-build-test.sh"
   timeout: 900
   capabilities:
     - builder
+  run_as:
+    user: runner

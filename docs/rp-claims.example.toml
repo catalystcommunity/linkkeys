@@ -9,7 +9,8 @@
 # one of "text", "int", "float", "bool", "date", "email", "url" (extensible).
 # Claim values remain opaque bytes on the wire.
 
-# Declining a `required` claim aborts the login (the RP won't function without it).
+# Declining a `required` claim is allowed at the IDP. The RP/app should reject
+# or degrade the session if it cannot function without it.
 [[required]]
 claim_type = "email"
 datatype   = "email"

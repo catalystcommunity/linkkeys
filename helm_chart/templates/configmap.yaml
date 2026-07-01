@@ -36,6 +36,33 @@ data:
   {{- if .Values.server.consentForcedDeny }}
   CONSENT_FORCED_DENY: {{ .Values.server.consentForcedDeny | quote }}
   {{- end }}
+  {{- if .Values.server.releasePolicies }}
+  # Semicolon-separated audience|claim_type|disposition triples. These are
+  # upserted on startup so redeploys reproduce intentional release policy.
+  CONSENT_RELEASE_POLICIES: {{- $items := list -}}{{- range .Values.server.releasePolicies -}}{{- $items = append $items (printf "%s|%s|%s" .audience .claimType .disposition) -}}{{- end }} {{ join ";" $items | quote }}
+  {{- end }}
+  {{- if .Values.server.releasePolicyDeletes }}
+  # Semicolon-separated audience|claim_type pairs deleted on startup before
+  # CONSENT_RELEASE_POLICIES is applied.
+  CONSENT_RELEASE_POLICY_DELETES: {{- $items := list -}}{{- range .Values.server.releasePolicyDeletes -}}{{- $items = append $items (printf "%s|%s" .audience .claimType) -}}{{- end }} {{ join ";" $items | quote }}
+  {{- end }}
+  {{- if .Values.server.trustedIssuers }}
+  # Semicolon-separated claim_type|issuer_domain pairs. These are inserted if
+  # absent on startup; admin removals should also be reflected in values.
+  TRUSTED_ISSUERS: {{- $items := list -}}{{- range .Values.server.trustedIssuers -}}{{- $items = append $items (printf "%s|%s" .claimType .issuerDomain) -}}{{- end }} {{ join ";" $items | quote }}
+  {{- end }}
+  {{- if .Values.server.rpIssueClaims }}
+  RP_ISSUE_CLAIMS: {{ .Values.server.rpIssueClaims | quote }}
+  {{- end }}
+  {{- if .Values.server.attestationDenySubjectDomains }}
+  ATTESTATION_DENY_SUBJECT_DOMAINS: {{ .Values.server.attestationDenySubjectDomains | quote }}
+  {{- end }}
+  {{- if .Values.server.attestationDenySubjectTlds }}
+  ATTESTATION_DENY_SUBJECT_TLDS: {{ .Values.server.attestationDenySubjectTlds | quote }}
+  {{- end }}
+  {{- if .Values.server.attestedClaimTtlSeconds }}
+  ATTESTED_CLAIM_TTL_SECONDS: {{ .Values.server.attestedClaimTtlSeconds | quote }}
+  {{- end }}
   {{- if .Values.rp.claimsConfig }}
   # When this server acts as a relying party, the TOML at this path declares the
   # claims it requests at login (rendered from .Values.rp.claimsConfig).

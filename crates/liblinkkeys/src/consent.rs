@@ -274,7 +274,7 @@ pub struct ConsentScreenRow {
     pub claim_type: String,
     /// Datatype the RP expects (advisory; from the request).
     pub datatype: String,
-    /// The RP marked this claim required (declining should abort the login).
+    /// The RP marked this claim required for the app to function.
     pub required: bool,
     /// The user actually holds a claim of this type (releasable).
     pub available: bool,
@@ -288,8 +288,8 @@ pub struct ConsentScreenRow {
 impl ConsentScreenRow {
     /// The checkbox state a compliant UI should start with: policy decides when
     /// locked, otherwise default to a previously-granted choice. Required rows
-    /// are NOT auto-granted — consent must be an affirmative act — but a UI
-    /// typically highlights them and blocks "continue" until granted.
+    /// are NOT auto-granted — consent must be an affirmative act. The RP/app
+    /// decides whether a missing required claim rejects or degrades the session.
     pub fn default_granted(&self) -> bool {
         match self.policy {
             PolicyDisposition::ForcedAllow => true,

@@ -5,7 +5,7 @@
 
 mod common;
 
-use common::data_factory::{create_user, DataMap};
+use common::data_factory::{create_domain_key, create_relation, create_user, DataMap};
 use linkkeys::db::models::PeerKey;
 use linkkeys::services::attestation;
 
@@ -175,4 +175,86 @@ fn verify_without_cached_key_is_unverified() {
     let (claim, _peer) = issuer_signed_claim(&uid, "age_over_21", b"true");
     // Issuer key never cached → cannot resolve → unverified (fail closed).
     assert!(!attestation::verify_stored_claim(&pool, &claim).verified);
+}
+
+#[test]
+fn issuer_policy_denies_subject_tld_and_issued_claims_expire() {
+    std::env::set_var("DOMAIN_NAME", "issuer.test");
+    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
+    std::env::set_var("ATTESTATION_DENY_SUBJECT_TLDS", "ru");
+    let pool = common::create_test_pool();
+    create_domain_key(&pool);
+
+    let denied = attestation::issue_attested_claim(
+        &pool,
+        "remote-user",
+        "example.ru",
+        "linkidspec_signed",
+        b"2026-06-30",
+    )
+    .unwrap_err();
+    assert_eq!(denied.code, 403);
+
+    std::env::remove_var("ATTESTATION_DENY_SUBJECT_TLDS");
+    let claim = attestation::issue_attested_claim(
+        &pool,
+        "remote-user",
+        "home.test",
+        "linkidspec_signed",
+        b"2026-06-30",
+    )
+    .expect("claim issued");
+    assert_eq!(claim.claim_type, "linkidspec_signed");
+    assert!(claim.expires_at.is_some(), "issued attestations expire");
+}
+
+#[test]
+fn subject_domain_policy_can_be_evaluated_with_temporary_denies() {
+    let exact = attestation::subject_domain_policy_decision_with_denies(
+        "Blocked.Example.",
+        &["blocked.example".to_string()],
+        &[],
+    );
+    assert!(!exact.allowed);
+    assert!(exact.reason.contains("explicitly denied"));
+
+    let tld =
+        attestation::subject_domain_policy_decision_with_denies("news.ru", &[], &[".ru".into()]);
+    assert!(!tld.allowed);
+    assert!(tld.reason.contains(".ru"));
+
+    let allowed =
+        attestation::subject_domain_policy_decision_with_denies("partner.example", &[], &[]);
+    assert!(allowed.allowed);
+}
+
+#[test]
+fn per_claim_issue_relation_authorizes_without_manage_claims() {
+    std::env::set_var("DOMAIN_NAME", OUR_DOMAIN);
+    let pool = common::create_test_pool();
+    let user = create_user(&pool, &DataMap::new());
+
+    assert!(!attestation::user_can_issue_claim(
+        &pool,
+        &user.id,
+        "linkidspec_signed"
+    ));
+    create_relation(
+        &pool,
+        "user",
+        &user.id,
+        "issue_claims",
+        "claim_type",
+        "linkidspec_signed",
+    );
+    assert!(attestation::user_can_issue_claim(
+        &pool,
+        &user.id,
+        "linkidspec_signed"
+    ));
+    assert!(!attestation::user_can_issue_claim(
+        &pool,
+        &user.id,
+        "age_over_21"
+    ));
 }

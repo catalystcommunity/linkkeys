@@ -1,5 +1,6 @@
 pub mod tls;
 
+use std::collections::BTreeSet;
 use std::env;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -261,67 +262,115 @@ fn handle_connection(
     )
 }
 
-/// Maximum CBOR nesting depth allowed. Prevents stack overflow from deeply nested payloads.
-const MAX_CBOR_DEPTH: usize = 32;
+/// Maximum CBOR nesting depth allowed. Prevents stack overflow from deeply
+/// nested payloads while leaving room for real signed request envelopes, which
+/// carry nested maps/arrays for request bodies and multiple signatures.
+const MAX_CBOR_DEPTH: usize = 64;
 
 /// Scan raw CBOR bytes and reject if nesting depth exceeds the limit.
 /// CBOR major types 4 (array) and 5 (map) increase depth; their items decrease it
 /// as they're consumed. This is a conservative linear scan, not a full parser.
 fn check_cbor_depth(data: &[u8]) -> bool {
-    let mut depth: usize = 0;
+    let mut stack: Vec<Option<usize>> = Vec::new();
     let mut i = 0;
     while i < data.len() {
+        while matches!(stack.last(), Some(Some(0))) {
+            stack.pop();
+        }
+        if let Some(Some(remaining)) = stack.last_mut() {
+            *remaining = remaining.saturating_sub(1);
+        }
+
         let major = data[i] >> 5;
         let additional = data[i] & 0x1f;
         i += 1;
 
-        // Skip additional info bytes (determines the length/value encoding)
-        match additional {
-            0..=23 => {}             // value is in the additional bits
-            24 => i += 1,            // 1-byte value follows
-            25 => i += 2,            // 2-byte value
-            26 => i += 4,            // 4-byte value
-            27 => i += 8,            // 8-byte value
-            28..=30 => return false, // reserved, malformed
-            31 => {
-                // Indefinite length — arrays and maps increase depth
-                if major == 4 || major == 5 {
-                    depth += 1;
-                    if depth > MAX_CBOR_DEPTH {
-                        return false;
-                    }
+        let value = match additional {
+            0..=23 => Some(additional as u64),
+            24 => {
+                if i >= data.len() {
+                    return false;
                 }
-                continue;
+                let v = data[i] as u64;
+                i += 1;
+                Some(v)
             }
+            25 => {
+                if i + 2 > data.len() {
+                    return false;
+                }
+                let v = u16::from_be_bytes([data[i], data[i + 1]]) as u64;
+                i += 2;
+                Some(v)
+            }
+            26 => {
+                if i + 4 > data.len() {
+                    return false;
+                }
+                let v = u32::from_be_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]) as u64;
+                i += 4;
+                Some(v)
+            }
+            27 => {
+                if i + 8 > data.len() {
+                    return false;
+                }
+                let v = u64::from_be_bytes([
+                    data[i],
+                    data[i + 1],
+                    data[i + 2],
+                    data[i + 3],
+                    data[i + 4],
+                    data[i + 5],
+                    data[i + 6],
+                    data[i + 7],
+                ]);
+                i += 8;
+                Some(v)
+            }
+            28..=30 => return false, // reserved, malformed
+            31 => None,
             _ => unreachable!(),
-        }
+        };
 
         match major {
             0 | 1 => {} // unsigned/negative int — no nesting
-            2 | 3 if additional <= 23 => {
-                // byte/text string with inline length
-                i += additional as usize;
+            2 | 3 => {
+                let Some(len) = value else {
+                    return false;
+                };
+                let Ok(len) = usize::try_from(len) else {
+                    return false;
+                };
+                if i + len > data.len() {
+                    return false;
+                }
+                i += len;
             }
-            2 | 3 => {} // byte/text string — length already skipped above
             4 | 5 => {
-                // array or map — increase depth
-                depth += 1;
-                if depth > MAX_CBOR_DEPTH {
+                let entries = match value {
+                    Some(len) if major == 4 => len,
+                    Some(len) => len.saturating_mul(2),
+                    None => return false,
+                };
+                let Ok(entries) = usize::try_from(entries) else {
+                    return false;
+                };
+                stack.push(Some(entries));
+                if stack.len() > MAX_CBOR_DEPTH {
                     return false;
                 }
             }
             6 => {} // tag — next item is the tagged value
             7 => {
-                // simple/float/break
-                if additional == 31 {
-                    // "break" — end of indefinite container
-                    depth = depth.saturating_sub(1);
+                if additional == 31 || value.is_none() {
+                    return false;
                 }
             }
             _ => return false,
         }
     }
-    true
+    stack.into_iter().all(|remaining| remaining == Some(0))
 }
 
 fn handle_message_loop(
@@ -388,6 +437,55 @@ fn handle_message_loop(
 fn db_error_message(e: impl std::fmt::Display) -> String {
     log::warn!("TCP dispatch database error: {}", e);
     "internal database error".to_string()
+}
+
+fn cache_claim_signer_keys(
+    db_pool: &DbPool,
+    claim: &liblinkkeys::generated::types::Claim,
+    outbound: Option<&OutboundCtx>,
+) {
+    let Some(ctx) = outbound else {
+        return;
+    };
+    let our = get_domain_name();
+    let domains: BTreeSet<String> = claim
+        .signatures
+        .iter()
+        .map(|s| s.domain.clone())
+        .filter(|d| d != &our)
+        .collect();
+    for domain in domains {
+        let keys = match ctx
+            .rt
+            .block_on(crate::web::rp::fetch_domain_keys(db_pool, ctx.net, &domain))
+        {
+            Ok(keys) => keys,
+            Err(e) => {
+                log::warn!("Could not fetch signer keys for {}: {}", domain, e);
+                continue;
+            }
+        };
+        for key in keys {
+            let peer = crate::db::models::PeerKey {
+                domain: domain.clone(),
+                key_id: key.key_id,
+                public_key: key.public_key,
+                algorithm: key.algorithm,
+                fingerprint: key.fingerprint,
+                key_usage: key.key_usage,
+                expires_at: key.expires_at,
+                revoked_at: key.revoked_at,
+            };
+            if let Err(e) = db_pool.cache_peer_key(&peer) {
+                log::warn!(
+                    "Could not cache signer key {} for {}: {}",
+                    peer.key_id,
+                    domain,
+                    e
+                );
+            }
+        }
+    }
 }
 
 /// Test/diagnostic harness entry point: run the TCP service dispatch directly,
@@ -623,6 +721,7 @@ fn dispatch(
             if db_pool.find_user_by_id(&claim.user_id).is_err() {
                 return error_response(4, "Unknown subject");
             }
+            cache_claim_signer_keys(db_pool, &claim, outbound);
             match crate::services::attestation::verify_and_store_attested(
                 db_pool,
                 &claim.user_id,
@@ -791,7 +890,14 @@ fn dispatch_rp(
                 Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
             };
             let cfg = crate::rp_config::RpClaimsConfig::load_from_env();
-            match rp::sign_request_core(db_pool, &cfg, &req.callback_url, &req.nonce) {
+            match rp::sign_request_core(
+                db_pool,
+                &cfg,
+                &req.callback_url,
+                &req.nonce,
+                req.requested_claims,
+                req.flow_context,
+            ) {
                 Ok(resp) => ok_response(codec::encode_rp_sign_response(&resp)),
                 Err(s) => rp_status_to_error(s),
             }
@@ -842,6 +948,26 @@ fn dispatch_rp(
                 &req.domain,
             )) {
                 Ok(resp) => ok_response(codec::encode_user_info(&resp)),
+                Err(s) => rp_status_to_error(s),
+            }
+        }
+        "issue-attestation" => {
+            let req = match codec::decode_rp_issue_attestation_request(payload) {
+                Ok(r) => r,
+                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+            };
+            let ctx = match outbound {
+                Some(c) => c,
+                None => return error_response(4, "operation unavailable on this carrier"),
+            };
+            match ctx.rt.block_on(rp::issue_attestation_core(
+                db_pool,
+                ctx.net,
+                req.signed_request,
+                &req.claim_type,
+                &req.claim_value,
+            )) {
+                Ok(resp) => ok_response(codec::encode_rp_issue_attestation_response(&resp)),
                 Err(s) => rp_status_to_error(s),
             }
         }

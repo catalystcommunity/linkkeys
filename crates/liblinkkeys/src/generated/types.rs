@@ -67,8 +67,7 @@ pub struct GuestbookListResponse {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct EmptyRequest {
-}
+pub struct EmptyRequest {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DomainPublicKey {
@@ -159,6 +158,13 @@ pub struct RequestedClaim {
 pub struct ClaimRequest {
     pub required: Vec<RequestedClaim>,
     pub optional: Vec<RequestedClaim>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AuthFlowContext {
+    pub flow: String,
+    pub prior_session: Option<String>,
+    pub request_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -272,6 +278,7 @@ pub struct AuthRequest {
     pub timestamp: String,
     pub signing_key_id: String,
     pub requested_claims: Option<ClaimRequest>,
+    pub flow_context: Option<AuthFlowContext>,
     pub relying_party_claims: Option<Vec<DomainClaim>>,
 }
 
@@ -499,6 +506,8 @@ pub struct GetMyInfoResponse {
 pub struct RpSignRequest {
     pub callback_url: String,
     pub nonce: String,
+    pub requested_claims: Option<ClaimRequest>,
+    pub flow_context: Option<AuthFlowContext>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -535,3 +544,15 @@ pub struct RpUserInfoRequest {
     pub domain: String,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct RpIssueAttestationRequest {
+    pub signed_request: SignedSigningRequest,
+    pub claim_type: String,
+    pub claim_value: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RpIssueAttestationResponse {
+    pub claim: Claim,
+    pub deposited: bool,
+}

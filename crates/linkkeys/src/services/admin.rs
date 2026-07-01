@@ -35,10 +35,11 @@ const VALID_RELATIONS: &[&str] = &[
     "manage_users",
     "manage_claims",
     "api_access",
+    "issue_claims",
     "member",
 ];
 const VALID_SUBJECT_TYPES: &[&str] = &["user", "group"];
-const VALID_OBJECT_TYPES: &[&str] = &["domain", "group", "user"];
+const VALID_OBJECT_TYPES: &[&str] = &["domain", "group", "user", "claim_type"];
 
 fn user_to_admin_user(user: &models::User) -> AdminUser {
     AdminUser {

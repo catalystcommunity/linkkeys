@@ -1,17 +1,20 @@
 use crate::assertions::VerifyError;
 use crate::crypto::{self, CryptoError, SigningAlgorithm};
-use crate::generated::types::{AuthRequest, ClaimRequest, DomainPublicKey, SignedAuthRequest};
+use crate::generated::types::{
+    AuthFlowContext, AuthRequest, ClaimRequest, DomainPublicKey, SignedAuthRequest,
+};
 use chrono::Utc;
 
 /// Build an unsigned auth request with the current timestamp. `requested_claims`
-/// advertises the claims the RP wants released on first contact (drives the
-/// IDP consent screen); pass `None` for authentication-only.
+/// advertises the claims the RP wants released for this login or later
+/// claims-update flow; pass `None` for authentication-only.
 pub fn build_auth_request(
     relying_party: &str,
     callback_url: &str,
     nonce: &str,
     signing_key_id: &str,
     requested_claims: Option<ClaimRequest>,
+    flow_context: Option<AuthFlowContext>,
 ) -> AuthRequest {
     AuthRequest {
         relying_party: relying_party.to_string(),
@@ -20,6 +23,7 @@ pub fn build_auth_request(
         timestamp: Utc::now().to_rfc3339(),
         signing_key_id: signing_key_id.to_string(),
         requested_claims,
+        flow_context,
         // The caller sets `relying_party_claims` on the returned request if it
         // wants to assert claims about itself (signed self/third-party).
         relying_party_claims: None,
@@ -118,6 +122,7 @@ mod tests {
             "nonce-123",
             "key-1",
             None,
+            None,
         );
 
         let signed = sign_auth_request(&request, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
@@ -141,6 +146,7 @@ mod tests {
             timestamp: (Utc::now() - chrono::Duration::seconds(120)).to_rfc3339(),
             signing_key_id: "key-1".to_string(),
             requested_claims: None,
+            flow_context: None,
             relying_party_claims: None,
         };
 
@@ -163,6 +169,7 @@ mod tests {
             "nonce",
             "key-1",
             None,
+            None,
         );
 
         let signed = sign_auth_request(&request, "key-1", SigningAlgorithm::Ed25519, &sk1).unwrap();
@@ -181,6 +188,7 @@ mod tests {
             "https://linkidspec.com/callback",
             "nonce",
             "key-1",
+            None,
             None,
         );
 

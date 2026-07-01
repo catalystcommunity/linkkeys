@@ -31,8 +31,8 @@ use liblinkkeys::consent::{
     DEFAULT_CONSENT_TTL_SECONDS,
 };
 use liblinkkeys::generated::types::{
-    AuthRequest, Claim, ClaimRequest, ConsentGrant, DomainPublicKey, GetDomainKeysResponse,
-    GetUserKeysResponse, UserInfo,
+    AuthFlowContext, AuthRequest, Claim, ClaimRequest, ConsentGrant, DomainPublicKey,
+    GetDomainKeysResponse, GetUserKeysResponse, UserInfo,
 };
 
 /// Wall-clock budget for a `signed_request` to be considered fresh, from
@@ -207,10 +207,7 @@ fn requested_types(req: &ClaimRequest) -> Vec<String> {
 /// requesting now — i.e. the RP hasn't asked for anything *new* since the user
 /// last consented. Compares against the grant's `requested_types`, which records
 /// everything previously offered (including optionals the user declined), so a
-/// re-listed declined optional does NOT re-prompt. A type the RP has since
-/// promoted to required is caught separately by `first_unsatisfied_required` on
-/// the skip path, which falls through to a fresh prompt rather than completing
-/// without it.
+/// re-listed declined optional does NOT re-prompt.
 fn grant_covers(prior: &crate::db::models::ConsentGrantRow, req: &ClaimRequest) -> bool {
     use std::collections::BTreeSet;
     let known: BTreeSet<&str> = prior.requested_types.iter().map(String::as_str).collect();
@@ -219,11 +216,11 @@ fn grant_covers(prior: &crate::db::models::ConsentGrantRow, req: &ClaimRequest) 
         .all(|t| known.contains(t.as_str()))
 }
 
-/// The first RP-required claim type that must block completion: one the user
-/// has not granted and domain policy has not denied. `None` => every required
-/// claim is satisfied (granted, or absolved because the home domain forced_deny
-/// it — the domain's deny is absolute and overrides the RP's "required" flag).
-fn first_unsatisfied_required<'a>(
+/// The first required claim that is absent from an effective authorization and
+/// still user-controlled. This does not block finalization after the user
+/// explicitly submits consent; it only prevents a prior declined required claim
+/// from making every later retry skip the consent screen and fail at the app.
+fn first_missing_user_required<'a>(
     req: &'a ClaimRequest,
     authorized: &[String],
     policy: &DomainPolicy,
@@ -786,6 +783,7 @@ fn render_consent_form(
     signed_request: &str,
     login_proof: &str,
     relying_party: &str,
+    flow_context: Option<&AuthFlowContext>,
     screen: &ConsentScreen,
     rp_claims: &[VerifiedRpClaim],
     error: Option<&str>,
@@ -795,6 +793,20 @@ fn render_consent_form(
     let error_html = error
         .map(|e| format!(r#"<p class="error">{}</p>"#, html_escape(e)))
         .unwrap_or_default();
+
+    let flow_html = match flow_context {
+        Some(ctx) if ctx.flow == "claims_update" => {
+            let reason = ctx
+                .request_reason
+                .as_deref()
+                .unwrap_or("The app changed the claims it wants to use.");
+            format!(
+                r#"<p style="background:#fff7df;border:1px solid #ead39a;padding:8px 12px;border-radius:6px;">This is an updated claim request. {}</p>"#,
+                html_escape(reason),
+            )
+        }
+        _ => String::new(),
+    };
 
     // "About this site": the RP's self-asserted claims and their attestation.
     let about_html = if rp_claims.is_empty() {
@@ -850,12 +862,10 @@ fn render_consent_form(
             }
             PolicyDisposition::User => {
                 let checked = if row.default_granted() { "checked" } else { "" };
-                let required_attr = if row.required { "required" } else { "" };
                 format!(
-                    r#"<input type="checkbox" name="grant" value="{ct}" {checked} {required_attr} />"#,
+                    r#"<input type="checkbox" name="grant" value="{ct}" {checked} />"#,
                     ct = ct,
                     checked = checked,
-                    required_attr = required_attr,
                 )
             }
         };
@@ -886,6 +896,7 @@ em {{ color: #555; }}
 <body>
 <h2>Share your information</h2>
 {about}
+{flow}
 <p><strong>{rp}</strong> is requesting access to the following from <strong>{domain}</strong>.
 Choose what to share. You can change this later by signing in again.</p>
 {error}
@@ -900,6 +911,7 @@ Choose what to share. You can change this later by signing in again.</p>
 </body>
 </html>"#,
         about = about_html,
+        flow = flow_html,
         rp = html_escape(relying_party),
         domain = html_escape(&get_domain_name()),
         error = error_html,
@@ -1108,12 +1120,13 @@ async fn handle_signed_request_post(
                 .ok()
                 .flatten()
             {
-                // Skip only if the prior decision still satisfies every required
-                // claim — e.g. an RP that upgraded a previously-declined optional
-                // to required must re-prompt, not silently complete without it.
+                // A prior grant covers this request when the RP has not added
+                // new claim types. If it omitted a currently required,
+                // user-controlled claim, re-prompt so the user can recover from
+                // the app-level failure on the next attempt.
                 if grant_covers(&prior, &req) {
                     let authorized = compute_authorized_claims(&req, &prior.claim_types, &policy);
-                    if first_unsatisfied_required(&req, &authorized, &policy).is_none() {
+                    if first_missing_user_required(&req, &authorized, &policy).is_none() {
                         return finalize_login(
                             pool, net, nonces, &user, &request, authorized, requested,
                         )
@@ -1145,6 +1158,7 @@ async fn handle_signed_request_post(
                 signed_request_param,
                 &proof,
                 &request.relying_party,
+                request.flow_context.as_ref(),
                 &screen,
                 &rp_claims,
                 None,
@@ -1167,8 +1181,10 @@ struct ConsentForm {
 /// previous request; an IDP-signed login proof (not a session cookie) carries
 /// their identity, bound to this login request's nonce. We verify the proof,
 /// re-validate the signed_request, confirm the proof was minted for *this*
-/// request, apply policy, enforce required claims, then finalize as the
-/// no-consent path does. See the login-proof note above for the rationale.
+/// request, apply policy, then finalize as the no-consent path does. Required
+/// claims are visible RP metadata, not an IDP override of user choice; the RP/app
+/// receives the narrowed authorized set and decides whether to reject or degrade.
+/// See the login-proof note above for the rationale.
 #[rocket::post("/auth/consent", data = "<form>")]
 async fn auth_consent_post(
     pool: &State<DbPool>,
@@ -1209,27 +1225,6 @@ async fn auth_consent_post(
         ));
     };
     let authorized = compute_authorized_claims(&req, &form.grant, &policy);
-
-    // A required claim the user declined (and policy didn't deny) blocks
-    // completion: re-render the consent screen with an error.
-    if let Some(missing) = first_unsatisfied_required(&req, &authorized, &policy) {
-        let rp_claims = match request.relying_party_claims.as_deref() {
-            Some(c) => verify_relying_party_claims(pool, net, &request.relying_party, c).await,
-            None => Vec::new(),
-        };
-        let screen = build_consent_screen(pool, &user_id, &request.relying_party, &req, &policy);
-        return Err(render_consent_form(
-            &form.signed_request,
-            &form.login_proof,
-            &request.relying_party,
-            &screen,
-            &rp_claims,
-            Some(&format!(
-                "\u{201c}{}\u{201d} is required to continue.",
-                missing
-            )),
-        ));
-    }
 
     finalize_login(
         pool,
@@ -1718,6 +1713,8 @@ pub fn build_rocket(
             policy_admin_ui::remove_issuer,
             policy_admin_ui::upsert_release,
             policy_admin_ui::delete_release,
+            policy_admin_ui::test_release_policy,
+            policy_admin_ui::test_issuer_policy,
             policy_admin_ui::approve,
             policy_admin_ui::reject,
             policy_admin_ui::issue_page,

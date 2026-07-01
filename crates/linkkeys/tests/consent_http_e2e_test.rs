@@ -11,7 +11,7 @@ use common::data_factory::{create_auth_credential, create_user, DataMap};
 use liblinkkeys::auth_request::{build_auth_request, sign_auth_request};
 use liblinkkeys::crypto::{self, SigningAlgorithm};
 use liblinkkeys::encoding::signed_auth_request_to_url_param;
-use liblinkkeys::generated::types::{ClaimRequest, RequestedClaim};
+use liblinkkeys::generated::types::{AuthFlowContext, ClaimRequest, RequestedClaim};
 use rocket::http::{ContentType, Status};
 use rocket::local::asynchronous::Client;
 use std::sync::atomic::AtomicBool;
@@ -105,6 +105,7 @@ async fn consent_flow_end_to_end() {
                 datatype: "text".to_string(),
             }],
         }),
+        None,
     );
     req.relying_party_claims = None;
     let signed_req =
@@ -189,33 +190,18 @@ async fn consent_flow_end_to_end() {
     );
     let proof = hidden_field(&consent_html, "login_proof");
 
-    // 4. POST consent declining the required claim (antagonistic) => re-prompt.
+    // 4. POST consent declining the required claim. The IDP preserves the
+    //    user's choice and redirects; the RP/app decides whether missing
+    //    required claims are fatal.
     let resp = client
         .post("/auth/consent")
         .header(ContentType::Form)
         .body(format!("signed_request={}&login_proof={}", sr, proof))
         .dispatch()
         .await;
-    let body = resp.into_string().await.unwrap();
-    assert!(
-        body.contains("is required to continue"),
-        "declined required claim blocks completion"
-    );
-
-    // 5. POST consent granting email (happy) => redirect to the callback with a
-    //    sealed token, and a stored grant scoped to exactly {email}.
-    let resp = client
-        .post("/auth/consent")
-        .header(ContentType::Form)
-        .body(format!(
-            "signed_request={}&login_proof={}&grant=email",
-            sr, proof
-        ))
-        .dispatch()
-        .await;
     assert!(
         resp.status().class().is_redirection(),
-        "consent completes with a redirect, got {:?}",
+        "declined required claim still completes at the IDP, got {:?}",
         resp.status()
     );
     let location = resp.headers().get_one("Location").unwrap_or("");
@@ -228,20 +214,77 @@ async fn consent_flow_end_to_end() {
         .find_active_consent_grant(&user.id, TEST_DOMAIN)
         .expect("query grant")
         .expect("a grant was stored");
-    assert_eq!(
-        grant.claim_types,
-        vec!["email".to_string()],
-        "grant records exactly what was shared"
+    assert!(
+        grant.claim_types.is_empty(),
+        "grant records that no requested claims were shared"
+    );
+
+    // 5. A later signed claims-update request that asks for a new type must
+    //    re-prompt instead of silently reusing the prior standing grant.
+    let mut update_req = build_auth_request(
+        TEST_DOMAIN,
+        &format!("https://{}/cb", TEST_DOMAIN),
+        "login-nonce-2",
+        &signing.id,
+        Some(ClaimRequest {
+            required: vec![RequestedClaim {
+                claim_type: "email".to_string(),
+                datatype: "email".to_string(),
+            }],
+            optional: vec![
+                RequestedClaim {
+                    claim_type: "ssn".to_string(),
+                    datatype: "text".to_string(),
+                },
+                RequestedClaim {
+                    claim_type: "phone".to_string(),
+                    datatype: "text".to_string(),
+                },
+            ],
+        }),
+        Some(AuthFlowContext {
+            flow: "claims_update".to_string(),
+            prior_session: Some("rp-session-1".to_string()),
+            request_reason: Some("the app now supports phone recovery".to_string()),
+        }),
+    );
+    update_req.relying_party_claims = None;
+    let signed_update = sign_auth_request(
+        &update_req,
+        &signing.id,
+        SigningAlgorithm::Ed25519,
+        &sk_bytes,
+    )
+    .unwrap();
+    let update_sr = signed_auth_request_to_url_param(&signed_update).unwrap();
+    let (ct, b) = form(&format!(
+        "username={}&password={}&signed_request={}",
+        USERNAME,
+        PASSWORD.replace(' ', "+"),
+        update_sr
+    ));
+    let resp = client
+        .post("/auth/authorize")
+        .header(ct)
+        .body(b)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let update_consent_html = resp.into_string().await.unwrap();
+    assert!(
+        update_consent_html.contains("This is an updated claim request"),
+        "claims-update context is displayed"
+    );
+    assert!(
+        update_consent_html.contains("phone"),
+        "newly requested claim appears on the consent screen"
     );
 
     // 6. Replaying the same consent (login nonce already burned) is refused.
     let resp = client
         .post("/auth/consent")
         .header(ContentType::Form)
-        .body(format!(
-            "signed_request={}&login_proof={}&grant=email",
-            sr, proof
-        ))
+        .body(format!("signed_request={}&login_proof={}", sr, proof))
         .dispatch()
         .await;
     let body = resp.into_string().await.unwrap();

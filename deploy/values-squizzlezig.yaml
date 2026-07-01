@@ -14,9 +14,25 @@ server:
   tcpHostname: "linkkeys.squizzlezig.com"
   publicPort: "443"
   disableTls: "true"
-  # Domain policy: always release email + display_name (locked on consent); the
-  # user decides on everything else (e.g. handle, address).
-  consentForcedAllow: "email,display_name"
+  # Domain policy for the public demo:
+  # - over_21 is always released when requested.
+  # - address is never released to linkidspec.com.
+  # - display_name, handle, and email remain user choices.
+  releasePolicies:
+    - audience: "*"
+      claimType: "over_21"
+      disposition: "forced_allow"
+    - audience: "linkidspec.com"
+      claimType: "address"
+      disposition: "forced_deny"
+  releasePolicyDeletes:
+    - audience: "*"
+      claimType: "display_name"
+    - audience: "*"
+      claimType: "email"
+  trustedIssuers:
+    - claimType: "linkidspec_signed"
+      issuerDomain: "linkidspec.com"
 
 # Dual-role: serve the IDP login UI AND act as an RP. passwordAuth stays true so
 # the login form remains mounted.

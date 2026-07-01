@@ -9,10 +9,12 @@ paths:
   include: ["website/content/extra_files/VERSION.txt"]
 job:
   image: containers.catalystsquad.com/public/reactorcide/runnerbase:dev
-  command: "bash /job/src/.reactorcide/jobs/scripts/website-build-and-deploy.sh"
+  command: "bash ${REACTORCIDE_CODE_DIR:-/job/src}/.reactorcide/jobs/scripts/website-build-and-deploy.sh"
   timeout: 1800
   capabilities:
     - builder
+  run_as:
+    user: runner
 environment:
   REGISTRY_INTERNAL: "containers.catalystsquad.com"
   REGISTRY_INTERNAL_PATH: "public/catalystcommunity/linkkeys-website"

@@ -5,7 +5,7 @@ echo "================================================"
 echo "LinkKeys Server Build and Deploy"
 echo "================================================"
 
-cd "${REACTORCIDE_REPOROOT:-/job/src}"
+cd "${REACTORCIDE_REPOROOT:-${REACTORCIDE_CODE_DIR:-/job/src}}"
 
 VERSION="$(cat version/VERSION.txt)"
 echo "Building version: ${VERSION}"
@@ -13,7 +13,7 @@ echo "Building version: ${VERSION}"
 # The `builder` capability provides a buildkitd sidecar reachable via
 # BUILDKIT_HOST. We only need the buildctl client; the sidecar's buildkitd
 # is operator-configured to treat the internal registry as plaintext HTTP.
-export HOME="${HOME:-/root}"
+export HOME="${HOME:-/home/runner}"
 LOCAL_BIN="$HOME/.local/bin"
 mkdir -p "$HOME/.docker" "$LOCAL_BIN"
 export PATH="$LOCAL_BIN:$PATH"
