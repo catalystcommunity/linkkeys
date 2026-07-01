@@ -4,6 +4,7 @@ pub const RELATION_ADMIN: &str = "admin";
 pub const RELATION_MANAGE_USERS: &str = "manage_users";
 pub const RELATION_MANAGE_CLAIMS: &str = "manage_claims";
 pub const RELATION_API_ACCESS: &str = "api_access";
+pub const RELATION_ISSUE_CLAIMS: &str = "issue_claims";
 
 /// Check if a user has a specific permission on an object.
 /// admin relation implies all others on the same object.

@@ -29,6 +29,8 @@ fn sign_request_payload() -> Vec<u8> {
     liblinkkeys::generated::encode_rp_sign_request(&RpSignRequest {
         callback_url: "https://rp.test/callback".to_string(),
         nonce: "nonce-1".to_string(),
+        requested_claims: None,
+        flow_context: None,
     })
 }
 

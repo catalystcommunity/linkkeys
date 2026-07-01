@@ -2,8 +2,10 @@ name: linkkeys-server-deploy
 description: "Deploy a LinkKeys server instance via Helm. Use with an overlay to set namespace, release name, values, and secrets."
 job:
   image: containers.catalystsquad.com/public/reactorcide/runnerbase:dev
-  command: "bash /job/src/.reactorcide/jobs/scripts/linkkeys-server-deploy.sh"
+  command: "bash ${REACTORCIDE_CODE_DIR:-/job/src}/.reactorcide/jobs/scripts/linkkeys-server-deploy.sh"
   timeout: 600
+  run_as:
+    user: runner
 environment:
   REGISTRY_USER: "${secret:catalystcommunity/registry:user}"
   REGISTRY_PASSWORD: "${secret:catalystcommunity/registry:password}"

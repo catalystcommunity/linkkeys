@@ -138,6 +138,72 @@ pub enum DbPool {
     Sqlite(r2d2::Pool<ConnectionManager<diesel::SqliteConnection>>),
 }
 
+fn parse_release_policy_env() -> Vec<(String, String, String)> {
+    std::env::var("CONSENT_RELEASE_POLICIES")
+        .unwrap_or_default()
+        .split(';')
+        .filter_map(|entry| {
+            let mut parts = entry.split('|').map(str::trim);
+            let audience = parts.next()?;
+            let claim_type = parts.next()?;
+            let disposition = parts.next()?;
+            if parts.next().is_some()
+                || audience.is_empty()
+                || claim_type.is_empty()
+                || !matches!(disposition, "forced_allow" | "forced_deny")
+            {
+                log::warn!(
+                    "Ignoring malformed CONSENT_RELEASE_POLICIES entry: {}",
+                    entry
+                );
+                return None;
+            }
+            Some((
+                audience.to_string(),
+                claim_type.to_string(),
+                disposition.to_string(),
+            ))
+        })
+        .collect()
+}
+
+fn parse_release_policy_delete_env() -> Vec<(String, String)> {
+    std::env::var("CONSENT_RELEASE_POLICY_DELETES")
+        .unwrap_or_default()
+        .split(';')
+        .filter_map(|entry| {
+            let mut parts = entry.split('|').map(str::trim);
+            let audience = parts.next()?;
+            let claim_type = parts.next()?;
+            if parts.next().is_some() || audience.is_empty() || claim_type.is_empty() {
+                log::warn!(
+                    "Ignoring malformed CONSENT_RELEASE_POLICY_DELETES entry: {}",
+                    entry
+                );
+                return None;
+            }
+            Some((audience.to_string(), claim_type.to_string()))
+        })
+        .collect()
+}
+
+fn parse_trusted_issuers_env() -> Vec<(String, String)> {
+    std::env::var("TRUSTED_ISSUERS")
+        .unwrap_or_default()
+        .split(';')
+        .filter_map(|entry| {
+            let mut parts = entry.split('|').map(str::trim);
+            let claim_type = parts.next()?;
+            let issuer_domain = parts.next()?;
+            if parts.next().is_some() || claim_type.is_empty() || issuer_domain.is_empty() {
+                log::warn!("Ignoring malformed TRUSTED_ISSUERS entry: {}", entry);
+                return None;
+            }
+            Some((claim_type.to_string(), issuer_domain.to_string()))
+        })
+        .collect()
+}
+
 impl Clone for DbPool {
     fn clone(&self) -> Self {
         match self {
@@ -1094,6 +1160,9 @@ impl DbPool {
         };
         let forced_allow = parse_env("CONSENT_FORCED_ALLOW");
         let forced_deny = parse_env("CONSENT_FORCED_DENY");
+        let release_policy_deletes = parse_release_policy_delete_env();
+        let release_policies = parse_release_policy_env();
+        let trusted_issuers = parse_trusted_issuers_env();
 
         match self {
             #[cfg(feature = "postgres")]
@@ -1120,6 +1189,20 @@ impl DbPool {
                     for ct in &forced_deny {
                         claim_policy::pg::upsert_release_policy(&mut conn, "*", ct, "forced_deny")?;
                     }
+                }
+                for (audience, claim_type) in &release_policy_deletes {
+                    claim_policy::pg::delete_release_policy(&mut conn, audience, claim_type)?;
+                }
+                for (audience, claim_type, disposition) in &release_policies {
+                    claim_policy::pg::upsert_release_policy(
+                        &mut conn,
+                        audience,
+                        claim_type,
+                        disposition,
+                    )?;
+                }
+                for (claim_type, issuer_domain) in &trusted_issuers {
+                    claim_policy::pg::add_trusted_issuer(&mut conn, claim_type, issuer_domain)?;
                 }
                 Ok(inserted)
             }
@@ -1152,6 +1235,20 @@ impl DbPool {
                             "forced_deny",
                         )?;
                     }
+                }
+                for (audience, claim_type) in &release_policy_deletes {
+                    claim_policy::sqlite::delete_release_policy(&mut conn, audience, claim_type)?;
+                }
+                for (audience, claim_type, disposition) in &release_policies {
+                    claim_policy::sqlite::upsert_release_policy(
+                        &mut conn,
+                        audience,
+                        claim_type,
+                        disposition,
+                    )?;
+                }
+                for (claim_type, issuer_domain) in &trusted_issuers {
+                    claim_policy::sqlite::add_trusted_issuer(&mut conn, claim_type, issuer_domain)?;
                 }
                 Ok(inserted)
             }

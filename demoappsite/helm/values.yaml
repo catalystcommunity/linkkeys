@@ -13,6 +13,9 @@ demoapp:
   port: 9090
   # Accept invalid TLS certs (development only — self-signed certs)
   allowInvalidCerts: "false"
+  # App-level required claims. The IDP lets users decline RP-required claims;
+  # this demo rejects the callback if any of these are missing.
+  requiredClaims: "display_name,handle"
 
 # The LinkKeys RP service this demo app delegates crypto to, over the LinkKeys
 # TCP (CSIL-RPC) transport — the demo holds only an API key, no domain key.

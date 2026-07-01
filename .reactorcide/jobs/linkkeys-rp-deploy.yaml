@@ -15,10 +15,12 @@ paths:
   include: ["version/VERSION.txt"]
 job:
   image: containers.catalystsquad.com/public/reactorcide/runnerbase:dev
-  command: "bash /job/src/.reactorcide/jobs/scripts/linkkeys-server-deploy.sh"
+  command: "bash ${REACTORCIDE_CODE_DIR:-/job/src}/.reactorcide/jobs/scripts/linkkeys-server-deploy.sh"
   # Long timeout: the deploy polls the registry for the freshly-built image
   # (WAIT_FOR_IMAGE_REPO) since the build job runs concurrently on the same bump.
   timeout: 1800
+  run_as:
+    user: runner
 environment:
   REGISTRY_USER: "${secret:catalystcommunity/registry:user}"
   REGISTRY_PASSWORD: "${secret:catalystcommunity/registry:password}"

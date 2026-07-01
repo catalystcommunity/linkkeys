@@ -33,6 +33,10 @@ spec:
           env:
             - name: DEMO_PORT
               value: {{ .Values.demoapp.port | quote }}
+            {{- if .Values.demoapp.requiredClaims }}
+            - name: REQUIRED_CLAIMS
+              value: {{ .Values.demoapp.requiredClaims | quote }}
+            {{- end }}
             {{- if .Values.demoapp.publicOrigin }}
             - name: PUBLIC_ORIGIN
               value: {{ .Values.demoapp.publicOrigin | quote }}

@@ -3,6 +3,7 @@ demoapp:
   publicOrigin: "https://linkidspec.com"
   allowInvalidCerts: "false"
   disableTls: "true"
+  requiredClaims: "display_name,handle"
 
 rp:
   # The RP server's TCP (CSIL-RPC) endpoint — cross-namespace DNS, protocol port.

@@ -20,116 +20,245 @@ impl std::error::Error for ServiceError {}
 pub trait Ops {
     type Context;
     /// healthcheck (request/response).
-    fn healthcheck(&self, ctx: &Self::Context, input: EmptyRequest) -> Result<CheckResult, ServiceError>;
+    fn healthcheck(
+        &self,
+        ctx: &Self::Context,
+        input: EmptyRequest,
+    ) -> Result<CheckResult, ServiceError>;
     /// readiness (request/response).
-    fn readiness(&self, ctx: &Self::Context, input: EmptyRequest) -> Result<CheckResult, ServiceError>;
+    fn readiness(
+        &self,
+        ctx: &Self::Context,
+        input: EmptyRequest,
+    ) -> Result<CheckResult, ServiceError>;
 }
 
 /// Hello service trait
 pub trait Hello {
     type Context;
     /// hello (request/response).
-    fn hello(&self, ctx: &Self::Context, input: HelloRequest) -> Result<HelloResponse, ServiceError>;
+    fn hello(
+        &self,
+        ctx: &Self::Context,
+        input: HelloRequest,
+    ) -> Result<HelloResponse, ServiceError>;
 }
 
 /// Guestbook service trait
 pub trait Guestbook {
     type Context;
     /// create-entry (request/response).
-    fn create_entry(&self, ctx: &Self::Context, input: CreateGuestbookRequest) -> Result<GuestbookEntry, ServiceError>;
+    fn create_entry(
+        &self,
+        ctx: &Self::Context,
+        input: CreateGuestbookRequest,
+    ) -> Result<GuestbookEntry, ServiceError>;
     /// list-entries (request/response).
-    fn list_entries(&self, ctx: &Self::Context, input: GuestbookListRequest) -> Result<GuestbookListResponse, ServiceError>;
+    fn list_entries(
+        &self,
+        ctx: &Self::Context,
+        input: GuestbookListRequest,
+    ) -> Result<GuestbookListResponse, ServiceError>;
     /// update-entry (request/response).
-    fn update_entry(&self, ctx: &Self::Context, input: UpdateGuestbookRequest) -> Result<GuestbookEntry, ServiceError>;
+    fn update_entry(
+        &self,
+        ctx: &Self::Context,
+        input: UpdateGuestbookRequest,
+    ) -> Result<GuestbookEntry, ServiceError>;
     /// delete-entry (request/response).
-    fn delete_entry(&self, ctx: &Self::Context, input: DeleteGuestbookRequest) -> Result<DeleteGuestbookResponse, ServiceError>;
+    fn delete_entry(
+        &self,
+        ctx: &Self::Context,
+        input: DeleteGuestbookRequest,
+    ) -> Result<DeleteGuestbookResponse, ServiceError>;
 }
 
 /// DomainKeys service trait
 pub trait DomainKeys {
     type Context;
     /// get-domain-keys (request/response).
-    fn get_domain_keys(&self, ctx: &Self::Context, input: EmptyRequest) -> Result<GetDomainKeysResponse, ServiceError>;
+    fn get_domain_keys(
+        &self,
+        ctx: &Self::Context,
+        input: EmptyRequest,
+    ) -> Result<GetDomainKeysResponse, ServiceError>;
 }
 
 /// UserKeys service trait
 pub trait UserKeys {
     type Context;
     /// get-user-keys (request/response).
-    fn get_user_keys(&self, ctx: &Self::Context, input: GetUserKeysRequest) -> Result<GetUserKeysResponse, ServiceError>;
+    fn get_user_keys(
+        &self,
+        ctx: &Self::Context,
+        input: GetUserKeysRequest,
+    ) -> Result<GetUserKeysResponse, ServiceError>;
 }
 
 /// Identity service trait
 pub trait Identity {
     type Context;
     /// get-user-info (request/response).
-    fn get_user_info(&self, ctx: &Self::Context, input: SignedUserInfoRequest) -> Result<UserInfo, ServiceError>;
+    fn get_user_info(
+        &self,
+        ctx: &Self::Context,
+        input: SignedUserInfoRequest,
+    ) -> Result<UserInfo, ServiceError>;
 }
 
 /// Handshake service trait
 pub trait Handshake {
     type Context;
     /// handshake (request/response).
-    fn handshake(&self, ctx: &Self::Context, input: HandshakeRequest) -> Result<HandshakeResponse, ServiceError>;
+    fn handshake(
+        &self,
+        ctx: &Self::Context,
+        input: HandshakeRequest,
+    ) -> Result<HandshakeResponse, ServiceError>;
 }
 
 /// Admin service trait
 pub trait Admin {
     type Context;
     /// list-users (request/response).
-    fn list_users(&self, ctx: &Self::Context, input: ListUsersRequest) -> Result<ListUsersResponse, ServiceError>;
+    fn list_users(
+        &self,
+        ctx: &Self::Context,
+        input: ListUsersRequest,
+    ) -> Result<ListUsersResponse, ServiceError>;
     /// get-user (request/response).
-    fn get_user(&self, ctx: &Self::Context, input: GetUserRequest) -> Result<GetUserResponse, ServiceError>;
+    fn get_user(
+        &self,
+        ctx: &Self::Context,
+        input: GetUserRequest,
+    ) -> Result<GetUserResponse, ServiceError>;
     /// create-user (request/response).
-    fn create_user(&self, ctx: &Self::Context, input: CreateUserRequest) -> Result<CreateUserResponse, ServiceError>;
+    fn create_user(
+        &self,
+        ctx: &Self::Context,
+        input: CreateUserRequest,
+    ) -> Result<CreateUserResponse, ServiceError>;
     /// update-user (request/response).
-    fn update_user(&self, ctx: &Self::Context, input: UpdateUserRequest) -> Result<UpdateUserResponse, ServiceError>;
+    fn update_user(
+        &self,
+        ctx: &Self::Context,
+        input: UpdateUserRequest,
+    ) -> Result<UpdateUserResponse, ServiceError>;
     /// deactivate-user (request/response).
-    fn deactivate_user(&self, ctx: &Self::Context, input: DeactivateUserRequest) -> Result<DeactivateUserResponse, ServiceError>;
+    fn deactivate_user(
+        &self,
+        ctx: &Self::Context,
+        input: DeactivateUserRequest,
+    ) -> Result<DeactivateUserResponse, ServiceError>;
     /// reset-password (request/response).
-    fn reset_password(&self, ctx: &Self::Context, input: ResetPasswordRequest) -> Result<ResetPasswordResponse, ServiceError>;
+    fn reset_password(
+        &self,
+        ctx: &Self::Context,
+        input: ResetPasswordRequest,
+    ) -> Result<ResetPasswordResponse, ServiceError>;
     /// remove-credential (request/response).
-    fn remove_credential(&self, ctx: &Self::Context, input: RemoveCredentialRequest) -> Result<RemoveCredentialResponse, ServiceError>;
+    fn remove_credential(
+        &self,
+        ctx: &Self::Context,
+        input: RemoveCredentialRequest,
+    ) -> Result<RemoveCredentialResponse, ServiceError>;
     /// set-claim (request/response).
-    fn set_claim(&self, ctx: &Self::Context, input: SetClaimRequest) -> Result<SetClaimResponse, ServiceError>;
+    fn set_claim(
+        &self,
+        ctx: &Self::Context,
+        input: SetClaimRequest,
+    ) -> Result<SetClaimResponse, ServiceError>;
     /// remove-claim (request/response).
-    fn remove_claim(&self, ctx: &Self::Context, input: RemoveClaimRequest) -> Result<RemoveClaimResponse, ServiceError>;
+    fn remove_claim(
+        &self,
+        ctx: &Self::Context,
+        input: RemoveClaimRequest,
+    ) -> Result<RemoveClaimResponse, ServiceError>;
     /// grant-relation (request/response).
-    fn grant_relation(&self, ctx: &Self::Context, input: GrantRelationRequest) -> Result<GrantRelationResponse, ServiceError>;
+    fn grant_relation(
+        &self,
+        ctx: &Self::Context,
+        input: GrantRelationRequest,
+    ) -> Result<GrantRelationResponse, ServiceError>;
     /// remove-relation (request/response).
-    fn remove_relation(&self, ctx: &Self::Context, input: RemoveRelationRequest) -> Result<RemoveRelationResponse, ServiceError>;
+    fn remove_relation(
+        &self,
+        ctx: &Self::Context,
+        input: RemoveRelationRequest,
+    ) -> Result<RemoveRelationResponse, ServiceError>;
     /// list-relations (request/response).
-    fn list_relations(&self, ctx: &Self::Context, input: ListRelationsRequest) -> Result<ListRelationsResponse, ServiceError>;
+    fn list_relations(
+        &self,
+        ctx: &Self::Context,
+        input: ListRelationsRequest,
+    ) -> Result<ListRelationsResponse, ServiceError>;
     /// check-permission (request/response).
-    fn check_permission(&self, ctx: &Self::Context, input: CheckPermissionRequest) -> Result<CheckPermissionResponse, ServiceError>;
+    fn check_permission(
+        &self,
+        ctx: &Self::Context,
+        input: CheckPermissionRequest,
+    ) -> Result<CheckPermissionResponse, ServiceError>;
 }
 
 /// Account service trait
 pub trait Account {
     type Context;
     /// change-password (request/response).
-    fn change_password(&self, ctx: &Self::Context, input: ChangePasswordRequest) -> Result<ChangePasswordResponse, ServiceError>;
+    fn change_password(
+        &self,
+        ctx: &Self::Context,
+        input: ChangePasswordRequest,
+    ) -> Result<ChangePasswordResponse, ServiceError>;
     /// get-my-info (request/response).
-    fn get_my_info(&self, ctx: &Self::Context, input: EmptyRequest) -> Result<GetMyInfoResponse, ServiceError>;
+    fn get_my_info(
+        &self,
+        ctx: &Self::Context,
+        input: EmptyRequest,
+    ) -> Result<GetMyInfoResponse, ServiceError>;
 }
 
 /// Attestation service trait
 pub trait Attestation {
     type Context;
     /// deposit-claim (request/response).
-    fn deposit_claim(&self, ctx: &Self::Context, input: DepositClaimRequest) -> Result<DepositClaimResponse, ServiceError>;
+    fn deposit_claim(
+        &self,
+        ctx: &Self::Context,
+        input: DepositClaimRequest,
+    ) -> Result<DepositClaimResponse, ServiceError>;
 }
 
 /// Rp service trait
 pub trait Rp {
     type Context;
     /// sign-request (request/response).
-    fn sign_request(&self, ctx: &Self::Context, input: RpSignRequest) -> Result<RpSignResponse, ServiceError>;
+    fn sign_request(
+        &self,
+        ctx: &Self::Context,
+        input: RpSignRequest,
+    ) -> Result<RpSignResponse, ServiceError>;
     /// decrypt-token (request/response).
-    fn decrypt_token(&self, ctx: &Self::Context, input: RpDecryptRequest) -> Result<RpDecryptResponse, ServiceError>;
+    fn decrypt_token(
+        &self,
+        ctx: &Self::Context,
+        input: RpDecryptRequest,
+    ) -> Result<RpDecryptResponse, ServiceError>;
     /// verify-assertion (request/response).
-    fn verify_assertion(&self, ctx: &Self::Context, input: RpVerifyRequest) -> Result<RpVerifyResponse, ServiceError>;
+    fn verify_assertion(
+        &self,
+        ctx: &Self::Context,
+        input: RpVerifyRequest,
+    ) -> Result<RpVerifyResponse, ServiceError>;
     /// userinfo-fetch (request/response).
-    fn userinfo_fetch(&self, ctx: &Self::Context, input: RpUserInfoRequest) -> Result<UserInfo, ServiceError>;
+    fn userinfo_fetch(
+        &self,
+        ctx: &Self::Context,
+        input: RpUserInfoRequest,
+    ) -> Result<UserInfo, ServiceError>;
+    /// issue-attestation (request/response).
+    fn issue_attestation(
+        &self,
+        ctx: &Self::Context,
+        input: RpIssueAttestationRequest,
+    ) -> Result<RpIssueAttestationResponse, ServiceError>;
 }
-

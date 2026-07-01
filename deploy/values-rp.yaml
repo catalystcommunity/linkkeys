@@ -9,6 +9,10 @@ server:
   tcpHostname: "linkkeys.linkidspec.com"
   publicPort: "443"
   disableTls: "true"
+  rpIssueClaims: "linkidspec_signed"
+  # Example issuer-side deny policy. A richer external evaluator can replace
+  # this later; for now linkidspec will refuse subjects on .ru domains.
+  attestationDenySubjectTlds: "ru"
 
 database:
   backend: sqlite
@@ -18,20 +22,25 @@ rp:
   enabled: true
   apiKeyAuth: true
   passwordAuth: false
-  # Claims linkidspec requests at login: email (required), display_name, handle,
-  # and address (optional). Notably NOT country, so it never appears at consent.
+  # Claims linkidspec requests at login: display_name + handle are required
+  # by the app; email, over_21, and address are optional. The IDP still lets
+  # users decline required claims so the RP/app can decide its failure mode.
   claimsConfig: |
     [[required]]
+    claim_type = "display_name"
+    datatype = "text"
+
+    [[required]]
+    claim_type = "handle"
+    datatype = "text"
+
+    [[optional]]
     claim_type = "email"
     datatype = "email"
 
     [[optional]]
-    claim_type = "display_name"
-    datatype = "text"
-
-    [[optional]]
-    claim_type = "handle"
-    datatype = "text"
+    claim_type = "over_21"
+    datatype = "bool"
 
     [[optional]]
     claim_type = "address"

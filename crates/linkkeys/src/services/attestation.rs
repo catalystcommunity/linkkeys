@@ -25,6 +25,7 @@ use crate::db::{models, DbPool};
 /// hostile to people in low-device contexts. Override with
 /// `SIGNING_REQUEST_TTL_SECONDS`.
 const DEFAULT_SIGNING_REQUEST_TTL_SECONDS: i64 = 2 * 24 * 60 * 60;
+const DEFAULT_ATTESTED_CLAIM_TTL_SECONDS: i64 = 365 * 24 * 60 * 60;
 
 fn signing_request_ttl_seconds() -> i64 {
     std::env::var("SIGNING_REQUEST_TTL_SECONDS")
@@ -32,6 +33,105 @@ fn signing_request_ttl_seconds() -> i64 {
         .and_then(|s| s.parse::<i64>().ok())
         .filter(|n| *n > 0)
         .unwrap_or(DEFAULT_SIGNING_REQUEST_TTL_SECONDS)
+}
+
+pub fn attested_claim_ttl_seconds() -> i64 {
+    std::env::var("ATTESTED_CLAIM_TTL_SECONDS")
+        .ok()
+        .and_then(|s| s.parse::<i64>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(DEFAULT_ATTESTED_CLAIM_TTL_SECONDS)
+}
+
+fn csv_env(name: &str) -> Vec<String> {
+    std::env::var(name)
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.trim_start_matches('.').to_ascii_lowercase())
+        .collect()
+}
+
+fn normalized_domain(domain: &str) -> String {
+    domain.trim().trim_end_matches('.').to_ascii_lowercase()
+}
+
+/// Issuer-side subject-domain policy: default allow, with local deny lists for
+/// exact domains and TLDs. This is deliberately small and deterministic; richer
+/// external policy evaluators can sit in front of this later.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubjectDomainPolicyDecision {
+    pub allowed: bool,
+    pub reason: String,
+}
+
+pub fn subject_domain_policy_decision_with_denies(
+    subject_domain: &str,
+    denied_domains: &[String],
+    denied_tlds: &[String],
+) -> SubjectDomainPolicyDecision {
+    let domain = normalized_domain(subject_domain);
+    if domain.is_empty() {
+        return SubjectDomainPolicyDecision {
+            allowed: false,
+            reason: "subject domain is empty".to_string(),
+        };
+    }
+    if denied_domains
+        .iter()
+        .any(|d| normalized_domain(d) == domain)
+    {
+        return SubjectDomainPolicyDecision {
+            allowed: false,
+            reason: format!("{} is explicitly denied", domain),
+        };
+    }
+    let tld = domain.rsplit('.').next().unwrap_or("");
+    if denied_tlds.iter().any(|denied| {
+        denied
+            .trim()
+            .trim_start_matches('.')
+            .eq_ignore_ascii_case(tld)
+    }) {
+        return SubjectDomainPolicyDecision {
+            allowed: false,
+            reason: format!(".{} is denied", tld),
+        };
+    }
+    SubjectDomainPolicyDecision {
+        allowed: true,
+        reason: "no subject-domain deny rule matched".to_string(),
+    }
+}
+
+pub fn subject_domain_policy_decision(subject_domain: &str) -> SubjectDomainPolicyDecision {
+    subject_domain_policy_decision_with_denies(
+        subject_domain,
+        &csv_env("ATTESTATION_DENY_SUBJECT_DOMAINS"),
+        &csv_env("ATTESTATION_DENY_SUBJECT_TLDS"),
+    )
+}
+
+pub fn subject_domain_allowed(subject_domain: &str) -> bool {
+    subject_domain_policy_decision(subject_domain).allowed
+}
+
+pub fn user_can_issue_claim(pool: &DbPool, user_id: &str, claim_type: &str) -> bool {
+    let domain = get_domain_name();
+    crate::services::authorization::user_has_permission(
+        pool,
+        user_id,
+        crate::services::authorization::RELATION_MANAGE_CLAIMS,
+        "domain",
+        &domain,
+    ) || crate::services::authorization::user_has_permission(
+        pool,
+        user_id,
+        crate::services::authorization::RELATION_ISSUE_CLAIMS,
+        "claim_type",
+        claim_type,
+    )
 }
 
 fn svc_err(code: i32, msg: &str) -> ServiceError {
@@ -180,6 +280,12 @@ pub fn issue_attested_claim(
     claim_type: &str,
     value: &[u8],
 ) -> Result<Claim, ServiceError> {
+    if !subject_domain_allowed(subject_domain) {
+        return Err(svc_err(
+            403,
+            "issuer policy refuses to sign claims for this subject domain",
+        ));
+    }
     let passphrase = std::env::var("DOMAIN_KEY_PASSPHRASE")
         .map_err(|_| svc_err(500, "DOMAIN_KEY_PASSPHRASE not set"))?;
     let domain_keys = pool.list_active_domain_keys().map_err(db_err)?;
@@ -196,6 +302,8 @@ pub fn issue_attested_claim(
         })
         .collect();
     let claim_id = uuid::Uuid::now_v7().to_string();
+    let expires_at =
+        (chrono::Utc::now() + chrono::Duration::seconds(attested_claim_ttl_seconds())).to_rfc3339();
     liblinkkeys::claims::sign_claim(
         &liblinkkeys::claims::ClaimSpec {
             claim_id: &claim_id,
@@ -203,7 +311,7 @@ pub fn issue_attested_claim(
             claim_value: value,
             user_id: subject_user_id,
             subject_domain,
-            expires_at: None,
+            expires_at: Some(&expires_at),
         },
         &claim_signers,
     )

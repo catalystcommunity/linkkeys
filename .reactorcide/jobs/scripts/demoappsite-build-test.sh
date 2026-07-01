@@ -5,9 +5,9 @@ echo "================================================"
 echo "LinkKeys Demoappsite Build Test"
 echo "================================================"
 
-cd "${REACTORCIDE_REPOROOT:-/job/src}"
+cd "${REACTORCIDE_REPOROOT:-${REACTORCIDE_CODE_DIR:-/job/src}}"
 
-export HOME="${HOME:-/root}"
+export HOME="${HOME:-/home/runner}"
 LOCAL_BIN="$HOME/.local/bin"
 mkdir -p "$LOCAL_BIN"
 export PATH="$LOCAL_BIN:$PATH"

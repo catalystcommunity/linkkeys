@@ -4,7 +4,7 @@ set -e
 SEMVER_TAGS_VERSION="v0.4.0"
 GHCLI_VERSION="2.63.2"
 
-# PWD is set by the caller (release.yaml): /workspace in CI, /job/src in run-local.
+# PWD is set by the caller (release.yaml) to REACTORCIDE_CODE_DIR.
 
 # -------------------------------------------------------------------
 # 1. Install semver-tags

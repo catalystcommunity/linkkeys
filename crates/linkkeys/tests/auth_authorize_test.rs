@@ -56,6 +56,7 @@ async fn validates_self_rp_subdomain_callback() {
         "nonce-1",
         &key_id,
         None,
+        None,
     );
     let param = mint_signed_request(&request, &key_id, &sk_bytes);
 
@@ -84,6 +85,7 @@ async fn returns_trusted_cbor_values_only() {
         "trusted-nonce",
         &key_id,
         None,
+        None,
     );
     let param = mint_signed_request(&request, &key_id, &sk_bytes);
 
@@ -103,6 +105,7 @@ async fn rejects_tampered_signature() {
         "https://todandlorna.com/cb",
         "n",
         &key_id,
+        None,
         None,
     );
     // Tamper the signature bytes (not the request bytes): keeps the CBOR
@@ -133,6 +136,7 @@ async fn rejects_request_with_tampered_payload_bytes() {
         "n",
         &key_id,
         None,
+        None,
     );
     let mut signed =
         sign_auth_request(&request, &key_id, SigningAlgorithm::Ed25519, &sk_bytes).unwrap();
@@ -162,6 +166,7 @@ async fn rejects_expired_request() {
         timestamp: (Utc::now() - Duration::seconds(600)).to_rfc3339(),
         signing_key_id: key_id.clone(),
         requested_claims: None,
+        flow_context: None,
         relying_party_claims: None,
     };
     let param = mint_signed_request(&request, &key_id, &sk_bytes);
@@ -184,6 +189,7 @@ async fn rejects_off_domain_callback() {
         "n",
         &key_id,
         None,
+        None,
     );
     let param = mint_signed_request(&request, &key_id, &sk_bytes);
 
@@ -196,7 +202,14 @@ async fn rejects_off_domain_callback() {
 #[rocket::async_test]
 async fn rejects_non_https_callback() {
     let (pool, key_id, sk_bytes) = self_rp_setup();
-    let request = build_auth_request(TEST_DOMAIN, "http://todandlorna.com/cb", "n", &key_id, None);
+    let request = build_auth_request(
+        TEST_DOMAIN,
+        "http://todandlorna.com/cb",
+        "n",
+        &key_id,
+        None,
+        None,
+    );
     let param = mint_signed_request(&request, &key_id, &sk_bytes);
 
     let err = validate_signed_request(&pool, &common::net::offline_net(), &param)

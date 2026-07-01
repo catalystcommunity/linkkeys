@@ -13,6 +13,8 @@ pub(crate) fn sign_request_core(
     rp_config: &crate::rp_config::RpClaimsConfig,
     callback_url: &str,
     nonce: &str,
+    requested_claims: Option<liblinkkeys::generated::types::ClaimRequest>,
+    flow_context: Option<liblinkkeys::generated::types::AuthFlowContext>,
 ) -> Result<liblinkkeys::generated::types::RpSignResponse, Status> {
     let domain_keys = pool
         .list_active_domain_keys()
@@ -32,7 +34,8 @@ pub(crate) fn sign_request_core(
         callback_url,
         nonce,
         &dk.id,
-        rp_config.to_claim_request(),
+        requested_claims.or_else(|| rp_config.to_claim_request()),
+        flow_context,
     );
 
     // Attach claims the RP asserts about itself: self-asserted ones signed now
@@ -537,13 +540,93 @@ pub(super) async fn deposit_claim_to_domain(
             None,
         )
         .await
-        .map_err(|_| format!("{} rejected the claim", domain))?;
+        .map_err(|e| format!("{} rejected the claim: {}", domain, e))?;
     let resp = liblinkkeys::generated::decode_deposit_claim_response(&resp_bytes)
         .map_err(|e| e.to_string())?;
     if !resp.stored {
         return Err(format!("{} rejected the claim", domain));
     }
     Ok(())
+}
+
+fn rp_issue_claim_allowed(claim_type: &str) -> bool {
+    std::env::var("RP_ISSUE_CLAIMS")
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .any(|ct| ct == claim_type)
+}
+
+/// Issue an attested claim as this RP domain from a user/home-domain signed
+/// signing request, then try to deposit it back to the subject's home domain.
+/// Used by browser-facing demo apps that do not hold the domain key themselves.
+pub(crate) async fn issue_attestation_core(
+    pool: &DbPool,
+    net: &crate::net::Net,
+    signed_request: liblinkkeys::generated::types::SignedSigningRequest,
+    claim_type: &str,
+    claim_value: &[u8],
+) -> Result<liblinkkeys::generated::types::RpIssueAttestationResponse, Status> {
+    if !rp_issue_claim_allowed(claim_type) {
+        return Err(Status::Forbidden);
+    }
+
+    let preview = liblinkkeys::generated::decode_signing_request(&signed_request.request)
+        .map_err(|_| Status::BadRequest)?;
+    if !preview
+        .requested_claim_types
+        .iter()
+        .any(|requested| requested == claim_type)
+    {
+        return Err(Status::BadRequest);
+    }
+
+    let issuer_domain = get_domain_name();
+    if preview.issuer_domain != issuer_domain {
+        return Err(Status::Forbidden);
+    }
+
+    let keys = fetch_domain_keys(pool, net, &preview.subject_domain)
+        .await
+        .map_err(|_| Status::BadGateway)?;
+    let keysets = vec![liblinkkeys::claims::DomainKeySet {
+        domain: preview.subject_domain.clone(),
+        keys,
+    }];
+    let request = liblinkkeys::signing_request::verify_signing_request(
+        &signed_request,
+        &preview.subject_domain,
+        &issuer_domain,
+        &keysets,
+    )
+    .map_err(|_| Status::Unauthorized)?;
+
+    let claim = crate::services::attestation::issue_attested_claim(
+        pool,
+        &request.subject_user_id,
+        &request.subject_domain,
+        claim_type,
+        claim_value,
+    )
+    .map_err(|e| match e.code {
+        403 => Status::Forbidden,
+        400 => Status::BadRequest,
+        _ => Status::InternalServerError,
+    })?;
+
+    let deposited = match deposit_claim_to_domain(net, &request.subject_domain, &claim).await {
+        Ok(()) => true,
+        Err(e) => {
+            log::warn!(
+                "Attested claim deposit failed for subject domain {} and claim type {}: {}",
+                request.subject_domain,
+                claim_type,
+                e
+            );
+            false
+        }
+    };
+    Ok(liblinkkeys::generated::types::RpIssueAttestationResponse { claim, deposited })
 }
 
 #[cfg(test)]

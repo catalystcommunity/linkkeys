@@ -5,7 +5,7 @@ echo "================================================"
 echo "LinkKeys Deploy"
 echo "================================================"
 
-cd "${REACTORCIDE_REPOROOT:-/job/src}"
+cd "${REACTORCIDE_REPOROOT:-${REACTORCIDE_CODE_DIR:-/job/src}}"
 
 if [[ -z "${K8S_NAMESPACE:-}" ]]; then
     echo "ERROR: K8S_NAMESPACE must be set via overlay"
@@ -28,7 +28,7 @@ echo "Image tag:  ${IMAGE_TAG:-(chart appVersion)}"
 # ================================================
 # Setup tools
 # ================================================
-export HOME="${HOME:-/root}"
+export HOME="${HOME:-/home/runner}"
 LOCAL_BIN="$HOME/.local/bin"
 mkdir -p "$LOCAL_BIN"
 export PATH="$LOCAL_BIN:$PATH"

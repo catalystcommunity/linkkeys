@@ -53,6 +53,40 @@ server:
   consentForcedAllow: ""
   # Comma-separated claim types this domain NEVER releases (deny wins).
   consentForcedDeny: ""
+  # Idempotently upsert per-audience release policy rows on startup. Use for
+  # reproducible demo/admin policy. Audience "*" is the global default.
+  # disposition must be "forced_allow" or "forced_deny".
+  # Example:
+  #   releasePolicies:
+  #     - audience: "*"
+  #       claimType: "over_21"
+  #       disposition: "forced_allow"
+  #     - audience: "app.example"
+  #       claimType: "address"
+  #       disposition: "forced_deny"
+  releasePolicies: []
+  # Idempotently delete specific release policy rows on startup before applying
+  # releasePolicies. This is useful when a demo/admin policy changes and an old
+  # persisted forced_allow/forced_deny row must be removed.
+  # Example:
+  #   releasePolicyDeletes:
+  #     - audience: "*"
+  #       claimType: "email"
+  releasePolicyDeletes: []
+  # Idempotently seed trusted third-party attestation issuers.
+  # Example:
+  #   trustedIssuers:
+  #     - claimType: "linkidspec_signed"
+  #       issuerDomain: "linkidspec.com"
+  trustedIssuers: []
+  # Comma-separated claim types this domain's RP helper may issue from signed
+  # signing requests. Empty disables automated RP attestation issuance.
+  rpIssueClaims: ""
+  # Issuer-side deny policy for subjects this domain refuses to sign claims for.
+  attestationDenySubjectDomains: ""
+  attestationDenySubjectTlds: ""
+  # Default lifetime for claims this domain issues as a third-party attestor.
+  attestedClaimTtlSeconds: "31536000"
 
 # Relying party mode — set these to run the same image as an RP server.
 # An RP is a LinkKeys server that holds domain keys and signs/decrypts

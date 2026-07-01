@@ -86,6 +86,7 @@ pub fn default_registry() -> Vec<ClaimTypePolicy> {
         lane_c("legal_name", "Legal name", "text"),
         lane_c("date_of_birth", "Date of birth", "date"),
         lane_c("age_over_21", "Age over 21", "bool"),
+        lane_c("linkidspec_signed", "LinkID Spec signed", "date"),
     ]
 }
 

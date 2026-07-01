@@ -10,21 +10,33 @@ job:
   image: containers.catalystsquad.com/public/reactorcide/runnerbase:dev
   command: |
     set -e
-    if [ "${REACTORCIDE_WORKER_MODE:-remote}" = "local" ]; then
-      cd /job/src
-    else
-      git clone --branch "${REACTORCIDE_PR_REF}" "${REACTORCIDE_SOURCE_URL}" /job/src
-      cd /job/src
+    cd "${REACTORCIDE_CODE_DIR:-/job/src}"
+
+    # Source is prepared by reactorcide. For fork PRs, the prepared checkout is
+    # the PR head; add the trusted upstream as a second remote so base..HEAD
+    # ranges work without executing CI definitions from the fork.
+    if [ -n "${REACTORCIDE_BASE_URL:-}" ] && [ "${REACTORCIDE_BASE_URL}" != "${REACTORCIDE_HEAD_URL:-${REACTORCIDE_SOURCE_URL:-}}" ]; then
+      git remote add upstream "${REACTORCIDE_BASE_URL}" 2>/dev/null || true
+      git fetch upstream "${REACTORCIDE_BASE_REF:-${REACTORCIDE_PR_BASE_REF:-main}}"
     fi
 
     echo "=== Validating Conventional Commits ==="
-    PATTERN='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?!?: .+'
+    PATTERN="^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?!?: .+"
     FAILED=0
 
-    git log "${REACTORCIDE_DIFF_BASE}..HEAD" --pretty=format:"%H %s" > /tmp/commits.txt
+    DIFF_BASE="${REACTORCIDE_DIFF_BASE:-}"
+    if [ -z "${DIFF_BASE}" ]; then
+      BASE_REF="${REACTORCIDE_BASE_REF:-${REACTORCIDE_PR_BASE_REF:-main}}"
+      if git remote | grep -qx upstream; then
+        DIFF_BASE="upstream/${BASE_REF}"
+      else
+        DIFF_BASE="origin/${BASE_REF}"
+      fi
+    fi
+    git log "${DIFF_BASE}..HEAD" --pretty=format:"%H %s" > /tmp/commits.txt
     while IFS= read -r LINE; do
-      HASH=$(echo "${LINE}" | cut -d' ' -f1)
-      MSG=$(echo "${LINE}" | cut -d' ' -f2-)
+      HASH=$(echo "${LINE}" | cut -d " " -f1)
+      MSG=$(echo "${LINE}" | cut -d " " -f2-)
       if echo "${MSG}" | grep -qE "${PATTERN}"; then
         echo "OK: ${MSG}"
       else
@@ -48,4 +60,4 @@ job:
       .reactorcide/jobs/test-postgres.yaml
   timeout: 300
   priority: 10
-  raw_command: true
+  disable_run_local: true
