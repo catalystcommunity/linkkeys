@@ -3,6 +3,7 @@ pub mod claim_policy;
 pub mod claims;
 pub mod consent_grants;
 pub mod domain_keys;
+pub mod domain_pins;
 pub mod email_verification;
 pub mod guestbook;
 pub mod models;
@@ -380,6 +381,29 @@ impl DbPool {
                 })?;
                 domain_keys::sqlite::list_all(&mut conn)
             }
+        }
+    }
+
+    /// Revoke a domain key by id (SEC-08). Verification already rejects revoked
+    /// keys via `signing_key_validity`; peers stop honoring it after their next
+    /// pin recheck / DNS re-resolve.
+    pub fn revoke_domain_key(&self, key_id: &str) -> QueryResult<models::DomainKey> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => domain_keys::pg::revoke(&mut *pg_conn(p)?, key_id),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => domain_keys::sqlite::revoke(&mut *sqlite_conn(p)?, key_id),
+        }
+    }
+
+    /// Revoke a user key by id (SEC-08). The only revocation lever for user keys,
+    /// which have no DNS anchor.
+    pub fn revoke_user_key(&self, key_id: &str) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => user_keys::pg::revoke(&mut *pg_conn(p)?, key_id),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => user_keys::sqlite::revoke(&mut *sqlite_conn(p)?, key_id),
         }
     }
 
@@ -1562,6 +1586,163 @@ impl DbPool {
                 status,
                 resolved_by,
             ),
+        }
+    }
+
+    /// Enqueue a non-claim admin review item (e.g. a key-mismatch needing human
+    /// review). Returns the new review id.
+    pub fn enqueue_review(
+        &self,
+        kind: &str,
+        subject: Option<&str>,
+        detail: Option<&str>,
+    ) -> QueryResult<String> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let id = uuid::Uuid::now_v7();
+                claim_policy::pg::enqueue_review(&mut *pg_conn(p)?, id, kind, subject, detail)?;
+                Ok(id.to_string())
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                let id = uuid::Uuid::now_v7().to_string();
+                claim_policy::sqlite::enqueue_review(
+                    &mut *sqlite_conn(p)?,
+                    &id,
+                    kind,
+                    subject,
+                    detail,
+                )?;
+                Ok(id)
+            }
+        }
+    }
+
+    pub fn list_pending_reviews(&self, kind: &str) -> QueryResult<Vec<models::AdminReview>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => claim_policy::pg::list_pending_reviews(&mut *pg_conn(p)?, kind),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                claim_policy::sqlite::list_pending_reviews(&mut *sqlite_conn(p)?, kind)
+            }
+        }
+    }
+
+    /// Append an audit-log event. Best-effort context; never carries secrets.
+    pub fn write_audit(
+        &self,
+        event: &str,
+        subject: Option<&str>,
+        actor: Option<&str>,
+        detail: Option<&str>,
+    ) -> QueryResult<String> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let id = uuid::Uuid::now_v7();
+                claim_policy::pg::write_audit(
+                    &mut *pg_conn(p)?,
+                    id,
+                    event,
+                    subject,
+                    actor,
+                    detail,
+                )?;
+                Ok(id.to_string())
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                let id = uuid::Uuid::now_v7().to_string();
+                claim_policy::sqlite::write_audit(
+                    &mut *sqlite_conn(p)?,
+                    &id,
+                    event,
+                    subject,
+                    actor,
+                    detail,
+                )?;
+                Ok(id)
+            }
+        }
+    }
+
+    pub fn list_audit(&self, limit: i64) -> QueryResult<Vec<models::AuditEntry>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => claim_policy::pg::list_audit(&mut *pg_conn(p)?, limit),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => claim_policy::sqlite::list_audit(&mut *sqlite_conn(p)?, limit),
+        }
+    }
+
+    // -- Domain fingerprint pins (SEC-01 TOFU) --
+
+    pub fn find_domain_pin(&self, domain: &str) -> QueryResult<Option<models::DomainKeyPin>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => domain_pins::pg::find(&mut *pg_conn(p)?, domain),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => domain_pins::sqlite::find(&mut *sqlite_conn(p)?, domain),
+        }
+    }
+
+    pub fn create_domain_pin(&self, domain: &str, fingerprints: &str) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => domain_pins::pg::create(&mut *pg_conn(p)?, domain, fingerprints),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                domain_pins::sqlite::create(&mut *sqlite_conn(p)?, domain, fingerprints)
+            }
+        }
+    }
+
+    pub fn rotate_domain_pin(&self, domain: &str, fingerprints: &str) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => domain_pins::pg::rotate(&mut *pg_conn(p)?, domain, fingerprints),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                domain_pins::sqlite::rotate(&mut *sqlite_conn(p)?, domain, fingerprints)
+            }
+        }
+    }
+
+    pub fn touch_domain_pin(&self, domain: &str) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => domain_pins::pg::touch(&mut *pg_conn(p)?, domain),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => domain_pins::sqlite::touch(&mut *sqlite_conn(p)?, domain),
+        }
+    }
+
+    pub fn list_domain_pins(&self) -> QueryResult<Vec<models::DomainKeyPin>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => domain_pins::pg::list_all(&mut *pg_conn(p)?),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => domain_pins::sqlite::list_all(&mut *sqlite_conn(p)?),
+        }
+    }
+
+    /// Revoke a cached peer key by fingerprint (pin recheck retiring an old key).
+    pub fn revoke_peer_key_by_fingerprint(
+        &self,
+        domain: &str,
+        fingerprint: &str,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                peer_keys::pg::revoke_by_fingerprint(&mut *pg_conn(p)?, domain, fingerprint)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                peer_keys::sqlite::revoke_by_fingerprint(&mut *sqlite_conn(p)?, domain, fingerprint)
+            }
         }
     }
 

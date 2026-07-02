@@ -4,7 +4,8 @@ mod cli;
 
 use clap::Parser;
 use cli::{
-    AccountCommands, ClaimCommands, Cli, Commands, DomainCommands, RelationCommands, UserCommands,
+    AccountCommands, ClaimCommands, Cli, Commands, DomainCommands, PinCommands, RelationCommands,
+    UserCommands,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -68,6 +69,8 @@ async fn main() {
 
         Commands::Domain(DomainCommands::Init) => domain_init(),
         Commands::Domain(DomainCommands::DnsCheck) => domain_dns_check().await,
+        Commands::Domain(DomainCommands::ListKeys) => domain_list_keys(),
+        Commands::Domain(DomainCommands::RevokeKey { key_id }) => domain_revoke_key(&key_id),
         Commands::User(UserCommands::Create {
             username,
             display_name,
@@ -108,11 +111,12 @@ async fn main() {
         }
         Commands::Relation(cmd) => handle_relation_command(cmd),
         Commands::Account(cmd) => handle_account_command(cmd),
+        Commands::Pins(cmd) => handle_pins_command(cmd).await,
         Commands::Backup {
             out,
             rotate,
-            no_passphrase,
-        } => backup_run(out.as_deref(), rotate, !no_passphrase),
+            embed_passphrase,
+        } => backup_run(out.as_deref(), rotate, embed_passphrase),
         Commands::Restore {
             in_file,
             key,
@@ -381,6 +385,196 @@ fn domain_init() {
     }
 
     println!("Domain init complete.");
+}
+
+/// List the domain's keys (DB-direct) so an admin can find a key id to revoke.
+fn domain_list_keys() {
+    let db_pool = pool_with_migrations();
+    let keys = db_pool.list_all_domain_keys().unwrap_or_else(|e| {
+        eprintln!("Failed to read domain keys: {e}");
+        std::process::exit(1);
+    });
+    if keys.is_empty() {
+        println!("No domain keys. Run `linkkeys domain init`.");
+        return;
+    }
+    println!("{:<38} {:<8} {:<10} FINGERPRINT", "ID", "USAGE", "STATUS");
+    for k in &keys {
+        let status = if k.revoked_at.is_some() {
+            "revoked"
+        } else {
+            "active"
+        };
+        println!(
+            "{:<38} {:<8} {:<10} {}",
+            k.id, k.key_usage, status, k.fingerprint
+        );
+    }
+}
+
+/// Revoke a domain key by id (SEC-08). Idempotent; prints the resulting status
+/// and, when at least two sibling signing keys remain, produces a sibling-signed
+/// revocation certificate (the authenticated, in-band revocation proof) and
+/// records it in the audit log.
+fn domain_revoke_key(key_id: &str) {
+    let db_pool = pool_with_migrations();
+    let revoked = match db_pool.revoke_domain_key(key_id) {
+        Ok(k) => k,
+        Err(diesel::result::Error::NotFound) => {
+            eprintln!("No domain key with id {key_id}.");
+            std::process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("Failed to revoke key: {e}");
+            std::process::exit(1);
+        }
+    };
+    println!(
+        "Revoked domain key {} (revoked_at={}).",
+        revoked.id,
+        revoked.revoked_at.as_deref().unwrap_or("<none>")
+    );
+    println!(
+        "Next: remove this key's fingerprint ({}) from the domain's _linkkeys DNS TXT record so peers drop it on their next recheck.",
+        revoked.fingerprint
+    );
+
+    // Produce the sibling-signed revocation certificate from the remaining active
+    // signing keys (the target is now excluded from list_active_domain_keys).
+    domain_emit_revocation_cert(&db_pool, &revoked);
+}
+
+/// Build a sibling-signed revocation certificate for `revoked` from the domain's
+/// other active signing keys and record it in the audit log. Best-effort: a
+/// domain with fewer than two remaining sibling signing keys can't reach quorum,
+/// which is logged as guidance, not an error.
+fn domain_emit_revocation_cert(
+    db_pool: &linkkeys::db::DbPool,
+    revoked: &linkkeys::db::models::DomainKey,
+) {
+    use liblinkkeys::claims::ClaimSigner;
+    use liblinkkeys::revocation::{
+        build_revocation_certificate, RevocationSpec, REVOCATION_QUORUM,
+    };
+
+    let passphrase = get_passphrase();
+    let active = db_pool.list_active_domain_keys().unwrap_or_default();
+    let signer_keys: Vec<_> = active
+        .into_iter()
+        .filter(|k| k.key_usage == "sign" && k.id != revoked.id)
+        .collect();
+    let active_signers =
+        match linkkeys::claim_signing::active_signers(&signer_keys, passphrase.as_bytes()) {
+            Ok(s) => s,
+            Err(_) => Vec::new(),
+        };
+    if active_signers.len() < REVOCATION_QUORUM {
+        eprintln!(
+            "Note: only {} sibling signing key(s) remain; need {} to co-sign a revocation certificate. \
+             Revocation is recorded locally and enforced via DNS removal.",
+            active_signers.len(),
+            REVOCATION_QUORUM
+        );
+        let _ = db_pool.write_audit(
+            "domain_key.revoked",
+            Some(&revoked.id),
+            Some("cli"),
+            Some("no certificate (insufficient sibling keys)"),
+        );
+        return;
+    }
+
+    let domain = linkkeys::conversions::get_domain_name();
+    let revoked_at = revoked.revoked_at.clone().unwrap_or_default();
+    let signers: Vec<ClaimSigner> = active_signers
+        .iter()
+        .map(|s| ClaimSigner {
+            domain: &domain,
+            key_id: &s.key_id,
+            algorithm: s.algorithm,
+            private_key_bytes: &s.private_key,
+        })
+        .collect();
+    let spec = RevocationSpec {
+        target_key_id: &revoked.id,
+        target_fingerprint: &revoked.fingerprint,
+        revoked_at: &revoked_at,
+    };
+    match build_revocation_certificate(&spec, &signers) {
+        Ok(cert) => {
+            let summary = format!(
+                "sibling-signed revocation certificate: {} signatures over key {} (fp {})",
+                cert.signatures.len(),
+                cert.target_key_id,
+                cert.target_fingerprint
+            );
+            println!("Produced {summary}.");
+            let _ = db_pool.write_audit(
+                "domain_key.revoked",
+                Some(&revoked.id),
+                Some("cli"),
+                Some(&summary),
+            );
+        }
+        Err(e) => eprintln!("Could not build revocation certificate: {e}"),
+    }
+}
+
+/// Handle `linkkeys pins ...` (SEC-01 TOFU pin management). `recheck` is
+/// cron-friendly and exits non-zero if any domain is in a mismatch state.
+async fn handle_pins_command(cmd: PinCommands) {
+    let db_pool = pool_with_migrations();
+    match cmd {
+        PinCommands::List => {
+            let pins = db_pool.list_domain_pins().unwrap_or_else(|e| {
+                eprintln!("Failed to read pins: {e}");
+                std::process::exit(1);
+            });
+            if pins.is_empty() {
+                println!("No pinned domains yet.");
+                return;
+            }
+            println!("{:<30} {:<28} FINGERPRINTS", "DOMAIN", "LAST CHECKED");
+            for p in &pins {
+                println!(
+                    "{:<30} {:<28} {}",
+                    p.domain, p.last_checked_at, p.fingerprints
+                );
+            }
+        }
+        PinCommands::Recheck { domain } => {
+            let net = linkkeys::net::Net::production();
+            let results = match domain {
+                Some(d) => {
+                    let r = linkkeys::services::pins::recheck_domain(&db_pool, &net, &d).await;
+                    vec![(d, r)]
+                }
+                None => linkkeys::services::pins::recheck_all(&db_pool, &net).await,
+            };
+            if results.is_empty() {
+                println!("No pinned domains to recheck.");
+                return;
+            }
+            let mut mismatch = false;
+            for (d, r) in &results {
+                match r {
+                    Ok(outcome) => {
+                        println!("{d}: {outcome:?}");
+                        if matches!(outcome, linkkeys::services::pins::PinOutcome::Mismatch) {
+                            mismatch = true;
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("{d}: ERROR {e}");
+                    }
+                }
+            }
+            if mismatch {
+                // Non-zero so cron/monitoring surfaces the mismatch for a human.
+                std::process::exit(2);
+            }
+        }
+    }
 }
 
 /// Generate the domain's three staggered-expiry Ed25519 signing keypairs.

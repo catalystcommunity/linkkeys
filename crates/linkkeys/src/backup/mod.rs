@@ -14,8 +14,12 @@
 //!   encrypted-at-rest under `DOMAIN_KEY_PASSPHRASE` (same scheme as domain
 //!   keys). The admin is shown it only on generation/rotation and stores it
 //!   offline; it is the only way to decrypt their backups.
-//! - The bundle also embeds `DOMAIN_KEY_PASSPHRASE` by default, so one artifact
-//!   fully restores a working domain. `--no-passphrase` omits it.
+//! - The bundle can also embed `DOMAIN_KEY_PASSPHRASE` for single-artifact
+//!   recovery, but this is OFF by default (SEC-09): otherwise a leaked bundle
+//!   plus its backup key would decrypt every private key, since the passphrase
+//!   that unwraps the at-rest blobs would be sitting inside the same file.
+//!   `--embed-passphrase` opts in; the passphrase should normally be stored
+//!   separately from the backup key.
 //!
 //! The format is intentionally backend-neutral (string timestamps/ids, byte
 //! blobs). v1 reads/writes the SQLite backend; the same artifact is consumable
@@ -211,7 +215,9 @@ const SNAPSHOT_TABLES: &[&str] = &[
     "trusted_issuers",
     "profile_claim_prefs",
     "release_policies",
-    "claim_approval_queue",
+    "admin_review_queue",
+    "audit_log",
+    "domain_key_pins",
     "email_verifications",
     "user_release_prefs",
 ];
@@ -308,9 +314,18 @@ mod sqlite_backend {
     backup_row!(ReleasePolicyRow => release_policies {
         audience: String, claim_type: String, disposition: String, created_at: String, updated_at: String,
     });
-    backup_row!(ClaimApprovalRow => claim_approval_queue {
-        id: String, user_id: String, claim_type: String, claim_value: Vec<u8>, status: String,
-        resolved_by: Option<String>, resolved_at: Option<String>, created_at: String, updated_at: String,
+    backup_row!(AdminReviewBackupRow => admin_review_queue {
+        id: String, kind: String, user_id: Option<String>, claim_type: Option<String>,
+        claim_value: Option<Vec<u8>>, subject: Option<String>, detail: Option<String>,
+        status: String, resolved_by: Option<String>, resolved_at: Option<String>,
+        created_at: String, updated_at: String,
+    });
+    backup_row!(AuditLogBackupRow => audit_log {
+        id: String, event: String, subject: Option<String>, actor: Option<String>,
+        detail: Option<String>, created_at: String,
+    });
+    backup_row!(DomainKeyPinBackupRow => domain_key_pins {
+        domain: String, fingerprints: String, pinned_at: String, last_checked_at: String,
     });
     backup_row!(EmailVerificationRow => email_verifications {
         token: String, user_id: String, email: String, expires_at: String, created_at: String,
@@ -340,7 +355,9 @@ mod sqlite_backend {
             $op!("trusted_issuers", trusted_issuers, TrustedIssuerRow, $($arg)*);
             $op!("profile_claim_prefs", profile_claim_prefs, ProfileClaimPrefRow, $($arg)*);
             $op!("release_policies", release_policies, ReleasePolicyRow, $($arg)*);
-            $op!("claim_approval_queue", claim_approval_queue, ClaimApprovalRow, $($arg)*);
+            $op!("admin_review_queue", admin_review_queue, AdminReviewBackupRow, $($arg)*);
+            $op!("audit_log", audit_log, AuditLogBackupRow, $($arg)*);
+            $op!("domain_key_pins", domain_key_pins, DomainKeyPinBackupRow, $($arg)*);
             $op!("email_verifications", email_verifications, EmailVerificationRow, $($arg)*);
             $op!("user_release_prefs", user_release_prefs, UserReleasePrefRow, $($arg)*);
         };

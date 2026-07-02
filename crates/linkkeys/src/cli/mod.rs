@@ -35,6 +35,10 @@ pub enum Commands {
     #[command(subcommand)]
     Account(AccountCommands),
 
+    /// TOFU domain fingerprint pin commands
+    #[command(subcommand)]
+    Pins(PinCommands),
+
     /// Create an encrypted, storage-agnostic backup of the whole database.
     ///
     /// The artifact is encrypted in-process with a per-domain 256-bit backup key
@@ -48,9 +52,12 @@ pub enum Commands {
         /// Rotate the backup key before backing up (prints the new key).
         #[arg(long)]
         rotate: bool,
-        /// Do NOT embed DOMAIN_KEY_PASSPHRASE in the bundle (store it separately).
+        /// Embed DOMAIN_KEY_PASSPHRASE in the bundle for single-artifact
+        /// recovery. Off by default (SEC-09): a leaked bundle + backup key then
+        /// still cannot decrypt the private keys without the separately-held
+        /// passphrase. Only pass this if you deliberately want the convenience.
         #[arg(long)]
-        no_passphrase: bool,
+        embed_passphrase: bool,
     },
 
     /// Restore the database from an encrypted backup artifact.
@@ -73,6 +80,28 @@ pub enum DomainCommands {
     Init,
     /// Check DNS TXT records for this domain — shows expected vs actual state
     DnsCheck,
+    /// List this domain's keys with their ids, usage, fingerprint, and status
+    ListKeys,
+    /// Revoke a domain key by id (SEC-08). Verification stops honoring it; remove
+    /// its fingerprint from DNS so peers drop it on their next pin recheck.
+    RevokeKey {
+        /// The key id to revoke (see `domain list-keys`)
+        key_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PinCommands {
+    /// Re-resolve DNS and recheck TOFU fingerprint pins (SEC-01). Cron-friendly:
+    /// run on an interval (e.g. every 14 days). With no domain, rechecks all
+    /// pinned domains. A single-key rotation is accepted; a larger change is
+    /// refused and queued for admin review.
+    Recheck {
+        /// Recheck only this domain (default: all pinned domains)
+        domain: Option<String>,
+    },
+    /// List the currently pinned domains and their fingerprint sets.
+    List,
 }
 
 #[derive(Subcommand)]

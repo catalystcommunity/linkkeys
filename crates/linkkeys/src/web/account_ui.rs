@@ -238,6 +238,13 @@ pub fn login_submit(
     cookies: &CookieJar<'_>,
     form: rocket::form::Form<LoginForm>,
 ) -> Result<Redirect, Box<Redirect>> {
+    // SEC-05: throttle online brute force, keyed by username.
+    if !crate::services::ratelimit::LOGIN.check(&form.username.trim().to_lowercase()) {
+        return Err(Box::new(Redirect::found(
+            "/account/login?error=Too+many+attempts.+Please+wait+and+try+again.",
+        )));
+    }
+
     let authenticator = PasswordAuthenticator::new(pool.inner().clone());
     match authenticator.authenticate(&form.username, &form.password) {
         Ok(user) => {

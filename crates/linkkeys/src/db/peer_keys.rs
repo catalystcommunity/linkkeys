@@ -40,6 +40,24 @@ pub mod pg {
             .load::<PeerKeyRow>(conn)
             .map(|rows| rows.into_iter().map(Into::into).collect())
     }
+
+    /// Mark a cached peer key revoked as of now, identified by its fingerprint
+    /// (used when a pin recheck retires a rotated-away key — SEC-02). Only
+    /// affects rows not already revoked.
+    pub fn revoke_by_fingerprint(
+        conn: &mut diesel::PgConnection,
+        domain: &str,
+        fingerprint: &str,
+    ) -> QueryResult<usize> {
+        diesel::update(
+            peer_keys::table
+                .filter(peer_keys::domain.eq(domain))
+                .filter(peer_keys::fingerprint.eq(fingerprint))
+                .filter(peer_keys::revoked_at.is_null()),
+        )
+        .set(peer_keys::revoked_at.eq(chrono::Utc::now().to_rfc3339()))
+        .execute(conn)
+    }
 }
 
 #[cfg(feature = "sqlite")]
@@ -76,5 +94,22 @@ pub mod sqlite {
             .select(PeerKeyRow::as_select())
             .load::<PeerKeyRow>(conn)
             .map(|rows| rows.into_iter().map(Into::into).collect())
+    }
+
+    /// Mark a cached peer key revoked (by fingerprint) when a pin recheck retires
+    /// a rotated-away key (SEC-02). Only affects not-already-revoked rows.
+    pub fn revoke_by_fingerprint(
+        conn: &mut diesel::SqliteConnection,
+        domain: &str,
+        fingerprint: &str,
+    ) -> QueryResult<usize> {
+        diesel::update(
+            peer_keys::table
+                .filter(peer_keys::domain.eq(domain))
+                .filter(peer_keys::fingerprint.eq(fingerprint))
+                .filter(peer_keys::revoked_at.is_null()),
+        )
+        .set(peer_keys::revoked_at.eq(chrono::Utc::now().to_rfc3339()))
+        .execute(conn)
     }
 }

@@ -518,3 +518,127 @@ fn test_removed_relation_allows_re_grant() {
         .unwrap();
     assert_ne!(new_rel.id, rel.id);
 }
+
+// -- SEC-08: key revocation --
+
+/// Revoking a domain key removes it from the active set and is idempotent
+/// (preserving the original revocation timestamp).
+#[test]
+fn sec08_revoke_domain_key_removes_from_active_and_is_idempotent() {
+    let pool = common::create_test_pool();
+    let k = create_domain_key(&pool);
+    assert!(
+        pool.list_active_domain_keys()
+            .unwrap()
+            .iter()
+            .any(|x| x.id == k.id),
+        "key is active before revocation"
+    );
+
+    let revoked = pool.revoke_domain_key(&k.id).unwrap();
+    assert!(revoked.revoked_at.is_some(), "revoked_at is set");
+    assert!(
+        !pool
+            .list_active_domain_keys()
+            .unwrap()
+            .iter()
+            .any(|x| x.id == k.id),
+        "revoked key no longer appears in the active set"
+    );
+
+    // Idempotent: a second revoke keeps the original timestamp.
+    let again = pool.revoke_domain_key(&k.id).unwrap();
+    assert_eq!(
+        again.revoked_at, revoked.revoked_at,
+        "re-revoking preserves the original revocation time"
+    );
+}
+
+// -- SEC-04: protected admin accounts --
+
+/// A manage_users-only operator must not reset a protected admin account's
+/// password via the TCP Admin dispatch, but a full admin may. Exercises the
+/// `admin_op_protected_target` + `caller_may_manage_target` guard.
+#[test]
+fn sec04_manage_users_cannot_reset_admin_account_password() {
+    std::env::set_var("DOMAIN_NAME", "test.com");
+    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
+    let pool = common::create_test_pool();
+    let domain = "test.com";
+
+    // Target holds the admin relation -> protected.
+    let target = create_user(&pool, &DataMap::new());
+    create_relation(&pool, "user", &target.id, "admin", "domain", domain);
+
+    // Caller has manage_users only, authenticated by API key.
+    let caller = create_user(&pool, &DataMap::new());
+    create_relation(&pool, "user", &caller.id, "manage_users", "domain", domain);
+    let (api_key, hash) = auth::generate_api_key(&caller.id);
+    create_auth_credential(&pool, &caller.id, auth::CREDENTIAL_TYPE_API_KEY, &hash);
+
+    let payload = liblinkkeys::generated::encode_reset_password_request(&ResetPasswordRequest {
+        user_id: target.id.clone(),
+        new_password: "new-strong-password".to_string(),
+    });
+
+    let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
+        "Admin",
+        "reset-password",
+        payload.clone(),
+        Some(&api_key),
+        &pool,
+        None,
+    );
+    assert_ne!(
+        status, 0,
+        "manage_users must not reset a protected admin account's password"
+    );
+
+    // Elevate the caller to admin; the same op now succeeds.
+    create_relation(&pool, "user", &caller.id, "admin", "domain", domain);
+    let (status2, _) = linkkeys::tcp::dispatch_for_test_authed(
+        "Admin",
+        "reset-password",
+        payload,
+        Some(&api_key),
+        &pool,
+        None,
+    );
+    assert_eq!(
+        status2, 0,
+        "a full admin may reset a protected admin account's password"
+    );
+}
+
+/// A manage_users operator can still reset an ordinary (non-admin) user's
+/// password — SEC-04 only restricts protected admin targets.
+#[test]
+fn sec04_manage_users_may_reset_ordinary_user() {
+    std::env::set_var("DOMAIN_NAME", "test.com");
+    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
+    let pool = common::create_test_pool();
+    let domain = "test.com";
+
+    let target = create_user(&pool, &DataMap::new());
+    let caller = create_user(&pool, &DataMap::new());
+    create_relation(&pool, "user", &caller.id, "manage_users", "domain", domain);
+    let (api_key, hash) = auth::generate_api_key(&caller.id);
+    create_auth_credential(&pool, &caller.id, auth::CREDENTIAL_TYPE_API_KEY, &hash);
+
+    let payload = liblinkkeys::generated::encode_reset_password_request(&ResetPasswordRequest {
+        user_id: target.id.clone(),
+        new_password: "new-strong-password".to_string(),
+    });
+    let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
+        "Admin",
+        "reset-password",
+        payload,
+        Some(&api_key),
+        &pool,
+        None,
+    );
+    assert_eq!(
+        status, 0,
+        "manage_users may reset an ordinary user's password"
+    );
+}

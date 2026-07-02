@@ -95,14 +95,15 @@ pub mod pg {
     use diesel::prelude::*;
 
     use crate::db::models::pg::{
-        ClaimApprovalRow, ClaimTypePolicyRow, NewClaimApprovalRow, ProfileClaimPrefRow,
-        ReleasePolicyRow, TrustedIssuerRow,
+        AdminReviewRow, AuditLogRow, ClaimTypePolicyRow, NewAdminReviewRow, NewAuditLogRow,
+        NewClaimApprovalRow, ProfileClaimPrefRow, ReleasePolicyRow, TrustedIssuerRow,
     };
     use crate::db::models::{
-        ClaimApproval, ClaimTypePolicy, ProfileClaimPref, ReleasePolicy, TrustedIssuer,
+        AdminReview, AuditEntry, ClaimApproval, ClaimTypePolicy, ProfileClaimPref, ReleasePolicy,
+        TrustedIssuer,
     };
     use crate::schema::pg::{
-        claim_approval_queue, claim_type_policies, profile_claim_prefs, release_policies,
+        admin_review_queue, audit_log, claim_type_policies, profile_claim_prefs, release_policies,
         trusted_issuers,
     };
 
@@ -334,9 +335,10 @@ pub mod pg {
         claim_type: &str,
         claim_value: &[u8],
     ) -> QueryResult<usize> {
-        diesel::insert_into(claim_approval_queue::table)
+        diesel::insert_into(admin_review_queue::table)
             .values(NewClaimApprovalRow {
                 id,
+                kind: "claim_approval".to_string(),
                 user_id,
                 claim_type: claim_type.to_string(),
                 claim_value: claim_value.to_vec(),
@@ -344,14 +346,48 @@ pub mod pg {
             .execute(conn)
     }
 
+    /// Enqueue a non-claim admin review item (e.g. a key-mismatch that needs a
+    /// human). `subject` is a human target (a domain); `detail` is JSON context.
+    pub fn enqueue_review(
+        conn: &mut diesel::PgConnection,
+        id: uuid::Uuid,
+        kind: &str,
+        subject: Option<&str>,
+        detail: Option<&str>,
+    ) -> QueryResult<usize> {
+        diesel::insert_into(admin_review_queue::table)
+            .values(NewAdminReviewRow {
+                id,
+                kind: kind.to_string(),
+                subject: subject.map(str::to_string),
+                detail: detail.map(str::to_string),
+            })
+            .execute(conn)
+    }
+
     pub fn list_pending_approvals(
         conn: &mut diesel::PgConnection,
     ) -> QueryResult<Vec<ClaimApproval>> {
-        claim_approval_queue::table
-            .filter(claim_approval_queue::status.eq("pending"))
-            .order(claim_approval_queue::created_at.asc())
-            .select(ClaimApprovalRow::as_select())
-            .load::<ClaimApprovalRow>(conn)
+        admin_review_queue::table
+            .filter(admin_review_queue::status.eq("pending"))
+            .filter(admin_review_queue::kind.eq("claim_approval"))
+            .order(admin_review_queue::created_at.asc())
+            .select(AdminReviewRow::as_select())
+            .load::<AdminReviewRow>(conn)
+            .map(|rows| rows.into_iter().map(Into::into).collect())
+    }
+
+    /// List pending review items of any `kind` (e.g. "key_mismatch").
+    pub fn list_pending_reviews(
+        conn: &mut diesel::PgConnection,
+        kind: &str,
+    ) -> QueryResult<Vec<AdminReview>> {
+        admin_review_queue::table
+            .filter(admin_review_queue::status.eq("pending"))
+            .filter(admin_review_queue::kind.eq(kind.to_string()))
+            .order(admin_review_queue::created_at.asc())
+            .select(AdminReviewRow::as_select())
+            .load::<AdminReviewRow>(conn)
             .map(|rows| rows.into_iter().map(Into::into).collect())
     }
 
@@ -359,14 +395,14 @@ pub mod pg {
         conn: &mut diesel::PgConnection,
         id: uuid::Uuid,
     ) -> QueryResult<ClaimApproval> {
-        claim_approval_queue::table
+        admin_review_queue::table
             .find(id)
-            .select(ClaimApprovalRow::as_select())
-            .first::<ClaimApprovalRow>(conn)
+            .select(AdminReviewRow::as_select())
+            .first::<AdminReviewRow>(conn)
             .map(Into::into)
     }
 
-    /// Resolve a still-pending approval. Guarded on `status = 'pending'`, so a
+    /// Resolve a still-pending review item. Guarded on `status = 'pending'`, so a
     /// concurrent or repeat resolve affects 0 rows (caller treats 0 as
     /// already-resolved) rather than overwriting the prior resolution.
     pub fn resolve_approval(
@@ -376,16 +412,46 @@ pub mod pg {
         resolved_by: &str,
     ) -> QueryResult<usize> {
         diesel::update(
-            claim_approval_queue::table
-                .filter(claim_approval_queue::id.eq(id))
-                .filter(claim_approval_queue::status.eq("pending")),
+            admin_review_queue::table
+                .filter(admin_review_queue::id.eq(id))
+                .filter(admin_review_queue::status.eq("pending")),
         )
         .set((
-            claim_approval_queue::status.eq(status),
-            claim_approval_queue::resolved_by.eq(resolved_by),
-            claim_approval_queue::resolved_at.eq(chrono::Utc::now()),
+            admin_review_queue::status.eq(status),
+            admin_review_queue::resolved_by.eq(resolved_by),
+            admin_review_queue::resolved_at.eq(chrono::Utc::now()),
         ))
         .execute(conn)
+    }
+
+    // -- Audit log --
+
+    pub fn write_audit(
+        conn: &mut diesel::PgConnection,
+        id: uuid::Uuid,
+        event: &str,
+        subject: Option<&str>,
+        actor: Option<&str>,
+        detail: Option<&str>,
+    ) -> QueryResult<usize> {
+        diesel::insert_into(audit_log::table)
+            .values(NewAuditLogRow {
+                id,
+                event: event.to_string(),
+                subject: subject.map(str::to_string),
+                actor: actor.map(str::to_string),
+                detail: detail.map(str::to_string),
+            })
+            .execute(conn)
+    }
+
+    pub fn list_audit(conn: &mut diesel::PgConnection, limit: i64) -> QueryResult<Vec<AuditEntry>> {
+        audit_log::table
+            .order(audit_log::created_at.desc())
+            .limit(limit)
+            .select(AuditLogRow::as_select())
+            .load::<AuditLogRow>(conn)
+            .map(|rows| rows.into_iter().map(Into::into).collect())
     }
 }
 
@@ -394,14 +460,15 @@ pub mod sqlite {
     use diesel::prelude::*;
 
     use crate::db::models::sqlite::{
-        ClaimApprovalRow, ClaimTypePolicyRow, NewClaimApprovalRow, ProfileClaimPrefRow,
-        ReleasePolicyRow, TrustedIssuerRow,
+        AdminReviewRow, AuditLogRow, ClaimTypePolicyRow, NewAdminReviewRow, NewAuditLogRow,
+        NewClaimApprovalRow, ProfileClaimPrefRow, ReleasePolicyRow, TrustedIssuerRow,
     };
     use crate::db::models::{
-        ClaimApproval, ClaimTypePolicy, ProfileClaimPref, ReleasePolicy, TrustedIssuer,
+        AdminReview, AuditEntry, ClaimApproval, ClaimTypePolicy, ProfileClaimPref, ReleasePolicy,
+        TrustedIssuer,
     };
     use crate::schema::sqlite::{
-        claim_approval_queue, claim_type_policies, profile_claim_prefs, release_policies,
+        admin_review_queue, audit_log, claim_type_policies, profile_claim_prefs, release_policies,
         trusted_issuers,
     };
 
@@ -633,9 +700,10 @@ pub mod sqlite {
         claim_type: &str,
         claim_value: &[u8],
     ) -> QueryResult<usize> {
-        diesel::insert_into(claim_approval_queue::table)
+        diesel::insert_into(admin_review_queue::table)
             .values(NewClaimApprovalRow {
                 id: id.to_string(),
+                kind: "claim_approval".to_string(),
                 user_id: user_id.to_string(),
                 claim_type: claim_type.to_string(),
                 claim_value: claim_value.to_vec(),
@@ -643,14 +711,47 @@ pub mod sqlite {
             .execute(conn)
     }
 
+    /// Enqueue a non-claim admin review item (e.g. a key-mismatch).
+    pub fn enqueue_review(
+        conn: &mut diesel::SqliteConnection,
+        id: &str,
+        kind: &str,
+        subject: Option<&str>,
+        detail: Option<&str>,
+    ) -> QueryResult<usize> {
+        diesel::insert_into(admin_review_queue::table)
+            .values(NewAdminReviewRow {
+                id: id.to_string(),
+                kind: kind.to_string(),
+                subject: subject.map(str::to_string),
+                detail: detail.map(str::to_string),
+            })
+            .execute(conn)
+    }
+
     pub fn list_pending_approvals(
         conn: &mut diesel::SqliteConnection,
     ) -> QueryResult<Vec<ClaimApproval>> {
-        claim_approval_queue::table
-            .filter(claim_approval_queue::status.eq("pending"))
-            .order(claim_approval_queue::created_at.asc())
-            .select(ClaimApprovalRow::as_select())
-            .load::<ClaimApprovalRow>(conn)
+        admin_review_queue::table
+            .filter(admin_review_queue::status.eq("pending"))
+            .filter(admin_review_queue::kind.eq("claim_approval"))
+            .order(admin_review_queue::created_at.asc())
+            .select(AdminReviewRow::as_select())
+            .load::<AdminReviewRow>(conn)
+            .map(|rows| rows.into_iter().map(Into::into).collect())
+    }
+
+    /// List pending review items of any `kind` (e.g. "key_mismatch").
+    pub fn list_pending_reviews(
+        conn: &mut diesel::SqliteConnection,
+        kind: &str,
+    ) -> QueryResult<Vec<AdminReview>> {
+        admin_review_queue::table
+            .filter(admin_review_queue::status.eq("pending"))
+            .filter(admin_review_queue::kind.eq(kind.to_string()))
+            .order(admin_review_queue::created_at.asc())
+            .select(AdminReviewRow::as_select())
+            .load::<AdminReviewRow>(conn)
             .map(|rows| rows.into_iter().map(Into::into).collect())
     }
 
@@ -658,10 +759,10 @@ pub mod sqlite {
         conn: &mut diesel::SqliteConnection,
         id: &str,
     ) -> QueryResult<ClaimApproval> {
-        claim_approval_queue::table
+        admin_review_queue::table
             .find(id)
-            .select(ClaimApprovalRow::as_select())
-            .first::<ClaimApprovalRow>(conn)
+            .select(AdminReviewRow::as_select())
+            .first::<AdminReviewRow>(conn)
             .map(Into::into)
     }
 
@@ -673,15 +774,48 @@ pub mod sqlite {
         resolved_by: &str,
     ) -> QueryResult<usize> {
         diesel::update(
-            claim_approval_queue::table
-                .filter(claim_approval_queue::id.eq(id))
-                .filter(claim_approval_queue::status.eq("pending")),
+            admin_review_queue::table
+                .filter(admin_review_queue::id.eq(id))
+                .filter(admin_review_queue::status.eq("pending")),
         )
         .set((
-            claim_approval_queue::status.eq(status),
-            claim_approval_queue::resolved_by.eq(resolved_by),
-            claim_approval_queue::resolved_at.eq(chrono::Utc::now().to_rfc3339()),
+            admin_review_queue::status.eq(status),
+            admin_review_queue::resolved_by.eq(resolved_by),
+            admin_review_queue::resolved_at.eq(chrono::Utc::now().to_rfc3339()),
         ))
         .execute(conn)
+    }
+
+    // -- Audit log --
+
+    pub fn write_audit(
+        conn: &mut diesel::SqliteConnection,
+        id: &str,
+        event: &str,
+        subject: Option<&str>,
+        actor: Option<&str>,
+        detail: Option<&str>,
+    ) -> QueryResult<usize> {
+        diesel::insert_into(audit_log::table)
+            .values(NewAuditLogRow {
+                id: id.to_string(),
+                event: event.to_string(),
+                subject: subject.map(str::to_string),
+                actor: actor.map(str::to_string),
+                detail: detail.map(str::to_string),
+            })
+            .execute(conn)
+    }
+
+    pub fn list_audit(
+        conn: &mut diesel::SqliteConnection,
+        limit: i64,
+    ) -> QueryResult<Vec<AuditEntry>> {
+        audit_log::table
+            .order(audit_log::created_at.desc())
+            .limit(limit)
+            .select(AuditLogRow::as_select())
+            .load::<AuditLogRow>(conn)
+            .map(|rows| rows.into_iter().map(Into::into).collect())
     }
 }

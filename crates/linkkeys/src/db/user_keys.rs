@@ -47,6 +47,19 @@ pub mod pg {
             .load::<UserKeyRow>(conn)
             .map(|rows| rows.into_iter().map(Into::into).collect())
     }
+
+    /// Mark a user key revoked as of now (preserving an earlier timestamp). A
+    /// stolen user key signs valid auth/claims until this is set — there is no
+    /// DNS anchor for user keys, so this DB flag is the only revocation lever.
+    pub fn revoke(conn: &mut diesel::PgConnection, key_id: &str) -> QueryResult<usize> {
+        let id: uuid::Uuid = key_id
+            .parse()
+            .map_err(|_| diesel::result::Error::NotFound)?;
+        diesel::update(user_keys::table.find(id))
+            .filter(user_keys::revoked_at.is_null())
+            .set(user_keys::revoked_at.eq(chrono::Utc::now()))
+            .execute(conn)
+    }
 }
 
 #[cfg(feature = "sqlite")]
@@ -99,5 +112,13 @@ pub mod sqlite {
             .order(user_keys::created_at.asc())
             .load::<UserKeyRow>(conn)
             .map(|rows| rows.into_iter().map(Into::into).collect())
+    }
+
+    /// Mark a user key revoked as of now (preserving an earlier timestamp).
+    pub fn revoke(conn: &mut diesel::SqliteConnection, key_id: &str) -> QueryResult<usize> {
+        diesel::update(user_keys::table.find(key_id))
+            .filter(user_keys::revoked_at.is_null())
+            .set(user_keys::revoked_at.eq(chrono::Utc::now().to_rfc3339()))
+            .execute(conn)
     }
 }

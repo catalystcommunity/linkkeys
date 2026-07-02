@@ -217,16 +217,39 @@ pub mod pg {
     }
 
     diesel::table! {
-        claim_approval_queue (id) {
+        admin_review_queue (id) {
             id -> Uuid,
-            user_id -> Uuid,
-            claim_type -> Varchar,
-            claim_value -> Binary,
+            kind -> Varchar,
+            user_id -> Nullable<Uuid>,
+            claim_type -> Nullable<Varchar>,
+            claim_value -> Nullable<Binary>,
+            subject -> Nullable<Varchar>,
+            detail -> Nullable<Varchar>,
             status -> Varchar,
             resolved_by -> Nullable<Varchar>,
             resolved_at -> Nullable<Timestamptz>,
             created_at -> Timestamptz,
             updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        audit_log (id) {
+            id -> Uuid,
+            event -> Varchar,
+            subject -> Nullable<Varchar>,
+            actor -> Nullable<Varchar>,
+            detail -> Nullable<Varchar>,
+            created_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        domain_key_pins (domain) {
+            domain -> Varchar,
+            fingerprints -> Varchar,
+            pinned_at -> Timestamptz,
+            last_checked_at -> Timestamptz,
         }
     }
 
@@ -255,7 +278,7 @@ pub mod pg {
     diesel::joinable!(auth_credentials -> users (user_id));
     diesel::joinable!(consent_grants -> users (user_id));
     diesel::joinable!(profiles -> users (account_id));
-    diesel::joinable!(claim_approval_queue -> users (user_id));
+    diesel::joinable!(admin_review_queue -> users (user_id));
     diesel::allow_tables_to_appear_in_same_query!(
         guestbook_entries,
         backup_keys,
@@ -273,7 +296,9 @@ pub mod pg {
         trusted_issuers,
         profile_claim_prefs,
         release_policies,
-        claim_approval_queue,
+        admin_review_queue,
+        audit_log,
+        domain_key_pins,
         email_verifications,
         user_release_prefs,
     );
@@ -495,16 +520,39 @@ pub mod sqlite {
     }
 
     diesel::table! {
-        claim_approval_queue (id) {
+        admin_review_queue (id) {
             id -> Text,
-            user_id -> Text,
-            claim_type -> Text,
-            claim_value -> Binary,
+            kind -> Text,
+            user_id -> Nullable<Text>,
+            claim_type -> Nullable<Text>,
+            claim_value -> Nullable<Binary>,
+            subject -> Nullable<Text>,
+            detail -> Nullable<Text>,
             status -> Text,
             resolved_by -> Nullable<Text>,
             resolved_at -> Nullable<Text>,
             created_at -> Text,
             updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        audit_log (id) {
+            id -> Text,
+            event -> Text,
+            subject -> Nullable<Text>,
+            actor -> Nullable<Text>,
+            detail -> Nullable<Text>,
+            created_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        domain_key_pins (domain) {
+            domain -> Text,
+            fingerprints -> Text,
+            pinned_at -> Text,
+            last_checked_at -> Text,
         }
     }
 
@@ -533,7 +581,7 @@ pub mod sqlite {
     diesel::joinable!(auth_credentials -> users (user_id));
     diesel::joinable!(consent_grants -> users (user_id));
     diesel::joinable!(profiles -> users (account_id));
-    diesel::joinable!(claim_approval_queue -> users (user_id));
+    diesel::joinable!(admin_review_queue -> users (user_id));
     diesel::allow_tables_to_appear_in_same_query!(
         guestbook_entries,
         backup_keys,
@@ -551,7 +599,9 @@ pub mod sqlite {
         trusted_issuers,
         profile_claim_prefs,
         release_policies,
-        claim_approval_queue,
+        admin_review_queue,
+        audit_log,
+        domain_key_pins,
         email_verifications,
         user_release_prefs,
     );
