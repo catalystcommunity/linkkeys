@@ -43,6 +43,10 @@ server:
   publicPort: ""
   # Passphrase for encrypting/decrypting domain key material
   domainKeyPassphrase: ""
+  # Stable secret key for browser session cookies (SEC-11). Leave empty for a
+  # single ephemeral instance; set a persistent random value (e.g. `openssl rand
+  # -base64 32`) so sessions survive restarts and work across replicas.
+  rocketSecretKey: ""
   # TLS on the LinkKeys TCP protocol is mandatory (FP-pinned mTLS) and cannot be
   # disabled — there is intentionally no knob for it. (deploy-08)
   # Disable TLS on the HTTP transport (use when behind TLS-terminating ingress/gateway)

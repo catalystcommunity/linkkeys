@@ -194,6 +194,12 @@ pub(crate) fn verify_one_signature(
         .find(|k| k.key_id == sig.signed_by_key_id)
         .ok_or_else(|| ClaimError::KeyNotFound(sig.signed_by_key_id.clone()))?;
 
+    // SEC-13b: a claim signature must come from a signing key, never an
+    // encryption key sharing the same id.
+    if key.key_usage != "sign" {
+        return Err(ClaimError::SignatureInvalid);
+    }
+
     match crypto::signing_key_validity(&key.expires_at, key.revoked_at.as_deref()) {
         crypto::KeyValidity::Valid => {}
         crypto::KeyValidity::Revoked => return Err(ClaimError::KeyRevoked(key.key_id.clone())),

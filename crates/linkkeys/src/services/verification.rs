@@ -46,6 +46,15 @@ pub fn request_email_verification(
     subject_id: &str,
     email: &str,
 ) -> Result<(), ServiceError> {
+    // SEC-05: throttle verification-email sends so an authenticated user can't
+    // turn this into a spam amplifier. Keyed per subject.
+    if !crate::services::ratelimit::EMAIL.check(subject_id) {
+        return Err(svc_err(
+            429,
+            "too many verification emails requested; please wait before retrying",
+        ));
+    }
+
     // Honor the registry: the type must exist and bound the value size.
     let row = pool
         .find_claim_policy("email")

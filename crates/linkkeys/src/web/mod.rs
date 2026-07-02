@@ -1077,6 +1077,13 @@ async fn handle_signed_request_post(
         )
     };
 
+    // SEC-05: throttle online brute force, keyed by username.
+    if !crate::services::ratelimit::LOGIN.check(&form.username.trim().to_lowercase()) {
+        return Err(render_form_error(
+            "Too many attempts. Please wait and try again.",
+        ));
+    }
+
     let authenticator = PasswordAuthenticator::new(pool.inner().clone());
     let user = match crate::services::auth::Authenticator::authenticate(
         &authenticator,

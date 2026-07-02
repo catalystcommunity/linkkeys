@@ -6,11 +6,19 @@
 
 mod common;
 
-use common::data_factory::{create_auth_credential, create_domain_key, create_user, DataMap};
+use common::data_factory::{
+    create_auth_credential, create_domain_key, create_relation, create_user, DataMap,
+};
 use liblinkkeys::generated::types::{RpSignRequest, RpVerifyRequest};
 use linkkeys::services::auth;
 
 const TEST_DOMAIN: &str = "rp.test";
+
+/// Grant the api_access relation an RP service account needs to drive the Rp
+/// service (SEC-06): a bare API key is no longer sufficient.
+fn grant_api_access(pool: &linkkeys::db::DbPool, user_id: &str) {
+    create_relation(pool, "user", user_id, "api_access", "domain", TEST_DOMAIN);
+}
 
 fn setup() -> linkkeys::db::DbPool {
     std::env::set_var("DOMAIN_NAME", TEST_DOMAIN);
@@ -54,6 +62,7 @@ fn rp_sign_request_happy_path() {
     let pool = setup();
     let user = create_user(&pool, &DataMap::new());
     let api_key = api_key_for(&pool, &user.id);
+    grant_api_access(&pool, &user.id);
     // A signing domain key + the matching passphrase let the core sign.
     create_domain_key(&pool);
 
@@ -78,10 +87,34 @@ fn rp_sign_request_happy_path() {
 }
 
 #[test]
+fn rp_ops_require_api_access_relation() {
+    // SEC-06: a valid API key without the api_access relation is Forbidden — it
+    // must not be able to drive the domain sign/decrypt oracles.
+    let pool = setup();
+    let user = create_user(&pool, &DataMap::new());
+    let api_key = api_key_for(&pool, &user.id);
+    create_domain_key(&pool);
+    // Note: no grant_api_access here.
+    let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
+        "Rp",
+        "sign-request",
+        sign_request_payload(),
+        Some(&api_key),
+        &pool,
+        None,
+    );
+    assert_ne!(
+        status, 0,
+        "Rp ops must require the api_access relation, not just any API key"
+    );
+}
+
+#[test]
 fn rp_unknown_op_rejected() {
     let pool = setup();
     let user = create_user(&pool, &DataMap::new());
     let api_key = api_key_for(&pool, &user.id);
+    grant_api_access(&pool, &user.id);
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Rp",
         "no-such-op",
@@ -98,6 +131,7 @@ fn rp_verify_assertion_needs_outbound_context() {
     let pool = setup();
     let user = create_user(&pool, &DataMap::new());
     let api_key = api_key_for(&pool, &user.id);
+    grant_api_access(&pool, &user.id);
 
     let payload = liblinkkeys::generated::encode_rp_verify_request(&RpVerifyRequest {
         signed_assertion: "AAAA".to_string(),

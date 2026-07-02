@@ -88,6 +88,23 @@ pub mod pg {
             .first::<DomainKeyRow>(conn)
             .map(Into::into)
     }
+
+    /// Mark a domain key revoked as of now, preserving an earlier revocation
+    /// timestamp if one is already set (revocation time is load-bearing: messages
+    /// before it stay valid). Returns the resulting row.
+    pub fn revoke(conn: &mut diesel::PgConnection, key_id: &str) -> QueryResult<DomainKey> {
+        let id: uuid::Uuid = key_id
+            .parse()
+            .map_err(|_| diesel::result::Error::NotFound)?;
+        diesel::update(domain_keys::table.find(id))
+            .filter(domain_keys::revoked_at.is_null())
+            .set(domain_keys::revoked_at.eq(chrono::Utc::now()))
+            .execute(conn)?;
+        domain_keys::table
+            .find(id)
+            .first::<DomainKeyRow>(conn)
+            .map(Into::into)
+    }
 }
 
 #[cfg(feature = "sqlite")]
@@ -182,6 +199,19 @@ pub mod sqlite {
     }
 
     pub fn find_by_id(conn: &mut diesel::SqliteConnection, key_id: &str) -> QueryResult<DomainKey> {
+        domain_keys::table
+            .find(key_id)
+            .first::<DomainKeyRow>(conn)
+            .map(Into::into)
+    }
+
+    /// Mark a domain key revoked as of now, preserving an earlier revocation
+    /// timestamp if already set. Returns the resulting row.
+    pub fn revoke(conn: &mut diesel::SqliteConnection, key_id: &str) -> QueryResult<DomainKey> {
+        diesel::update(domain_keys::table.find(key_id))
+            .filter(domain_keys::revoked_at.is_null())
+            .set(domain_keys::revoked_at.eq(chrono::Utc::now().to_rfc3339()))
+            .execute(conn)?;
         domain_keys::table
             .find(key_id)
             .first::<DomainKeyRow>(conn)

@@ -688,6 +688,16 @@ fn dispatch(
                     return error_response(5, "Forbidden");
                 }
             }
+            // SEC-04: account-takeover-capable ops (reset-password, deactivate,
+            // remove-credential) against a protected admin account require the
+            // caller to hold full `admin`, not merely `manage_users`.
+            if let Some(target) = admin_op_protected_target(op, &envelope.payload, db_pool) {
+                if !crate::services::authorization::caller_may_manage_target(
+                    db_pool, &user.id, &target,
+                ) {
+                    return error_response(5, "Forbidden: target is a protected admin account");
+                }
+            }
             dispatch_admin(op, &envelope.payload, db_pool)
         }
         ("Account", op) => {
@@ -702,8 +712,23 @@ fn dispatch(
         // userinfo-fetch make an onward server-to-server call to the issuing IDP,
         // so they require the outbound context (TCP carrier only).
         ("Rp", op) => {
-            if let Err(resp) = authenticate_tcp_request(&envelope.auth, db_pool) {
-                return resp;
+            let user = match authenticate_tcp_request(&envelope.auth, db_pool) {
+                Ok(u) => u,
+                Err(resp) => return resp,
+            };
+            // SEC-06: require the api_access relation, not just any valid API key.
+            if let Some(required) =
+                crate::services::authorization::required_relation_for_op("Rp", op)
+            {
+                if !crate::services::authorization::user_has_permission(
+                    db_pool,
+                    &user.id,
+                    required,
+                    "domain",
+                    &get_domain_name(),
+                ) {
+                    return error_response(5, "Forbidden");
+                }
             }
             dispatch_rp(op, &envelope.payload, db_pool, outbound)
         }
@@ -740,6 +765,31 @@ fn dispatch(
                 envelope.service, envelope.op
             ),
         ),
+    }
+}
+
+/// For the account-takeover-capable Admin ops, decode the target user id from
+/// the payload (resolving a credential id to its owning user for
+/// remove-credential). Returns None for ops that don't manage an account, or
+/// when the payload can't be decoded — the op's own handler surfaces the decode
+/// error. Used only to gate SEC-04's protected-admin check.
+fn admin_op_protected_target(op: &str, payload: &[u8], db_pool: &DbPool) -> Option<String> {
+    use liblinkkeys::generated::codec;
+    match op {
+        "reset-password" => codec::decode_reset_password_request(payload)
+            .ok()
+            .map(|r| r.user_id),
+        "deactivate-user" => codec::decode_deactivate_user_request(payload)
+            .ok()
+            .map(|r| r.user_id),
+        "remove-credential" => {
+            let req = codec::decode_remove_credential_request(payload).ok()?;
+            db_pool
+                .find_credential_by_id(&req.credential_id)
+                .ok()
+                .map(|c| c.user_id)
+        }
+        _ => None,
     }
 }
 
@@ -1074,9 +1124,10 @@ mod depth_tests {
 
     #[test]
     fn test_deeply_nested_maps_rejected() {
-        // 50 nested maps: each is major type 5, additional 1 (one-entry map)
+        // 100 nested maps: each is major type 5, additional 1 (one-entry map).
+        // Must exceed MAX_CBOR_DEPTH (64) to be rejected — see the array test.
         let mut data = Vec::new();
-        for _ in 0..50 {
+        for _ in 0..100 {
             data.push(0xa1); // map of 1 entry
             data.push(0x61); // text string of length 1
             data.push(b'k'); // key "k"

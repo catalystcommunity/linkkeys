@@ -71,8 +71,12 @@ fn signing_request_payload(
     issued_at: &str,
     expires_at: &str,
     signing_domain: &str,
+    callback: Option<&str>,
 ) -> Vec<u8> {
     let subject = format!("{}@{}", subject_user_id, subject_domain);
+    // SEC-13a: `callback` is bound into the signed payload so an intercepted
+    // request cannot have its delivery/callback target rewritten while still
+    // verifying. Appended last to keep the tuple's existing prefix stable.
     let payload = (
         SIGNING_REQUEST_TAG,
         request_id,
@@ -83,6 +87,7 @@ fn signing_request_payload(
         issued_at,
         expires_at,
         signing_domain,
+        callback,
     );
     let mut out = Vec::new();
     ciborium::ser::into_writer(&payload, &mut out)
@@ -139,6 +144,7 @@ pub fn sign_signing_request(
             spec.issued_at,
             spec.expires_at,
             signer.domain,
+            spec.callback,
         );
         let signature = crate::crypto::sign_with_algorithm(
             signer.algorithm,
@@ -194,6 +200,7 @@ pub fn verify_signing_request(
             &request.issued_at,
             &request.expires_at,
             signing_domain,
+            request.callback.as_deref(),
         )
     })
     .map_err(SigningRequestError::Signature)?;

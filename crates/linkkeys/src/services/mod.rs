@@ -7,5 +7,7 @@ pub mod handshake;
 pub mod hello;
 pub mod ops;
 pub mod password;
+pub mod pins;
+pub mod ratelimit;
 pub mod self_service;
 pub mod verification;

@@ -187,7 +187,9 @@ pub struct ReleasePolicy {
     pub disposition: String,
 }
 
-/// A self-asserted claim awaiting admin approval before the IDP signs it.
+/// A self-asserted claim awaiting admin approval before the IDP signs it. This
+/// is the claim-approval VIEW of the general `admin_review_queue`
+/// (`kind = "claim_approval"`), so its claim fields are always populated.
 #[derive(Debug, Clone)]
 pub struct ClaimApproval {
     pub id: String,
@@ -198,6 +200,45 @@ pub struct ClaimApproval {
     pub resolved_by: Option<String>,
     pub resolved_at: Option<String>,
     pub created_at: String,
+}
+
+/// A general item on the domain admin review queue. `kind` discriminates
+/// (`claim_approval`, `key_mismatch`, ...); claim fields are only set for
+/// claim approvals, while `subject`/`detail` carry security-item context.
+#[derive(Debug, Clone)]
+pub struct AdminReview {
+    pub id: String,
+    pub kind: String,
+    pub user_id: Option<String>,
+    pub claim_type: Option<String>,
+    pub claim_value: Option<Vec<u8>>,
+    pub subject: Option<String>,
+    pub detail: Option<String>,
+    pub status: String,
+    pub resolved_by: Option<String>,
+    pub resolved_at: Option<String>,
+    pub created_at: String,
+}
+
+/// An append-only audit-log event.
+#[derive(Debug, Clone)]
+pub struct AuditEntry {
+    pub id: String,
+    pub event: String,
+    pub subject: Option<String>,
+    pub actor: Option<String>,
+    pub detail: Option<String>,
+    pub created_at: String,
+}
+
+/// The pinned DNS fingerprint set for a peer domain (SEC-01 TOFU). `fingerprints`
+/// is the sorted, comma-joined set observed on first successful contact.
+#[derive(Debug, Clone)]
+pub struct DomainKeyPin {
+    pub domain: String,
+    pub fingerprints: String,
+    pub pinned_at: String,
+    pub last_checked_at: String,
 }
 
 /// A pending email-verification challenge. `expires_at` is RFC3339 UTC.
@@ -766,12 +807,15 @@ pub mod pg {
     }
 
     #[derive(Queryable, Selectable)]
-    #[diesel(table_name = crate::schema::pg::claim_approval_queue)]
-    pub struct ClaimApprovalRow {
+    #[diesel(table_name = crate::schema::pg::admin_review_queue)]
+    pub struct AdminReviewRow {
         pub id: uuid::Uuid,
-        pub user_id: uuid::Uuid,
-        pub claim_type: String,
-        pub claim_value: Vec<u8>,
+        pub kind: String,
+        pub user_id: Option<uuid::Uuid>,
+        pub claim_type: Option<String>,
+        pub claim_value: Option<Vec<u8>>,
+        pub subject: Option<String>,
+        pub detail: Option<String>,
         pub status: String,
         pub resolved_by: Option<String>,
         pub resolved_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -779,13 +823,33 @@ pub mod pg {
         pub updated_at: chrono::DateTime<chrono::Utc>,
     }
 
-    impl From<ClaimApprovalRow> for super::ClaimApproval {
-        fn from(r: ClaimApprovalRow) -> Self {
+    impl From<AdminReviewRow> for super::AdminReview {
+        fn from(r: AdminReviewRow) -> Self {
             Self {
                 id: r.id.to_string(),
-                user_id: r.user_id.to_string(),
+                kind: r.kind,
+                user_id: r.user_id.map(|u| u.to_string()),
                 claim_type: r.claim_type,
                 claim_value: r.claim_value,
+                subject: r.subject,
+                detail: r.detail,
+                status: r.status,
+                resolved_by: r.resolved_by,
+                resolved_at: r.resolved_at.map(|t| t.to_rfc3339()),
+                created_at: r.created_at.to_rfc3339(),
+            }
+        }
+    }
+
+    /// Claim-approval view: only valid for rows with kind = "claim_approval",
+    /// where the claim columns are guaranteed present.
+    impl From<AdminReviewRow> for super::ClaimApproval {
+        fn from(r: AdminReviewRow) -> Self {
+            Self {
+                id: r.id.to_string(),
+                user_id: r.user_id.map(|u| u.to_string()).unwrap_or_default(),
+                claim_type: r.claim_type.unwrap_or_default(),
+                claim_value: r.claim_value.unwrap_or_default(),
                 status: r.status,
                 resolved_by: r.resolved_by,
                 resolved_at: r.resolved_at.map(|t| t.to_rfc3339()),
@@ -795,12 +859,83 @@ pub mod pg {
     }
 
     #[derive(Insertable)]
-    #[diesel(table_name = crate::schema::pg::claim_approval_queue)]
+    #[diesel(table_name = crate::schema::pg::admin_review_queue)]
     pub struct NewClaimApprovalRow {
         pub id: uuid::Uuid,
+        pub kind: String,
         pub user_id: uuid::Uuid,
         pub claim_type: String,
         pub claim_value: Vec<u8>,
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::pg::admin_review_queue)]
+    pub struct NewAdminReviewRow {
+        pub id: uuid::Uuid,
+        pub kind: String,
+        pub subject: Option<String>,
+        pub detail: Option<String>,
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::pg::audit_log)]
+    pub struct AuditLogRow {
+        pub id: uuid::Uuid,
+        pub event: String,
+        pub subject: Option<String>,
+        pub actor: Option<String>,
+        pub detail: Option<String>,
+        pub created_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    impl From<AuditLogRow> for super::AuditEntry {
+        fn from(r: AuditLogRow) -> Self {
+            Self {
+                id: r.id.to_string(),
+                event: r.event,
+                subject: r.subject,
+                actor: r.actor,
+                detail: r.detail,
+                created_at: r.created_at.to_rfc3339(),
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::pg::audit_log)]
+    pub struct NewAuditLogRow {
+        pub id: uuid::Uuid,
+        pub event: String,
+        pub subject: Option<String>,
+        pub actor: Option<String>,
+        pub detail: Option<String>,
+    }
+
+    #[derive(Queryable, Selectable, Insertable)]
+    #[diesel(table_name = crate::schema::pg::domain_key_pins)]
+    pub struct DomainKeyPinRow {
+        pub domain: String,
+        pub fingerprints: String,
+        pub pinned_at: chrono::DateTime<chrono::Utc>,
+        pub last_checked_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    impl From<DomainKeyPinRow> for super::DomainKeyPin {
+        fn from(r: DomainKeyPinRow) -> Self {
+            Self {
+                domain: r.domain,
+                fingerprints: r.fingerprints,
+                pinned_at: r.pinned_at.to_rfc3339(),
+                last_checked_at: r.last_checked_at.to_rfc3339(),
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::pg::domain_key_pins)]
+    pub struct NewDomainKeyPinRow {
+        pub domain: String,
+        pub fingerprints: String,
     }
 
     #[derive(Queryable, Selectable, Insertable)]
@@ -1376,12 +1511,15 @@ pub mod sqlite {
     }
 
     #[derive(Queryable, Selectable)]
-    #[diesel(table_name = crate::schema::sqlite::claim_approval_queue)]
-    pub struct ClaimApprovalRow {
+    #[diesel(table_name = crate::schema::sqlite::admin_review_queue)]
+    pub struct AdminReviewRow {
         pub id: String,
-        pub user_id: String,
-        pub claim_type: String,
-        pub claim_value: Vec<u8>,
+        pub kind: String,
+        pub user_id: Option<String>,
+        pub claim_type: Option<String>,
+        pub claim_value: Option<Vec<u8>>,
+        pub subject: Option<String>,
+        pub detail: Option<String>,
         pub status: String,
         pub resolved_by: Option<String>,
         pub resolved_at: Option<String>,
@@ -1389,13 +1527,32 @@ pub mod sqlite {
         pub updated_at: String,
     }
 
-    impl From<ClaimApprovalRow> for super::ClaimApproval {
-        fn from(r: ClaimApprovalRow) -> Self {
+    impl From<AdminReviewRow> for super::AdminReview {
+        fn from(r: AdminReviewRow) -> Self {
             Self {
                 id: r.id,
+                kind: r.kind,
                 user_id: r.user_id,
                 claim_type: r.claim_type,
                 claim_value: r.claim_value,
+                subject: r.subject,
+                detail: r.detail,
+                status: r.status,
+                resolved_by: r.resolved_by,
+                resolved_at: r.resolved_at,
+                created_at: r.created_at,
+            }
+        }
+    }
+
+    /// Claim-approval view: only valid for kind = "claim_approval".
+    impl From<AdminReviewRow> for super::ClaimApproval {
+        fn from(r: AdminReviewRow) -> Self {
+            Self {
+                id: r.id,
+                user_id: r.user_id.unwrap_or_default(),
+                claim_type: r.claim_type.unwrap_or_default(),
+                claim_value: r.claim_value.unwrap_or_default(),
                 status: r.status,
                 resolved_by: r.resolved_by,
                 resolved_at: r.resolved_at,
@@ -1405,12 +1562,83 @@ pub mod sqlite {
     }
 
     #[derive(Insertable)]
-    #[diesel(table_name = crate::schema::sqlite::claim_approval_queue)]
+    #[diesel(table_name = crate::schema::sqlite::admin_review_queue)]
     pub struct NewClaimApprovalRow {
         pub id: String,
+        pub kind: String,
         pub user_id: String,
         pub claim_type: String,
         pub claim_value: Vec<u8>,
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::admin_review_queue)]
+    pub struct NewAdminReviewRow {
+        pub id: String,
+        pub kind: String,
+        pub subject: Option<String>,
+        pub detail: Option<String>,
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::sqlite::audit_log)]
+    pub struct AuditLogRow {
+        pub id: String,
+        pub event: String,
+        pub subject: Option<String>,
+        pub actor: Option<String>,
+        pub detail: Option<String>,
+        pub created_at: String,
+    }
+
+    impl From<AuditLogRow> for super::AuditEntry {
+        fn from(r: AuditLogRow) -> Self {
+            Self {
+                id: r.id,
+                event: r.event,
+                subject: r.subject,
+                actor: r.actor,
+                detail: r.detail,
+                created_at: r.created_at,
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::audit_log)]
+    pub struct NewAuditLogRow {
+        pub id: String,
+        pub event: String,
+        pub subject: Option<String>,
+        pub actor: Option<String>,
+        pub detail: Option<String>,
+    }
+
+    #[derive(Queryable, Selectable, Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::domain_key_pins)]
+    pub struct DomainKeyPinRow {
+        pub domain: String,
+        pub fingerprints: String,
+        pub pinned_at: String,
+        pub last_checked_at: String,
+    }
+
+    impl From<DomainKeyPinRow> for super::DomainKeyPin {
+        fn from(r: DomainKeyPinRow) -> Self {
+            Self {
+                domain: r.domain,
+                fingerprints: r.fingerprints,
+                pinned_at: r.pinned_at,
+                last_checked_at: r.last_checked_at,
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::domain_key_pins)]
+    pub struct NewDomainKeyPinRow {
+        pub domain: String,
+        pub fingerprints: String,
     }
 
     #[derive(Queryable, Selectable, Insertable)]

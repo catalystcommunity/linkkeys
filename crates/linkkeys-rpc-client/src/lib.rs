@@ -13,8 +13,72 @@ pub mod tls;
 
 use csilgen_transport::rpc::{RpcRequest, RpcResponse};
 use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::net::{IpAddr, TcpStream, ToSocketAddrs};
 use std::sync::Arc;
+use std::time::Duration;
+
+/// Bound on the TCP connect so a slow/blackholed peer target can't tie up a
+/// worker thread indefinitely (SEC-07).
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// True if `ip` is an address the server must not be induced to dial when the
+/// target comes from an untrusted source (a peer's DNS `tcp=` record). Blocks
+/// loopback, private, link-local (incl. the 169.254.169.254 cloud-metadata
+/// address), CGNAT, unspecified, and IPv6 ULA/link-local — the SSRF surface in
+/// SEC-07. Operators running local/dev peers can opt out with
+/// `LINKKEYS_ALLOW_PRIVATE_PEERS=true`.
+fn is_disallowed_target(ip: IpAddr) -> bool {
+    fn v4_disallowed(v4: std::net::Ipv4Addr) -> bool {
+        let o = v4.octets();
+        v4.is_loopback()
+            || v4.is_private()
+            || v4.is_link_local()
+            || v4.is_unspecified()
+            || v4.is_broadcast()
+            || v4.is_documentation()
+            // CGNAT 100.64.0.0/10
+            || (o[0] == 100 && (o[1] & 0xc0) == 0x40)
+    }
+    match ip {
+        IpAddr::V4(v4) => v4_disallowed(v4),
+        IpAddr::V6(v6) => {
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_multicast()
+                || (v6.segments()[0] & 0xffc0) == 0xfe80 // link-local fe80::/10
+                || (v6.segments()[0] & 0xfe00) == 0xfc00 // ULA fc00::/7
+                || v6.to_ipv4_mapped().map(v4_disallowed).unwrap_or(false)
+        }
+    }
+}
+
+/// Resolve `server` (`host:port`) and connect to a vetted address with a
+/// timeout. Resolving and connecting to the *same* `SocketAddr` (rather than
+/// re-resolving the hostname) closes the DNS-rebinding window: we never connect
+/// to an address we didn't just screen.
+fn connect_guarded(server: &str) -> Result<TcpStream, ClientError> {
+    let allow_private = std::env::var("LINKKEYS_ALLOW_PRIVATE_PEERS").unwrap_or_default() == "true";
+    let addrs = server
+        .to_socket_addrs()
+        .map_err(|e| ClientError::Connection(format!("{}: resolve failed: {}", server, e)))?;
+    let mut last_err: Option<ClientError> = None;
+    for addr in addrs {
+        if !allow_private && is_disallowed_target(addr.ip()) {
+            last_err = Some(ClientError::Connection(format!(
+                "{}: refusing to connect to non-public address {}",
+                server,
+                addr.ip()
+            )));
+            continue;
+        }
+        match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
+            Ok(s) => return Ok(s),
+            Err(e) => last_err = Some(ClientError::Connection(format!("{}: {}", server, e))),
+        }
+    }
+    Err(last_err
+        .unwrap_or_else(|| ClientError::Connection(format!("{}: no address resolved", server))))
+}
 
 #[derive(Debug)]
 pub enum ClientError {
@@ -133,10 +197,12 @@ pub fn send_raw_with_config(
         request = request.with_auth(key);
     }
 
-    let stream = TcpStream::connect(server)
-        .map_err(|e| ClientError::Connection(format!("{}: {}", server, e)))?;
+    let stream = connect_guarded(server)?;
     stream
-        .set_read_timeout(Some(std::time::Duration::from_secs(30)))
+        .set_read_timeout(Some(Duration::from_secs(30)))
+        .map_err(|e| ClientError::Connection(e.to_string()))?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(30)))
         .map_err(|e| ClientError::Connection(e.to_string()))?;
 
     let server_name = rustls::pki_types::ServerName::try_from(hostname.to_string())
@@ -178,6 +244,49 @@ pub fn send_request(
     let tls_config = tls::client_config(fingerprints, client_cert)
         .map_err(|e| ClientError::Tls(format!("TLS config: {}", e)))?;
     send_raw_with_config(server, tls_config, &hostname, service, op, payload, api_key)
+}
+
+#[cfg(test)]
+mod ssrf_tests {
+    use super::is_disallowed_target;
+    use std::net::IpAddr;
+
+    fn ip(s: &str) -> IpAddr {
+        s.parse().unwrap()
+    }
+
+    #[test]
+    fn blocks_internal_and_metadata_targets() {
+        for s in [
+            "127.0.0.1",
+            "10.1.2.3",
+            "192.168.0.5",
+            "172.16.9.9",
+            "169.254.169.254", // cloud metadata
+            "100.100.0.1",     // CGNAT
+            "0.0.0.0",
+            "::1",
+            "fe80::1",          // link-local
+            "fc00::1",          // ULA
+            "fd12::34",         // ULA
+            "::ffff:127.0.0.1", // v4-mapped loopback
+            "::ffff:10.0.0.1",  // v4-mapped private
+        ] {
+            assert!(is_disallowed_target(ip(s)), "{s} should be disallowed");
+        }
+    }
+
+    #[test]
+    fn allows_public_targets() {
+        for s in [
+            "8.8.8.8",
+            "1.1.1.1",
+            "93.184.216.34",
+            "2606:4700:4700::1111",
+        ] {
+            assert!(!is_disallowed_target(ip(s)), "{s} should be allowed");
+        }
+    }
 }
 
 #[cfg(test)]

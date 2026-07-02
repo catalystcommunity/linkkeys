@@ -71,10 +71,23 @@ cmd_deploy() {
         log "reusing existing DOMAIN_KEY_PASSPHRASE from the cluster secret"
     fi
 
+    # Generate a stable ROCKET_SECRET_KEY once, then reuse it (SEC-11) so browser
+    # sessions survive restarts and are valid across replicas.
+    local rocket_key
+    rocket_key="$(kubectl -n "$NAMESPACE" get secret "$RELEASE" \
+        -o jsonpath='{.data.ROCKET_SECRET_KEY}' 2>/dev/null | base64 -d || true)"
+    if [ -z "$rocket_key" ]; then
+        log "generating a new ROCKET_SECRET_KEY (stored only in the cluster secret)"
+        rocket_key="$(openssl rand -base64 32)"
+    else
+        log "reusing existing ROCKET_SECRET_KEY from the cluster secret"
+    fi
+
     helm upgrade --install "$RELEASE" "$HELM_CHART" \
         --namespace "$NAMESPACE" \
         -f "$VALUES" \
         --set "server.domainKeyPassphrase=${passphrase}" \
+        --set "server.rocketSecretKey=${rocket_key}" \
         ${IMAGE_TAG:+--set image.tag="$IMAGE_TAG"}
 
     log "waiting for rollout"

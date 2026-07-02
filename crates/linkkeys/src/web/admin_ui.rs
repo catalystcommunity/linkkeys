@@ -21,10 +21,21 @@ fn require_admin_session(
     pool: &DbPool,
     cookies: &CookieJar<'_>,
 ) -> Result<String, Result<RawHtml<String>, Status>> {
+    require_relation(pool, cookies, "manage_users")
+}
+
+/// Gate a route on the session user holding `relation` on the domain. Used to
+/// give relation-granting the full `admin` relation (SEC-03) while ordinary
+/// user administration stays at `manage_users`.
+fn require_relation(
+    pool: &DbPool,
+    cookies: &CookieJar<'_>,
+    relation: &str,
+) -> Result<String, Result<RawHtml<String>, Status>> {
     let user_id = get_session_user_id(cookies).ok_or(Err(Status::Unauthorized))?;
 
     let domain = get_domain_name();
-    if !authorization::user_has_permission(pool, &user_id, "manage_users", "domain", &domain) {
+    if !authorization::user_has_permission(pool, &user_id, relation, "domain", &domain) {
         return Err(Err(Status::Forbidden));
     }
 
@@ -96,16 +107,12 @@ pub fn admin_ui_user_list(
 
 // -- Create user form --
 
-#[rocket::get("/user-admin/users/create?<error>")]
-pub fn admin_ui_create_user_page(
-    pool: &State<DbPool>,
-    cookies: &CookieJar<'_>,
-    error: Option<&str>,
-) -> Result<RawHtml<String>, Status> {
-    let _user_id = require_admin_session(pool.inner(), cookies).map_err(|e| e.unwrap_err())?;
+/// Render the create-user form page (shared by the GET route and the error
+/// branch of the POST handler, so a failed submit never has to redirect through
+/// a URL).
+fn create_user_page_html(error: Option<&str>) -> RawHtml<String> {
     let nav = build_nav("admin", true, true);
     let flash = flash_html(None, error);
-
     let content = format!(
         r#"{flash}
 <h1>Create User</h1>
@@ -122,8 +129,17 @@ pub fn admin_ui_create_user_page(
 <p><a href="/user-admin">Back to User List</a></p>"#,
         flash = flash,
     );
+    layout("Create User", &nav, &content)
+}
 
-    Ok(layout("Create User", &nav, &content))
+#[rocket::get("/user-admin/users/create?<error>")]
+pub fn admin_ui_create_user_page(
+    pool: &State<DbPool>,
+    cookies: &CookieJar<'_>,
+    error: Option<&str>,
+) -> Result<RawHtml<String>, Status> {
+    let _user_id = require_admin_session(pool.inner(), cookies).map_err(|e| e.unwrap_err())?;
+    Ok(create_user_page_html(error))
 }
 
 #[derive(rocket::FromForm)]
@@ -139,7 +155,7 @@ pub fn admin_ui_create_user_submit(
     pool: &State<DbPool>,
     cookies: &CookieJar<'_>,
     form: rocket::form::Form<CreateUserForm>,
-) -> Result<Redirect, Status> {
+) -> Result<RawHtml<String>, Status> {
     let _user_id = require_admin_session(pool.inner(), cookies).map_err(|e| e.unwrap_err())?;
 
     let password = form.password.as_deref().and_then(|p| {
@@ -158,17 +174,27 @@ pub fn admin_ui_create_user_submit(
 
     match admin::create_user(pool.inner(), req) {
         Ok(resp) => {
-            let msg = if let Some(ref key) = resp.api_key {
-                format!("User+created.+API+key:+{}", urlencoding::encode(key))
+            let nav = build_nav("admin", true, true);
+            // SEC-10: the API key is a credential — render it once in the
+            // response BODY, never in a redirect URL (which would leak it into
+            // access logs, browser history, and Referer headers).
+            let body = if let Some(ref key) = resp.api_key {
+                format!(
+                    r#"<div class="success">User created.</div>
+<h1>API Key</h1>
+<p>This is the only time this key is shown. Copy it now and store it securely.</p>
+<pre style="user-select:all;padding:12px;border:1px solid #ccc;border-radius:4px;overflow-x:auto">{key}</pre>
+<p><a href="/user-admin">Back to User List</a></p>"#,
+                    key = html_escape(key),
+                )
             } else {
-                "User+created+successfully".to_string()
+                r#"<div class="success">User created successfully.</div>
+<p><a href="/user-admin">Back to User List</a></p>"#
+                    .to_string()
             };
-            Ok(Redirect::found(format!("/user-admin?msg={}", msg)))
+            Ok(layout("User Created", &nav, &body))
         }
-        Err(e) => Ok(Redirect::found(format!(
-            "/user-admin/users/create?error={}",
-            urlencoding::encode(&e.message)
-        ))),
+        Err(e) => Ok(create_user_page_html(Some(&e.message))),
     }
 }
 
@@ -413,6 +439,14 @@ pub fn admin_ui_deactivate_user(
         )));
     }
 
+    // SEC-04: a protected admin account may only be deactivated by a full admin.
+    if !authorization::caller_may_manage_target(pool.inner(), &user_id, target_user_id) {
+        return Ok(Redirect::found(format!(
+            "/user-admin/users/{}?error=Only+an+admin+may+manage+an+admin+account",
+            urlencoding::encode(target_user_id)
+        )));
+    }
+
     let req = DeactivateUserRequest {
         user_id: target_user_id.to_string(),
     };
@@ -473,7 +507,16 @@ pub fn admin_ui_reset_password(
     target_user_id: &str,
     form: rocket::form::Form<ResetPasswordForm>,
 ) -> Result<Redirect, Status> {
-    let _user_id = require_admin_session(pool.inner(), cookies).map_err(|e| e.unwrap_err())?;
+    let user_id = require_admin_session(pool.inner(), cookies).map_err(|e| e.unwrap_err())?;
+
+    // SEC-04: a protected admin account's password may only be reset by a full
+    // admin — otherwise a manage_users operator could seize an admin account.
+    if !authorization::caller_may_manage_target(pool.inner(), &user_id, target_user_id) {
+        return Ok(Redirect::found(format!(
+            "/user-admin/users/{}?error=Only+an+admin+may+manage+an+admin+account",
+            urlencoding::encode(target_user_id)
+        )));
+    }
 
     let req = ResetPasswordRequest {
         user_id: target_user_id.to_string(),
@@ -591,7 +634,9 @@ pub fn admin_ui_grant_relation(
     cookies: &CookieJar<'_>,
     form: rocket::form::Form<GrantRelationForm>,
 ) -> Result<Redirect, Status> {
-    let _user_id = require_admin_session(pool.inner(), cookies).map_err(|e| e.unwrap_err())?;
+    // SEC-03: granting relations is an `admin`-only action, matching the TCP
+    // surface (required_relation_for_op maps grant-relation to RELATION_ADMIN).
+    let _user_id = require_relation(pool.inner(), cookies, "admin").map_err(|e| e.unwrap_err())?;
 
     let redirect_uid = form.subject_id.clone();
     let req = GrantRelationRequest {
@@ -624,7 +669,8 @@ pub fn admin_ui_remove_relation(
     cookies: &CookieJar<'_>,
     relation_id: &str,
 ) -> Result<Redirect, Status> {
-    let _user_id = require_admin_session(pool.inner(), cookies).map_err(|e| e.unwrap_err())?;
+    // SEC-03: removing relations is an `admin`-only action, matching TCP.
+    let _user_id = require_relation(pool.inner(), cookies, "admin").map_err(|e| e.unwrap_err())?;
 
     // Look up the relation to figure out redirect target
     let relations_req = ListRelationsRequest {

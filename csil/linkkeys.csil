@@ -154,6 +154,22 @@ ClaimSignature = {
     signature: bytes
 }
 
+;; SEC-08: a sibling-signed revocation certificate. A domain's signing keys are
+;; equal peers; when one is compromised the OTHERS co-sign its revocation. A
+;; verifier accepts it only with a quorum (>= 2) of distinct, currently-valid
+;; signing keys of the domain, over a canonical tagged payload
+;; (linkkeys-key-revocation-v1); the revoked key may never sign its own
+;; revocation. The signing/verifying logic lives in liblinkkeys::revocation.
+;; NOTE: not yet emitted into the generated codec — the checked-in generated code
+;; predates the current csilgen and a full regen is a separate reconciliation
+;; task (see docs/csilgen-requests/2026-07-02-revocation-and-pin-rpc.md).
+RevocationCertificate = {
+    target_key_id: text,
+    target_fingerprint: text,
+    revoked_at: text,
+    signatures: [* ClaimSignature]
+}
+
 Claim = {
     claim_id: text,
     user_id: text,

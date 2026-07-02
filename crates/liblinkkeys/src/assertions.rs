@@ -21,6 +21,14 @@ pub enum VerifyError {
 /// Reject a signing key that is revoked or expired at verification time.
 /// Shared by every verify path that resolves a key by id.
 pub fn check_signing_key_valid(key: &DomainPublicKey) -> Result<(), VerifyError> {
+    // SEC-13b: only a signing key may authenticate signed protocol data. An
+    // encryption key that happens to share a key_id must never be accepted as a
+    // signer. Today algorithm binding also catches this (an x25519 key fails
+    // resolve_and_verify), but that is an implicit invariant; gate it explicitly
+    // here so every verify path that consults key validity is protected.
+    if key.key_usage != "sign" {
+        return Err(VerifyError::SignatureInvalid);
+    }
     match crypto::signing_key_validity(&key.expires_at, key.revoked_at.as_deref()) {
         crypto::KeyValidity::Valid => Ok(()),
         crypto::KeyValidity::Revoked => Err(VerifyError::KeyRevoked(key.key_id.clone())),

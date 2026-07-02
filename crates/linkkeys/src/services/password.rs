@@ -6,8 +6,28 @@
 //! Argon2id so the upgrade happens transparently on next login.
 
 use liblinkkeys::generated::services::ServiceError;
+use std::sync::LazyLock;
 
 pub const MIN_PASSWORD_LENGTH: usize = 8;
+
+/// A fixed Argon2id hash used to spend verification time on the user-not-found
+/// path, so a missing username can't be told apart from a wrong password by
+/// response latency (SEC-05). Computed once; the plaintext is irrelevant.
+static DUMMY_HASH: LazyLock<String> = LazyLock::new(|| {
+    liblinkkeys::crypto::hash_password("linkkeys-timing-equalizer").unwrap_or_default()
+});
+
+/// Spend roughly one password-verification's worth of time without revealing
+/// whether a user exists. Call on the username-not-found branch before returning
+/// an auth failure. The result is intentionally discarded.
+pub fn dummy_verify(password: &str) {
+    if DUMMY_HASH.is_empty() {
+        // Extremely unlikely fallback: still hash so timing stays comparable.
+        let _ = liblinkkeys::crypto::hash_password(password);
+        return;
+    }
+    let _ = liblinkkeys::crypto::verify_password(password, &DUMMY_HASH);
+}
 
 /// Upper bound on password length. This is a denial-of-service guard on hashing
 /// work, NOT a storage limit: the stored hash is fixed-length regardless of

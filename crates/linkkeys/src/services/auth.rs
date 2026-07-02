@@ -38,7 +38,7 @@ impl PasswordAuthenticator {
 
 impl Authenticator for PasswordAuthenticator {
     fn authenticate(&self, username: &str, password: &str) -> Result<User, AuthError> {
-        let user = match &self.pool {
+        let found = match &self.pool {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
                 let mut conn = p.get().map_err(|e| AuthError::DbError(e.to_string()))?;
@@ -49,8 +49,16 @@ impl Authenticator for PasswordAuthenticator {
                 let mut conn = p.get().map_err(|e| AuthError::DbError(e.to_string()))?;
                 crate::db::users::sqlite::find_by_username(&mut conn, username)
             }
-        }
-        .map_err(|_| AuthError::InvalidCredentials)?;
+        };
+        let user = match found {
+            Ok(u) => u,
+            Err(_) => {
+                // SEC-05: equalize timing so a missing username is not
+                // distinguishable from a wrong password by response latency.
+                crate::services::password::dummy_verify(password);
+                return Err(AuthError::InvalidCredentials);
+            }
+        };
 
         let creds = self
             .pool

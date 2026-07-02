@@ -463,6 +463,18 @@ pub async fn fetch_domain_keys(
     // not the transport — but the pinned fingerprints also authenticate the TLS
     // server cert, so we only ever speak to the real domain.
     let fingerprints = lookup_linkkeys_fingerprints(net, domain).await?;
+
+    // SEC-01: enforce the TOFU pin before trusting any keys for this domain. A
+    // first contact pins the set; a single-key rotation is accepted and re-pinned;
+    // a larger unexpected change fails closed (and is queued for admin review).
+    if !crate::services::pins::check_and_update_pin(pool, domain, &fingerprints).is_trusted() {
+        return Err(format!(
+            "refusing keys for {}: its pinned DNS fingerprint set changed unexpectedly; queued for admin review",
+            domain
+        )
+        .into());
+    }
+
     let (addr, hostname) = lookup_tcp_target(net, domain).await?;
 
     // get-domain-keys is a public read; no client cert needed (server-auth TLS).
