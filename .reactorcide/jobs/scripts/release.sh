@@ -16,6 +16,10 @@ tar -xzf /tmp/semver-tags.tar.gz -C /tmp
 chmod +x /tmp/semver-tags
 export PATH="/tmp:$PATH"
 
+# NOTE: the caller (release.yaml) has already put us on the real main tip with
+# full history + tags before invoking this script, so semver-tags sees every
+# release and the version-bump commit below fast-forwards main.
+
 # -------------------------------------------------------------------
 # 2. Determine version bump from conventional commits
 # -------------------------------------------------------------------
@@ -57,10 +61,13 @@ else
   git remote set-url origin "https://x-access-token:${GITHUB_PAT}@github.com/${REACTORCIDE_REPO}.git"
   git add helm_chart/Chart.yaml website/content/extra_files/VERSION.txt demoappsite/helm/Chart.yaml demoappsite/version/VERSION.txt version/VERSION.txt
   git commit -m "ci: bump version to ${VERSION}" || echo "No version changes to commit"
-  # The CI checkout is a detached HEAD at the merged commit, so a bare `git push`
-  # has no upstream branch. Push the bump commit explicitly to main — the release
-  # only triggers on merges to main (see release.yaml), so that is the target.
-  git push origin HEAD:main || echo "Push failed, continuing with release"
+  # We are on main's real tip (synced in step 1.5), so this fast-forwards. Treat a
+  # push failure as FATAL: a released tag whose bump isn't on main is an orphan,
+  # and we must not `gh release create` for a commit that never landed on main.
+  if ! git push origin HEAD:main; then
+    echo "ERROR: failed to push the version bump to main — aborting to avoid an orphan release/tag."
+    exit 1
+  fi
 fi
 
 # -------------------------------------------------------------------
