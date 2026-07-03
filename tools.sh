@@ -10,6 +10,7 @@
 #   ./tools.sh db-down    # stop & remove the dev PostgreSQL container
 #   ./tools.sh db-shell   # psql into the dev database
 #   ./tools.sh fmt        # cargo fmt
+#   ./tools.sh clippy     # cargo clippy (workspace, all targets)
 #
 # The SQLite path needs only Rust + system libs. The Postgres path also needs a
 # container runtime; it is auto-detected in this order:
@@ -190,6 +191,11 @@ fmt() {
     cargo fmt
 }
 
+clippy() {
+    log_status "cargo clippy (workspace, all targets)"
+    cargo clippy --workspace --all-targets
+}
+
 # ---------------------------------------------------------------------------
 # Setup / preflight
 # ---------------------------------------------------------------------------
@@ -260,6 +266,7 @@ Commands:
   db-down    Stop & remove the dev PostgreSQL container
   db-shell   Open a psql shell into the dev database
   fmt        Run cargo fmt
+  clippy     Run cargo clippy (workspace, all targets)
 
 Env:
   LINKKEYS_PG_PORT   Host port for the dev Postgres container (default 5432)
@@ -276,5 +283,6 @@ case "${1:-}" in
     db-down)  shift; db_down "$@" ;;
     db-shell) shift; db_shell "$@" ;;
     fmt)      shift; fmt "$@" ;;
+    clippy)   shift; clippy "$@" ;;
     *)        usage ;;
 esac
