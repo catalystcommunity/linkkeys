@@ -39,18 +39,27 @@ fi
 echo "=== New release: ${NEW_TAG} ==="
 VERSION="${NEW_TAG#v}"
 
+# The version files this release stamps, kept as one list so the edit and the
+# git-add stay in lockstep.
+VERSION_FILES="helm_chart/Chart.yaml website/content/extra_files/VERSION.txt demoappsite/helm/Chart.yaml demoappsite/version/VERSION.txt version/VERSION.txt"
+
+# Stamp ${VERSION} into every version file. Deterministic and idempotent, so it
+# can be re-applied after re-basing onto a newer main during the push retry.
+apply_version_files() {
+  sed -i "s/^version: .*/version: ${VERSION}/" helm_chart/Chart.yaml
+  sed -i "s/^appVersion: .*/appVersion: \"${VERSION}\"/" helm_chart/Chart.yaml
+  echo "${VERSION}" > website/content/extra_files/VERSION.txt
+  sed -i "s/^version: .*/version: ${VERSION}/" demoappsite/helm/Chart.yaml
+  sed -i "s/^appVersion: .*/appVersion: \"${VERSION}\"/" demoappsite/helm/Chart.yaml
+  echo "${VERSION}" > demoappsite/version/VERSION.txt
+  echo "${VERSION}" > version/VERSION.txt
+}
+
 # -------------------------------------------------------------------
-# 3. Update versioned files (helm chart, website VERSION.txt)
+# 3. Update versioned files and push the bump to main
 # -------------------------------------------------------------------
 echo "=== Updating versioned files to ${VERSION} ==="
-sed -i "s/^version: .*/version: ${VERSION}/" helm_chart/Chart.yaml
-sed -i "s/^appVersion: .*/appVersion: \"${VERSION}\"/" helm_chart/Chart.yaml
-echo "${VERSION}" > website/content/extra_files/VERSION.txt
-
-sed -i "s/^version: .*/version: ${VERSION}/" demoappsite/helm/Chart.yaml
-sed -i "s/^appVersion: .*/appVersion: \"${VERSION}\"/" demoappsite/helm/Chart.yaml
-echo "${VERSION}" > demoappsite/version/VERSION.txt
-echo "${VERSION}" > version/VERSION.txt
+apply_version_files
 
 # SKIP_GITHUB=true skips push and release-create; on-disk file edits and the build still run.
 if [ "${SKIP_GITHUB:-false}" = "true" ]; then
@@ -59,15 +68,41 @@ else
   git config user.name "Catalyst Community (automation)"
   git config user.email "automation@catalystcommunity.dev"
   git remote set-url origin "https://x-access-token:${GITHUB_PAT}@github.com/${REACTORCIDE_REPO}.git"
-  git add helm_chart/Chart.yaml website/content/extra_files/VERSION.txt demoappsite/helm/Chart.yaml demoappsite/version/VERSION.txt version/VERSION.txt
+  # shellcheck disable=SC2086
+  git add ${VERSION_FILES}
   git commit -m "ci: bump version to ${VERSION}" || echo "No version changes to commit"
-  # We are on main's real tip (synced in step 1.5), so this fast-forwards. Treat a
-  # push failure as FATAL: a released tag whose bump isn't on main is an orphan,
-  # and we must not `gh release create` for a commit that never landed on main.
-  if ! git push origin HEAD:main; then
-    echo "ERROR: failed to push the version bump to main — aborting to avoid an orphan release/tag."
-    exit 1
-  fi
+
+  # Push the bump to main. We synced onto main's tip in step 1.5, so the first
+  # push normally fast-forwards. If a CONCURRENT merge advances main between our
+  # sync and this push, the push is non-fast-forward — re-base our bump onto the
+  # fresh main and retry. Failure after every attempt is FATAL: we must never
+  # `gh release create` for a commit that isn't on main.
+  push_attempts=5
+  n=0
+  while ! git push origin HEAD:main; do
+    n=$((n + 1))
+    if [ "$n" -ge "$push_attempts" ]; then
+      echo "ERROR: could not push the version bump to main after ${push_attempts} attempts — aborting to avoid an orphan release/tag."
+      exit 1
+    fi
+    echo "=== main advanced; re-basing the bump onto the latest main (attempt ${n}/${push_attempts}) ==="
+    git fetch --tags --prune --force origin "+refs/heads/main:refs/remotes/origin/main"
+    # If our exact tag already exists, a concurrent release published this version
+    # first — don't clobber it or create a duplicate.
+    if git ls-remote --exit-code --tags origin "refs/tags/${NEW_TAG}" >/dev/null 2>&1; then
+      echo "${NEW_TAG} was already published by a concurrent release; nothing to do."
+      exit 0
+    fi
+    git reset --hard origin/main
+    apply_version_files
+    # shellcheck disable=SC2086
+    git add ${VERSION_FILES}
+    if git diff --cached --quiet; then
+      echo "main is already at ${VERSION} (a concurrent release landed it); nothing to push."
+      exit 0
+    fi
+    git commit -m "ci: bump version to ${VERSION}"
+  done
 fi
 
 # -------------------------------------------------------------------
@@ -92,6 +127,14 @@ if [ "${SKIP_GITHUB:-false}" = "true" ]; then
   echo "=== SKIP_GITHUB=true: skipping GitHub release create ==="
   echo "=== Built artifact left in ${RELEASE_DIR} for inspection ==="
 else
+  # A concurrent release may have published this tag already (e.g. our push was a
+  # no-op because it produced the identical bump commit). Don't fail trying to
+  # re-create it.
+  if git ls-remote --exit-code --tags origin "refs/tags/${NEW_TAG}" >/dev/null 2>&1; then
+    echo "=== ${NEW_TAG} already exists on the remote; skipping release create ==="
+    exit 0
+  fi
+
   echo "=== Creating GitHub release ==="
   wget -q "https://github.com/cli/cli/releases/download/v${GHCLI_VERSION}/gh_${GHCLI_VERSION}_linux_amd64.tar.gz" -O /tmp/gh.tar.gz
   tar -xzf /tmp/gh.tar.gz -C /tmp
