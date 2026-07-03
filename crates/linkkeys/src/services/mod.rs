@@ -9,5 +9,6 @@ pub mod ops;
 pub mod password;
 pub mod pins;
 pub mod ratelimit;
+pub mod revocations;
 pub mod self_service;
 pub mod verification;

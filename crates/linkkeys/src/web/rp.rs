@@ -504,7 +504,7 @@ pub async fn fetch_domain_keys(
 
     // Establish the trusted key set: signing keys pinned to the DNS fp= set,
     // and encryption keys trusted via a signing-key vouch (verify_key_vouch).
-    let trusted = liblinkkeys::dns::trust_keys(resp.keys, &fingerprints);
+    let mut trusted = liblinkkeys::dns::trust_keys(resp.keys, &fingerprints);
     if trusted.is_empty() {
         return Err(format!(
             "no key fetched for {} was trusted (no DNS-pinned signer / vouch)",
@@ -512,7 +512,76 @@ pub async fn fetch_domain_keys(
         )
         .into());
     }
+
+    // SEC-08: if the domain signals recent revocations, pull + verify them and
+    // drop any key it has provably revoked from the trusted set for this call.
+    // Best-effort: a failed fetch never blocks the login (we simply haven't
+    // learned of any revocation yet — the other keys stay trusted).
+    if resp.recent_revocations_available == Some(true) {
+        let revoked = fetch_and_apply_revocations(
+            pool,
+            net,
+            domain,
+            &addr,
+            &hostname,
+            &fingerprints,
+            &trusted,
+        )
+        .await;
+        if !revoked.is_empty() {
+            trusted.retain(|k| !revoked.contains(&k.key_id));
+        }
+    }
+
     Ok(trusted)
+}
+
+/// Pull `domain`'s issued revocation certs (public read) and apply the verified
+/// ones. Returns the provably-revoked key ids. Any error is logged and yields an
+/// empty result — revocation delivery is best-effort and must not fail a login.
+#[allow(clippy::too_many_arguments)]
+async fn fetch_and_apply_revocations(
+    pool: &DbPool,
+    net: &crate::net::Net,
+    domain: &str,
+    addr: &str,
+    hostname: &str,
+    fingerprints: &[String],
+    trusted: &[liblinkkeys::generated::types::DomainPublicKey],
+) -> Vec<String> {
+    let since = (chrono::Utc::now()
+        - chrono::Duration::days(crate::services::revocations::fetch_default_days()))
+    .to_rfc3339();
+    let payload = liblinkkeys::generated::encode_get_revocations_request(
+        &liblinkkeys::generated::types::GetRevocationsRequest { since: Some(since) },
+    );
+    let resp_bytes = match net
+        .rpc
+        .call(
+            addr,
+            hostname,
+            fingerprints.to_vec(),
+            None,
+            "DomainKeys",
+            "get-revocations",
+            payload,
+            None,
+        )
+        .await
+    {
+        Ok(b) => b,
+        Err(e) => {
+            log::warn!("get-revocations for {domain} failed (continuing): {e}");
+            return Vec::new();
+        }
+    };
+    match liblinkkeys::generated::decode_get_revocations_response(&resp_bytes) {
+        Ok(resp) => crate::services::revocations::apply(pool, domain, trusted, &resp.revocations),
+        Err(e) => {
+            log::warn!("decoding get-revocations from {domain} failed (continuing): {e}");
+            Vec::new()
+        }
+    }
 }
 
 /// Deposit a signed claim to `domain`'s IDP over the server-to-server CSIL-RPC

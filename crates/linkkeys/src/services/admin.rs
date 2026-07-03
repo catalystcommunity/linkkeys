@@ -223,6 +223,10 @@ pub fn set_claim(pool: &DbPool, req: SetClaimRequest) -> Result<SetClaimResponse
     let claim_id = uuid::Uuid::now_v7().to_string();
     let claim_value_bytes = req.claim_value.as_bytes();
     let expires_str = expires_chrono.as_ref().map(|e| e.to_rfc3339());
+    // Attestation time: signed, so normalize to whole seconds for the same
+    // byte-identical round-trip as expires_at.
+    let attested_chrono = chrono::Utc::now().with_nanosecond(0).unwrap();
+    let attested_str = attested_chrono.to_rfc3339();
     // The subject is a local user, so the subject's home domain is our own.
     let subject_domain = crate::conversions::get_domain_name();
 
@@ -234,6 +238,7 @@ pub fn set_claim(pool: &DbPool, req: SetClaimRequest) -> Result<SetClaimResponse
             user_id: &req.user_id,
             subject_domain: &subject_domain,
             expires_at: expires_str.as_deref(),
+            attested_at: &attested_str,
         },
         &signers,
     )
@@ -247,6 +252,7 @@ pub fn set_claim(pool: &DbPool, req: SetClaimRequest) -> Result<SetClaimResponse
             claim_value_bytes,
             &signed_claim.signatures,
             expires_chrono,
+            attested_chrono,
         )
         .map_err(db_err)?;
 

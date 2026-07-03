@@ -529,6 +529,7 @@ fn test_claim(claim_type: &str) -> Claim {
         claim_type: claim_type.to_string(),
         claim_value: b"test".to_vec(),
         signatures: Vec::new(),
+        attested_at: "2026-07-01T00:00:00Z".to_string(),
         created_at: "2026-07-01T00:00:00Z".to_string(),
         expires_at: None,
         revoked_at: None,

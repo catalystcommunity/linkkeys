@@ -11,8 +11,17 @@ job:
 
     echo "=== Installing Rust toolchain ==="
     export HOME=/home/runner
-    curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-    . "/home/runner/.cargo/env"
+    export PATH="/usr/local/cargo/bin:$HOME/.cargo/bin:$PATH"
+
+    if ! command -v cargo >/dev/null 2>&1; then
+      curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+    fi
+
+    if [ -f "$HOME/.cargo/env" ]; then
+      . "$HOME/.cargo/env"
+    elif [ -f /usr/local/cargo/env ]; then
+      . /usr/local/cargo/env
+    fi
 
     echo "=== Starting PostgreSQL ==="
     # Postgres binaries are in /usr/lib/postgresql/*/bin/

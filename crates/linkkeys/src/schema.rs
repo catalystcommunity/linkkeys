@@ -105,6 +105,7 @@ pub mod pg {
             expires_at -> Nullable<Timestamptz>,
             revoked_at -> Nullable<Timestamptz>,
             updated_at -> Timestamptz,
+            attested_at -> Timestamptz,
         }
     }
 
@@ -254,6 +255,17 @@ pub mod pg {
     }
 
     diesel::table! {
+        issued_revocations (id) {
+            id -> Uuid,
+            target_key_id -> Varchar,
+            target_fingerprint -> Varchar,
+            revoked_at -> Timestamptz,
+            cert -> Binary,
+            created_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
         email_verifications (token) {
             token -> Varchar,
             user_id -> Uuid,
@@ -299,6 +311,7 @@ pub mod pg {
         admin_review_queue,
         audit_log,
         domain_key_pins,
+        issued_revocations,
         email_verifications,
         user_release_prefs,
     );
@@ -408,6 +421,7 @@ pub mod sqlite {
             expires_at -> Nullable<Text>,
             revoked_at -> Nullable<Text>,
             updated_at -> Text,
+            attested_at -> Text,
         }
     }
 
@@ -557,6 +571,17 @@ pub mod sqlite {
     }
 
     diesel::table! {
+        issued_revocations (id) {
+            id -> Text,
+            target_key_id -> Text,
+            target_fingerprint -> Text,
+            revoked_at -> Text,
+            cert -> Binary,
+            created_at -> Text,
+        }
+    }
+
+    diesel::table! {
         email_verifications (token) {
             token -> Text,
             user_id -> Text,
@@ -602,6 +627,7 @@ pub mod sqlite {
         admin_review_queue,
         audit_log,
         domain_key_pins,
+        issued_revocations,
         email_verifications,
         user_release_prefs,
     );

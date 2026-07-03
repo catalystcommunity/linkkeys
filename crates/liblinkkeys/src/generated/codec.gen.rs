@@ -886,7 +886,7 @@ pub fn decode_domain_public_key(csil_data: &[u8]) -> Result<DomainPublicKey, Csi
 
 /// Build the canonical CBOR value tree for a GetDomainKeysResponse.
 fn csil_enc_get_domain_keys_response(csil_v: &GetDomainKeysResponse) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
     csil_entries.push((
         cbor_text("keys"),
         cbor_enc_array(&csil_v.keys, |csil_elem| {
@@ -894,6 +894,12 @@ fn csil_enc_get_domain_keys_response(csil_v: &GetDomainKeysResponse) -> CsilCbor
         }),
     ));
     csil_entries.push((cbor_text("domain"), cbor_text(&csil_v.domain)));
+    if let Some(csil_inner) = &csil_v.recent_revocations_available {
+        csil_entries.push((
+            cbor_text("recent_revocations_available"),
+            cbor_bool(*csil_inner),
+        ));
+    }
     CsilCborValue::Map(csil_entries)
 }
 
@@ -911,7 +917,19 @@ fn csil_dec_get_domain_keys_response(
         let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_domain_public_key);
         csil_decode(csil_field)?
     };
-    Ok(GetDomainKeysResponse { domain, keys })
+    let recent_revocations_available = match cbor_map_get(csil_root, "recent_revocations_available")
+    {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_bool;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(GetDomainKeysResponse {
+        domain,
+        keys,
+        recent_revocations_available,
+    })
 }
 
 /// Encode a GetDomainKeysResponse to canonical CSIL CBOR bytes.
@@ -925,6 +943,186 @@ pub fn decode_get_domain_keys_response(
 ) -> Result<GetDomainKeysResponse, CsilCborError> {
     let csil_root = cbor_decode(csil_data)?;
     csil_dec_get_domain_keys_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a GetRevocationsRequest.
+fn csil_enc_get_revocations_request(csil_v: &GetRevocationsRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    if let Some(csil_inner) = &csil_v.since {
+        csil_entries.push((cbor_text("since"), cbor_text(csil_inner)));
+    }
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a GetRevocationsRequest from a decoded CBOR value tree.
+fn csil_dec_get_revocations_request(
+    csil_root: &CsilCborValue,
+) -> Result<GetRevocationsRequest, CsilCborError> {
+    let since = match cbor_map_get(csil_root, "since") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(GetRevocationsRequest { since })
+}
+
+/// Encode a GetRevocationsRequest to canonical CSIL CBOR bytes.
+pub fn encode_get_revocations_request(csil_v: &GetRevocationsRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_get_revocations_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a GetRevocationsRequest.
+pub fn decode_get_revocations_request(
+    csil_data: &[u8],
+) -> Result<GetRevocationsRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_get_revocations_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a GetRevocationsResponse.
+fn csil_enc_get_revocations_response(csil_v: &GetRevocationsResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("revocations"),
+        cbor_enc_array(&csil_v.revocations, |csil_elem| {
+            csil_enc_revocation_certificate(csil_elem)
+        }),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a GetRevocationsResponse from a decoded CBOR value tree.
+fn csil_dec_get_revocations_response(
+    csil_root: &CsilCborValue,
+) -> Result<GetRevocationsResponse, CsilCborError> {
+    let revocations = {
+        let csil_field = cbor_require(csil_root, "revocations")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_revocation_certificate);
+        csil_decode(csil_field)?
+    };
+    Ok(GetRevocationsResponse { revocations })
+}
+
+/// Encode a GetRevocationsResponse to canonical CSIL CBOR bytes.
+pub fn encode_get_revocations_response(csil_v: &GetRevocationsResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_get_revocations_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a GetRevocationsResponse.
+pub fn decode_get_revocations_response(
+    csil_data: &[u8],
+) -> Result<GetRevocationsResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_get_revocations_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RecheckPinsRequest.
+fn csil_enc_recheck_pins_request(csil_v: &RecheckPinsRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    if let Some(csil_inner) = &csil_v.domain {
+        csil_entries.push((cbor_text("domain"), cbor_text(csil_inner)));
+    }
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RecheckPinsRequest from a decoded CBOR value tree.
+fn csil_dec_recheck_pins_request(
+    csil_root: &CsilCborValue,
+) -> Result<RecheckPinsRequest, CsilCborError> {
+    let domain = match cbor_map_get(csil_root, "domain") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(RecheckPinsRequest { domain })
+}
+
+/// Encode a RecheckPinsRequest to canonical CSIL CBOR bytes.
+pub fn encode_recheck_pins_request(csil_v: &RecheckPinsRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_recheck_pins_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RecheckPinsRequest.
+pub fn decode_recheck_pins_request(csil_data: &[u8]) -> Result<RecheckPinsRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_recheck_pins_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a PinRecheckResult.
+fn csil_enc_pin_recheck_result(csil_v: &PinRecheckResult) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("domain"), cbor_text(&csil_v.domain)));
+    csil_entries.push((cbor_text("outcome"), cbor_text(&csil_v.outcome)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a PinRecheckResult from a decoded CBOR value tree.
+fn csil_dec_pin_recheck_result(
+    csil_root: &CsilCborValue,
+) -> Result<PinRecheckResult, CsilCborError> {
+    let domain = {
+        let csil_field = cbor_require(csil_root, "domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let outcome = {
+        let csil_field = cbor_require(csil_root, "outcome")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(PinRecheckResult { domain, outcome })
+}
+
+/// Encode a PinRecheckResult to canonical CSIL CBOR bytes.
+pub fn encode_pin_recheck_result(csil_v: &PinRecheckResult) -> Vec<u8> {
+    cbor_encode(&csil_enc_pin_recheck_result(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a PinRecheckResult.
+pub fn decode_pin_recheck_result(csil_data: &[u8]) -> Result<PinRecheckResult, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_pin_recheck_result(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RecheckPinsResponse.
+fn csil_enc_recheck_pins_response(csil_v: &RecheckPinsResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("results"),
+        cbor_enc_array(&csil_v.results, |csil_elem| {
+            csil_enc_pin_recheck_result(csil_elem)
+        }),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RecheckPinsResponse from a decoded CBOR value tree.
+fn csil_dec_recheck_pins_response(
+    csil_root: &CsilCborValue,
+) -> Result<RecheckPinsResponse, CsilCborError> {
+    let results = {
+        let csil_field = cbor_require(csil_root, "results")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_pin_recheck_result);
+        csil_decode(csil_field)?
+    };
+    Ok(RecheckPinsResponse { results })
+}
+
+/// Encode a RecheckPinsResponse to canonical CSIL CBOR bytes.
+pub fn encode_recheck_pins_response(csil_v: &RecheckPinsResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_recheck_pins_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RecheckPinsResponse.
+pub fn decode_recheck_pins_response(
+    csil_data: &[u8],
+) -> Result<RecheckPinsResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_recheck_pins_response(&csil_root)
 }
 
 /// Build the canonical CBOR value tree for a UserPublicKey.
@@ -1169,9 +1367,72 @@ pub fn decode_claim_signature(csil_data: &[u8]) -> Result<ClaimSignature, CsilCb
     csil_dec_claim_signature(&csil_root)
 }
 
+/// Build the canonical CBOR value tree for a RevocationCertificate.
+fn csil_enc_revocation_certificate(csil_v: &RevocationCertificate) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(4);
+    csil_entries.push((cbor_text("revoked_at"), cbor_text(&csil_v.revoked_at)));
+    csil_entries.push((
+        cbor_text("signatures"),
+        cbor_enc_array(&csil_v.signatures, |csil_elem| {
+            csil_enc_claim_signature(csil_elem)
+        }),
+    ));
+    csil_entries.push((cbor_text("target_key_id"), cbor_text(&csil_v.target_key_id)));
+    csil_entries.push((
+        cbor_text("target_fingerprint"),
+        cbor_text(&csil_v.target_fingerprint),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RevocationCertificate from a decoded CBOR value tree.
+fn csil_dec_revocation_certificate(
+    csil_root: &CsilCborValue,
+) -> Result<RevocationCertificate, CsilCborError> {
+    let target_key_id = {
+        let csil_field = cbor_require(csil_root, "target_key_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let target_fingerprint = {
+        let csil_field = cbor_require(csil_root, "target_fingerprint")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let revoked_at = {
+        let csil_field = cbor_require(csil_root, "revoked_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let signatures = {
+        let csil_field = cbor_require(csil_root, "signatures")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_claim_signature);
+        csil_decode(csil_field)?
+    };
+    Ok(RevocationCertificate {
+        target_key_id,
+        target_fingerprint,
+        revoked_at,
+        signatures,
+    })
+}
+
+/// Encode a RevocationCertificate to canonical CSIL CBOR bytes.
+pub fn encode_revocation_certificate(csil_v: &RevocationCertificate) -> Vec<u8> {
+    cbor_encode(&csil_enc_revocation_certificate(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RevocationCertificate.
+pub fn decode_revocation_certificate(
+    csil_data: &[u8],
+) -> Result<RevocationCertificate, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_revocation_certificate(&csil_root)
+}
+
 /// Build the canonical CBOR value tree for a Claim.
 fn csil_enc_claim(csil_v: &Claim) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(8);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(9);
     csil_entries.push((cbor_text("user_id"), cbor_text(&csil_v.user_id)));
     csil_entries.push((cbor_text("claim_id"), cbor_text(&csil_v.claim_id)));
     csil_entries.push((cbor_text("claim_type"), cbor_text(&csil_v.claim_type)));
@@ -1188,6 +1449,7 @@ fn csil_enc_claim(csil_v: &Claim) -> CsilCborValue {
             csil_enc_claim_signature(csil_elem)
         }),
     ));
+    csil_entries.push((cbor_text("attested_at"), cbor_text(&csil_v.attested_at)));
     csil_entries.push((cbor_text("claim_value"), cbor_bytes(&csil_v.claim_value)));
     CsilCborValue::Map(csil_entries)
 }
@@ -1219,6 +1481,11 @@ fn csil_dec_claim(csil_root: &CsilCborValue) -> Result<Claim, CsilCborError> {
         let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_claim_signature);
         csil_decode(csil_field)?
     };
+    let attested_at = {
+        let csil_field = cbor_require(csil_root, "attested_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
     let created_at = {
         let csil_field = cbor_require(csil_root, "created_at")?;
         let csil_decode = cbor_as_text;
@@ -1244,6 +1511,7 @@ fn csil_dec_claim(csil_root: &CsilCborValue) -> Result<Claim, CsilCborError> {
         claim_type,
         claim_value,
         signatures,
+        attested_at,
         created_at,
         expires_at,
         revoked_at,

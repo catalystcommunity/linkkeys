@@ -160,6 +160,9 @@ pub(crate) fn sign_and_store(
 
     let claim_id = uuid::Uuid::now_v7().to_string();
     let subject_domain = crate::conversions::get_domain_name();
+    use chrono::Timelike;
+    let attested_chrono = chrono::Utc::now().with_nanosecond(0).unwrap();
+    let attested_str = attested_chrono.to_rfc3339();
     let signed = crate::claim_signing::sign_with_active(
         &liblinkkeys::claims::ClaimSpec {
             claim_id: &claim_id,
@@ -168,6 +171,7 @@ pub(crate) fn sign_and_store(
             user_id: subject_id,
             subject_domain: &subject_domain,
             expires_at: None,
+            attested_at: &attested_str,
         },
         &signers,
     )
@@ -182,6 +186,7 @@ pub(crate) fn sign_and_store(
         value,
         &signed.signatures,
         None,
+        attested_chrono,
     )
     .map_err(db_err)?;
     Ok(())
@@ -197,8 +202,16 @@ fn store_unsigned(
     let claim_id = uuid::Uuid::now_v7().to_string();
     pool.revoke_active_claims_of_type(subject_id, claim_type)
         .map_err(db_err)?;
-    pool.create_claim(&claim_id, subject_id, claim_type, value, &[], None)
-        .map_err(db_err)?;
+    pool.create_claim(
+        &claim_id,
+        subject_id,
+        claim_type,
+        value,
+        &[],
+        None,
+        chrono::Utc::now(),
+    )
+    .map_err(db_err)?;
     Ok(())
 }
 

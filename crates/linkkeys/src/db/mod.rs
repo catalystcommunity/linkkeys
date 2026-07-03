@@ -6,6 +6,7 @@ pub mod domain_keys;
 pub mod domain_pins;
 pub mod email_verification;
 pub mod guestbook;
+pub mod issued_revocations;
 pub mod models;
 pub mod nonces;
 pub mod peer_keys;
@@ -1728,6 +1729,63 @@ impl DbPool {
         }
     }
 
+    // -- Issued revocation certificates (SEC-08) --
+
+    pub fn insert_issued_revocation(
+        &self,
+        target_key_id: &str,
+        target_fingerprint: &str,
+        revoked_at: chrono::DateTime<chrono::Utc>,
+        cert: &[u8],
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => issued_revocations::pg::insert(
+                &mut *pg_conn(p)?,
+                target_key_id,
+                target_fingerprint,
+                revoked_at,
+                cert,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => issued_revocations::sqlite::insert(
+                &mut *sqlite_conn(p)?,
+                target_key_id,
+                target_fingerprint,
+                revoked_at,
+                cert,
+            ),
+        }
+    }
+
+    pub fn list_issued_revocations_since(
+        &self,
+        since: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> QueryResult<Vec<models::IssuedRevocation>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => issued_revocations::pg::list_since(&mut *pg_conn(p)?, since),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                issued_revocations::sqlite::list_since(&mut *sqlite_conn(p)?, since)
+            }
+        }
+    }
+
+    pub fn has_issued_revocations_since(
+        &self,
+        since: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<bool> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => issued_revocations::pg::exists_since(&mut *pg_conn(p)?, since),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                issued_revocations::sqlite::exists_since(&mut *sqlite_conn(p)?, since)
+            }
+        }
+    }
+
     /// Revoke a cached peer key by fingerprint (pin recheck retiring an old key).
     pub fn revoke_peer_key_by_fingerprint(
         &self,
@@ -1743,6 +1801,29 @@ impl DbPool {
             DbPool::Sqlite(p) => {
                 peer_keys::sqlite::revoke_by_fingerprint(&mut *sqlite_conn(p)?, domain, fingerprint)
             }
+        }
+    }
+
+    /// Revoke a cached peer key by (domain, key_id) at the domain's asserted
+    /// timestamp from a verified revocation certificate (SEC-08).
+    pub fn revoke_peer_key_by_key_id_at(
+        &self,
+        domain: &str,
+        key_id: &str,
+        revoked_at: &str,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                peer_keys::pg::revoke_by_key_id_at(&mut *pg_conn(p)?, domain, key_id, revoked_at)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => peer_keys::sqlite::revoke_by_key_id_at(
+                &mut *sqlite_conn(p)?,
+                domain,
+                key_id,
+                revoked_at,
+            ),
         }
     }
 
@@ -2139,6 +2220,7 @@ impl DbPool {
         claim_value: &[u8],
         signatures: &[liblinkkeys::generated::types::ClaimSignature],
         expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        attested_at: chrono::DateTime<chrono::Utc>,
     ) -> QueryResult<models::ClaimRow> {
         match self {
             #[cfg(feature = "postgres")]
@@ -2163,6 +2245,7 @@ impl DbPool {
                     claim_value,
                     signatures,
                     expires_at,
+                    attested_at,
                 )
             }
             #[cfg(feature = "sqlite")]
@@ -2181,6 +2264,7 @@ impl DbPool {
                     claim_value,
                     signatures,
                     expires_at.map(|e| e.to_rfc3339()).as_deref(),
+                    &attested_at.to_rfc3339(),
                 )
             }
         }

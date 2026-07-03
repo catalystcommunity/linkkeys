@@ -12,6 +12,7 @@ pub mod pg {
 
     /// Insert a claim and its signatures atomically, returning the stored claim
     /// with its signatures attached.
+    #[allow(clippy::too_many_arguments)]
     pub fn create(
         conn: &mut diesel::PgConnection,
         id: uuid::Uuid,
@@ -20,6 +21,7 @@ pub mod pg {
         claim_value: &[u8],
         signatures: &[ClaimSignature],
         expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        attested_at: chrono::DateTime<chrono::Utc>,
     ) -> QueryResult<ClaimRow> {
         conn.transaction(|conn| {
             let new_row = NewClaimDbRow {
@@ -28,6 +30,7 @@ pub mod pg {
                 claim_type: claim_type.to_string(),
                 claim_value: claim_value.to_vec(),
                 expires_at,
+                attested_at,
             };
             diesel::insert_into(claims::table)
                 .values(&new_row)
@@ -222,6 +225,7 @@ pub mod sqlite {
 
     /// Insert a claim and its signatures atomically, returning the stored claim
     /// with its signatures attached.
+    #[allow(clippy::too_many_arguments)]
     pub fn create(
         conn: &mut diesel::SqliteConnection,
         id: &str,
@@ -230,6 +234,7 @@ pub mod sqlite {
         claim_value: &[u8],
         signatures: &[ClaimSignature],
         expires_at: Option<&str>,
+        attested_at: &str,
     ) -> QueryResult<ClaimRow> {
         conn.transaction(|conn| {
             let new_row = NewClaimDbRow {
@@ -238,6 +243,7 @@ pub mod sqlite {
                 claim_type: claim_type.to_string(),
                 claim_value: claim_value.to_vec(),
                 expires_at: expires_at.map(|s| s.to_string()),
+                attested_at: attested_at.to_string(),
             };
             diesel::insert_into(claims::table)
                 .values(&new_row)

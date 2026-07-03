@@ -82,6 +82,12 @@ pub trait DomainKeys {
         ctx: &Self::Context,
         input: EmptyRequest,
     ) -> Result<GetDomainKeysResponse, ServiceError>;
+    /// get-revocations (request/response).
+    fn get_revocations(
+        &self,
+        ctx: &Self::Context,
+        input: GetRevocationsRequest,
+    ) -> Result<GetRevocationsResponse, ServiceError>;
 }
 
 /// UserKeys service trait
@@ -198,6 +204,12 @@ pub trait Admin {
         ctx: &Self::Context,
         input: CheckPermissionRequest,
     ) -> Result<CheckPermissionResponse, ServiceError>;
+    /// recheck-pins (request/response).
+    fn recheck_pins(
+        &self,
+        ctx: &Self::Context,
+        input: RecheckPinsRequest,
+    ) -> Result<RecheckPinsResponse, ServiceError>;
 }
 
 /// Account service trait

@@ -58,6 +58,25 @@ pub mod pg {
         .set(peer_keys::revoked_at.eq(chrono::Utc::now().to_rfc3339()))
         .execute(conn)
     }
+
+    /// Mark a cached peer key revoked at the DOMAIN'S asserted timestamp (from a
+    /// verified revocation certificate, SEC-08) — which may be well before now.
+    /// Keyed by (domain, key_id). Only affects not-already-revoked rows.
+    pub fn revoke_by_key_id_at(
+        conn: &mut diesel::PgConnection,
+        domain: &str,
+        key_id: &str,
+        revoked_at: &str,
+    ) -> QueryResult<usize> {
+        diesel::update(
+            peer_keys::table
+                .filter(peer_keys::domain.eq(domain))
+                .filter(peer_keys::key_id.eq(key_id))
+                .filter(peer_keys::revoked_at.is_null()),
+        )
+        .set(peer_keys::revoked_at.eq(revoked_at))
+        .execute(conn)
+    }
 }
 
 #[cfg(feature = "sqlite")]
@@ -110,6 +129,24 @@ pub mod sqlite {
                 .filter(peer_keys::revoked_at.is_null()),
         )
         .set(peer_keys::revoked_at.eq(chrono::Utc::now().to_rfc3339()))
+        .execute(conn)
+    }
+
+    /// Mark a cached peer key revoked at the domain's asserted timestamp (from a
+    /// verified revocation certificate, SEC-08). Keyed by (domain, key_id).
+    pub fn revoke_by_key_id_at(
+        conn: &mut diesel::SqliteConnection,
+        domain: &str,
+        key_id: &str,
+        revoked_at: &str,
+    ) -> QueryResult<usize> {
+        diesel::update(
+            peer_keys::table
+                .filter(peer_keys::domain.eq(domain))
+                .filter(peer_keys::key_id.eq(key_id))
+                .filter(peer_keys::revoked_at.is_null()),
+        )
+        .set(peer_keys::revoked_at.eq(revoked_at))
         .execute(conn)
     }
 }

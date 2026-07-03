@@ -32,6 +32,7 @@ fn issuer_signed_claim(
             user_id: subject_id,
             subject_domain: OUR_DOMAIN,
             expires_at: None,
+            attested_at: "2026-07-01T00:00:00+00:00",
         },
         &[liblinkkeys::claims::ClaimSigner {
             domain: ISSUER,

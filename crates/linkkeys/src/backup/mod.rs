@@ -218,6 +218,7 @@ const SNAPSHOT_TABLES: &[&str] = &[
     "admin_review_queue",
     "audit_log",
     "domain_key_pins",
+    "issued_revocations",
     "email_verifications",
     "user_release_prefs",
 ];
@@ -276,6 +277,7 @@ mod sqlite_backend {
     backup_row!(ClaimRow => claims {
         id: String, user_id: String, claim_type: String, claim_value: Vec<u8>,
         created_at: String, expires_at: Option<String>, revoked_at: Option<String>, updated_at: String,
+        attested_at: String,
     });
     backup_row!(ClaimSignatureRow => claim_signatures {
         id: String, claim_id: String, domain: String, signed_by_key_id: String,
@@ -327,6 +329,10 @@ mod sqlite_backend {
     backup_row!(DomainKeyPinBackupRow => domain_key_pins {
         domain: String, fingerprints: String, pinned_at: String, last_checked_at: String,
     });
+    backup_row!(IssuedRevocationBackupRow => issued_revocations {
+        id: String, target_key_id: String, target_fingerprint: String, revoked_at: String,
+        cert: Vec<u8>, created_at: String,
+    });
     backup_row!(EmailVerificationRow => email_verifications {
         token: String, user_id: String, email: String, expires_at: String, created_at: String,
     });
@@ -358,6 +364,7 @@ mod sqlite_backend {
             $op!("admin_review_queue", admin_review_queue, AdminReviewBackupRow, $($arg)*);
             $op!("audit_log", audit_log, AuditLogBackupRow, $($arg)*);
             $op!("domain_key_pins", domain_key_pins, DomainKeyPinBackupRow, $($arg)*);
+            $op!("issued_revocations", issued_revocations, IssuedRevocationBackupRow, $($arg)*);
             $op!("email_verifications", email_verifications, EmailVerificationRow, $($arg)*);
             $op!("user_release_prefs", user_release_prefs, UserReleasePrefRow, $($arg)*);
         };

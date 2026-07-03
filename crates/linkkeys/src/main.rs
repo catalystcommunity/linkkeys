@@ -442,6 +442,15 @@ fn domain_revoke_key(key_id: &str) {
     // Produce the sibling-signed revocation certificate from the remaining active
     // signing keys (the target is now excluded from list_active_domain_keys).
     domain_emit_revocation_cert(&db_pool, &revoked);
+
+    // TODO(proactive re-attestation): track the attestations WE have signed for
+    // other domains (which claims, signed with which key, deposited where). On
+    // revoking a key, go to each such domain and re-issue those attestations with
+    // a replacement key — same subject/value/expiry, a NEW attested_at. Since the
+    // two surviving keys already vouch and can prove the replacement, the peer can
+    // swap the old claim for the new one seamlessly (everyone keeps their DMV-
+    // style attestations without a re-verification round-trip). Needs an
+    // outbound-attestation ledger + a re-attest op.
 }
 
 /// Build a sibling-signed revocation certificate for `revoked` from the domain's
@@ -508,7 +517,31 @@ fn domain_emit_revocation_cert(
                 cert.target_key_id,
                 cert.target_fingerprint
             );
+            // The on-wire (CSIL CBOR) certificate — the portable, verifiable proof
+            // a peer can check against this domain's published key set.
+            let cbor = liblinkkeys::generated::encode_revocation_certificate(&cert);
+            let hex = cbor
+                .iter()
+                .fold(String::with_capacity(cbor.len() * 2), |mut s, b| {
+                    use std::fmt::Write;
+                    let _ = write!(s, "{b:02x}");
+                    s
+                });
             println!("Produced {summary}.");
+            println!("Revocation certificate (CBOR hex, publish to peers):\n{hex}");
+
+            // Persist it so peers can pull it via DomainKeys/get-revocations.
+            if let Ok(when) = chrono::DateTime::parse_from_rfc3339(&revoked_at) {
+                if let Err(e) = db_pool.insert_issued_revocation(
+                    &revoked.id,
+                    &revoked.fingerprint,
+                    when.with_timezone(&chrono::Utc),
+                    &cbor,
+                ) {
+                    eprintln!("Warning: failed to store issued revocation: {e}");
+                }
+            }
+
             let _ = db_pool.write_audit(
                 "domain_key.revoked",
                 Some(&revoked.id),
@@ -1249,6 +1282,8 @@ fn claim_set(user_id: &str, claim_type: &str, claim_value: &str, expires: Option
     let claim_value_bytes = claim_value.as_bytes();
     let claim_id = uuid::Uuid::now_v7().to_string();
     let expires_str = expires_chrono.as_ref().map(|e| e.to_rfc3339());
+    let attested_chrono = chrono::Utc::now().with_nanosecond(0).unwrap();
+    let attested_str = attested_chrono.to_rfc3339();
     let subject_domain = linkkeys::conversions::get_domain_name();
     let claim = linkkeys::claim_signing::sign_with_active(
         &liblinkkeys::claims::ClaimSpec {
@@ -1258,6 +1293,7 @@ fn claim_set(user_id: &str, claim_type: &str, claim_value: &str, expires: Option
             user_id,
             subject_domain: &subject_domain,
             expires_at: expires_str.as_deref(),
+            attested_at: &attested_str,
         },
         &signers,
     )
@@ -1273,6 +1309,7 @@ fn claim_set(user_id: &str, claim_type: &str, claim_value: &str, expires: Option
         claim_value_bytes,
         &claim.signatures,
         expires_chrono,
+        attested_chrono,
     ) {
         Ok(stored) => println!(
             "Claim set: id={} type={} signatures={}",

@@ -8,10 +8,17 @@ job:
       libpq-dev libsqlite3-dev pkg-config build-essential
 
     export HOME=/home/runner
+    export PATH="/usr/local/cargo/bin:$HOME/.cargo/bin:$PATH"
+
     if ! command -v cargo >/dev/null 2>&1; then
       curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
     fi
-    . "/home/runner/.cargo/env"
+
+    if [ -f "$HOME/.cargo/env" ]; then
+      . "$HOME/.cargo/env"
+    elif [ -f /usr/local/cargo/env ]; then
+      . /usr/local/cargo/env
+    fi
 
     cd "${REACTORCIDE_CODE_DIR:-/job/src}"
     export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/tmp/linkkeys-target}"
