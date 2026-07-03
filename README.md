@@ -41,6 +41,7 @@ That's it for the fast path — the SQLite suite runs in-memory with no database
 ./tools.sh db-down    # stop & remove it
 ./tools.sh db-shell   # psql into the dev database
 ./tools.sh fmt        # cargo fmt
+./tools.sh clippy     # cargo clippy (workspace, all targets)
 ```
 
 Run `./tools.sh` with no arguments for the full command list.
