@@ -87,6 +87,33 @@ pub struct DomainPublicKey {
 pub struct GetDomainKeysResponse {
     pub domain: String,
     pub keys: Vec<DomainPublicKey>,
+    pub recent_revocations_available: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetRevocationsRequest {
+    pub since: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetRevocationsResponse {
+    pub revocations: Vec<RevocationCertificate>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecheckPinsRequest {
+    pub domain: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PinRecheckResult {
+    pub domain: String,
+    pub outcome: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecheckPinsResponse {
+    pub results: Vec<PinRecheckResult>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -124,12 +151,21 @@ pub struct ClaimSignature {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct RevocationCertificate {
+    pub target_key_id: String,
+    pub target_fingerprint: String,
+    pub revoked_at: String,
+    pub signatures: Vec<ClaimSignature>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Claim {
     pub claim_id: String,
     pub user_id: String,
     pub claim_type: String,
     pub claim_value: Vec<u8>,
     pub signatures: Vec<ClaimSignature>,
+    pub attested_at: String,
     pub created_at: String,
     pub expires_at: Option<String>,
     pub revoked_at: Option<String>,

@@ -33,6 +33,7 @@ fn seed(pool: &linkkeys::db::DbPool, user_id: &str) -> (String, Vec<u8>) {
             val,
             &[],
             None,
+            chrono::Utc::now(),
         )
         .expect("create claim");
     }

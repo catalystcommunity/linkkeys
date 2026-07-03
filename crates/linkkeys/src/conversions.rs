@@ -60,6 +60,7 @@ impl From<&ClaimRow> for Claim {
             claim_type: c.claim_type.clone(),
             claim_value: c.claim_value.clone(),
             signatures: c.signatures.iter().map(Into::into).collect(),
+            attested_at: c.attested_at.clone(),
             created_at: c.created_at.clone(),
             expires_at: c.expires_at.clone(),
             revoked_at: c.revoked_at.clone(),

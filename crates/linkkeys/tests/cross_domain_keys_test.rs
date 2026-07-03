@@ -40,6 +40,7 @@ async fn fetch_domain_keys_resolves_via_dns_and_http_seam() {
     let response = GetDomainKeysResponse {
         domain: THIRD.to_string(),
         keys: vec![key],
+        recent_revocations_available: None,
     };
     let body = liblinkkeys::generated::encode_get_domain_keys_response(&response);
 

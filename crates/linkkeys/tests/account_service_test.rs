@@ -111,6 +111,7 @@ fn test_service_get_my_info() {
             user_id: &user.id,
             subject_domain: "test.com",
             expires_at: None,
+            attested_at: "2026-07-01T00:00:00+00:00",
         },
         &[liblinkkeys::claims::ClaimSigner {
             domain: "test.com",
@@ -127,6 +128,9 @@ fn test_service_get_my_info() {
         b"test@test.com",
         &signed.signatures,
         None,
+        chrono::DateTime::parse_from_rfc3339("2026-07-01T00:00:00+00:00")
+            .unwrap()
+            .with_timezone(&chrono::Utc),
     )
     .unwrap();
 

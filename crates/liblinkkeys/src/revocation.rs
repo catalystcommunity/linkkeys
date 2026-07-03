@@ -6,12 +6,14 @@
 //! the domain's DNS-pinned key set, without waiting for a DNS edit to propagate.
 //! This is the in-band, authenticated revocation lever the design calls for.
 //!
-//! The signing/verifying logic is hand-written here (following the same
+//! The `RevocationCertificate` wire type is generated from `csil/linkkeys.csil`
+//! (`liblinkkeys::generated`, with `encode_revocation_certificate` /
+//! `decode_revocation_certificate` for the CBOR wire form). Only the
+//! signing/verifying LOGIC is hand-written here, following the same
 //! canonical-tuple-over-a-domain-separation-tag pattern as `claims`,
-//! `assertions`, and `signing_request`); the wire type is mirrored in
-//! `csil/linkkeys.csil` for the spec. Verification requires a quorum of at least
-//! two DISTINCT, currently-valid signing keys of the domain — and the revoked key
-//! may never authorize its own revocation.
+//! `assertions`, and `signing_request`. Verification requires a quorum of at
+//! least two DISTINCT, currently-valid signing keys of the domain — and the
+//! revoked key may never authorize its own revocation.
 
 use crate::assertions::check_signing_key_valid;
 use crate::claims::ClaimSigner;
@@ -20,25 +22,14 @@ use crate::generated::types::{ClaimSignature, DomainPublicKey};
 use std::collections::HashSet;
 use std::fmt;
 
+/// The sibling-signed revocation certificate wire type (generated from CSIL).
+pub use crate::generated::types::RevocationCertificate;
+
 /// Minimum number of distinct sibling signatures required to revoke a key.
 pub const REVOCATION_QUORUM: usize = 2;
 
 /// Domain-separation tag / version for the signed revocation payload.
 const REVOCATION_TAG: &str = "linkkeys-key-revocation-v1";
-
-/// A sibling-signed assertion that a domain key is revoked. `signatures` are from
-/// OTHER keys of the same domain.
-#[derive(Debug, Clone, PartialEq)]
-pub struct RevocationCertificate {
-    /// The key being revoked.
-    pub target_key_id: String,
-    /// The revoked key's fingerprint (binds the id to specific key material).
-    pub target_fingerprint: String,
-    /// UTC RFC3339 instant of revocation. Messages after this are suspect.
-    pub revoked_at: String,
-    /// Co-signatures from sibling signing keys of the domain.
-    pub signatures: Vec<ClaimSignature>,
-}
 
 #[derive(Debug)]
 pub enum RevocationError {
@@ -230,6 +221,25 @@ mod tests {
         let cert =
             build_revocation_certificate(&spec, &[signer(&a, domain), signer(&b, domain)]).unwrap();
         assert!(verify_revocation_certificate(&cert, &keys, domain).is_ok());
+    }
+
+    #[test]
+    fn certificate_survives_cbor_roundtrip() {
+        let domain = "d.test";
+        let (a, b, target) = (make_sibling("a"), make_sibling("b"), make_sibling("t"));
+        let keys = vec![pubkey(&a), pubkey(&b), pubkey(&target)];
+        let spec = RevocationSpec {
+            target_key_id: "t",
+            target_fingerprint: &fingerprint(&target.public_key),
+            revoked_at: &Utc::now().to_rfc3339(),
+        };
+        let cert =
+            build_revocation_certificate(&spec, &[signer(&a, domain), signer(&b, domain)]).unwrap();
+        // Round-trip through the generated CSIL CBOR codec, then verify.
+        let bytes = crate::generated::encode_revocation_certificate(&cert);
+        let decoded = crate::generated::decode_revocation_certificate(&bytes).unwrap();
+        assert_eq!(decoded, cert);
+        assert!(verify_revocation_certificate(&decoded, &keys, domain).is_ok());
     }
 
     #[test]

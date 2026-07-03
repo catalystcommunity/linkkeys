@@ -304,6 +304,10 @@ pub fn issue_attested_claim(
     let claim_id = uuid::Uuid::now_v7().to_string();
     let expires_at =
         (chrono::Utc::now() + chrono::Duration::seconds(attested_claim_ttl_seconds())).to_rfc3339();
+    // Signed attestation time, normalized to whole seconds so it round-trips
+    // byte-identically when the subject's home domain stores it.
+    use chrono::Timelike;
+    let attested_at = chrono::Utc::now().with_nanosecond(0).unwrap().to_rfc3339();
     liblinkkeys::claims::sign_claim(
         &liblinkkeys::claims::ClaimSpec {
             claim_id: &claim_id,
@@ -312,6 +316,7 @@ pub fn issue_attested_claim(
             user_id: subject_user_id,
             subject_domain,
             expires_at: Some(&expires_at),
+            attested_at: &attested_at,
         },
         &claim_signers,
     )
@@ -380,6 +385,12 @@ pub fn verify_and_store_attested(
         .transpose()
         .map_err(|_| svc_err(400, "invalid expires_at"))?;
 
+    // Preserve the ISSUER'S signed attestation time — it's part of the signature
+    // and must be stored verbatim so the claim keeps verifying.
+    let attested = chrono::DateTime::parse_from_rfc3339(&claim.attested_at)
+        .map(|dt| dt.with_timezone(&chrono::Utc))
+        .map_err(|_| svc_err(400, "invalid attested_at"))?;
+
     pool.create_claim(
         &claim.claim_id,
         subject_id,
@@ -387,6 +398,7 @@ pub fn verify_and_store_attested(
         &claim.claim_value,
         &claim.signatures,
         expires,
+        attested,
     )
     .map_err(db_err)?;
     Ok(())

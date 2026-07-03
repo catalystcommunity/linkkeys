@@ -98,6 +98,9 @@ pub struct ClaimRow {
     /// layer after the claim row is loaded; a freshly-converted `ClaimDbRow`
     /// starts empty until signatures are attached.
     pub signatures: Vec<ClaimSignatureRow>,
+    /// Signed attestation time (RFC3339 UTC) — when this claim was signed. Part
+    /// of the signed payload (SEC-08).
+    pub attested_at: String,
     pub created_at: String,
     pub expires_at: Option<String>,
     pub revoked_at: Option<String>,
@@ -239,6 +242,20 @@ pub struct DomainKeyPin {
     pub fingerprints: String,
     pub pinned_at: String,
     pub last_checked_at: String,
+}
+
+/// A sibling-signed revocation certificate this domain has issued (SEC-08).
+/// `cert` is the canonical CSIL CBOR of the full RevocationCertificate; served to
+/// peers via DomainKeys/get-revocations. `revoked_at` is the domain's asserted
+/// "untrustworthy after this instant".
+#[derive(Debug, Clone)]
+pub struct IssuedRevocation {
+    pub id: String,
+    pub target_key_id: String,
+    pub target_fingerprint: String,
+    pub revoked_at: String,
+    pub cert: Vec<u8>,
+    pub created_at: String,
 }
 
 /// A pending email-verification challenge. `expires_at` is RFC3339 UTC.
@@ -506,6 +523,7 @@ pub mod pg {
         pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
         pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
         pub updated_at: chrono::DateTime<chrono::Utc>,
+        pub attested_at: chrono::DateTime<chrono::Utc>,
     }
 
     impl From<ClaimDbRow> for super::ClaimRow {
@@ -516,6 +534,7 @@ pub mod pg {
                 claim_type: row.claim_type,
                 claim_value: row.claim_value,
                 signatures: Vec::new(),
+                attested_at: row.attested_at.to_rfc3339(),
                 created_at: row.created_at.to_rfc3339(),
                 expires_at: row.expires_at.map(|t| t.to_rfc3339()),
                 revoked_at: row.revoked_at.map(|t| t.to_rfc3339()),
@@ -532,6 +551,7 @@ pub mod pg {
         pub claim_type: String,
         pub claim_value: Vec<u8>,
         pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        pub attested_at: chrono::DateTime<chrono::Utc>,
     }
 
     #[derive(Queryable, Selectable)]
@@ -938,6 +958,40 @@ pub mod pg {
         pub fingerprints: String,
     }
 
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::pg::issued_revocations)]
+    pub struct IssuedRevocationRow {
+        pub id: uuid::Uuid,
+        pub target_key_id: String,
+        pub target_fingerprint: String,
+        pub revoked_at: chrono::DateTime<chrono::Utc>,
+        pub cert: Vec<u8>,
+        pub created_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    impl From<IssuedRevocationRow> for super::IssuedRevocation {
+        fn from(r: IssuedRevocationRow) -> Self {
+            Self {
+                id: r.id.to_string(),
+                target_key_id: r.target_key_id,
+                target_fingerprint: r.target_fingerprint,
+                revoked_at: r.revoked_at.to_rfc3339(),
+                cert: r.cert,
+                created_at: r.created_at.to_rfc3339(),
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::pg::issued_revocations)]
+    pub struct NewIssuedRevocationRow {
+        pub id: uuid::Uuid,
+        pub target_key_id: String,
+        pub target_fingerprint: String,
+        pub revoked_at: chrono::DateTime<chrono::Utc>,
+        pub cert: Vec<u8>,
+    }
+
     #[derive(Queryable, Selectable, Insertable)]
     #[diesel(table_name = crate::schema::pg::email_verifications)]
     pub struct EmailVerificationRow {
@@ -1212,6 +1266,7 @@ pub mod sqlite {
         pub expires_at: Option<String>,
         pub revoked_at: Option<String>,
         pub updated_at: String,
+        pub attested_at: String,
     }
 
     impl From<ClaimDbRow> for super::ClaimRow {
@@ -1222,6 +1277,7 @@ pub mod sqlite {
                 claim_type: row.claim_type,
                 claim_value: row.claim_value,
                 signatures: Vec::new(),
+                attested_at: row.attested_at,
                 created_at: row.created_at,
                 expires_at: row.expires_at,
                 revoked_at: row.revoked_at,
@@ -1238,6 +1294,7 @@ pub mod sqlite {
         pub claim_type: String,
         pub claim_value: Vec<u8>,
         pub expires_at: Option<String>,
+        pub attested_at: String,
     }
 
     #[derive(Queryable, Selectable)]
@@ -1639,6 +1696,40 @@ pub mod sqlite {
     pub struct NewDomainKeyPinRow {
         pub domain: String,
         pub fingerprints: String,
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::sqlite::issued_revocations)]
+    pub struct IssuedRevocationRow {
+        pub id: String,
+        pub target_key_id: String,
+        pub target_fingerprint: String,
+        pub revoked_at: String,
+        pub cert: Vec<u8>,
+        pub created_at: String,
+    }
+
+    impl From<IssuedRevocationRow> for super::IssuedRevocation {
+        fn from(r: IssuedRevocationRow) -> Self {
+            Self {
+                id: r.id,
+                target_key_id: r.target_key_id,
+                target_fingerprint: r.target_fingerprint,
+                revoked_at: r.revoked_at,
+                cert: r.cert,
+                created_at: r.created_at,
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::issued_revocations)]
+    pub struct NewIssuedRevocationRow {
+        pub id: String,
+        pub target_key_id: String,
+        pub target_fingerprint: String,
+        pub revoked_at: String,
+        pub cert: Vec<u8>,
     }
 
     #[derive(Queryable, Selectable, Insertable)]

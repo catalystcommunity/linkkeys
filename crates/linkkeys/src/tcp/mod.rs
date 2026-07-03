@@ -586,10 +586,25 @@ fn dispatch(
                 &GetDomainKeysResponse {
                     domain: get_domain_name(),
                     keys: keys.iter().map(Into::into).collect(),
+                    recent_revocations_available: Some(
+                        crate::services::revocations::recent_revocations_available(db_pool),
+                    ),
                 },
             )),
             Err(e) => error_response(4, &db_error_message(e)),
         },
+        ("DomainKeys", "get-revocations") => {
+            let request =
+                match liblinkkeys::generated::decode_get_revocations_request(&envelope.payload) {
+                    Ok(r) => r,
+                    Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+                };
+            let revocations =
+                crate::services::revocations::serve(db_pool, request.since.as_deref());
+            ok_response(liblinkkeys::generated::encode_get_revocations_response(
+                &liblinkkeys::generated::types::GetRevocationsResponse { revocations },
+            ))
+        }
         ("UserKeys", "get-user-keys") => {
             let request =
                 match liblinkkeys::generated::decode_get_user_keys_request(&envelope.payload) {
@@ -698,6 +713,11 @@ fn dispatch(
                     return error_response(5, "Forbidden: target is a protected admin account");
                 }
             }
+            // SEC-01: recheck-pins needs outbound DNS, so it runs on the TCP
+            // carrier and is handled here (dispatch_admin has no net context).
+            if op == "recheck-pins" {
+                return dispatch_admin_recheck_pins(&envelope.payload, db_pool, outbound);
+            }
             dispatch_admin(op, &envelope.payload, db_pool)
         }
         ("Account", op) => {
@@ -791,6 +811,49 @@ fn admin_op_protected_target(op: &str, payload: &[u8], db_pool: &DbPool) -> Opti
         }
         _ => None,
     }
+}
+
+/// SEC-01: admin-gated pin recheck. Runs on the TCP carrier because it makes
+/// outbound DNS lookups. With no `domain` it rechecks every pinned domain.
+fn dispatch_admin_recheck_pins(
+    payload: &[u8],
+    db_pool: &DbPool,
+    outbound: Option<&OutboundCtx>,
+) -> Vec<u8> {
+    let Some(ctx) = outbound else {
+        return error_response(
+            6,
+            "recheck-pins requires the TCP carrier (needs outbound DNS)",
+        );
+    };
+    let request = match liblinkkeys::generated::decode_recheck_pins_request(payload) {
+        Ok(r) => r,
+        Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+    };
+    let results = ctx.rt.block_on(async {
+        match request.domain.as_deref() {
+            Some(d) => vec![(
+                d.to_string(),
+                crate::services::pins::recheck_domain(db_pool, ctx.net, d).await,
+            )],
+            None => crate::services::pins::recheck_all(db_pool, ctx.net).await,
+        }
+    });
+    let results = results
+        .into_iter()
+        .map(
+            |(domain, r)| liblinkkeys::generated::types::PinRecheckResult {
+                domain,
+                outcome: match r {
+                    Ok(o) => format!("{o:?}"),
+                    Err(e) => format!("error: {e}"),
+                },
+            },
+        )
+        .collect();
+    ok_response(liblinkkeys::generated::encode_recheck_pins_response(
+        &liblinkkeys::generated::types::RecheckPinsResponse { results },
+    ))
 }
 
 fn dispatch_admin(op: &str, payload: &[u8], db_pool: &DbPool) -> Vec<u8> {

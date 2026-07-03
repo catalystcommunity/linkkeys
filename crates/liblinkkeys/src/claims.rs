@@ -60,7 +60,7 @@ impl std::error::Error for ClaimError {}
 
 /// Domain-separation tag + version for the claim signature payload. Bumping
 /// this invalidates old signatures by design (versioned construction).
-const CLAIM_PAYLOAD_TAG: &str = "linkkeys-claim-v1";
+const CLAIM_PAYLOAD_TAG: &str = "linkkeys-claim-v2";
 
 /// Build the canonical bytes a single signature covers for a claim.
 ///
@@ -72,11 +72,13 @@ const CLAIM_PAYLOAD_TAG: &str = "linkkeys-claim-v1";
 /// per-signature so a signature from domain A cannot satisfy a claim presented as
 /// signed by B.
 ///
-/// `claim_id` and `expires_at` are also bound, so identity and expiry are
-/// tamper-evident. `expires_at` must be stored and served byte-identical to what
-/// was signed (the caller normalizes it to whole-second RFC3339 so it round-trips
-/// through both Postgres timestamptz and SQLite text). `created_at` is
-/// deliberately NOT signed — it is assigned by the database on insert.
+/// `claim_id`, `expires_at`, and `attested_at` are also bound, so identity,
+/// expiry, and the attestation time are tamper-evident. `expires_at` and
+/// `attested_at` must be stored and served byte-identical to what was signed (the
+/// caller normalizes both to whole-second RFC3339 so they round-trip through both
+/// Postgres timestamptz and SQLite text). `created_at` is deliberately NOT signed
+/// — it is assigned by the database on insert.
+#[allow(clippy::too_many_arguments)]
 fn claim_sign_payload(
     claim_id: &str,
     claim_type: &str,
@@ -85,6 +87,7 @@ fn claim_sign_payload(
     subject_domain: &str,
     signing_domain: &str,
     expires_at: Option<&str>,
+    attested_at: &str,
 ) -> Vec<u8> {
     // Use a tuple for deterministic CBOR encoding.
     //
@@ -103,6 +106,7 @@ fn claim_sign_payload(
         subject.as_str(),
         signing_domain,
         expires_at,
+        attested_at,
     );
     let mut out = Vec::new();
     ciborium::ser::into_writer(&payload, &mut out)
@@ -123,6 +127,10 @@ pub struct ClaimSpec<'a> {
     /// this is the issuing IDP's own domain.
     pub subject_domain: &'a str,
     pub expires_at: Option<&'a str>,
+    /// The signed attestation time (RFC3339 UTC) — when this claim is being
+    /// signed. Caller-supplied and normalized to whole seconds so it round-trips
+    /// byte-identically through both DB backends (like `expires_at`).
+    pub attested_at: &'a str,
 }
 
 /// One signer of a claim: a single key, owned by `domain`, used to produce one
@@ -150,6 +158,7 @@ pub fn sign_claim(spec: &ClaimSpec<'_>, signers: &[ClaimSigner<'_>]) -> Result<C
             spec.subject_domain,
             signer.domain,
             spec.expires_at,
+            spec.attested_at,
         );
         let signature =
             crypto::sign_with_algorithm(signer.algorithm, &payload, signer.private_key_bytes)?;
@@ -166,6 +175,7 @@ pub fn sign_claim(spec: &ClaimSpec<'_>, signers: &[ClaimSigner<'_>]) -> Result<C
         claim_type: spec.claim_type.to_string(),
         claim_value: spec.claim_value.to_vec(),
         signatures,
+        attested_at: spec.attested_at.to_string(),
         created_at: Utc::now().to_rfc3339(),
         expires_at: spec.expires_at.map(|s| s.to_string()),
         revoked_at: None,
@@ -200,6 +210,13 @@ pub(crate) fn verify_one_signature(
         return Err(ClaimError::SignatureInvalid);
     }
 
+    // TODO(attested_at revocation window): a revoked key currently hard-rejects
+    // any signature. Now that a claim carries a SIGNED `attested_at`, this should
+    // become time-relative for stored attestations: a signature whose
+    // `attested_at` predates `key.revoked_at` stays trustworthy (the attestation
+    // was made while the key was good); one dated after the revocation does not.
+    // Requires threading the claim's `attested_at` into this per-signature check
+    // (or a claim-level pass). Live/replayable flows keep the hard reject.
     match crypto::signing_key_validity(&key.expires_at, key.revoked_at.as_deref()) {
         crypto::KeyValidity::Valid => {}
         crypto::KeyValidity::Revoked => return Err(ClaimError::KeyRevoked(key.key_id.clone())),
@@ -244,6 +261,7 @@ pub fn verify_claim_signatures(
             subject_domain,
             signing_domain,
             claim.expires_at.as_deref(),
+            &claim.attested_at,
         )
     })
 }
@@ -380,6 +398,7 @@ mod tests {
                 user_id: "user-123",
                 subject_domain: DOMAIN,
                 expires_at,
+                attested_at: "2020-01-01T00:00:00+00:00",
             },
             &[signer(key_id, sk)],
         )
@@ -516,6 +535,7 @@ mod tests {
                 user_id: "user-123",
                 subject_domain: DOMAIN,
                 expires_at: None,
+                attested_at: "2020-01-01T00:00:00+00:00",
             },
             &[],
         )
@@ -552,6 +572,7 @@ mod tests {
                 user_id: "user-123",
                 subject_domain: DOMAIN,
                 expires_at: None,
+                attested_at: "2020-01-01T00:00:00+00:00",
             },
             &[
                 signer("key-1", &sk1),
@@ -583,6 +604,7 @@ mod tests {
                 user_id: "user-123",
                 subject_domain: DOMAIN,
                 expires_at: None,
+                attested_at: "2020-01-01T00:00:00+00:00",
             },
             &[signer("key-1", &sk1), signer("key-2", &sk2)],
         )
@@ -611,6 +633,7 @@ mod tests {
                 user_id: "user-123",
                 subject_domain: DOMAIN,
                 expires_at: None,
+                attested_at: "2020-01-01T00:00:00+00:00",
             },
             &[
                 ClaimSigner {
@@ -686,6 +709,7 @@ mod tests {
                 user_id: "U",
                 subject_domain: "todandlorna.com",
                 expires_at: None,
+                attested_at: "2020-01-01T00:00:00+00:00",
             },
             &[ClaimSigner {
                 domain: "gov.example",

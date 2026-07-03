@@ -12,8 +12,8 @@ These are permanent workflow guidelines for working in this codebase. They apply
 ## Code Generation
 
 - Run `csilgen generate --input csil/linkkeys.csil --target rust --output crates/liblinkkeys/src/generated/` to regenerate types and service traits from CSIL.
-- Generated files are checked in but must be reproducible. Never hand-edit generated files — fix the generator or the CSIL instead.
-- If the generator lacks a capability we need, write a prompt describing the required change for a separate csilgen session. The csilgen repo lives at `~/repos/catalystcommunity/csilgen/` and has its own development lifecycle.
+- Generated files are checked in but must be reproducible. Never hand-edit generated files — fix the generator or the CSIL instead. Generated code must also work as emitted (idiomatic, rustfmt-clean, compiles); if it doesn't, that's a csilgen defect to fix there, not something to paper over in this repo.
+- If the generator lacks a capability we need, or emits something wrong, file a request in the csilgen repo's inbox — `~/repos/catalystcommunity/csilgen/docs/csilgen-requests/` (one markdown file per request, `Status:` line + the problem from our consumer perspective). That's where csilgen picks up work; do not create a `docs/csilgen-requests/` here.
 - Database models (diesel `Queryable`/`Insertable` structs) are in the server crate and may reference generated types from liblinkkeys but are not themselves generated yet. When a diesel generator exists, switch to it.
 
 ## Testing
@@ -37,13 +37,7 @@ These are permanent workflow guidelines for working in this codebase. They apply
 
 ## csilgen Change Requests
 
-When a change to csilgen is needed, create a markdown file in `docs/csilgen-requests/` describing:
-1. What the generator should do differently
-2. Why (with examples from linkkeys showing the gap)
-3. Expected input CSIL and expected output code
-4. Any test cases the csilgen change should include
-
-This file becomes the prompt handed to a separate session working in the csilgen repo.
+When a change to csilgen is needed, drop a markdown file in **the csilgen repo's inbox** — `~/repos/catalystcommunity/csilgen/docs/csilgen-requests/` (NOT anywhere in this repo). That directory is csilgen's documented inbox for requests from consumer repos, so the request is visible to whoever picks it up there. Follow that inbox's README: one file per request, a `Status:` line, and describe the problem from our (consumer) perspective — what's wrong/missing and the observable outcome we need — without prescribing csilgen internals. Include the CSIL that triggers it and a way to verify the fix.
 
 ## Environment Variables
 

@@ -536,6 +536,9 @@ fn build_domain_keys_response(pool: &DbPool) -> Result<GetDomainKeysResponse, St
     Ok(GetDomainKeysResponse {
         domain: get_domain_name(),
         keys: keys.iter().map(Into::into).collect(),
+        recent_revocations_available: Some(
+            crate::services::revocations::recent_revocations_available(pool),
+        ),
     })
 }
 

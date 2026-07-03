@@ -358,6 +358,7 @@ fn test_service_remove_claim() {
             user_id: &user.id,
             subject_domain: "test.com",
             expires_at: None,
+            attested_at: "2026-07-01T00:00:00+00:00",
         },
         &[liblinkkeys::claims::ClaimSigner {
             domain: "test.com",
@@ -375,6 +376,9 @@ fn test_service_remove_claim() {
             b"admin",
             &signed.signatures,
             None,
+            chrono::DateTime::parse_from_rfc3339("2026-07-01T00:00:00+00:00")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
         )
         .unwrap();
 
@@ -517,6 +521,60 @@ fn test_removed_relation_allows_re_grant() {
         .create_relation("user", &user.id, "admin", "domain", "regrant.com")
         .unwrap();
     assert_ne!(new_rel.id, rel.id);
+}
+
+// -- SEC-01: admin recheck-pins op gating --
+
+/// recheck-pins is admin-gated and requires the TCP carrier (outbound DNS). A
+/// non-admin is forbidden; an admin gets past authz to the carrier check.
+#[test]
+fn recheck_pins_requires_admin_and_tcp_carrier() {
+    std::env::set_var("DOMAIN_NAME", "test.com");
+    let pool = common::create_test_pool();
+    let domain = "test.com";
+    let payload =
+        liblinkkeys::generated::encode_recheck_pins_request(&RecheckPinsRequest { domain: None });
+
+    // Non-admin (manage_users only) -> forbidden.
+    let nonadmin = create_user(&pool, &DataMap::new());
+    create_relation(
+        &pool,
+        "user",
+        &nonadmin.id,
+        "manage_users",
+        "domain",
+        domain,
+    );
+    let (k1, h1) = auth::generate_api_key(&nonadmin.id);
+    create_auth_credential(&pool, &nonadmin.id, auth::CREDENTIAL_TYPE_API_KEY, &h1);
+    let (s_forbidden, _) = linkkeys::tcp::dispatch_for_test_authed(
+        "Admin",
+        "recheck-pins",
+        payload.clone(),
+        Some(&k1),
+        &pool,
+        None,
+    );
+    assert_ne!(s_forbidden, 0, "non-admin must be rejected");
+
+    // Admin passes authz but the test carrier provides no outbound DNS.
+    let admin = create_user(&pool, &DataMap::new());
+    create_relation(&pool, "user", &admin.id, "admin", "domain", domain);
+    let (k2, h2) = auth::generate_api_key(&admin.id);
+    create_auth_credential(&pool, &admin.id, auth::CREDENTIAL_TYPE_API_KEY, &h2);
+    let (s_carrier, _) = linkkeys::tcp::dispatch_for_test_authed(
+        "Admin",
+        "recheck-pins",
+        payload,
+        Some(&k2),
+        &pool,
+        None,
+    );
+    assert_ne!(s_carrier, 0, "recheck-pins needs the TCP carrier");
+    assert_ne!(
+        s_forbidden, s_carrier,
+        "forbidden (authz) and carrier-missing are distinct outcomes"
+    );
 }
 
 // -- SEC-08: key revocation --

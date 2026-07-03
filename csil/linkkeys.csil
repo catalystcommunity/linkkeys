@@ -111,7 +111,39 @@ DomainPublicKey = {
 
 GetDomainKeysResponse = {
     domain: text,
-    keys: [* DomainPublicKey]
+    keys: [* DomainPublicKey],
+    ;; SEC-08: set when the domain issued a key revocation within its recent
+    ;; window (admin-configurable, default 14 days). Signals a fetcher to pull
+    ;; get-revocations — no DNS change required. Optional for wire compatibility
+    ;; with older peers (absent == none recent).
+    ? recent_revocations_available: bool
+}
+
+;; SEC-08 revocation exchange. get-revocations returns the sibling-signed
+;; certificates the domain has issued, optionally bounded to those revoked at or
+;; after `since` (RFC3339 UTC; verifier default: last 6 months). A public read,
+;; like get-domain-keys — the certs are self-authenticating.
+GetRevocationsRequest = {
+    ? since: text
+}
+
+GetRevocationsResponse = {
+    revocations: [* RevocationCertificate]
+}
+
+;; SEC-01: admin-triggered TOFU pin recheck (an in-band trigger alongside the
+;; `linkkeys pins recheck` CLI). `domain` optional — omitted rechecks all pins.
+RecheckPinsRequest = {
+    ? domain: text
+}
+
+PinRecheckResult = {
+    domain: text,
+    outcome: text
+}
+
+RecheckPinsResponse = {
+    results: [* PinRecheckResult]
 }
 
 UserPublicKey = {
@@ -176,6 +208,12 @@ Claim = {
     claim_type: text,
     claim_value: bytes,
     signatures: [* ClaimSignature],
+    ;; SEC-08: the signed attestation time (RFC3339 UTC) — WHEN this claim was
+    ;; signed. Bound into every signature so it is tamper-evident. This is what a
+    ;; verifier compares against a signer key's revoked_at: a signature made
+    ;; before the key's revocation stays trustworthy; one dated after does not.
+    ;; (created_at below is DB-assigned and NOT signed.)
+    attested_at: text,
     created_at: text,
     ? expires_at: text,
     ? revoked_at: text
@@ -713,7 +751,8 @@ service Guestbook {
 }
 
 service DomainKeys {
-    get-domain-keys: EmptyRequest -> GetDomainKeysResponse
+    get-domain-keys: EmptyRequest -> GetDomainKeysResponse,
+    get-revocations: GetRevocationsRequest -> GetRevocationsResponse
 }
 
 service UserKeys {
@@ -749,7 +788,8 @@ service Admin {
     grant-relation: GrantRelationRequest -> GrantRelationResponse,
     remove-relation: RemoveRelationRequest -> RemoveRelationResponse,
     list-relations: ListRelationsRequest -> ListRelationsResponse,
-    check-permission: CheckPermissionRequest -> CheckPermissionResponse
+    check-permission: CheckPermissionRequest -> CheckPermissionResponse,
+    recheck-pins: RecheckPinsRequest -> RecheckPinsResponse
 }
 
 service Account {
