@@ -473,10 +473,8 @@ fn domain_emit_revocation_cert(
         .filter(|k| k.key_usage == "sign" && k.id != revoked.id)
         .collect();
     let active_signers =
-        match linkkeys::claim_signing::active_signers(&signer_keys, passphrase.as_bytes()) {
-            Ok(s) => s,
-            Err(_) => Vec::new(),
-        };
+        linkkeys::claim_signing::active_signers(&signer_keys, passphrase.as_bytes())
+            .unwrap_or_default();
     if active_signers.len() < REVOCATION_QUORUM {
         eprintln!(
             "Note: only {} sibling signing key(s) remain; need {} to co-sign a revocation certificate. \
