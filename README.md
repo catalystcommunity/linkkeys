@@ -51,3 +51,5 @@ The dev Postgres container (`postgres:17`, user/password `devuser`/`devpass`, da
 ## Testing & CI
 
 Tests run against a real database inside a transaction that rolls back — no mocks for the database layer. Every test gets its own transaction, so the suite parallelizes safely. CI (`.reactorcide/jobs/test-postgres.yaml` and `test-sqlite.yaml`) runs both backends; `./tools.sh test-all` reproduces that locally. See [`AGENTS.md`](AGENTS.md) for the full testing and architecture conventions.
+
+Of course, we use [Reactorcide](https://github.com/catalystcommunity/reactorcide/) for our CI/CD.

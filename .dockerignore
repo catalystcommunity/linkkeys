@@ -1,0 +1,32 @@
+# Build-context hygiene for the root-context image builds.
+#
+# The server and demoappsite Dockerfiles build from the repo root and COPY only
+# specific paths (Cargo.toml, Cargo.lock, crates/, demoappsite/, csil/,
+# migrations/). buildctl otherwise tars the ENTIRE clone as context on every
+# release — including .git and build output — which bloats the transfer and
+# invalidates buildkit's cache. Exclude everything no Dockerfile copies. Nothing
+# here is referenced by any COPY, so this only shrinks the context; it never
+# removes a build input.
+.git
+.gitignore
+
+# Cargo build output (absent in a fresh CI clone, huge locally).
+target
+**/target
+
+# Local tooling / editor / scratch state.
+.claude
+.codex
+.agents
+.playwright-mcp
+scratch
+
+# CI definitions, security notes, docs, deploy overlays, and the website tree —
+# none are build inputs for the root-context images (the website has its own
+# build context under website/).
+.reactorcide
+sec-explore
+docs
+deploy
+website
+helm_chart
