@@ -57,7 +57,10 @@ else
   git remote set-url origin "https://x-access-token:${GITHUB_PAT}@github.com/${REACTORCIDE_REPO}.git"
   git add helm_chart/Chart.yaml website/content/extra_files/VERSION.txt demoappsite/helm/Chart.yaml demoappsite/version/VERSION.txt version/VERSION.txt
   git commit -m "ci: bump version to ${VERSION}" || echo "No version changes to commit"
-  git push || echo "Push failed, continuing with release"
+  # The CI checkout is a detached HEAD at the merged commit, so a bare `git push`
+  # has no upstream branch. Push the bump commit explicitly to main — the release
+  # only triggers on merges to main (see release.yaml), so that is the target.
+  git push origin HEAD:main || echo "Push failed, continuing with release"
 fi
 
 # -------------------------------------------------------------------
@@ -70,7 +73,10 @@ RELEASE_DIR="/tmp/release"
 mkdir -p "${RELEASE_DIR}"
 
 ARCHIVE_NAME="linkkeys-${VERSION}-linux-amd64"
-tar -czf "${RELEASE_DIR}/${ARCHIVE_NAME}.tar.gz" -C target/release linkkeys
+# Honor CARGO_TARGET_DIR: release.yaml (and the other CI jobs) redirect cargo's
+# output to /tmp/linkkeys-target, so the binary is NOT under ./target. Default to
+# ./target when it isn't overridden.
+tar -czf "${RELEASE_DIR}/${ARCHIVE_NAME}.tar.gz" -C "${CARGO_TARGET_DIR:-target}/release" linkkeys
 
 # -------------------------------------------------------------------
 # 5. Install gh CLI and create GitHub release
