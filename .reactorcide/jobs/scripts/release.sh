@@ -87,12 +87,6 @@ else
     fi
     echo "=== main advanced; re-basing the bump onto the latest main (attempt ${n}/${push_attempts}) ==="
     git fetch --tags --prune --force origin "+refs/heads/main:refs/remotes/origin/main"
-    # If our exact tag already exists, a concurrent release published this version
-    # first — don't clobber it or create a duplicate.
-    if git ls-remote --exit-code --tags origin "refs/tags/${NEW_TAG}" >/dev/null 2>&1; then
-      echo "${NEW_TAG} was already published by a concurrent release; nothing to do."
-      exit 0
-    fi
     git reset --hard origin/main
     apply_version_files
     # shellcheck disable=SC2086
@@ -127,14 +121,13 @@ if [ "${SKIP_GITHUB:-false}" = "true" ]; then
   echo "=== SKIP_GITHUB=true: skipping GitHub release create ==="
   echo "=== Built artifact left in ${RELEASE_DIR} for inspection ==="
 else
-  # A concurrent release may have published this tag already (e.g. our push was a
-  # no-op because it produced the identical bump commit). Don't fail trying to
-  # re-create it.
-  if git ls-remote --exit-code --tags origin "refs/tags/${NEW_TAG}" >/dev/null 2>&1; then
-    echo "=== ${NEW_TAG} already exists on the remote; skipping release create ==="
-    exit 0
-  fi
-
+  # NOTE: do NOT guard on "tag already exists" here. `semver-tags run` (step 2)
+  # created and pushed the ${NEW_TAG} tag before we got here, so the tag ALWAYS
+  # exists at this point — guarding on it would skip release creation every time
+  # (which is the bug that left tags without GitHub Releases). semver-tags is also
+  # what makes this idempotent: on a re-run of an already-released version it
+  # reports no new release and we exit back in step 2, so we only reach here for a
+  # genuinely new release. Create the GitHub Release for the tag + attach the binary.
   echo "=== Creating GitHub release ==="
   wget -q "https://github.com/cli/cli/releases/download/v${GHCLI_VERSION}/gh_${GHCLI_VERSION}_linux_amd64.tar.gz" -O /tmp/gh.tar.gz
   tar -xzf /tmp/gh.tar.gz -C /tmp
