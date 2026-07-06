@@ -8,6 +8,7 @@ pub mod dns;
 pub mod domain_claims;
 pub mod encoding;
 pub mod generated;
+pub mod i18n;
 pub mod revocation;
 pub mod signing_request;
 pub mod userinfo;

@@ -592,3 +592,23 @@ pub struct RpIssueAttestationResponse {
     pub claim: Claim,
     pub deposited: bool,
 }
+
+pub type LocaleMessages = std::collections::HashMap<String, String>;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TranslationsRequest {
+    pub locale: Option<String>,
+    pub accept_language: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TranslationsResponse {
+    pub locale: String,
+    pub available_locales: Vec<String>,
+    pub messages: LocaleMessages,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListLocalesResponse {
+    pub available_locales: Vec<String>,
+}

@@ -186,10 +186,36 @@ async fn consent_flow_end_to_end() {
     assert_eq!(resp.status(), Status::Ok);
     let consent_html = resp.into_string().await.unwrap();
     assert!(
-        consent_html.contains("Share your information"),
+        consent_html.contains("What do you want to share with"),
         "consent screen renders"
     );
     let proof = hidden_field(&consent_html, "login_proof");
+
+    // 3b. Cancel must issue nothing: a neutral notice page, no redirect, no
+    //     sealed token. It short-circuits before any grant is written.
+    let resp = client
+        .post("/auth/consent")
+        .header(ContentType::Form)
+        .body(format!(
+            "signed_request={}&login_proof={}&decision=cancel",
+            sr, proof
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(
+        resp.status(),
+        Status::Ok,
+        "cancel renders a notice, not a redirect"
+    );
+    assert!(
+        resp.headers().get_one("Location").is_none(),
+        "cancel must not redirect to any callback"
+    );
+    let cancel_html = resp.into_string().await.unwrap();
+    assert!(
+        cancel_html.contains("cancelled"),
+        "cancel shows a cancelled notice"
+    );
 
     // 4. POST consent declining the required claim. The IDP preserves the
     //    user's choice and redirects; the RP/app decides whether missing
@@ -273,7 +299,7 @@ async fn consent_flow_end_to_end() {
     assert_eq!(resp.status(), Status::Ok);
     let update_consent_html = resp.into_string().await.unwrap();
     assert!(
-        update_consent_html.contains("This is an updated claim request"),
+        update_consent_html.contains("This is an updated request"),
         "claims-update context is displayed"
     );
     assert!(

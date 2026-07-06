@@ -36,21 +36,15 @@ fn parse_type_list(types: &str) -> Vec<String> {
         .collect()
 }
 
-use super::account_ui::{build_nav, flash_html, get_session_user_id, is_user_admin, layout};
-
-/// The verified-state badge for a claim the user holds (or lack of one).
-fn value_badge(signed: bool) -> &'static str {
-    if signed {
-        r#"<span class="badge badge-active">Verified ✓</span>"#
-    } else {
-        r#"<span class="badge badge-inactive">Not verified</span>"#
-    }
-}
+use super::account_ui::{
+    build_nav, flash_html, get_session_user_id, is_user_admin, layout_with_locale,
+};
 
 #[rocket::get("/account/identity?<msg>&<error>")]
 pub fn identity_editor(
     pool: &State<DbPool>,
     cookies: &CookieJar<'_>,
+    locale: super::guard::Locale,
     msg: Option<&str>,
     error: Option<&str>,
 ) -> Result<RawHtml<String>, Box<Redirect>> {
@@ -58,6 +52,8 @@ pub fn identity_editor(
         Some(id) => id,
         None => return Err(Box::new(Redirect::found("/account/login"))),
     };
+    let loc = locale.0.as_str();
+    use liblinkkeys::i18n::t;
     // The default profile shares the account id; per-profile claim keying for
     // additional personas is still pending, so the editor operates on it.
     let subject_id = account_id.clone();
@@ -96,11 +92,32 @@ pub fn identity_editor(
     let mut rows = String::new();
     for p in &policies {
         let (value, signed) = current(&p.claim_type).unwrap_or((String::new(), false));
+        // Locale-resolved human name/description for this claim type (DB
+        // override -> built-in translation -> registry default).
+        let (label, description) = pool
+            .resolved_label(&p.claim_type, loc)
+            .unwrap_or_else(|_| (p.label.clone(), p.description.clone()));
         let signable = p.signing_rule == "self_signed" || p.signing_rule == "verified";
+        // Two-state model: a stored value is either "Confirmed by {domain}"
+        // (signed) or "You added this" (self-asserted). No crypto vocabulary.
         let badge = if current(&p.claim_type).is_some() {
-            value_badge(signed)
+            if signed {
+                format!(
+                    r#"<span class="badge badge-active">{}</span>"#,
+                    html_escape(&liblinkkeys::i18n::t_with(
+                        loc,
+                        "identity.confirmed_by",
+                        &[("who", &get_domain_name())]
+                    ))
+                )
+            } else {
+                format!(
+                    r#"<span class="badge badge-inactive">{}</span>"#,
+                    html_escape(t(loc, "identity.you_added"))
+                )
+            }
         } else {
-            ""
+            String::new()
         };
         // Auto-sign toggle only where signing is possible.
         let auto_sign_field = if signable {
@@ -110,18 +127,19 @@ pub fn identity_editor(
                 ""
             };
             format!(
-                r#"<label style="font-weight:normal"><input type="checkbox" name="auto_sign" value="1" {checked}/> Keep this verified</label>"#,
-                checked = checked
+                r#"<label style="font-weight:normal"><input type="checkbox" name="auto_sign" value="1" {checked}/> {keep}</label>"#,
+                checked = checked,
+                keep = html_escape(t(loc, "identity.keep_verified")),
             )
         } else {
             String::new()
         };
-        let hint = if p.description.is_empty() {
+        let hint = if description.is_empty() {
             String::new()
         } else {
             format!(
                 r#"<div style="color:#666;font-size:0.85em">{}</div>"#,
-                html_escape(&p.description)
+                html_escape(&description)
             )
         };
         let share_checked = if any_domain.contains(&p.claim_type) {
@@ -140,26 +158,32 @@ pub fn identity_editor(
     <input type="text" name="value" value="{value}" placeholder="{label}"/>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
       {auto_sign}
-      <button type="submit" class="btn-primary">Save</button>
+      <button type="submit" class="btn-primary">{save}</button>
     </div>
   </form>
   <form method="POST" action="/account/identity/share" style="margin-top:6px">
     <input type="hidden" name="claim_type" value="{ct}"/>
-    <label style="font-weight:normal"><input type="checkbox" name="share_any" value="1" {share_checked} onchange="this.form.submit()"/> Share with any domain automatically</label>
-    <noscript><button type="submit">Update sharing</button></noscript>
+    <label style="font-weight:normal"><input type="checkbox" name="share_any" value="1" {share_checked} onchange="this.form.submit()"/> {share_any}</label>
+    <noscript><button type="submit">{update_sharing}</button></noscript>
   </form>
 </div>"#,
             ct = html_escape(&p.claim_type),
-            label = html_escape(&p.label),
+            label = html_escape(&label),
             badge = badge,
             hint = hint,
             value = html_escape(&value),
             auto_sign = auto_sign_field,
             share_checked = share_checked,
+            share_any = html_escape(t(loc, "identity.share_any")),
+            update_sharing = html_escape(t(loc, "identity.update_sharing")),
+            save = html_escape(t(loc, "identity.save")),
         ));
     }
     if policies.is_empty() {
-        rows.push_str("<p>Your domain hasn't enabled any self-service claims yet.</p>");
+        rows.push_str(&format!(
+            "<p>{}</p>",
+            html_escape(t(loc, "identity.no_policies"))
+        ));
     }
 
     // Multi-profile section only when the operator has raised the cap.
@@ -174,13 +198,17 @@ pub fn identity_editor(
             ));
         }
         format!(
-            r#"<h2>Profiles</h2>
-<p>Separate personas you can present to different sites. Linkage between them is yours to reveal — never the system's.</p>
+            r#"<h2>{title}</h2>
+<p>{intro}</p>
 <ul>{list}</ul>
 <form method="POST" action="/account/profiles/create">
-  <input type="text" name="label" placeholder="New profile label"/>
-  <button type="submit" class="btn-primary">Create profile</button>
+  <input type="text" name="label" placeholder="{placeholder}"/>
+  <button type="submit" class="btn-primary">{create}</button>
 </form>"#,
+            title = html_escape(t(loc, "identity.profiles_title")),
+            intro = html_escape(t(loc, "identity.profiles_intro")),
+            placeholder = html_escape(t(loc, "identity.new_profile_placeholder")),
+            create = html_escape(t(loc, "identity.create_profile")),
             list = list,
         )
     } else {
@@ -195,52 +223,79 @@ pub fn identity_editor(
     for c in &claims {
         let claim: liblinkkeys::generated::types::Claim = c.into();
         let v = attestation::verify_stored_claim(pool.inner(), &claim);
-        let badge = if v.verified {
-            r#"<span class="badge badge-active">Verified ✓</span>"#
+        let label = pool
+            .resolved_label(&v.claim_type, loc)
+            .map(|(l, _)| l)
+            .unwrap_or_else(|_| v.claim_type.clone());
+        // Two-state model: "Confirmed by X" names who vouches (plain text),
+        // otherwise "You added this".
+        let status = if v.verified && !v.signed_by.is_empty() {
+            format!(
+                r#"<span class="badge badge-active">{}</span>"#,
+                html_escape(&liblinkkeys::i18n::t_with(
+                    loc,
+                    "identity.confirmed_by",
+                    &[("who", &v.signed_by.join(", "))]
+                ))
+            )
         } else {
-            r#"<span class="badge badge-inactive">Unverified</span>"#
-        };
-        let signers = if v.signed_by.is_empty() {
-            "self-asserted".to_string()
-        } else {
-            v.signed_by.join(", ")
+            format!(
+                r#"<span class="badge badge-inactive">{}</span>"#,
+                html_escape(t(loc, "identity.you_added"))
+            )
         };
         creds.push_str(&format!(
-            "<tr><td><code>{ct}</code></td><td>{val}</td><td>{badge}</td><td>{signers}</td></tr>",
-            ct = html_escape(&v.claim_type),
+            "<tr><td>{label}</td><td>{val}</td><td>{status}</td></tr>",
+            label = html_escape(&label),
             val = html_escape(&v.value),
-            badge = badge,
-            signers = html_escape(&signers),
+            status = status,
         ));
     }
     let creds_section = if creds.is_empty() {
         String::new()
     } else {
         format!(
-            r#"<h2>Verified credentials</h2>
-<p>What you hold and who vouches for each — checked live against the signer's keys.</p>
-<table><tr><th>Claim</th><th>Value</th><th>Status</th><th>Signed by</th></tr>{creds}</table>"#,
+            r#"<h2>{title}</h2>
+<p>{intro}</p>
+<table><tr><th>{claim_col}</th><th>{value_col}</th><th>{status_col}</th></tr>{creds}</table>"#,
+            title = html_escape(t(loc, "identity.verified_credentials_title")),
+            intro = html_escape(t(loc, "identity.verified_credentials_intro")),
+            claim_col = html_escape(t(loc, "account.type_col")),
+            value_col = html_escape(t(loc, "account.value_col")),
+            status_col = html_escape(t(loc, "account.status_label")),
             creds = creds,
         )
     };
 
     let content = format!(
         r#"{flash}
-<h1>My Identity</h1>
-<p>Fill in what you'd like to be able to share. A <span class="badge badge-active">Verified ✓</span> badge means <strong>{domain}</strong> has checked and signed the value, so sites can trust it came from your domain.</p>
+<h1>{title}</h1>
+<p>{intro}</p>
 {rows}
-<p><a href="/account/request-verification">Request verification from a third party →</a></p>
+<p><a href="/account/request-verification">{request_link}</a></p>
 {creds_section}
 {profiles}
-<p><a href="/account">Back to Account</a></p>"#,
+<p><a href="/account">{back}</a></p>"#,
         flash = flash,
-        domain = html_escape(&get_domain_name()),
+        title = html_escape(t(loc, "identity.title")),
+        intro = html_escape(&liblinkkeys::i18n::t_with(
+            loc,
+            "identity.intro",
+            &[("domain", &get_domain_name())]
+        )),
+        request_link = html_escape(t(loc, "identity.request_verification_link")),
+        back = html_escape(t(loc, "identity.back_to_account")),
         rows = rows,
         creds_section = creds_section,
         profiles = profiles_section,
     );
 
-    Ok(layout("My Identity", &nav, &content))
+    Ok(layout_with_locale(
+        t(loc, "identity.title"),
+        &nav,
+        &content,
+        loc,
+    ))
 }
 
 #[derive(rocket::FromForm)]
@@ -379,6 +434,7 @@ pub fn set_share_submit(
 pub fn request_verification(
     pool: &State<DbPool>,
     cookies: &CookieJar<'_>,
+    locale: super::guard::Locale,
     issuer: Option<&str>,
     types: Option<&str>,
     error: Option<&str>,
@@ -387,6 +443,8 @@ pub fn request_verification(
         Some(id) => id,
         None => return Err(Box::new(Redirect::found("/account/login"))),
     };
+    let loc = locale.0.as_str();
+    use liblinkkeys::i18n::{t, t_with};
     let admin = is_user_admin(pool.inner(), &account_id);
     let nav = build_nav("identity", admin, true);
     let flash = flash_html(None, error);
@@ -412,14 +470,20 @@ pub fn request_verification(
                         urlencoding::encode(&types_val)
                     );
                     result = format!(
-                        r#"<h2>Your verification request</h2>
-<p>Show this to <strong>{issuer}</strong>, or save/print it. It asks them to attest: <strong>{types}</strong>. Valid for a couple of days.</p>
+                        r#"<h2>{result_title}</h2>
+<p>{result_body}</p>
 <div style="max-width:260px">{qr}</div>
-<p><a href="{dl}">Download as a file</a></p>
-<label>Or copy this text</label>
+<p><a href="{dl}">{download}</a></p>
+<label>{copy}</label>
 <textarea readonly rows="4" style="width:100%">{b64}</textarea>"#,
-                        issuer = html_escape(&issuer_val),
-                        types = html_escape(&types_val),
+                        result_title = html_escape(t(loc, "verify.result_title")),
+                        result_body = html_escape(&t_with(
+                            loc,
+                            "verify.result_body",
+                            &[("issuer", &issuer_val), ("types", &types_val)]
+                        )),
+                        download = html_escape(t(loc, "verify.download_link")),
+                        copy = html_escape(t(loc, "verify.copy_label")),
                         qr = qr,
                         dl = dl,
                         b64 = html_escape(&b64),
@@ -434,24 +498,36 @@ pub fn request_verification(
 
     let content = format!(
         r#"{flash}
-<h1>Request verification</h1>
-<p>Ask a trusted third party (a government office, a company, even a neighbor) to
-attest something about you. They sign it; anyone can later verify their signature.</p>
+<h1>{title}</h1>
+<p>{intro}</p>
 <form method="GET" action="/account/request-verification">
-  <label>Who will attest (their domain)</label>
-  <input type="text" name="issuer" value="{issuer}" placeholder="dmv.example"/>
-  <label>What to attest (comma-separated)</label>
-  <input type="text" name="types" value="{types}" placeholder="age_over_21, legal_name"/>
-  <br/><br/><button type="submit" class="btn-primary">Create request</button>
+  <label>{issuer_label}</label>
+  <input type="text" name="issuer" value="{issuer}" placeholder="{issuer_ph}"/>
+  <label>{types_label}</label>
+  <input type="text" name="types" value="{types}" placeholder="{types_ph}"/>
+  <br/><br/><button type="submit" class="btn-primary">{submit}</button>
 </form>
 {result}
-<p><a href="/account/identity">Back to My Identity</a></p>"#,
+<p><a href="/account/identity">{back}</a></p>"#,
         flash = flash,
+        title = html_escape(t(loc, "verify.title")),
+        intro = html_escape(t(loc, "verify.intro")),
+        issuer_label = html_escape(t(loc, "verify.issuer_label")),
+        issuer_ph = html_escape(t(loc, "verify.issuer_placeholder")),
+        types_label = html_escape(t(loc, "verify.types_label")),
+        types_ph = html_escape(t(loc, "verify.types_placeholder")),
+        submit = html_escape(t(loc, "verify.submit")),
+        back = html_escape(t(loc, "verify.back_to_identity")),
         issuer = html_escape(&issuer_val),
         types = html_escape(&types_val),
         result = result,
     );
-    Ok(layout("Request Verification", &nav, &content))
+    Ok(layout_with_locale(
+        t(loc, "verify.title"),
+        &nav,
+        &content,
+        loc,
+    ))
 }
 
 /// Raw CBOR(SignedSigningRequest) download of the same request.

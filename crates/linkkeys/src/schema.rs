@@ -190,6 +190,17 @@ pub mod pg {
     }
 
     diesel::table! {
+        claim_type_label_i18n (claim_type, locale) {
+            claim_type -> Varchar,
+            locale -> Varchar,
+            label -> Varchar,
+            description -> Nullable<Varchar>,
+            created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
         trusted_issuers (claim_type, issuer_domain) {
             claim_type -> Varchar,
             issuer_domain -> Varchar,
@@ -305,6 +316,7 @@ pub mod pg {
         consent_grants,
         profiles,
         claim_type_policies,
+        claim_type_label_i18n,
         trusted_issuers,
         profile_claim_prefs,
         release_policies,
@@ -506,6 +518,17 @@ pub mod sqlite {
     }
 
     diesel::table! {
+        claim_type_label_i18n (claim_type, locale) {
+            claim_type -> Text,
+            locale -> Text,
+            label -> Text,
+            description -> Nullable<Text>,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
         trusted_issuers (claim_type, issuer_domain) {
             claim_type -> Text,
             issuer_domain -> Text,
@@ -621,6 +644,7 @@ pub mod sqlite {
         consent_grants,
         profiles,
         claim_type_policies,
+        claim_type_label_i18n,
         trusted_issuers,
         profile_claim_prefs,
         release_policies,

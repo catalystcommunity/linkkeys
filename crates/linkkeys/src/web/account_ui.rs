@@ -92,10 +92,32 @@ fn clear_session(cookies: &CookieJar<'_>) {
 
 // -- Layout helpers --
 
+/// Writing direction for a locale's primary subtag. Only the RTL scripts we're
+/// likely to ship need naming; everything else is left-to-right. Keeps the HTML
+/// correct for future community translations without waiting on one to land.
+pub(super) fn text_direction(locale: &str) -> &'static str {
+    let lang = locale.split(['-', '_']).next().unwrap_or(locale);
+    match lang {
+        "ar" | "he" | "fa" | "ur" | "ps" | "syr" | "dv" | "yi" => "rtl",
+        _ => "ltr",
+    }
+}
+
+/// The en-US layout. Kept for pages not yet localised; localised pages call
+/// [`layout_with_locale`] so the `<html lang/dir>` reflects the reader's locale.
 pub(super) fn layout(title: &str, nav_html: &str, content: &str) -> RawHtml<String> {
+    layout_with_locale(title, nav_html, content, liblinkkeys::i18n::EN_US)
+}
+
+pub(super) fn layout_with_locale(
+    title: &str,
+    nav_html: &str,
+    content: &str,
+    locale: &str,
+) -> RawHtml<String> {
     RawHtml(format!(
         r#"<!DOCTYPE html>
-<html>
+<html lang="{lang}" dir="{dir}">
 <head><title>{title} — LinkKeys</title>
 <style>
 body {{ font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; }}
@@ -127,6 +149,8 @@ h1 {{ margin-top: 0; }}
 {content}
 </body>
 </html>"#,
+        lang = html_escape(locale),
+        dir = text_direction(locale),
         title = title,
         nav = nav_html,
         content = content,
@@ -271,6 +295,7 @@ pub fn logout(_csrf: super::guard::SameOriginPost, cookies: &CookieJar<'_>) -> R
 pub fn account_dashboard(
     pool: &State<DbPool>,
     cookies: &CookieJar<'_>,
+    locale: super::guard::Locale,
     msg: Option<&str>,
     error: Option<&str>,
 ) -> Result<RawHtml<String>, Box<Redirect>> {
@@ -278,6 +303,8 @@ pub fn account_dashboard(
         Some(id) => id,
         None => return Err(Box::new(Redirect::found("/account/login"))),
     };
+    let loc = locale.0.as_str();
+    use liblinkkeys::i18n::t;
 
     let info = match account::get_my_info(pool.inner(), &user_id) {
         Ok(i) => i,
@@ -293,55 +320,65 @@ pub fn account_dashboard(
     let nav = build_nav("account", admin, true);
     let flash = flash_html(msg, error);
 
-    let mut claims_html = String::from(
-        r#"<h2>My Claims</h2>
-<table><tr><th>Type</th><th>Value</th><th>Expires</th></tr>"#,
-    );
-    for claim in &info.claims {
-        let value_str = String::from_utf8(claim.claim_value.clone())
-            .unwrap_or_else(|_| format!("{:?}", claim.claim_value));
-        claims_html.push_str(&format!(
-            "<tr><td>{}</td><td>{}</td><td>{}</td></tr>",
-            html_escape(&claim.claim_type),
-            html_escape(&value_str),
-            html_escape(claim.expires_at.as_deref().unwrap_or("never")),
-        ));
-    }
-    claims_html.push_str("</table>");
-    if info.claims.is_empty() {
-        claims_html = String::from("<h2>My Claims</h2><p>No claims.</p>");
-    }
-
-    let mut relations_html = String::from(
-        r#"<h2>My Relations</h2>
-<table><tr><th>Relation</th><th>Object Type</th><th>Object ID</th></tr>"#,
-    );
-    for rel in &info.relations {
-        relations_html.push_str(&format!(
-            "<tr><td>{}</td><td>{}</td><td>{}</td></tr>",
-            html_escape(&rel.relation),
-            html_escape(&rel.object_type),
-            html_escape(&rel.object_id),
-        ));
-    }
-    relations_html.push_str("</table>");
-    if info.relations.is_empty() {
-        relations_html = String::from("<h2>My Relations</h2><p>No relations.</p>");
-    }
+    // Show each claim by its human, locale-resolved name — never the raw
+    // machine claim_type. The internal "relations" (authz tuples) are omitted
+    // from this end-user view entirely; they carry no user-facing meaning.
+    let claims_html = if info.claims.is_empty() {
+        format!(
+            "<h2>{}</h2><p>{}</p>",
+            html_escape(t(loc, "account.my_claims")),
+            html_escape(t(loc, "account.no_claims")),
+        )
+    } else {
+        let mut h = format!(
+            r#"<h2>{title}</h2>
+<table><tr><th>{type_col}</th><th>{value_col}</th><th>{expires_col}</th></tr>"#,
+            title = html_escape(t(loc, "account.my_claims")),
+            type_col = html_escape(t(loc, "account.type_col")),
+            value_col = html_escape(t(loc, "account.value_col")),
+            expires_col = html_escape(t(loc, "account.expires_col")),
+        );
+        for claim in &info.claims {
+            let value_str = String::from_utf8(claim.claim_value.clone())
+                .unwrap_or_else(|_| format!("{:?}", claim.claim_value));
+            let label = pool
+                .resolved_label(&claim.claim_type, loc)
+                .map(|(l, _)| l)
+                .unwrap_or_else(|_| claim.claim_type.clone());
+            h.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td><td>{}</td></tr>",
+                html_escape(&label),
+                html_escape(&value_str),
+                html_escape(
+                    claim
+                        .expires_at
+                        .as_deref()
+                        .unwrap_or_else(|| t(loc, "account.never"))
+                ),
+            ));
+        }
+        h.push_str("</table>");
+        h
+    };
 
     let content = format!(
         r#"{flash}
-<h1>Account Dashboard</h1>
+<h1>{title}</h1>
 <div class="info">
-  <p><strong>Username:</strong> {username}</p>
-  <p><strong>Display Name:</strong> {display_name}</p>
-  <p><strong>User ID:</strong> <code>{user_id}</code></p>
-  <p><strong>Status:</strong> {status}</p>
+  <p><strong>{username_label}:</strong> {username}</p>
+  <p><strong>{display_name_label}:</strong> {display_name}</p>
+  <p><strong>{user_id_label}:</strong> <code>{user_id}</code></p>
+  <p><strong>{status_label}:</strong> {status}</p>
 </div>
-<p><a href="/account/change-password">Change Password</a></p>
-{claims}
-{relations}"#,
+<p><a href="/account/change-password">{change_password}</a></p>
+{claims}"#,
         flash = flash,
+        title = html_escape(t(loc, "account.title")),
+        username_label = html_escape(t(loc, "account.username_label")),
+        display_name_label = html_escape(t(loc, "account.display_name_label")),
+        user_id_label = html_escape(t(loc, "account.user_id_label")),
+        status_label = html_escape(t(loc, "account.status_label")),
+        change_password = html_escape(t(loc, "account.change_password_link")),
         username = html_escape(&info.user.username),
         display_name = html_escape(&info.user.display_name),
         user_id = html_escape(&info.user.id),
@@ -351,10 +388,9 @@ pub fn account_dashboard(
             r#"<span class="badge badge-inactive">Inactive</span>"#
         },
         claims = claims_html,
-        relations = relations_html,
     );
 
-    Ok(layout("Account", &nav, &content))
+    Ok(layout_with_locale("Account", &nav, &content, loc))
 }
 
 // -- Change Password --

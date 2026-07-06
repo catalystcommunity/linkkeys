@@ -123,6 +123,23 @@ pub trait Handshake {
     ) -> Result<HandshakeResponse, ServiceError>;
 }
 
+/// I18n service trait
+pub trait I18n {
+    type Context;
+    /// get-translations (request/response).
+    fn get_translations(
+        &self,
+        ctx: &Self::Context,
+        input: TranslationsRequest,
+    ) -> Result<TranslationsResponse, ServiceError>;
+    /// list-locales (request/response).
+    fn list_locales(
+        &self,
+        ctx: &Self::Context,
+        input: EmptyRequest,
+    ) -> Result<ListLocalesResponse, ServiceError>;
+}
+
 /// Admin service trait
 pub trait Admin {
     type Context;

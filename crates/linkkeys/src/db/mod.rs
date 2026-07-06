@@ -1329,6 +1329,111 @@ impl DbPool {
         }
     }
 
+    // -- Per-locale claim-type labels (operator overrides of the built-in
+    // liblinkkeys i18n catalog) --
+
+    pub fn list_claim_labels_i18n(
+        &self,
+        claim_type: &str,
+    ) -> QueryResult<Vec<models::ClaimLabelI18n>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                claim_policy::pg::list_claim_labels(&mut *pg_conn(p)?, claim_type)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                claim_policy::sqlite::list_claim_labels(&mut *sqlite_conn(p)?, claim_type)
+            }
+        }
+    }
+
+    pub fn find_claim_label_i18n(
+        &self,
+        claim_type: &str,
+        locale: &str,
+    ) -> QueryResult<Option<models::ClaimLabelI18n>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                claim_policy::pg::find_claim_label(&mut *pg_conn(p)?, claim_type, locale)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                claim_policy::sqlite::find_claim_label(&mut *sqlite_conn(p)?, claim_type, locale)
+            }
+        }
+    }
+
+    pub fn upsert_claim_label_i18n(&self, label: models::ClaimLabelI18n) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => claim_policy::pg::upsert_claim_label(&mut *pg_conn(p)?, label),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                claim_policy::sqlite::upsert_claim_label(&mut *sqlite_conn(p)?, label)
+            }
+        }
+    }
+
+    pub fn delete_claim_label_i18n(&self, claim_type: &str, locale: &str) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                claim_policy::pg::delete_claim_label(&mut *pg_conn(p)?, claim_type, locale)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                claim_policy::sqlite::delete_claim_label(&mut *sqlite_conn(p)?, claim_type, locale)
+            }
+        }
+    }
+
+    /// Resolve the human label + description to show for `claim_type` in
+    /// `locale`, in order: this domain's own per-locale override (exact locale,
+    /// then its language-only form, then its own `en-US` row) -> the built-in
+    /// `liblinkkeys::i18n` catalog (`claim.<type>.label` / `.description`,
+    /// which applies its own locale -> language -> en-US fallback) -> the base
+    /// `ClaimTypePolicy.label`/`.description` this domain registered -> the
+    /// raw claim_type as an absolute last resort (an unregistered type).
+    pub fn resolved_label(&self, claim_type: &str, locale: &str) -> QueryResult<(String, String)> {
+        let overrides = self.list_claim_labels_i18n(claim_type)?;
+        let lang = locale.split(['-', '_']).next().unwrap_or(locale);
+        let db_row = overrides
+            .iter()
+            .find(|l| l.locale.eq_ignore_ascii_case(locale))
+            .or_else(|| {
+                overrides
+                    .iter()
+                    .find(|l| l.locale.eq_ignore_ascii_case(lang))
+            })
+            .or_else(|| {
+                overrides
+                    .iter()
+                    .find(|l| l.locale.eq_ignore_ascii_case(liblinkkeys::i18n::EN_US))
+            });
+        if let Some(row) = db_row {
+            return Ok((
+                row.label.clone(),
+                row.description.clone().unwrap_or_default(),
+            ));
+        }
+
+        let label_key = format!("claim.{claim_type}.label");
+        let desc_key = format!("claim.{claim_type}.description");
+        let builtin_label = liblinkkeys::i18n::t(locale, &label_key);
+        if builtin_label != label_key {
+            let desc = liblinkkeys::i18n::t(locale, &desc_key);
+            let desc = if desc == desc_key { "" } else { desc };
+            return Ok((builtin_label.to_string(), desc.to_string()));
+        }
+
+        match self.find_claim_policy(claim_type)? {
+            Some(policy) => Ok((policy.label, policy.description)),
+            None => Ok((claim_type.to_string(), String::new())),
+        }
+    }
+
     pub fn get_profile_pref(
         &self,
         profile_id: &str,
