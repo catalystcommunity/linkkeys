@@ -1682,6 +1682,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "serde_bytes",
+ "serde_json",
  "sha2",
  "x25519-dalek",
 ]

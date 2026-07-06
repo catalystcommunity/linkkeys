@@ -1,0 +1,33 @@
+{
+  "consent.title": "[Ŵħåţ ðö ýöů ŵåñţ ţö šħåřé ŵíţħ {app}? Ĺöŕém íþšům]",
+  "consent.subtitle": "[{app} íš åšķíñg ƒöŕ ţħé ƒöĺĺöŵíñg ƒŕöm {domain}. Ĉħööšé ŵħåţ ţö šħåřé.]",
+  "consent.required": "[ñééðéð ţö ĉöñţíñůé]",
+  "consent.optional": "[öþţíöñåĺ — ýöůŕ ĉħöíĉé]",
+  "consent.no_value": "[ýöů ħåvéñ'ţ åððéð ţħíš ýéţ]",
+  "consent.forced_allow": "[åĺŵåýš šħåřéð bý {service}'š řůĺéš]",
+  "consent.forced_deny": "[ñévéŕ šħåřéð bý {service}'š řůĺéš]",
+  "consent.confirmed_by": "[Ĉöñƒíŕméð bý {who}]",
+  "consent.self_asserted": "[Ýöů åððéð ţħíš]",
+  "consent.submit": "[Šħåřé åñð ĉöñţíñůé]",
+  "consent.cancel": "[Ĉåñĉéĺ]",
+
+  "login.title": "[ĹíñķĶéýš Ĺögíñ]",
+  "login.username_label": "[Ůšéŕñåmé]",
+  "login.password_label": "[Þåššŵöŕð]",
+  "login.submit": "[Ĺög Ìñ]",
+
+  "identity.title": "[Mý Ìðéñţíţý]",
+  "identity.you_added": "[Ýöů åððéð ţħíš]",
+  "identity.confirmed_by": "[Ĉöñƒíŕméð bý {who}]",
+  "identity.share_any": "[Šħåřé ţħíš ŵíţħ évéŕý åþþ, ŵíţħöůţ åšķíñg mé éåĉħ ţímé]",
+  "identity.request_verification_link": "[Åšķ šömééñé ţö ĉöñƒíŕm ţħíš åböůţ ýöů →]",
+  "identity.verified_credentials_title": "[Véŕíƒíéð ĉŕéðéñţíåĺš]",
+
+  "verify.title": "[Åšķ šömééñé ţö ĉöñƒíŕm ţħíš åböůţ ýöů]",
+  "verify.issuer_label": "[Ŵħö ŵíĺĺ ĉöñƒíŕm íţ?]",
+
+  "claim.display_name.label": "[Ðíšþĺåý ñåmé]",
+  "claim.email.label": "[Émåíĺ åððŕéšš]",
+  "claim.legal_name.label": "[Ĺégåĺ ñåmé]",
+  "claim.age_over_21.label": "[Ågé övéŕ 21]"
+}

@@ -596,15 +596,21 @@ fn render_login_form(
     signed_request: &str,
     relying_party: &str,
     username: &str,
+    locale: &str,
     error: Option<&str>,
 ) -> RawHtml<String> {
+    use liblinkkeys::i18n::t;
     let error_html = error
         .map(|e| format!(r#"<p class="error">{}</p>"#, html_escape(e)))
         .unwrap_or_default();
 
     let label_html = format!(
-        r#"<p>Logging in to <strong>{}</strong></p>"#,
-        html_escape(relying_party)
+        r#"<p>{}</p>"#,
+        html_escape(&liblinkkeys::i18n::t_with(
+            locale,
+            "consent.subtitle",
+            &[("app", relying_party), ("domain", &get_domain_name())]
+        ))
     );
     let hidden_inputs = format!(
         r#"  <input type="hidden" name="signed_request" value="{}" />"#,
@@ -613,8 +619,8 @@ fn render_login_form(
 
     RawHtml(format!(
         r#"<!DOCTYPE html>
-<html>
-<head><title>LinkKeys Login</title>
+<html lang="{lang}" dir="{dir}">
+<head><title>{title}</title>
 <style>
 body {{ font-family: sans-serif; max-width: 400px; margin: 80px auto; }}
 input {{ display: block; width: 100%; padding: 8px; margin: 8px 0; box-sizing: border-box; }}
@@ -623,24 +629,31 @@ button {{ padding: 10px 20px; margin-top: 12px; }}
 </style>
 </head>
 <body>
-<h2>LinkKeys Login</h2>
-<p>Domain: <strong>{domain}</strong></p>
+<h2>{title}</h2>
+<p>{domain_label}: <strong>{domain}</strong></p>
 {label}
 {error}
 <form method="POST" action="/auth/authorize">
 {hidden}
-  <label>Username</label>
+  <label>{username_label}</label>
   <input type="text" name="username" value="{username}" autofocus />
-  <label>Password</label>
+  <label>{password_label}</label>
   <input type="password" name="password" />
-  <button type="submit">Log In</button>
+  <button type="submit">{submit}</button>
 </form>
 </body>
 </html>"#,
+        lang = html_escape(locale),
+        dir = account_ui::text_direction(locale),
+        title = html_escape(t(locale, "login.title")),
+        domain_label = html_escape(t(locale, "login.domain_label")),
         domain = html_escape(&get_domain_name()),
         label = label_html,
         error = error_html,
         hidden = hidden_inputs,
+        username_label = html_escape(t(locale, "login.username_label")),
+        password_label = html_escape(t(locale, "login.password_label")),
+        submit = html_escape(t(locale, "login.submit")),
         username = html_escape(username),
     ))
 }
@@ -782,6 +795,7 @@ fn verify_login_proof(pool: &DbPool, proof: &str) -> Result<(String, String, Str
 /// home-domain policy disposition. The signed_request and an IDP-signed login
 /// proof ride in hidden fields so the consent POST re-validates the exact same
 /// request and re-establishes the authenticated user without a session cookie.
+#[allow(clippy::too_many_arguments)]
 fn render_consent_form(
     signed_request: &str,
     login_proof: &str,
@@ -789,9 +803,18 @@ fn render_consent_form(
     flow_context: Option<&AuthFlowContext>,
     screen: &ConsentScreen,
     rp_claims: &[VerifiedRpClaim],
+    labels: &std::collections::HashMap<String, String>,
+    locale: &str,
     error: Option<&str>,
 ) -> RawHtml<String> {
     use liblinkkeys::consent::PolicyDisposition;
+    use liblinkkeys::i18n::{t, t_with};
+
+    let domain = get_domain_name();
+    // The human name for a claim type: the locale-resolved label decorated onto
+    // the row by the caller, falling back to the raw type only if unknown.
+    let label_of =
+        |ct: &str| -> String { labels.get(ct).cloned().unwrap_or_else(|| ct.to_string()) };
 
     let error_html = error
         .map(|e| format!(r#"<p class="error">{}</p>"#, html_escape(e)))
@@ -801,68 +824,101 @@ fn render_consent_form(
         Some(ctx) if ctx.flow == "claims_update" => {
             let reason = ctx
                 .request_reason
-                .as_deref()
-                .unwrap_or("The app changed the claims it wants to use.");
+                .clone()
+                .unwrap_or_else(|| t(locale, "consent.updated_request_default_reason").to_string());
             format!(
-                r#"<p style="background:#fff7df;border:1px solid #ead39a;padding:8px 12px;border-radius:6px;">This is an updated claim request. {}</p>"#,
-                html_escape(reason),
+                r#"<p style="background:#fff7df;border:1px solid #ead39a;padding:8px 12px;border-radius:6px;">{}</p>"#,
+                html_escape(&t_with(
+                    locale,
+                    "consent.updated_request_banner",
+                    &[("reason", &reason)]
+                )),
             )
         }
         _ => String::new(),
     };
 
-    // "About this site": the RP's self-asserted claims and their attestation.
+    // "About this site": the RP's self-asserted claims and whether a trusted
+    // party confirmed each.
     let about_html = if rp_claims.is_empty() {
         String::new()
     } else {
         let mut items = String::new();
         for c in rp_claims {
-            let badge = if c.verified {
+            let badge = if c.verified && !c.attested_by.is_empty() {
                 format!(
-                    r#"<span style="color:#080">✓ attested by {}</span>"#,
-                    html_escape(&c.attested_by.join(", "))
+                    r#"<span style="color:#080">✓ {}</span>"#,
+                    html_escape(&t_with(
+                        locale,
+                        "consent.confirmed_by",
+                        &[("who", &c.attested_by.join(", "))]
+                    ))
                 )
             } else {
-                r#"<span style="color:#a00">⚠ unverified</span>"#.to_string()
+                format!(
+                    r#"<span style="color:#a00">⚠ {}</span>"#,
+                    html_escape(t(locale, "consent.not_confirmed"))
+                )
             };
             items.push_str(&format!(
                 r#"<li><strong>{}</strong>: {} — {}</li>"#,
-                html_escape(&c.claim_type),
+                html_escape(&label_of(&c.claim_type)),
                 html_escape(&c.value),
                 badge,
             ));
         }
         format!(
             r#"<div style="background:#f6f6f6;padding:8px 12px;border-radius:6px;margin-bottom:12px;">
-<p style="margin:0 0 4px;">About <strong>{rp}</strong>:</p>
+<p style="margin:0 0 4px;">{about}</p>
 <ul style="margin:0;">{items}</ul>
 </div>"#,
-            rp = html_escape(relying_party),
+            about = html_escape(&t_with(
+                locale,
+                "consent.about_site",
+                &[("app", relying_party)]
+            )),
             items = items,
         )
     };
 
     let mut rows = String::new();
     for row in &screen.rows {
+        // The checkbox VALUE stays the raw machine claim_type — that is what the
+        // consent POST matches against the request. Only the visible name is the
+        // human, locale-resolved label.
         let ct = html_escape(&row.claim_type);
-        let dt = html_escape(&row.datatype);
-        let need = if row.required { "required" } else { "optional" };
+        let name = html_escape(&label_of(&row.claim_type));
+        let need = if row.required {
+            t(locale, "consent.required")
+        } else {
+            t(locale, "consent.optional")
+        };
         let avail = if row.available {
             String::new()
         } else {
-            r#" <span style="color:#a60">(no value stored — nothing will be sent)</span>"#
-                .to_string()
+            format!(
+                r#" <span style="color:#a60">({})</span>"#,
+                html_escape(t(locale, "consent.no_value"))
+            )
         };
 
         let control = match row.policy {
-            PolicyDisposition::ForcedAllow => {
-                r#"<input type="checkbox" checked disabled /> <em>always shared (your provider's policy)</em>"#
-                    .to_string()
-            }
-            PolicyDisposition::ForcedDeny => {
-                r#"<input type="checkbox" disabled /> <em>never shared (your provider's policy)</em>"#
-                    .to_string()
-            }
+            PolicyDisposition::ForcedAllow => format!(
+                r#"<input type="checkbox" checked disabled /> <em>{}</em>"#,
+                html_escape(&t_with(
+                    locale,
+                    "consent.forced_allow",
+                    &[("service", &domain)]
+                ))
+            ),
+            PolicyDisposition::ForcedDeny => format!(
+                r#"<input type="checkbox" disabled /> <em>{}</em>"#,
+                html_escape(&t_with(
+                    locale,
+                    "consent.forced_deny",
+                    &[("service", &domain)]
+                ))
+            ),
             PolicyDisposition::User => {
                 let checked = if row.default_granted() { "checked" } else { "" };
                 format!(
@@ -874,34 +930,33 @@ fn render_consent_form(
         };
 
         rows.push_str(&format!(
-            r#"<li>{control} <strong>{ct}</strong> <small>({dt}, {need})</small>{avail}</li>"#,
+            r#"<li>{control} <strong>{name}</strong> <small>({need})</small>{avail}</li>"#,
             control = control,
-            ct = ct,
-            dt = dt,
-            need = need,
+            name = name,
+            need = html_escape(need),
             avail = avail,
         ));
     }
 
     RawHtml(format!(
         r#"<!DOCTYPE html>
-<html>
-<head><title>LinkKeys Consent</title>
+<html lang="{lang}" dir="{dir}">
+<head><title>LinkKeys</title>
 <style>
 body {{ font-family: sans-serif; max-width: 480px; margin: 60px auto; }}
 ul {{ list-style: none; padding: 0; }}
 li {{ padding: 8px 0; border-bottom: 1px solid #eee; }}
 button {{ padding: 10px 20px; margin-top: 16px; }}
+.btn-cancel {{ background: none; border: none; color: #666; text-decoration: underline; cursor: pointer; margin-left: 12px; }}
 .error {{ color: red; }}
 em {{ color: #555; }}
 </style>
 </head>
 <body>
-<h2>Share your information</h2>
+<h2>{title}</h2>
 {about}
 {flow}
-<p><strong>{rp}</strong> is requesting access to the following from <strong>{domain}</strong>.
-Choose what to share. You can change this later by signing in again.</p>
+<p>{subtitle}</p>
 {error}
 <form method="POST" action="/auth/consent">
   <input type="hidden" name="signed_request" value="{sr}" />
@@ -909,18 +964,27 @@ Choose what to share. You can change this later by signing in again.</p>
   <ul>
 {rows}
   </ul>
-  <button type="submit">Continue</button>
+  <button type="submit" name="decision" value="share">{submit}</button>
+  <button type="submit" name="decision" value="cancel" class="btn-cancel" formnovalidate>{cancel}</button>
 </form>
 </body>
 </html>"#,
+        lang = html_escape(locale),
+        dir = account_ui::text_direction(locale),
+        title = html_escape(&t_with(locale, "consent.title", &[("app", relying_party)])),
         about = about_html,
         flow = flow_html,
-        rp = html_escape(relying_party),
-        domain = html_escape(&get_domain_name()),
+        subtitle = html_escape(&t_with(
+            locale,
+            "consent.subtitle",
+            &[("app", relying_party), ("domain", &domain)]
+        )),
         error = error_html,
         sr = html_escape(signed_request),
         proof = html_escape(login_proof),
         rows = rows,
+        submit = html_escape(t(locale, "consent.submit")),
+        cancel = html_escape(t(locale, "consent.cancel")),
     ))
 }
 
@@ -1015,6 +1079,7 @@ async fn finalize_login(
 async fn auth_authorize_get(
     pool: &State<DbPool>,
     net: &State<Net>,
+    locale: guard::Locale,
     user_hint: Option<&str>,
     signed_request: Option<&str>,
 ) -> Result<RawHtml<String>, Status> {
@@ -1028,6 +1093,7 @@ async fn auth_authorize_get(
             sr,
             &request.relying_party,
             user_hint.unwrap_or(""),
+            &locale.0,
             None,
         )),
         Err(e) => Ok(render_error_page(e.user_message())),
@@ -1048,10 +1114,11 @@ async fn auth_authorize_post(
     pool: &State<DbPool>,
     net: &State<Net>,
     nonces: &State<nonce_store::NonceStore>,
+    locale: guard::Locale,
     form: rocket::form::Form<AuthorizeForm>,
 ) -> Result<Redirect, RawHtml<String>> {
     if let Some(sr) = form.signed_request.as_deref() {
-        handle_signed_request_post(pool, net, nonces, &form, sr).await
+        handle_signed_request_post(pool, net, nonces, &locale.0, &form, sr).await
     } else {
         Err(render_error_page(
             "Missing signed_request. This login flow is no longer supported.",
@@ -1063,6 +1130,7 @@ async fn handle_signed_request_post(
     pool: &State<DbPool>,
     net: &State<Net>,
     nonces: &State<nonce_store::NonceStore>,
+    locale: &str,
     form: &AuthorizeForm,
     signed_request_param: &str,
 ) -> Result<Redirect, RawHtml<String>> {
@@ -1076,6 +1144,7 @@ async fn handle_signed_request_post(
             signed_request_param,
             &request.relying_party,
             &form.username,
+            locale,
             Some(msg),
         )
     };
@@ -1164,6 +1233,23 @@ async fn handle_signed_request_post(
             };
             let screen =
                 build_consent_screen(pool, &user.id, &request.relying_party, &req, &policy);
+            // Decorate each row's machine claim_type with its human,
+            // locale-resolved name for display; the checkbox values stay raw.
+            let mut labels = std::collections::HashMap::new();
+            for row in &screen.rows {
+                if !labels.contains_key(&row.claim_type) {
+                    if let Ok((label, _)) = pool.resolved_label(&row.claim_type, locale) {
+                        labels.insert(row.claim_type.clone(), label);
+                    }
+                }
+            }
+            for c in &rp_claims {
+                labels.entry(c.claim_type.clone()).or_insert_with(|| {
+                    pool.resolved_label(&c.claim_type, locale)
+                        .map(|(l, _)| l)
+                        .unwrap_or_else(|_| c.claim_type.clone())
+                });
+            }
             Err(render_consent_form(
                 signed_request_param,
                 &proof,
@@ -1171,6 +1257,8 @@ async fn handle_signed_request_post(
                 request.flow_context.as_ref(),
                 &screen,
                 &rp_claims,
+                &labels,
+                locale,
                 None,
             ))
         }
@@ -1185,6 +1273,9 @@ struct ConsentForm {
     login_proof: String,
     /// The claim types the user chose to share (one value per checked box).
     grant: Vec<String>,
+    /// Which button was pressed: `share` (default) or `cancel`. A cancel
+    /// declines the whole login and issues nothing.
+    decision: Option<String>,
 }
 
 /// Second leg of the browser consent flow. The user authenticated in the
@@ -1200,8 +1291,21 @@ async fn auth_consent_post(
     pool: &State<DbPool>,
     net: &State<Net>,
     nonces: &State<nonce_store::NonceStore>,
+    locale: guard::Locale,
     form: rocket::form::Form<ConsentForm>,
 ) -> Result<Redirect, RawHtml<String>> {
+    // The user declined the whole login. Issue nothing, consume nothing —
+    // just show a neutral notice. Checked before any verification so a cancel
+    // never depends on the request still being valid.
+    if form.decision.as_deref() == Some("cancel") {
+        use liblinkkeys::i18n::t;
+        return Err(render_notice_page(
+            &locale.0,
+            t(&locale.0, "consent.cancelled_title"),
+            t(&locale.0, "consent.cancelled_body"),
+        ));
+    }
+
     let Ok((user_id, proof_nonce, proof_rp)) = verify_login_proof(pool, &form.login_proof) else {
         return Err(render_error_page(
             "Your login could not be verified. Please start the login again.",
@@ -1369,6 +1473,23 @@ pub async fn validate_signed_request(
     }
 
     Ok(request)
+}
+
+/// Render a neutral, standalone notice page (e.g. after the user cancels a
+/// login). Carries the reader's locale for `lang`/`dir`.
+fn render_notice_page(locale: &str, title: &str, body: &str) -> RawHtml<String> {
+    RawHtml(format!(
+        r#"<!DOCTYPE html>
+<html lang="{lang}" dir="{dir}"><head><title>{title}</title>
+<style>body {{ font-family: sans-serif; max-width: 400px; margin: 80px auto; }}</style></head>
+<body><h2>{title}</h2>
+<p>{body}</p>
+</body></html>"#,
+        lang = html_escape(locale),
+        dir = account_ui::text_direction(locale),
+        title = html_escape(title),
+        body = html_escape(body),
+    ))
 }
 
 /// Render a minimal error page (for signed_request validation failures
@@ -1730,6 +1851,8 @@ pub fn build_rocket(
             policy_admin_ui::issue_page,
             policy_admin_ui::issue_verify,
             policy_admin_ui::issue_sign,
+            policy_admin_ui::upsert_claim_label,
+            policy_admin_ui::delete_claim_label,
         ],
     );
 

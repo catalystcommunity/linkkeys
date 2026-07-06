@@ -308,10 +308,8 @@ fn cbor_dec_map<K: std::cmp::Eq + std::hash::Hash, V>(
 fn cbor_map_get<'a>(v: &'a CsilCborValue, key: &str) -> Option<&'a CsilCborValue> {
     if let CsilCborValue::Map(entries) = v {
         for (k, val) in entries {
-            if let CsilCborValue::Text(name) = k {
-                if name == key {
-                    return Some(val);
-                }
+            if matches!(k, CsilCborValue::Text(name) if name == key) {
+                return Some(val);
             }
         }
     }
@@ -397,7 +395,7 @@ fn csil_enc_check_result(csil_v: &CheckResult) -> CsilCborValue {
         cbor_enc_map(
             &csil_v.entries,
             |csil_mk| cbor_text(csil_mk),
-            |csil_mv| csil_enc_check_value(csil_mv),
+            csil_enc_check_value,
         ),
     ));
     CsilCborValue::Map(csil_entries)
@@ -725,9 +723,7 @@ fn csil_enc_guestbook_list_response(csil_v: &GuestbookListResponse) -> CsilCborV
     let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
     csil_entries.push((
         cbor_text("entries"),
-        cbor_enc_array(&csil_v.entries, |csil_elem| {
-            csil_enc_guestbook_entry(csil_elem)
-        }),
+        cbor_enc_array(&csil_v.entries, csil_enc_guestbook_entry),
     ));
     CsilCborValue::Map(csil_entries)
 }
@@ -758,13 +754,12 @@ pub fn decode_guestbook_list_response(
 }
 
 /// Build the canonical CBOR value tree for a EmptyRequest.
-fn csil_enc_empty_request(csil_v: &EmptyRequest) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(0);
-    CsilCborValue::Map(csil_entries)
+fn csil_enc_empty_request(_csil_v: &EmptyRequest) -> CsilCborValue {
+    CsilCborValue::Map(Vec::new())
 }
 
 /// Reconstruct a EmptyRequest from a decoded CBOR value tree.
-fn csil_dec_empty_request(csil_root: &CsilCborValue) -> Result<EmptyRequest, CsilCborError> {
+fn csil_dec_empty_request(_csil_root: &CsilCborValue) -> Result<EmptyRequest, CsilCborError> {
     Ok(EmptyRequest {})
 }
 
@@ -889,9 +884,7 @@ fn csil_enc_get_domain_keys_response(csil_v: &GetDomainKeysResponse) -> CsilCbor
     let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
     csil_entries.push((
         cbor_text("keys"),
-        cbor_enc_array(&csil_v.keys, |csil_elem| {
-            csil_enc_domain_public_key(csil_elem)
-        }),
+        cbor_enc_array(&csil_v.keys, csil_enc_domain_public_key),
     ));
     csil_entries.push((cbor_text("domain"), cbor_text(&csil_v.domain)));
     if let Some(csil_inner) = &csil_v.recent_revocations_available {
@@ -986,9 +979,7 @@ fn csil_enc_get_revocations_response(csil_v: &GetRevocationsResponse) -> CsilCbo
     let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
     csil_entries.push((
         cbor_text("revocations"),
-        cbor_enc_array(&csil_v.revocations, |csil_elem| {
-            csil_enc_revocation_certificate(csil_elem)
-        }),
+        cbor_enc_array(&csil_v.revocations, csil_enc_revocation_certificate),
     ));
     CsilCborValue::Map(csil_entries)
 }
@@ -1093,9 +1084,7 @@ fn csil_enc_recheck_pins_response(csil_v: &RecheckPinsResponse) -> CsilCborValue
     let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
     csil_entries.push((
         cbor_text("results"),
-        cbor_enc_array(&csil_v.results, |csil_elem| {
-            csil_enc_pin_recheck_result(csil_elem)
-        }),
+        cbor_enc_array(&csil_v.results, csil_enc_pin_recheck_result),
     ));
     CsilCborValue::Map(csil_entries)
 }
@@ -1272,9 +1261,7 @@ fn csil_enc_get_user_keys_response(csil_v: &GetUserKeysResponse) -> CsilCborValu
     let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
     csil_entries.push((
         cbor_text("keys"),
-        cbor_enc_array(&csil_v.keys, |csil_elem| {
-            csil_enc_user_public_key(csil_elem)
-        }),
+        cbor_enc_array(&csil_v.keys, csil_enc_user_public_key),
     ));
     csil_entries.push((cbor_text("domain"), cbor_text(&csil_v.domain)));
     csil_entries.push((cbor_text("user_id"), cbor_text(&csil_v.user_id)));
@@ -1373,9 +1360,7 @@ fn csil_enc_revocation_certificate(csil_v: &RevocationCertificate) -> CsilCborVa
     csil_entries.push((cbor_text("revoked_at"), cbor_text(&csil_v.revoked_at)));
     csil_entries.push((
         cbor_text("signatures"),
-        cbor_enc_array(&csil_v.signatures, |csil_elem| {
-            csil_enc_claim_signature(csil_elem)
-        }),
+        cbor_enc_array(&csil_v.signatures, csil_enc_claim_signature),
     ));
     csil_entries.push((cbor_text("target_key_id"), cbor_text(&csil_v.target_key_id)));
     csil_entries.push((
@@ -1445,9 +1430,7 @@ fn csil_enc_claim(csil_v: &Claim) -> CsilCborValue {
     }
     csil_entries.push((
         cbor_text("signatures"),
-        cbor_enc_array(&csil_v.signatures, |csil_elem| {
-            csil_enc_claim_signature(csil_elem)
-        }),
+        cbor_enc_array(&csil_v.signatures, csil_enc_claim_signature),
     ));
     csil_entries.push((cbor_text("attested_at"), cbor_text(&csil_v.attested_at)));
     csil_entries.push((cbor_text("claim_value"), cbor_bytes(&csil_v.claim_value)));
@@ -1572,7 +1555,7 @@ fn csil_enc_get_user_claims_response(csil_v: &GetUserClaimsResponse) -> CsilCbor
     let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
     csil_entries.push((
         cbor_text("claims"),
-        cbor_enc_array(&csil_v.claims, |csil_elem| csil_enc_claim(csil_elem)),
+        cbor_enc_array(&csil_v.claims, csil_enc_claim),
     ));
     csil_entries.push((cbor_text("domain"), cbor_text(&csil_v.domain)));
     csil_entries.push((cbor_text("user_id"), cbor_text(&csil_v.user_id)));
@@ -1660,15 +1643,11 @@ fn csil_enc_claim_request(csil_v: &ClaimRequest) -> CsilCborValue {
     let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
     csil_entries.push((
         cbor_text("optional"),
-        cbor_enc_array(&csil_v.optional, |csil_elem| {
-            csil_enc_requested_claim(csil_elem)
-        }),
+        cbor_enc_array(&csil_v.optional, csil_enc_requested_claim),
     ));
     csil_entries.push((
         cbor_text("required"),
-        cbor_enc_array(&csil_v.required, |csil_elem| {
-            csil_enc_requested_claim(csil_elem)
-        }),
+        cbor_enc_array(&csil_v.required, csil_enc_requested_claim),
     ));
     CsilCborValue::Map(csil_entries)
 }
@@ -1846,9 +1825,7 @@ fn csil_enc_signed_consent_grant(csil_v: &SignedConsentGrant) -> CsilCborValue {
     csil_entries.push((cbor_text("grant"), cbor_bytes(&csil_v.grant)));
     csil_entries.push((
         cbor_text("signatures"),
-        cbor_enc_array(&csil_v.signatures, |csil_elem| {
-            csil_enc_claim_signature(csil_elem)
-        }),
+        cbor_enc_array(&csil_v.signatures, csil_enc_claim_signature),
     ));
     CsilCborValue::Map(csil_entries)
 }
@@ -1890,9 +1867,7 @@ fn csil_enc_domain_claim(csil_v: &DomainClaim) -> CsilCborValue {
     }
     csil_entries.push((
         cbor_text("signatures"),
-        cbor_enc_array(&csil_v.signatures, |csil_elem| {
-            csil_enc_claim_signature(csil_elem)
-        }),
+        cbor_enc_array(&csil_v.signatures, csil_enc_claim_signature),
     ));
     csil_entries.push((cbor_text("claim_value"), cbor_bytes(&csil_v.claim_value)));
     CsilCborValue::Map(csil_entries)
@@ -2048,9 +2023,7 @@ fn csil_enc_signed_signing_request(csil_v: &SignedSigningRequest) -> CsilCborVal
     csil_entries.push((cbor_text("request"), cbor_bytes(&csil_v.request)));
     csil_entries.push((
         cbor_text("signatures"),
-        cbor_enc_array(&csil_v.signatures, |csil_elem| {
-            csil_enc_claim_signature(csil_elem)
-        }),
+        cbor_enc_array(&csil_v.signatures, csil_enc_claim_signature),
     ));
     CsilCborValue::Map(csil_entries)
 }
@@ -2380,9 +2353,7 @@ fn csil_enc_signed_user_info_request(csil_v: &SignedUserInfoRequest) -> CsilCbor
     if let Some(csil_inner) = &csil_v.public_keys {
         csil_entries.push((
             cbor_text("public_keys"),
-            cbor_enc_array(csil_inner, |csil_elem| {
-                csil_enc_domain_public_key(csil_elem)
-            }),
+            cbor_enc_array(csil_inner, csil_enc_domain_public_key),
         ));
     }
     csil_entries.push((
@@ -2444,7 +2415,7 @@ fn csil_enc_user_info(csil_v: &UserInfo) -> CsilCborValue {
     let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(4);
     csil_entries.push((
         cbor_text("claims"),
-        cbor_enc_array(&csil_v.claims, |csil_elem| csil_enc_claim(csil_elem)),
+        cbor_enc_array(&csil_v.claims, csil_enc_claim),
     ));
     csil_entries.push((cbor_text("domain"), cbor_text(&csil_v.domain)));
     csil_entries.push((cbor_text("user_id"), cbor_text(&csil_v.user_id)));
@@ -2519,7 +2490,7 @@ fn csil_enc_auth_request(csil_v: &AuthRequest) -> CsilCborValue {
     if let Some(csil_inner) = &csil_v.relying_party_claims {
         csil_entries.push((
             cbor_text("relying_party_claims"),
-            cbor_enc_array(csil_inner, |csil_elem| csil_enc_domain_claim(csil_elem)),
+            cbor_enc_array(csil_inner, csil_enc_domain_claim),
         ));
     }
     CsilCborValue::Map(csil_entries)
@@ -3022,7 +2993,7 @@ fn csil_enc_list_users_response(csil_v: &ListUsersResponse) -> CsilCborValue {
     let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
     csil_entries.push((
         cbor_text("users"),
-        cbor_enc_array(&csil_v.users, |csil_elem| csil_enc_admin_user(csil_elem)),
+        cbor_enc_array(&csil_v.users, csil_enc_admin_user),
     ));
     CsilCborValue::Map(csil_entries)
 }
@@ -3851,7 +3822,7 @@ fn csil_enc_list_relations_response(csil_v: &ListRelationsResponse) -> CsilCborV
     let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
     csil_entries.push((
         cbor_text("relations"),
-        cbor_enc_array(&csil_v.relations, |csil_elem| csil_enc_relation(csil_elem)),
+        cbor_enc_array(&csil_v.relations, csil_enc_relation),
     ));
     CsilCborValue::Map(csil_entries)
 }
@@ -4038,11 +4009,11 @@ fn csil_enc_get_my_info_response(csil_v: &GetMyInfoResponse) -> CsilCborValue {
     csil_entries.push((cbor_text("user"), csil_enc_admin_user(&csil_v.user)));
     csil_entries.push((
         cbor_text("claims"),
-        cbor_enc_array(&csil_v.claims, |csil_elem| csil_enc_claim(csil_elem)),
+        cbor_enc_array(&csil_v.claims, csil_enc_claim),
     ));
     csil_entries.push((
         cbor_text("relations"),
-        cbor_enc_array(&csil_v.relations, |csil_elem| csil_enc_relation(csil_elem)),
+        cbor_enc_array(&csil_v.relations, csil_enc_relation),
     ));
     CsilCborValue::Map(csil_entries)
 }
@@ -4464,6 +4435,146 @@ pub fn decode_rp_issue_attestation_response(
 ) -> Result<RpIssueAttestationResponse, CsilCborError> {
     let csil_root = cbor_decode(csil_data)?;
     csil_dec_rp_issue_attestation_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a TranslationsRequest.
+fn csil_enc_translations_request(csil_v: &TranslationsRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    if let Some(csil_inner) = &csil_v.locale {
+        csil_entries.push((cbor_text("locale"), cbor_text(csil_inner)));
+    }
+    if let Some(csil_inner) = &csil_v.accept_language {
+        csil_entries.push((cbor_text("accept_language"), cbor_text(csil_inner)));
+    }
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a TranslationsRequest from a decoded CBOR value tree.
+fn csil_dec_translations_request(
+    csil_root: &CsilCborValue,
+) -> Result<TranslationsRequest, CsilCborError> {
+    let locale = match cbor_map_get(csil_root, "locale") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let accept_language = match cbor_map_get(csil_root, "accept_language") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(TranslationsRequest {
+        locale,
+        accept_language,
+    })
+}
+
+/// Encode a TranslationsRequest to canonical CSIL CBOR bytes.
+pub fn encode_translations_request(csil_v: &TranslationsRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_translations_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a TranslationsRequest.
+pub fn decode_translations_request(csil_data: &[u8]) -> Result<TranslationsRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_translations_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a TranslationsResponse.
+fn csil_enc_translations_response(csil_v: &TranslationsResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
+    csil_entries.push((cbor_text("locale"), cbor_text(&csil_v.locale)));
+    csil_entries.push((
+        cbor_text("messages"),
+        cbor_enc_map(
+            &csil_v.messages,
+            |csil_mk| cbor_text(csil_mk),
+            |csil_mv| cbor_text(csil_mv),
+        ),
+    ));
+    csil_entries.push((
+        cbor_text("available_locales"),
+        cbor_enc_array(&csil_v.available_locales, |csil_elem| cbor_text(csil_elem)),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a TranslationsResponse from a decoded CBOR value tree.
+fn csil_dec_translations_response(
+    csil_root: &CsilCborValue,
+) -> Result<TranslationsResponse, CsilCborError> {
+    let locale = {
+        let csil_field = cbor_require(csil_root, "locale")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let available_locales = {
+        let csil_field = cbor_require(csil_root, "available_locales")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+        csil_decode(csil_field)?
+    };
+    let messages = {
+        let csil_field = cbor_require(csil_root, "messages")?;
+        let csil_decode = |csil_v| cbor_dec_map(csil_v, cbor_as_text, cbor_as_text);
+        csil_decode(csil_field)?
+    };
+    Ok(TranslationsResponse {
+        locale,
+        available_locales,
+        messages,
+    })
+}
+
+/// Encode a TranslationsResponse to canonical CSIL CBOR bytes.
+pub fn encode_translations_response(csil_v: &TranslationsResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_translations_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a TranslationsResponse.
+pub fn decode_translations_response(
+    csil_data: &[u8],
+) -> Result<TranslationsResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_translations_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ListLocalesResponse.
+fn csil_enc_list_locales_response(csil_v: &ListLocalesResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("available_locales"),
+        cbor_enc_array(&csil_v.available_locales, |csil_elem| cbor_text(csil_elem)),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ListLocalesResponse from a decoded CBOR value tree.
+fn csil_dec_list_locales_response(
+    csil_root: &CsilCborValue,
+) -> Result<ListLocalesResponse, CsilCborError> {
+    let available_locales = {
+        let csil_field = cbor_require(csil_root, "available_locales")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+        csil_decode(csil_field)?
+    };
+    Ok(ListLocalesResponse { available_locales })
+}
+
+/// Encode a ListLocalesResponse to canonical CSIL CBOR bytes.
+pub fn encode_list_locales_response(csil_v: &ListLocalesResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_list_locales_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ListLocalesResponse.
+pub fn decode_list_locales_response(
+    csil_data: &[u8],
+) -> Result<ListLocalesResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_list_locales_response(&csil_root)
 }
 
 /// Encode a CheckValue union as a tagged sum `[variant_index, value]`.

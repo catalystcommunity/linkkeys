@@ -208,6 +208,23 @@ fn render_policy_admin(
         ));
     }
 
+    // -- Per-locale claim name translations (operator overrides) --
+    let mut label_rows = String::new();
+    for p in &policies {
+        if let Ok(labels) = pool.list_claim_labels_i18n(&p.claim_type) {
+            for l in &labels {
+                label_rows.push_str(&format!(
+                    r#"<tr><td><code>{ct}</code></td><td>{loc}</td><td>{label}</td><td>{desc}</td>
+<td><form method="POST" action="/policy-admin/claim-types/label/delete" style="margin:0"><input type="hidden" name="claim_type" value="{ct}"/><input type="hidden" name="locale" value="{loc}"/><button class="btn-danger" type="submit">Delete</button></form></td></tr>"#,
+                    ct = html_escape(&l.claim_type),
+                    loc = html_escape(&l.locale),
+                    label = html_escape(&l.label),
+                    desc = html_escape(l.description.as_deref().unwrap_or("")),
+                ));
+            }
+        }
+    }
+
     let content = format!(
         r#"{flash}
 {claim_type_datalist}
@@ -233,6 +250,17 @@ fn render_policy_admin(
   <label><input type="checkbox" name="requires_approval" value="1"/> Requires approval</label>
   <label><input type="checkbox" name="suggested" value="1"/> Suggested</label>
   <br/><button type="submit" class="btn-primary">Save claim type</button>
+</form>
+
+<h2>Claim name translations</h2>
+<p>Show claim names to people in their own language. Enter a locale (e.g. <code>es-ES</code>, <code>pt-BR</code>) and the translated name. Anything you don't translate falls back to English automatically.</p>
+<table><tr><th>Claim type</th><th>Locale</th><th>Name</th><th>Description</th><th></th></tr>{label_rows}</table>
+<form method="POST" action="/policy-admin/claim-types/label">
+  <input type="text" name="claim_type" list="claim-type-options" required placeholder="claim type"/>
+  <input type="text" name="locale" required placeholder="es-ES"/>
+  <input type="text" name="label" required placeholder="translated name"/>
+  <input type="text" name="description" placeholder="translated description (optional)"/>
+  <button type="submit" class="btn-primary">Save translation</button>
 </form>
 
 <h2>Trusted issuers</h2>
@@ -286,6 +314,7 @@ fn render_policy_admin(
         claim_type_datalist = claim_type_datalist,
         test_panel = test_panel,
         reg_rows = reg_rows,
+        label_rows = label_rows,
         value_type_sel = select("value_type", VALUE_TYPES, "text"),
         set_rule_sel = select("set_rule", SET_RULES, "user_self"),
         signing_rule_sel = select("signing_rule", SIGNING_RULES, "self_signed"),
@@ -392,6 +421,70 @@ pub fn delete_policy(
     match pool.delete_claim_policy(form.claim_type.trim()) {
         Ok(_) => Ok(redirect_ok("Claim type deleted")),
         Err(_) => Ok(redirect_err("Could not delete claim type")),
+    }
+}
+
+#[derive(rocket::FromForm)]
+pub struct ClaimLabelForm {
+    claim_type: String,
+    locale: String,
+    label: String,
+    description: Option<String>,
+}
+
+#[rocket::post("/policy-admin/claim-types/label", data = "<form>")]
+pub fn upsert_claim_label(
+    _csrf: super::guard::SameOriginPost,
+    pool: &State<DbPool>,
+    cookies: &CookieJar<'_>,
+    form: rocket::form::Form<ClaimLabelForm>,
+) -> Result<Redirect, Status> {
+    require_manage_claims(pool.inner(), cookies)?;
+    let claim_type = form.claim_type.trim();
+    let locale = form.locale.trim();
+    let label = form.label.trim();
+    if claim_type.is_empty() || locale.is_empty() || label.is_empty() {
+        return Ok(redirect_err("claim type, locale and name are required"));
+    }
+    // Only translate a claim type that actually exists in the registry.
+    if !matches!(pool.find_claim_policy(claim_type), Ok(Some(_))) {
+        return Ok(redirect_err("unknown claim type"));
+    }
+    let description = form
+        .description
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let entry = crate::db::models::ClaimLabelI18n {
+        claim_type: claim_type.to_string(),
+        locale: locale.to_string(),
+        label: label.to_string(),
+        description,
+    };
+    match pool.upsert_claim_label_i18n(entry) {
+        Ok(_) => Ok(redirect_ok("Translation saved")),
+        Err(_) => Ok(redirect_err("Could not save translation")),
+    }
+}
+
+#[derive(rocket::FromForm)]
+pub struct ClaimLabelDeleteForm {
+    claim_type: String,
+    locale: String,
+}
+
+#[rocket::post("/policy-admin/claim-types/label/delete", data = "<form>")]
+pub fn delete_claim_label(
+    _csrf: super::guard::SameOriginPost,
+    pool: &State<DbPool>,
+    cookies: &CookieJar<'_>,
+    form: rocket::form::Form<ClaimLabelDeleteForm>,
+) -> Result<Redirect, Status> {
+    require_manage_claims(pool.inner(), cookies)?;
+    match pool.delete_claim_label_i18n(form.claim_type.trim(), form.locale.trim()) {
+        Ok(_) => Ok(redirect_ok("Translation deleted")),
+        Err(_) => Ok(redirect_err("Could not delete translation")),
     }
 }
 

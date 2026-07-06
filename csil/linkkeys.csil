@@ -731,6 +731,40 @@ RpIssueAttestationResponse = {
 }
 
 ;; ============================================================
+;; I18n
+;; ============================================================
+
+;; A locale's translated strings, keyed by dotted/namespaced message key
+;; (e.g. "consent.title"). Served unauthenticated: no client secret is needed
+;; to read UI strings, so any LinkKeys-speaking client (browser, native,
+;; agent) can localize itself before or without authenticating.
+LocaleMessages = {* text => text}
+
+TranslationsRequest = {
+    ;; Explicit locale override (e.g. a user's saved preference or a `?lang=`
+    ;; query param). Wins over accept_language when both are present.
+    ? locale: text,
+    ;; Raw `Accept-Language` header value, for server-side negotiation when no
+    ;; explicit override is supplied.
+    ? accept_language: text
+}
+
+TranslationsResponse = {
+    ;; The locale actually served (after negotiation/fallback).
+    locale: text,
+    available_locales: [* text],
+    ;; The full message catalog for `locale`: the complete en-US set overlaid
+    ;; with this locale's translations (including this domain's per-locale
+    ;; claim-type labels), so a client gets a complete, ready-to-render
+    ;; catalog in one call.
+    messages: LocaleMessages
+}
+
+ListLocalesResponse = {
+    available_locales: [* text]
+}
+
+;; ============================================================
 ;; Services
 ;; ============================================================
 
@@ -773,6 +807,15 @@ service Handshake {
     ;; operation to establish which version and algorithms both
     ;; sides support. Returns the intersection of capabilities.
     handshake: HandshakeRequest -> HandshakeResponse
+}
+
+;; Serves the UI i18n catalog: pure data (crates/liblinkkeys::i18n), no auth
+;; required. Any CSIL-RPC client — browser (POST /csil/v1/rpc) or native
+;; TCP — fetches the same catalog the same way; there is no separate
+;; JSON-over-HTTP endpoint.
+service I18n {
+    get-translations: TranslationsRequest -> TranslationsResponse,
+    list-locales: EmptyRequest -> ListLocalesResponse
 }
 
 service Admin {

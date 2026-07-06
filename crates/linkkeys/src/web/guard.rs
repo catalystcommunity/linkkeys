@@ -45,6 +45,33 @@ impl<'r> FromRequest<'r> for SameOriginPost {
     }
 }
 
+/// The UI locale for a request, negotiated once and threaded into rendering.
+///
+/// Precedence: an explicit `?lang=` query override, then a `lang` cookie (a
+/// remembered choice), then the browser's `Accept-Language` header. Anything
+/// unrecognised falls back to `en-US` inside `liblinkkeys::i18n::negotiate`, so
+/// this guard is infallible — every request resolves to a shipped locale.
+pub struct Locale(pub String);
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for Locale {
+    type Error = std::convert::Infallible;
+
+    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        let override_locale = request
+            .query_value::<String>("lang")
+            .and_then(Result::ok)
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| request.cookies().get("lang").map(|c| c.value().to_string()));
+        let accept = request
+            .headers()
+            .get_one("Accept-Language")
+            .unwrap_or_default();
+        let locale = liblinkkeys::i18n::negotiate(accept, override_locale.as_deref());
+        Outcome::Success(Locale(locale))
+    }
+}
+
 /// Rocket request guard for authenticated endpoints.
 /// Authenticates via bearer token. Rejects inactive users.
 /// Does NOT check permissions — handlers call authorization::user_has_permission().

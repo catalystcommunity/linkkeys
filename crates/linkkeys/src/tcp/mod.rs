@@ -605,6 +605,53 @@ fn dispatch(
                 &liblinkkeys::generated::types::GetRevocationsResponse { revocations },
             ))
         }
+        // Unauthenticated, like DomainKeys/Ops: any CSIL-RPC client (browser
+        // POST /csil/v1/rpc or native TCP) fetches the UI catalog before or
+        // without authenticating. `get-translations` merges this domain's
+        // per-locale claim-type labels (crate::db, Part C) into the pure
+        // liblinkkeys::i18n catalog, so one call returns both UI chrome and
+        // claim labels for the negotiated locale.
+        ("I18n", "get-translations") => {
+            let request =
+                match liblinkkeys::generated::decode_translations_request(&envelope.payload) {
+                    Ok(r) => r,
+                    Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+                };
+            let locale = liblinkkeys::i18n::negotiate(
+                request.accept_language.as_deref().unwrap_or(""),
+                request.locale.as_deref(),
+            );
+            let mut messages = liblinkkeys::i18n::catalog_for(&locale);
+            if let Ok(policies) = db_pool.list_claim_policies() {
+                for policy in &policies {
+                    if let Ok((label, description)) =
+                        db_pool.resolved_label(&policy.claim_type, &locale)
+                    {
+                        messages.insert(format!("claim.{}.label", policy.claim_type), label);
+                        if !description.is_empty() {
+                            messages.insert(
+                                format!("claim.{}.description", policy.claim_type),
+                                description,
+                            );
+                        }
+                    }
+                }
+            }
+            ok_response(liblinkkeys::generated::encode_translations_response(
+                &liblinkkeys::generated::types::TranslationsResponse {
+                    locale,
+                    available_locales: liblinkkeys::i18n::available_locales(),
+                    messages: messages.into_iter().collect(),
+                },
+            ))
+        }
+        ("I18n", "list-locales") => {
+            ok_response(liblinkkeys::generated::encode_list_locales_response(
+                &liblinkkeys::generated::types::ListLocalesResponse {
+                    available_locales: liblinkkeys::i18n::available_locales(),
+                },
+            ))
+        }
         ("UserKeys", "get-user-keys") => {
             let request =
                 match liblinkkeys::generated::decode_get_user_keys_request(&envelope.payload) {

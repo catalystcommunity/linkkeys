@@ -166,6 +166,17 @@ pub struct ClaimTypePolicy {
     pub suggested: bool,
 }
 
+/// An operator-supplied per-locale label/description for a claim type,
+/// overriding the built-in `liblinkkeys::i18n` catalog for this domain's own
+/// registry entries. See `DbPool::resolved_label` for the fallback chain.
+#[derive(Debug, Clone)]
+pub struct ClaimLabelI18n {
+    pub claim_type: String,
+    pub locale: String,
+    pub label: String,
+    pub description: Option<String>,
+}
+
 /// A domain whose signature is accepted as attestation for a claim type (lane C).
 #[derive(Debug, Clone)]
 pub struct TrustedIssuer {
@@ -785,6 +796,40 @@ pub mod pg {
             Self {
                 claim_type: r.claim_type,
                 issuer_domain: r.issuer_domain,
+            }
+        }
+    }
+
+    // -- Per-locale claim-type labels --
+
+    #[derive(Queryable, Selectable, Insertable, AsChangeset)]
+    #[diesel(table_name = crate::schema::pg::claim_type_label_i18n)]
+    #[diesel(primary_key(claim_type, locale))]
+    pub struct ClaimLabelI18nRow {
+        pub claim_type: String,
+        pub locale: String,
+        pub label: String,
+        pub description: Option<String>,
+    }
+
+    impl From<ClaimLabelI18nRow> for super::ClaimLabelI18n {
+        fn from(r: ClaimLabelI18nRow) -> Self {
+            Self {
+                claim_type: r.claim_type,
+                locale: r.locale,
+                label: r.label,
+                description: r.description,
+            }
+        }
+    }
+
+    impl From<super::ClaimLabelI18n> for ClaimLabelI18nRow {
+        fn from(l: super::ClaimLabelI18n) -> Self {
+            Self {
+                claim_type: l.claim_type,
+                locale: l.locale,
+                label: l.label,
+                description: l.description,
             }
         }
     }
@@ -1526,6 +1571,40 @@ pub mod sqlite {
             Self {
                 claim_type: r.claim_type,
                 issuer_domain: r.issuer_domain,
+            }
+        }
+    }
+
+    // -- Per-locale claim-type labels --
+
+    #[derive(Queryable, Selectable, Insertable, AsChangeset)]
+    #[diesel(table_name = crate::schema::sqlite::claim_type_label_i18n)]
+    #[diesel(primary_key(claim_type, locale))]
+    pub struct ClaimLabelI18nRow {
+        pub claim_type: String,
+        pub locale: String,
+        pub label: String,
+        pub description: Option<String>,
+    }
+
+    impl From<ClaimLabelI18nRow> for super::ClaimLabelI18n {
+        fn from(r: ClaimLabelI18nRow) -> Self {
+            Self {
+                claim_type: r.claim_type,
+                locale: r.locale,
+                label: r.label,
+                description: r.description,
+            }
+        }
+    }
+
+    impl From<super::ClaimLabelI18n> for ClaimLabelI18nRow {
+        fn from(l: super::ClaimLabelI18n) -> Self {
+            Self {
+                claim_type: l.claim_type,
+                locale: l.locale,
+                label: l.label,
+                description: l.description,
             }
         }
     }

@@ -95,16 +95,17 @@ pub mod pg {
     use diesel::prelude::*;
 
     use crate::db::models::pg::{
-        AdminReviewRow, AuditLogRow, ClaimTypePolicyRow, NewAdminReviewRow, NewAuditLogRow,
-        NewClaimApprovalRow, ProfileClaimPrefRow, ReleasePolicyRow, TrustedIssuerRow,
+        AdminReviewRow, AuditLogRow, ClaimLabelI18nRow, ClaimTypePolicyRow, NewAdminReviewRow,
+        NewAuditLogRow, NewClaimApprovalRow, ProfileClaimPrefRow, ReleasePolicyRow,
+        TrustedIssuerRow,
     };
     use crate::db::models::{
-        AdminReview, AuditEntry, ClaimApproval, ClaimTypePolicy, ProfileClaimPref, ReleasePolicy,
-        TrustedIssuer,
+        AdminReview, AuditEntry, ClaimApproval, ClaimLabelI18n, ClaimTypePolicy, ProfileClaimPref,
+        ReleasePolicy, TrustedIssuer,
     };
     use crate::schema::pg::{
-        admin_review_queue, audit_log, claim_type_policies, profile_claim_prefs, release_policies,
-        trusted_issuers,
+        admin_review_queue, audit_log, claim_type_label_i18n, claim_type_policies,
+        profile_claim_prefs, release_policies, trusted_issuers,
     };
 
     // -- Claim-type policy registry --
@@ -157,6 +158,57 @@ pub mod pg {
 
     pub fn delete_policy(conn: &mut diesel::PgConnection, claim_type: &str) -> QueryResult<usize> {
         diesel::delete(claim_type_policies::table.find(claim_type)).execute(conn)
+    }
+
+    // -- Per-locale claim-type labels --
+
+    pub fn list_claim_labels(
+        conn: &mut diesel::PgConnection,
+        claim_type: &str,
+    ) -> QueryResult<Vec<ClaimLabelI18n>> {
+        claim_type_label_i18n::table
+            .filter(claim_type_label_i18n::claim_type.eq(claim_type))
+            .order(claim_type_label_i18n::locale.asc())
+            .select(ClaimLabelI18nRow::as_select())
+            .load::<ClaimLabelI18nRow>(conn)
+            .map(|rows| rows.into_iter().map(Into::into).collect())
+    }
+
+    pub fn find_claim_label(
+        conn: &mut diesel::PgConnection,
+        claim_type: &str,
+        locale: &str,
+    ) -> QueryResult<Option<ClaimLabelI18n>> {
+        claim_type_label_i18n::table
+            .find((claim_type, locale))
+            .select(ClaimLabelI18nRow::as_select())
+            .first::<ClaimLabelI18nRow>(conn)
+            .optional()
+            .map(|o| o.map(Into::into))
+    }
+
+    pub fn upsert_claim_label(
+        conn: &mut diesel::PgConnection,
+        label: ClaimLabelI18n,
+    ) -> QueryResult<usize> {
+        let row: ClaimLabelI18nRow = label.into();
+        diesel::insert_into(claim_type_label_i18n::table)
+            .values(&row)
+            .on_conflict((
+                claim_type_label_i18n::claim_type,
+                claim_type_label_i18n::locale,
+            ))
+            .do_update()
+            .set(&row)
+            .execute(conn)
+    }
+
+    pub fn delete_claim_label(
+        conn: &mut diesel::PgConnection,
+        claim_type: &str,
+        locale: &str,
+    ) -> QueryResult<usize> {
+        diesel::delete(claim_type_label_i18n::table.find((claim_type, locale))).execute(conn)
     }
 
     // -- Trusted issuers --
@@ -460,16 +512,17 @@ pub mod sqlite {
     use diesel::prelude::*;
 
     use crate::db::models::sqlite::{
-        AdminReviewRow, AuditLogRow, ClaimTypePolicyRow, NewAdminReviewRow, NewAuditLogRow,
-        NewClaimApprovalRow, ProfileClaimPrefRow, ReleasePolicyRow, TrustedIssuerRow,
+        AdminReviewRow, AuditLogRow, ClaimLabelI18nRow, ClaimTypePolicyRow, NewAdminReviewRow,
+        NewAuditLogRow, NewClaimApprovalRow, ProfileClaimPrefRow, ReleasePolicyRow,
+        TrustedIssuerRow,
     };
     use crate::db::models::{
-        AdminReview, AuditEntry, ClaimApproval, ClaimTypePolicy, ProfileClaimPref, ReleasePolicy,
-        TrustedIssuer,
+        AdminReview, AuditEntry, ClaimApproval, ClaimLabelI18n, ClaimTypePolicy, ProfileClaimPref,
+        ReleasePolicy, TrustedIssuer,
     };
     use crate::schema::sqlite::{
-        admin_review_queue, audit_log, claim_type_policies, profile_claim_prefs, release_policies,
-        trusted_issuers,
+        admin_review_queue, audit_log, claim_type_label_i18n, claim_type_policies,
+        profile_claim_prefs, release_policies, trusted_issuers,
     };
 
     // -- Claim-type policy registry --
@@ -523,6 +576,57 @@ pub mod sqlite {
         claim_type: &str,
     ) -> QueryResult<usize> {
         diesel::delete(claim_type_policies::table.find(claim_type)).execute(conn)
+    }
+
+    // -- Per-locale claim-type labels --
+
+    pub fn list_claim_labels(
+        conn: &mut diesel::SqliteConnection,
+        claim_type: &str,
+    ) -> QueryResult<Vec<ClaimLabelI18n>> {
+        claim_type_label_i18n::table
+            .filter(claim_type_label_i18n::claim_type.eq(claim_type))
+            .order(claim_type_label_i18n::locale.asc())
+            .select(ClaimLabelI18nRow::as_select())
+            .load::<ClaimLabelI18nRow>(conn)
+            .map(|rows| rows.into_iter().map(Into::into).collect())
+    }
+
+    pub fn find_claim_label(
+        conn: &mut diesel::SqliteConnection,
+        claim_type: &str,
+        locale: &str,
+    ) -> QueryResult<Option<ClaimLabelI18n>> {
+        claim_type_label_i18n::table
+            .find((claim_type, locale))
+            .select(ClaimLabelI18nRow::as_select())
+            .first::<ClaimLabelI18nRow>(conn)
+            .optional()
+            .map(|o| o.map(Into::into))
+    }
+
+    pub fn upsert_claim_label(
+        conn: &mut diesel::SqliteConnection,
+        label: ClaimLabelI18n,
+    ) -> QueryResult<usize> {
+        let row: ClaimLabelI18nRow = label.into();
+        diesel::insert_into(claim_type_label_i18n::table)
+            .values(&row)
+            .on_conflict((
+                claim_type_label_i18n::claim_type,
+                claim_type_label_i18n::locale,
+            ))
+            .do_update()
+            .set(&row)
+            .execute(conn)
+    }
+
+    pub fn delete_claim_label(
+        conn: &mut diesel::SqliteConnection,
+        claim_type: &str,
+        locale: &str,
+    ) -> QueryResult<usize> {
+        diesel::delete(claim_type_label_i18n::table.find((claim_type, locale))).execute(conn)
     }
 
     // -- Trusted issuers --
