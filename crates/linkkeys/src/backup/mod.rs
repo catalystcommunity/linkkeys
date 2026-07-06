@@ -212,6 +212,7 @@ const SNAPSHOT_TABLES: &[&str] = &[
     "profiles",
     "consent_grants",
     "claim_type_policies",
+    "claim_type_label_i18n",
     "trusted_issuers",
     "profile_claim_prefs",
     "release_policies",
@@ -307,6 +308,10 @@ mod sqlite_backend {
         user_settable: i32, default_auto_sign: i32, suggested: i32, created_at: String,
         updated_at: String,
     });
+    backup_row!(ClaimLabelI18nRow => claim_type_label_i18n {
+        claim_type: String, locale: String, label: String, description: Option<String>,
+        created_at: String, updated_at: String,
+    });
     backup_row!(TrustedIssuerRow => trusted_issuers {
         claim_type: String, issuer_domain: String, created_at: String,
     });
@@ -358,6 +363,7 @@ mod sqlite_backend {
             $op!("profiles", profiles, ProfileRow, $($arg)*);
             $op!("consent_grants", consent_grants, ConsentGrantRow, $($arg)*);
             $op!("claim_type_policies", claim_type_policies, ClaimTypePolicyRow, $($arg)*);
+            $op!("claim_type_label_i18n", claim_type_label_i18n, ClaimLabelI18nRow, $($arg)*);
             $op!("trusted_issuers", trusted_issuers, TrustedIssuerRow, $($arg)*);
             $op!("profile_claim_prefs", profile_claim_prefs, ProfileClaimPrefRow, $($arg)*);
             $op!("release_policies", release_policies, ReleasePolicyRow, $($arg)*);
