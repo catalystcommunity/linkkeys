@@ -569,6 +569,19 @@ ResetPasswordResponse = {
     success: bool
 }
 
+;; Verify a user's password (username + password). Returns the user on success;
+;; an error on failure (never distinguishes wrong-password from unknown-user).
+;; Drives the same PasswordAuthenticator the web login uses; the app calls this
+;; over CSIL-RPC and mints its own session.
+AuthenticateRequest = {
+    username: text,
+    password: text
+}
+
+AuthenticateResponse = {
+    user: AdminUser
+}
+
 RemoveCredentialRequest = {
     credential_id: text
 }
@@ -825,6 +838,7 @@ service Admin {
     update-user: UpdateUserRequest -> UpdateUserResponse,
     deactivate-user: DeactivateUserRequest -> DeactivateUserResponse,
     reset-password: ResetPasswordRequest -> ResetPasswordResponse,
+    authenticate: AuthenticateRequest -> AuthenticateResponse,
     remove-credential: RemoveCredentialRequest -> RemoveCredentialResponse,
     set-claim: SetClaimRequest -> SetClaimResponse,
     remove-claim: RemoveClaimRequest -> RemoveClaimResponse,

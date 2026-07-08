@@ -179,6 +179,12 @@ pub trait Admin {
         ctx: &Self::Context,
         input: ResetPasswordRequest,
     ) -> Result<ResetPasswordResponse, ServiceError>;
+    /// authenticate (request/response).
+    fn authenticate(
+        &self,
+        ctx: &Self::Context,
+        input: AuthenticateRequest,
+    ) -> Result<AuthenticateResponse, ServiceError>;
     /// remove-credential (request/response).
     fn remove_credential(
         &self,

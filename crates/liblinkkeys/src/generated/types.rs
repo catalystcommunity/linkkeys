@@ -439,6 +439,17 @@ pub struct ResetPasswordResponse {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct AuthenticateRequest {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AuthenticateResponse {
+    pub user: AdminUser,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct RemoveCredentialRequest {
     pub credential_id: String,
 }

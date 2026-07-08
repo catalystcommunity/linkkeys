@@ -1002,6 +1002,24 @@ async fn finalize_login(
     authorized_claims: Vec<String>,
     requested: Vec<String>,
 ) -> Result<Redirect, String> {
+    finalize_login_url(pool, net, nonces, user, request, authorized_claims, requested)
+        .await
+        .map(Redirect::found)
+}
+
+/// Same as `finalize_login` but returns the callback redirect URL instead of a
+/// `Redirect`, so the JSON authorize API (driven by our app's own consent UI)
+/// can hand the URL back to the browser. Burns the nonce + persists the consent
+/// grant exactly once, here.
+async fn finalize_login_url(
+    pool: &DbPool,
+    net: &Net,
+    nonces: &nonce_store::NonceStore,
+    user: &crate::db::models::User,
+    request: &AuthRequest,
+    authorized_claims: Vec<String>,
+    requested: Vec<String>,
+) -> Result<String, String> {
     // Single-use: burn the trusted CBOR nonce now, at token issuance, so an
     // abandoned consent screen doesn't consume the login request prematurely.
     if !nonces.record(&format!("login:{}", request.nonce)) {
@@ -1069,10 +1087,99 @@ async fn finalize_login(
     } else {
         "?"
     };
-    Ok(Redirect::found(format!(
+    Ok(format!(
         "{}{}encrypted_token={}",
         request.callback_url, separator, encrypted
-    )))
+    ))
+}
+
+// -- JSON authorize API: our app owns the consent UI; these two authed routes
+// let it validate the RP's signed request and finalize (sign the assertion,
+// which must stay here since the domain key lives in linkkeys). Guarded by a
+// valid API key (only our app holds one); net/nonces come from Rocket state.
+
+#[derive(rocket::serde::Deserialize)]
+#[serde(crate = "rocket::serde")]
+struct AuthorizeValidateReq {
+    signed_request: String,
+}
+
+#[derive(rocket::serde::Serialize)]
+#[serde(crate = "rocket::serde")]
+struct AuthorizeValidateResp {
+    relying_party: String,
+    callback_url: String,
+    requested_claims: Vec<String>,
+}
+
+#[rocket::post("/rp/authorize/validate", data = "<body>")]
+async fn rp_authorize_validate(
+    _auth: guard::AuthenticatedUser,
+    pool: &State<DbPool>,
+    net: &State<Net>,
+    body: rocket::serde::json::Json<AuthorizeValidateReq>,
+) -> Result<rocket::serde::json::Json<AuthorizeValidateResp>, Status> {
+    match validate_signed_request(pool, net, &body.signed_request).await {
+        Ok(req) => Ok(rocket::serde::json::Json(AuthorizeValidateResp {
+            relying_party: req.relying_party.clone(),
+            callback_url: req.callback_url.clone(),
+            requested_claims: req
+                .requested_claims
+                .as_ref()
+                .map(requested_types)
+                .unwrap_or_default(),
+        })),
+        Err(_) => Err(Status::BadRequest),
+    }
+}
+
+#[derive(rocket::serde::Deserialize)]
+#[serde(crate = "rocket::serde")]
+struct AuthorizeFinalizeReq {
+    user_id: String,
+    signed_request: String,
+    authorized_claims: Vec<String>,
+}
+
+#[derive(rocket::serde::Serialize)]
+#[serde(crate = "rocket::serde")]
+struct AuthorizeFinalizeResp {
+    redirect_url: String,
+}
+
+#[rocket::post("/rp/authorize/finalize", data = "<body>")]
+async fn rp_authorize_finalize(
+    _auth: guard::AuthenticatedUser,
+    pool: &State<DbPool>,
+    net: &State<Net>,
+    nonces: &State<nonce_store::NonceStore>,
+    body: rocket::serde::json::Json<AuthorizeFinalizeReq>,
+) -> Result<rocket::serde::json::Json<AuthorizeFinalizeResp>, Status> {
+    let request = validate_signed_request(pool, net, &body.signed_request)
+        .await
+        .map_err(|_| Status::BadRequest)?;
+    let user = pool
+        .find_user_by_id(&body.user_id)
+        .map_err(|_| Status::NotFound)?;
+    if user.is_admin_account {
+        return Err(Status::Forbidden);
+    }
+    let requested = request
+        .requested_claims
+        .as_ref()
+        .map(requested_types)
+        .unwrap_or_default();
+    // Never sign a claim the RP didn't request, whatever the caller passed.
+    let authorized: Vec<String> = body
+        .authorized_claims
+        .iter()
+        .filter(|c| requested.contains(c))
+        .cloned()
+        .collect();
+    match finalize_login_url(pool, net, nonces, &user, &request, authorized, requested).await {
+        Ok(url) => Ok(rocket::serde::json::Json(AuthorizeFinalizeResp { redirect_url: url })),
+        Err(_) => Err(Status::InternalServerError),
+    }
 }
 
 #[rocket::get("/auth/authorize?<user_hint>&<signed_request>")]
@@ -1770,6 +1877,8 @@ pub fn build_rocket(
         handshake_cbor,
         userinfo_cbor,
         rpc_cbor,
+        rp_authorize_validate,
+        rp_authorize_finalize,
     ];
 
     // Mount password auth routes (login form) when enabled (default: true)

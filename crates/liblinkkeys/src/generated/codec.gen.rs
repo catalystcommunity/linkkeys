@@ -3377,6 +3377,74 @@ pub fn decode_reset_password_response(
     csil_dec_reset_password_response(&csil_root)
 }
 
+/// Build the canonical CBOR value tree for a AuthenticateRequest.
+fn csil_enc_authenticate_request(csil_v: &AuthenticateRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("password"), cbor_text(&csil_v.password)));
+    csil_entries.push((cbor_text("username"), cbor_text(&csil_v.username)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a AuthenticateRequest from a decoded CBOR value tree.
+fn csil_dec_authenticate_request(
+    csil_root: &CsilCborValue,
+) -> Result<AuthenticateRequest, CsilCborError> {
+    let username = {
+        let csil_field = cbor_require(csil_root, "username")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let password = {
+        let csil_field = cbor_require(csil_root, "password")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(AuthenticateRequest { username, password })
+}
+
+/// Encode a AuthenticateRequest to canonical CSIL CBOR bytes.
+pub fn encode_authenticate_request(csil_v: &AuthenticateRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_authenticate_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a AuthenticateRequest.
+pub fn decode_authenticate_request(csil_data: &[u8]) -> Result<AuthenticateRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_authenticate_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a AuthenticateResponse.
+fn csil_enc_authenticate_response(csil_v: &AuthenticateResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("user"), csil_enc_admin_user(&csil_v.user)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a AuthenticateResponse from a decoded CBOR value tree.
+fn csil_dec_authenticate_response(
+    csil_root: &CsilCborValue,
+) -> Result<AuthenticateResponse, CsilCborError> {
+    let user = {
+        let csil_field = cbor_require(csil_root, "user")?;
+        let csil_decode = csil_dec_admin_user;
+        csil_decode(csil_field)?
+    };
+    Ok(AuthenticateResponse { user })
+}
+
+/// Encode a AuthenticateResponse to canonical CSIL CBOR bytes.
+pub fn encode_authenticate_response(csil_v: &AuthenticateResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_authenticate_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a AuthenticateResponse.
+pub fn decode_authenticate_response(
+    csil_data: &[u8],
+) -> Result<AuthenticateResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_authenticate_response(&csil_root)
+}
+
 /// Build the canonical CBOR value tree for a RemoveCredentialRequest.
 fn csil_enc_remove_credential_request(csil_v: &RemoveCredentialRequest) -> CsilCborValue {
     let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
