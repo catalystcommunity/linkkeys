@@ -1,5 +1,4 @@
 # LinkKeys server Helm chart values
-
 replicaCount: 1
 
 image:
