@@ -58,6 +58,13 @@ spec:
             - name: RP_DOMAIN
               value: {{ .Values.rp.domain | quote }}
             {{- end }}
+            {{- if eq (default "false" .Values.rp.allowPrivatePeers) "true" }}
+            # The RP is reached over an in-cluster ClusterIP (RFC1918), which the
+            # RPC client's SEC-07 SSRF guard blocks by default. rp.tcpAddr is
+            # operator-configured (not attacker-supplied), so opting out is safe.
+            - name: LINKKEYS_ALLOW_PRIVATE_PEERS
+              value: "true"
+            {{- end }}
             {{- if .Values.rp.apiKey }}
             - name: RP_API_KEY
               valueFrom:

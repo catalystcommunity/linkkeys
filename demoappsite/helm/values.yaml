@@ -29,6 +29,11 @@ rp:
   apiKey: ""
   # The RP's domain name (used in auth requests)
   domain: ""
+  # Allow the RPC client to dial private/RFC1918 peer addresses. Needed when the
+  # RP is reached via an in-cluster ClusterIP (e.g. *.svc.cluster.local), which
+  # the SEC-07 SSRF guard blocks by default. Only enable when rp.tcpAddr is a
+  # trusted, operator-configured endpoint. String "true"/"false".
+  allowPrivatePeers: "false"
 
 service:
   type: ClusterIP
