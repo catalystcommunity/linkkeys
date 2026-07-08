@@ -6,6 +6,23 @@ pub const RELATION_MANAGE_CLAIMS: &str = "manage_claims";
 pub const RELATION_API_ACCESS: &str = "api_access";
 pub const RELATION_ISSUE_CLAIMS: &str = "issue_claims";
 
+/// The relations an operator may grant to a service/admin identity on a domain.
+/// Break-glass provisioning (`user create --relation`, `relation grant-local`)
+/// validates against this set so a typo can't silently persist a useless grant
+/// that then reads as "access denied" at the call site.
+pub const GRANTABLE_RELATIONS: &[&str] = &[
+    RELATION_ADMIN,
+    RELATION_MANAGE_USERS,
+    RELATION_MANAGE_CLAIMS,
+    RELATION_API_ACCESS,
+    RELATION_ISSUE_CLAIMS,
+];
+
+/// True if `relation` is a name provisioning is allowed to grant.
+pub fn is_grantable_relation(relation: &str) -> bool {
+    GRANTABLE_RELATIONS.contains(&relation)
+}
+
 /// Check if a user has a specific permission on an object.
 /// admin relation implies all others on the same object.
 /// Uses DbPool::check_permission which handles group traversal.

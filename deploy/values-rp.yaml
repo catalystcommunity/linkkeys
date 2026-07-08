@@ -18,6 +18,15 @@ database:
   backend: sqlite
   url: "/data/linkkeys-rp.db"
 
+# The RP's oracle ops (Rp/sign-request, decrypt-token over CSIL-RPC) and the
+# browser-flow /rp/authorize/* routes require the caller's API-key identity to
+# hold the `api_access` relation on this domain — a bare valid key is refused
+# (SEC-06), which surfaces to the demo app as
+#   "RP sign-request failed: server error (4): Forbidden".
+# Provision the demo app's key with it once (idempotent):
+#   ./deploy/live.sh grant <rp-key-username> api_access
+#   # or, for a fresh key:  ./deploy/live.sh api-key rp-demoappsite api_access
+# then put the printed key in the demo app's RP_API_KEY secret.
 rp:
   enabled: true
   apiKeyAuth: true

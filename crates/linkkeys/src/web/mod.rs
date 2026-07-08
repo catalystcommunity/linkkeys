@@ -1002,9 +1002,17 @@ async fn finalize_login(
     authorized_claims: Vec<String>,
     requested: Vec<String>,
 ) -> Result<Redirect, String> {
-    finalize_login_url(pool, net, nonces, user, request, authorized_claims, requested)
-        .await
-        .map(Redirect::found)
+    finalize_login_url(
+        pool,
+        net,
+        nonces,
+        user,
+        request,
+        authorized_claims,
+        requested,
+    )
+    .await
+    .map(Redirect::found)
 }
 
 /// Same as `finalize_login` but returns the callback redirect URL instead of a
@@ -1095,8 +1103,29 @@ async fn finalize_login_url(
 
 // -- JSON authorize API: our app owns the consent UI; these two authed routes
 // let it validate the RP's signed request and finalize (sign the assertion,
-// which must stay here since the domain key lives in linkkeys). Guarded by a
-// valid API key (only our app holds one); net/nonces come from Rocket state.
+// which must stay here since the domain key lives in linkkeys). net/nonces come
+// from Rocket state.
+//
+// These are the browser-flow equivalent of the `Rp` CSIL-RPC oracles: finalize
+// mints a signed login assertion for a named user. `AuthenticatedUser` alone is
+// only "some valid, active API key" — it deliberately checks no permission
+// (guard.rs) — so gating on it would let *any* key mint an assertion for *any*
+// non-admin user, an impersonation path weaker than the SEC-06 TCP oracle yet
+// strictly more powerful. Both routes therefore require the same dedicated
+// `api_access` relation the `Rp` service demands.
+fn require_api_access(pool: &DbPool, user: &crate::db::models::User) -> Result<(), Status> {
+    if crate::services::authorization::user_has_permission(
+        pool,
+        &user.id,
+        crate::services::authorization::RELATION_API_ACCESS,
+        "domain",
+        &get_domain_name(),
+    ) {
+        Ok(())
+    } else {
+        Err(Status::Forbidden)
+    }
+}
 
 #[derive(rocket::serde::Deserialize)]
 #[serde(crate = "rocket::serde")]
@@ -1114,11 +1143,12 @@ struct AuthorizeValidateResp {
 
 #[rocket::post("/rp/authorize/validate", data = "<body>")]
 async fn rp_authorize_validate(
-    _auth: guard::AuthenticatedUser,
+    auth: guard::AuthenticatedUser,
     pool: &State<DbPool>,
     net: &State<Net>,
     body: rocket::serde::json::Json<AuthorizeValidateReq>,
 ) -> Result<rocket::serde::json::Json<AuthorizeValidateResp>, Status> {
+    require_api_access(pool, &auth.0)?;
     match validate_signed_request(pool, net, &body.signed_request).await {
         Ok(req) => Ok(rocket::serde::json::Json(AuthorizeValidateResp {
             relying_party: req.relying_party.clone(),
@@ -1149,12 +1179,13 @@ struct AuthorizeFinalizeResp {
 
 #[rocket::post("/rp/authorize/finalize", data = "<body>")]
 async fn rp_authorize_finalize(
-    _auth: guard::AuthenticatedUser,
+    auth: guard::AuthenticatedUser,
     pool: &State<DbPool>,
     net: &State<Net>,
     nonces: &State<nonce_store::NonceStore>,
     body: rocket::serde::json::Json<AuthorizeFinalizeReq>,
 ) -> Result<rocket::serde::json::Json<AuthorizeFinalizeResp>, Status> {
+    require_api_access(pool, &auth.0)?;
     let request = validate_signed_request(pool, net, &body.signed_request)
         .await
         .map_err(|_| Status::BadRequest)?;
@@ -1177,7 +1208,9 @@ async fn rp_authorize_finalize(
         .cloned()
         .collect();
     match finalize_login_url(pool, net, nonces, &user, &request, authorized, requested).await {
-        Ok(url) => Ok(rocket::serde::json::Json(AuthorizeFinalizeResp { redirect_url: url })),
+        Ok(url) => Ok(rocket::serde::json::Json(AuthorizeFinalizeResp {
+            redirect_url: url,
+        })),
         Err(_) => Err(Status::InternalServerError),
     }
 }

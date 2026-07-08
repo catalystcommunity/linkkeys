@@ -3,13 +3,13 @@ use std::env;
 use liblinkkeys::generated::services::ServiceError;
 use liblinkkeys::generated::types::{
     AdminUser, AuthenticateRequest, AuthenticateResponse, CheckPermissionRequest,
-    CheckPermissionResponse, Claim, CreateUserRequest,
-    CreateUserResponse, DeactivateUserRequest, DeactivateUserResponse, GetUserRequest,
-    GetUserResponse, GrantRelationRequest, GrantRelationResponse, ListRelationsRequest,
-    ListRelationsResponse, ListUsersRequest, ListUsersResponse, RemoveClaimRequest,
-    RemoveClaimResponse, RemoveCredentialRequest, RemoveCredentialResponse, RemoveRelationRequest,
-    RemoveRelationResponse, ResetPasswordRequest, ResetPasswordResponse, SetClaimRequest,
-    SetClaimResponse, UpdateUserRequest, UpdateUserResponse,
+    CheckPermissionResponse, Claim, CreateUserRequest, CreateUserResponse, DeactivateUserRequest,
+    DeactivateUserResponse, GetUserRequest, GetUserResponse, GrantRelationRequest,
+    GrantRelationResponse, ListRelationsRequest, ListRelationsResponse, ListUsersRequest,
+    ListUsersResponse, RemoveClaimRequest, RemoveClaimResponse, RemoveCredentialRequest,
+    RemoveCredentialResponse, RemoveRelationRequest, RemoveRelationResponse, ResetPasswordRequest,
+    ResetPasswordResponse, SetClaimRequest, SetClaimResponse, UpdateUserRequest,
+    UpdateUserResponse,
 };
 
 use crate::db::models;
