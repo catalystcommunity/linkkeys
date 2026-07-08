@@ -77,6 +77,7 @@ async fn main() {
             password,
             api_key,
             admin,
+            relation,
         }) => {
             user_create(
                 &username,
@@ -84,6 +85,7 @@ async fn main() {
                 password.as_deref(),
                 api_key,
                 admin,
+                &relation,
             );
         }
         Commands::User(UserCommands::List { server }) => user_list(server.as_deref()),
@@ -744,7 +746,20 @@ fn user_create(
     password: Option<&str>,
     api_key: bool,
     admin: bool,
+    relations: &[String],
 ) {
+    // Validate requested relations up front so we fail before creating a user
+    // (and its keypairs) we'd then have to reason about half-provisioned.
+    for r in relations {
+        if !linkkeys::services::authorization::is_grantable_relation(r) {
+            eprintln!(
+                "Unknown relation '{}'. Valid relations: {}",
+                r,
+                linkkeys::services::authorization::GRANTABLE_RELATIONS.join(", ")
+            );
+            std::process::exit(1);
+        }
+    }
     let passphrase = get_passphrase();
     let db_pool = pool_with_migrations();
 
@@ -845,16 +860,56 @@ fn user_create(
         },
     );
 
+    // Grant --admin (kept for compatibility) plus any explicit --relation values.
+    // De-duplicated so `--admin --relation admin` doesn't hit the unique index.
+    let mut to_grant: Vec<&str> = Vec::new();
     if admin {
-        let domain = linkkeys::conversions::get_domain_name();
-        match db_pool.create_relation("user", &user.id, "admin", "domain", &domain) {
-            Ok(rel) => println!("Admin relation granted: id={}", rel.id),
-            Err(e) => {
-                eprintln!("Failed to grant admin relation: {}", e);
-                std::process::exit(1);
-            }
+        to_grant.push("admin");
+    }
+    for r in relations {
+        if !to_grant.contains(&r.as_str()) {
+            to_grant.push(r.as_str());
         }
     }
+    for relation in to_grant {
+        grant_relation_local(&db_pool, &user.id, relation);
+    }
+}
+
+/// Grant `relation` to `user_id` on the current domain, DB-direct and idempotent.
+/// Shared by `user create --relation/--admin` and `relation grant-local`; the
+/// caller is responsible for validating the relation name first (both do).
+fn grant_relation_local(db_pool: &linkkeys::db::DbPool, user_id: &str, relation: &str) {
+    let domain = linkkeys::conversions::get_domain_name();
+    match db_pool.grant_relation_idempotent("user", user_id, relation, "domain", &domain) {
+        Ok(true) => println!(
+            "Relation granted: {} -> {} on domain {}",
+            user_id, relation, domain
+        ),
+        Ok(false) => println!(
+            "Relation already present: {} -> {} on domain {}",
+            user_id, relation, domain
+        ),
+        Err(e) => {
+            eprintln!("Failed to grant relation '{}': {}", relation, e);
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Resolve a user by username (preferred) or UUID, for DB-direct CLI paths.
+fn resolve_local_user_id(db_pool: &linkkeys::db::DbPool, ident: &str) -> String {
+    if let Ok(u) = db_pool.find_user_by_username(ident) {
+        return u.id;
+    }
+    if let Ok(u) = db_pool.find_user_by_id(ident) {
+        return u.id;
+    }
+    eprintln!(
+        "No user found matching '{}' (tried username, then UUID)",
+        ident
+    );
+    std::process::exit(1);
 }
 
 // --- TCP-based command handlers ---
@@ -1020,6 +1075,19 @@ fn claim_remove(claim_id: &str, server: Option<&str>) {
 
 fn handle_relation_command(cmd: RelationCommands) {
     match cmd {
+        RelationCommands::GrantLocal { user, relation } => {
+            if !linkkeys::services::authorization::is_grantable_relation(&relation) {
+                eprintln!(
+                    "Unknown relation '{}'. Valid relations: {}",
+                    relation,
+                    linkkeys::services::authorization::GRANTABLE_RELATIONS.join(", ")
+                );
+                std::process::exit(1);
+            }
+            let db_pool = pool_with_migrations();
+            let user_id = resolve_local_user_id(&db_pool, &user);
+            grant_relation_local(&db_pool, &user_id, &relation);
+        }
         RelationCommands::Grant {
             subject_type,
             subject_id,

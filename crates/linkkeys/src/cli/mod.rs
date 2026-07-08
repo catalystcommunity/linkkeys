@@ -121,6 +121,13 @@ pub enum UserCommands {
         /// Grant admin relation on this domain (bootstrap)
         #[arg(long)]
         admin: bool,
+        /// Grant a specific relation on this domain (repeatable). Least-privilege
+        /// alternative to --admin for service keys, e.g. `--relation api_access`
+        /// for an RP delegate or `--relation manage_users --relation manage_claims`
+        /// for an app-driven IDP. Valid: admin, manage_users, manage_claims,
+        /// api_access, issue_claims.
+        #[arg(long = "relation")]
+        relation: Vec<String>,
     },
     /// List all users (via TCP)
     List {
@@ -177,6 +184,17 @@ pub enum ClaimCommands {
 
 #[derive(Subcommand)]
 pub enum RelationCommands {
+    /// Grant a relation to a user on this domain, writing directly to the DB
+    /// (DB-direct, break-glass — no server/API key needed). Resolves bootstrap's
+    /// chicken-and-egg: `relation grant` (via TCP) needs an admin key, but the
+    /// first api_access/manage_users key has to be granted before one exists.
+    /// Idempotent. Run where the DB lives (e.g. inside the server pod).
+    GrantLocal {
+        /// User: username or UUID
+        user: String,
+        /// Relation name: admin, manage_users, manage_claims, api_access, issue_claims
+        relation: String,
+    },
     /// Grant a relation (via TCP)
     Grant {
         /// Subject type (e.g., "user")

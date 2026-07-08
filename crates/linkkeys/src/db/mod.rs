@@ -558,6 +558,29 @@ impl DbPool {
         }
     }
 
+    /// Grant a relation idempotently: an identical active grant returns
+    /// `Ok(false)` (already present) instead of erroring on the partial unique
+    /// index. Break-glass/bootstrap provisioning must be safe to re-run, so the
+    /// unique-violation is folded into a no-op here rather than surfacing at the
+    /// (diesel-unaware) CLI layer.
+    pub fn grant_relation_idempotent(
+        &self,
+        subject_type: &str,
+        subject_id: &str,
+        relation: &str,
+        object_type: &str,
+        object_id: &str,
+    ) -> QueryResult<bool> {
+        match self.create_relation(subject_type, subject_id, relation, object_type, object_id) {
+            Ok(_) => Ok(true),
+            Err(diesel::result::Error::DatabaseError(
+                diesel::result::DatabaseErrorKind::UniqueViolation,
+                _,
+            )) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
     pub fn remove_relation(&self, id: &str) -> QueryResult<models::Relation> {
         match self {
             #[cfg(feature = "postgres")]

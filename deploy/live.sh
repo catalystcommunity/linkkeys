@@ -117,6 +117,44 @@ cmd_dns() {
     echo " TCP protocol needs raw TLS, not an HTTP proxy.)"
 }
 
+cmd_api_key() {
+    # Provision a service/admin identity with an API key and exactly the
+    # relations it needs, then print the key ONCE. The hardened API surface
+    # requires specific relations, not just a valid key:
+    #   - an RP delegate (e.g. a demo app) needs:  api_access
+    #   - an app-driven IDP key (create users / set claims / authenticate) needs:
+    #                                              manage_users manage_claims
+    #     (add api_access too if the app drives the /rp/authorize/* routes)
+    # DB-direct and idempotent on relations; re-running mints a NEW key, so keep
+    # the first one. Usage: live.sh api-key <username> <relation> [relation...]
+    local username="${1:-}"; shift || true
+    [ -n "$username" ] && [ "$#" -ge 1 ] || {
+        err "usage: live.sh api-key <username> <relation> [relation...]"; exit 1; }
+    local pod; pod="$(deploy_pod)"
+    [ -n "$pod" ] || { err "no running pod for ${RELEASE}; run deploy first"; exit 1; }
+    local rel_args=(); local r
+    for r in "$@"; do rel_args+=(--relation "$r"); done
+    log "creating API-key user '${username}' with relations: $*"
+    kubectl -n "$NAMESPACE" exec "$pod" -- \
+        linkkeys user create "$username" "$username" --api-key "${rel_args[@]}"
+    echo "Save the API key above — it is not recoverable. Put it in the calling"
+    echo "app's secret (e.g. the demo app's RP_API_KEY)."
+}
+
+cmd_grant() {
+    # Grant a relation to an EXISTING user on this domain (DB-direct, idempotent).
+    # Repairs an under-provisioned key without minting a new one — e.g. granting
+    # api_access to a demo app's existing RP key.
+    # Usage: live.sh grant <username-or-uuid> <relation>
+    local user="${1:-}" relation="${2:-}"
+    [ -n "$user" ] && [ -n "$relation" ] || {
+        err "usage: live.sh grant <username-or-uuid> <relation>"; exit 1; }
+    local pod; pod="$(deploy_pod)"
+    [ -n "$pod" ] || { err "no running pod for ${RELEASE}; run deploy first"; exit 1; }
+    log "granting '${relation}' to '${user}' on ${DOMAIN}"
+    kubectl -n "$NAMESPACE" exec "$pod" -- linkkeys relation grant-local "$user" "$relation"
+}
+
 cmd_backup() {
     local pod; pod="$(deploy_pod)"
     [ -n "$pod" ] || { err "no running pod for ${RELEASE}; run deploy first"; exit 1; }
@@ -172,6 +210,8 @@ live.sh command   (config: $LIVE_ENV)
   deploy             helm upgrade --install the IDP (idempotent passphrase)
   init               generate domain keys, then print DNS records
   dns                re-print the DNS records to publish
+  api-key <user> <relation...>   mint an API-key identity with relations, print key once
+  grant <user> <relation>        grant a relation to an existing user (idempotent)
   backup             write an encrypted snapshot to \$BACKUP_DIR
   restore <file>     restore from an encrypted artifact (instance should be idle)
   down               delete the namespace (full teardown)
@@ -186,6 +226,8 @@ case "${1:-}" in
     deploy)  shift; cmd_deploy "$@" ;;
     init)    shift; cmd_init "$@" ;;
     dns)     shift; cmd_dns "$@" ;;
+    api-key) shift; cmd_api_key "$@" ;;
+    grant)   shift; cmd_grant "$@" ;;
     backup)  shift; cmd_backup "$@" ;;
     restore) shift; cmd_restore "$@" ;;
     down)    shift; cmd_down "$@" ;;
