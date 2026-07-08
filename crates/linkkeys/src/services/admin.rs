@@ -2,7 +2,8 @@ use std::env;
 
 use liblinkkeys::generated::services::ServiceError;
 use liblinkkeys::generated::types::{
-    AdminUser, CheckPermissionRequest, CheckPermissionResponse, Claim, CreateUserRequest,
+    AdminUser, AuthenticateRequest, AuthenticateResponse, CheckPermissionRequest,
+    CheckPermissionResponse, Claim, CreateUserRequest,
     CreateUserResponse, DeactivateUserRequest, DeactivateUserResponse, GetUserRequest,
     GetUserResponse, GrantRelationRequest, GrantRelationResponse, ListRelationsRequest,
     ListRelationsResponse, ListUsersRequest, ListUsersResponse, RemoveClaimRequest,
@@ -156,6 +157,29 @@ pub fn deactivate_user(
 pub fn activate_user(pool: &DbPool, user_id: &str) -> Result<AdminUser, ServiceError> {
     let user = pool.activate_user(user_id).map_err(db_err)?;
     Ok(user_to_admin_user(&user))
+}
+
+/// Verify a user's password (username + password), returning the user on
+/// success. Uses the same PasswordAuthenticator the web login does (Argon2id,
+/// transparent rehash). SEC-05: rate-limited per username like the web login.
+/// Failures never distinguish a wrong password from an unknown user. Callers
+/// (e.g. the catalystlinkkeys web app) authenticate over CSIL-RPC and mint their
+/// own session; this op requires `manage_users`.
+pub fn authenticate(
+    pool: &DbPool,
+    req: AuthenticateRequest,
+) -> Result<AuthenticateResponse, ServiceError> {
+    use auth::Authenticator;
+    if !crate::services::ratelimit::LOGIN.check(&req.username.trim().to_lowercase()) {
+        return Err(svc_err("Too many attempts. Please wait and try again."));
+    }
+    let authenticator = auth::PasswordAuthenticator::new(pool.clone());
+    match authenticator.authenticate(&req.username, &req.password) {
+        Ok(user) => Ok(AuthenticateResponse {
+            user: user_to_admin_user(&user),
+        }),
+        Err(_) => Err(svc_err("Invalid username or password")),
+    }
 }
 
 pub fn reset_password(

@@ -56,7 +56,7 @@ pub fn required_relation_for_op(service: &str, op: &str) -> Option<&'static str>
     match service {
         "Admin" => Some(match op {
             "list-users" | "get-user" | "create-user" | "update-user" | "deactivate-user"
-            | "reset-password" | "remove-credential" => RELATION_MANAGE_USERS,
+            | "reset-password" | "authenticate" | "remove-credential" => RELATION_MANAGE_USERS,
             "set-claim" | "remove-claim" => RELATION_MANAGE_CLAIMS,
             "grant-relation" | "remove-relation" | "list-relations" | "check-permission" => {
                 RELATION_ADMIN

@@ -936,6 +936,11 @@ fn dispatch_admin(op: &str, payload: &[u8], db_pool: &DbPool) -> Vec<u8> {
             admin::create_user,
             codec::encode_create_user_response
         ),
+        "authenticate" => admin_op!(
+            codec::decode_authenticate_request,
+            admin::authenticate,
+            codec::encode_authenticate_response
+        ),
         "update-user" => admin_op!(
             codec::decode_update_user_request,
             admin::update_user,
