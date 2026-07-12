@@ -36,11 +36,6 @@ fn public_origin() -> String {
 /// Begin verifying `email` for `subject_id`: validate the address, store a token,
 /// and send the confirmation link. The address is not signed until the link is
 /// confirmed.
-// TODO(follow-up): rate-limit per user and per target address. Today a
-// logged-in user can trigger a confirmation email to any address on each submit
-// (no false verification results — signing still needs the click — but it is an
-// authenticated spam amplifier). Add a per-user/per-recipient throttle and/or a
-// cap on outstanding tokens before wiring a real SMTP backend.
 pub fn request_email_verification(
     pool: &DbPool,
     subject_id: &str,

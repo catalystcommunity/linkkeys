@@ -2240,6 +2240,68 @@ impl DbPool {
         }
     }
 
+    /// Atomically revoke any active claims of this type for the user and insert
+    /// the replacement claim. The caller supplies `claim_id` because signatures
+    /// bind it into the signed payload.
+    #[allow(clippy::too_many_arguments)]
+    pub fn replace_active_claim_of_type(
+        &self,
+        claim_id: &str,
+        user_id: &str,
+        claim_type: &str,
+        claim_value: &[u8],
+        signatures: &[liblinkkeys::generated::types::ClaimSignature],
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        attested_at: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<models::ClaimRow> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
+                let id: uuid::Uuid = claim_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?;
+                let uid: uuid::Uuid = user_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?;
+                claims::pg::replace_active_of_type(
+                    &mut conn,
+                    id,
+                    uid,
+                    claim_type,
+                    claim_value,
+                    signatures,
+                    expires_at,
+                    attested_at,
+                )
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
+                claims::sqlite::replace_active_of_type(
+                    &mut conn,
+                    claim_id,
+                    user_id,
+                    claim_type,
+                    claim_value,
+                    signatures,
+                    expires_at.map(|e| e.to_rfc3339()).as_deref(),
+                    &attested_at.to_rfc3339(),
+                )
+            }
+        }
+    }
+
     pub fn create_email_verification(
         &self,
         token: &str,

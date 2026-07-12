@@ -5,11 +5,11 @@ use liblinkkeys::generated::types::{
     AdminUser, AuthenticateRequest, AuthenticateResponse, CheckPermissionRequest,
     CheckPermissionResponse, Claim, CreateUserRequest, CreateUserResponse, DeactivateUserRequest,
     DeactivateUserResponse, GetUserRequest, GetUserResponse, GrantRelationRequest,
-    GrantRelationResponse, ListRelationsRequest, ListRelationsResponse, ListUsersRequest,
-    ListUsersResponse, RemoveClaimRequest, RemoveClaimResponse, RemoveCredentialRequest,
-    RemoveCredentialResponse, RemoveRelationRequest, RemoveRelationResponse, ResetPasswordRequest,
-    ResetPasswordResponse, SetClaimRequest, SetClaimResponse, UpdateUserRequest,
-    UpdateUserResponse,
+    GrantRelationResponse, ListRelationsRequest, ListRelationsResponse, ListUserClaimsRequest,
+    ListUserClaimsResponse, ListUsersRequest, ListUsersResponse, RemoveClaimRequest,
+    RemoveClaimResponse, RemoveCredentialRequest, RemoveCredentialResponse, RemoveRelationRequest,
+    RemoveRelationResponse, ResetPasswordRequest, ResetPasswordResponse, SetClaimRequest,
+    SetClaimResponse, UpdateUserRequest, UpdateUserResponse,
 };
 
 use crate::db::models;
@@ -277,7 +277,7 @@ pub fn set_claim(pool: &DbPool, req: SetClaimRequest) -> Result<SetClaimResponse
     .map_err(|e| svc_err(&e.to_string()))?;
 
     let stored = pool
-        .create_claim(
+        .replace_active_claim_of_type(
             &claim_id,
             &req.user_id,
             &req.claim_type,
@@ -339,6 +339,28 @@ pub fn remove_claim(
     })?;
     pool.remove_claim(&req.claim_id).map_err(db_err)?;
     Ok(RemoveClaimResponse { success: true })
+}
+
+pub fn list_user_claims(
+    pool: &DbPool,
+    req: ListUserClaimsRequest,
+) -> Result<ListUserClaimsResponse, ServiceError> {
+    let _user = pool.find_user_by_id(&req.user_id).map_err(|e| match e {
+        diesel::result::Error::NotFound => ServiceError {
+            code: 404,
+            message: "User not found".to_string(),
+        },
+        other => db_err(other),
+    })?;
+    let mut claim_types: Vec<String> = pool
+        .list_active_claims(&req.user_id)
+        .map_err(db_err)?
+        .into_iter()
+        .map(|c| c.claim_type)
+        .collect();
+    claim_types.sort();
+    claim_types.dedup();
+    Ok(ListUserClaimsResponse { claim_types })
 }
 
 pub fn grant_relation(

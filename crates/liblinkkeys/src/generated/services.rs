@@ -203,6 +203,12 @@ pub trait Admin {
         ctx: &Self::Context,
         input: RemoveClaimRequest,
     ) -> Result<RemoveClaimResponse, ServiceError>;
+    /// list-user-claims (request/response).
+    fn list_user_claims(
+        &self,
+        ctx: &Self::Context,
+        input: ListUserClaimsRequest,
+    ) -> Result<ListUserClaimsResponse, ServiceError>;
     /// grant-relation (request/response).
     fn grant_relation(
         &self,

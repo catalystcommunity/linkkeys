@@ -483,6 +483,16 @@ pub struct RemoveClaimResponse {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ListUserClaimsRequest {
+    pub user_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListUserClaimsResponse {
+    pub claim_types: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct GrantRelationRequest {
     pub subject_type: String,
     pub subject_id: String,
