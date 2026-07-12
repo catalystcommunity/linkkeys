@@ -74,6 +74,27 @@ pub mod pg {
             .map(Into::into)
     }
 
+    pub fn purge_tombstone(
+        conn: &mut diesel::PgConnection,
+        user_id: &str,
+        reason: Option<&str>,
+    ) -> QueryResult<User> {
+        let id: uuid::Uuid = user_id
+            .parse()
+            .map_err(|_| diesel::result::Error::NotFound)?;
+        let now = chrono::Utc::now();
+        diesel::update(users::table.find(id))
+            .set((
+                users::is_active.eq(false),
+                users::display_name.eq("[purged]"),
+                users::purged_at.eq(Some(now)),
+                users::purge_reason.eq(reason),
+                users::updated_at.eq(now),
+            ))
+            .get_result::<UserRow>(conn)
+            .map(Into::into)
+    }
+
     pub fn activate(conn: &mut diesel::PgConnection, user_id: &str) -> QueryResult<User> {
         let id: uuid::Uuid = user_id
             .parse()
@@ -165,6 +186,28 @@ pub mod sqlite {
         let now = chrono::Utc::now().to_rfc3339();
         diesel::update(users::table.find(user_id))
             .set((users::is_active.eq(0), users::updated_at.eq(&now)))
+            .execute(conn)?;
+
+        users::table
+            .find(user_id)
+            .first::<UserRow>(conn)
+            .map(Into::into)
+    }
+
+    pub fn purge_tombstone(
+        conn: &mut diesel::SqliteConnection,
+        user_id: &str,
+        reason: Option<&str>,
+    ) -> QueryResult<User> {
+        let now = chrono::Utc::now().to_rfc3339();
+        diesel::update(users::table.find(user_id))
+            .set((
+                users::is_active.eq(0),
+                users::display_name.eq("[purged]"),
+                users::purged_at.eq(Some(&now)),
+                users::purge_reason.eq(reason),
+                users::updated_at.eq(&now),
+            ))
             .execute(conn)?;
 
         users::table

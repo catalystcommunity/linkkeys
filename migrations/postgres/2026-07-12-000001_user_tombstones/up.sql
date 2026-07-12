@@ -1,0 +1,2 @@
+ALTER TABLE users ADD COLUMN purged_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN purge_reason VARCHAR;

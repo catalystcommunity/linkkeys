@@ -186,6 +186,11 @@ pub fn reset_password(
     pool: &DbPool,
     req: ResetPasswordRequest,
 ) -> Result<ResetPasswordResponse, ServiceError> {
+    let user = pool.find_user_by_id(&req.user_id).map_err(db_err)?;
+    if user.purged_at.is_some() {
+        return Err(svc_err("cannot reset password for a purged user"));
+    }
+
     password::validate(&req.new_password)?;
 
     // Remove old password credentials

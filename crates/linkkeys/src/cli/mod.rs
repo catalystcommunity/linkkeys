@@ -131,6 +131,9 @@ pub enum UserCommands {
     },
     /// List all users (via TCP)
     List {
+        /// Read directly from the local database instead of TCP.
+        #[arg(long)]
+        local: bool,
         #[arg(long)]
         server: Option<String>,
     },
@@ -150,12 +153,42 @@ pub enum UserCommands {
         #[arg(long)]
         server: Option<String>,
     },
+    /// Deactivate a user by username or UUID, writing directly to the DB.
+    DeactivateLocal {
+        /// User: username or UUID
+        user: String,
+    },
     /// Reset a user's password (via TCP)
     ResetPassword {
         /// User UUID
         user_id: String,
         #[arg(long)]
         server: Option<String>,
+    },
+    /// Reset a user's password by username or UUID, writing directly to the DB.
+    ResetPasswordLocal {
+        /// User: username or UUID
+        user: String,
+        /// New password. Reads from stdin if omitted and --generate is not set.
+        #[arg(long)]
+        password: Option<String>,
+        /// Generate and print a fresh password.
+        #[arg(long)]
+        generate: bool,
+    },
+    /// Irreversibly minimize a user while keeping its UUID tombstoned forever.
+    PurgeLocal {
+        /// User: username or UUID
+        user: String,
+        /// Required confirmation for irreversible data minimization.
+        #[arg(long)]
+        force: bool,
+        /// Required when purging a protected admin account.
+        #[arg(long)]
+        force_admin: bool,
+        /// Operator-visible audit reason.
+        #[arg(long)]
+        reason: String,
     },
 }
 
