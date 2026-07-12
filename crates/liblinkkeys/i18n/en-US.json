@@ -10,6 +10,7 @@
   "consent.confirmed_by": "Confirmed by {who}",
   "consent.self_asserted": "You added this",
   "consent.not_confirmed": "not confirmed",
+  "consent.add_value_placeholder": "Add a value to share now",
   "consent.submit": "Share and continue",
   "consent.cancel": "Cancel",
   "consent.cancelled_title": "Sign-in cancelled",

@@ -286,6 +286,9 @@ pub fn issue_attested_claim(
             "issuer policy refuses to sign claims for this subject domain",
         ));
     }
+    if value.is_empty() {
+        return Err(svc_err(400, "claim value cannot be empty"));
+    }
     let passphrase = std::env::var("DOMAIN_KEY_PASSPHRASE")
         .map_err(|_| svc_err(500, "DOMAIN_KEY_PASSPHRASE not set"))?;
     let domain_keys = pool.list_active_domain_keys().map_err(db_err)?;
@@ -349,6 +352,9 @@ pub fn verify_and_store_attested(
     subject_id: &str,
     claim: &Claim,
 ) -> Result<(), ServiceError> {
+    if claim.claim_value.is_empty() {
+        return Err(svc_err(400, "claim value cannot be empty"));
+    }
     if claim.user_id != subject_id {
         return Err(svc_err(400, "claim subject does not match the account"));
     }

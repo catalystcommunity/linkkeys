@@ -225,6 +225,9 @@ pub fn remove_credential(
 pub fn set_claim(pool: &DbPool, req: SetClaimRequest) -> Result<SetClaimResponse, ServiceError> {
     let passphrase =
         env::var("DOMAIN_KEY_PASSPHRASE").map_err(|_| svc_err("DOMAIN_KEY_PASSPHRASE not set"))?;
+    if req.claim_value.as_bytes().is_empty() {
+        return Err(svc_err("claim value cannot be empty"));
+    }
 
     let domain_keys = pool.list_active_domain_keys().map_err(db_err)?;
     // Sign with every active domain key (>=3 by design) so the claim carries a
