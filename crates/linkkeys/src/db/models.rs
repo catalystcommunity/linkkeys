@@ -40,6 +40,24 @@ pub struct User {
     /// A domain administrator account — has the admin relation + credentials but
     /// no presentable profile, and is refused on the RP (app) login path.
     pub is_admin_account: bool,
+    /// Tombstone marker. Purged users keep their UUID forever but cannot log in
+    /// or receive new credentials.
+    pub purged_at: Option<String>,
+    pub purge_reason: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct UserPurgeSummary {
+    pub user: User,
+    pub credentials_revoked: usize,
+    pub keys_revoked: usize,
+    pub claims_revoked: usize,
+    pub relations_removed: usize,
+    pub profiles_deleted: usize,
+    pub consent_grants_deleted: usize,
+    pub release_prefs_deleted: usize,
+    pub email_verifications_deleted: usize,
+    pub reviews_resolved: usize,
 }
 
 /// Auth credential model. Stores hashed credentials per user per auth method.
@@ -406,6 +424,8 @@ pub mod pg {
         pub created_at: chrono::DateTime<chrono::Utc>,
         pub updated_at: chrono::DateTime<chrono::Utc>,
         pub is_admin_account: bool,
+        pub purged_at: Option<chrono::DateTime<chrono::Utc>>,
+        pub purge_reason: Option<String>,
     }
 
     impl From<UserRow> for super::User {
@@ -418,6 +438,8 @@ pub mod pg {
                 created_at: row.created_at.to_rfc3339(),
                 updated_at: row.updated_at.to_rfc3339(),
                 is_admin_account: row.is_admin_account,
+                purged_at: row.purged_at.map(|t| t.to_rfc3339()),
+                purge_reason: row.purge_reason,
             }
         }
     }
@@ -1183,6 +1205,8 @@ pub mod sqlite {
         pub created_at: String,
         pub updated_at: String,
         pub is_admin_account: i32,
+        pub purged_at: Option<String>,
+        pub purge_reason: Option<String>,
     }
 
     impl From<UserRow> for super::User {
@@ -1195,6 +1219,8 @@ pub mod sqlite {
                 created_at: row.created_at,
                 updated_at: row.updated_at,
                 is_admin_account: row.is_admin_account != 0,
+                purged_at: row.purged_at,
+                purge_reason: row.purge_reason,
             }
         }
     }

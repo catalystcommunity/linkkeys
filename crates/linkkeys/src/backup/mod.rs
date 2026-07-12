@@ -259,6 +259,7 @@ mod sqlite_backend {
     backup_row!(UserRow => users {
         id: String, username: String, display_name: String, is_active: i32,
         created_at: String, updated_at: String, is_admin_account: i32,
+        purged_at: Option<String>, purge_reason: Option<String>,
     });
     backup_row!(AuthCredentialRow => auth_credentials {
         id: String, user_id: String, credential_type: String, credential_hash: String,

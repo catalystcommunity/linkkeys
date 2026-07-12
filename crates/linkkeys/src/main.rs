@@ -88,7 +88,13 @@ async fn main() {
                 &relation,
             );
         }
-        Commands::User(UserCommands::List { server }) => user_list(server.as_deref()),
+        Commands::User(UserCommands::List { local, server }) => {
+            if local {
+                user_list_local(server.as_deref())
+            } else {
+                user_list(server.as_deref())
+            }
+        }
         Commands::User(UserCommands::Update {
             user_id,
             display_name,
@@ -97,9 +103,21 @@ async fn main() {
         Commands::User(UserCommands::Deactivate { user_id, server }) => {
             user_deactivate(&user_id, server.as_deref())
         }
+        Commands::User(UserCommands::DeactivateLocal { user }) => user_deactivate_local(&user),
         Commands::User(UserCommands::ResetPassword { user_id, server }) => {
             user_reset_password(&user_id, server.as_deref())
         }
+        Commands::User(UserCommands::ResetPasswordLocal {
+            user,
+            password,
+            generate,
+        }) => user_reset_password_local(&user, password.as_deref(), generate),
+        Commands::User(UserCommands::PurgeLocal {
+            user,
+            force,
+            force_admin,
+            reason,
+        }) => user_purge_local(&user, force, force_admin, &reason),
         Commands::Claim(ClaimCommands::Set {
             user_id,
             claim_type,
@@ -910,6 +928,214 @@ fn resolve_local_user_id(db_pool: &linkkeys::db::DbPool, ident: &str) -> String 
         ident
     );
     std::process::exit(1);
+}
+
+fn is_protected_admin_account(
+    db_pool: &linkkeys::db::DbPool,
+    user: &linkkeys::db::models::User,
+) -> bool {
+    let domain = linkkeys::conversions::get_domain_name();
+    match db_pool.is_protected_admin_user(&user.id, &domain) {
+        Ok(protected) => protected,
+        Err(e) => {
+            eprintln!("Failed to inspect protected-admin status: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn generated_password() -> String {
+    use rand::distributions::{Alphanumeric, DistString};
+    Alphanumeric.sample_string(&mut rand::thread_rng(), 32)
+}
+
+fn read_password_from_stdin(prompt: &str) -> String {
+    eprint!("{prompt}");
+    let mut password = String::new();
+    std::io::stdin()
+        .read_line(&mut password)
+        .expect("Failed to read password");
+    password.trim().to_string()
+}
+
+fn user_list_local(server: Option<&str>) {
+    if server.is_some() {
+        eprintln!("Error: --local cannot be combined with --server");
+        std::process::exit(1);
+    }
+    let db_pool = pool_with_migrations();
+    let users = db_pool.list_all_users().unwrap_or_else(|e| {
+        eprintln!("Failed to list users: {}", e);
+        std::process::exit(1);
+    });
+
+    for user in &users {
+        let mut status = Vec::new();
+        if !user.is_active {
+            status.push("deactivated");
+        }
+        if user.is_admin_account {
+            status.push("admin-account");
+        }
+        if user.purged_at.is_some() {
+            status.push("purged");
+        }
+        let status = if status.is_empty() {
+            String::new()
+        } else {
+            format!(" [{}]", status.join(", "))
+        };
+        println!(
+            "  {} {} ({}){}",
+            user.id, user.username, user.display_name, status
+        );
+    }
+    println!("{} user(s)", users.len());
+}
+
+fn user_deactivate_local(user_ident: &str) {
+    let db_pool = pool_with_migrations();
+    let user_id = resolve_local_user_id(&db_pool, user_ident);
+    let user = db_pool.find_user_by_id(&user_id).unwrap_or_else(|e| {
+        eprintln!("Failed to load user: {}", e);
+        std::process::exit(1);
+    });
+    if user.purged_at.is_some() {
+        eprintln!("User is already purged: {} {}", user.id, user.username);
+        std::process::exit(1);
+    }
+
+    let req = liblinkkeys::generated::types::DeactivateUserRequest {
+        user_id: user_id.clone(),
+    };
+    let resp = linkkeys::services::admin::deactivate_user(&db_pool, req).unwrap_or_else(|e| {
+        eprintln!("Failed to deactivate user: {}", e.message);
+        std::process::exit(1);
+    });
+    let _ = db_pool.write_audit(
+        "user.deactivated.local",
+        Some(&user_id),
+        Some("local-cli"),
+        Some("credentials revoked"),
+    );
+    println!("User deactivated: {} {}", resp.user.id, resp.user.username);
+}
+
+fn user_reset_password_local(user_ident: &str, password: Option<&str>, generate: bool) {
+    if generate && password.is_some() {
+        eprintln!("Error: use either --password or --generate, not both");
+        std::process::exit(1);
+    }
+    let db_pool = pool_with_migrations();
+    let user_id = resolve_local_user_id(&db_pool, user_ident);
+    let new_password = if generate {
+        generated_password()
+    } else {
+        password
+            .map(ToString::to_string)
+            .unwrap_or_else(|| read_password_from_stdin("Enter new password: "))
+    };
+    if new_password.is_empty() {
+        eprintln!("Error: password cannot be empty");
+        std::process::exit(1);
+    }
+
+    let req = liblinkkeys::generated::types::ResetPasswordRequest {
+        user_id: user_id.clone(),
+        new_password: new_password.clone(),
+    };
+    let resp = linkkeys::services::admin::reset_password(&db_pool, req).unwrap_or_else(|e| {
+        eprintln!("Failed to reset password: {}", e.message);
+        std::process::exit(1);
+    });
+    if !resp.success {
+        eprintln!("Password reset failed.");
+        std::process::exit(1);
+    }
+
+    let _ = db_pool.write_audit(
+        "user.password_reset.local",
+        Some(&user_id),
+        Some("local-cli"),
+        Some(if generate {
+            "generated"
+        } else {
+            "operator-provided"
+        }),
+    );
+    println!("Password reset successfully.");
+    if generate {
+        println!("Generated password: {}", new_password);
+        println!("(save this — it will not be shown again)");
+    }
+}
+
+fn user_purge_local(user_ident: &str, force: bool, force_admin: bool, reason: &str) {
+    if !force {
+        eprintln!("Error: purge-local is irreversible; pass --force to confirm");
+        std::process::exit(1);
+    }
+    if reason.trim().is_empty() {
+        eprintln!("Error: --reason cannot be empty");
+        std::process::exit(1);
+    }
+
+    let db_pool = pool_with_migrations();
+    let user_id = resolve_local_user_id(&db_pool, user_ident);
+    let user = db_pool.find_user_by_id(&user_id).unwrap_or_else(|e| {
+        eprintln!("Failed to load user: {}", e);
+        std::process::exit(1);
+    });
+    if user.purged_at.is_some() {
+        eprintln!("User is already purged: {} {}", user.id, user.username);
+        std::process::exit(1);
+    }
+    if is_protected_admin_account(&db_pool, &user) && !force_admin {
+        eprintln!(
+            "Refusing to purge protected admin account {} {}; pass --force-admin to override",
+            user.id, user.username
+        );
+        std::process::exit(1);
+    }
+
+    let summary = db_pool
+        .purge_user_tombstone(&user_id, Some(reason.trim()))
+        .unwrap_or_else(|e| {
+            eprintln!("Failed to purge user: {}", e);
+            std::process::exit(1);
+        });
+    let detail = format!(
+        "username={} credentials_revoked={} keys_revoked={} claims_revoked={} relations_removed={} profiles_deleted={} consent_grants_deleted={} release_prefs_deleted={} email_verifications_deleted={} reviews_resolved={} reason={}",
+        user.username,
+        summary.credentials_revoked,
+        summary.keys_revoked,
+        summary.claims_revoked,
+        summary.relations_removed,
+        summary.profiles_deleted,
+        summary.consent_grants_deleted,
+        summary.release_prefs_deleted,
+        summary.email_verifications_deleted,
+        summary.reviews_resolved,
+        reason.trim()
+    );
+    let _ = db_pool.write_audit(
+        "user.purged.local",
+        Some(&summary.user.id),
+        Some("local-cli"),
+        Some(&detail),
+    );
+
+    println!(
+        "User purged to tombstone: {} {}",
+        summary.user.id, summary.user.username
+    );
+    println!(
+        "Revoked: {} credential(s), {} key(s), {} claim(s); removed {} relation(s)",
+        summary.credentials_revoked,
+        summary.keys_revoked,
+        summary.claims_revoked,
+        summary.relations_removed
+    );
 }
 
 // --- TCP-based command handlers ---

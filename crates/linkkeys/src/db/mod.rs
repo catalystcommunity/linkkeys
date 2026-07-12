@@ -812,6 +812,17 @@ impl DbPool {
         }
     }
 
+    pub fn is_protected_admin_user(&self, user_id: &str, domain: &str) -> QueryResult<bool> {
+        let user = self.find_user_by_id(user_id)?;
+        if user.is_admin_account {
+            return Ok(true);
+        }
+        let relations = self.list_relations_for_subject("user", user_id)?;
+        Ok(relations
+            .iter()
+            .any(|r| r.relation == "admin" && r.object_type == "domain" && r.object_id == domain))
+    }
+
     pub fn list_all_users(&self) -> QueryResult<Vec<models::User>> {
         match self {
             #[cfg(feature = "postgres")]
@@ -883,6 +894,263 @@ impl DbPool {
                     )
                 })?;
                 users::sqlite::deactivate(&mut conn, user_id)
+            }
+        }
+    }
+
+    /// Irreversibly minimize a user while keeping the UUID-bearing row as a
+    /// permanent tombstone. This is not migration forwarding; callers must only
+    /// use it when no forwarding/legal retention obligation needs live data.
+    pub fn purge_user_tombstone(
+        &self,
+        user_id: &str,
+        reason: Option<&str>,
+    ) -> QueryResult<models::UserPurgeSummary> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                use crate::schema::pg::{
+                    admin_review_queue, auth_credentials, claims, consent_grants,
+                    email_verifications, profile_claim_prefs, profiles, relations, user_keys,
+                    user_release_prefs,
+                };
+
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
+                let uid: uuid::Uuid = user_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?;
+                conn.transaction(|conn| {
+                    let now = chrono::Utc::now();
+
+                    let profile_ids: Vec<String> = profiles::table
+                        .filter(profiles::account_id.eq(uid))
+                        .select(profiles::id)
+                        .load::<uuid::Uuid>(conn)?
+                        .into_iter()
+                        .map(|id| id.to_string())
+                        .collect();
+                    if !profile_ids.is_empty() {
+                        diesel::delete(
+                            profile_claim_prefs::table
+                                .filter(profile_claim_prefs::profile_id.eq_any(&profile_ids)),
+                        )
+                        .execute(conn)?;
+                    }
+
+                    let credentials_revoked = diesel::update(
+                        auth_credentials::table
+                            .filter(auth_credentials::user_id.eq(uid))
+                            .filter(auth_credentials::revoked_at.is_null()),
+                    )
+                    .set((
+                        auth_credentials::revoked_at.eq(Some(now)),
+                        auth_credentials::updated_at.eq(now),
+                    ))
+                    .execute(conn)?;
+
+                    let keys_revoked = diesel::update(
+                        user_keys::table
+                            .filter(user_keys::user_id.eq(uid))
+                            .filter(user_keys::revoked_at.is_null()),
+                    )
+                    .set(user_keys::revoked_at.eq(Some(now)))
+                    .execute(conn)?;
+
+                    let claims_revoked = diesel::update(
+                        claims::table
+                            .filter(claims::user_id.eq(uid))
+                            .filter(claims::revoked_at.is_null()),
+                    )
+                    .set((claims::revoked_at.eq(Some(now)), claims::updated_at.eq(now)))
+                    .execute(conn)?;
+
+                    let relations_removed = diesel::update(
+                        relations::table
+                            .filter(
+                                relations::subject_type
+                                    .eq("user")
+                                    .and(relations::subject_id.eq(user_id))
+                                    .or(relations::object_type
+                                        .eq("user")
+                                        .and(relations::object_id.eq(user_id))),
+                            )
+                            .filter(relations::removed_at.is_null()),
+                    )
+                    .set((
+                        relations::removed_at.eq(Some(now)),
+                        relations::updated_at.eq(now),
+                    ))
+                    .execute(conn)?;
+
+                    let consent_grants_deleted = diesel::delete(
+                        consent_grants::table.filter(consent_grants::user_id.eq(uid)),
+                    )
+                    .execute(conn)?;
+                    let release_prefs_deleted = diesel::delete(
+                        user_release_prefs::table.filter(user_release_prefs::user_id.eq(uid)),
+                    )
+                    .execute(conn)?;
+                    let email_verifications_deleted = diesel::delete(
+                        email_verifications::table.filter(email_verifications::user_id.eq(uid)),
+                    )
+                    .execute(conn)?;
+                    let reviews_resolved = diesel::update(
+                        admin_review_queue::table
+                            .filter(admin_review_queue::user_id.eq(uid))
+                            .filter(admin_review_queue::status.eq("pending")),
+                    )
+                    .set((
+                        admin_review_queue::status.eq("purged"),
+                        admin_review_queue::resolved_by.eq(Some("local-purge")),
+                        admin_review_queue::resolved_at.eq(Some(now)),
+                        admin_review_queue::updated_at.eq(now),
+                    ))
+                    .execute(conn)?;
+
+                    let profiles_deleted =
+                        diesel::delete(profiles::table.filter(profiles::account_id.eq(uid)))
+                            .execute(conn)?;
+                    let user = users::pg::purge_tombstone(conn, user_id, reason)?;
+
+                    Ok(models::UserPurgeSummary {
+                        user,
+                        credentials_revoked,
+                        keys_revoked,
+                        claims_revoked,
+                        relations_removed,
+                        profiles_deleted,
+                        consent_grants_deleted,
+                        release_prefs_deleted,
+                        email_verifications_deleted,
+                        reviews_resolved,
+                    })
+                })
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                use crate::schema::sqlite::{
+                    admin_review_queue, auth_credentials, claims, consent_grants,
+                    email_verifications, profile_claim_prefs, profiles, relations, user_keys,
+                    user_release_prefs,
+                };
+
+                let mut conn = p.get().map_err(|e| {
+                    diesel::result::Error::DatabaseError(
+                        diesel::result::DatabaseErrorKind::Unknown,
+                        Box::new(e.to_string()),
+                    )
+                })?;
+                conn.transaction(|conn| {
+                    let now = chrono::Utc::now().to_rfc3339();
+
+                    let profile_ids: Vec<String> = profiles::table
+                        .filter(profiles::account_id.eq(user_id))
+                        .select(profiles::id)
+                        .load::<String>(conn)?;
+                    if !profile_ids.is_empty() {
+                        diesel::delete(
+                            profile_claim_prefs::table
+                                .filter(profile_claim_prefs::profile_id.eq_any(&profile_ids)),
+                        )
+                        .execute(conn)?;
+                    }
+
+                    let credentials_revoked = diesel::update(
+                        auth_credentials::table
+                            .filter(auth_credentials::user_id.eq(user_id))
+                            .filter(auth_credentials::revoked_at.is_null()),
+                    )
+                    .set((
+                        auth_credentials::revoked_at.eq(Some(&now)),
+                        auth_credentials::updated_at.eq(&now),
+                    ))
+                    .execute(conn)?;
+
+                    let keys_revoked = diesel::update(
+                        user_keys::table
+                            .filter(user_keys::user_id.eq(user_id))
+                            .filter(user_keys::revoked_at.is_null()),
+                    )
+                    .set(user_keys::revoked_at.eq(Some(&now)))
+                    .execute(conn)?;
+
+                    let claims_revoked = diesel::update(
+                        claims::table
+                            .filter(claims::user_id.eq(user_id))
+                            .filter(claims::revoked_at.is_null()),
+                    )
+                    .set((
+                        claims::revoked_at.eq(Some(&now)),
+                        claims::updated_at.eq(&now),
+                    ))
+                    .execute(conn)?;
+
+                    let relations_removed = diesel::update(
+                        relations::table
+                            .filter(
+                                relations::subject_type
+                                    .eq("user")
+                                    .and(relations::subject_id.eq(user_id))
+                                    .or(relations::object_type
+                                        .eq("user")
+                                        .and(relations::object_id.eq(user_id))),
+                            )
+                            .filter(relations::removed_at.is_null()),
+                    )
+                    .set((
+                        relations::removed_at.eq(Some(&now)),
+                        relations::updated_at.eq(&now),
+                    ))
+                    .execute(conn)?;
+
+                    let consent_grants_deleted = diesel::delete(
+                        consent_grants::table.filter(consent_grants::user_id.eq(user_id)),
+                    )
+                    .execute(conn)?;
+                    let release_prefs_deleted = diesel::delete(
+                        user_release_prefs::table.filter(user_release_prefs::user_id.eq(user_id)),
+                    )
+                    .execute(conn)?;
+                    let email_verifications_deleted = diesel::delete(
+                        email_verifications::table.filter(email_verifications::user_id.eq(user_id)),
+                    )
+                    .execute(conn)?;
+                    let reviews_resolved = diesel::update(
+                        admin_review_queue::table
+                            .filter(admin_review_queue::user_id.eq(user_id))
+                            .filter(admin_review_queue::status.eq("pending")),
+                    )
+                    .set((
+                        admin_review_queue::status.eq("purged"),
+                        admin_review_queue::resolved_by.eq(Some("local-purge")),
+                        admin_review_queue::resolved_at.eq(Some(&now)),
+                        admin_review_queue::updated_at.eq(&now),
+                    ))
+                    .execute(conn)?;
+
+                    let profiles_deleted =
+                        diesel::delete(profiles::table.filter(profiles::account_id.eq(user_id)))
+                            .execute(conn)?;
+                    let user = users::sqlite::purge_tombstone(conn, user_id, reason)?;
+
+                    Ok(models::UserPurgeSummary {
+                        user,
+                        credentials_revoked,
+                        keys_revoked,
+                        claims_revoked,
+                        relations_removed,
+                        profiles_deleted,
+                        consent_grants_deleted,
+                        release_prefs_deleted,
+                        email_verifications_deleted,
+                        reviews_resolved,
+                    })
+                })
             }
         }
     }

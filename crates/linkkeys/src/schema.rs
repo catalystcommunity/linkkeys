@@ -47,6 +47,8 @@ pub mod pg {
             created_at -> Timestamptz,
             updated_at -> Timestamptz,
             is_admin_account -> Bool,
+            purged_at -> Nullable<Timestamptz>,
+            purge_reason -> Nullable<Varchar>,
         }
     }
 
@@ -375,6 +377,8 @@ pub mod sqlite {
             created_at -> Text,
             updated_at -> Text,
             is_admin_account -> Integer,
+            purged_at -> Nullable<Text>,
+            purge_reason -> Nullable<Text>,
         }
     }
 
