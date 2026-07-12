@@ -181,17 +181,18 @@ Env:
    "signed by `<domain>` ✓" per held claim. Nothing left on the attestation track.
 2. **Email sending is a stub** that logs the link (`crate::email`). Add an SMTP /
    provider backend before production; gate link logging behind a dev flag.
-3. **No rate limiting on verification email** — a `TODO` marks adding a
-   per‑user / per‑recipient throttle.
+3. **Verification email rate limiting is basic.** Requests are throttled per
+   subject, but a real SMTP/provider backend should revisit provider-side
+   throttles and outstanding-token caps.
 4. **Per‑profile claim keying is pending.** Claims are still keyed by account id,
    so the identity editor operates on the default profile. Raising
    `MAX_PROFILES_PER_ACCOUNT` and using extra personas needs per‑profile claim
    keying first (it currently fails closed — no leak).
-5. **revoke + create is not a single transaction** in `sign_and_store`
-   (low‑risk for single‑user self‑service; noted in code).
-6. **CSIL not yet extended.** These operations are server (web/DB) only today; a
-   later pass should add CSIL request types + service verbs so a CLI/agent shares
-   the contract. Pure logic already lives in `liblinkkeys::claim_policy`.
+5. **CSIL claim-policy self-service is not fully extended.** Attestation deposit
+   is in CSIL, but the claim-policy/profile editor operations are still server
+   web/DB flows today; a later pass should add CSIL request types + service verbs
+   so a CLI/agent shares the contract. Pure logic already lives in
+   `liblinkkeys::claim_policy`.
 
 ---
 

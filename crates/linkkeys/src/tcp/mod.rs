@@ -976,6 +976,16 @@ fn dispatch_admin(op: &str, payload: &[u8], db_pool: &DbPool) -> Vec<u8> {
             admin::list_user_claims,
             codec::encode_list_user_claims_response
         ),
+        "set-user-claim" => admin_op!(
+            codec::decode_set_user_claim_request,
+            admin::set_user_claim,
+            codec::encode_set_user_claim_response
+        ),
+        "list-settable-policies" => admin_op!(
+            codec::decode_empty_request,
+            admin::list_settable_policies,
+            codec::encode_list_settable_policies_response
+        ),
         "grant-relation" => admin_op!(
             codec::decode_grant_relation_request,
             admin::grant_relation,

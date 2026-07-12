@@ -493,6 +493,33 @@ pub struct ListUserClaimsResponse {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct SetUserClaimRequest {
+    pub user_id: String,
+    pub claim_type: String,
+    pub claim_value: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetUserClaimResponse {
+    pub outcome: String,
+    pub claim: Option<Claim>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SettableClaimPolicy {
+    pub claim_type: String,
+    pub datatype: String,
+    pub set_rule: String,
+    pub requires_approval: bool,
+    pub signing_rule: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListSettablePoliciesResponse {
+    pub policies: Vec<SettableClaimPolicy>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct GrantRelationRequest {
     pub subject_type: String,
     pub subject_id: String,
