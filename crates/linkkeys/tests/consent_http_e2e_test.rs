@@ -45,6 +45,7 @@ async fn consent_flow_end_to_end() {
     std::env::set_var("ENABLE_PASSWORD_AUTH", "true");
 
     let pool = common::create_test_pool();
+    pool.seed_default_policies().expect("seed policies");
 
     // -- Seed the IDP: signing key (keep sk to mint the signed_request),
     //    a vouched X25519 encryption key (the assertion is sealed to it),
@@ -307,7 +308,77 @@ async fn consent_flow_end_to_end() {
         "newly requested claim appears on the consent screen"
     );
 
-    // 6. Replaying the same consent (login nonce already burned) is refused.
+    // 6. First-login missing claim: if a required claim is user-settable and
+    //    absent, the consent screen lets the user set it before the assertion is
+    //    minted. The value is stored and signed under the normal claim policy.
+    let mut missing_req = build_auth_request(
+        TEST_DOMAIN,
+        &format!("https://{}/cb", TEST_DOMAIN),
+        "login-nonce-3",
+        &signing.id,
+        Some(ClaimRequest {
+            required: vec![RequestedClaim {
+                claim_type: "display_name".to_string(),
+                datatype: "text".to_string(),
+            }],
+            optional: vec![],
+        }),
+        None,
+    );
+    missing_req.relying_party_claims = None;
+    let signed_missing = sign_auth_request(
+        &missing_req,
+        &signing.id,
+        SigningAlgorithm::Ed25519,
+        &sk_bytes,
+    )
+    .unwrap();
+    let missing_sr = signed_auth_request_to_url_param(&signed_missing).unwrap();
+    let (ct, b) = form(&format!(
+        "username={}&password={}&signed_request={}",
+        USERNAME,
+        PASSWORD.replace(' ', "+"),
+        missing_sr
+    ));
+    let resp = client
+        .post("/auth/authorize")
+        .header(ct)
+        .body(b)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let missing_html = resp.into_string().await.unwrap();
+    assert!(
+        missing_html.contains("claim_value_to_set"),
+        "missing user-settable claim gets an inline value field"
+    );
+    let missing_proof = hidden_field(&missing_html, "login_proof");
+
+    let resp = client
+        .post("/auth/consent")
+        .header(ContentType::Form)
+        .body(format!(
+            "signed_request={}&login_proof={}&grant=display_name&claim_type_to_set=display_name&claim_value_to_set=Ada",
+            missing_sr, missing_proof
+        ))
+        .dispatch()
+        .await;
+    assert!(
+        resp.status().class().is_redirection(),
+        "setting a missing required claim completes login"
+    );
+    let claims = pool.list_active_claims(&user.id).expect("claims");
+    let display_name = claims
+        .iter()
+        .find(|c| c.claim_type == "display_name")
+        .expect("display_name claim stored");
+    assert_eq!(display_name.claim_value, b"Ada");
+    assert!(
+        !display_name.signatures.is_empty(),
+        "inline-created lane-A claim is signed"
+    );
+
+    // 7. Replaying the same consent (login nonce already burned) is refused.
     let resp = client
         .post("/auth/consent")
         .header(ContentType::Form)

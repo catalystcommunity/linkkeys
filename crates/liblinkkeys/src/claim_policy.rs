@@ -327,6 +327,13 @@ pub fn evaluate_set(
         return Err(RejectionReason::SetterNotAuthorized);
     }
 
+    // Empty claims are not useful to consumers and are indistinguishable from
+    // an absent value in required-claim flows. Disallow them for every lane,
+    // including `opaque`, before any type-specific validation.
+    if value.is_empty() {
+        return Err(RejectionReason::ValueTypeMismatch);
+    }
+
     // 2. Size bound, before any parsing work.
     if value.len() as u64 > policy.max_bytes {
         return Err(RejectionReason::ValueTooLarge {
@@ -420,6 +427,15 @@ mod tests {
             .validate(b"2026-06-17T00:00:00Z")
             .is_ok());
         assert!(ValueType::Timestamp.validate(b"yesterday").is_err());
+    }
+
+    #[test]
+    fn evaluate_set_rejects_empty_for_every_lane() {
+        let p = policy(ValueType::Opaque, SetRule::UserSelf, SigningRule::Unsigned);
+        assert_eq!(
+            evaluate_set(&p, Setter::User, b""),
+            Err(RejectionReason::ValueTypeMismatch)
+        );
     }
 
     #[test]

@@ -25,6 +25,7 @@ use crate::net::Net;
 use crate::services::auth::PasswordAuthenticator;
 use crate::services::handshake::HandshakeHandler;
 use crate::services::hello::HelloHandler;
+use crate::services::self_service::{self, SetOutcome};
 
 use liblinkkeys::consent::{
     self, compute_authorized_claims, resolve_consent_screen, ConsentScreen, DomainPolicy,
@@ -234,6 +235,47 @@ fn first_missing_user_required<'a>(
         .find(|ct| !granted.contains(ct) && !denied.contains(ct))
 }
 
+/// First required claim that would be authorized for release but has no concrete
+/// active value. Authorizing a type without a value produces an empty userinfo
+/// response for that type, which pushes the failure to the RP. Use this to keep
+/// the user on the IDP surface where they can fill in the missing value.
+fn first_authorized_required_without_value<'a>(
+    pool: &DbPool,
+    user_id: &str,
+    req: &'a ClaimRequest,
+    authorized: &[String],
+) -> Option<&'a str> {
+    use std::collections::BTreeSet;
+    let granted: BTreeSet<&str> = authorized.iter().map(String::as_str).collect();
+    let active: BTreeSet<String> = pool
+        .list_active_claims(user_id)
+        .map(|claims| claims.into_iter().map(|c| c.claim_type).collect())
+        .unwrap_or_default();
+    req.required
+        .iter()
+        .map(|r| r.claim_type.as_str())
+        .find(|ct| granted.contains(ct) && !active.contains(*ct))
+}
+
+fn filter_authorized_to_active_values(
+    pool: &DbPool,
+    user_id: &str,
+    authorized: &[String],
+) -> Result<Vec<String>, ()> {
+    use std::collections::BTreeSet;
+    let active: BTreeSet<String> = pool
+        .list_active_claims(user_id)
+        .map_err(|_| ())?
+        .into_iter()
+        .map(|c| c.claim_type)
+        .collect();
+    Ok(authorized
+        .iter()
+        .filter(|claim_type| active.contains(*claim_type))
+        .cloned()
+        .collect())
+}
+
 /// Reconstruct the protocol `ConsentGrant` from a stored row for the consent
 /// screen (only `claim_types` drives pre-checking).
 fn prior_grant_object(row: &crate::db::models::ConsentGrantRow) -> ConsentGrant {
@@ -295,6 +337,29 @@ struct VerifiedRpClaim {
     value: String,
     attested_by: Vec<String>,
     verified: bool,
+}
+
+/// Whether a missing requested claim can be supplied by the user during the
+/// consent step. Release policy still gates whether it can be released; the
+/// claim-type registry gates whether this user may create it at all.
+fn missing_claim_user_settable(pool: &DbPool, claim_type: &str) -> bool {
+    let Ok(Some(row)) = pool.find_claim_policy(claim_type) else {
+        return false;
+    };
+    if !row.user_settable {
+        return false;
+    }
+    matches!(row.set_rule.as_str(), "user_self" | "idp_on_request")
+}
+
+fn input_type_for_datatype(datatype: &str) -> &'static str {
+    match datatype {
+        "email" => "email",
+        "url" => "url",
+        "date" => "date",
+        "int" | "float" | "decimal" => "number",
+        _ => "text",
+    }
 }
 
 /// The RP's request is attacker-influenced and resolving an attesting domain
@@ -797,6 +862,7 @@ fn verify_login_proof(pool: &DbPool, proof: &str) -> Result<(String, String, Str
 /// request and re-establishes the authenticated user without a session cookie.
 #[allow(clippy::too_many_arguments)]
 fn render_consent_form(
+    pool: &DbPool,
     signed_request: &str,
     login_proof: &str,
     relying_party: &str,
@@ -895,6 +961,20 @@ fn render_consent_form(
         };
         let avail = if row.available {
             String::new()
+        } else if row.policy != PolicyDisposition::ForcedDeny
+            && missing_claim_user_settable(pool, &row.claim_type)
+        {
+            let input_type = input_type_for_datatype(&row.datatype);
+            format!(
+                r#"
+<div style="margin:6px 0 0 28px;">
+  <input type="hidden" name="claim_type_to_set" value="{ct}" />
+  <input type="{input_type}" name="claim_value_to_set" placeholder="{placeholder}" style="display:block;width:100%;max-width:320px;padding:6px 8px;box-sizing:border-box;" />
+</div>"#,
+                ct = ct,
+                input_type = input_type,
+                placeholder = html_escape(t(locale, "consent.add_value_placeholder")),
+            )
         } else {
             format!(
                 r#" <span style="color:#a60">({})</span>"#,
@@ -986,6 +1066,125 @@ em {{ color: #555; }}
         submit = html_escape(t(locale, "consent.submit")),
         cancel = html_escape(t(locale, "consent.cancel")),
     ))
+}
+
+async fn render_consent_with_error(
+    pool: &DbPool,
+    net: &Net,
+    signed_request: &str,
+    login_proof: &str,
+    request: &AuthRequest,
+    req: &ClaimRequest,
+    policy: &DomainPolicy,
+    user_id: &str,
+    locale: &str,
+    error: &str,
+) -> RawHtml<String> {
+    let rp_claims = match request.relying_party_claims.as_deref() {
+        Some(c) => verify_relying_party_claims(pool, net, &request.relying_party, c).await,
+        None => Vec::new(),
+    };
+    let screen = build_consent_screen(pool, user_id, &request.relying_party, req, &policy);
+    let mut labels = std::collections::HashMap::new();
+    for row in &screen.rows {
+        if !labels.contains_key(&row.claim_type) {
+            if let Ok((label, _)) = pool.resolved_label(&row.claim_type, locale) {
+                labels.insert(row.claim_type.clone(), label);
+            }
+        }
+    }
+    for c in &rp_claims {
+        labels.entry(c.claim_type.clone()).or_insert_with(|| {
+            pool.resolved_label(&c.claim_type, locale)
+                .map(|(l, _)| l)
+                .unwrap_or_else(|_| c.claim_type.clone())
+        });
+    }
+    render_consent_form(
+        pool,
+        signed_request,
+        login_proof,
+        &request.relying_party,
+        request.flow_context.as_ref(),
+        &screen,
+        &rp_claims,
+        &labels,
+        locale,
+        Some(error),
+    )
+}
+
+fn store_inline_claim_values(
+    pool: &DbPool,
+    user_id: &str,
+    req: &ClaimRequest,
+    authorized: &[String],
+    form: &ConsentForm,
+) -> Result<Vec<String>, String> {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let requested: BTreeSet<&str> = req
+        .required
+        .iter()
+        .chain(req.optional.iter())
+        .map(|r| r.claim_type.as_str())
+        .collect();
+    let authorized_set: BTreeSet<&str> = authorized.iter().map(String::as_str).collect();
+    let required: BTreeSet<&str> = req.required.iter().map(|r| r.claim_type.as_str()).collect();
+
+    let mut submitted: BTreeMap<&str, &str> = BTreeMap::new();
+    for (claim_type, value) in form
+        .claim_type_to_set
+        .iter()
+        .zip(form.claim_value_to_set.iter())
+    {
+        let claim_type = claim_type.as_str();
+        let value = value.trim();
+        if value.is_empty()
+            || !requested.contains(claim_type)
+            || !authorized_set.contains(claim_type)
+        {
+            continue;
+        }
+        submitted.insert(claim_type, value);
+    }
+
+    for (claim_type, value) in submitted {
+        match self_service::set_my_claim(pool, user_id, claim_type, value.as_bytes()) {
+            Ok(SetOutcome::Signed | SetOutcome::StoredUnsigned) => {}
+            Ok(SetOutcome::VerificationRequired) => {
+                return Err(format!(
+                    "{} needs to be verified before it can be shared.",
+                    claim_type
+                ));
+            }
+            Ok(SetOutcome::Queued) => {
+                return Err(format!(
+                    "{} was sent for approval and cannot be shared yet.",
+                    claim_type
+                ));
+            }
+            Err(e) => return Err(e.message),
+        }
+    }
+
+    let active: BTreeSet<String> = pool
+        .list_active_claims(user_id)
+        .map_err(|_| "Could not load your claims. Please try again.".to_string())?
+        .into_iter()
+        .map(|c| c.claim_type)
+        .collect();
+    for claim_type in required {
+        if authorized_set.contains(claim_type) && !active.contains(claim_type) {
+            return Err(format!("Add a value for {} before sharing it.", claim_type));
+        }
+    }
+
+    Ok(authorized
+        .iter()
+        .filter(|claim_type| active.contains(*claim_type))
+        .cloned()
+        .collect())
 }
 
 /// Complete a login: burn the single-use request nonce, persist the consent
@@ -1345,7 +1544,22 @@ async fn handle_signed_request_post(
                 // the app-level failure on the next attempt.
                 if grant_covers(&prior, &req) {
                     let authorized = compute_authorized_claims(&req, &prior.claim_types, &policy);
-                    if first_missing_user_required(&req, &authorized, &policy).is_none() {
+                    if first_missing_user_required(&req, &authorized, &policy).is_none()
+                        && first_authorized_required_without_value(
+                            pool,
+                            &user.id,
+                            &req,
+                            &authorized,
+                        )
+                        .is_none()
+                    {
+                        let authorized =
+                            filter_authorized_to_active_values(pool, &user.id, &authorized)
+                                .map_err(|_| {
+                                    render_form_error(
+                                        "Could not load your claims. Please try again.",
+                                    )
+                                })?;
                         return finalize_login(
                             pool, net, nonces, &user, &request, authorized, requested,
                         )
@@ -1391,6 +1605,7 @@ async fn handle_signed_request_post(
                 });
             }
             Err(render_consent_form(
+                pool,
                 signed_request_param,
                 &proof,
                 &request.relying_party,
@@ -1413,6 +1628,12 @@ struct ConsentForm {
     login_proof: String,
     /// The claim types the user chose to share (one value per checked box).
     grant: Vec<String>,
+    /// Missing claim values supplied inline on the consent screen. These are
+    /// parallel vectors because Rocket form structs cannot name dynamic fields
+    /// by arbitrary claim type. The server zips and validates them against the
+    /// signed request before storing anything.
+    claim_type_to_set: Vec<String>,
+    claim_value_to_set: Vec<String>,
     /// Which button was pressed: `share` (default) or `cancel`. A cancel
     /// declines the whole login and issues nothing.
     decision: Option<String>,
@@ -1479,6 +1700,24 @@ async fn auth_consent_post(
         ));
     };
     let authorized = compute_authorized_claims(&req, &form.grant, &policy);
+    let authorized = match store_inline_claim_values(pool, &user.id, &req, &authorized, &form) {
+        Ok(a) => a,
+        Err(e) => {
+            return Err(render_consent_with_error(
+                pool,
+                net,
+                &form.signed_request,
+                &form.login_proof,
+                &request,
+                &req,
+                &policy,
+                &user.id,
+                &locale.0,
+                &e,
+            )
+            .await)
+        }
+    };
 
     finalize_login(
         pool,
