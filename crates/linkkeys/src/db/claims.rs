@@ -195,6 +195,47 @@ pub mod pg {
         .execute(conn)
     }
 
+    /// Atomically replace the active claim of this type for a user: soft-revoke
+    /// any current active rows, insert the new row, attach signatures, and
+    /// return the stored claim.
+    #[allow(clippy::too_many_arguments)]
+    pub fn replace_active_of_type(
+        conn: &mut diesel::PgConnection,
+        id: uuid::Uuid,
+        user_id: uuid::Uuid,
+        claim_type: &str,
+        claim_value: &[u8],
+        signatures: &[ClaimSignature],
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        attested_at: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<ClaimRow> {
+        conn.transaction(|conn| {
+            let now = chrono::Utc::now();
+            diesel::update(
+                claims::table
+                    .filter(claims::user_id.eq(user_id))
+                    .filter(claims::claim_type.eq(claim_type))
+                    .filter(claims::revoked_at.is_null()),
+            )
+            .set((claims::revoked_at.eq(Some(now)), claims::updated_at.eq(now)))
+            .execute(conn)?;
+
+            let new_row = NewClaimDbRow {
+                id,
+                user_id,
+                claim_type: claim_type.to_string(),
+                claim_value: claim_value.to_vec(),
+                expires_at,
+                attested_at,
+            };
+            diesel::insert_into(claims::table)
+                .values(&new_row)
+                .execute(conn)?;
+            insert_signatures(conn, id, signatures)?;
+            load_with_signatures(conn, id)
+        })
+    }
+
     /// Claims with no signature rows — legacy claims left unsigned by the
     /// claim_signatures migration. Used by the pre-alpha re-sign backfill. The
     /// returned rows intentionally carry empty `signatures`.
@@ -404,6 +445,49 @@ pub mod sqlite {
             claims::updated_at.eq(&now),
         ))
         .execute(conn)
+    }
+
+    /// Atomically replace the active claim of this type for a user; see the
+    /// postgres variant.
+    #[allow(clippy::too_many_arguments)]
+    pub fn replace_active_of_type(
+        conn: &mut diesel::SqliteConnection,
+        id: &str,
+        user_id: &str,
+        claim_type: &str,
+        claim_value: &[u8],
+        signatures: &[ClaimSignature],
+        expires_at: Option<&str>,
+        attested_at: &str,
+    ) -> QueryResult<ClaimRow> {
+        conn.transaction(|conn| {
+            let now = chrono::Utc::now().to_rfc3339();
+            diesel::update(
+                claims::table
+                    .filter(claims::user_id.eq(user_id))
+                    .filter(claims::claim_type.eq(claim_type))
+                    .filter(claims::revoked_at.is_null()),
+            )
+            .set((
+                claims::revoked_at.eq(Some(&now)),
+                claims::updated_at.eq(&now),
+            ))
+            .execute(conn)?;
+
+            let new_row = NewClaimDbRow {
+                id: id.to_string(),
+                user_id: user_id.to_string(),
+                claim_type: claim_type.to_string(),
+                claim_value: claim_value.to_vec(),
+                expires_at: expires_at.map(|s| s.to_string()),
+                attested_at: attested_at.to_string(),
+            };
+            diesel::insert_into(claims::table)
+                .values(&new_row)
+                .execute(conn)?;
+            insert_signatures(conn, id, signatures)?;
+            load_with_signatures(conn, id)
+        })
     }
 
     /// Claims with no signature rows — legacy claims left unsigned by the

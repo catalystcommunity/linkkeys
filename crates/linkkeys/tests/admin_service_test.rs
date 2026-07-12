@@ -235,6 +235,37 @@ fn test_service_set_claim() {
 }
 
 #[test]
+fn test_service_set_claim_replaces_active_value() {
+    let pool = common::create_test_pool();
+    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
+    std::env::set_var("DOMAIN_NAME", "test.com");
+    let user = create_user(&pool, &DataMap::new());
+    create_domain_key(&pool);
+
+    for value in ["first@example.com", "second@example.com"] {
+        admin::set_claim(
+            &pool,
+            SetClaimRequest {
+                user_id: user.id.clone(),
+                claim_type: "email".to_string(),
+                claim_value: value.to_string(),
+                expires_at: None,
+            },
+        )
+        .unwrap();
+    }
+
+    let active: Vec<_> = pool
+        .list_active_claims(&user.id)
+        .unwrap()
+        .into_iter()
+        .filter(|c| c.claim_type == "email")
+        .collect();
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].claim_value, b"second@example.com");
+}
+
+#[test]
 fn test_claim_signature_roundtrips_through_storage() {
     // db-02 invariant: the claim's signed payload includes expires_at, so the
     // value must round-trip byte-identically from sign -> store -> read ->
@@ -390,6 +421,115 @@ fn test_service_remove_claim() {
 
     let active = pool.list_active_claims(&user.id).unwrap();
     assert!(active.is_empty());
+}
+
+#[test]
+fn test_service_list_user_claims_returns_active_types_only() {
+    let pool = common::create_test_pool();
+    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
+    std::env::set_var("DOMAIN_NAME", "test.com");
+    let user = create_user(&pool, &DataMap::new());
+    create_domain_key(&pool);
+
+    admin::set_claim(
+        &pool,
+        SetClaimRequest {
+            user_id: user.id.clone(),
+            claim_type: "email".to_string(),
+            claim_value: "alice@example.com".to_string(),
+            expires_at: None,
+        },
+    )
+    .unwrap();
+    admin::set_claim(
+        &pool,
+        SetClaimRequest {
+            user_id: user.id.clone(),
+            claim_type: "display_name".to_string(),
+            claim_value: "Alice".to_string(),
+            expires_at: None,
+        },
+    )
+    .unwrap();
+    admin::set_claim(
+        &pool,
+        SetClaimRequest {
+            user_id: user.id.clone(),
+            claim_type: "expired_claim".to_string(),
+            claim_value: "old".to_string(),
+            expires_at: Some("2000-01-01T00:00:00Z".to_string()),
+        },
+    )
+    .unwrap();
+
+    let resp = admin::list_user_claims(
+        &pool,
+        ListUserClaimsRequest {
+            user_id: user.id.clone(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        resp.claim_types,
+        vec!["display_name".to_string(), "email".to_string()]
+    );
+}
+
+#[test]
+fn test_rpc_list_user_claims_requires_manage_claims() {
+    let pool = common::create_test_pool();
+    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
+    std::env::set_var("DOMAIN_NAME", "test.com");
+    create_domain_key(&pool);
+
+    let service = create_user(&pool, &DataMap::new());
+    let target = create_user(&pool, &DataMap::new());
+    let (api_key, hash) = auth::generate_api_key(&service.id);
+    create_auth_credential(&pool, &service.id, auth::CREDENTIAL_TYPE_API_KEY, &hash);
+
+    admin::set_claim(
+        &pool,
+        SetClaimRequest {
+            user_id: target.id.clone(),
+            claim_type: "handle".to_string(),
+            claim_value: "alice".to_string(),
+            expires_at: None,
+        },
+    )
+    .unwrap();
+    let payload = liblinkkeys::generated::encode_list_user_claims_request(&ListUserClaimsRequest {
+        user_id: target.id.clone(),
+    });
+
+    let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
+        "Admin",
+        "list-user-claims",
+        payload.clone(),
+        Some(&api_key),
+        &pool,
+        None,
+    );
+    assert_ne!(status, 0, "list-user-claims must require manage_claims");
+
+    create_relation(
+        &pool,
+        "user",
+        &service.id,
+        "manage_claims",
+        "domain",
+        "test.com",
+    );
+    let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
+        "Admin",
+        "list-user-claims",
+        payload,
+        Some(&api_key),
+        &pool,
+        None,
+    );
+    assert_eq!(status, 0);
+    let resp = liblinkkeys::generated::decode_list_user_claims_response(&body).unwrap();
+    assert_eq!(resp.claim_types, vec!["handle".to_string()]);
 }
 
 // -- Relation Management via Service Layer --

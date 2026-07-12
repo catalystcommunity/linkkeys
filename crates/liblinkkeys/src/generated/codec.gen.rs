@@ -316,6 +316,16 @@ fn cbor_map_get<'a>(v: &'a CsilCborValue, key: &str) -> Option<&'a CsilCborValue
     None
 }
 
+fn cbor_expect_value(v: &CsilCborValue, expected: &CsilCborValue) -> Result<(), CsilCborError> {
+    if v == expected {
+        Ok(())
+    } else {
+        Err(CsilCborError(format!(
+            "csil cbor: expected literal {expected:?}, got {v:?}"
+        )))
+    }
+}
+
 fn cbor_require<'a>(v: &'a CsilCborValue, key: &str) -> Result<&'a CsilCborValue, CsilCborError> {
     cbor_map_get(v, key).ok_or_else(|| CsilCborError(format!("csil cbor: missing field {key:?}")))
 }
@@ -3654,6 +3664,73 @@ pub fn decode_remove_claim_response(
 ) -> Result<RemoveClaimResponse, CsilCborError> {
     let csil_root = cbor_decode(csil_data)?;
     csil_dec_remove_claim_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ListUserClaimsRequest.
+fn csil_enc_list_user_claims_request(csil_v: &ListUserClaimsRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("user_id"), cbor_text(&csil_v.user_id)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ListUserClaimsRequest from a decoded CBOR value tree.
+fn csil_dec_list_user_claims_request(
+    csil_root: &CsilCborValue,
+) -> Result<ListUserClaimsRequest, CsilCborError> {
+    let user_id = {
+        let csil_field = cbor_require(csil_root, "user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(ListUserClaimsRequest { user_id })
+}
+
+/// Encode a ListUserClaimsRequest to canonical CSIL CBOR bytes.
+pub fn encode_list_user_claims_request(csil_v: &ListUserClaimsRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_list_user_claims_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ListUserClaimsRequest.
+pub fn decode_list_user_claims_request(
+    csil_data: &[u8],
+) -> Result<ListUserClaimsRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_list_user_claims_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ListUserClaimsResponse.
+fn csil_enc_list_user_claims_response(csil_v: &ListUserClaimsResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("claim_types"),
+        cbor_enc_array(&csil_v.claim_types, |csil_elem| cbor_text(csil_elem)),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ListUserClaimsResponse from a decoded CBOR value tree.
+fn csil_dec_list_user_claims_response(
+    csil_root: &CsilCborValue,
+) -> Result<ListUserClaimsResponse, CsilCborError> {
+    let claim_types = {
+        let csil_field = cbor_require(csil_root, "claim_types")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+        csil_decode(csil_field)?
+    };
+    Ok(ListUserClaimsResponse { claim_types })
+}
+
+/// Encode a ListUserClaimsResponse to canonical CSIL CBOR bytes.
+pub fn encode_list_user_claims_response(csil_v: &ListUserClaimsResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_list_user_claims_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ListUserClaimsResponse.
+pub fn decode_list_user_claims_response(
+    csil_data: &[u8],
+) -> Result<ListUserClaimsResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_list_user_claims_response(&csil_root)
 }
 
 /// Build the canonical CBOR value tree for a GrantRelationRequest.

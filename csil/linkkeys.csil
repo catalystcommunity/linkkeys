@@ -609,6 +609,17 @@ RemoveClaimResponse = {
     success: bool
 }
 
+ListUserClaimsRequest = {
+    user_id: text
+}
+
+ListUserClaimsResponse = {
+    ;; Active claim types the user currently holds a value for. Values are
+    ;; deliberately omitted; consumers only need presence to decide which
+    ;; requested claims still need a value.
+    claim_types: [* text]
+}
+
 GrantRelationRequest = {
     subject_type: text,
     subject_id: text,
@@ -842,6 +853,7 @@ service Admin {
     remove-credential: RemoveCredentialRequest -> RemoveCredentialResponse,
     set-claim: SetClaimRequest -> SetClaimResponse,
     remove-claim: RemoveClaimRequest -> RemoveClaimResponse,
+    list-user-claims: ListUserClaimsRequest -> ListUserClaimsResponse,
     grant-relation: GrantRelationRequest -> GrantRelationResponse,
     remove-relation: RemoveRelationRequest -> RemoveRelationResponse,
     list-relations: ListRelationsRequest -> ListRelationsResponse,

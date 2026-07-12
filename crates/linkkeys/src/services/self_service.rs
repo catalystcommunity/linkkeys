@@ -138,14 +138,9 @@ pub fn set_my_claim(
 
 /// Decrypt the domain's active signing keys, sign a fresh claim binding
 /// `subject_id@<our domain>`, and store it — revoking any prior active claim of
-/// the same type first so a profile holds one active value per type. Exposed to
-/// the verification flow, which signs `email` / `email_verified` once a
-/// challenge is confirmed.
-///
-/// NOTE(follow-up): the revoke and create run on separate pooled connections, so
-/// they are not atomic. For single-user self-service this is low-risk, but two
-/// concurrent sets of the same type could leave two active values. Wrap both in
-/// one transaction when a transaction-scoped DbPool accessor exists.
+/// the same type in the same transaction so a profile holds one active value per
+/// type. Exposed to the verification flow, which signs `email` /
+/// `email_verified` once a challenge is confirmed.
 pub(crate) fn sign_and_store(
     pool: &DbPool,
     subject_id: &str,
@@ -177,9 +172,7 @@ pub(crate) fn sign_and_store(
     )
     .map_err(|e| svc_err(500, &e.to_string()))?;
 
-    pool.revoke_active_claims_of_type(subject_id, claim_type)
-        .map_err(db_err)?;
-    pool.create_claim(
+    pool.replace_active_claim_of_type(
         &claim_id,
         subject_id,
         claim_type,
@@ -200,9 +193,7 @@ fn store_unsigned(
     value: &[u8],
 ) -> Result<(), ServiceError> {
     let claim_id = uuid::Uuid::now_v7().to_string();
-    pool.revoke_active_claims_of_type(subject_id, claim_type)
-        .map_err(db_err)?;
-    pool.create_claim(
+    pool.replace_active_claim_of_type(
         &claim_id,
         subject_id,
         claim_type,
