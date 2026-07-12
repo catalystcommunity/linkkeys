@@ -5,11 +5,12 @@ use liblinkkeys::generated::types::{
     AdminUser, AuthenticateRequest, AuthenticateResponse, CheckPermissionRequest,
     CheckPermissionResponse, Claim, CreateUserRequest, CreateUserResponse, DeactivateUserRequest,
     DeactivateUserResponse, GetUserRequest, GetUserResponse, GrantRelationRequest,
-    GrantRelationResponse, ListRelationsRequest, ListRelationsResponse, ListUserClaimsRequest,
-    ListUserClaimsResponse, ListUsersRequest, ListUsersResponse, RemoveClaimRequest,
-    RemoveClaimResponse, RemoveCredentialRequest, RemoveCredentialResponse, RemoveRelationRequest,
-    RemoveRelationResponse, ResetPasswordRequest, ResetPasswordResponse, SetClaimRequest,
-    SetClaimResponse, UpdateUserRequest, UpdateUserResponse,
+    GrantRelationResponse, ListRelationsRequest, ListRelationsResponse,
+    ListSettablePoliciesResponse, ListUserClaimsRequest, ListUserClaimsResponse, ListUsersRequest,
+    ListUsersResponse, RemoveClaimRequest, RemoveClaimResponse, RemoveCredentialRequest,
+    RemoveCredentialResponse, RemoveRelationRequest, RemoveRelationResponse, ResetPasswordRequest,
+    ResetPasswordResponse, SetClaimRequest, SetClaimResponse, SetUserClaimRequest,
+    SetUserClaimResponse, SettableClaimPolicy, UpdateUserRequest, UpdateUserResponse,
 };
 
 use crate::db::models;
@@ -361,6 +362,68 @@ pub fn list_user_claims(
     claim_types.sort();
     claim_types.dedup();
     Ok(ListUserClaimsResponse { claim_types })
+}
+
+pub fn set_user_claim(
+    pool: &DbPool,
+    req: SetUserClaimRequest,
+) -> Result<SetUserClaimResponse, ServiceError> {
+    let _user = pool.find_user_by_id(&req.user_id).map_err(|e| match e {
+        diesel::result::Error::NotFound => ServiceError {
+            code: 404,
+            message: "User not found".to_string(),
+        },
+        other => db_err(other),
+    })?;
+
+    let outcome = crate::services::self_service::set_my_claim(
+        pool,
+        &req.user_id,
+        &req.claim_type,
+        req.claim_value.as_bytes(),
+    )?;
+
+    let claim = match outcome {
+        crate::services::self_service::SetOutcome::Signed
+        | crate::services::self_service::SetOutcome::StoredUnsigned => pool
+            .list_active_claims(&req.user_id)
+            .map_err(db_err)?
+            .into_iter()
+            .find(|c| c.claim_type == req.claim_type)
+            .map(|c| (&c).into()),
+        crate::services::self_service::SetOutcome::VerificationRequired
+        | crate::services::self_service::SetOutcome::Queued => None,
+    };
+
+    let outcome = match outcome {
+        crate::services::self_service::SetOutcome::Signed => "signed",
+        crate::services::self_service::SetOutcome::StoredUnsigned => "stored_unsigned",
+        crate::services::self_service::SetOutcome::VerificationRequired => "verification_required",
+        crate::services::self_service::SetOutcome::Queued => "queued",
+    }
+    .to_string();
+
+    Ok(SetUserClaimResponse { outcome, claim })
+}
+
+pub fn list_settable_policies(
+    pool: &DbPool,
+    _req: liblinkkeys::generated::types::EmptyRequest,
+) -> Result<ListSettablePoliciesResponse, ServiceError> {
+    let mut policies: Vec<SettableClaimPolicy> =
+        crate::services::self_service::list_user_settable_policies(pool)?
+            .into_iter()
+            .filter(|p| matches!(p.set_rule.as_str(), "user_self" | "idp_on_request"))
+            .map(|p| SettableClaimPolicy {
+                claim_type: p.claim_type,
+                datatype: p.value_type,
+                set_rule: p.set_rule,
+                requires_approval: p.requires_approval,
+                signing_rule: p.signing_rule,
+            })
+            .collect();
+    policies.sort_by(|a, b| a.claim_type.cmp(&b.claim_type));
+    Ok(ListSettablePoliciesResponse { policies })
 }
 
 pub fn grant_relation(

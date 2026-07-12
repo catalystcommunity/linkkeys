@@ -209,6 +209,18 @@ pub trait Admin {
         ctx: &Self::Context,
         input: ListUserClaimsRequest,
     ) -> Result<ListUserClaimsResponse, ServiceError>;
+    /// set-user-claim (request/response).
+    fn set_user_claim(
+        &self,
+        ctx: &Self::Context,
+        input: SetUserClaimRequest,
+    ) -> Result<SetUserClaimResponse, ServiceError>;
+    /// list-settable-policies (request/response).
+    fn list_settable_policies(
+        &self,
+        ctx: &Self::Context,
+        input: EmptyRequest,
+    ) -> Result<ListSettablePoliciesResponse, ServiceError>;
     /// grant-relation (request/response).
     fn grant_relation(
         &self,

@@ -7,6 +7,11 @@ use liblinkkeys::generated::types::*;
 use linkkeys::services::{admin, auth};
 use serde_json::Value;
 
+fn seed_claim_policies(pool: &linkkeys::db::DbPool) {
+    pool.seed_default_policies()
+        .expect("seed default claim policies");
+}
+
 // -- User Management via Service Layer --
 
 #[test]
@@ -241,6 +246,7 @@ fn test_service_set_claim_replaces_active_value() {
     std::env::set_var("DOMAIN_NAME", "test.com");
     let user = create_user(&pool, &DataMap::new());
     create_domain_key(&pool);
+    seed_claim_policies(&pool);
 
     for value in ["first@example.com", "second@example.com"] {
         admin::set_claim(
@@ -530,6 +536,207 @@ fn test_rpc_list_user_claims_requires_manage_claims() {
     assert_eq!(status, 0);
     let resp = liblinkkeys::generated::decode_list_user_claims_response(&body).unwrap();
     assert_eq!(resp.claim_types, vec!["handle".to_string()]);
+}
+
+#[test]
+fn test_service_set_user_claim_uses_user_policy() {
+    let pool = common::create_test_pool();
+    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
+    std::env::set_var("DOMAIN_NAME", "test.com");
+    let user = create_user(&pool, &DataMap::new());
+    create_domain_key(&pool);
+    seed_claim_policies(&pool);
+
+    let signed = admin::set_user_claim(
+        &pool,
+        SetUserClaimRequest {
+            user_id: user.id.clone(),
+            claim_type: "display_name".to_string(),
+            claim_value: "Alice".to_string(),
+        },
+    )
+    .unwrap();
+    assert_eq!(signed.outcome, "signed");
+    let claim = signed.claim.expect("signed outcome returns live claim");
+    assert_eq!(claim.claim_type, "display_name");
+    assert_eq!(claim.user_id, user.id);
+    assert_eq!(claim.claim_value, b"Alice");
+    assert!(
+        !claim.signatures.is_empty(),
+        "self-signed policy should store domain signatures"
+    );
+
+    let verified = admin::set_user_claim(
+        &pool,
+        SetUserClaimRequest {
+            user_id: user.id.clone(),
+            claim_type: "email".to_string(),
+            claim_value: "alice@example.com".to_string(),
+        },
+    )
+    .unwrap();
+    assert_eq!(verified.outcome, "verification_required");
+    assert!(verified.claim.is_none());
+    assert!(
+        pool.list_active_claims(&user.id)
+            .unwrap()
+            .iter()
+            .all(|c| c.claim_type != "email"),
+        "verified-lane values must not be signed/stored through this op"
+    );
+}
+
+#[test]
+fn test_service_set_user_claim_returns_queued_for_approval_policy() {
+    let pool = common::create_test_pool();
+    let user = create_user(&pool, &DataMap::new());
+    seed_claim_policies(&pool);
+    let mut policy = pool.find_claim_policy("display_name").unwrap().unwrap();
+    policy.requires_approval = true;
+    pool.upsert_claim_policy(policy).unwrap();
+
+    let resp = admin::set_user_claim(
+        &pool,
+        SetUserClaimRequest {
+            user_id: user.id.clone(),
+            claim_type: "display_name".to_string(),
+            claim_value: "Alice".to_string(),
+        },
+    )
+    .unwrap();
+    assert_eq!(resp.outcome, "queued");
+    assert!(resp.claim.is_none());
+    assert!(
+        pool.list_active_claims(&user.id).unwrap().is_empty(),
+        "queued values are not live claims"
+    );
+}
+
+#[test]
+fn test_service_list_settable_policies_returns_user_fillable_rows() {
+    let pool = common::create_test_pool();
+    seed_claim_policies(&pool);
+
+    let resp =
+        admin::list_settable_policies(&pool, EmptyRequest {}).expect("list settable policies");
+    let claim_types: Vec<_> = resp
+        .policies
+        .iter()
+        .map(|p| p.claim_type.as_str())
+        .collect();
+
+    assert!(claim_types.contains(&"display_name"));
+    assert!(claim_types.contains(&"email"));
+    assert!(!claim_types.contains(&"email_verified"));
+    assert!(!claim_types.contains(&"legal_name"));
+    assert!(resp
+        .policies
+        .iter()
+        .all(|p| matches!(p.set_rule.as_str(), "user_self" | "idp_on_request")));
+
+    let email = resp
+        .policies
+        .iter()
+        .find(|p| p.claim_type == "email")
+        .unwrap();
+    assert_eq!(email.datatype, "email");
+    assert_eq!(email.signing_rule, "verified");
+}
+
+#[test]
+fn test_rpc_set_user_claim_requires_manage_claims() {
+    let pool = common::create_test_pool();
+    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
+    std::env::set_var("DOMAIN_NAME", "test.com");
+    create_domain_key(&pool);
+    seed_claim_policies(&pool);
+
+    let service = create_user(&pool, &DataMap::new());
+    let target = create_user(&pool, &DataMap::new());
+    let (api_key, hash) = auth::generate_api_key(&service.id);
+    create_auth_credential(&pool, &service.id, auth::CREDENTIAL_TYPE_API_KEY, &hash);
+
+    let payload = liblinkkeys::generated::encode_set_user_claim_request(&SetUserClaimRequest {
+        user_id: target.id.clone(),
+        claim_type: "display_name".to_string(),
+        claim_value: "Alice".to_string(),
+    });
+
+    let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
+        "Admin",
+        "set-user-claim",
+        payload.clone(),
+        Some(&api_key),
+        &pool,
+        None,
+    );
+    assert_ne!(status, 0, "set-user-claim must require manage_claims");
+
+    create_relation(
+        &pool,
+        "user",
+        &service.id,
+        "manage_claims",
+        "domain",
+        "test.com",
+    );
+    let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
+        "Admin",
+        "set-user-claim",
+        payload,
+        Some(&api_key),
+        &pool,
+        None,
+    );
+    assert_eq!(status, 0);
+    let resp = liblinkkeys::generated::decode_set_user_claim_response(&body).unwrap();
+    assert_eq!(resp.outcome, "signed");
+    assert!(resp.claim.is_some());
+}
+
+#[test]
+fn test_rpc_list_settable_policies_requires_manage_claims() {
+    let pool = common::create_test_pool();
+    std::env::set_var("DOMAIN_NAME", "test.com");
+    seed_claim_policies(&pool);
+
+    let service = create_user(&pool, &DataMap::new());
+    let (api_key, hash) = auth::generate_api_key(&service.id);
+    create_auth_credential(&pool, &service.id, auth::CREDENTIAL_TYPE_API_KEY, &hash);
+    let payload = liblinkkeys::generated::encode_empty_request(&EmptyRequest {});
+
+    let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
+        "Admin",
+        "list-settable-policies",
+        payload.clone(),
+        Some(&api_key),
+        &pool,
+        None,
+    );
+    assert_ne!(
+        status, 0,
+        "list-settable-policies must require manage_claims"
+    );
+
+    create_relation(
+        &pool,
+        "user",
+        &service.id,
+        "manage_claims",
+        "domain",
+        "test.com",
+    );
+    let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
+        "Admin",
+        "list-settable-policies",
+        payload,
+        Some(&api_key),
+        &pool,
+        None,
+    );
+    assert_eq!(status, 0);
+    let resp = liblinkkeys::generated::decode_list_settable_policies_response(&body).unwrap();
+    assert!(resp.policies.iter().any(|p| p.claim_type == "display_name"));
 }
 
 // -- Relation Management via Service Layer --

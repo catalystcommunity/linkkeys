@@ -620,6 +620,32 @@ ListUserClaimsResponse = {
     claim_types: [* text]
 }
 
+SetUserClaimRequest = {
+    user_id: text,
+    claim_type: text,
+    claim_value: text
+}
+
+SetUserClaimResponse = {
+    ;; "signed" | "stored_unsigned" | "verification_required" | "queued".
+    ;; On verification_required/queued, the claim is not live yet and must not
+    ;; be released to an RP assertion.
+    outcome: text,
+    ? claim: Claim
+}
+
+SettableClaimPolicy = {
+    claim_type: text,
+    datatype: text,
+    set_rule: text,
+    requires_approval: bool,
+    signing_rule: text
+}
+
+ListSettablePoliciesResponse = {
+    policies: [* SettableClaimPolicy]
+}
+
 GrantRelationRequest = {
     subject_type: text,
     subject_id: text,
@@ -854,6 +880,8 @@ service Admin {
     set-claim: SetClaimRequest -> SetClaimResponse,
     remove-claim: RemoveClaimRequest -> RemoveClaimResponse,
     list-user-claims: ListUserClaimsRequest -> ListUserClaimsResponse,
+    set-user-claim: SetUserClaimRequest -> SetUserClaimResponse,
+    list-settable-policies: EmptyRequest -> ListSettablePoliciesResponse,
     grant-relation: GrantRelationRequest -> GrantRelationResponse,
     remove-relation: RemoveRelationRequest -> RemoveRelationResponse,
     list-relations: ListRelationsRequest -> ListRelationsResponse,

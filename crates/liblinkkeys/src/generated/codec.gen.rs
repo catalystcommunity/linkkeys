@@ -3733,6 +3733,198 @@ pub fn decode_list_user_claims_response(
     csil_dec_list_user_claims_response(&csil_root)
 }
 
+/// Build the canonical CBOR value tree for a SetUserClaimRequest.
+fn csil_enc_set_user_claim_request(csil_v: &SetUserClaimRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
+    csil_entries.push((cbor_text("user_id"), cbor_text(&csil_v.user_id)));
+    csil_entries.push((cbor_text("claim_type"), cbor_text(&csil_v.claim_type)));
+    csil_entries.push((cbor_text("claim_value"), cbor_text(&csil_v.claim_value)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SetUserClaimRequest from a decoded CBOR value tree.
+fn csil_dec_set_user_claim_request(
+    csil_root: &CsilCborValue,
+) -> Result<SetUserClaimRequest, CsilCborError> {
+    let user_id = {
+        let csil_field = cbor_require(csil_root, "user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let claim_type = {
+        let csil_field = cbor_require(csil_root, "claim_type")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let claim_value = {
+        let csil_field = cbor_require(csil_root, "claim_value")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(SetUserClaimRequest {
+        user_id,
+        claim_type,
+        claim_value,
+    })
+}
+
+/// Encode a SetUserClaimRequest to canonical CSIL CBOR bytes.
+pub fn encode_set_user_claim_request(csil_v: &SetUserClaimRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_set_user_claim_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SetUserClaimRequest.
+pub fn decode_set_user_claim_request(
+    csil_data: &[u8],
+) -> Result<SetUserClaimRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_set_user_claim_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SetUserClaimResponse.
+fn csil_enc_set_user_claim_response(csil_v: &SetUserClaimResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    if let Some(csil_inner) = &csil_v.claim {
+        csil_entries.push((cbor_text("claim"), csil_enc_claim(csil_inner)));
+    }
+    csil_entries.push((cbor_text("outcome"), cbor_text(&csil_v.outcome)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SetUserClaimResponse from a decoded CBOR value tree.
+fn csil_dec_set_user_claim_response(
+    csil_root: &CsilCborValue,
+) -> Result<SetUserClaimResponse, CsilCborError> {
+    let outcome = {
+        let csil_field = cbor_require(csil_root, "outcome")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let claim = match cbor_map_get(csil_root, "claim") {
+        Some(csil_field) => {
+            let csil_decode = csil_dec_claim;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(SetUserClaimResponse { outcome, claim })
+}
+
+/// Encode a SetUserClaimResponse to canonical CSIL CBOR bytes.
+pub fn encode_set_user_claim_response(csil_v: &SetUserClaimResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_set_user_claim_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SetUserClaimResponse.
+pub fn decode_set_user_claim_response(
+    csil_data: &[u8],
+) -> Result<SetUserClaimResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_set_user_claim_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SettableClaimPolicy.
+fn csil_enc_settable_claim_policy(csil_v: &SettableClaimPolicy) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(5);
+    csil_entries.push((cbor_text("datatype"), cbor_text(&csil_v.datatype)));
+    csil_entries.push((cbor_text("set_rule"), cbor_text(&csil_v.set_rule)));
+    csil_entries.push((cbor_text("claim_type"), cbor_text(&csil_v.claim_type)));
+    csil_entries.push((cbor_text("signing_rule"), cbor_text(&csil_v.signing_rule)));
+    csil_entries.push((
+        cbor_text("requires_approval"),
+        cbor_bool(csil_v.requires_approval),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SettableClaimPolicy from a decoded CBOR value tree.
+fn csil_dec_settable_claim_policy(
+    csil_root: &CsilCborValue,
+) -> Result<SettableClaimPolicy, CsilCborError> {
+    let claim_type = {
+        let csil_field = cbor_require(csil_root, "claim_type")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let datatype = {
+        let csil_field = cbor_require(csil_root, "datatype")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let set_rule = {
+        let csil_field = cbor_require(csil_root, "set_rule")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let requires_approval = {
+        let csil_field = cbor_require(csil_root, "requires_approval")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    let signing_rule = {
+        let csil_field = cbor_require(csil_root, "signing_rule")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(SettableClaimPolicy {
+        claim_type,
+        datatype,
+        set_rule,
+        requires_approval,
+        signing_rule,
+    })
+}
+
+/// Encode a SettableClaimPolicy to canonical CSIL CBOR bytes.
+pub fn encode_settable_claim_policy(csil_v: &SettableClaimPolicy) -> Vec<u8> {
+    cbor_encode(&csil_enc_settable_claim_policy(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SettableClaimPolicy.
+pub fn decode_settable_claim_policy(
+    csil_data: &[u8],
+) -> Result<SettableClaimPolicy, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_settable_claim_policy(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ListSettablePoliciesResponse.
+fn csil_enc_list_settable_policies_response(
+    csil_v: &ListSettablePoliciesResponse,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("policies"),
+        cbor_enc_array(&csil_v.policies, csil_enc_settable_claim_policy),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ListSettablePoliciesResponse from a decoded CBOR value tree.
+fn csil_dec_list_settable_policies_response(
+    csil_root: &CsilCborValue,
+) -> Result<ListSettablePoliciesResponse, CsilCborError> {
+    let policies = {
+        let csil_field = cbor_require(csil_root, "policies")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_settable_claim_policy);
+        csil_decode(csil_field)?
+    };
+    Ok(ListSettablePoliciesResponse { policies })
+}
+
+/// Encode a ListSettablePoliciesResponse to canonical CSIL CBOR bytes.
+pub fn encode_list_settable_policies_response(csil_v: &ListSettablePoliciesResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_list_settable_policies_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ListSettablePoliciesResponse.
+pub fn decode_list_settable_policies_response(
+    csil_data: &[u8],
+) -> Result<ListSettablePoliciesResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_list_settable_policies_response(&csil_root)
+}
+
 /// Build the canonical CBOR value tree for a GrantRelationRequest.
 fn csil_enc_grant_relation_request(csil_v: &GrantRelationRequest) -> CsilCborValue {
     let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(5);
