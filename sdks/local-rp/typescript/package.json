@@ -1,0 +1,22 @@
+{
+  "name": "@linkkeys/local-rp",
+  "version": "0.1.0",
+  "description": "LinkKeys DNS-less local RP identity SDK (TypeScript / Node). See dns-less-local-rp-design.md at the repo root. Node-only; the browser is not a target (a browser-resident local RP private key is a non-goal — see README).",
+  "license": "Apache-2.0",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/node": "^22.10.0"
+  }
+}

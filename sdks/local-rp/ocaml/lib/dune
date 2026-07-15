@@ -1,0 +1,16 @@
+(library
+ (name linkkeys_local_rp)
+ (libraries
+  mirage-crypto
+  mirage-crypto-ec
+  mirage-crypto-rng
+  mirage-crypto-rng.unix
+  hkdf
+  digestif
+  cstruct
+  tls
+  x509
+  ptime
+  domain-name
+  eqaf
+  unix))

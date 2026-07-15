@@ -1,0 +1,83 @@
+{
+  "default_tcp_port": 4987,
+  "linkkeys_apis_txt": {
+    "invalid_cases": [
+      {
+        "expected_error": "missing_apis_endpoint",
+        "name": "missing_endpoint",
+        "txt": "v=lk1"
+      }
+    ],
+    "valid_cases": [
+      {
+        "expected_https_base": "https://idp.example.com/linkkeys",
+        "expected_tcp": "idp.example.com:6000",
+        "name": "full_tcp_and_https",
+        "txt": "v=lk1 tcp=idp.example.com:6000 https=idp.example.com/linkkeys"
+      },
+      {
+        "expected_https_base": null,
+        "expected_tcp": "idp.example.com:4987",
+        "name": "tcp_port_defaulted",
+        "txt": "v=lk1 tcp=idp.example.com"
+      },
+      {
+        "expected_https_base": null,
+        "expected_tcp": "idp.example.com:6000",
+        "name": "tcp_only",
+        "txt": "v=lk1 tcp=idp.example.com:6000"
+      },
+      {
+        "expected_https_base": "https://idp.example.com:8443/x",
+        "expected_tcp": null,
+        "name": "https_only",
+        "txt": "v=lk1 https=idp.example.com:8443/x"
+      }
+    ]
+  },
+  "linkkeys_txt": {
+    "invalid_cases": [
+      {
+        "expected_error": "missing_version",
+        "name": "missing_version",
+        "txt": "fp=abc"
+      },
+      {
+        "expected_error": "unsupported_version",
+        "name": "wrong_version",
+        "txt": "v=lk99 fp=abc"
+      }
+    ],
+    "no_record_case": {
+      "description": "Represents the DNS lookup itself returning no _linkkeys TXT record at all (NXDOMAIN / empty answer) — not a string for parse_linkkeys_txt to parse. An SDK's DNS layer must treat this the same as an untrusted/absent trust anchor.",
+      "documentation_only": true,
+      "expected_error": "no_linkkeys_record",
+      "name": "no_record",
+      "txt": null
+    },
+    "valid_cases": [
+      {
+        "expected_fingerprints": [
+          "34750f98bd59fcfc946da45aaabe933be154a4b5094e1c4abf42866505f3c97e"
+        ],
+        "txt": "v=lk1 fp=34750f98bd59fcfc946da45aaabe933be154a4b5094e1c4abf42866505f3c97e"
+      },
+      {
+        "expected_fingerprints": [
+          "34750f98bd59fcfc946da45aaabe933be154a4b5094e1c4abf42866505f3c97e",
+          "b62e867fa2f33afe62d5d6b1642e1621d543307846b2a57b897e710919b76709"
+        ],
+        "txt": "v=lk1 fp=34750f98bd59fcfc946da45aaabe933be154a4b5094e1c4abf42866505f3c97e fp=b62e867fa2f33afe62d5d6b1642e1621d543307846b2a57b897e710919b76709"
+      },
+      {
+        "expected_fingerprints": [
+          "34750f98bd59fcfc946da45aaabe933be154a4b5094e1c4abf42866505f3c97e",
+          "b62e867fa2f33afe62d5d6b1642e1621d543307846b2a57b897e710919b76709",
+          "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        ],
+        "txt": "v=lk1 fp=34750f98bd59fcfc946da45aaabe933be154a4b5094e1c4abf42866505f3c97e fp=b62e867fa2f33afe62d5d6b1642e1621d543307846b2a57b897e710919b76709 fp=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    ]
+  },
+  "note": "Mirrors crates/liblinkkeys/src/dns.rs's own test cases. `_linkkeys.{domain}` is the trust-anchor record (fp= pins); `_linkkeys_apis.{domain}` is the service-endpoint record (tcp=/https=). Both require a `v=lk1` tag; fields are whitespace-separated and order-independent."
+}

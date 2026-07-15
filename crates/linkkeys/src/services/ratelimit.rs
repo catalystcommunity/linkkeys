@@ -87,6 +87,24 @@ pub static LOGIN: LazyLock<RateLimiter> = LazyLock::new(|| RateLimiter::new(5.0,
 /// per minute — enough for a genuine retry, not for spamming.
 pub static EMAIL: LazyLock<RateLimiter> = LazyLock::new(|| RateLimiter::new(3.0, 1.0 / 60.0, 4096));
 
+/// Local RP claim-ticket redemption attempts over TCP (`LocalRp/redeem-claim-
+/// ticket`), keyed by the local RP fingerprint. Tickets are deliberately
+/// multi-use within their validity window (design doc: "the app can retry or
+/// refresh"), so this is more generous than `LOGIN`: ~20 quick attempts, then
+/// one every 3 seconds.
+///
+/// This bucket meters POSSESSION-PROVEN requests only: the dispatch debits it
+/// after the redemption signature has verified against the stored signing
+/// key, never before. The fingerprint in a redemption request is
+/// attacker-chosen, so debiting on the unverified value would let anyone who
+/// can reach the TCP port spam a victim RP's fingerprint and exhaust the
+/// legitimate app's bucket — a cheap remote DoS of a specific local RP.
+/// Post-proof, only the actual key holder can ever consume its own bucket;
+/// unverified garbage costs the server one indexed lookup plus one Ed25519
+/// verify and never touches the limiter.
+pub static TICKET_REDEMPTION: LazyLock<RateLimiter> =
+    LazyLock::new(|| RateLimiter::new(20.0, 1.0 / 3.0, 4096));
+
 #[cfg(test)]
 mod tests {
     use super::RateLimiter;

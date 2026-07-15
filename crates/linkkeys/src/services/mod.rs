@@ -5,6 +5,7 @@ pub mod auth;
 pub mod authorization;
 pub mod handshake;
 pub mod hello;
+pub mod local_rp;
 pub mod ops;
 pub mod password;
 pub mod pins;

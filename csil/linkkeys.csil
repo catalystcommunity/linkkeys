@@ -465,7 +465,12 @@ SignedAuthRequest = {
 EncryptedToken = {
     ephemeral_public_key: bytes,
     ciphertext: bytes,
-    nonce: bytes
+    nonce: bytes,
+    ;; Negotiated AEAD suite (registry defined below, "Local RP" section).
+    ;; Absent means "aes-256-gcm", the mandatory-to-implement baseline —
+    ;; every EncryptedToken predating suite negotiation is implicitly that
+    ;; suite, and a producer that selected the baseline may omit this field.
+    ? suite: AeadSuite
 }
 
 ;; ============================================================
@@ -781,6 +786,227 @@ RpIssueAttestationResponse = {
 }
 
 ;; ============================================================
+;; Local RP (DNS-less local relying party identity)
+;; ============================================================
+;;
+;; A local RP has no DNS-pinned domain; its identity is the fingerprint of its
+;; own Ed25519 signing public key (SSH-host-key style), with a separate X25519
+;; encryption key bound to that identity by a signed descriptor. Every signed
+;; structure below follows the envelope pattern used elsewhere (e.g.
+;; SignedIdentityAssertion): the signed field carries the exact CBOR bytes of
+;; the payload type, and the signature covers CBOR([context, payload]) with a
+;; structure-specific context string (never a bare field inside the signed
+;; struct). Fingerprints are hex text, matching DomainPublicKey/UserPublicKey.
+
+;; Advertised/negotiated AEAD suite id. A registry, not free text: exactly
+;; "aes-256-gcm" (mandatory-to-implement) or "chacha20-poly1305" (optional).
+;; Shared with AlgorithmSupport.encryption in the Handshake service — one
+;; registry, two advertisement surfaces (descriptor here, handshake for S2S).
+AeadSuite = text
+
+;; Per-domain setting for whether local RP logins are accepted at all.
+;; "disabled" | "admin-approval-required" (default) | "allow-by-default".
+;; Storage/administration follows the existing domain policy pattern
+;; (policy_admin_ui.rs); this is the shared vocabulary for that value.
+LocalRpPolicy = text
+
+;; Self-asserted identity metadata for a local RP, signed by its own signing
+;; key. app_name and local_domain_hint are display/audit context only —
+;; approval keys on fingerprint alone, never on this metadata.
+LocalRpDescriptor = {
+    app_name: text,
+    ? local_domain_hint: text,
+    signing_public_key: bytes .size 32,
+    encryption_public_key: bytes .size 32,
+    ;; sha256(signing_public_key), hex-encoded — the existing
+    ;; liblinkkeys::crypto::fingerprint format.
+    fingerprint: text,
+    ;; AEAD suites this local RP supports, in preference order.
+    supported_suites: [* AeadSuite],
+    created_at: text,
+    expires_at: text
+}
+
+SignedLocalRpDescriptor = {
+    descriptor: bytes,  ;; exact CBOR of LocalRpDescriptor
+    signature: bytes    ;; ed25519 over CBOR([context, descriptor]); context linkkeys-local-rp-descriptor
+}
+
+;; A local RP's signed request to begin a browser login at a LinkKeys domain.
+LocalRpLoginRequest = {
+    descriptor: SignedLocalRpDescriptor,
+    callback_url: text,
+    nonce: bytes,
+    state: bytes,
+    requested_claims: [* text],
+    required_claims: [* text],
+    issued_at: text,
+    expires_at: text
+}
+
+SignedLocalRpLoginRequest = {
+    request: bytes,   ;; exact CBOR of LocalRpLoginRequest
+    signature: bytes  ;; ed25519 over CBOR([context, request]); context linkkeys-local-rp-login-request
+}
+
+;; Cleartext routing/decryption metadata carried alongside the sealed callback.
+;; Authoritative copies of every field here also live inside the ciphertext;
+;; this header is bound as AEAD associated data (exact CBOR bytes as shipped
+;; in LocalRpEncryptedCallback.header), so no SDK needs canonical
+;; re-serialization to verify it.
+LocalRpCallbackHeader = {
+    fingerprint: text,
+    nonce: bytes,
+    state: bytes,
+    suite: AeadSuite,
+    ephemeral_public_key: bytes .size 32,
+    aead_nonce: bytes .size 12,
+    issued_at: text,
+    expires_at: text
+}
+
+LocalRpEncryptedCallback = {
+    header: bytes,  ;; exact CBOR of LocalRpCallbackHeader
+    ciphertext: bytes
+}
+
+;; The verified login result. CBOR-encoded and signed by domain keys (see
+;; SignedLocalRpCallbackPayload) before the signed envelope's bytes are sealed
+;; to the local RP's encryption key. Does not carry claims directly: the
+;; claim_ticket is redeemed separately over TCP CSIL-RPC so claim values stay
+;; off the browser round-trip.
+LocalRpCallbackPayload = {
+    user_id: text,
+    user_domain: text,
+    claim_ticket: bytes,
+    audience_fingerprint: text,
+    callback_url: text,
+    nonce: bytes,
+    state: bytes,
+    issued_at: text,
+    expires_at: text
+}
+
+;; Domain-signed envelope around LocalRpCallbackPayload; these are the exact
+;; bytes sealed into LocalRpEncryptedCallback.ciphertext. signing_key_id
+;; identifies which of the domain's signing keys signed it, matching
+;; SignedIdentityAssertion/SignedAuthRequest (a domain holds several signing
+;; keys; a local RP's own signatures elsewhere in this section need no key id
+;; because a local RP has exactly one).
+SignedLocalRpCallbackPayload = {
+    payload: bytes,       ;; exact CBOR of LocalRpCallbackPayload
+    signing_key_id: text,
+    signature: bytes      ;; ed25519 over CBOR([context, payload]); context linkkeys-local-rp-callback
+}
+
+;; Redemption of a claim-get ticket from LocalRpCallbackPayload, signed with
+;; the local RP signing key so a stolen ticket is useless without the
+;; matching private key.
+LocalRpTicketRedemptionRequest = {
+    claim_ticket: bytes,
+    fingerprint: text,
+    issued_at: text
+}
+
+SignedLocalRpTicketRedemptionRequest = {
+    request: bytes,   ;; exact CBOR of LocalRpTicketRedemptionRequest
+    signature: bytes  ;; ed25519 over CBOR([context, request]); context linkkeys-local-rp-ticket-redemption
+}
+
+LocalRpTicketRedemptionResponse = {
+    user_id: text,
+    user_domain: text,
+    claims: [* Claim],
+    ticket_expires_at: text
+}
+
+;; Admin-facing view of a local RP identity. Approval keys on `fingerprint`
+;; alone; app_name/local_domain_hint are display/audit metadata only — a
+;; changed value on an already-known fingerprint is a drift warning, not a
+;; re-identification.
+AdminLocalRp = {
+    fingerprint: text,
+    signing_public_key: bytes .size 32,
+    encryption_public_key: bytes .size 32,
+    app_name: text,
+    ? local_domain_hint: text,
+    ;; "pending" | "approved" | "denied" | "revoked"
+    status: text,
+    created_at: text,
+    updated_at: text,
+    ? expires_at: text,
+    ? last_seen_at: text,
+    ? admin_notes: text
+}
+
+ListLocalRpsRequest = {
+    ? offset: int,
+    ? limit: int,
+    ;; Optional filter on AdminLocalRp.status.
+    ? status: text
+}
+
+ListLocalRpsResponse = {
+    local_rps: [* AdminLocalRp]
+}
+
+GetLocalRpRequest = {
+    fingerprint: text
+}
+
+GetLocalRpResponse = {
+    local_rp: AdminLocalRp
+}
+
+ApproveLocalRpRequest = {
+    fingerprint: text,
+    ? admin_notes: text
+}
+
+ApproveLocalRpResponse = {
+    local_rp: AdminLocalRp
+}
+
+DenyLocalRpRequest = {
+    fingerprint: text,
+    ? admin_notes: text
+}
+
+DenyLocalRpResponse = {
+    local_rp: AdminLocalRp
+}
+
+RevokeLocalRpRequest = {
+    fingerprint: text,
+    ? admin_notes: text
+}
+
+RevokeLocalRpResponse = {
+    local_rp: AdminLocalRp
+}
+
+;; This domain's local-RP admission policy (dns-less-local-rp-design.md,
+;; "Server Work"/"CSIL Work": "Domain policy APIs/CLI/config to set local RP
+;; mode"). Like every other Admin op these act on the caller's own domain
+;; (RELATION_ADMIN is checked against that domain); there is no domain
+;; parameter. get-local-rp-policy returns the *effective* policy — the stored
+;; value, or "admin-approval-required" when the domain has never set one
+;; explicitly (the design doc's stated default).
+GetLocalRpPolicyRequest = {}
+
+GetLocalRpPolicyResponse = {
+    policy: LocalRpPolicy
+}
+
+SetLocalRpPolicyRequest = {
+    policy: LocalRpPolicy
+}
+
+SetLocalRpPolicyResponse = {
+    policy: LocalRpPolicy
+}
+
+;; ============================================================
 ;; I18n
 ;; ============================================================
 
@@ -886,7 +1112,14 @@ service Admin {
     remove-relation: RemoveRelationRequest -> RemoveRelationResponse,
     list-relations: ListRelationsRequest -> ListRelationsResponse,
     check-permission: CheckPermissionRequest -> CheckPermissionResponse,
-    recheck-pins: RecheckPinsRequest -> RecheckPinsResponse
+    recheck-pins: RecheckPinsRequest -> RecheckPinsResponse,
+    list-local-rps: ListLocalRpsRequest -> ListLocalRpsResponse,
+    get-local-rp: GetLocalRpRequest -> GetLocalRpResponse,
+    approve-local-rp: ApproveLocalRpRequest -> ApproveLocalRpResponse,
+    deny-local-rp: DenyLocalRpRequest -> DenyLocalRpResponse,
+    revoke-local-rp: RevokeLocalRpRequest -> RevokeLocalRpResponse,
+    get-local-rp-policy: GetLocalRpPolicyRequest -> GetLocalRpPolicyResponse,
+    set-local-rp-policy: SetLocalRpPolicyRequest -> SetLocalRpPolicyResponse
 }
 
 service Account {
@@ -909,4 +1142,12 @@ service Rp {
     verify-assertion: RpVerifyRequest -> RpVerifyResponse,
     userinfo-fetch: RpUserInfoRequest -> UserInfo,
     issue-attestation: RpIssueAttestationRequest -> RpIssueAttestationResponse
+}
+
+;; DNS-less local RP wire operation. Claim-ticket redemption is TCP CSIL-RPC
+;; only (no HTTP route), authenticated at the application layer by the signed
+;; redemption request rather than mutual TLS — an unauthenticated TLS peer is
+;; allowed here the same way domain-key/revocation fetch already allow one.
+service LocalRp {
+    redeem-claim-ticket: SignedLocalRpTicketRedemptionRequest -> LocalRpTicketRedemptionResponse
 }

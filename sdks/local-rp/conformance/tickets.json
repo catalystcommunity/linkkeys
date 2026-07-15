@@ -1,0 +1,17 @@
+{
+  "cases": [
+    {
+      "name": "ticket_a",
+      "sha256_hex": "c2f480d4dda9f4522b9f6d590011636d904accfe59f12f9d66a0221c2558e3a2",
+      "ticket_hex": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    {
+      "name": "ticket_b",
+      "sha256_hex": "2b26816b927877095c29b14358af3c137109084ba54aa6aa6e19734940d7ae98",
+      "ticket_hex": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+  ],
+  "hash_algorithm": "sha256",
+  "note": "A claim ticket is 32 opaque random bytes; the server stores only its SHA-256 hex (crypto::fingerprint applied to the raw ticket bytes, same hex-hash routine used for key fingerprints), never the raw ticket. `ticket_a` is the SAME bytes used as `claim_ticket` in envelopes.json's ticket_redemption case and callback_box.json's plaintext, so the ticket referenced end-to-end there is this one. See envelopes.json's `ticket_redemption` case for the full SignedLocalRpTicketRedemptionRequest envelope vector (payload/signature/context).",
+  "redemption_request_ref": "envelopes.json#/cases (structure == \"ticket_redemption\")"
+}

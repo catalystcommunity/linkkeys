@@ -2628,8 +2628,11 @@ pub fn decode_signed_auth_request(csil_data: &[u8]) -> Result<SignedAuthRequest,
 
 /// Build the canonical CBOR value tree for a EncryptedToken.
 fn csil_enc_encrypted_token(csil_v: &EncryptedToken) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(4);
     csil_entries.push((cbor_text("nonce"), cbor_bytes(&csil_v.nonce)));
+    if let Some(csil_inner) = &csil_v.suite {
+        csil_entries.push((cbor_text("suite"), cbor_text(csil_inner)));
+    }
     csil_entries.push((cbor_text("ciphertext"), cbor_bytes(&csil_v.ciphertext)));
     csil_entries.push((
         cbor_text("ephemeral_public_key"),
@@ -2655,10 +2658,18 @@ fn csil_dec_encrypted_token(csil_root: &CsilCborValue) -> Result<EncryptedToken,
         let csil_decode = cbor_as_bytes;
         csil_decode(csil_field)?
     };
+    let suite = match cbor_map_get(csil_root, "suite") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
     Ok(EncryptedToken {
         ephemeral_public_key,
         ciphertext,
         nonce,
+        suite,
     })
 }
 
@@ -4772,6 +4783,1339 @@ pub fn decode_rp_issue_attestation_response(
 ) -> Result<RpIssueAttestationResponse, CsilCborError> {
     let csil_root = cbor_decode(csil_data)?;
     csil_dec_rp_issue_attestation_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a LocalRpDescriptor.
+fn csil_enc_local_rp_descriptor(csil_v: &LocalRpDescriptor) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(8);
+    csil_entries.push((cbor_text("app_name"), cbor_text(&csil_v.app_name)));
+    csil_entries.push((cbor_text("created_at"), cbor_text(&csil_v.created_at)));
+    csil_entries.push((cbor_text("expires_at"), cbor_text(&csil_v.expires_at)));
+    csil_entries.push((cbor_text("fingerprint"), cbor_text(&csil_v.fingerprint)));
+    csil_entries.push((
+        cbor_text("supported_suites"),
+        cbor_enc_array(&csil_v.supported_suites, |csil_elem| cbor_text(csil_elem)),
+    ));
+    if let Some(csil_inner) = &csil_v.local_domain_hint {
+        csil_entries.push((cbor_text("local_domain_hint"), cbor_text(csil_inner)));
+    }
+    csil_entries.push((
+        cbor_text("signing_public_key"),
+        cbor_bytes(&csil_v.signing_public_key),
+    ));
+    csil_entries.push((
+        cbor_text("encryption_public_key"),
+        cbor_bytes(&csil_v.encryption_public_key),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a LocalRpDescriptor from a decoded CBOR value tree.
+fn csil_dec_local_rp_descriptor(
+    csil_root: &CsilCborValue,
+) -> Result<LocalRpDescriptor, CsilCborError> {
+    let app_name = {
+        let csil_field = cbor_require(csil_root, "app_name")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let local_domain_hint = match cbor_map_get(csil_root, "local_domain_hint") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let signing_public_key = {
+        let csil_field = cbor_require(csil_root, "signing_public_key")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let encryption_public_key = {
+        let csil_field = cbor_require(csil_root, "encryption_public_key")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let fingerprint = {
+        let csil_field = cbor_require(csil_root, "fingerprint")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let supported_suites = {
+        let csil_field = cbor_require(csil_root, "supported_suites")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+        csil_decode(csil_field)?
+    };
+    let created_at = {
+        let csil_field = cbor_require(csil_root, "created_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let expires_at = {
+        let csil_field = cbor_require(csil_root, "expires_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(LocalRpDescriptor {
+        app_name,
+        local_domain_hint,
+        signing_public_key,
+        encryption_public_key,
+        fingerprint,
+        supported_suites,
+        created_at,
+        expires_at,
+    })
+}
+
+/// Encode a LocalRpDescriptor to canonical CSIL CBOR bytes.
+pub fn encode_local_rp_descriptor(csil_v: &LocalRpDescriptor) -> Vec<u8> {
+    cbor_encode(&csil_enc_local_rp_descriptor(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a LocalRpDescriptor.
+pub fn decode_local_rp_descriptor(csil_data: &[u8]) -> Result<LocalRpDescriptor, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_local_rp_descriptor(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SignedLocalRpDescriptor.
+fn csil_enc_signed_local_rp_descriptor(csil_v: &SignedLocalRpDescriptor) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("signature"), cbor_bytes(&csil_v.signature)));
+    csil_entries.push((cbor_text("descriptor"), cbor_bytes(&csil_v.descriptor)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SignedLocalRpDescriptor from a decoded CBOR value tree.
+fn csil_dec_signed_local_rp_descriptor(
+    csil_root: &CsilCborValue,
+) -> Result<SignedLocalRpDescriptor, CsilCborError> {
+    let descriptor = {
+        let csil_field = cbor_require(csil_root, "descriptor")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let signature = {
+        let csil_field = cbor_require(csil_root, "signature")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    Ok(SignedLocalRpDescriptor {
+        descriptor,
+        signature,
+    })
+}
+
+/// Encode a SignedLocalRpDescriptor to canonical CSIL CBOR bytes.
+pub fn encode_signed_local_rp_descriptor(csil_v: &SignedLocalRpDescriptor) -> Vec<u8> {
+    cbor_encode(&csil_enc_signed_local_rp_descriptor(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SignedLocalRpDescriptor.
+pub fn decode_signed_local_rp_descriptor(
+    csil_data: &[u8],
+) -> Result<SignedLocalRpDescriptor, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_signed_local_rp_descriptor(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a LocalRpLoginRequest.
+fn csil_enc_local_rp_login_request(csil_v: &LocalRpLoginRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(8);
+    csil_entries.push((cbor_text("nonce"), cbor_bytes(&csil_v.nonce)));
+    csil_entries.push((cbor_text("state"), cbor_bytes(&csil_v.state)));
+    csil_entries.push((cbor_text("issued_at"), cbor_text(&csil_v.issued_at)));
+    csil_entries.push((
+        cbor_text("descriptor"),
+        csil_enc_signed_local_rp_descriptor(&csil_v.descriptor),
+    ));
+    csil_entries.push((cbor_text("expires_at"), cbor_text(&csil_v.expires_at)));
+    csil_entries.push((cbor_text("callback_url"), cbor_text(&csil_v.callback_url)));
+    csil_entries.push((
+        cbor_text("required_claims"),
+        cbor_enc_array(&csil_v.required_claims, |csil_elem| cbor_text(csil_elem)),
+    ));
+    csil_entries.push((
+        cbor_text("requested_claims"),
+        cbor_enc_array(&csil_v.requested_claims, |csil_elem| cbor_text(csil_elem)),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a LocalRpLoginRequest from a decoded CBOR value tree.
+fn csil_dec_local_rp_login_request(
+    csil_root: &CsilCborValue,
+) -> Result<LocalRpLoginRequest, CsilCborError> {
+    let descriptor = {
+        let csil_field = cbor_require(csil_root, "descriptor")?;
+        let csil_decode = csil_dec_signed_local_rp_descriptor;
+        csil_decode(csil_field)?
+    };
+    let callback_url = {
+        let csil_field = cbor_require(csil_root, "callback_url")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let nonce = {
+        let csil_field = cbor_require(csil_root, "nonce")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let state = {
+        let csil_field = cbor_require(csil_root, "state")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let requested_claims = {
+        let csil_field = cbor_require(csil_root, "requested_claims")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+        csil_decode(csil_field)?
+    };
+    let required_claims = {
+        let csil_field = cbor_require(csil_root, "required_claims")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+        csil_decode(csil_field)?
+    };
+    let issued_at = {
+        let csil_field = cbor_require(csil_root, "issued_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let expires_at = {
+        let csil_field = cbor_require(csil_root, "expires_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(LocalRpLoginRequest {
+        descriptor,
+        callback_url,
+        nonce,
+        state,
+        requested_claims,
+        required_claims,
+        issued_at,
+        expires_at,
+    })
+}
+
+/// Encode a LocalRpLoginRequest to canonical CSIL CBOR bytes.
+pub fn encode_local_rp_login_request(csil_v: &LocalRpLoginRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_local_rp_login_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a LocalRpLoginRequest.
+pub fn decode_local_rp_login_request(
+    csil_data: &[u8],
+) -> Result<LocalRpLoginRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_local_rp_login_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SignedLocalRpLoginRequest.
+fn csil_enc_signed_local_rp_login_request(csil_v: &SignedLocalRpLoginRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("request"), cbor_bytes(&csil_v.request)));
+    csil_entries.push((cbor_text("signature"), cbor_bytes(&csil_v.signature)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SignedLocalRpLoginRequest from a decoded CBOR value tree.
+fn csil_dec_signed_local_rp_login_request(
+    csil_root: &CsilCborValue,
+) -> Result<SignedLocalRpLoginRequest, CsilCborError> {
+    let request = {
+        let csil_field = cbor_require(csil_root, "request")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let signature = {
+        let csil_field = cbor_require(csil_root, "signature")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    Ok(SignedLocalRpLoginRequest { request, signature })
+}
+
+/// Encode a SignedLocalRpLoginRequest to canonical CSIL CBOR bytes.
+pub fn encode_signed_local_rp_login_request(csil_v: &SignedLocalRpLoginRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_signed_local_rp_login_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SignedLocalRpLoginRequest.
+pub fn decode_signed_local_rp_login_request(
+    csil_data: &[u8],
+) -> Result<SignedLocalRpLoginRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_signed_local_rp_login_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a LocalRpCallbackHeader.
+fn csil_enc_local_rp_callback_header(csil_v: &LocalRpCallbackHeader) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(8);
+    csil_entries.push((cbor_text("nonce"), cbor_bytes(&csil_v.nonce)));
+    csil_entries.push((cbor_text("state"), cbor_bytes(&csil_v.state)));
+    csil_entries.push((cbor_text("suite"), cbor_text(&csil_v.suite)));
+    csil_entries.push((cbor_text("issued_at"), cbor_text(&csil_v.issued_at)));
+    csil_entries.push((cbor_text("aead_nonce"), cbor_bytes(&csil_v.aead_nonce)));
+    csil_entries.push((cbor_text("expires_at"), cbor_text(&csil_v.expires_at)));
+    csil_entries.push((cbor_text("fingerprint"), cbor_text(&csil_v.fingerprint)));
+    csil_entries.push((
+        cbor_text("ephemeral_public_key"),
+        cbor_bytes(&csil_v.ephemeral_public_key),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a LocalRpCallbackHeader from a decoded CBOR value tree.
+fn csil_dec_local_rp_callback_header(
+    csil_root: &CsilCborValue,
+) -> Result<LocalRpCallbackHeader, CsilCborError> {
+    let fingerprint = {
+        let csil_field = cbor_require(csil_root, "fingerprint")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let nonce = {
+        let csil_field = cbor_require(csil_root, "nonce")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let state = {
+        let csil_field = cbor_require(csil_root, "state")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let suite = {
+        let csil_field = cbor_require(csil_root, "suite")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let ephemeral_public_key = {
+        let csil_field = cbor_require(csil_root, "ephemeral_public_key")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let aead_nonce = {
+        let csil_field = cbor_require(csil_root, "aead_nonce")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let issued_at = {
+        let csil_field = cbor_require(csil_root, "issued_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let expires_at = {
+        let csil_field = cbor_require(csil_root, "expires_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(LocalRpCallbackHeader {
+        fingerprint,
+        nonce,
+        state,
+        suite,
+        ephemeral_public_key,
+        aead_nonce,
+        issued_at,
+        expires_at,
+    })
+}
+
+/// Encode a LocalRpCallbackHeader to canonical CSIL CBOR bytes.
+pub fn encode_local_rp_callback_header(csil_v: &LocalRpCallbackHeader) -> Vec<u8> {
+    cbor_encode(&csil_enc_local_rp_callback_header(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a LocalRpCallbackHeader.
+pub fn decode_local_rp_callback_header(
+    csil_data: &[u8],
+) -> Result<LocalRpCallbackHeader, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_local_rp_callback_header(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a LocalRpEncryptedCallback.
+fn csil_enc_local_rp_encrypted_callback(csil_v: &LocalRpEncryptedCallback) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("header"), cbor_bytes(&csil_v.header)));
+    csil_entries.push((cbor_text("ciphertext"), cbor_bytes(&csil_v.ciphertext)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a LocalRpEncryptedCallback from a decoded CBOR value tree.
+fn csil_dec_local_rp_encrypted_callback(
+    csil_root: &CsilCborValue,
+) -> Result<LocalRpEncryptedCallback, CsilCborError> {
+    let header = {
+        let csil_field = cbor_require(csil_root, "header")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let ciphertext = {
+        let csil_field = cbor_require(csil_root, "ciphertext")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    Ok(LocalRpEncryptedCallback { header, ciphertext })
+}
+
+/// Encode a LocalRpEncryptedCallback to canonical CSIL CBOR bytes.
+pub fn encode_local_rp_encrypted_callback(csil_v: &LocalRpEncryptedCallback) -> Vec<u8> {
+    cbor_encode(&csil_enc_local_rp_encrypted_callback(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a LocalRpEncryptedCallback.
+pub fn decode_local_rp_encrypted_callback(
+    csil_data: &[u8],
+) -> Result<LocalRpEncryptedCallback, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_local_rp_encrypted_callback(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a LocalRpCallbackPayload.
+fn csil_enc_local_rp_callback_payload(csil_v: &LocalRpCallbackPayload) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(9);
+    csil_entries.push((cbor_text("nonce"), cbor_bytes(&csil_v.nonce)));
+    csil_entries.push((cbor_text("state"), cbor_bytes(&csil_v.state)));
+    csil_entries.push((cbor_text("user_id"), cbor_text(&csil_v.user_id)));
+    csil_entries.push((cbor_text("issued_at"), cbor_text(&csil_v.issued_at)));
+    csil_entries.push((cbor_text("expires_at"), cbor_text(&csil_v.expires_at)));
+    csil_entries.push((cbor_text("user_domain"), cbor_text(&csil_v.user_domain)));
+    csil_entries.push((cbor_text("callback_url"), cbor_text(&csil_v.callback_url)));
+    csil_entries.push((cbor_text("claim_ticket"), cbor_bytes(&csil_v.claim_ticket)));
+    csil_entries.push((
+        cbor_text("audience_fingerprint"),
+        cbor_text(&csil_v.audience_fingerprint),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a LocalRpCallbackPayload from a decoded CBOR value tree.
+fn csil_dec_local_rp_callback_payload(
+    csil_root: &CsilCborValue,
+) -> Result<LocalRpCallbackPayload, CsilCborError> {
+    let user_id = {
+        let csil_field = cbor_require(csil_root, "user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let user_domain = {
+        let csil_field = cbor_require(csil_root, "user_domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let claim_ticket = {
+        let csil_field = cbor_require(csil_root, "claim_ticket")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let audience_fingerprint = {
+        let csil_field = cbor_require(csil_root, "audience_fingerprint")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let callback_url = {
+        let csil_field = cbor_require(csil_root, "callback_url")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let nonce = {
+        let csil_field = cbor_require(csil_root, "nonce")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let state = {
+        let csil_field = cbor_require(csil_root, "state")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let issued_at = {
+        let csil_field = cbor_require(csil_root, "issued_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let expires_at = {
+        let csil_field = cbor_require(csil_root, "expires_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(LocalRpCallbackPayload {
+        user_id,
+        user_domain,
+        claim_ticket,
+        audience_fingerprint,
+        callback_url,
+        nonce,
+        state,
+        issued_at,
+        expires_at,
+    })
+}
+
+/// Encode a LocalRpCallbackPayload to canonical CSIL CBOR bytes.
+pub fn encode_local_rp_callback_payload(csil_v: &LocalRpCallbackPayload) -> Vec<u8> {
+    cbor_encode(&csil_enc_local_rp_callback_payload(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a LocalRpCallbackPayload.
+pub fn decode_local_rp_callback_payload(
+    csil_data: &[u8],
+) -> Result<LocalRpCallbackPayload, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_local_rp_callback_payload(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SignedLocalRpCallbackPayload.
+fn csil_enc_signed_local_rp_callback_payload(
+    csil_v: &SignedLocalRpCallbackPayload,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
+    csil_entries.push((cbor_text("payload"), cbor_bytes(&csil_v.payload)));
+    csil_entries.push((cbor_text("signature"), cbor_bytes(&csil_v.signature)));
+    csil_entries.push((
+        cbor_text("signing_key_id"),
+        cbor_text(&csil_v.signing_key_id),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SignedLocalRpCallbackPayload from a decoded CBOR value tree.
+fn csil_dec_signed_local_rp_callback_payload(
+    csil_root: &CsilCborValue,
+) -> Result<SignedLocalRpCallbackPayload, CsilCborError> {
+    let payload = {
+        let csil_field = cbor_require(csil_root, "payload")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let signing_key_id = {
+        let csil_field = cbor_require(csil_root, "signing_key_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let signature = {
+        let csil_field = cbor_require(csil_root, "signature")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    Ok(SignedLocalRpCallbackPayload {
+        payload,
+        signing_key_id,
+        signature,
+    })
+}
+
+/// Encode a SignedLocalRpCallbackPayload to canonical CSIL CBOR bytes.
+pub fn encode_signed_local_rp_callback_payload(csil_v: &SignedLocalRpCallbackPayload) -> Vec<u8> {
+    cbor_encode(&csil_enc_signed_local_rp_callback_payload(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SignedLocalRpCallbackPayload.
+pub fn decode_signed_local_rp_callback_payload(
+    csil_data: &[u8],
+) -> Result<SignedLocalRpCallbackPayload, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_signed_local_rp_callback_payload(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a LocalRpTicketRedemptionRequest.
+fn csil_enc_local_rp_ticket_redemption_request(
+    csil_v: &LocalRpTicketRedemptionRequest,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
+    csil_entries.push((cbor_text("issued_at"), cbor_text(&csil_v.issued_at)));
+    csil_entries.push((cbor_text("fingerprint"), cbor_text(&csil_v.fingerprint)));
+    csil_entries.push((cbor_text("claim_ticket"), cbor_bytes(&csil_v.claim_ticket)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a LocalRpTicketRedemptionRequest from a decoded CBOR value tree.
+fn csil_dec_local_rp_ticket_redemption_request(
+    csil_root: &CsilCborValue,
+) -> Result<LocalRpTicketRedemptionRequest, CsilCborError> {
+    let claim_ticket = {
+        let csil_field = cbor_require(csil_root, "claim_ticket")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let fingerprint = {
+        let csil_field = cbor_require(csil_root, "fingerprint")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let issued_at = {
+        let csil_field = cbor_require(csil_root, "issued_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(LocalRpTicketRedemptionRequest {
+        claim_ticket,
+        fingerprint,
+        issued_at,
+    })
+}
+
+/// Encode a LocalRpTicketRedemptionRequest to canonical CSIL CBOR bytes.
+pub fn encode_local_rp_ticket_redemption_request(
+    csil_v: &LocalRpTicketRedemptionRequest,
+) -> Vec<u8> {
+    cbor_encode(&csil_enc_local_rp_ticket_redemption_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a LocalRpTicketRedemptionRequest.
+pub fn decode_local_rp_ticket_redemption_request(
+    csil_data: &[u8],
+) -> Result<LocalRpTicketRedemptionRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_local_rp_ticket_redemption_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SignedLocalRpTicketRedemptionRequest.
+fn csil_enc_signed_local_rp_ticket_redemption_request(
+    csil_v: &SignedLocalRpTicketRedemptionRequest,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("request"), cbor_bytes(&csil_v.request)));
+    csil_entries.push((cbor_text("signature"), cbor_bytes(&csil_v.signature)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SignedLocalRpTicketRedemptionRequest from a decoded CBOR value tree.
+fn csil_dec_signed_local_rp_ticket_redemption_request(
+    csil_root: &CsilCborValue,
+) -> Result<SignedLocalRpTicketRedemptionRequest, CsilCborError> {
+    let request = {
+        let csil_field = cbor_require(csil_root, "request")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let signature = {
+        let csil_field = cbor_require(csil_root, "signature")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    Ok(SignedLocalRpTicketRedemptionRequest { request, signature })
+}
+
+/// Encode a SignedLocalRpTicketRedemptionRequest to canonical CSIL CBOR bytes.
+pub fn encode_signed_local_rp_ticket_redemption_request(
+    csil_v: &SignedLocalRpTicketRedemptionRequest,
+) -> Vec<u8> {
+    cbor_encode(&csil_enc_signed_local_rp_ticket_redemption_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SignedLocalRpTicketRedemptionRequest.
+pub fn decode_signed_local_rp_ticket_redemption_request(
+    csil_data: &[u8],
+) -> Result<SignedLocalRpTicketRedemptionRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_signed_local_rp_ticket_redemption_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a LocalRpTicketRedemptionResponse.
+fn csil_enc_local_rp_ticket_redemption_response(
+    csil_v: &LocalRpTicketRedemptionResponse,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(4);
+    csil_entries.push((
+        cbor_text("claims"),
+        cbor_enc_array(&csil_v.claims, csil_enc_claim),
+    ));
+    csil_entries.push((cbor_text("user_id"), cbor_text(&csil_v.user_id)));
+    csil_entries.push((cbor_text("user_domain"), cbor_text(&csil_v.user_domain)));
+    csil_entries.push((
+        cbor_text("ticket_expires_at"),
+        cbor_text(&csil_v.ticket_expires_at),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a LocalRpTicketRedemptionResponse from a decoded CBOR value tree.
+fn csil_dec_local_rp_ticket_redemption_response(
+    csil_root: &CsilCborValue,
+) -> Result<LocalRpTicketRedemptionResponse, CsilCborError> {
+    let user_id = {
+        let csil_field = cbor_require(csil_root, "user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let user_domain = {
+        let csil_field = cbor_require(csil_root, "user_domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let claims = {
+        let csil_field = cbor_require(csil_root, "claims")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_claim);
+        csil_decode(csil_field)?
+    };
+    let ticket_expires_at = {
+        let csil_field = cbor_require(csil_root, "ticket_expires_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(LocalRpTicketRedemptionResponse {
+        user_id,
+        user_domain,
+        claims,
+        ticket_expires_at,
+    })
+}
+
+/// Encode a LocalRpTicketRedemptionResponse to canonical CSIL CBOR bytes.
+pub fn encode_local_rp_ticket_redemption_response(
+    csil_v: &LocalRpTicketRedemptionResponse,
+) -> Vec<u8> {
+    cbor_encode(&csil_enc_local_rp_ticket_redemption_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a LocalRpTicketRedemptionResponse.
+pub fn decode_local_rp_ticket_redemption_response(
+    csil_data: &[u8],
+) -> Result<LocalRpTicketRedemptionResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_local_rp_ticket_redemption_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a AdminLocalRp.
+fn csil_enc_admin_local_rp(csil_v: &AdminLocalRp) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(11);
+    csil_entries.push((cbor_text("status"), cbor_text(&csil_v.status)));
+    csil_entries.push((cbor_text("app_name"), cbor_text(&csil_v.app_name)));
+    csil_entries.push((cbor_text("created_at"), cbor_text(&csil_v.created_at)));
+    if let Some(csil_inner) = &csil_v.expires_at {
+        csil_entries.push((cbor_text("expires_at"), cbor_text(csil_inner)));
+    }
+    csil_entries.push((cbor_text("updated_at"), cbor_text(&csil_v.updated_at)));
+    if let Some(csil_inner) = &csil_v.admin_notes {
+        csil_entries.push((cbor_text("admin_notes"), cbor_text(csil_inner)));
+    }
+    csil_entries.push((cbor_text("fingerprint"), cbor_text(&csil_v.fingerprint)));
+    if let Some(csil_inner) = &csil_v.last_seen_at {
+        csil_entries.push((cbor_text("last_seen_at"), cbor_text(csil_inner)));
+    }
+    if let Some(csil_inner) = &csil_v.local_domain_hint {
+        csil_entries.push((cbor_text("local_domain_hint"), cbor_text(csil_inner)));
+    }
+    csil_entries.push((
+        cbor_text("signing_public_key"),
+        cbor_bytes(&csil_v.signing_public_key),
+    ));
+    csil_entries.push((
+        cbor_text("encryption_public_key"),
+        cbor_bytes(&csil_v.encryption_public_key),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a AdminLocalRp from a decoded CBOR value tree.
+fn csil_dec_admin_local_rp(csil_root: &CsilCborValue) -> Result<AdminLocalRp, CsilCborError> {
+    let fingerprint = {
+        let csil_field = cbor_require(csil_root, "fingerprint")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let signing_public_key = {
+        let csil_field = cbor_require(csil_root, "signing_public_key")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let encryption_public_key = {
+        let csil_field = cbor_require(csil_root, "encryption_public_key")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let app_name = {
+        let csil_field = cbor_require(csil_root, "app_name")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let local_domain_hint = match cbor_map_get(csil_root, "local_domain_hint") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let status = {
+        let csil_field = cbor_require(csil_root, "status")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let created_at = {
+        let csil_field = cbor_require(csil_root, "created_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let updated_at = {
+        let csil_field = cbor_require(csil_root, "updated_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let expires_at = match cbor_map_get(csil_root, "expires_at") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let last_seen_at = match cbor_map_get(csil_root, "last_seen_at") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let admin_notes = match cbor_map_get(csil_root, "admin_notes") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(AdminLocalRp {
+        fingerprint,
+        signing_public_key,
+        encryption_public_key,
+        app_name,
+        local_domain_hint,
+        status,
+        created_at,
+        updated_at,
+        expires_at,
+        last_seen_at,
+        admin_notes,
+    })
+}
+
+/// Encode a AdminLocalRp to canonical CSIL CBOR bytes.
+pub fn encode_admin_local_rp(csil_v: &AdminLocalRp) -> Vec<u8> {
+    cbor_encode(&csil_enc_admin_local_rp(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a AdminLocalRp.
+pub fn decode_admin_local_rp(csil_data: &[u8]) -> Result<AdminLocalRp, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_admin_local_rp(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ListLocalRpsRequest.
+fn csil_enc_list_local_rps_request(csil_v: &ListLocalRpsRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
+    if let Some(csil_inner) = &csil_v.limit {
+        csil_entries.push((cbor_text("limit"), cbor_int(*csil_inner)));
+    }
+    if let Some(csil_inner) = &csil_v.offset {
+        csil_entries.push((cbor_text("offset"), cbor_int(*csil_inner)));
+    }
+    if let Some(csil_inner) = &csil_v.status {
+        csil_entries.push((cbor_text("status"), cbor_text(csil_inner)));
+    }
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ListLocalRpsRequest from a decoded CBOR value tree.
+fn csil_dec_list_local_rps_request(
+    csil_root: &CsilCborValue,
+) -> Result<ListLocalRpsRequest, CsilCborError> {
+    let offset = match cbor_map_get(csil_root, "offset") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_i64;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let limit = match cbor_map_get(csil_root, "limit") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_i64;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let status = match cbor_map_get(csil_root, "status") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(ListLocalRpsRequest {
+        offset,
+        limit,
+        status,
+    })
+}
+
+/// Encode a ListLocalRpsRequest to canonical CSIL CBOR bytes.
+pub fn encode_list_local_rps_request(csil_v: &ListLocalRpsRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_list_local_rps_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ListLocalRpsRequest.
+pub fn decode_list_local_rps_request(
+    csil_data: &[u8],
+) -> Result<ListLocalRpsRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_list_local_rps_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ListLocalRpsResponse.
+fn csil_enc_list_local_rps_response(csil_v: &ListLocalRpsResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("local_rps"),
+        cbor_enc_array(&csil_v.local_rps, csil_enc_admin_local_rp),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ListLocalRpsResponse from a decoded CBOR value tree.
+fn csil_dec_list_local_rps_response(
+    csil_root: &CsilCborValue,
+) -> Result<ListLocalRpsResponse, CsilCborError> {
+    let local_rps = {
+        let csil_field = cbor_require(csil_root, "local_rps")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_admin_local_rp);
+        csil_decode(csil_field)?
+    };
+    Ok(ListLocalRpsResponse { local_rps })
+}
+
+/// Encode a ListLocalRpsResponse to canonical CSIL CBOR bytes.
+pub fn encode_list_local_rps_response(csil_v: &ListLocalRpsResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_list_local_rps_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ListLocalRpsResponse.
+pub fn decode_list_local_rps_response(
+    csil_data: &[u8],
+) -> Result<ListLocalRpsResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_list_local_rps_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a GetLocalRpRequest.
+fn csil_enc_get_local_rp_request(csil_v: &GetLocalRpRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("fingerprint"), cbor_text(&csil_v.fingerprint)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a GetLocalRpRequest from a decoded CBOR value tree.
+fn csil_dec_get_local_rp_request(
+    csil_root: &CsilCborValue,
+) -> Result<GetLocalRpRequest, CsilCborError> {
+    let fingerprint = {
+        let csil_field = cbor_require(csil_root, "fingerprint")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(GetLocalRpRequest { fingerprint })
+}
+
+/// Encode a GetLocalRpRequest to canonical CSIL CBOR bytes.
+pub fn encode_get_local_rp_request(csil_v: &GetLocalRpRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_get_local_rp_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a GetLocalRpRequest.
+pub fn decode_get_local_rp_request(csil_data: &[u8]) -> Result<GetLocalRpRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_get_local_rp_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a GetLocalRpResponse.
+fn csil_enc_get_local_rp_response(csil_v: &GetLocalRpResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("local_rp"),
+        csil_enc_admin_local_rp(&csil_v.local_rp),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a GetLocalRpResponse from a decoded CBOR value tree.
+fn csil_dec_get_local_rp_response(
+    csil_root: &CsilCborValue,
+) -> Result<GetLocalRpResponse, CsilCborError> {
+    let local_rp = {
+        let csil_field = cbor_require(csil_root, "local_rp")?;
+        let csil_decode = csil_dec_admin_local_rp;
+        csil_decode(csil_field)?
+    };
+    Ok(GetLocalRpResponse { local_rp })
+}
+
+/// Encode a GetLocalRpResponse to canonical CSIL CBOR bytes.
+pub fn encode_get_local_rp_response(csil_v: &GetLocalRpResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_get_local_rp_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a GetLocalRpResponse.
+pub fn decode_get_local_rp_response(csil_data: &[u8]) -> Result<GetLocalRpResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_get_local_rp_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ApproveLocalRpRequest.
+fn csil_enc_approve_local_rp_request(csil_v: &ApproveLocalRpRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    if let Some(csil_inner) = &csil_v.admin_notes {
+        csil_entries.push((cbor_text("admin_notes"), cbor_text(csil_inner)));
+    }
+    csil_entries.push((cbor_text("fingerprint"), cbor_text(&csil_v.fingerprint)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ApproveLocalRpRequest from a decoded CBOR value tree.
+fn csil_dec_approve_local_rp_request(
+    csil_root: &CsilCborValue,
+) -> Result<ApproveLocalRpRequest, CsilCborError> {
+    let fingerprint = {
+        let csil_field = cbor_require(csil_root, "fingerprint")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let admin_notes = match cbor_map_get(csil_root, "admin_notes") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(ApproveLocalRpRequest {
+        fingerprint,
+        admin_notes,
+    })
+}
+
+/// Encode a ApproveLocalRpRequest to canonical CSIL CBOR bytes.
+pub fn encode_approve_local_rp_request(csil_v: &ApproveLocalRpRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_approve_local_rp_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ApproveLocalRpRequest.
+pub fn decode_approve_local_rp_request(
+    csil_data: &[u8],
+) -> Result<ApproveLocalRpRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_approve_local_rp_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ApproveLocalRpResponse.
+fn csil_enc_approve_local_rp_response(csil_v: &ApproveLocalRpResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("local_rp"),
+        csil_enc_admin_local_rp(&csil_v.local_rp),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ApproveLocalRpResponse from a decoded CBOR value tree.
+fn csil_dec_approve_local_rp_response(
+    csil_root: &CsilCborValue,
+) -> Result<ApproveLocalRpResponse, CsilCborError> {
+    let local_rp = {
+        let csil_field = cbor_require(csil_root, "local_rp")?;
+        let csil_decode = csil_dec_admin_local_rp;
+        csil_decode(csil_field)?
+    };
+    Ok(ApproveLocalRpResponse { local_rp })
+}
+
+/// Encode a ApproveLocalRpResponse to canonical CSIL CBOR bytes.
+pub fn encode_approve_local_rp_response(csil_v: &ApproveLocalRpResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_approve_local_rp_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ApproveLocalRpResponse.
+pub fn decode_approve_local_rp_response(
+    csil_data: &[u8],
+) -> Result<ApproveLocalRpResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_approve_local_rp_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a DenyLocalRpRequest.
+fn csil_enc_deny_local_rp_request(csil_v: &DenyLocalRpRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    if let Some(csil_inner) = &csil_v.admin_notes {
+        csil_entries.push((cbor_text("admin_notes"), cbor_text(csil_inner)));
+    }
+    csil_entries.push((cbor_text("fingerprint"), cbor_text(&csil_v.fingerprint)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a DenyLocalRpRequest from a decoded CBOR value tree.
+fn csil_dec_deny_local_rp_request(
+    csil_root: &CsilCborValue,
+) -> Result<DenyLocalRpRequest, CsilCborError> {
+    let fingerprint = {
+        let csil_field = cbor_require(csil_root, "fingerprint")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let admin_notes = match cbor_map_get(csil_root, "admin_notes") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(DenyLocalRpRequest {
+        fingerprint,
+        admin_notes,
+    })
+}
+
+/// Encode a DenyLocalRpRequest to canonical CSIL CBOR bytes.
+pub fn encode_deny_local_rp_request(csil_v: &DenyLocalRpRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_deny_local_rp_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a DenyLocalRpRequest.
+pub fn decode_deny_local_rp_request(csil_data: &[u8]) -> Result<DenyLocalRpRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_deny_local_rp_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a DenyLocalRpResponse.
+fn csil_enc_deny_local_rp_response(csil_v: &DenyLocalRpResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("local_rp"),
+        csil_enc_admin_local_rp(&csil_v.local_rp),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a DenyLocalRpResponse from a decoded CBOR value tree.
+fn csil_dec_deny_local_rp_response(
+    csil_root: &CsilCborValue,
+) -> Result<DenyLocalRpResponse, CsilCborError> {
+    let local_rp = {
+        let csil_field = cbor_require(csil_root, "local_rp")?;
+        let csil_decode = csil_dec_admin_local_rp;
+        csil_decode(csil_field)?
+    };
+    Ok(DenyLocalRpResponse { local_rp })
+}
+
+/// Encode a DenyLocalRpResponse to canonical CSIL CBOR bytes.
+pub fn encode_deny_local_rp_response(csil_v: &DenyLocalRpResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_deny_local_rp_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a DenyLocalRpResponse.
+pub fn decode_deny_local_rp_response(
+    csil_data: &[u8],
+) -> Result<DenyLocalRpResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_deny_local_rp_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RevokeLocalRpRequest.
+fn csil_enc_revoke_local_rp_request(csil_v: &RevokeLocalRpRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    if let Some(csil_inner) = &csil_v.admin_notes {
+        csil_entries.push((cbor_text("admin_notes"), cbor_text(csil_inner)));
+    }
+    csil_entries.push((cbor_text("fingerprint"), cbor_text(&csil_v.fingerprint)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RevokeLocalRpRequest from a decoded CBOR value tree.
+fn csil_dec_revoke_local_rp_request(
+    csil_root: &CsilCborValue,
+) -> Result<RevokeLocalRpRequest, CsilCborError> {
+    let fingerprint = {
+        let csil_field = cbor_require(csil_root, "fingerprint")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let admin_notes = match cbor_map_get(csil_root, "admin_notes") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(RevokeLocalRpRequest {
+        fingerprint,
+        admin_notes,
+    })
+}
+
+/// Encode a RevokeLocalRpRequest to canonical CSIL CBOR bytes.
+pub fn encode_revoke_local_rp_request(csil_v: &RevokeLocalRpRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_revoke_local_rp_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RevokeLocalRpRequest.
+pub fn decode_revoke_local_rp_request(
+    csil_data: &[u8],
+) -> Result<RevokeLocalRpRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_revoke_local_rp_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RevokeLocalRpResponse.
+fn csil_enc_revoke_local_rp_response(csil_v: &RevokeLocalRpResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("local_rp"),
+        csil_enc_admin_local_rp(&csil_v.local_rp),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RevokeLocalRpResponse from a decoded CBOR value tree.
+fn csil_dec_revoke_local_rp_response(
+    csil_root: &CsilCborValue,
+) -> Result<RevokeLocalRpResponse, CsilCborError> {
+    let local_rp = {
+        let csil_field = cbor_require(csil_root, "local_rp")?;
+        let csil_decode = csil_dec_admin_local_rp;
+        csil_decode(csil_field)?
+    };
+    Ok(RevokeLocalRpResponse { local_rp })
+}
+
+/// Encode a RevokeLocalRpResponse to canonical CSIL CBOR bytes.
+pub fn encode_revoke_local_rp_response(csil_v: &RevokeLocalRpResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_revoke_local_rp_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RevokeLocalRpResponse.
+pub fn decode_revoke_local_rp_response(
+    csil_data: &[u8],
+) -> Result<RevokeLocalRpResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_revoke_local_rp_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a GetLocalRpPolicyRequest.
+fn csil_enc_get_local_rp_policy_request(_csil_v: &GetLocalRpPolicyRequest) -> CsilCborValue {
+    CsilCborValue::Map(Vec::new())
+}
+
+/// Reconstruct a GetLocalRpPolicyRequest from a decoded CBOR value tree.
+fn csil_dec_get_local_rp_policy_request(
+    _csil_root: &CsilCborValue,
+) -> Result<GetLocalRpPolicyRequest, CsilCborError> {
+    Ok(GetLocalRpPolicyRequest {})
+}
+
+/// Encode a GetLocalRpPolicyRequest to canonical CSIL CBOR bytes.
+pub fn encode_get_local_rp_policy_request(csil_v: &GetLocalRpPolicyRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_get_local_rp_policy_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a GetLocalRpPolicyRequest.
+pub fn decode_get_local_rp_policy_request(
+    csil_data: &[u8],
+) -> Result<GetLocalRpPolicyRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_get_local_rp_policy_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a GetLocalRpPolicyResponse.
+fn csil_enc_get_local_rp_policy_response(csil_v: &GetLocalRpPolicyResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("policy"), cbor_text(&csil_v.policy)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a GetLocalRpPolicyResponse from a decoded CBOR value tree.
+fn csil_dec_get_local_rp_policy_response(
+    csil_root: &CsilCborValue,
+) -> Result<GetLocalRpPolicyResponse, CsilCborError> {
+    let policy = {
+        let csil_field = cbor_require(csil_root, "policy")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(GetLocalRpPolicyResponse { policy })
+}
+
+/// Encode a GetLocalRpPolicyResponse to canonical CSIL CBOR bytes.
+pub fn encode_get_local_rp_policy_response(csil_v: &GetLocalRpPolicyResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_get_local_rp_policy_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a GetLocalRpPolicyResponse.
+pub fn decode_get_local_rp_policy_response(
+    csil_data: &[u8],
+) -> Result<GetLocalRpPolicyResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_get_local_rp_policy_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SetLocalRpPolicyRequest.
+fn csil_enc_set_local_rp_policy_request(csil_v: &SetLocalRpPolicyRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("policy"), cbor_text(&csil_v.policy)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SetLocalRpPolicyRequest from a decoded CBOR value tree.
+fn csil_dec_set_local_rp_policy_request(
+    csil_root: &CsilCborValue,
+) -> Result<SetLocalRpPolicyRequest, CsilCborError> {
+    let policy = {
+        let csil_field = cbor_require(csil_root, "policy")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(SetLocalRpPolicyRequest { policy })
+}
+
+/// Encode a SetLocalRpPolicyRequest to canonical CSIL CBOR bytes.
+pub fn encode_set_local_rp_policy_request(csil_v: &SetLocalRpPolicyRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_set_local_rp_policy_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SetLocalRpPolicyRequest.
+pub fn decode_set_local_rp_policy_request(
+    csil_data: &[u8],
+) -> Result<SetLocalRpPolicyRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_set_local_rp_policy_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SetLocalRpPolicyResponse.
+fn csil_enc_set_local_rp_policy_response(csil_v: &SetLocalRpPolicyResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("policy"), cbor_text(&csil_v.policy)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SetLocalRpPolicyResponse from a decoded CBOR value tree.
+fn csil_dec_set_local_rp_policy_response(
+    csil_root: &CsilCborValue,
+) -> Result<SetLocalRpPolicyResponse, CsilCborError> {
+    let policy = {
+        let csil_field = cbor_require(csil_root, "policy")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(SetLocalRpPolicyResponse { policy })
+}
+
+/// Encode a SetLocalRpPolicyResponse to canonical CSIL CBOR bytes.
+pub fn encode_set_local_rp_policy_response(csil_v: &SetLocalRpPolicyResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_set_local_rp_policy_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SetLocalRpPolicyResponse.
+pub fn decode_set_local_rp_policy_response(
+    csil_data: &[u8],
+) -> Result<SetLocalRpPolicyResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_set_local_rp_policy_response(&csil_root)
 }
 
 /// Build the canonical CBOR value tree for a TranslationsRequest.

@@ -60,7 +60,9 @@ impl std::error::Error for ClaimError {}
 
 /// Domain-separation tag + version for the claim signature payload. Bumping
 /// this invalidates old signatures by design (versioned construction).
-const CLAIM_PAYLOAD_TAG: &str = "linkkeys-claim-v2";
+/// `pub` so conformance-vector generation and consumers can reference the
+/// exact tag string rather than retyping it.
+pub const CLAIM_PAYLOAD_TAG: &str = "linkkeys-claim-v2";
 
 /// Build the canonical bytes a single signature covers for a claim.
 ///
@@ -78,8 +80,13 @@ const CLAIM_PAYLOAD_TAG: &str = "linkkeys-claim-v2";
 /// caller normalizes both to whole-second RFC3339 so they round-trip through both
 /// Postgres timestamptz and SQLite text). `created_at` is deliberately NOT signed
 /// — it is assigned by the database on insert.
+///
+/// `pub` so conformance-vector generation
+/// (`examples/generate_conformance_vectors.rs`) and consumer-zero tests can
+/// compute the exact bytes a claim signature covers without duplicating this
+/// construction.
 #[allow(clippy::too_many_arguments)]
-fn claim_sign_payload(
+pub fn claim_sign_payload(
     claim_id: &str,
     claim_type: &str,
     claim_value: &[u8],

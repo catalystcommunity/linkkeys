@@ -89,11 +89,16 @@ async fn encrypt_token_for_rp_self_rp_round_trips() {
     // no conversion) and check we recover the original assertion.
     let token = encoding::encrypted_token_from_url_param(&encrypted).unwrap();
     let x25519_priv: [u8; 32] = enc_priv.as_slice().try_into().unwrap();
+    // Absent `suite` on the wire means the mandatory-to-implement baseline.
+    assert_eq!(token.suite, None);
+    let suite = crypto::resolve_aead_suite(token.suite.as_deref()).unwrap();
+    assert_eq!(suite, crypto::AeadSuite::Aes256Gcm);
     let plaintext = crypto::sealed_box_decrypt(
         &token.ephemeral_public_key,
         &token.nonce,
         &token.ciphertext,
         &x25519_priv,
+        suite,
     )
     .expect("sealed_box_decrypt with the domain's own X25519 encryption private key");
 

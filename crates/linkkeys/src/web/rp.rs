@@ -91,6 +91,13 @@ pub(crate) fn decrypt_token_core(
     let encrypted_token = liblinkkeys::encoding::encrypted_token_from_url_param(encrypted_token)
         .map_err(|_| Status::BadRequest)?;
 
+    // Absent `suite` means the mandatory-to-implement baseline (aes-256-gcm);
+    // a present-but-unrecognized id is rejected outright rather than falling
+    // back silently (Wire Precision: "reject an unadvertised/unsupported
+    // suite").
+    let suite = liblinkkeys::crypto::resolve_aead_suite(encrypted_token.suite.as_deref())
+        .map_err(|_| Status::BadRequest)?;
+
     let domain_keys = pool
         .list_active_domain_keys()
         .map_err(|_| Status::InternalServerError)?;
@@ -116,6 +123,7 @@ pub(crate) fn decrypt_token_core(
             &encrypted_token.nonce,
             &encrypted_token.ciphertext,
             &x25519_private,
+            suite,
         ) {
             // The plaintext is CBOR-encoded SignedIdentityAssertion — re-encode as base64url
             let signed_assertion = base64ct::Base64UrlUnpadded::encode_string(&plaintext);

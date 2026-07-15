@@ -1,0 +1,31 @@
+# LinkKeys DNS-less local RP identity -- Dart SDK.
+#
+# See dns-less-local-rp-design.md at the repo root and
+# sdks/local-rp/conformance/README.md before changing anything here.
+#
+# Crypto dependency: `cryptography_plus`, not `cryptography` -- see README.md
+# ("Package health check") for the pub.dev/GitHub evidence. It is a
+# same-API fork (import path is still `package:cryptography_plus/cryptography.dart`
+# exposing the `cryptography` library, i.e. identical class names) published
+# specifically to cover the original package's multi-year maintenance gap.
+#
+# Toolchain: catalyst-tools dart.
+#   source "${CATALYST_TOOLS:-$HOME/.local/catalyst-tools}/env.sh"
+#   cd sdks/local-rp/dart && dart pub get && dart test
+name: linkkeys_local_rp
+description: >-
+  LinkKeys DNS-less local RP identity SDK: local relying-party login for
+  LAN/loopback apps with no DNS-pinned domain, verified against the shared
+  sdks/local-rp/conformance/ vector suite.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  cryptography_plus: ^3.0.0
+
+dev_dependencies:
+  test: ^1.24.0
+  lints: ^5.0.0

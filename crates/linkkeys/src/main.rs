@@ -4,8 +4,8 @@ mod cli;
 
 use clap::Parser;
 use cli::{
-    AccountCommands, ClaimCommands, Cli, Commands, DomainCommands, PinCommands, RelationCommands,
-    UserCommands,
+    AccountCommands, ClaimCommands, Cli, Commands, DomainCommands, LocalRpCommands, PinCommands,
+    RelationCommands, UserCommands,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -132,6 +132,7 @@ async fn main() {
         Commands::Relation(cmd) => handle_relation_command(cmd),
         Commands::Account(cmd) => handle_account_command(cmd),
         Commands::Pins(cmd) => handle_pins_command(cmd).await,
+        Commands::LocalRp(cmd) => handle_local_rp_command(cmd),
         Commands::Backup {
             out,
             rotate,
@@ -1105,7 +1106,7 @@ fn user_purge_local(user_ident: &str, force: bool, force_admin: bool, reason: &s
             std::process::exit(1);
         });
     let detail = format!(
-        "username={} credentials_revoked={} keys_revoked={} claims_revoked={} relations_removed={} profiles_deleted={} consent_grants_deleted={} release_prefs_deleted={} email_verifications_deleted={} reviews_resolved={} reason={}",
+        "username={} credentials_revoked={} keys_revoked={} claims_revoked={} relations_removed={} profiles_deleted={} consent_grants_deleted={} release_prefs_deleted={} email_verifications_deleted={} reviews_resolved={} local_rp_claim_tickets_deleted={} reason={}",
         user.username,
         summary.credentials_revoked,
         summary.keys_revoked,
@@ -1116,6 +1117,7 @@ fn user_purge_local(user_ident: &str, force: bool, force_admin: bool, reason: &s
         summary.release_prefs_deleted,
         summary.email_verifications_deleted,
         summary.reviews_resolved,
+        summary.local_rp_claim_tickets_deleted,
         reason.trim()
     );
     let _ = db_pool.write_audit(
@@ -1130,11 +1132,12 @@ fn user_purge_local(user_ident: &str, force: bool, force_admin: bool, reason: &s
         summary.user.id, summary.user.username
     );
     println!(
-        "Revoked: {} credential(s), {} key(s), {} claim(s); removed {} relation(s)",
+        "Revoked: {} credential(s), {} key(s), {} claim(s); removed {} relation(s); deleted {} local RP claim ticket(s)",
         summary.credentials_revoked,
         summary.keys_revoked,
         summary.claims_revoked,
-        summary.relations_removed
+        summary.relations_removed,
+        summary.local_rp_claim_tickets_deleted
     );
 }
 
@@ -1457,6 +1460,206 @@ fn handle_relation_command(cmd: RelationCommands) {
                     user_id, relation, object_type, object_id
                 );
             }
+        }
+    }
+}
+
+/// First 16 hex chars of a fingerprint, for compact display (design doc:
+/// "show a short prefix (first 16 hex chars) with the full value available on
+/// demand"). Mirrors `web::local_rp_ui::short_fingerprint`.
+fn short_fingerprint(fp: &str) -> &str {
+    &fp[..fp.len().min(16)]
+}
+
+/// Human-readable rendering of one `AdminLocalRp`: short + full fingerprint,
+/// app name (flagged as unverified/app-chosen, same as the consent UI),
+/// status, first/last seen, and admin notes. Metadata drift itself is only
+/// detected transiently at login time (`crate::services::local_rp::
+/// record_login_attempt`, logged there) and is not persisted, so there is no
+/// historical diff to show here — only the most recently reported values and
+/// the first/last-seen timestamps admins can use to judge freshness.
+fn print_local_rp(rp: &liblinkkeys::generated::types::AdminLocalRp) {
+    println!(
+        "  {} [{}] app=\"{}\" (unverified, app-chosen)",
+        short_fingerprint(&rp.fingerprint),
+        rp.status,
+        rp.app_name
+    );
+    println!("    fingerprint:   {}", rp.fingerprint);
+    if let Some(hint) = &rp.local_domain_hint {
+        println!("    domain hint:   {}", hint);
+    }
+    println!("    first seen:    {}", rp.created_at);
+    println!(
+        "    last seen:     {}",
+        rp.last_seen_at.as_deref().unwrap_or("never")
+    );
+    if let Some(notes) = &rp.admin_notes {
+        println!("    admin notes:   {}", notes);
+    }
+}
+
+fn handle_local_rp_command(cmd: LocalRpCommands) {
+    match cmd {
+        LocalRpCommands::List {
+            status,
+            offset,
+            limit,
+            server,
+        } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+            let req = liblinkkeys::generated::types::ListLocalRpsRequest {
+                offset,
+                limit,
+                status,
+            };
+
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "list-local-rps",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_list_local_rps_request,
+                liblinkkeys::generated::decode_list_local_rps_response,
+            );
+
+            for rp in &resp.local_rps {
+                print_local_rp(rp);
+            }
+            println!("{} local RP(s)", resp.local_rps.len());
+        }
+        LocalRpCommands::Get {
+            fingerprint,
+            server,
+        } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+            let req = liblinkkeys::generated::types::GetLocalRpRequest { fingerprint };
+
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "get-local-rp",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_get_local_rp_request,
+                liblinkkeys::generated::decode_get_local_rp_response,
+            );
+
+            print_local_rp(&resp.local_rp);
+        }
+        LocalRpCommands::Approve {
+            fingerprint,
+            admin_notes,
+            server,
+        } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+            let req = liblinkkeys::generated::types::ApproveLocalRpRequest {
+                fingerprint,
+                admin_notes,
+            };
+
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "approve-local-rp",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_approve_local_rp_request,
+                liblinkkeys::generated::decode_approve_local_rp_response,
+            );
+
+            println!("Local RP approved:");
+            print_local_rp(&resp.local_rp);
+        }
+        LocalRpCommands::Deny {
+            fingerprint,
+            admin_notes,
+            server,
+        } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+            let req = liblinkkeys::generated::types::DenyLocalRpRequest {
+                fingerprint,
+                admin_notes,
+            };
+
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "deny-local-rp",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_deny_local_rp_request,
+                liblinkkeys::generated::decode_deny_local_rp_response,
+            );
+
+            println!("Local RP denied:");
+            print_local_rp(&resp.local_rp);
+        }
+        LocalRpCommands::Revoke {
+            fingerprint,
+            admin_notes,
+            server,
+        } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+            let req = liblinkkeys::generated::types::RevokeLocalRpRequest {
+                fingerprint,
+                admin_notes,
+            };
+
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "revoke-local-rp",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_revoke_local_rp_request,
+                liblinkkeys::generated::decode_revoke_local_rp_response,
+            );
+
+            println!(
+                "Local RP revoked (outstanding claim tickets deleted; app sessions already minted are the app's own to manage):"
+            );
+            print_local_rp(&resp.local_rp);
+        }
+        LocalRpCommands::GetPolicy { server } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+            let req = liblinkkeys::generated::types::GetLocalRpPolicyRequest {};
+
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "get-local-rp-policy",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_get_local_rp_policy_request,
+                liblinkkeys::generated::decode_get_local_rp_policy_response,
+            );
+
+            println!("Local RP policy: {}", resp.policy);
+        }
+        LocalRpCommands::SetPolicy { policy, server } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+            let req = liblinkkeys::generated::types::SetLocalRpPolicyRequest { policy };
+
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "set-local-rp-policy",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_set_local_rp_policy_request,
+                liblinkkeys::generated::decode_set_local_rp_policy_response,
+            );
+
+            println!("Local RP policy set: {}", resp.policy);
         }
     }
 }

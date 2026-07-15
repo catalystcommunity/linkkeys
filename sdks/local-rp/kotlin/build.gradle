@@ -1,0 +1,62 @@
+// LinkKeys DNS-less local RP identity -- Kotlin/JVM SDK.
+//
+// See dns-less-local-rp-design.md at the repo root and
+// sdks/local-rp/conformance/README.md before changing anything here.
+//
+// Architecture decision (see README.md): this project depends on the
+// sibling Java SDK (../java) via a Gradle composite build
+// (settings.gradle's `includeBuild`) rather than re-implementing the
+// hand-written CBOR codec / JCA crypto adapter a second time. This project
+// supplies an idiomatic Kotlin surface (data classes, named/default
+// arguments, a sealed exception hierarchy) over that dependency, and its own
+// test suite exercises every conformance vector through that Kotlin surface.
+//
+// Built with the catalyst-tools JDK 17 + Gradle 8.10.2 bundle:
+//
+//   source "${CATALYST_TOOLS:-$HOME/.local/catalyst-tools}/env.sh"
+//   cd sdks/local-rp/kotlin && gradle test
+
+plugins {
+    id 'org.jetbrains.kotlin.jvm' version '2.2.20'
+}
+
+group = 'community.catalyst.linkkeys'
+version = '0.1.0'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // Resolved against ../java via the composite build in settings.gradle
+    // (Gradle substitutes this coordinate for the included build's project
+    // automatically because group/name/version match).
+    implementation 'community.catalyst.linkkeys:linkkeys-local-rp:0.1.0'
+
+    testImplementation platform('org.junit:junit-bom:5.10.3')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+kotlin {
+    jvmToolchain(17)
+}
+
+test {
+    useJUnitPlatform()
+    testLogging {
+        events "passed", "skipped", "failed"
+        exceptionFormat "full"
+    }
+    // The conformance vectors, and the fake-IDP flow tests' cert fixtures,
+    // are shared with the Java SDK's own test run -- see FlowTest.kt for the
+    // `openssl` CLI note (test-scope only, never a runtime dependency).
+    systemProperty 'linkkeys.conformanceDir',
+        layout.projectDirectory.dir('../conformance').asFile.absolutePath
+}
+
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}

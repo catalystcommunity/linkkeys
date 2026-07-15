@@ -222,6 +222,9 @@ const SNAPSHOT_TABLES: &[&str] = &[
     "issued_revocations",
     "email_verifications",
     "user_release_prefs",
+    "local_rp_domain_policy",
+    "local_rps",
+    "local_rp_claim_tickets",
 ];
 
 #[cfg(feature = "sqlite")]
@@ -345,6 +348,19 @@ mod sqlite_backend {
     backup_row!(UserReleasePrefRow => user_release_prefs {
         user_id: String, audience: String, claim_type: String, created_at: String,
     });
+    backup_row!(LocalRpDomainPolicyBackupRow => local_rp_domain_policy {
+        domain: String, policy: String, updated_at: String,
+    });
+    backup_row!(LocalRpBackupRow => local_rps {
+        fingerprint: String, signing_public_key: Vec<u8>, encryption_public_key: Vec<u8>,
+        app_name: String, local_domain_hint: Option<String>, status: String, created_at: String,
+        updated_at: String, expires_at: Option<String>, last_seen_at: Option<String>,
+        admin_notes: Option<String>, first_seen_by_user_id: Option<String>,
+    });
+    backup_row!(LocalRpClaimTicketBackupRow => local_rp_claim_tickets {
+        ticket_hash: String, fingerprint: String, user_id: String, user_domain: String,
+        granted_claims: String, issued_at: String, expires_at: String,
+    });
 
     /// Apply `$op` to every (table, row-type) pair. Generating dump / wipe /
     /// load from one list keeps them — and `SNAPSHOT_TABLES` — in lockstep.
@@ -374,6 +390,9 @@ mod sqlite_backend {
             $op!("issued_revocations", issued_revocations, IssuedRevocationBackupRow, $($arg)*);
             $op!("email_verifications", email_verifications, EmailVerificationRow, $($arg)*);
             $op!("user_release_prefs", user_release_prefs, UserReleasePrefRow, $($arg)*);
+            $op!("local_rp_domain_policy", local_rp_domain_policy, LocalRpDomainPolicyBackupRow, $($arg)*);
+            $op!("local_rps", local_rps, LocalRpBackupRow, $($arg)*);
+            $op!("local_rp_claim_tickets", local_rp_claim_tickets, LocalRpClaimTicketBackupRow, $($arg)*);
         };
     }
 

@@ -1,6 +1,7 @@
 mod account_ui;
 mod admin_ui;
 mod guard;
+mod local_rp_ui;
 pub mod nonce_store;
 mod policy_admin_ui;
 mod profile_ui;
@@ -160,7 +161,7 @@ fn sign_assertion_for_user(
 
 /// Lifetime of a newly issued consent grant, from `CONSENT_GRANT_TTL_SECONDS`
 /// (default one year). Re-consent happens automatically once a grant expires.
-fn consent_ttl_seconds() -> i64 {
+pub(super) fn consent_ttl_seconds() -> i64 {
     env::var("CONSENT_GRANT_TTL_SECONDS")
         .ok()
         .and_then(|s| s.parse::<i64>().ok())
@@ -173,7 +174,7 @@ fn consent_ttl_seconds() -> i64 {
 /// shown to the user but cannot be toggled; deny wins over allow. The table is
 /// seeded on first boot from the deprecated `CONSENT_FORCED_ALLOW` /
 /// `CONSENT_FORCED_DENY` env vars (see `DbPool::seed_default_policies`).
-fn domain_policy_for(pool: &DbPool, audience: &str) -> Result<DomainPolicy, ()> {
+pub(super) fn domain_policy_for(pool: &DbPool, audience: &str) -> Result<DomainPolicy, ()> {
     // Fail CLOSED: `forced_deny` is a security control. If the policy can't be
     // loaded, do NOT fall back to an empty (allow-everything) policy — propagate
     // the error so the caller aborts rather than releasing claims an admin denied.
@@ -196,7 +197,7 @@ fn domain_policy_for(pool: &DbPool, audience: &str) -> Result<DomainPolicy, ()> 
 }
 
 /// The claim types an RP requested (required ∪ optional), as a flat list.
-fn requested_types(req: &ClaimRequest) -> Vec<String> {
+pub(super) fn requested_types(req: &ClaimRequest) -> Vec<String> {
     req.required
         .iter()
         .chain(req.optional.iter())
@@ -209,7 +210,7 @@ fn requested_types(req: &ClaimRequest) -> Vec<String> {
 /// last consented. Compares against the grant's `requested_types`, which records
 /// everything previously offered (including optionals the user declined), so a
 /// re-listed declined optional does NOT re-prompt.
-fn grant_covers(prior: &crate::db::models::ConsentGrantRow, req: &ClaimRequest) -> bool {
+pub(super) fn grant_covers(prior: &crate::db::models::ConsentGrantRow, req: &ClaimRequest) -> bool {
     use std::collections::BTreeSet;
     let known: BTreeSet<&str> = prior.requested_types.iter().map(String::as_str).collect();
     requested_types(req)
@@ -221,7 +222,7 @@ fn grant_covers(prior: &crate::db::models::ConsentGrantRow, req: &ClaimRequest) 
 /// still user-controlled. This does not block finalization after the user
 /// explicitly submits consent; it only prevents a prior declined required claim
 /// from making every later retry skip the consent screen and fail at the app.
-fn first_missing_user_required<'a>(
+pub(super) fn first_missing_user_required<'a>(
     req: &'a ClaimRequest,
     authorized: &[String],
     policy: &DomainPolicy,
@@ -239,7 +240,7 @@ fn first_missing_user_required<'a>(
 /// active value. Authorizing a type without a value produces an empty userinfo
 /// response for that type, which pushes the failure to the RP. Use this to keep
 /// the user on the IDP surface where they can fill in the missing value.
-fn first_authorized_required_without_value<'a>(
+pub(super) fn first_authorized_required_without_value<'a>(
     pool: &DbPool,
     user_id: &str,
     req: &'a ClaimRequest,
@@ -257,7 +258,7 @@ fn first_authorized_required_without_value<'a>(
         .find(|ct| granted.contains(ct) && !active.contains(*ct))
 }
 
-fn filter_authorized_to_active_values(
+pub(super) fn filter_authorized_to_active_values(
     pool: &DbPool,
     user_id: &str,
     authorized: &[String],
@@ -294,7 +295,7 @@ fn prior_grant_object(row: &crate::db::models::ConsentGrantRow) -> ConsentGrant 
 /// Build the consent screen for (user, request) under the current policy:
 /// resolves the user's available claims and any prior standing grant for the
 /// requesting `audience`.
-fn build_consent_screen(
+pub(super) fn build_consent_screen(
     pool: &DbPool,
     user_id: &str,
     audience: &str,
@@ -342,7 +343,7 @@ struct VerifiedRpClaim {
 /// Whether a missing requested claim can be supplied by the user during the
 /// consent step. Release policy still gates whether it can be released; the
 /// claim-type registry gates whether this user may create it at all.
-fn missing_claim_user_settable(pool: &DbPool, claim_type: &str) -> bool {
+pub(super) fn missing_claim_user_settable(pool: &DbPool, claim_type: &str) -> bool {
     let Ok(Some(row)) = pool.find_claim_policy(claim_type) else {
         return false;
     };
@@ -352,7 +353,7 @@ fn missing_claim_user_settable(pool: &DbPool, claim_type: &str) -> bool {
     matches!(row.set_rule.as_str(), "user_self" | "idp_on_request")
 }
 
-fn input_type_for_datatype(datatype: &str) -> &'static str {
+pub(super) fn input_type_for_datatype(datatype: &str) -> &'static str {
     match datatype {
         "email" => "email",
         "url" => "url",
@@ -435,7 +436,7 @@ async fn verify_relying_party_claims(
 /// Sign a consent grant for the user with **all** active domain signing keys
 /// (mirroring claim signing: multiple keys give rotation resilience while the
 /// verification quorum needs only one valid signature per domain).
-fn sign_consent_grant_for_user(
+pub(super) fn sign_consent_grant_for_user(
     pool: &DbPool,
     grant_id: &str,
     user_id: &str,
@@ -777,7 +778,7 @@ fn login_proof_payload(
 
 /// Mint a base64url login proof binding `user_id` to this login request
 /// (`login_nonce`, `relying_party`), signed with an active domain signing key.
-fn mint_login_proof(
+pub(super) fn mint_login_proof(
     pool: &DbPool,
     user_id: &str,
     login_nonce: &str,
@@ -817,7 +818,10 @@ fn mint_login_proof(
 /// tag matches, and it has not expired. The caller MUST additionally check
 /// `login_nonce` and `relying_party` against the re-validated signed_request to
 /// bind the two legs together.
-fn verify_login_proof(pool: &DbPool, proof: &str) -> Result<(String, String, String), ()> {
+pub(super) fn verify_login_proof(
+    pool: &DbPool,
+    proof: &str,
+) -> Result<(String, String, String), ()> {
     use base64ct::{Base64UrlUnpadded, Encoding as _};
 
     let cbor = Base64UrlUnpadded::decode_vec(proof).map_err(|_| ())?;
@@ -1114,12 +1118,13 @@ async fn render_consent_with_error(
     )
 }
 
-fn store_inline_claim_values(
+pub(super) fn store_inline_claim_values(
     pool: &DbPool,
     user_id: &str,
     req: &ClaimRequest,
     authorized: &[String],
-    form: &ConsentForm,
+    claim_type_to_set: &[String],
+    claim_value_to_set: &[String],
 ) -> Result<Vec<String>, String> {
     use std::collections::{BTreeMap, BTreeSet};
 
@@ -1133,11 +1138,7 @@ fn store_inline_claim_values(
     let required: BTreeSet<&str> = req.required.iter().map(|r| r.claim_type.as_str()).collect();
 
     let mut submitted: BTreeMap<&str, &str> = BTreeMap::new();
-    for (claim_type, value) in form
-        .claim_type_to_set
-        .iter()
-        .zip(form.claim_value_to_set.iter())
-    {
+    for (claim_type, value) in claim_type_to_set.iter().zip(claim_value_to_set.iter()) {
         let claim_type = claim_type.as_str();
         let value = value.trim();
         if value.is_empty()
@@ -1700,7 +1701,14 @@ async fn auth_consent_post(
         ));
     };
     let authorized = compute_authorized_claims(&req, &form.grant, &policy);
-    let authorized = match store_inline_claim_values(pool, &user.id, &req, &authorized, &form) {
+    let authorized = match store_inline_claim_values(
+        pool,
+        &user.id,
+        &req,
+        &authorized,
+        &form.claim_type_to_set,
+        &form.claim_value_to_set,
+    ) {
         Ok(a) => a,
         Err(e) => {
             return Err(render_consent_with_error(
@@ -1856,7 +1864,7 @@ pub async fn validate_signed_request(
 
 /// Render a neutral, standalone notice page (e.g. after the user cancels a
 /// login). Carries the reader's locale for `lang`/`dir`.
-fn render_notice_page(locale: &str, title: &str, body: &str) -> RawHtml<String> {
+pub(super) fn render_notice_page(locale: &str, title: &str, body: &str) -> RawHtml<String> {
     RawHtml(format!(
         r#"<!DOCTYPE html>
 <html lang="{lang}" dir="{dir}"><head><title>{title}</title>
@@ -1873,7 +1881,7 @@ fn render_notice_page(locale: &str, title: &str, body: &str) -> RawHtml<String> 
 
 /// Render a minimal error page (for signed_request validation failures
 /// where re-rendering the login form would be misleading or unsafe).
-fn render_error_page(message: &str) -> RawHtml<String> {
+pub(super) fn render_error_page(message: &str) -> RawHtml<String> {
     RawHtml(format!(
         r#"<!DOCTYPE html>
 <html><head><title>LinkKeys Login Error</title>
@@ -1919,14 +1927,24 @@ pub async fn encrypt_token_for_rp(
         .map_err(|_| Status::InternalServerError)?;
     let cbor_bytes = liblinkkeys::generated::encode_signed_identity_assertion(&signed_assertion);
 
-    // Encrypt with sealed box
-    let sealed = liblinkkeys::crypto::sealed_box_encrypt(&cbor_bytes, &x25519_pub)
+    // AEAD suite: no live negotiation channel reaches this call site yet (the
+    // `Handshake` service exists but nothing here calls it as a client), so
+    // this seals with the mandatory-to-implement baseline and omits `suite`
+    // on the wire — the hard-cutover retrofit makes the old implied-AES-GCM
+    // behavior the explicit, negotiable baseline rather than changing what
+    // actually gets selected here. A future negotiation caller can set this
+    // to any suite the RP has advertised support for.
+    let suite = liblinkkeys::crypto::AeadSuite::Aes256Gcm;
+    let sealed = liblinkkeys::crypto::sealed_box_encrypt(&cbor_bytes, &x25519_pub, suite)
         .map_err(|_| Status::InternalServerError)?;
 
     let encrypted_token = liblinkkeys::generated::types::EncryptedToken {
         ephemeral_public_key: sealed.ephemeral_public_key,
         nonce: sealed.nonce,
         ciphertext: sealed.ciphertext,
+        // Omitted: `suite` absent means the baseline (aes-256-gcm), which is
+        // exactly what was just selected above.
+        suite: None,
     };
 
     liblinkkeys::encoding::encrypted_token_to_url_param(&encrypted_token)
@@ -2159,7 +2177,10 @@ pub fn build_rocket(
         routes.extend(rocket::routes![
             auth_authorize_get,
             auth_authorize_post,
-            auth_consent_post
+            auth_consent_post,
+            local_rp_ui::auth_local_rp_get,
+            local_rp_ui::auth_local_rp_post,
+            local_rp_ui::auth_local_rp_consent_post,
         ]);
     }
 

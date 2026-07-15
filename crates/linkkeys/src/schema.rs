@@ -297,6 +297,43 @@ pub mod pg {
         }
     }
 
+    diesel::table! {
+        local_rp_domain_policy (domain) {
+            domain -> Varchar,
+            policy -> Varchar,
+            updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        local_rps (fingerprint) {
+            fingerprint -> Varchar,
+            signing_public_key -> Binary,
+            encryption_public_key -> Binary,
+            app_name -> Varchar,
+            local_domain_hint -> Nullable<Varchar>,
+            status -> Varchar,
+            created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+            expires_at -> Nullable<Timestamptz>,
+            last_seen_at -> Nullable<Timestamptz>,
+            admin_notes -> Nullable<Varchar>,
+            first_seen_by_user_id -> Nullable<Uuid>,
+        }
+    }
+
+    diesel::table! {
+        local_rp_claim_tickets (ticket_hash) {
+            ticket_hash -> Varchar,
+            fingerprint -> Varchar,
+            user_id -> Uuid,
+            user_domain -> Varchar,
+            granted_claims -> Text,
+            issued_at -> Timestamptz,
+            expires_at -> Timestamptz,
+        }
+    }
+
     diesel::joinable!(user_keys -> users (user_id));
     diesel::joinable!(claims -> users (user_id));
     diesel::joinable!(claim_signatures -> claims (claim_id));
@@ -304,6 +341,8 @@ pub mod pg {
     diesel::joinable!(consent_grants -> users (user_id));
     diesel::joinable!(profiles -> users (account_id));
     diesel::joinable!(admin_review_queue -> users (user_id));
+    diesel::joinable!(local_rp_claim_tickets -> users (user_id));
+    diesel::joinable!(local_rp_claim_tickets -> local_rps (fingerprint));
     diesel::allow_tables_to_appear_in_same_query!(
         guestbook_entries,
         backup_keys,
@@ -328,6 +367,9 @@ pub mod pg {
         issued_revocations,
         email_verifications,
         user_release_prefs,
+        local_rp_domain_policy,
+        local_rps,
+        local_rp_claim_tickets,
     );
 }
 
@@ -627,6 +669,43 @@ pub mod sqlite {
         }
     }
 
+    diesel::table! {
+        local_rp_domain_policy (domain) {
+            domain -> Text,
+            policy -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        local_rps (fingerprint) {
+            fingerprint -> Text,
+            signing_public_key -> Binary,
+            encryption_public_key -> Binary,
+            app_name -> Text,
+            local_domain_hint -> Nullable<Text>,
+            status -> Text,
+            created_at -> Text,
+            updated_at -> Text,
+            expires_at -> Nullable<Text>,
+            last_seen_at -> Nullable<Text>,
+            admin_notes -> Nullable<Text>,
+            first_seen_by_user_id -> Nullable<Text>,
+        }
+    }
+
+    diesel::table! {
+        local_rp_claim_tickets (ticket_hash) {
+            ticket_hash -> Text,
+            fingerprint -> Text,
+            user_id -> Text,
+            user_domain -> Text,
+            granted_claims -> Text,
+            issued_at -> Text,
+            expires_at -> Text,
+        }
+    }
+
     diesel::joinable!(user_keys -> users (user_id));
     diesel::joinable!(claims -> users (user_id));
     diesel::joinable!(claim_signatures -> claims (claim_id));
@@ -634,6 +713,8 @@ pub mod sqlite {
     diesel::joinable!(consent_grants -> users (user_id));
     diesel::joinable!(profiles -> users (account_id));
     diesel::joinable!(admin_review_queue -> users (user_id));
+    diesel::joinable!(local_rp_claim_tickets -> users (user_id));
+    diesel::joinable!(local_rp_claim_tickets -> local_rps (fingerprint));
     diesel::allow_tables_to_appear_in_same_query!(
         guestbook_entries,
         backup_keys,
@@ -658,5 +739,8 @@ pub mod sqlite {
         issued_revocations,
         email_verifications,
         user_release_prefs,
+        local_rp_domain_policy,
+        local_rps,
+        local_rp_claim_tickets,
     );
 }

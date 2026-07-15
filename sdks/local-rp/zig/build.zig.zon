@@ -1,0 +1,20 @@
+.{
+    .name = .linkkeys_local_rp,
+    .version = "0.1.0",
+    .fingerprint = 0x4025e7c9b34dce48,
+
+    // Pin: catalyst-tools ships Zig 0.14.1; std.crypto API names move between
+    // Zig versions (see dns-less-local-rp-design.md's Language Crypto Matrix,
+    // Zig row), so this SDK is validated against exactly this version.
+    .minimum_zig_version = "0.14.1",
+
+    .dependencies = .{},
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "tests",
+        "README.md",
+    },
+}
