@@ -1,0 +1,36 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    LinkKeys DNS-less local RP identity: C#/.NET SDK.
+
+    See dns-less-local-rp-design.md at the repo root and
+    sdks/local-rp/conformance/README.md before changing anything here.
+
+    Exactly one runtime dependency: NSec.Cryptography, for Ed25519 sign/verify and
+    X25519 key agreement (the BCL has no support for either curve; see the design
+    doc's Language Crypto Matrix, "C#/.NET" row, and Crypto/Crypto.cs's docs for the
+    full justification). Everything else (AES-256-GCM, ChaCha20-Poly1305, HKDF-SHA256,
+    SHA-256, CSPRNG, DNS transport) is BCL or hand-rolled; see README.md for the full
+    dependency-by-dependency justification.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>LinkKeys.LocalRp</RootNamespace>
+    <AssemblyName>LinkKeys.LocalRp</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NSec.Cryptography" Version="24.4.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- So conformance tests can pinpoint internal helpers like Revocation.CountValidSigners
+         (per revocations.json's expected_counted_signers field), matching the Java SDK's
+         package-private test access. -->
+    <InternalsVisibleTo Include="LinkKeys.LocalRp.Tests" />
+  </ItemGroup>
+
+</Project>

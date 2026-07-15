@@ -251,6 +251,48 @@ pub trait Admin {
         ctx: &Self::Context,
         input: RecheckPinsRequest,
     ) -> Result<RecheckPinsResponse, ServiceError>;
+    /// list-local-rps (request/response).
+    fn list_local_rps(
+        &self,
+        ctx: &Self::Context,
+        input: ListLocalRpsRequest,
+    ) -> Result<ListLocalRpsResponse, ServiceError>;
+    /// get-local-rp (request/response).
+    fn get_local_rp(
+        &self,
+        ctx: &Self::Context,
+        input: GetLocalRpRequest,
+    ) -> Result<GetLocalRpResponse, ServiceError>;
+    /// approve-local-rp (request/response).
+    fn approve_local_rp(
+        &self,
+        ctx: &Self::Context,
+        input: ApproveLocalRpRequest,
+    ) -> Result<ApproveLocalRpResponse, ServiceError>;
+    /// deny-local-rp (request/response).
+    fn deny_local_rp(
+        &self,
+        ctx: &Self::Context,
+        input: DenyLocalRpRequest,
+    ) -> Result<DenyLocalRpResponse, ServiceError>;
+    /// revoke-local-rp (request/response).
+    fn revoke_local_rp(
+        &self,
+        ctx: &Self::Context,
+        input: RevokeLocalRpRequest,
+    ) -> Result<RevokeLocalRpResponse, ServiceError>;
+    /// get-local-rp-policy (request/response).
+    fn get_local_rp_policy(
+        &self,
+        ctx: &Self::Context,
+        input: GetLocalRpPolicyRequest,
+    ) -> Result<GetLocalRpPolicyResponse, ServiceError>;
+    /// set-local-rp-policy (request/response).
+    fn set_local_rp_policy(
+        &self,
+        ctx: &Self::Context,
+        input: SetLocalRpPolicyRequest,
+    ) -> Result<SetLocalRpPolicyResponse, ServiceError>;
 }
 
 /// Account service trait
@@ -314,4 +356,15 @@ pub trait Rp {
         ctx: &Self::Context,
         input: RpIssueAttestationRequest,
     ) -> Result<RpIssueAttestationResponse, ServiceError>;
+}
+
+/// LocalRp service trait
+pub trait LocalRp {
+    type Context;
+    /// redeem-claim-ticket (request/response).
+    fn redeem_claim_ticket(
+        &self,
+        ctx: &Self::Context,
+        input: SignedLocalRpTicketRedemptionRequest,
+    ) -> Result<LocalRpTicketRedemptionResponse, ServiceError>;
 }

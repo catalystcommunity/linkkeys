@@ -1,0 +1,5 @@
+(test
+ (name run_tests)
+ (libraries linkkeys_local_rp alcotest yojson)
+ (deps
+  (glob_files_rec fixtures/*)))

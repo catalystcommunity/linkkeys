@@ -7,9 +7,12 @@
 mod common;
 
 use common::data_factory::{
-    create_auth_credential, create_domain_key, create_relation, create_user, DataMap,
+    create_auth_credential, create_domain_encryption_key, create_domain_key, create_relation,
+    create_user, DataMap,
 };
-use liblinkkeys::generated::types::{RpSignRequest, RpVerifyRequest};
+use liblinkkeys::generated::types::{
+    EncryptedToken, RpDecryptRequest, RpSignRequest, RpVerifyRequest,
+};
 use linkkeys::services::auth;
 
 const TEST_DOMAIN: &str = "rp.test";
@@ -124,6 +127,126 @@ fn rp_unknown_op_rejected() {
         None,
     );
     assert_ne!(status, 0, "unknown Rp op is an error");
+}
+
+fn decrypt_request_payload(encrypted_token: &EncryptedToken) -> Vec<u8> {
+    let param = liblinkkeys::encoding::encrypted_token_to_url_param(encrypted_token)
+        .expect("encode EncryptedToken url param");
+    liblinkkeys::generated::encode_rp_decrypt_request(&RpDecryptRequest {
+        encrypted_token: param,
+    })
+}
+
+/// Suite negotiation retrofit (dns-less-local-rp-design.md, Phase 3): an
+/// `EncryptedToken.suite` id outside the AEAD suite registry must be rejected
+/// outright rather than silently falling back to the baseline.
+#[test]
+fn rp_decrypt_token_rejects_unsupported_suite() {
+    let pool = setup();
+    let user = create_user(&pool, &DataMap::new());
+    let api_key = api_key_for(&pool, &user.id);
+    grant_api_access(&pool, &user.id);
+    create_domain_key(&pool);
+
+    let bad_token = EncryptedToken {
+        ephemeral_public_key: vec![0u8; 32],
+        ciphertext: vec![0u8; 16],
+        nonce: vec![0u8; 12],
+        suite: Some("made-up-suite".to_string()),
+    };
+
+    let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
+        "Rp",
+        "decrypt-token",
+        decrypt_request_payload(&bad_token),
+        Some(&api_key),
+        &pool,
+        None,
+    );
+    assert_ne!(
+        status, 0,
+        "an EncryptedToken.suite outside the registry must be rejected"
+    );
+}
+
+/// An absent `suite` (the pre-retrofit wire shape) must still decrypt under
+/// the mandatory-to-implement baseline (aes-256-gcm) — the hard cutover
+/// changes what gets negotiated, not what "no suite on the wire" means.
+#[test]
+fn rp_decrypt_token_absent_suite_defaults_to_baseline() {
+    let pool = setup();
+    let user = create_user(&pool, &DataMap::new());
+    let api_key = api_key_for(&pool, &user.id);
+    grant_api_access(&pool, &user.id);
+    let signing_key = create_domain_key(&pool);
+    let (enc_pub, _enc_priv) = create_domain_encryption_key(&pool, &signing_key);
+
+    let enc_pub_arr: [u8; 32] = enc_pub.as_slice().try_into().unwrap();
+    let sealed = liblinkkeys::crypto::sealed_box_encrypt(
+        b"plaintext assertion cbor",
+        &enc_pub_arr,
+        liblinkkeys::crypto::AeadSuite::Aes256Gcm,
+    )
+    .unwrap();
+    let token = EncryptedToken {
+        ephemeral_public_key: sealed.ephemeral_public_key,
+        nonce: sealed.nonce,
+        ciphertext: sealed.ciphertext,
+        suite: None,
+    };
+
+    let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
+        "Rp",
+        "decrypt-token",
+        decrypt_request_payload(&token),
+        Some(&api_key),
+        &pool,
+        None,
+    );
+    assert_eq!(status, 0, "absent suite must decrypt under the baseline");
+    let resp = liblinkkeys::generated::decode_rp_decrypt_response(&body).expect("decode response");
+    assert!(!resp.signed_assertion.is_empty());
+}
+
+/// A present, supported non-baseline suite (chacha20-poly1305) must also
+/// round-trip end to end through the TCP `decrypt-token` op.
+#[test]
+fn rp_decrypt_token_round_trips_with_explicit_non_baseline_suite() {
+    let pool = setup();
+    let user = create_user(&pool, &DataMap::new());
+    let api_key = api_key_for(&pool, &user.id);
+    grant_api_access(&pool, &user.id);
+    let signing_key = create_domain_key(&pool);
+    let (enc_pub, _enc_priv) = create_domain_encryption_key(&pool, &signing_key);
+
+    let enc_pub_arr: [u8; 32] = enc_pub.as_slice().try_into().unwrap();
+    let sealed = liblinkkeys::crypto::sealed_box_encrypt(
+        b"plaintext assertion cbor",
+        &enc_pub_arr,
+        liblinkkeys::crypto::AeadSuite::ChaCha20Poly1305,
+    )
+    .unwrap();
+    let token = EncryptedToken {
+        ephemeral_public_key: sealed.ephemeral_public_key,
+        nonce: sealed.nonce,
+        ciphertext: sealed.ciphertext,
+        suite: Some("chacha20-poly1305".to_string()),
+    };
+
+    let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
+        "Rp",
+        "decrypt-token",
+        decrypt_request_payload(&token),
+        Some(&api_key),
+        &pool,
+        None,
+    );
+    assert_eq!(
+        status, 0,
+        "an advertised non-baseline suite must decrypt successfully"
+    );
+    let resp = liblinkkeys::generated::decode_rp_decrypt_response(&body).expect("decode response");
+    assert!(!resp.signed_assertion.is_empty());
 }
 
 #[test]

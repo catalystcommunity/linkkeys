@@ -7,6 +7,7 @@ pub mod domain_pins;
 pub mod email_verification;
 pub mod guestbook;
 pub mod issued_revocations;
+pub mod local_rp;
 pub mod models;
 pub mod nonces;
 pub mod peer_keys;
@@ -911,8 +912,8 @@ impl DbPool {
             DbPool::Postgres(p) => {
                 use crate::schema::pg::{
                     admin_review_queue, auth_credentials, claims, consent_grants,
-                    email_verifications, profile_claim_prefs, profiles, relations, user_keys,
-                    user_release_prefs,
+                    email_verifications, local_rp_claim_tickets, profile_claim_prefs, profiles,
+                    relations, user_keys, user_release_prefs,
                 };
 
                 let mut conn = p.get().map_err(|e| {
@@ -1012,6 +1013,17 @@ impl DbPool {
                     ))
                     .execute(conn)?;
 
+                    // Phase 4 finding (dns-less-local-rp-design.md): purge
+                    // minimizes the `users` row rather than deleting it, so a
+                    // local RP claim ticket's foreign key to that row never
+                    // cascades away on its own. Delete the purged user's
+                    // outstanding tickets explicitly.
+                    let local_rp_claim_tickets_deleted = diesel::delete(
+                        local_rp_claim_tickets::table
+                            .filter(local_rp_claim_tickets::user_id.eq(uid)),
+                    )
+                    .execute(conn)?;
+
                     let profiles_deleted =
                         diesel::delete(profiles::table.filter(profiles::account_id.eq(uid)))
                             .execute(conn)?;
@@ -1028,6 +1040,7 @@ impl DbPool {
                         release_prefs_deleted,
                         email_verifications_deleted,
                         reviews_resolved,
+                        local_rp_claim_tickets_deleted,
                     })
                 })
             }
@@ -1035,8 +1048,8 @@ impl DbPool {
             DbPool::Sqlite(p) => {
                 use crate::schema::sqlite::{
                     admin_review_queue, auth_credentials, claims, consent_grants,
-                    email_verifications, profile_claim_prefs, profiles, relations, user_keys,
-                    user_release_prefs,
+                    email_verifications, local_rp_claim_tickets, profile_claim_prefs, profiles,
+                    relations, user_keys, user_release_prefs,
                 };
 
                 let mut conn = p.get().map_err(|e| {
@@ -1133,6 +1146,15 @@ impl DbPool {
                     ))
                     .execute(conn)?;
 
+                    // See the postgres arm above (Phase 4 finding): purge
+                    // minimizes the `users` row, so delete the purged user's
+                    // outstanding local RP claim tickets explicitly.
+                    let local_rp_claim_tickets_deleted = diesel::delete(
+                        local_rp_claim_tickets::table
+                            .filter(local_rp_claim_tickets::user_id.eq(user_id)),
+                    )
+                    .execute(conn)?;
+
                     let profiles_deleted =
                         diesel::delete(profiles::table.filter(profiles::account_id.eq(user_id)))
                             .execute(conn)?;
@@ -1149,6 +1171,7 @@ impl DbPool {
                         release_prefs_deleted,
                         email_verifications_deleted,
                         reviews_resolved,
+                        local_rp_claim_tickets_deleted,
                     })
                 })
             }
@@ -3204,6 +3227,350 @@ impl DbPool {
                     .set(auth_credentials::expires_at.eq(Some(expires_at)))
                     .execute(&mut *conn)?;
                 Ok(())
+            }
+        }
+    }
+
+    // -- Local RP (DNS-less local RP identity) -- pure storage; the
+    // pending-queue guard, drift detection, and status-transition matrix live
+    // in `crate::services::local_rp`.
+
+    /// This domain's stored local-RP admission policy, if one has been set.
+    pub fn get_local_rp_domain_policy(
+        &self,
+        domain: &str,
+    ) -> QueryResult<Option<models::LocalRpDomainPolicy>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => local_rp::pg::get_domain_policy(&mut *pg_conn(p)?, domain),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => local_rp::sqlite::get_domain_policy(&mut *sqlite_conn(p)?, domain),
+        }
+    }
+
+    /// This domain's effective local-RP admission policy: the stored value,
+    /// or `local_rp::DEFAULT_POLICY` ("admin-approval-required") if unset.
+    pub fn effective_local_rp_policy(&self) -> QueryResult<String> {
+        let domain = crate::conversions::get_domain_name();
+        Ok(self
+            .get_local_rp_domain_policy(&domain)?
+            .map(|p| p.policy)
+            .unwrap_or_else(|| local_rp::DEFAULT_POLICY.to_string()))
+    }
+
+    /// Set this domain's local-RP admission policy. Validates `policy` against
+    /// the recognised vocabulary (`disabled` / `admin-approval-required` /
+    /// `allow-by-default`) before writing.
+    pub fn set_local_rp_domain_policy(&self, policy: &str) -> Result<usize, String> {
+        if !local_rp::is_valid_policy(policy) {
+            return Err(format!("invalid local RP policy: {}", policy));
+        }
+        let domain = crate::conversions::get_domain_name();
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => local_rp::pg::set_domain_policy(
+                &mut *pg_conn(p).map_err(|e| e.to_string())?,
+                &domain,
+                policy,
+            )
+            .map_err(|e| e.to_string()),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => local_rp::sqlite::set_domain_policy(
+                &mut *sqlite_conn(p).map_err(|e| e.to_string())?,
+                &domain,
+                policy,
+            )
+            .map_err(|e| e.to_string()),
+        }
+    }
+
+    pub fn find_local_rp(&self, fingerprint: &str) -> QueryResult<Option<models::LocalRp>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                local_rp::pg::find_by_fingerprint(&mut *pg_conn(p)?, fingerprint)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                local_rp::sqlite::find_by_fingerprint(&mut *sqlite_conn(p)?, fingerprint)
+            }
+        }
+    }
+
+    /// List local RPs, optionally filtered to one `status`, oldest first.
+    pub fn list_local_rps(&self, status: Option<&str>) -> QueryResult<Vec<models::LocalRp>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => local_rp::pg::list_by_status(&mut *pg_conn(p)?, status),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => local_rp::sqlite::list_by_status(&mut *sqlite_conn(p)?, status),
+        }
+    }
+
+    pub fn count_local_rps_by_status(&self, status: &str) -> QueryResult<i64> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => local_rp::pg::count_by_status(&mut *pg_conn(p)?, status),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => local_rp::sqlite::count_by_status(&mut *sqlite_conn(p)?, status),
+        }
+    }
+
+    /// Insert a brand-new local RP registry row (any starting `status` — the
+    /// pending-queue guard in `crate::services::local_rp` always inserts
+    /// `pending`; test factories may insert any status directly).
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_local_rp(
+        &self,
+        fingerprint: &str,
+        signing_public_key: &[u8],
+        encryption_public_key: &[u8],
+        app_name: &str,
+        local_domain_hint: Option<&str>,
+        status: &str,
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> QueryResult<models::LocalRp> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => local_rp::pg::insert(
+                &mut *pg_conn(p)?,
+                fingerprint,
+                signing_public_key,
+                encryption_public_key,
+                app_name,
+                local_domain_hint,
+                status,
+                expires_at,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => local_rp::sqlite::insert(
+                &mut *sqlite_conn(p)?,
+                fingerprint,
+                signing_public_key,
+                encryption_public_key,
+                app_name,
+                local_domain_hint,
+                status,
+                expires_at.map(|d| d.to_rfc3339()).as_deref(),
+            ),
+        }
+    }
+
+    /// Atomically check the global and per-user pending-queue caps and
+    /// insert a new `pending` local RP row, all inside one DB transaction
+    /// (SEC M3: `crate::services::local_rp::record_login_attempt`'s previous
+    /// separate count-then-insert calls raced under concurrent attempts, and
+    /// enforced only a global cap — one authenticated user could occupy the
+    /// whole queue). `first_seen_by_user_id` must already be a validated,
+    /// active user id (the caller has authenticated them).
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_pending_local_rp_with_caps(
+        &self,
+        fingerprint: &str,
+        signing_public_key: &[u8],
+        encryption_public_key: &[u8],
+        app_name: &str,
+        local_domain_hint: Option<&str>,
+        first_seen_by_user_id: &str,
+        global_cap: i64,
+        per_user_cap: i64,
+    ) -> QueryResult<local_rp::PendingInsertOutcome> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let uid: uuid::Uuid = first_seen_by_user_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?;
+                local_rp::pg::insert_pending_with_caps(
+                    &mut *pg_conn(p)?,
+                    fingerprint,
+                    signing_public_key,
+                    encryption_public_key,
+                    app_name,
+                    local_domain_hint,
+                    uid,
+                    global_cap,
+                    per_user_cap,
+                )
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => local_rp::sqlite::insert_pending_with_caps(
+                &mut *sqlite_conn(p)?,
+                fingerprint,
+                signing_public_key,
+                encryption_public_key,
+                app_name,
+                local_domain_hint,
+                first_seen_by_user_id,
+                global_cap,
+                per_user_cap,
+            ),
+        }
+    }
+
+    /// Refresh `last_seen_at` and the reported display/audit metadata for an
+    /// already-known fingerprint. Drift detection (old vs. new metadata) is
+    /// `crate::services::local_rp`'s job.
+    pub fn touch_local_rp_last_seen(
+        &self,
+        fingerprint: &str,
+        app_name: &str,
+        local_domain_hint: Option<&str>,
+    ) -> QueryResult<models::LocalRp> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => local_rp::pg::touch_last_seen(
+                &mut *pg_conn(p)?,
+                fingerprint,
+                app_name,
+                local_domain_hint,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => local_rp::sqlite::touch_last_seen(
+                &mut *sqlite_conn(p)?,
+                fingerprint,
+                app_name,
+                local_domain_hint,
+            ),
+        }
+    }
+
+    /// Guarded local-RP status update: only applies if the row's current
+    /// status is still `expected_from`. Returns rows affected (0 = not found,
+    /// or raced/changed since the caller's read). The transition-validity
+    /// matrix itself lives in `crate::services::local_rp::transition_status`.
+    pub fn set_local_rp_status(
+        &self,
+        fingerprint: &str,
+        expected_from: &str,
+        to: &str,
+        admin_notes: Option<&str>,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => local_rp::pg::set_status(
+                &mut *pg_conn(p)?,
+                fingerprint,
+                expected_from,
+                to,
+                admin_notes,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => local_rp::sqlite::set_status(
+                &mut *sqlite_conn(p)?,
+                fingerprint,
+                expected_from,
+                to,
+                admin_notes,
+            ),
+        }
+    }
+
+    /// Store a claim-get ticket: only its SHA-256 hex (`ticket_hash`) plus
+    /// bindings, never the raw ticket bytes.
+    #[allow(clippy::too_many_arguments)]
+    pub fn issue_local_rp_claim_ticket(
+        &self,
+        ticket_hash: &str,
+        fingerprint: &str,
+        user_id: &str,
+        user_domain: &str,
+        granted_claims_json: &str,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<models::LocalRpClaimTicket> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let uid: uuid::Uuid = user_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?;
+                local_rp::pg::insert_ticket(
+                    &mut *pg_conn(p)?,
+                    ticket_hash,
+                    fingerprint,
+                    uid,
+                    user_domain,
+                    granted_claims_json,
+                    expires_at,
+                )
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => local_rp::sqlite::insert_ticket(
+                &mut *sqlite_conn(p)?,
+                ticket_hash,
+                fingerprint,
+                user_id,
+                user_domain,
+                granted_claims_json,
+                &expires_at.to_rfc3339(),
+            ),
+        }
+    }
+
+    pub fn find_local_rp_claim_ticket(
+        &self,
+        ticket_hash: &str,
+    ) -> QueryResult<Option<models::LocalRpClaimTicket>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => local_rp::pg::find_ticket(&mut *pg_conn(p)?, ticket_hash),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => local_rp::sqlite::find_ticket(&mut *sqlite_conn(p)?, ticket_hash),
+        }
+    }
+
+    /// Delete every claim ticket that has expired at or before `now`. Returns
+    /// rows deleted.
+    pub fn purge_expired_local_rp_claim_tickets(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => local_rp::pg::delete_expired_tickets(&mut *pg_conn(p)?, now),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                local_rp::sqlite::delete_expired_tickets(&mut *sqlite_conn(p)?, &now.to_rfc3339())
+            }
+        }
+    }
+
+    /// Delete every outstanding claim ticket bound to `fingerprint`. Called by
+    /// `crate::services::local_rp::transition_status` when a local RP is
+    /// revoked — cheap-and-unambiguous cleanup on top of the approval-status
+    /// check `redeem_ticket` already enforces at redemption time.
+    pub fn delete_local_rp_claim_tickets_by_fingerprint(
+        &self,
+        fingerprint: &str,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                local_rp::pg::delete_tickets_by_fingerprint(&mut *pg_conn(p)?, fingerprint)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                local_rp::sqlite::delete_tickets_by_fingerprint(&mut *sqlite_conn(p)?, fingerprint)
+            }
+        }
+    }
+
+    /// Delete every outstanding claim ticket issued to `user_id`. Called by
+    /// `purge_user_tombstone`: purge minimizes the `users` row rather than
+    /// deleting it, so the ticket's foreign key never cascades away on its
+    /// own (design doc / Phase 4 finding).
+    pub fn delete_local_rp_claim_tickets_by_user_id(&self, user_id: &str) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let uid: uuid::Uuid = user_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?;
+                local_rp::pg::delete_tickets_by_user_id(&mut *pg_conn(p)?, uid)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                local_rp::sqlite::delete_tickets_by_user_id(&mut *sqlite_conn(p)?, user_id)
             }
         }
     }

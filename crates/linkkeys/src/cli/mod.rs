@@ -39,6 +39,11 @@ pub enum Commands {
     #[command(subcommand)]
     Pins(PinCommands),
 
+    /// DNS-less local RP identity admin commands (list/inspect/approve/deny/
+    /// revoke). See dns-less-local-rp-design.md.
+    #[command(subcommand)]
+    LocalRp(LocalRpCommands),
+
     /// Create an encrypted, storage-agnostic backup of the whole database.
     ///
     /// The artifact is encrypted in-process with a per-domain 256-bit backup key
@@ -273,6 +278,77 @@ pub enum RelationCommands {
         object_type: String,
         /// Object ID
         object_id: String,
+        #[arg(long)]
+        server: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum LocalRpCommands {
+    /// List DNS-less local RP identities (via TCP), optionally filtered to
+    /// one status: pending, approved, denied, revoked.
+    List {
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long)]
+        offset: Option<i64>,
+        #[arg(long)]
+        limit: Option<i64>,
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Show one local RP identity by its full fingerprint (via TCP)
+    Get {
+        /// Full fingerprint (hex)
+        fingerprint: String,
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Approve a pending, or previously-denied, local RP fingerprint (via TCP)
+    Approve {
+        /// Full fingerprint (hex)
+        fingerprint: String,
+        /// Optional admin note stored on the record
+        #[arg(long)]
+        admin_notes: Option<String>,
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Deny a pending local RP fingerprint (via TCP)
+    Deny {
+        /// Full fingerprint (hex)
+        fingerprint: String,
+        /// Optional admin note stored on the record
+        #[arg(long)]
+        admin_notes: Option<String>,
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Revoke a previously-approved local RP fingerprint (via TCP). Stops
+    /// future logins and deletes its outstanding claim tickets; app sessions
+    /// already minted are the app's own to manage. Terminal: there is no
+    /// un-revoking.
+    Revoke {
+        /// Full fingerprint (hex)
+        fingerprint: String,
+        /// Optional admin note stored on the record
+        #[arg(long)]
+        admin_notes: Option<String>,
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Show this domain's local-RP admission policy (via TCP). Returns the
+    /// effective policy: the stored value, or "admin-approval-required" if
+    /// this domain has never set one explicitly.
+    GetPolicy {
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Set this domain's local-RP admission policy (via TCP). One of:
+    /// disabled, admin-approval-required, allow-by-default.
+    SetPolicy {
+        /// disabled | admin-approval-required | allow-by-default
+        policy: String,
         #[arg(long)]
         server: Option<String>,
     },

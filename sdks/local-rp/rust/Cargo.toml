@@ -1,0 +1,91 @@
+[package]
+name = "linkkeys-local-rp"
+version = "0.1.0"
+edition = "2021"
+description = "LinkKeys DNS-less local RP identity SDK (Rust)"
+
+# Layout decision (dns-less-local-rp-design.md, "SDK Layout and Tooling"):
+# STANDALONE, like the other 13 language SDKs under sdks/local-rp/. The empty
+# [workspace] table below makes this crate its own workspace root (own
+# Cargo.lock / target) so it is NOT resolved by the repo's root workspace.
+#
+# This crate was briefly a member of the root workspace (for a single lockfile),
+# but that coupled the server's Docker image build — which builds the root
+# workspace and copies only crates/, csil/, migrations/ into the image — to SDK
+# code the server never ships; a live deploy failed on the missing member. It
+# still path-depends on liblinkkeys / linkkeys-rpc-client / csilgen-transport
+# via ../../../crates (path deps work fine across workspace boundaries); test it
+# with `(cd sdks/local-rp/rust && cargo test)` (see tools.sh test-local-rp-rust).
+[workspace]
+
+[dependencies]
+# The protocol itself: local RP envelope/sealed-box/expiry helpers, CSIL
+# types + CBOR codec, DNS TXT record parsing + pin/vouch/trust logic, claim
+# and revocation-certificate verification. This SDK is intentionally a thin
+# ergonomic layer over these — see the module docs in `src/`.
+liblinkkeys = { path = "../../../crates/liblinkkeys" }
+
+# Only for its `tls` module (`client_config`, `FingerprintVerifier`) and the
+# `extract_hostname` helper — building a DNS-fp-pinned rustls ClientConfig is
+# fiddly (custom ServerCertVerifier, SPKI fingerprint extraction) and this
+# crate already gets it right; reusing it avoids a second implementation of
+# the exact same trust anchor. We do NOT use its `send_request`/
+# `connect_guarded`: those bake in a non-public-address SSRF refusal that is
+# correct for the *server's* outbound S2S paths but wrong as this SDK's
+# *default* (dns-less-local-rp-design.md, Wire Precision: "SDKs must make
+# address policy configurable and default to permissive"). Instead this
+# crate owns its own `Transport` seam (`src/transport.rs`) with a
+# permissive-by-default dialer and reimplements the small (~30 line)
+# length-prefixed frame send/receive directly against `csilgen-transport`,
+# using linkkeys-rpc-client only for the TLS config.
+linkkeys-rpc-client = { path = "../../../crates/linkkeys-rpc-client" }
+
+# Canonical CSIL-RPC envelope codec (tag-24 payload framing, request/response
+# structs). Depended on directly (not only transitively via
+# linkkeys-rpc-client) because this crate builds its own request/response
+# framing over the injected `Transport` seam.
+csilgen-transport = { path = "../../../crates/csilgen-transport" }
+
+# TLS to the pinned TCP endpoint. Same version/feature set as
+# linkkeys-rpc-client so the two share one rustls build in the workspace.
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std"] }
+
+# DNS TXT lookups (`_linkkeys`/`_linkkeys_apis`) for the "configurable,
+# default system resolver" requirement (Wire Precision). The Rust standard
+# library has no TXT-record API at all, so *some* dependency is unavoidable
+# here (design doc: "a small DNS crate like hickory-resolver is acceptable
+# with justification"). `hickory-resolver` is already a direct dependency of
+# both `crates/linkkeys` and `demoappsite` in this very workspace, so this
+# adds no new crate to the dependency tree, just another consumer of one
+# already vetted and pinned here. Default features include `system-config` +
+# `tokio-runtime`, which is what the blocking `Resolver::from_system_conf()`
+# type needs internally; this SDK's own public API stays fully synchronous
+# (no tokio runtime leaks into the SDK's surface).
+hickory-resolver = "0.24"
+
+# Timestamps (issued_at/expires_at, `now` parameters, expiration checks) —
+# already the workspace's date/time library (liblinkkeys, linkkeys).
+chrono = { version = "0.4", features = ["serde"] }
+
+# `PendingLogin` must be serializable so the app can persist it (design doc,
+# "SDK API Shape"). `serde` derive is the standard, minimal way to do that
+# without dictating a wire format to the integrating app.
+serde = { version = "1.0", features = ["derive"] }
+
+# Nonce/state generation (32 random bytes each) and ephemeral TCP-frame
+# request ids. Already a direct dependency of `liblinkkeys` at the same
+# version; a CSPRNG is not something the standard library provides, so this
+# reuses the exact crate/version already vetted for this purpose in-repo
+# rather than introducing a second one.
+rand = "0.8"
+
+[dev-dependencies]
+# Conformance-vector tests parse the checked-in JSON fixtures under
+# ../conformance/ (same crate liblinkkeys's own consumer-zero test uses).
+serde_json = "1"
+# Only the conformance tests reach for these directly (to hand-verify a
+# vector's raw bytes independent of the SDK's own wrappers) — same versions
+# liblinkkeys itself already pins.
+base64ct = { version = "1", features = ["alloc"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+x25519-dalek = { version = "2", features = ["static_secrets"] }

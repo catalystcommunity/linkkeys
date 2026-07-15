@@ -197,6 +197,150 @@ clippy() {
 }
 
 # ---------------------------------------------------------------------------
+# DNS-less local RP SDKs (sdks/local-rp/, dns-less-local-rp-design.md)
+# ---------------------------------------------------------------------------
+
+test_local_rp_rust() {
+    log_status "running linkkeys-local-rp (Rust SDK) tests"
+    # Standalone crate (own workspace), like the other 13 SDKs — run from its
+    # dir, not `-p` from the root workspace (which excludes sdks/).
+    (cd sdks/local-rp/rust && cargo test)
+    log_status "linkkeys-local-rp tests passed"
+}
+
+test_local_rp_go() {
+    log_status "running local-rp Go SDK tests"
+    # shellcheck disable=SC1091
+    source "${CATALYST_TOOLS:-$HOME/.local/catalyst-tools}/env.sh"
+    (cd sdks/local-rp/go && go vet ./... && go test ./...)
+    log_status "local-rp Go SDK tests passed"
+}
+
+test_local_rp_typescript() {
+    log_status "running local-rp TypeScript SDK tests"
+    # shellcheck disable=SC1091
+    source "${CATALYST_TOOLS:-$HOME/.local/catalyst-tools}/env.sh"
+    (cd sdks/local-rp/typescript && npm install --no-audit --no-fund && npm run typecheck && npm test)
+    log_status "local-rp TypeScript SDK tests passed"
+}
+
+test_local_rp_java() {
+    log_status "running local-rp Java SDK tests"
+    # shellcheck disable=SC1091
+    source "${CATALYST_TOOLS:-$HOME/.local/catalyst-tools}/env.sh"
+    (cd sdks/local-rp/java && gradle test)
+    log_status "local-rp Java SDK tests passed"
+}
+
+test_local_rp_kotlin() {
+    log_status "running local-rp Kotlin SDK tests"
+    # shellcheck disable=SC1091
+    source "${CATALYST_TOOLS:-$HOME/.local/catalyst-tools}/env.sh"
+    (cd sdks/local-rp/kotlin && gradle test)
+    log_status "local-rp Kotlin SDK tests passed"
+}
+
+test_local_rp_csharp() {
+    log_status "running local-rp C# SDK tests"
+    # shellcheck disable=SC1091
+    source "${CATALYST_TOOLS:-$HOME/.local/catalyst-tools}/env.sh"
+    (cd sdks/local-rp/csharp && dotnet test)
+    log_status "local-rp C# SDK tests passed"
+}
+
+test_local_rp_dart() {
+    log_status "running local-rp Dart SDK tests"
+    # shellcheck disable=SC1091
+    source "${CATALYST_TOOLS:-$HOME/.local/catalyst-tools}/env.sh"
+    (cd sdks/local-rp/dart && dart pub get && dart analyze && dart test)
+    log_status "local-rp Dart SDK tests passed"
+}
+
+test_local_rp_ruby() {
+    log_status "running local-rp Ruby SDK tests"
+    (cd sdks/local-rp/ruby && ruby -Ilib -Itest test/run_all.rb)
+    log_status "local-rp Ruby SDK tests passed"
+}
+
+test_local_rp_zig() {
+    log_status "running local-rp Zig SDK tests"
+    # shellcheck disable=SC1091
+    source "${CATALYST_TOOLS:-$HOME/.local/catalyst-tools}/env.sh"
+    (cd sdks/local-rp/zig && zig build test)
+    log_status "local-rp Zig SDK tests passed"
+}
+
+test_local_rp_all() {
+    test_local_rp_rust
+    test_local_rp_go
+    test_local_rp_typescript
+    test_local_rp_python
+    test_local_rp_php
+    test_local_rp_java
+    test_local_rp_kotlin
+    test_local_rp_csharp
+    test_local_rp_dart
+    test_local_rp_ruby
+    test_local_rp_elixir
+    test_local_rp_c
+    test_local_rp_zig
+    test_local_rp_ocaml
+    log_status "ALL local-rp SDK test suites passed"
+}
+
+test_local_rp_ocaml() {
+    log_status "running local-rp OCaml SDK tests"
+    # shellcheck disable=SC1091
+    source "${CATALYST_TOOLS:-$HOME/.local/catalyst-tools}/env.sh"
+    eval "$(opam env --root "${CATALYST_TOOLS:-$HOME/.local/catalyst-tools}/opam" --switch catalyst)"
+    (cd sdks/local-rp/ocaml && dune runtest)
+    log_status "local-rp OCaml SDK tests passed"
+}
+
+test_local_rp_c() {
+    log_status "running local-rp C SDK tests (ASan/UBSan)"
+    (cd sdks/local-rp/c && make test)
+    log_status "local-rp C SDK tests passed"
+}
+
+test_local_rp_elixir() {
+    log_status "running local-rp Elixir SDK tests"
+    (cd sdks/local-rp/elixir && mix test)
+    log_status "local-rp Elixir SDK tests passed"
+}
+
+test_local_rp_php() {
+    log_status "running local-rp PHP SDK tests"
+    if command -v php >/dev/null 2>&1; then
+        (cd sdks/local-rp/php && ./run-tests.sh)
+    else
+        # No system PHP: run in a container (see feedback: use nerdctl).
+        (cd sdks/local-rp && sudo nerdctl run --rm -v "$(pwd)":/repo -w /repo/php php:8.3-cli ./run-tests.sh)
+    fi
+    log_status "local-rp PHP SDK tests passed"
+}
+
+test_local_rp_python() {
+    log_status "running local-rp Python SDK tests"
+    # Setup (one-time): see sdks/local-rp/python/README.md for venv creation.
+    (cd sdks/local-rp/python && source .venv/bin/activate && python -m pytest -q)
+    log_status "local-rp Python SDK tests passed"
+}
+
+generate_local_rp_sdks() {
+    log_status "generate-local-rp-sdks"
+    # The Rust SDK (sdks/local-rp/rust/) is a workspace member that path-depends
+    # on liblinkkeys directly — there is no separate generation step for it (no
+    # generated-client codegen to run; see that crate's Cargo.toml for the
+    # layout rationale). This subcommand is a deliberate no-op for "rust" so the
+    # command exists for layout/tooling parity with the other SDK languages
+    # (dns-less-local-rp-design.md, "SDK Layout and Tooling") — once a
+    # generated-language SDK (Go, TypeScript, ...) lands under sdks/local-rp/,
+    # its csilgen generation step is added here.
+    echo "rust: nothing to generate (consumes liblinkkeys directly) — see sdks/local-rp/rust/README.md"
+}
+
+# ---------------------------------------------------------------------------
 # Setup / preflight
 # ---------------------------------------------------------------------------
 
@@ -268,6 +412,23 @@ Commands:
   fmt        Run cargo fmt
   clippy     Run cargo clippy (workspace, all targets)
 
+  generate-local-rp-sdks   Regenerate DNS-less local-RP SDK bindings (sdks/local-rp/)
+  test-local-rp-rust       Run the DNS-less local-RP Rust SDK's tests
+  test-local-rp-go         Run the DNS-less local-RP Go SDK's tests
+  test-local-rp-typescript Run the DNS-less local-RP TypeScript SDK's tests
+  test-local-rp-java       Run the DNS-less local-RP Java SDK's tests
+  test-local-rp-php        Run the DNS-less local-RP PHP SDK's tests (container fallback)
+  test-local-rp-kotlin     Run the DNS-less local-RP Kotlin SDK's tests
+  test-local-rp-csharp     Run the DNS-less local-RP C# SDK's tests
+  test-local-rp-dart       Run the DNS-less local-RP Dart SDK's tests
+  test-local-rp-ruby       Run the DNS-less local-RP Ruby SDK's tests
+  test-local-rp-elixir     Run the DNS-less local-RP Elixir SDK's tests
+  test-local-rp-c          Run the DNS-less local-RP C SDK's tests (ASan/UBSan)
+  test-local-rp-zig        Run the DNS-less local-RP Zig SDK's tests
+  test-local-rp-ocaml      Run the DNS-less local-RP OCaml SDK's tests
+  test-local-rp-all        Run every local-RP SDK test suite sequentially
+  test-local-rp-python     Run the DNS-less local-RP Python SDK's tests
+
 Env:
   LINKKEYS_PG_PORT   Host port for the dev Postgres container (default 5432)
 EOF
@@ -284,5 +445,21 @@ case "${1:-}" in
     db-shell) shift; db_shell "$@" ;;
     fmt)      shift; fmt "$@" ;;
     clippy)   shift; clippy "$@" ;;
+    generate-local-rp-sdks) shift; generate_local_rp_sdks "$@" ;;
+    test-local-rp-rust)     shift; test_local_rp_rust "$@" ;;
+    test-local-rp-go)       shift; test_local_rp_go "$@" ;;
+    test-local-rp-typescript) shift; test_local_rp_typescript "$@" ;;
+    test-local-rp-java)     shift; test_local_rp_java "$@" ;;
+    test-local-rp-php)      shift; test_local_rp_php "$@" ;;
+    test-local-rp-kotlin)   shift; test_local_rp_kotlin "$@" ;;
+    test-local-rp-csharp)   shift; test_local_rp_csharp "$@" ;;
+    test-local-rp-dart)     shift; test_local_rp_dart "$@" ;;
+    test-local-rp-ruby)     shift; test_local_rp_ruby "$@" ;;
+    test-local-rp-elixir)   shift; test_local_rp_elixir "$@" ;;
+    test-local-rp-c)        shift; test_local_rp_c "$@" ;;
+    test-local-rp-zig)      shift; test_local_rp_zig "$@" ;;
+    test-local-rp-ocaml)    shift; test_local_rp_ocaml "$@" ;;
+    test-local-rp-all)      shift; test_local_rp_all "$@" ;;
+    test-local-rp-python)   shift; test_local_rp_python "$@" ;;
     *)        usage ;;
 esac

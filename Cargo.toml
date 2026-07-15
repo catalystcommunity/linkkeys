@@ -6,4 +6,11 @@ members = [
     "crates/linkkeys-rpc-client",
     "demoappsite",
 ]
+# The local-RP SDKs are standalone (their own toolchains / lockfiles), like the
+# other 13 languages under sdks/. The Rust SDK was briefly a workspace member,
+# but that coupled the server's Docker image build (which builds this workspace)
+# to SDK code the server doesn't ship — a live deploy failed on the missing
+# member. Excluded so the server build never resolves it; test it standalone
+# via `(cd sdks/local-rp/rust && cargo test)` (see tools.sh).
+exclude = ["sdks"]
 resolver = "2"

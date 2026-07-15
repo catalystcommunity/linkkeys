@@ -1,9 +1,10 @@
 use aes_gcm::{
     aead::{Aead, KeyInit, OsRng, Payload},
-    Aes256Gcm, Nonce,
+    Aes256Gcm, Nonce as AesGcmNonce,
 };
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::{Algorithm, Argon2, Params, Version};
+use chacha20poly1305::{ChaCha20Poly1305, Nonce as ChaChaNonce};
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use hkdf::Hkdf;
 use sha2::{Digest, Sha256};
@@ -45,6 +46,61 @@ impl SigningAlgorithm {
 }
 
 impl fmt::Display for SigningAlgorithm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+pub const AEAD_SUITE_AES_256_GCM: &str = "aes-256-gcm";
+pub const AEAD_SUITE_CHACHA20_POLY1305: &str = "chacha20-poly1305";
+
+/// Registry of negotiated AEAD suites for encrypted-payload constructions:
+/// the local-RP callback sealed box (`local_rp::seal_local_rp_callback` /
+/// `open_local_rp_callback`) and, after the S2S retrofit, the
+/// `AlgorithmSupport.encryption` list exchanged via the `Handshake` service.
+/// One registry, two advertisement surfaces (see dns-less-local-rp-design.md,
+/// "Wire Precision: AEAD suite registry"). `aes-256-gcm` is
+/// mandatory-to-implement; `chacha20-poly1305` is optional. Same
+/// parse_str/as_str/all_supported shape as [`SigningAlgorithm`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AeadSuite {
+    Aes256Gcm,
+    ChaCha20Poly1305,
+}
+
+impl AeadSuite {
+    /// Parse a wire-format suite id string. Returns None for an id outside
+    /// the registry — never "close enough".
+    pub fn parse_str(s: &str) -> Option<AeadSuite> {
+        match s {
+            AEAD_SUITE_AES_256_GCM => Some(AeadSuite::Aes256Gcm),
+            AEAD_SUITE_CHACHA20_POLY1305 => Some(AeadSuite::ChaCha20Poly1305),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AeadSuite::Aes256Gcm => AEAD_SUITE_AES_256_GCM,
+            AeadSuite::ChaCha20Poly1305 => AEAD_SUITE_CHACHA20_POLY1305,
+        }
+    }
+
+    pub fn all_supported() -> &'static [&'static str] {
+        &[AEAD_SUITE_AES_256_GCM, AEAD_SUITE_CHACHA20_POLY1305]
+    }
+
+    /// Pick the first suite in `advertised` (preference order) that this
+    /// implementation supports. Used by the side that chooses among an
+    /// advertised list (the IDP picking from a local RP descriptor's
+    /// `supported_suites`, or a `Handshake` responder) so a suite outside the
+    /// advertised list can never be selected.
+    pub fn select_supported(advertised: &[String]) -> Option<AeadSuite> {
+        advertised.iter().find_map(|s| AeadSuite::parse_str(s))
+    }
+}
+
+impl fmt::Display for AeadSuite {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
@@ -271,7 +327,7 @@ pub fn encrypt_private_key(key_bytes: &[u8], passphrase: &[u8]) -> Result<Vec<u8
         .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
 
     let nonce_bytes: [u8; 12] = rand::random();
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let nonce = AesGcmNonce::from_slice(&nonce_bytes);
 
     let ciphertext = cipher
         .encrypt(nonce, key_bytes)
@@ -312,7 +368,7 @@ pub fn decrypt_private_key(encrypted: &[u8], passphrase: &[u8]) -> Result<Vec<u8
         let cipher = Aes256Gcm::new_from_slice(&derived_key)
             .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))?;
         return cipher
-            .decrypt(Nonce::from_slice(nonce_bytes), ciphertext)
+            .decrypt(AesGcmNonce::from_slice(nonce_bytes), ciphertext)
             .map_err(|e| CryptoError::DecryptionFailed(e.to_string()));
     }
 
@@ -334,7 +390,7 @@ pub fn decrypt_private_key(encrypted: &[u8], passphrase: &[u8]) -> Result<Vec<u8
     .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))?;
     let cipher = Aes256Gcm::new_from_slice(&derived_key)
         .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))?;
-    let nonce = Nonce::from_slice(nonce_bytes);
+    let nonce = AesGcmNonce::from_slice(nonce_bytes);
 
     cipher
         .decrypt(nonce, ciphertext)
@@ -357,7 +413,7 @@ pub fn encrypt_with_key(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, Cry
         Aes256Gcm::new_from_slice(key).map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
     let nonce_bytes: [u8; 12] = rand::random();
     let ciphertext = cipher
-        .encrypt(Nonce::from_slice(&nonce_bytes), plaintext)
+        .encrypt(AesGcmNonce::from_slice(&nonce_bytes), plaintext)
         .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
 
     let mut result = Vec::with_capacity(4 + 12 + ciphertext.len());
@@ -380,7 +436,7 @@ pub fn decrypt_with_key(key: &[u8; 32], encrypted: &[u8]) -> Result<Vec<u8>, Cry
     let nonce_bytes = &encrypted[4..16];
     let ciphertext = &encrypted[16..];
     cipher
-        .decrypt(Nonce::from_slice(nonce_bytes), ciphertext)
+        .decrypt(AesGcmNonce::from_slice(nonce_bytes), ciphertext)
         .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))
 }
 
@@ -395,30 +451,140 @@ pub fn decrypt_with_key(key: &[u8; 32], encrypted: &[u8]) -> Result<Vec<u8>, Cry
 /// backward-compatible with; both peers run the same construction.
 const SEALED_BOX_TAG: &[u8] = b"linkkeys-sealed-box-v2";
 
-/// Derive the AES-256 key for a sealed box via HKDF-SHA256, and return the
-/// context bytes that double as AES-GCM associated data (AAD). The context
-/// binds the protocol version + both X25519 public keys, so a ciphertext is
-/// cryptographically tied to this exact exchange.
+/// Derive the AEAD key for a sealed box via HKDF-SHA256, and return the
+/// context bytes that double as AEAD associated data (AAD). The context binds
+/// the protocol tag, the negotiated suite id, and both X25519 public keys, so
+/// a ciphertext is cryptographically tied to this exact exchange AND cannot be
+/// replayed/reinterpreted under a different suite (suite-id-swap is a
+/// tampering attempt like any other field here).
+///
+/// Layout: `tag || suite_id_utf8 || ephemeral_public(32) || recipient_public(32)`
+/// — same pattern as `local_rp::local_rp_callback_kdf`, with the suite id
+/// inserted after the tag (Wire Precision, "Callback sealed box").
 fn sealed_box_kdf(
+    suite: AeadSuite,
     ephemeral_public: &[u8; 32],
     recipient_public: &[u8; 32],
     shared_secret: &[u8],
 ) -> Result<([u8; 32], Vec<u8>), CryptoError> {
-    let mut context = Vec::with_capacity(SEALED_BOX_TAG.len() + 64);
+    let suite_id = suite.as_str().as_bytes();
+    let mut context = Vec::with_capacity(SEALED_BOX_TAG.len() + suite_id.len() + 64);
     context.extend_from_slice(SEALED_BOX_TAG);
+    context.extend_from_slice(suite_id);
     context.extend_from_slice(ephemeral_public);
     context.extend_from_slice(recipient_public);
 
     let hk = Hkdf::<Sha256>::new(None, shared_secret);
-    let mut aes_key = [0u8; 32];
-    hk.expand(&context, &mut aes_key)
+    let mut key = [0u8; 32];
+    hk.expand(&context, &mut key)
         .map_err(|_| CryptoError::EncryptionFailed("HKDF expand failed".to_string()))?;
-    Ok((aes_key, context))
+    Ok((key, context))
+}
+
+/// Encrypt `plaintext` under `suite`, dispatching to the concrete AEAD
+/// implementation. Shared by [`sealed_box_encrypt`] and the local-RP callback
+/// box (`crate::local_rp::seal_local_rp_callback`) — one dispatch point for
+/// every negotiated-suite AEAD use in this crate, so a new suite is added in
+/// exactly one place.
+pub(crate) fn aead_encrypt(
+    suite: AeadSuite,
+    key: &[u8; 32],
+    nonce: &[u8; 12],
+    aad: &[u8],
+    plaintext: &[u8],
+) -> Result<Vec<u8>, CryptoError> {
+    match suite {
+        AeadSuite::Aes256Gcm => {
+            let cipher = Aes256Gcm::new_from_slice(key)
+                .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
+            cipher
+                .encrypt(
+                    AesGcmNonce::from_slice(nonce),
+                    Payload {
+                        msg: plaintext,
+                        aad,
+                    },
+                )
+                .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))
+        }
+        AeadSuite::ChaCha20Poly1305 => {
+            let cipher = ChaCha20Poly1305::new_from_slice(key)
+                .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
+            cipher
+                .encrypt(
+                    ChaChaNonce::from_slice(nonce),
+                    Payload {
+                        msg: plaintext,
+                        aad,
+                    },
+                )
+                .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))
+        }
+    }
+}
+
+/// Decrypt `ciphertext` under `suite`. See [`aead_encrypt`].
+pub(crate) fn aead_decrypt(
+    suite: AeadSuite,
+    key: &[u8; 32],
+    nonce: &[u8; 12],
+    aad: &[u8],
+    ciphertext: &[u8],
+) -> Result<Vec<u8>, CryptoError> {
+    match suite {
+        AeadSuite::Aes256Gcm => {
+            let cipher = Aes256Gcm::new_from_slice(key)
+                .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))?;
+            cipher
+                .decrypt(
+                    AesGcmNonce::from_slice(nonce),
+                    Payload {
+                        msg: ciphertext,
+                        aad,
+                    },
+                )
+                .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))
+        }
+        AeadSuite::ChaCha20Poly1305 => {
+            let cipher = ChaCha20Poly1305::new_from_slice(key)
+                .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))?;
+            cipher
+                .decrypt(
+                    ChaChaNonce::from_slice(nonce),
+                    Payload {
+                        msg: ciphertext,
+                        aad,
+                    },
+                )
+                .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))
+        }
+    }
+}
+
+/// Resolve a wire-format optional suite id (e.g. `EncryptedToken.suite`) into
+/// a concrete [`AeadSuite`], defaulting to the mandatory-to-implement baseline
+/// when absent (`aes-256-gcm` — see Wire Precision, "AEAD suite registry": the
+/// hard-cutover retrofit makes every existing encrypted-payload use
+/// "negotiated, with aes-256-gcm as the baseline"). Returns
+/// [`CryptoError::UnsupportedAlgorithm`] for a present-but-unrecognized id —
+/// this never silently falls back to the baseline for a wire value the
+/// producer actually claimed.
+pub fn resolve_aead_suite(wire_suite: Option<&str>) -> Result<AeadSuite, CryptoError> {
+    match wire_suite {
+        None => Ok(AeadSuite::Aes256Gcm),
+        Some(s) => {
+            AeadSuite::parse_str(s).ok_or_else(|| CryptoError::UnsupportedAlgorithm(s.to_string()))
+        }
+    }
 }
 
 /// Reject a non-contributory / low-order ECDH result (an all-zero shared
 /// secret), which a malicious peer can force by supplying a low-order point.
-fn reject_low_order(shared_secret: &[u8; 32]) -> Result<(), CryptoError> {
+///
+/// `pub(crate)` so other sealed-box-style constructions in this crate (e.g.
+/// `local_rp`'s callback box) can reuse the same check rather than
+/// reimplementing it.
+pub(crate) fn reject_low_order(shared_secret: &[u8; 32]) -> Result<(), CryptoError> {
     if shared_secret == &[0u8; 32] {
         return Err(CryptoError::EncryptionFailed(
             "non-contributory (low-order) public key rejected".to_string(),
@@ -427,18 +593,22 @@ fn reject_low_order(shared_secret: &[u8; 32]) -> Result<(), CryptoError> {
     Ok(())
 }
 
-/// Sealed-box encrypt a message to a recipient's X25519 public key.
+/// Sealed-box encrypt a message to a recipient's X25519 public key, under the
+/// negotiated `suite` (`aes-256-gcm` is the mandatory-to-implement baseline;
+/// `chacha20-poly1305` is optional).
 ///
 /// 1. Generate an ephemeral X25519 keypair
 /// 2. ECDH key agreement (rejecting low-order / non-contributory results)
-/// 3. Derive an AES-256 key via HKDF-SHA256 over the shared secret, bound to
-///    the protocol tag + both public keys
-/// 4. Encrypt with AES-256-GCM (random 12-byte nonce, context bound as AAD)
+/// 3. Derive an AEAD key via HKDF-SHA256 over the shared secret, bound to the
+///    protocol tag + suite id + both public keys
+/// 4. Encrypt with the negotiated suite (random 12-byte nonce, context bound
+///    as AAD, so a suite-id swap is detected like any other tampering)
 ///
 /// Returns the parts needed to construct an `EncryptedToken`.
 pub fn sealed_box_encrypt(
     plaintext: &[u8],
     recipient_x25519_public: &[u8; 32],
+    suite: AeadSuite,
 ) -> Result<SealedBox, CryptoError> {
     let recipient_pk = X25519PublicKey::from(*recipient_x25519_public);
 
@@ -450,27 +620,15 @@ pub fn sealed_box_encrypt(
     let shared_secret = ephemeral_secret.diffie_hellman(&recipient_pk);
     reject_low_order(shared_secret.as_bytes())?;
 
-    let (aes_key, aad) = sealed_box_kdf(
+    let (aead_key, aad) = sealed_box_kdf(
+        suite,
         ephemeral_public.as_bytes(),
         recipient_x25519_public,
         shared_secret.as_bytes(),
     )?;
 
-    let cipher = Aes256Gcm::new_from_slice(&aes_key)
-        .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
-
     let nonce_bytes: [u8; 12] = rand::random();
-    let nonce = Nonce::from_slice(&nonce_bytes);
-
-    let ciphertext = cipher
-        .encrypt(
-            nonce,
-            Payload {
-                msg: plaintext,
-                aad: &aad,
-            },
-        )
-        .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
+    let ciphertext = aead_encrypt(suite, &aead_key, &nonce_bytes, &aad, plaintext)?;
 
     Ok(SealedBox {
         ephemeral_public_key: ephemeral_public.as_bytes().to_vec(),
@@ -488,17 +646,23 @@ pub struct SealedBox {
     pub ciphertext: Vec<u8>,
 }
 
-/// Sealed-box decrypt using the recipient's X25519 private key.
+/// Sealed-box decrypt using the recipient's X25519 private key. `suite` must
+/// be the same suite the encrypting side selected (callers typically resolve
+/// it from the wire via [`resolve_aead_suite`]); a mismatched suite fails the
+/// HKDF/AAD binding rather than merely picking the wrong cipher, since the
+/// suite id is baked into the KDF context.
 ///
 /// 1. ECDH with the ephemeral public key and recipient's private key
 ///    (rejecting low-order / non-contributory results)
-/// 2. Derive AES-256 key via HKDF-SHA256, bound to tag + both public keys
-/// 3. Decrypt with AES-256-GCM, verifying the same context as AAD
+/// 2. Derive the AEAD key via HKDF-SHA256, bound to tag + suite id + both
+///    public keys
+/// 3. Decrypt with the negotiated suite, verifying the same context as AAD
 pub fn sealed_box_decrypt(
     ephemeral_public_key: &[u8],
     nonce: &[u8],
     ciphertext: &[u8],
     recipient_x25519_private: &[u8; 32],
+    suite: AeadSuite,
 ) -> Result<Vec<u8>, CryptoError> {
     let ephemeral_pk_bytes: [u8; 32] = ephemeral_public_key
         .try_into()
@@ -520,27 +684,16 @@ pub fn sealed_box_decrypt(
     reject_low_order(shared_secret.as_bytes())
         .map_err(|_| CryptoError::DecryptionFailed("non-contributory ephemeral key".to_string()))?;
 
-    // Must match the encrypt side: tag + both public keys, HKDF over the secret.
-    let (aes_key, aad) = sealed_box_kdf(
+    // Must match the encrypt side: tag + suite id + both public keys, HKDF over the secret.
+    let (aead_key, aad) = sealed_box_kdf(
+        suite,
         &ephemeral_pk_bytes,
         recipient_public.as_bytes(),
         shared_secret.as_bytes(),
     )
     .map_err(|_| CryptoError::DecryptionFailed("HKDF derivation failed".to_string()))?;
 
-    let cipher = Aes256Gcm::new_from_slice(&aes_key)
-        .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))?;
-    let gcm_nonce = Nonce::from_slice(&nonce_bytes);
-
-    cipher
-        .decrypt(
-            gcm_nonce,
-            Payload {
-                msg: ciphertext,
-                aad: &aad,
-            },
-        )
-        .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))
+    aead_decrypt(suite, &aead_key, &nonce_bytes, &aad, ciphertext)
 }
 
 /// Hash a password for storage using Argon2id, returning a PHC string
@@ -687,7 +840,7 @@ mod tests {
         let cipher = Aes256Gcm::new_from_slice(&derived).unwrap();
         let nonce_bytes = [9u8; 12];
         let ct = cipher
-            .encrypt(Nonce::from_slice(&nonce_bytes), key_bytes.as_slice())
+            .encrypt(AesGcmNonce::from_slice(&nonce_bytes), key_bytes.as_slice())
             .unwrap();
         let mut blob = Vec::new();
         blob.extend_from_slice(&salt);
@@ -712,17 +865,20 @@ mod tests {
 
     #[test]
     fn test_sealed_box_encrypt_decrypt_roundtrip() {
-        let (x_pub, x_priv) = x25519_pair();
-        let plaintext = b"hello sealed box";
-        let sealed = sealed_box_encrypt(plaintext, &x_pub).unwrap();
-        let decrypted = sealed_box_decrypt(
-            &sealed.ephemeral_public_key,
-            &sealed.nonce,
-            &sealed.ciphertext,
-            &x_priv,
-        )
-        .unwrap();
-        assert_eq!(plaintext.as_slice(), decrypted.as_slice());
+        for suite in [AeadSuite::Aes256Gcm, AeadSuite::ChaCha20Poly1305] {
+            let (x_pub, x_priv) = x25519_pair();
+            let plaintext = b"hello sealed box";
+            let sealed = sealed_box_encrypt(plaintext, &x_pub, suite).unwrap();
+            let decrypted = sealed_box_decrypt(
+                &sealed.ephemeral_public_key,
+                &sealed.nonce,
+                &sealed.ciphertext,
+                &x_priv,
+                suite,
+            )
+            .unwrap();
+            assert_eq!(plaintext.as_slice(), decrypted.as_slice(), "suite {suite}");
+        }
     }
 
     #[test]
@@ -730,12 +886,13 @@ mod tests {
         let (x_pub, _) = x25519_pair();
         let (_, x_priv_wrong) = x25519_pair();
         let plaintext = b"secret message";
-        let sealed = sealed_box_encrypt(plaintext, &x_pub).unwrap();
+        let sealed = sealed_box_encrypt(plaintext, &x_pub, AeadSuite::Aes256Gcm).unwrap();
         assert!(sealed_box_decrypt(
             &sealed.ephemeral_public_key,
             &sealed.nonce,
             &sealed.ciphertext,
-            &x_priv_wrong
+            &x_priv_wrong,
+            AeadSuite::Aes256Gcm,
         )
         .is_err());
     }
@@ -746,9 +903,15 @@ mod tests {
         // shared secret, which must be rejected rather than used as a key.
         let (x_pub, x_priv) = x25519_pair();
         let plaintext = b"secret";
-        let sealed = sealed_box_encrypt(plaintext, &x_pub).unwrap();
+        let sealed = sealed_box_encrypt(plaintext, &x_pub, AeadSuite::Aes256Gcm).unwrap();
         // Replace the ephemeral public key with an all-zero (low-order) point.
-        let result = sealed_box_decrypt(&[0u8; 32], &sealed.nonce, &sealed.ciphertext, &x_priv);
+        let result = sealed_box_decrypt(
+            &[0u8; 32],
+            &sealed.nonce,
+            &sealed.ciphertext,
+            &x_priv,
+            AeadSuite::Aes256Gcm,
+        );
         assert!(result.is_err());
     }
 
@@ -756,7 +919,7 @@ mod tests {
     fn test_sealed_box_decrypt_tampered_ciphertext_fails() {
         let (x_pub, x_priv) = x25519_pair();
         let plaintext = b"secret message";
-        let mut sealed = sealed_box_encrypt(plaintext, &x_pub).unwrap();
+        let mut sealed = sealed_box_encrypt(plaintext, &x_pub, AeadSuite::Aes256Gcm).unwrap();
         // Tamper with ciphertext
         if let Some(byte) = sealed.ciphertext.first_mut() {
             *byte ^= 0xff;
@@ -765,9 +928,53 @@ mod tests {
             &sealed.ephemeral_public_key,
             &sealed.nonce,
             &sealed.ciphertext,
-            &x_priv
+            &x_priv,
+            AeadSuite::Aes256Gcm,
         )
         .is_err());
+    }
+
+    #[test]
+    fn test_sealed_box_decrypt_wrong_suite_fails() {
+        // Decrypting with a different suite than was used to encrypt must fail:
+        // the suite id is baked into the KDF context/AAD, so a mismatched
+        // suite is indistinguishable from tampering.
+        let (x_pub, x_priv) = x25519_pair();
+        let plaintext = b"secret message";
+        let sealed = sealed_box_encrypt(plaintext, &x_pub, AeadSuite::Aes256Gcm).unwrap();
+        assert!(sealed_box_decrypt(
+            &sealed.ephemeral_public_key,
+            &sealed.nonce,
+            &sealed.ciphertext,
+            &x_priv,
+            AeadSuite::ChaCha20Poly1305,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn test_resolve_aead_suite_absent_defaults_to_baseline() {
+        assert_eq!(resolve_aead_suite(None).unwrap(), AeadSuite::Aes256Gcm);
+    }
+
+    #[test]
+    fn test_resolve_aead_suite_present_parses() {
+        assert_eq!(
+            resolve_aead_suite(Some("chacha20-poly1305")).unwrap(),
+            AeadSuite::ChaCha20Poly1305
+        );
+        assert_eq!(
+            resolve_aead_suite(Some("aes-256-gcm")).unwrap(),
+            AeadSuite::Aes256Gcm
+        );
+    }
+
+    #[test]
+    fn test_resolve_aead_suite_rejects_unknown() {
+        assert!(matches!(
+            resolve_aead_suite(Some("made-up-suite")),
+            Err(CryptoError::UnsupportedAlgorithm(_))
+        ));
     }
 
     #[test]
@@ -798,6 +1005,48 @@ mod tests {
         let phc = hash_password(&format!("{base}-suffix-one")).unwrap();
         assert!(verify_password(&format!("{base}-suffix-one"), &phc));
         assert!(!verify_password(&format!("{base}-suffix-two"), &phc));
+    }
+
+    #[test]
+    fn test_aead_suite_parse_and_as_str_roundtrip() {
+        for id in AeadSuite::all_supported() {
+            let suite = AeadSuite::parse_str(id).expect("registered id must parse");
+            assert_eq!(suite.as_str(), *id);
+        }
+    }
+
+    #[test]
+    fn test_aead_suite_parse_rejects_unknown() {
+        assert!(AeadSuite::parse_str("made-up-suite").is_none());
+        assert!(AeadSuite::parse_str("").is_none());
+        assert!(AeadSuite::parse_str("AES-256-GCM").is_none()); // exact-string registry, no case folding
+    }
+
+    #[test]
+    fn test_aead_suite_select_supported_prefers_first_match() {
+        let advertised = vec!["chacha20-poly1305".to_string(), "aes-256-gcm".to_string()];
+        assert_eq!(
+            AeadSuite::select_supported(&advertised),
+            Some(AeadSuite::ChaCha20Poly1305)
+        );
+    }
+
+    #[test]
+    fn test_aead_suite_select_supported_skips_unknown_entries() {
+        let advertised = vec!["made-up-suite".to_string(), "aes-256-gcm".to_string()];
+        assert_eq!(
+            AeadSuite::select_supported(&advertised),
+            Some(AeadSuite::Aes256Gcm)
+        );
+    }
+
+    #[test]
+    fn test_aead_suite_select_supported_never_picks_outside_advertised() {
+        // Never selects a suite this implementation supports if it wasn't
+        // actually advertised.
+        let advertised = vec!["made-up-suite".to_string()];
+        assert_eq!(AeadSuite::select_supported(&advertised), None);
+        assert_eq!(AeadSuite::select_supported(&[]), None);
     }
 
     #[test]

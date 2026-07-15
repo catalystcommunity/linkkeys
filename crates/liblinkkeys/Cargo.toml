@@ -19,10 +19,22 @@ serde_json = "1"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 aes-gcm = "0.10"
+# Optional second AEAD suite for negotiated encrypted-payload constructions
+# (dns-less-local-rp-design.md "Wire Precision: AEAD suite registry" —
+# aes-256-gcm above is the mandatory baseline, this is the optional second
+# suite). Pinned to the 0.10 generation to match aes-gcm 0.10's `aead` 0.5
+# dependency exactly — both are RustCrypto siblings sharing the same `aead`
+# crate types (Payload, KeyInit, Aead), so one negotiation/AAD code path
+# handles both ciphers without a version-skew footgun.
+chacha20poly1305 = "0.10"
 argon2 = "0.5"
 sha2 = "0.10"
 hkdf = "0.12"
 rand = "0.8"
+# Constant-time equality for nonce/state comparison (security review). Already
+# in the tree transitively via the dalek/RustCrypto stack; the standard,
+# audited choice for timing-safe byte comparison, and WASM-clean.
+subtle = "2"
 
 # Encoding
 base64ct = { version = "1", features = ["alloc"] }

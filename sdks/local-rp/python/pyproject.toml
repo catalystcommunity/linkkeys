@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "linkkeys-local-rp"
+version = "0.1.0"
+description = "LinkKeys DNS-less local RP identity SDK (Python)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    # Ed25519, X25519, AES-256-GCM, ChaCha20-Poly1305, HKDF, raw key
+    # import/export -- the Python standard library has none of these.
+    # Design doc's language matrix explicitly names `cryptography` for
+    # this row.
+    "cryptography>=41",
+    # DNS TXT lookups (`_linkkeys.*` / `_linkkeys_apis.*`) -- the standard
+    # library's `socket` module cannot do TXT queries. Design doc's
+    # language matrix explicitly sanctions `dnspython` for this.
+    "dnspython>=2.4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+include = ["linkkeys_local_rp*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

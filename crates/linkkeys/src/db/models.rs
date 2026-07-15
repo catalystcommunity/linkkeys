@@ -58,6 +58,10 @@ pub struct UserPurgeSummary {
     pub release_prefs_deleted: usize,
     pub email_verifications_deleted: usize,
     pub reviews_resolved: usize,
+    /// Outstanding DNS-less local RP claim tickets deleted for this user
+    /// (dns-less-local-rp-design.md Phase 4 finding: purge minimizes the
+    /// `users` row rather than deleting it, so the FK never cascades away).
+    pub local_rp_claim_tickets_deleted: usize,
 }
 
 /// Auth credential model. Stores hashed credentials per user per auth method.
@@ -310,6 +314,64 @@ pub struct PeerKey {
     pub expires_at: String,
     /// RFC3339 if the issuer revoked the key; honoured at verify time.
     pub revoked_at: Option<String>,
+}
+
+/// This domain's admission policy for DNS-less local RP browser logins. A
+/// deployment serves a single domain, so in practice there is at most one
+/// row, keyed by that domain's own name (mirrors `DomainKeyPin`'s
+/// domain-keyed shape). Vocabulary: `"disabled"` | `"admin-approval-required"`
+/// | `"allow-by-default"`. An absent row means the default
+/// (`admin-approval-required`) — see `DbPool::effective_local_rp_policy`.
+#[derive(Debug, Clone)]
+pub struct LocalRpDomainPolicy {
+    pub domain: String,
+    pub policy: String,
+}
+
+/// A local RP identity's approval-registry row. Identity is `fingerprint`
+/// alone (sha256 hex of the RP's Ed25519 signing public key,
+/// `liblinkkeys::crypto::fingerprint`) — `app_name`/`local_domain_hint` are
+/// display/audit metadata only, never identity; a changed value on an
+/// already-known fingerprint is a drift warning, not a re-identification
+/// (see `services::local_rp::record_login_attempt`).
+/// `status`: `"pending"` | `"approved"` | `"denied"` | `"revoked"`.
+#[derive(Debug, Clone)]
+pub struct LocalRp {
+    pub fingerprint: String,
+    pub signing_public_key: Vec<u8>,
+    pub encryption_public_key: Vec<u8>,
+    pub app_name: String,
+    pub local_domain_hint: Option<String>,
+    pub status: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub expires_at: Option<String>,
+    pub last_seen_at: Option<String>,
+    pub admin_notes: Option<String>,
+    /// The user id whose authenticated login attempt first created this
+    /// (originally pending) row, for the per-user pending-queue cap
+    /// (`crate::services::local_rp::MAX_PENDING_LOCAL_RPS_PER_USER`). `None`
+    /// for rows created via a path that doesn't attribute a user (e.g.
+    /// allow-by-default's immediate approval, or a pre-migration row) — such
+    /// rows still count toward the global cap but not any per-user one.
+    pub first_seen_by_user_id: Option<String>,
+}
+
+/// A claim-get ticket issued at the end of a successful local RP login. Only
+/// the SHA-256 hex of the 32 random ticket bytes is ever stored
+/// (`ticket_hash`, via `liblinkkeys::crypto::fingerprint`) — the raw ticket
+/// never touches the database or logs. `granted_claims` is the consent-frozen
+/// claim-type-name set; redemption returns claim *values* as of redemption
+/// time (see `services::local_rp::redeem_ticket`).
+#[derive(Debug, Clone)]
+pub struct LocalRpClaimTicket {
+    pub ticket_hash: String,
+    pub fingerprint: String,
+    pub user_id: String,
+    pub user_domain: String,
+    pub granted_claims: Vec<String>,
+    pub issued_at: String,
+    pub expires_at: String,
 }
 
 /// Parse a JSON `[String]` column. A parse failure (only reachable via DB
@@ -1106,6 +1168,111 @@ pub mod pg {
             }
         }
     }
+
+    // -- Local RP (DNS-less local RP identity) --
+
+    #[derive(Queryable, Selectable, Insertable, AsChangeset)]
+    #[diesel(table_name = crate::schema::pg::local_rp_domain_policy)]
+    #[diesel(primary_key(domain))]
+    pub struct LocalRpDomainPolicyRow {
+        pub domain: String,
+        pub policy: String,
+    }
+
+    impl From<LocalRpDomainPolicyRow> for super::LocalRpDomainPolicy {
+        fn from(r: LocalRpDomainPolicyRow) -> Self {
+            Self {
+                domain: r.domain,
+                policy: r.policy,
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::pg::local_rps)]
+    pub struct LocalRpRow {
+        pub fingerprint: String,
+        pub signing_public_key: Vec<u8>,
+        pub encryption_public_key: Vec<u8>,
+        pub app_name: String,
+        pub local_domain_hint: Option<String>,
+        pub status: String,
+        pub created_at: chrono::DateTime<chrono::Utc>,
+        pub updated_at: chrono::DateTime<chrono::Utc>,
+        pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        pub last_seen_at: Option<chrono::DateTime<chrono::Utc>>,
+        pub admin_notes: Option<String>,
+        pub first_seen_by_user_id: Option<uuid::Uuid>,
+    }
+
+    impl From<LocalRpRow> for super::LocalRp {
+        fn from(r: LocalRpRow) -> Self {
+            Self {
+                fingerprint: r.fingerprint,
+                signing_public_key: r.signing_public_key,
+                encryption_public_key: r.encryption_public_key,
+                app_name: r.app_name,
+                local_domain_hint: r.local_domain_hint,
+                status: r.status,
+                created_at: r.created_at.to_rfc3339(),
+                updated_at: r.updated_at.to_rfc3339(),
+                expires_at: r.expires_at.map(|t| t.to_rfc3339()),
+                last_seen_at: r.last_seen_at.map(|t| t.to_rfc3339()),
+                admin_notes: r.admin_notes,
+                first_seen_by_user_id: r.first_seen_by_user_id.map(|u| u.to_string()),
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::pg::local_rps)]
+    pub struct NewLocalRpRow {
+        pub fingerprint: String,
+        pub signing_public_key: Vec<u8>,
+        pub encryption_public_key: Vec<u8>,
+        pub app_name: String,
+        pub local_domain_hint: Option<String>,
+        pub status: String,
+        pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        pub first_seen_by_user_id: Option<uuid::Uuid>,
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::pg::local_rp_claim_tickets)]
+    pub struct LocalRpClaimTicketRow {
+        pub ticket_hash: String,
+        pub fingerprint: String,
+        pub user_id: uuid::Uuid,
+        pub user_domain: String,
+        pub granted_claims: String,
+        pub issued_at: chrono::DateTime<chrono::Utc>,
+        pub expires_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    impl From<LocalRpClaimTicketRow> for super::LocalRpClaimTicket {
+        fn from(r: LocalRpClaimTicketRow) -> Self {
+            Self {
+                ticket_hash: r.ticket_hash,
+                fingerprint: r.fingerprint,
+                user_id: r.user_id.to_string(),
+                user_domain: r.user_domain,
+                granted_claims: super::parse_json_types("granted_claims", &r.granted_claims),
+                issued_at: r.issued_at.to_rfc3339(),
+                expires_at: r.expires_at.to_rfc3339(),
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::pg::local_rp_claim_tickets)]
+    pub struct NewLocalRpClaimTicketRow {
+        pub ticket_hash: String,
+        pub fingerprint: String,
+        pub user_id: uuid::Uuid,
+        pub user_domain: String,
+        pub granted_claims: String,
+        pub expires_at: chrono::DateTime<chrono::Utc>,
+    }
 }
 
 #[cfg(feature = "sqlite")]
@@ -1883,5 +2050,110 @@ pub mod sqlite {
                 revoked_at: r.revoked_at,
             }
         }
+    }
+
+    // -- Local RP (DNS-less local RP identity) --
+
+    #[derive(Queryable, Selectable, Insertable, AsChangeset)]
+    #[diesel(table_name = crate::schema::sqlite::local_rp_domain_policy)]
+    #[diesel(primary_key(domain))]
+    pub struct LocalRpDomainPolicyRow {
+        pub domain: String,
+        pub policy: String,
+    }
+
+    impl From<LocalRpDomainPolicyRow> for super::LocalRpDomainPolicy {
+        fn from(r: LocalRpDomainPolicyRow) -> Self {
+            Self {
+                domain: r.domain,
+                policy: r.policy,
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::sqlite::local_rps)]
+    pub struct LocalRpRow {
+        pub fingerprint: String,
+        pub signing_public_key: Vec<u8>,
+        pub encryption_public_key: Vec<u8>,
+        pub app_name: String,
+        pub local_domain_hint: Option<String>,
+        pub status: String,
+        pub created_at: String,
+        pub updated_at: String,
+        pub expires_at: Option<String>,
+        pub last_seen_at: Option<String>,
+        pub admin_notes: Option<String>,
+        pub first_seen_by_user_id: Option<String>,
+    }
+
+    impl From<LocalRpRow> for super::LocalRp {
+        fn from(r: LocalRpRow) -> Self {
+            Self {
+                fingerprint: r.fingerprint,
+                signing_public_key: r.signing_public_key,
+                encryption_public_key: r.encryption_public_key,
+                app_name: r.app_name,
+                local_domain_hint: r.local_domain_hint,
+                status: r.status,
+                created_at: r.created_at,
+                updated_at: r.updated_at,
+                expires_at: r.expires_at,
+                last_seen_at: r.last_seen_at,
+                admin_notes: r.admin_notes,
+                first_seen_by_user_id: r.first_seen_by_user_id,
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::local_rps)]
+    pub struct NewLocalRpRow {
+        pub fingerprint: String,
+        pub signing_public_key: Vec<u8>,
+        pub encryption_public_key: Vec<u8>,
+        pub app_name: String,
+        pub local_domain_hint: Option<String>,
+        pub status: String,
+        pub expires_at: Option<String>,
+        pub first_seen_by_user_id: Option<String>,
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::sqlite::local_rp_claim_tickets)]
+    pub struct LocalRpClaimTicketRow {
+        pub ticket_hash: String,
+        pub fingerprint: String,
+        pub user_id: String,
+        pub user_domain: String,
+        pub granted_claims: String,
+        pub issued_at: String,
+        pub expires_at: String,
+    }
+
+    impl From<LocalRpClaimTicketRow> for super::LocalRpClaimTicket {
+        fn from(r: LocalRpClaimTicketRow) -> Self {
+            Self {
+                ticket_hash: r.ticket_hash,
+                fingerprint: r.fingerprint,
+                user_id: r.user_id,
+                user_domain: r.user_domain,
+                granted_claims: super::parse_json_types("granted_claims", &r.granted_claims),
+                issued_at: r.issued_at,
+                expires_at: r.expires_at,
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::local_rp_claim_tickets)]
+    pub struct NewLocalRpClaimTicketRow {
+        pub ticket_hash: String,
+        pub fingerprint: String,
+        pub user_id: String,
+        pub user_domain: String,
+        pub granted_claims: String,
+        pub expires_at: String,
     }
 }

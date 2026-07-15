@@ -735,6 +735,15 @@ fn dispatch(
                 claims: scoped,
             }))
         }
+        // DNS-less local RP claim-ticket redemption (dns-less-local-rp-design.md,
+        // Phase 5). Unauthenticated at the transport layer like DomainKeys/Ops
+        // and Attestation/deposit-claim — authentication is the application-
+        // layer possession proof: the request is signed with the local RP's
+        // own Ed25519 signing key, verified against the STORED key for the
+        // claimed fingerprint (never a key supplied in the request).
+        ("LocalRp", "redeem-claim-ticket") => {
+            dispatch_local_rp_redeem_claim_ticket(&envelope.payload, db_pool)
+        }
         ("Admin", op) => {
             let user = match authenticate_tcp_request(&envelope.auth, db_pool) {
                 Ok(u) => u,
@@ -903,6 +912,161 @@ fn dispatch_admin_recheck_pins(
     ))
 }
 
+/// Whether a ticket-redemption request's `issued_at` is within the design's
+/// bounded clock-skew tolerance of `now` (`liblinkkeys::local_rp::
+/// DEFAULT_CLOCK_SKEW_SECONDS`, ±300s). `LocalRpTicketRedemptionRequest` has
+/// no `expires_at` (unlike the login/callback structures) — freshness is a
+/// single-sided window around `issued_at`, checked here rather than via
+/// `liblinkkeys::local_rp::check_timestamps` (which expects an
+/// issued/expires pair).
+fn ticket_redemption_issued_at_fresh(issued_at: &str, now: chrono::DateTime<chrono::Utc>) -> bool {
+    let Ok(issued) = chrono::DateTime::parse_from_rfc3339(issued_at) else {
+        return false;
+    };
+    let issued = issued.with_timezone(&chrono::Utc);
+    (now - issued).num_seconds().abs() <= liblinkkeys::local_rp::DEFAULT_CLOCK_SKEW_SECONDS
+}
+
+/// `LocalRp/redeem-claim-ticket` (dns-less-local-rp-design.md, Phase 5).
+/// Order matters (Wire Precision, "Service and authorization placement" +
+/// Phase 5 notes):
+/// 1. decode (cheap CBOR, no crypto)
+/// 2. peek at the unverified inner request only to learn which fingerprint
+///    to look up
+/// 3. look up the local RP row by that fingerprint; reject unless `approved`
+/// 4. verify the envelope signature against the STORED signing key
+///    (possession proof — never a key supplied in the request)
+/// 5. rate-limit, keyed on the now-POSSESSION-PROVEN fingerprint. The debit
+///    deliberately happens only after the signature verifies: the fingerprint
+///    in the request is attacker-chosen, so metering before the proof would
+///    let anyone who can reach the TCP port spam a *victim's* fingerprint
+///    and exhaust the legitimate app's bucket — a cheap remote DoS of a
+///    specific local RP. Placed here, only the actual key holder can ever
+///    consume its own bucket. The unverified path's worst-case cost is one
+///    indexed PK lookup plus one Ed25519 verify, matching the cost posture
+///    of the other unauthenticated ops (get-domain-keys already does
+///    unmetered DB reads).
+/// 6. check `issued_at` freshness
+/// 7. redeem the ticket via the Phase 4 path (hash, POSSESSION-PROVEN
+///    fingerprint binding, expiry + approval re-check) — the fingerprint
+///    check is what stops RP B from redeeming a ticket issued to RP A merely
+///    by learning A's ticket bytes; only the RP the ticket was actually
+///    issued to may ever redeem it
+/// 8. reject a deactivated/purged ticket owner (Phase 4 finding: purge
+///    minimizes rather than deletes the user row, so the ticket's FK never
+///    cascades away on purge — this is the backstop)
+/// 9. assemble the consent-frozen claim set at current values, with their
+///    existing per-claim signatures, reusing the same
+///    `list_active_claims` + `scope_claims` pattern `Identity/get-user-info`
+///    and `Account/get-my-info` already use.
+fn dispatch_local_rp_redeem_claim_ticket(payload: &[u8], db_pool: &DbPool) -> Vec<u8> {
+    let signed =
+        match liblinkkeys::generated::decode_signed_local_rp_ticket_redemption_request(payload) {
+            Ok(s) => s,
+            Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+        };
+
+    // Cheap peek at the still-unverified inner request, only to learn which
+    // fingerprint to look up. This is a plain CBOR decode, not a signature
+    // check: a caller cannot gain anything by lying about the fingerprint
+    // here, since the signature verified below must match the STORED key for
+    // whatever fingerprint is actually looked up.
+    let claimed =
+        match liblinkkeys::generated::decode_local_rp_ticket_redemption_request(&signed.request) {
+            Ok(r) => r,
+            Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+        };
+
+    let rp = match db_pool.find_local_rp(&claimed.fingerprint) {
+        Ok(Some(rp)) => rp,
+        Ok(None) => return error_response(5, "Unknown local RP"),
+        Err(e) => return error_response(4, &db_error_message(e)),
+    };
+    if rp.status != crate::db::local_rp::STATUS_APPROVED {
+        return error_response(5, "Local RP is not approved");
+    }
+
+    let request = match liblinkkeys::local_rp::verify_local_rp_ticket_redemption_request(
+        &signed,
+        &rp.signing_public_key,
+        &rp.fingerprint,
+    ) {
+        Ok(r) => r,
+        Err(_) => return error_response(5, "Ticket redemption signature verification failed"),
+    };
+
+    // Only a possession-proven request may consume the RP's bucket (see the
+    // ordering rationale in the doc comment above).
+    if !crate::services::ratelimit::TICKET_REDEMPTION.check(&rp.fingerprint) {
+        return error_response(
+            5,
+            "Too many ticket redemption attempts. Please wait and try again.",
+        );
+    }
+
+    let now = chrono::Utc::now();
+    if !ticket_redemption_issued_at_fresh(&request.issued_at, now) {
+        return error_response(5, "Ticket redemption request is not fresh");
+    }
+
+    // Never log the raw ticket bytes; only its hash ever leaves this scope.
+    // `rp.fingerprint` is the caller's POSSESSION-PROVEN identity (the
+    // signature above already verified against the STORED key for this
+    // fingerprint) — passing it into `redeem_ticket` is what binds redemption
+    // to the redeeming RP, not merely to whoever knows the ticket bytes.
+    let ticket_hash = liblinkkeys::crypto::fingerprint(&request.claim_ticket);
+    let ticket =
+        match crate::services::local_rp::redeem_ticket(db_pool, &ticket_hash, &rp.fingerprint, now)
+        {
+            Ok(t) => t,
+            Err(crate::services::local_rp::TicketRedeemError::NotFound) => {
+                return error_response(5, "Claim ticket not found")
+            }
+            // Deliberately the SAME message/status as `NotFound`: a ticket bound
+            // to a different RP must not be distinguishable from a ticket that
+            // doesn't exist, or the error would be a fingerprint-guessing oracle.
+            Err(crate::services::local_rp::TicketRedeemError::FingerprintMismatch) => {
+                return error_response(5, "Claim ticket not found")
+            }
+            Err(crate::services::local_rp::TicketRedeemError::Expired) => {
+                return error_response(5, "Claim ticket has expired")
+            }
+            Err(crate::services::local_rp::TicketRedeemError::RpNotApproved(_)) => {
+                return error_response(5, "Local RP is not approved")
+            }
+            Err(crate::services::local_rp::TicketRedeemError::Db(e)) => {
+                return error_response(4, &db_error_message(e))
+            }
+        };
+
+    let user = match db_pool.find_user_by_id(&ticket.user_id) {
+        Ok(u) => u,
+        Err(_) => return error_response(4, "User not found"),
+    };
+    if !user.is_active || user.purged_at.is_some() {
+        return error_response(5, "User is deactivated or purged");
+    }
+
+    let claims = match db_pool.list_active_claims(&ticket.user_id) {
+        Ok(c) => c,
+        Err(e) => return error_response(4, &db_error_message(e)),
+    };
+    let all_claims: Vec<liblinkkeys::generated::types::Claim> =
+        claims.iter().map(Into::into).collect();
+    let scoped = liblinkkeys::consent::scope_claims(&all_claims, &ticket.granted_claims);
+
+    ok_response(
+        liblinkkeys::generated::encode_local_rp_ticket_redemption_response(
+            &liblinkkeys::generated::types::LocalRpTicketRedemptionResponse {
+                user_id: ticket.user_id,
+                user_domain: ticket.user_domain,
+                claims: scoped,
+                ticket_expires_at: ticket.expires_at,
+            },
+        ),
+    )
+}
+
 fn dispatch_admin(op: &str, payload: &[u8], db_pool: &DbPool) -> Vec<u8> {
     use crate::services::admin;
     use liblinkkeys::generated::codec;
@@ -1005,6 +1169,42 @@ fn dispatch_admin(op: &str, payload: &[u8], db_pool: &DbPool) -> Vec<u8> {
             codec::decode_check_permission_request,
             admin::check_permission_handler,
             codec::encode_check_permission_response
+        ),
+        // DNS-less local RP admin surface (dns-less-local-rp-design.md, Phase 7).
+        "list-local-rps" => admin_op!(
+            codec::decode_list_local_rps_request,
+            admin::list_local_rps,
+            codec::encode_list_local_rps_response
+        ),
+        "get-local-rp" => admin_op!(
+            codec::decode_get_local_rp_request,
+            admin::get_local_rp,
+            codec::encode_get_local_rp_response
+        ),
+        "approve-local-rp" => admin_op!(
+            codec::decode_approve_local_rp_request,
+            admin::approve_local_rp,
+            codec::encode_approve_local_rp_response
+        ),
+        "deny-local-rp" => admin_op!(
+            codec::decode_deny_local_rp_request,
+            admin::deny_local_rp,
+            codec::encode_deny_local_rp_response
+        ),
+        "revoke-local-rp" => admin_op!(
+            codec::decode_revoke_local_rp_request,
+            admin::revoke_local_rp,
+            codec::encode_revoke_local_rp_response
+        ),
+        "get-local-rp-policy" => admin_op!(
+            codec::decode_get_local_rp_policy_request,
+            admin::get_local_rp_policy,
+            codec::encode_get_local_rp_policy_response
+        ),
+        "set-local-rp-policy" => admin_op!(
+            codec::decode_set_local_rp_policy_request,
+            admin::set_local_rp_policy,
+            codec::encode_set_local_rp_policy_response
         ),
         _ => error_response(3, &format!("Unknown Admin operation: {}", op)),
     }

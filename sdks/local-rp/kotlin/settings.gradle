@@ -1,0 +1,9 @@
+rootProject.name = 'linkkeys-local-rp-kotlin'
+
+// Architecture decision (see README.md, "Architecture decision"): rather than
+// re-implementing the hand-written CBOR codec and JCA crypto adapter a
+// second time, this SDK depends on the sibling Java SDK project
+// (sdks/local-rp/java) via a Gradle composite build and wraps it in an
+// idiomatic Kotlin surface. This include is read-only from this project's
+// point of view -- nothing here modifies the Java project.
+includeBuild('../java')

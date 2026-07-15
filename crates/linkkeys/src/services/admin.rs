@@ -2,15 +2,19 @@ use std::env;
 
 use liblinkkeys::generated::services::ServiceError;
 use liblinkkeys::generated::types::{
-    AdminUser, AuthenticateRequest, AuthenticateResponse, CheckPermissionRequest,
-    CheckPermissionResponse, Claim, CreateUserRequest, CreateUserResponse, DeactivateUserRequest,
-    DeactivateUserResponse, GetUserRequest, GetUserResponse, GrantRelationRequest,
-    GrantRelationResponse, ListRelationsRequest, ListRelationsResponse,
-    ListSettablePoliciesResponse, ListUserClaimsRequest, ListUserClaimsResponse, ListUsersRequest,
-    ListUsersResponse, RemoveClaimRequest, RemoveClaimResponse, RemoveCredentialRequest,
-    RemoveCredentialResponse, RemoveRelationRequest, RemoveRelationResponse, ResetPasswordRequest,
-    ResetPasswordResponse, SetClaimRequest, SetClaimResponse, SetUserClaimRequest,
-    SetUserClaimResponse, SettableClaimPolicy, UpdateUserRequest, UpdateUserResponse,
+    AdminLocalRp, AdminUser, ApproveLocalRpRequest, ApproveLocalRpResponse, AuthenticateRequest,
+    AuthenticateResponse, CheckPermissionRequest, CheckPermissionResponse, Claim,
+    CreateUserRequest, CreateUserResponse, DeactivateUserRequest, DeactivateUserResponse,
+    DenyLocalRpRequest, DenyLocalRpResponse, GetLocalRpPolicyRequest, GetLocalRpPolicyResponse,
+    GetLocalRpRequest, GetLocalRpResponse, GetUserRequest, GetUserResponse, GrantRelationRequest,
+    GrantRelationResponse, ListLocalRpsRequest, ListLocalRpsResponse, ListRelationsRequest,
+    ListRelationsResponse, ListSettablePoliciesResponse, ListUserClaimsRequest,
+    ListUserClaimsResponse, ListUsersRequest, ListUsersResponse, RemoveClaimRequest,
+    RemoveClaimResponse, RemoveCredentialRequest, RemoveCredentialResponse, RemoveRelationRequest,
+    RemoveRelationResponse, ResetPasswordRequest, ResetPasswordResponse, RevokeLocalRpRequest,
+    RevokeLocalRpResponse, SetClaimRequest, SetClaimResponse, SetLocalRpPolicyRequest,
+    SetLocalRpPolicyResponse, SetUserClaimRequest, SetUserClaimResponse, SettableClaimPolicy,
+    UpdateUserRequest, UpdateUserResponse,
 };
 
 use crate::db::models;
@@ -522,4 +526,183 @@ pub fn check_permission_handler(
         )
         .map_err(db_err)?;
     Ok(CheckPermissionResponse { allowed })
+}
+
+// -- DNS-less local RP admin surface (dns-less-local-rp-design.md, Phase 7) --
+//
+// Approval keys on the fingerprint alone (design doc: "Admin approval keys on
+// the local RP fingerprint alone"). `app_name`/`local_domain_hint` are
+// display/audit metadata only: `AdminLocalRp` always reflects the most
+// recently *reported* values (whatever a login attempt last sent), plus
+// `created_at` (first-seen) and `last_seen_at` for admins to judge freshness.
+//
+// Metadata drift itself (old value vs. newly reported value on a repeat
+// attempt) is detected by `crate::services::local_rp::record_login_attempt`
+// but is only `log::warn!`'d at that call site (see `web/local_rp_ui.rs`) —
+// it is not persisted anywhere. There is deliberately no new column/table for
+// drift history in this phase (no migrations without being truly forced);
+// admins reviewing a fingerprint here see current metadata and first/last
+// seen timestamps, not a historical diff. If persistent drift history is
+// needed later, that is a schema addition for a future phase, not this one.
+fn local_rp_to_admin(rp: &crate::db::models::LocalRp) -> AdminLocalRp {
+    AdminLocalRp {
+        fingerprint: rp.fingerprint.clone(),
+        signing_public_key: rp.signing_public_key.clone(),
+        encryption_public_key: rp.encryption_public_key.clone(),
+        app_name: rp.app_name.clone(),
+        local_domain_hint: rp.local_domain_hint.clone(),
+        status: rp.status.clone(),
+        created_at: rp.created_at.clone(),
+        updated_at: rp.updated_at.clone(),
+        expires_at: rp.expires_at.clone(),
+        last_seen_at: rp.last_seen_at.clone(),
+        admin_notes: rp.admin_notes.clone(),
+    }
+}
+
+/// List local RP identities, optionally filtered to one `status`
+/// (pending/approved/denied/revoked), oldest-first. `offset`/`limit` page the
+/// in-memory result: the registry is bounded (pending entries are capped at
+/// `crate::services::local_rp::MAX_PENDING_LOCAL_RPS`; other statuses are a
+/// human-reviewed admin queue), so DB-level pagination is not worth the added
+/// storage-layer surface yet.
+pub fn list_local_rps(
+    pool: &DbPool,
+    req: ListLocalRpsRequest,
+) -> Result<ListLocalRpsResponse, ServiceError> {
+    let all = pool.list_local_rps(req.status.as_deref()).map_err(db_err)?;
+    let offset = req.offset.unwrap_or(0).max(0) as usize;
+    let limit = req
+        .limit
+        .and_then(|l| usize::try_from(l).ok())
+        .unwrap_or(usize::MAX);
+    let local_rps = all
+        .iter()
+        .skip(offset)
+        .take(limit)
+        .map(local_rp_to_admin)
+        .collect();
+    Ok(ListLocalRpsResponse { local_rps })
+}
+
+pub fn get_local_rp(
+    pool: &DbPool,
+    req: GetLocalRpRequest,
+) -> Result<GetLocalRpResponse, ServiceError> {
+    let rp = pool
+        .find_local_rp(&req.fingerprint)
+        .map_err(db_err)?
+        .ok_or_else(|| ServiceError {
+            code: 404,
+            message: "Local RP not found".to_string(),
+        })?;
+    Ok(GetLocalRpResponse {
+        local_rp: local_rp_to_admin(&rp),
+    })
+}
+
+/// Shared transition plumbing for approve/deny/revoke: delegates the
+/// from/to validity matrix to `crate::services::local_rp::transition_status`
+/// (which also handles revoke's claim-ticket cleanup) and maps its error
+/// cases onto `ServiceError`.
+fn transition_local_rp(
+    pool: &DbPool,
+    fingerprint: &str,
+    to: &str,
+    admin_notes: Option<&str>,
+) -> Result<AdminLocalRp, ServiceError> {
+    crate::services::local_rp::transition_status(pool, fingerprint, to, admin_notes)
+        .map(|rp| local_rp_to_admin(&rp))
+        .map_err(|e| match e {
+            crate::services::local_rp::StatusTransitionError::NotFound => ServiceError {
+                code: 404,
+                message: "Local RP not found".to_string(),
+            },
+            crate::services::local_rp::StatusTransitionError::Invalid { from, to } => {
+                let from = if from.is_empty() {
+                    "not a recognised transition target".to_string()
+                } else {
+                    from
+                };
+                ServiceError {
+                    code: 400,
+                    message: format!("invalid local RP status transition: {} -> {}", from, to),
+                }
+            }
+            crate::services::local_rp::StatusTransitionError::Db(e) => db_err(e),
+        })
+}
+
+/// Approve a local RP fingerprint: pending or previously-denied only (an
+/// admin may change their mind on a denial).
+pub fn approve_local_rp(
+    pool: &DbPool,
+    req: ApproveLocalRpRequest,
+) -> Result<ApproveLocalRpResponse, ServiceError> {
+    let local_rp = transition_local_rp(
+        pool,
+        &req.fingerprint,
+        crate::db::local_rp::STATUS_APPROVED,
+        req.admin_notes.as_deref(),
+    )?;
+    Ok(ApproveLocalRpResponse { local_rp })
+}
+
+/// Deny a pending local RP fingerprint.
+pub fn deny_local_rp(
+    pool: &DbPool,
+    req: DenyLocalRpRequest,
+) -> Result<DenyLocalRpResponse, ServiceError> {
+    let local_rp = transition_local_rp(
+        pool,
+        &req.fingerprint,
+        crate::db::local_rp::STATUS_DENIED,
+        req.admin_notes.as_deref(),
+    )?;
+    Ok(DenyLocalRpResponse { local_rp })
+}
+
+/// Revoke a previously-approved local RP fingerprint. Revocation is terminal
+/// (no un-revoking): it stops future logins and deletes the RP's outstanding
+/// claim tickets, but sessions an app already minted from earlier logins are
+/// the app's own to manage — revocation does not reach into app sessions.
+pub fn revoke_local_rp(
+    pool: &DbPool,
+    req: RevokeLocalRpRequest,
+) -> Result<RevokeLocalRpResponse, ServiceError> {
+    let local_rp = transition_local_rp(
+        pool,
+        &req.fingerprint,
+        crate::db::local_rp::STATUS_REVOKED,
+        req.admin_notes.as_deref(),
+    )?;
+    Ok(RevokeLocalRpResponse { local_rp })
+}
+
+/// This domain's local-RP admission policy (dns-less-local-rp-design.md,
+/// "Server Work"/"CSIL Work": "Domain policy APIs/CLI/config to set local RP
+/// mode"). Like every other Admin op this acts on the caller's own domain —
+/// there is no domain parameter. Returns the *effective* policy: the stored
+/// value, or `crate::db::local_rp::DEFAULT_POLICY`
+/// ("admin-approval-required") when the domain has never set one explicitly.
+pub fn get_local_rp_policy(
+    pool: &DbPool,
+    _req: GetLocalRpPolicyRequest,
+) -> Result<GetLocalRpPolicyResponse, ServiceError> {
+    let policy = pool.effective_local_rp_policy().map_err(db_err)?;
+    Ok(GetLocalRpPolicyResponse { policy })
+}
+
+/// Set this domain's local-RP admission policy. `DbPool::
+/// set_local_rp_domain_policy` validates `req.policy` against the recognised
+/// vocabulary (`disabled` / `admin-approval-required` / `allow-by-default`,
+/// see `crate::db::local_rp::is_valid_policy`) and rejects anything else with
+/// an error string, mapped here to a 400 rather than an internal error.
+pub fn set_local_rp_policy(
+    pool: &DbPool,
+    req: SetLocalRpPolicyRequest,
+) -> Result<SetLocalRpPolicyResponse, ServiceError> {
+    pool.set_local_rp_domain_policy(&req.policy)
+        .map_err(|message| ServiceError { code: 400, message })?;
+    Ok(SetLocalRpPolicyResponse { policy: req.policy })
 }

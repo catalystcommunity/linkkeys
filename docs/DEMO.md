@@ -15,7 +15,8 @@ Three services run together:
 
 ```
 Browser -> Demo App POST /login
-  Demo App -> RP POST /v1alpha/sign-request.json  (sign auth request)
+  Demo App -> RP  TCP Rp/sign-request  (sign auth request; API key in the
+                                        CSIL-RPC envelope's auth field)
   <- 302 redirect to IDP /auth/authorize?...&relying_party=...&signed_request=...
 
 Browser -> IDP GET /auth/authorize  (verifies signed request, shows login form)
@@ -23,11 +24,16 @@ Browser -> IDP POST /auth/authorize  (authenticate, encrypt token for RP)
   <- 302 redirect to Demo App /callback?encrypted_token=...
 
 Browser -> Demo App GET /callback?encrypted_token=...
-  Demo App -> RP POST /v1alpha/decrypt-token.json   (decrypt the token)
-  Demo App -> RP POST /v1alpha/verify-assertion.json (verify against IDP's keys)
-  Demo App -> IDP POST /v1alpha/userinfo.json        (get user info + claims)
+  Demo App -> RP  TCP Rp/decrypt-token     (decrypt the token)
+  Demo App -> RP  TCP Rp/verify-assertion  (verify against IDP's keys;
+                                            RP makes the onward S2S call)
+  Demo App -> RP  TCP Rp/userinfo-fetch    (get user info + claims)
   <- Set session cookie, redirect to /
 ```
+
+All Demo App -> RP calls are TCP CSIL-RPC via the `Rp` service (see
+`demoappsite/src/main.rs`, which uses `linkkeys-rpc-client`). The old
+`POST /v1alpha/*.json` HTTP routes were removed when S2S moved to TCP.
 
 ## Prerequisites
 
@@ -71,8 +77,9 @@ export ENABLE_API_KEY_AUTH=true
 export ENABLE_PASSWORD_AUTH=false
 
 cargo run --bin linkkeys -- domain init
-cargo run --bin linkkeys -- user create demoapp "Demo App Service" --api-key
-# Save the printed API key!
+cargo run --bin linkkeys -- user create demoapp "Demo App Service" --api-key --relation api_access
+# Save the printed API key! (api_access is required for the Rp service ops
+# and is not auto-provisioned.)
 
 cargo run --bin linkkeys -- serve
 ```

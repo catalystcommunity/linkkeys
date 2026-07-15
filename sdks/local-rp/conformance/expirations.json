@@ -1,0 +1,85 @@
+{
+  "check_expirations": {
+    "cases": [
+      {
+        "expected_level": "ok",
+        "now": "2035-07-02T00:00:00+00:00"
+      },
+      {
+        "expected_level": "notice",
+        "now": "2035-07-03T00:00:00+00:00"
+      },
+      {
+        "expected_level": "notice",
+        "now": "2035-07-04T00:00:00+00:00"
+      },
+      {
+        "expected_level": "notice",
+        "now": "2035-09-30T00:00:00+00:00"
+      },
+      {
+        "expected_level": "warning",
+        "now": "2035-10-01T00:00:00+00:00"
+      },
+      {
+        "expected_level": "warning",
+        "now": "2035-10-02T00:00:00+00:00"
+      },
+      {
+        "expected_level": "warning",
+        "now": "2035-11-29T00:00:00+00:00"
+      },
+      {
+        "expected_level": "critical",
+        "now": "2035-11-30T00:00:00+00:00"
+      },
+      {
+        "expected_level": "critical",
+        "now": "2035-12-29T23:59:59+00:00"
+      },
+      {
+        "expected_level": "expired",
+        "now": "2035-12-30T00:00:00+00:00"
+      },
+      {
+        "expected_level": "expired",
+        "now": "2035-12-31T00:00:00+00:00"
+      }
+    ],
+    "expires_at": "2035-12-30T00:00:00+00:00",
+    "note": "check_expirations(expires_at, now) -> ExpirationStatus. Thresholds are inclusive: exactly N days remaining already reaches that level. `notice` <= 180d remaining, `warning` <= 90d, `critical` <= 30d, `expired` when now >= expires_at, else `ok`.",
+    "thresholds_days": {
+      "critical": 30,
+      "notice": 180,
+      "warning": 90
+    }
+  },
+  "check_timestamps": {
+    "cases": [
+      {
+        "description": "at the trailing skew boundary, inclusive",
+        "expected_valid": true,
+        "now": "2026-01-01T00:10:00+00:00"
+      },
+      {
+        "description": "one second past the trailing skew boundary",
+        "expected_valid": false,
+        "now": "2026-01-01T00:10:01+00:00"
+      },
+      {
+        "description": "at the leading skew boundary, inclusive",
+        "expected_valid": true,
+        "now": "2025-12-31T23:55:00+00:00"
+      },
+      {
+        "description": "one second past the leading skew boundary",
+        "expected_valid": false,
+        "now": "2025-12-31T23:54:59+00:00"
+      }
+    ],
+    "expires_at": "2026-01-01T00:05:00+00:00",
+    "issued_at": "2026-01-01T00:00:00+00:00",
+    "note": "check_timestamps(issued_at, expires_at, now, skew_seconds) — bounded clock-skew tolerance, boundaries inclusive.",
+    "skew_seconds": 300
+  }
+}

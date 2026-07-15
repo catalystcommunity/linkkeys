@@ -42,3 +42,22 @@ go.work.sum
 # Added by cargo
 
 /target
+
+# --- SDK build artifacts (sdks/local-rp/*, every language) ---
+# These are compiler/build outputs and fetched deps — never source.
+target/            # Rust
+_build/            # OCaml (dune) / Elixir (mix)
+_opam/             # OCaml local switch
+node_modules/      # Node / TypeScript
+__pycache__/       # Python
+*.pyc
+.venv/             # Python venv
+venv/
+.dart_tool/        # Dart
+zig-out/           # Zig
+zig-cache/
+.zig-cache/
+.gradle/           # Gradle (Java/Kotlin)
+*.beam             # Erlang/Elixir
+*.o                # C objects
+*.a                # C static libs

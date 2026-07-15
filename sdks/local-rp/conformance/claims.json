@@ -1,0 +1,219 @@
+{
+  "cases": [
+    {
+      "claim": {
+        "attested_at": "2026-01-01T00:00:00+00:00",
+        "claim_id": "conformance-claim-1",
+        "claim_type": "display_name",
+        "claim_value_hex": "416c696365204578616d706c65",
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "expires_at": "2126-01-01T00:00:00+00:00",
+        "revoked_at": null,
+        "signatures": [
+          {
+            "domain": "conformance.example",
+            "signature_hex": "93e0564ed8ee13bf984bd3b2ebfdd0837ab428f20484672b9517d588864466ae3db65be6afcb73689d4fc12b956d6ccd0d3a59d19ebfdbbd57c2a4b6bb848a02",
+            "signed_by_key_id": "claim-key-1",
+            "signed_payload_cbor_hex": "88716c696e6b6b6579732d636c61696d2d763273636f6e666f726d616e63652d636c61696d2d316c646973706c61795f6e616d654d416c696365204578616d706c657826636f6e666f726d616e63652d757365722d3140636f6e666f726d616e63652e6578616d706c6573636f6e666f726d616e63652e6578616d706c657819323132362d30312d30315430303a30303a30302b30303a30307819323032362d30312d30315430303a30303a30302b30303a3030"
+          }
+        ],
+        "user_id": "conformance-user-1"
+      },
+      "claim_cbor_hex": "a867757365725f696472636f6e666f726d616e63652d757365722d3168636c61696d5f696473636f6e666f726d616e63652d636c61696d2d316a636c61696d5f747970656c646973706c61795f6e616d656a637265617465645f61747819323032362d30312d30315430303a30303a30302b30303a30306a657870697265735f61747819323132362d30312d30315430303a30303a30302b30303a30306a7369676e61747572657381a366646f6d61696e73636f6e666f726d616e63652e6578616d706c65697369676e6174757265584093e0564ed8ee13bf984bd3b2ebfdd0837ab428f20484672b9517d588864466ae3db65be6afcb73689d4fc12b956d6ccd0d3a59d19ebfdbbd57c2a4b6bb848a02707369676e65645f62795f6b65795f69646b636c61696d2d6b65792d316b61747465737465645f61747819323032362d30312d30315430303a30303a30302b30303a30306b636c61696d5f76616c75654d416c696365204578616d706c65",
+      "description": "A display_name claim whose value happens to be UTF-8 text — but it is STILL a CBOR byte string (bstr) on the wire, never a text string. One signature; expires_at present (far future).",
+      "expected_valid": true,
+      "name": "claim_utf8_text_value",
+      "subject_domain": "conformance.example"
+    },
+    {
+      "claim": {
+        "attested_at": "2026-01-01T00:00:00+00:00",
+        "claim_id": "conformance-claim-2",
+        "claim_type": "avatar_hash",
+        "claim_value_hex": "00fffe80c09f",
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "expires_at": null,
+        "revoked_at": null,
+        "signatures": [
+          {
+            "domain": "conformance.example",
+            "signature_hex": "078488d1eef46594eafa20729a88886b58a00fa65855af8a196c0ac6aedbe04c87a5b10f1517f4506c5ed3e6d198b12a391cbe6704b8bbfb5b4fbbac152d850e",
+            "signed_by_key_id": "claim-key-1",
+            "signed_payload_cbor_hex": "88716c696e6b6b6579732d636c61696d2d763273636f6e666f726d616e63652d636c61696d2d326b6176617461725f686173684600fffe80c09f7826636f6e666f726d616e63652d757365722d3140636f6e666f726d616e63652e6578616d706c6573636f6e666f726d616e63652e6578616d706c65f67819323032362d30312d30315430303a30303a30302b30303a3030"
+          }
+        ],
+        "user_id": "conformance-user-1"
+      },
+      "claim_cbor_hex": "a767757365725f696472636f6e666f726d616e63652d757365722d3168636c61696d5f696473636f6e666f726d616e63652d636c61696d2d326a636c61696d5f747970656b6176617461725f686173686a637265617465645f61747819323032362d30312d30315430303a30303a30302b30303a30306a7369676e61747572657381a366646f6d61696e73636f6e666f726d616e63652e6578616d706c65697369676e61747572655840078488d1eef46594eafa20729a88886b58a00fa65855af8a196c0ac6aedbe04c87a5b10f1517f4506c5ed3e6d198b12a391cbe6704b8bbfb5b4fbbac152d850e707369676e65645f62795f6b65795f69646b636c61696d2d6b65792d316b61747465737465645f61747819323032362d30312d30315430303a30303a30302b30303a30306b636c61696d5f76616c75654600fffe80c09f",
+      "description": "A claim whose value is NON-UTF-8 binary bytes. This is the case that distinguishes a correct bstr codec from a tstr one: a text-string codec cannot represent these bytes at all. expires_at absent (null in the signed payload).",
+      "expected_valid": true,
+      "name": "claim_non_utf8_binary_value",
+      "subject_domain": "conformance.example"
+    },
+    {
+      "claim": {
+        "attested_at": "2026-01-01T00:00:00+00:00",
+        "claim_id": "conformance-claim-3",
+        "claim_type": "handle",
+        "claim_value_hex": "616c696365",
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "expires_at": null,
+        "revoked_at": null,
+        "signatures": [
+          {
+            "domain": "conformance.example",
+            "signature_hex": "d5f3af1db1d7f5f408d4cf84ed3142a5f6c13a2d92b09823b1df9fb75957effb46fcb9ee7d73550f32bedf090a28892ebdf0e57fbc98ceae8219011ca397d408",
+            "signed_by_key_id": "claim-key-1",
+            "signed_payload_cbor_hex": "88716c696e6b6b6579732d636c61696d2d763273636f6e666f726d616e63652d636c61696d2d336668616e646c6545616c6963657826636f6e666f726d616e63652d757365722d3140636f6e666f726d616e63652e6578616d706c6573636f6e666f726d616e63652e6578616d706c65f67819323032362d30312d30315430303a30303a30302b30303a3030"
+          },
+          {
+            "domain": "conformance.example",
+            "signature_hex": "d7cb83278302612703521d784fc93583cfc337a1784a6c39bf3bab211574ff3876c5585e93cd928d4815f0fceca27084f937f11e7d75ca1975dd80057527b803",
+            "signed_by_key_id": "claim-key-2",
+            "signed_payload_cbor_hex": "88716c696e6b6b6579732d636c61696d2d763273636f6e666f726d616e63652d636c61696d2d336668616e646c6545616c6963657826636f6e666f726d616e63652d757365722d3140636f6e666f726d616e63652e6578616d706c6573636f6e666f726d616e63652e6578616d706c65f67819323032362d30312d30315430303a30303a30302b30303a3030"
+          }
+        ],
+        "user_id": "conformance-user-1"
+      },
+      "claim_cbor_hex": "a767757365725f696472636f6e666f726d616e63652d757365722d3168636c61696d5f696473636f6e666f726d616e63652d636c61696d2d336a636c61696d5f747970656668616e646c656a637265617465645f61747819323032362d30312d30315430303a30303a30302b30303a30306a7369676e61747572657382a366646f6d61696e73636f6e666f726d616e63652e6578616d706c65697369676e61747572655840d5f3af1db1d7f5f408d4cf84ed3142a5f6c13a2d92b09823b1df9fb75957effb46fcb9ee7d73550f32bedf090a28892ebdf0e57fbc98ceae8219011ca397d408707369676e65645f62795f6b65795f69646b636c61696d2d6b65792d31a366646f6d61696e73636f6e666f726d616e63652e6578616d706c65697369676e61747572655840d7cb83278302612703521d784fc93583cfc337a1784a6c39bf3bab211574ff3876c5585e93cd928d4815f0fceca27084f937f11e7d75ca1975dd80057527b803707369676e65645f62795f6b65795f69646b636c61696d2d6b65792d326b61747465737465645f61747819323032362d30312d30315430303a30303a30302b30303a30306b636c61696d5f76616c756545616c696365",
+      "description": "A claim carrying TWO ClaimSignatures from two different keys of the same domain. Verification needs only one currently-valid signature per signing domain.",
+      "expected_valid": true,
+      "name": "claim_multiple_signatures",
+      "subject_domain": "conformance.example"
+    }
+  ],
+  "decode_negative_cases": [
+    {
+      "claim_cbor_hex": "a867757365725f696472636f6e666f726d616e63652d757365722d3168636c61696d5f696473636f6e666f726d616e63652d636c61696d2d316a636c61696d5f747970656c646973706c61795f6e616d656a637265617465645f61747819323032362d30312d30315430303a30303a30302b30303a30306a657870697265735f61747819323132362d30312d30315430303a30303a30302b30303a30306a7369676e61747572657381a366646f6d61696e73636f6e666f726d616e63652e6578616d706c65697369676e6174757265584093e0564ed8ee13bf984bd3b2ebfdd0837ab428f20484672b9517d588864466ae3db65be6afcb73689d4fc12b956d6ccd0d3a59d19ebfdbbd57c2a4b6bb848a02707369676e65645f62795f6b65795f69646b636c61696d2d6b65792d316b61747465737465645f61747819323032362d30312d30315430303a30303a30302b30303a30306b636c61696d5f76616c75656d416c696365204578616d706c65",
+      "description": "Byte-identical to claim_utf8_text_value's CBOR except the claim_value entry is encoded as a CBOR TEXT string (major type 3) instead of a byte string (major type 2). CSIL declares claim_value as bytes; a strict codec must fail to decode this. An SDK that accepts it has claim_value wired as tstr and will also produce wrong signature payloads.",
+      "expected_decode_ok": false,
+      "name": "claim_value_as_cbor_text_rejected"
+    }
+  ],
+  "domain_keys": [
+    {
+      "algorithm": "ed25519",
+      "created_at": "2026-01-01T00:00:00+00:00",
+      "domain": "conformance.example",
+      "expires_at": "2126-01-01T00:00:00+00:00",
+      "fingerprint_hex": "52168a9c192c6d153a2f0b1ce4f4144cd40ef9d86ad3fefc7f4caa1adb5ae969",
+      "key_id": "claim-key-1",
+      "key_usage": "sign",
+      "public_key_hex": "0beef5a9e679e6a3e134fe27837bff32c7cb5f5d44ea09bcb0e542bad6a4c0cc",
+      "revoked_at": null
+    },
+    {
+      "algorithm": "ed25519",
+      "created_at": "2026-01-01T00:00:00+00:00",
+      "domain": "conformance.example",
+      "expires_at": "2126-01-01T00:00:00+00:00",
+      "fingerprint_hex": "795ed5ffe9039bf56d224dc19d19c33e58f65632da8132af5da8063c8bd37665",
+      "key_id": "claim-key-2",
+      "key_usage": "sign",
+      "public_key_hex": "d9bf2148748a85c89da5aad8ee0b0fc2d105fd39d41a4c796536354f0ae2900c",
+      "revoked_at": null
+    }
+  ],
+  "negative_cases": [
+    {
+      "claim_cbor_hex": "a867757365725f696472636f6e666f726d616e63652d757365722d3168636c61696d5f696473636f6e666f726d616e63652d636c61696d2d316a636c61696d5f747970656c646973706c61795f6e616d656a637265617465645f61747819323032362d30312d30315430303a30303a30302b30303a30306a657870697265735f61747819323132362d30312d30315430303a30303a30302b30303a30306a7369676e61747572657381a366646f6d61696e73636f6e666f726d616e63652e6578616d706c65697369676e6174757265584093e0564ed8ee13bf984bd3b2ebfdd0837ab428f20484672b9517d588864466ae3db65be6afcb73689d4fc12b956d6ccd0d3a59d19ebfdbbd57c2a4b6bb848a02707369676e65645f62795f6b65795f69646b636c61696d2d6b65792d316b61747465737465645f61747819323032362d30312d30315430303a30303a30302b30303a30306b636c61696d5f76616c75654d416c696365204578616d706c9a",
+      "description": "claim_utf8_text_value with the last byte of claim_value flipped after signing; signature unchanged. claim_value is bound into the signed payload, so verification must fail.",
+      "expected_error": "signature_invalid",
+      "name": "tampered_claim_value_byte",
+      "subject_domain": "conformance.example"
+    },
+    {
+      "claim_cbor_hex": "a867757365725f696472636f6e666f726d616e63652d757365722d3168636c61696d5f696473636f6e666f726d616e63652d636c61696d2d316a636c61696d5f747970656c646973706c61795f6e616d656a637265617465645f61747819323032362d30312d30315430303a30303a30302b30303a30306a657870697265735f61747819323132362d30312d30315430303a30303a30302b30303a30306a7369676e61747572657381a366646f6d61696e73636f6e666f726d616e63652e6578616d706c65697369676e6174757265584093e0564ed8ee13bf984bd3b2ebfdd0837ab428f20484672b9517d588864466ae3db65be6afcb73689d4fc12b956d6ccd0d3a59d19ebfdbbd57c2a4b6bb848a02707369676e65645f62795f6b65795f69646b636c61696d2d6b65792d316b61747465737465645f61747819323032362d30312d30315430303a30303a30302b30303a30306b636c61696d5f76616c75654d416c696365204578616d706c65",
+      "description": "claim_utf8_text_value verified against a key list where claim-key-1's key id resolves to a REAL but different Ed25519 public key. The signature cannot verify.",
+      "domain_keys": [
+        {
+          "algorithm": "ed25519",
+          "created_at": "2026-01-01T00:00:00+00:00",
+          "domain": "conformance.example",
+          "expires_at": "2126-01-01T00:00:00+00:00",
+          "fingerprint_hex": "79fb38ef414ebed57f2f3a5ba81799ed7a357623cdb1e363a724a4bb9d92bfc4",
+          "key_id": "claim-key-1",
+          "key_usage": "sign",
+          "public_key_hex": "5c9c6df261c9cb840475776aaefcd944b405328fab28f9b3a95ef40490d3de84",
+          "revoked_at": null
+        },
+        {
+          "algorithm": "ed25519",
+          "created_at": "2026-01-01T00:00:00+00:00",
+          "domain": "conformance.example",
+          "expires_at": "2126-01-01T00:00:00+00:00",
+          "fingerprint_hex": "795ed5ffe9039bf56d224dc19d19c33e58f65632da8132af5da8063c8bd37665",
+          "key_id": "claim-key-2",
+          "key_usage": "sign",
+          "public_key_hex": "d9bf2148748a85c89da5aad8ee0b0fc2d105fd39d41a4c796536354f0ae2900c",
+          "revoked_at": null
+        }
+      ],
+      "expected_error": "signature_invalid",
+      "name": "wrong_signer_key",
+      "subject_domain": "conformance.example"
+    },
+    {
+      "claim_cbor_hex": "a867757365725f696472636f6e666f726d616e63652d757365722d3168636c61696d5f696473636f6e666f726d616e63652d636c61696d2d316a636c61696d5f747970656c646973706c61795f6e616d656a637265617465645f61747819323032362d30312d30315430303a30303a30302b30303a30306a657870697265735f61747819323132362d30312d30315430303a30303a30302b30303a30306a7369676e61747572657381a366646f6d61696e73636f6e666f726d616e63652e6578616d706c65697369676e6174757265584093e0564ed8ee13bf984bd3b2ebfdd0837ab428f20484672b9517d588864466ae3db65be6afcb73689d4fc12b956d6ccd0d3a59d19ebfdbbd57c2a4b6bb848a02707369676e65645f62795f6b65795f69646b636c61696d2d6b65792d316b61747465737465645f61747819323032362d30312d30315430303a30303a30302b30303a30306b636c61696d5f76616c75654d416c696365204578616d706c65",
+      "description": "claim_utf8_text_value verified against a key list that does not contain claim-key-1 at all (only claim-key-2 is supplied).",
+      "domain_keys": [
+        {
+          "algorithm": "ed25519",
+          "created_at": "2026-01-01T00:00:00+00:00",
+          "domain": "conformance.example",
+          "expires_at": "2126-01-01T00:00:00+00:00",
+          "fingerprint_hex": "795ed5ffe9039bf56d224dc19d19c33e58f65632da8132af5da8063c8bd37665",
+          "key_id": "claim-key-2",
+          "key_usage": "sign",
+          "public_key_hex": "d9bf2148748a85c89da5aad8ee0b0fc2d105fd39d41a4c796536354f0ae2900c",
+          "revoked_at": null
+        }
+      ],
+      "expected_error": "key_not_found",
+      "name": "signer_key_not_found",
+      "subject_domain": "conformance.example"
+    },
+    {
+      "claim_cbor_hex": "a867757365725f696472636f6e666f726d616e63652d757365722d3168636c61696d5f696473636f6e666f726d616e63652d636c61696d2d316a636c61696d5f747970656c646973706c61795f6e616d656a637265617465645f61747819323032362d30312d30315430303a30303a30302b30303a30306a657870697265735f61747819323132362d30312d30315430303a30303a30302b30303a30306a7369676e61747572657381a366646f6d61696e73636f6e666f726d616e63652e6578616d706c65697369676e6174757265584093e0564ed8ee13bf984bd3b2ebfdd0837ab428f20484672b9517d588864466ae3db65be6afcb73689d4fc12b956d6ccd0d3a59d19ebfdbbd57c2a4b6bb848a02707369676e65645f62795f6b65795f69646b636c61696d2d6b65792d316b61747465737465645f61747819323032362d30312d30315430303a30303a30302b30303a30306b636c61696d5f76616c75654d416c696365204578616d706c65",
+      "description": "claim_utf8_text_value, unmodified, verified with subject_domain 'evil.example' instead of the domain it was issued for. The signed payload binds the subject as user_id@subject_domain, so the recomputed payload differs and the signature fails.",
+      "expected_error": "signature_invalid",
+      "name": "subject_domain_replay",
+      "subject_domain": "evil.example"
+    }
+  ],
+  "note": "Claim wire encoding and claim-signature verification. THE TRAP THIS FILE EXISTS TO CATCH: Claim.claim_value is CBOR bytes (bstr, major type 2), NEVER a text string — both on the wire and inside the signed payload. An SDK that wires it as text will pass its own self-tests (sign-wrong/verify-wrong is self-consistent) and only these cross-implementation vectors expose it; claim_non_utf8_binary_value cannot even be represented by a tstr codec. Signed payload per signature: CBOR([tag, claim_id, claim_type, claim_value(bstr), subject, signing_domain, expires_at_or_null, attested_at]) — an EIGHT-element CBOR array, tag first, where subject is the single string 'user_id@subject_domain' and expires_at is CBOR null when absent. created_at is deliberately NOT signed. Verification: every DISTINCT domain in the claim's signatures must contribute at least one signature that verifies against a currently-valid signing key of that domain (key validity is wall-clock-evaluated, like revocations.json).",
+  "payload_layout": "CBOR([tag, claim_id, claim_type, claim_value(bstr), 'user_id@subject_domain', signing_domain, expires_at_or_null, attested_at])",
+  "signer_keys": [
+    {
+      "fingerprint_hex": "52168a9c192c6d153a2f0b1ce4f4144cd40ef9d86ad3fefc7f4caa1adb5ae969",
+      "key_id": "claim-key-1",
+      "private_key_hex": "0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e",
+      "public_key_hex": "0beef5a9e679e6a3e134fe27837bff32c7cb5f5d44ea09bcb0e542bad6a4c0cc",
+      "seed_hex": "0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e"
+    },
+    {
+      "fingerprint_hex": "795ed5ffe9039bf56d224dc19d19c33e58f65632da8132af5da8063c8bd37665",
+      "key_id": "claim-key-2",
+      "private_key_hex": "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f",
+      "public_key_hex": "d9bf2148748a85c89da5aad8ee0b0fc2d105fd39d41a4c796536354f0ae2900c",
+      "seed_hex": "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f"
+    },
+    {
+      "fingerprint_hex": "79fb38ef414ebed57f2f3a5ba81799ed7a357623cdb1e363a724a4bb9d92bfc4",
+      "key_id": "wrong-key (used only inside the wrong_signer_key case's domain_keys)",
+      "private_key_hex": "1010101010101010101010101010101010101010101010101010101010101010",
+      "public_key_hex": "5c9c6df261c9cb840475776aaefcd944b405328fab28f9b3a95ef40490d3de84",
+      "seed_hex": "1010101010101010101010101010101010101010101010101010101010101010"
+    }
+  ],
+  "subject_domain": "conformance.example",
+  "tag": "linkkeys-claim-v2",
+  "ticket_redemption_response": {
+    "claims_ref": "cases[] in order: claim_utf8_text_value, claim_non_utf8_binary_value, claim_multiple_signatures",
+    "note": "The wire message complete_local_login actually consumes Claims from: the redeem-claim-ticket response. Contains all three positive-case claims, in order. Decoding must reproduce each claim byte-exactly (claim_value as raw bytes), and re-encoding must reproduce response_cbor_hex.",
+    "response_cbor_hex": "a466636c61696d7383a867757365725f696472636f6e666f726d616e63652d757365722d3168636c61696d5f696473636f6e666f726d616e63652d636c61696d2d316a636c61696d5f747970656c646973706c61795f6e616d656a637265617465645f61747819323032362d30312d30315430303a30303a30302b30303a30306a657870697265735f61747819323132362d30312d30315430303a30303a30302b30303a30306a7369676e61747572657381a366646f6d61696e73636f6e666f726d616e63652e6578616d706c65697369676e6174757265584093e0564ed8ee13bf984bd3b2ebfdd0837ab428f20484672b9517d588864466ae3db65be6afcb73689d4fc12b956d6ccd0d3a59d19ebfdbbd57c2a4b6bb848a02707369676e65645f62795f6b65795f69646b636c61696d2d6b65792d316b61747465737465645f61747819323032362d30312d30315430303a30303a30302b30303a30306b636c61696d5f76616c75654d416c696365204578616d706c65a767757365725f696472636f6e666f726d616e63652d757365722d3168636c61696d5f696473636f6e666f726d616e63652d636c61696d2d326a636c61696d5f747970656b6176617461725f686173686a637265617465645f61747819323032362d30312d30315430303a30303a30302b30303a30306a7369676e61747572657381a366646f6d61696e73636f6e666f726d616e63652e6578616d706c65697369676e61747572655840078488d1eef46594eafa20729a88886b58a00fa65855af8a196c0ac6aedbe04c87a5b10f1517f4506c5ed3e6d198b12a391cbe6704b8bbfb5b4fbbac152d850e707369676e65645f62795f6b65795f69646b636c61696d2d6b65792d316b61747465737465645f61747819323032362d30312d30315430303a30303a30302b30303a30306b636c61696d5f76616c75654600fffe80c09fa767757365725f696472636f6e666f726d616e63652d757365722d3168636c61696d5f696473636f6e666f726d616e63652d636c61696d2d336a636c61696d5f747970656668616e646c656a637265617465645f61747819323032362d30312d30315430303a30303a30302b30303a30306a7369676e61747572657382a366646f6d61696e73636f6e666f726d616e63652e6578616d706c65697369676e61747572655840d5f3af1db1d7f5f408d4cf84ed3142a5f6c13a2d92b09823b1df9fb75957effb46fcb9ee7d73550f32bedf090a28892ebdf0e57fbc98ceae8219011ca397d408707369676e65645f62795f6b65795f69646b636c61696d2d6b65792d31a366646f6d61696e73636f6e666f726d616e63652e6578616d706c65697369676e61747572655840d7cb83278302612703521d784fc93583cfc337a1784a6c39bf3bab211574ff3876c5585e93cd928d4815f0fceca27084f937f11e7d75ca1975dd80057527b803707369676e65645f62795f6b65795f69646b636c61696d2d6b65792d326b61747465737465645f61747819323032362d30312d30315430303a30303a30302b30303a30306b636c61696d5f76616c756545616c69636567757365725f696472636f6e666f726d616e63652d757365722d316b757365725f646f6d61696e73636f6e666f726d616e63652e6578616d706c65717469636b65745f657870697265735f61747819323032362d30312d30315430313a30303a30302b30303a3030",
+    "ticket_expires_at": "2026-01-01T01:00:00+00:00",
+    "user_domain": "conformance.example",
+    "user_id": "conformance-user-1"
+  }
+}

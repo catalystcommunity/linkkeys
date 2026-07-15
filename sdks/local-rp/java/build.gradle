@@ -1,0 +1,57 @@
+// LinkKeys DNS-less local RP identity — Java SDK.
+//
+// See dns-less-local-rp-design.md at the repo root and
+// sdks/local-rp/conformance/README.md before changing anything here.
+//
+// Zero runtime dependencies: every crypto primitive this SDK needs (Ed25519,
+// XDH/X25519, AES-256-GCM, ChaCha20-Poly1305, SHA-256, HMAC-SHA256 for the
+// hand-rolled HKDF, SecureRandom) is available via JCA/JCE on JDK 17 — see
+// the design doc's Language Crypto Matrix, "Java" row. The only test-scope
+// dependency is JUnit 5, run through Gradle's own JUnit Platform support.
+//
+// This is a plain, git-usable Gradle project (no publishing configured) built
+// with the catalyst-tools JDK 17 + Gradle 8.10.2 bundle:
+//
+//   source "${CATALYST_TOOLS:-$HOME/.local/catalyst-tools}/env.sh"
+//   cd sdks/local-rp/java && gradle test
+
+plugins {
+    id 'java-library'
+}
+
+group = 'community.catalyst.linkkeys'
+version = '0.1.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    testImplementation platform('org.junit:junit-bom:5.10.3')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+    testLogging {
+        events "passed", "skipped", "failed"
+        exceptionFormat "full"
+    }
+    // The conformance vectors and cert-fixture generation shell out to the
+    // system `openssl` CLI (see CertFixtures) — never a runtime dependency,
+    // only a test-time convenience mirroring the TypeScript SDK's approach.
+    systemProperty 'linkkeys.conformanceDir',
+        layout.projectDirectory.dir('../conformance').asFile.absolutePath
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs << '-Xlint:all,-serial'
+}

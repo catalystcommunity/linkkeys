@@ -1,0 +1,4 @@
+# OCaml / dune build output and any local opam switch.
+_build/
+_opam/
+*.install

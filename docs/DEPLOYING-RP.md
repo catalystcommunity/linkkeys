@@ -65,7 +65,7 @@ kubectl exec -n linkkeys-rp deploy/linkkeys-rp -- \
 
 # Create a service account for the web app
 kubectl exec -n linkkeys-rp deploy/linkkeys-rp -- \
-  linkkeys user create my-webapp "My Web Application" --api-key
+  linkkeys user create my-webapp "My Web Application" --api-key --relation api_access
 
 # Save the printed API key — it won't be shown again
 ```
@@ -80,19 +80,31 @@ Publish the printed TXT record at `_linkkeys.linkidspec.com` in your DNS.
 
 ## Web App Integration
 
-Your web app calls the RP's internal API with the bearer token:
+Your web app drives the RP server's `Rp` service over **TCP CSIL-RPC** (the
+old `POST /v1alpha/*.json` HTTP routes were removed when S2S moved to TCP, and
+the generic HTTP RPC carrier cannot complete this flow — `verify-assertion`
+and `userinfo-fetch` need the outbound S2S context only the TCP carrier has):
 
 ```
-POST /v1alpha/sign-request.json     — sign an auth request before redirecting the user
-POST /v1alpha/decrypt-token.json    — decrypt the encrypted token from the callback
-POST /v1alpha/verify-assertion.json — verify the decrypted assertion against the IDP
+Rp/sign-request      — sign an auth request before redirecting the user
+Rp/decrypt-token     — decrypt the encrypted token from the callback
+Rp/verify-assertion  — verify the decrypted assertion against the IDP
+Rp/userinfo-fetch    — (optional) fetch the user's claims from the IDP
 ```
 
-All requests require `Authorization: Bearer <api-key>`.
+The CSIL-RPC request envelope's `auth` field carries the raw API key (no
+`Bearer ` prefix — that convention belongs to the remaining HTTP surfaces).
+Every `Rp` op additionally requires the caller to hold the `api_access`
+relation (SEC-06); see Initial Setup above.
 
-The web app also serves `GET /v1alpha/domain-keys` and `GET /v1alpha/domain-keys.json`
-publicly (no auth), so identity providers can fetch the RP's public keys for
-token encryption.
+Worked, compile-verified examples per language live beside the local-RP SDKs:
+`sdks/local-rp/<language>/example.md` (rust, go, typescript, python, php,
+java, kotlin, ...). Rust apps can use the packaged `linkkeys-rpc-client`
+crate; `demoappsite/` is the reference integration.
+
+The RP server still serves `GET /v1alpha/domain-keys` and
+`GET /v1alpha/domain-keys.json` publicly (no auth), so identity providers can
+fetch the RP's public keys for token encryption.
 
 ## Demoappsite Example
 

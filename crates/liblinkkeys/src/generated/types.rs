@@ -1,5 +1,27 @@
 //! Generated types from CSIL specification
 
+#![allow(non_camel_case_types, clippy::large_enum_variant)]
+
+/// Returned by a generated `validate` method when a field violates one of its
+/// CSIL constraints. `field` names the offending field; `message` explains.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ValidationError {
+    pub field: String,
+    pub message: String,
+}
+
+impl std::fmt::Display for ValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "validation failed for `{}`: {}",
+            self.field, self.message
+        )
+    }
+}
+
+impl std::error::Error for ValidationError {}
+
 /// CheckValue variants
 #[derive(Debug, Clone, PartialEq)]
 pub enum CheckValue {
@@ -330,6 +352,7 @@ pub struct EncryptedToken {
     pub ephemeral_public_key: Vec<u8>,
     pub ciphertext: Vec<u8>,
     pub nonce: Vec<u8>,
+    pub suite: Option<AeadSuite>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -639,6 +662,274 @@ pub struct RpIssueAttestationRequest {
 pub struct RpIssueAttestationResponse {
     pub claim: Claim,
     pub deposited: bool,
+}
+
+pub type AeadSuite = String;
+
+pub type LocalRpPolicy = String;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalRpDescriptor {
+    pub app_name: String,
+    pub local_domain_hint: Option<String>,
+    /// constraint: size == 32
+    pub signing_public_key: Vec<u8>,
+    /// constraint: size == 32
+    pub encryption_public_key: Vec<u8>,
+    pub fingerprint: String,
+    pub supported_suites: Vec<AeadSuite>,
+    pub created_at: String,
+    pub expires_at: String,
+}
+
+impl LocalRpDescriptor {
+    /// Validate this value against the constraints declared in the CSIL spec.
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        {
+            let v = &self.signing_public_key;
+            if v.len() != 32usize {
+                return Err(ValidationError {
+                    field: "signing_public_key".to_string(),
+                    message: "length must equal 32".to_string(),
+                });
+            }
+        }
+        {
+            let v = &self.encryption_public_key;
+            if v.len() != 32usize {
+                return Err(ValidationError {
+                    field: "encryption_public_key".to_string(),
+                    message: "length must equal 32".to_string(),
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SignedLocalRpDescriptor {
+    pub descriptor: Vec<u8>,
+    pub signature: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalRpLoginRequest {
+    pub descriptor: SignedLocalRpDescriptor,
+    pub callback_url: String,
+    pub nonce: Vec<u8>,
+    pub state: Vec<u8>,
+    pub requested_claims: Vec<String>,
+    pub required_claims: Vec<String>,
+    pub issued_at: String,
+    pub expires_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SignedLocalRpLoginRequest {
+    pub request: Vec<u8>,
+    pub signature: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalRpCallbackHeader {
+    pub fingerprint: String,
+    pub nonce: Vec<u8>,
+    pub state: Vec<u8>,
+    pub suite: AeadSuite,
+    /// constraint: size == 32
+    pub ephemeral_public_key: Vec<u8>,
+    /// constraint: size == 12
+    pub aead_nonce: Vec<u8>,
+    pub issued_at: String,
+    pub expires_at: String,
+}
+
+impl LocalRpCallbackHeader {
+    /// Validate this value against the constraints declared in the CSIL spec.
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        {
+            let v = &self.ephemeral_public_key;
+            if v.len() != 32usize {
+                return Err(ValidationError {
+                    field: "ephemeral_public_key".to_string(),
+                    message: "length must equal 32".to_string(),
+                });
+            }
+        }
+        {
+            let v = &self.aead_nonce;
+            if v.len() != 12usize {
+                return Err(ValidationError {
+                    field: "aead_nonce".to_string(),
+                    message: "length must equal 12".to_string(),
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalRpEncryptedCallback {
+    pub header: Vec<u8>,
+    pub ciphertext: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalRpCallbackPayload {
+    pub user_id: String,
+    pub user_domain: String,
+    pub claim_ticket: Vec<u8>,
+    pub audience_fingerprint: String,
+    pub callback_url: String,
+    pub nonce: Vec<u8>,
+    pub state: Vec<u8>,
+    pub issued_at: String,
+    pub expires_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SignedLocalRpCallbackPayload {
+    pub payload: Vec<u8>,
+    pub signing_key_id: String,
+    pub signature: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalRpTicketRedemptionRequest {
+    pub claim_ticket: Vec<u8>,
+    pub fingerprint: String,
+    pub issued_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SignedLocalRpTicketRedemptionRequest {
+    pub request: Vec<u8>,
+    pub signature: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalRpTicketRedemptionResponse {
+    pub user_id: String,
+    pub user_domain: String,
+    pub claims: Vec<Claim>,
+    pub ticket_expires_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AdminLocalRp {
+    pub fingerprint: String,
+    /// constraint: size == 32
+    pub signing_public_key: Vec<u8>,
+    /// constraint: size == 32
+    pub encryption_public_key: Vec<u8>,
+    pub app_name: String,
+    pub local_domain_hint: Option<String>,
+    pub status: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub expires_at: Option<String>,
+    pub last_seen_at: Option<String>,
+    pub admin_notes: Option<String>,
+}
+
+impl AdminLocalRp {
+    /// Validate this value against the constraints declared in the CSIL spec.
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        {
+            let v = &self.signing_public_key;
+            if v.len() != 32usize {
+                return Err(ValidationError {
+                    field: "signing_public_key".to_string(),
+                    message: "length must equal 32".to_string(),
+                });
+            }
+        }
+        {
+            let v = &self.encryption_public_key;
+            if v.len() != 32usize {
+                return Err(ValidationError {
+                    field: "encryption_public_key".to_string(),
+                    message: "length must equal 32".to_string(),
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListLocalRpsRequest {
+    pub offset: Option<i64>,
+    pub limit: Option<i64>,
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListLocalRpsResponse {
+    pub local_rps: Vec<AdminLocalRp>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetLocalRpRequest {
+    pub fingerprint: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetLocalRpResponse {
+    pub local_rp: AdminLocalRp,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ApproveLocalRpRequest {
+    pub fingerprint: String,
+    pub admin_notes: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ApproveLocalRpResponse {
+    pub local_rp: AdminLocalRp,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DenyLocalRpRequest {
+    pub fingerprint: String,
+    pub admin_notes: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DenyLocalRpResponse {
+    pub local_rp: AdminLocalRp,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RevokeLocalRpRequest {
+    pub fingerprint: String,
+    pub admin_notes: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RevokeLocalRpResponse {
+    pub local_rp: AdminLocalRp,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetLocalRpPolicyRequest {}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetLocalRpPolicyResponse {
+    pub policy: LocalRpPolicy,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetLocalRpPolicyRequest {
+    pub policy: LocalRpPolicy,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetLocalRpPolicyResponse {
+    pub policy: LocalRpPolicy,
 }
 
 pub type LocaleMessages = std::collections::HashMap<String, String>;

@@ -1,0 +1,31 @@
+{
+  "domain_encryption_recipient": {
+    "algorithm": "x25519",
+    "note": "Not the callback box's real recipient (that is local_rp.encryption). Provided as a second, distinct X25519 keypair so callback_box.json can vector a 'valid ciphertext, wrong recipient key' negative case.",
+    "private_key_hex": "0404040404040404040404040404040404040404040404040404040404040404",
+    "public_key_hex": "ac01b2209e86354fb853237b5de0f4fab13c7fcbf433a61c019369617fecf10b"
+  },
+  "domain_signing_key": {
+    "algorithm": "ed25519",
+    "fingerprint_hex": "b62e867fa2f33afe62d5d6b1642e1621d543307846b2a57b897e710919b76709",
+    "key_id": "test-domain-key-1",
+    "private_key_hex": "0303030303030303030303030303030303030303030303030303030303030303",
+    "public_key_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+    "seed_hex": "0303030303030303030303030303030303030303030303030303030303030303"
+  },
+  "local_rp": {
+    "encryption": {
+      "algorithm": "x25519",
+      "private_key_hex": "0202020202020202020202020202020202020202020202020202020202020202",
+      "public_key_hex": "ce8d3ad1ccb633ec7b70c17814a5c76ecd029685050d344745ba05870e587d59"
+    },
+    "signing": {
+      "algorithm": "ed25519",
+      "fingerprint_hex": "34750f98bd59fcfc946da45aaabe933be154a4b5094e1c4abf42866505f3c97e",
+      "private_key_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+      "public_key_hex": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+      "seed_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+    }
+  },
+  "note": "ALL KEYS IN THIS FILE ARE FIXED, PUBLICLY-KNOWN TEST-ONLY MATERIAL (hardcoded 32-byte seeds, e.g. 0x01 repeated). Never use any key in this file for anything real."
+}

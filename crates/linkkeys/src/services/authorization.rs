@@ -82,6 +82,17 @@ pub fn required_relation_for_op(service: &str, op: &str) -> Option<&'static str>
             "grant-relation" | "remove-relation" | "list-relations" | "check-permission" => {
                 RELATION_ADMIN
             }
+            // DNS-less local RP admin surface (dns-less-local-rp-design.md,
+            // Wire Precision "Service and authorization placement"): explicit
+            // arm per that section's instruction not to rely on the `_ =>`
+            // fallthrough below, even though it resolves to the same relation.
+            "list-local-rps"
+            | "get-local-rp"
+            | "approve-local-rp"
+            | "deny-local-rp"
+            | "revoke-local-rp"
+            | "get-local-rp-policy"
+            | "set-local-rp-policy" => RELATION_ADMIN,
             _ => RELATION_ADMIN,
         }),
         // The Rp service exposes the domain signing/decryption keys as oracles

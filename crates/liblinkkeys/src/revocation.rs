@@ -29,7 +29,9 @@ pub use crate::generated::types::RevocationCertificate;
 pub const REVOCATION_QUORUM: usize = 2;
 
 /// Domain-separation tag / version for the signed revocation payload.
-const REVOCATION_TAG: &str = "linkkeys-key-revocation-v1";
+/// `pub` so conformance-vector generation and consumers can reference the
+/// exact tag string rather than retyping it.
+pub const REVOCATION_TAG: &str = "linkkeys-key-revocation-v1";
 
 #[derive(Debug)]
 pub enum RevocationError {
@@ -60,7 +62,16 @@ pub struct RevocationSpec<'a> {
 /// Canonical signed bytes: the tag, the target key id + fingerprint, the
 /// revocation instant, and the signing sibling's domain (bound per-signature to
 /// stop cross-domain reuse of a signature).
-fn revocation_payload(
+///
+/// The payload is a five-element CBOR array with the domain-separation tag
+/// first — note this is the older house tuple pattern, NOT the local-RP
+/// envelope's two-element `CBOR([context, payload])` framing.
+///
+/// `pub` so conformance-vector generation
+/// (`examples/generate_conformance_vectors.rs`) and consumer-zero tests can
+/// compute the exact bytes a sibling signature covers without duplicating
+/// this construction.
+pub fn revocation_payload(
     target_key_id: &str,
     target_fingerprint: &str,
     revoked_at: &str,

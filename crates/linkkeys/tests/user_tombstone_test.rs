@@ -1,8 +1,11 @@
 mod common;
 
-use common::data_factory::{create_auth_credential, create_relation, create_user, DataMap};
+use common::data_factory::{
+    create_auth_credential, create_local_rp_claim_ticket, create_relation, create_user, DataMap,
+};
 use liblinkkeys::generated::types::ResetPasswordRequest;
 use linkkeys::services::{admin, auth};
+use serde_json::Value;
 
 fn create_test_user_key(pool: &linkkeys::db::DbPool, user_id: &str) {
     let (vk, sk) = liblinkkeys::crypto::generate_ed25519_keypair();
@@ -51,6 +54,9 @@ fn purge_keeps_uuid_tombstone_and_minimizes_active_data() {
         chrono::Utc::now() + chrono::Duration::hours(1),
     )
     .expect("create email verification");
+    let mut ticket_overrides = DataMap::new();
+    ticket_overrides.insert("user_id".to_string(), Value::String(user.id.clone()));
+    let ticket = create_local_rp_claim_ticket(&pool, &ticket_overrides);
 
     assert_eq!(pool.list_profiles_for_account(&user.id).unwrap().len(), 2);
     assert_eq!(pool.list_active_user_keys(&user.id).unwrap().len(), 1);
@@ -78,6 +84,12 @@ fn purge_keeps_uuid_tombstone_and_minimizes_active_data() {
     assert_eq!(summary.profiles_deleted, 2);
     assert_eq!(summary.release_prefs_deleted, 1);
     assert_eq!(summary.email_verifications_deleted, 1);
+    assert_eq!(
+        summary.local_rp_claim_tickets_deleted, 1,
+        "purge must delete the user's outstanding local RP claim tickets \
+         (Phase 4 finding: purge minimizes the users row, so the ticket's \
+         FK never cascades away on its own)"
+    );
 
     let tombstone = pool.find_user_by_id(&user.id).expect("uuid remains");
     assert_eq!(tombstone.id, user.id);
@@ -104,6 +116,12 @@ fn purge_keeps_uuid_tombstone_and_minimizes_active_data() {
         .find_email_verification("purge-token")
         .unwrap()
         .is_none());
+    assert!(
+        pool.find_local_rp_claim_ticket(&ticket.ticket_hash)
+            .unwrap()
+            .is_none(),
+        "purge must delete the user's outstanding local RP claim tickets"
+    );
 }
 
 #[test]

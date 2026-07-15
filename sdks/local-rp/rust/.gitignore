@@ -1,0 +1,4 @@
+# Rust build output (this crate is a standalone workspace; its own target/).
+/target
+# Ad-hoc live-test harnesses (not committed).
+/examples/live_*.rs
