@@ -189,9 +189,13 @@ Env:
    `MAX_PROFILES_PER_ACCOUNT` and using extra personas needs per‑profile claim
    keying first (it currently fails closed — no leak).
 5. **CSIL claim-policy self-service is not fully extended.** Attestation deposit
-   is in CSIL, but the claim-policy/profile editor operations are still server
-   web/DB flows today; a later pass should add CSIL request types + service verbs
-   so a CLI/agent shares the contract. Pure logic already lives in
+   is in CSIL, and the claim-type registry + its per-locale name translations
+   are now on the `Admin` CSIL service too (`list-claim-types`/`set-claim-type`/
+   `remove-claim-type`/`set-claim-type-label`/`remove-claim-type-label`,
+   `admin`-relation only — the same DB calls `/policy-admin`'s forms make; also
+   on the CLI as `linkkeys policy ...`). Trusted issuers, release defaults, and
+   the approval queue are still server web/DB-only flows; a later pass should
+   extend those the same way. Pure logic already lives in
    `liblinkkeys::claim_policy`.
 
 ---

@@ -58,7 +58,7 @@ class RevocationsConformanceTest {
     void certificateCasesMatchExpectedValidityAndCountedSigners() {
         JsonValue d = Fixtures.load("revocations.json");
         assertEquals(2, d.get("quorum").asLong());
-        assertEquals("linkkeys-key-revocation-v1", d.get("tag").asString());
+        assertEquals("linkkeys-key-revocation-v1alpha", d.get("tag").asString());
 
         List<DomainPublicKey> domainKeys = new ArrayList<>();
         for (JsonValue k : d.get("domain_keys").asArray()) {

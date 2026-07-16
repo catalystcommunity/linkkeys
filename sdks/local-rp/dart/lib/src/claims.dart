@@ -15,7 +15,7 @@ import 'rfc3339.dart';
 import 'wire/cbor.dart';
 import 'wire/types.dart';
 
-const String _claimPayloadTag = 'linkkeys-claim-v2';
+const String _claimPayloadTag = 'linkkeys-claim-v1alpha';
 
 /// Bound on distinct claim-signer domains a completion will fetch keys for;
 /// see `complete.dart`.

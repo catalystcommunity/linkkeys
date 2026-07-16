@@ -75,7 +75,7 @@ let pin_keys_to_fingerprints (keys : Types.Domain_public_key.t list) (pinned : s
   let pinned_lower = List.filter valid_fingerprint pinned |> List.map String.lowercase_ascii |> SS.of_list in
   List.filter (fun (k : Types.Domain_public_key.t) -> SS.mem (String.lowercase_ascii (Crypto.fingerprint k.public_key)) pinned_lower) keys
 
-let key_vouch_tag = "linkkeys-key-vouch-v1"
+let key_vouch_tag = "linkkeys-key-vouch-v1alpha"
 
 let key_vouch_payload (enc_fingerprint : string) (enc_expires_at : string) : string =
   Cbor.encode (Array [ Text key_vouch_tag; Text enc_fingerprint; Text enc_expires_at ])

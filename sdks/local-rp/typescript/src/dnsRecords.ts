@@ -115,7 +115,7 @@ export function pinKeysToFingerprints(
   return keys.filter((k) => pinnedLower.has(fingerprint(k.publicKey).toLowerCase()));
 }
 
-const KEY_VOUCH_TAG = "linkkeys-key-vouch-v1";
+const KEY_VOUCH_TAG = "linkkeys-key-vouch-v1alpha";
 
 /** Canonical bytes a signing key signs to vouch for an encryption key. */
 export function keyVouchPayload(encFingerprint: string, encExpiresAt: string): Uint8Array {

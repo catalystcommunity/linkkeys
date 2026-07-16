@@ -13,7 +13,7 @@ namespace LinkKeys.LocalRp;
 /// </summary>
 public static class Claims
 {
-    private const string ClaimPayloadTag = "linkkeys-claim-v2";
+    private const string ClaimPayloadTag = "linkkeys-claim-v1alpha";
 
     /// <summary>Bound on distinct claim-signer domains a completion will fetch keys for; see <see cref="Complete"/>.</summary>
     public const int MaxClaimSignerDomains = 8;

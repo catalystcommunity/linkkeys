@@ -317,7 +317,7 @@ strict bstr codec must refuse.
 
 ```
 CBOR([
-  "linkkeys-claim-v2",          ; tag, tstr
+  "linkkeys-claim-v1alpha",          ; tag, tstr
   claim_id,                     ; tstr
   claim_type,                   ; tstr
   claim_value,                  ; bstr  <-- BYTES, here too
@@ -401,7 +401,7 @@ gap, not a scope decision.
 **Signed payload construction** (differs from the local-RP envelopes!): each
 sibling signature covers `CBOR([tag, target_key_id, target_fingerprint,
 revoked_at, signing_domain])` — a **five-element** CBOR array with the
-domain-separation tag `linkkeys-key-revocation-v1` first. This is the older
+domain-separation tag `linkkeys-key-revocation-v1alpha` first. This is the older
 house tuple pattern, *not* the two-element `CBOR([context, payload])` envelope
 framing. The signing domain is bound into each signature individually, so a
 signature can never be replayed for another domain.

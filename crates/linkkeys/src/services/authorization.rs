@@ -92,7 +92,41 @@ pub fn required_relation_for_op(service: &str, op: &str) -> Option<&'static str>
             | "deny-local-rp"
             | "revoke-local-rp"
             | "get-local-rp-policy"
-            | "set-local-rp-policy" => RELATION_ADMIN,
+            | "set-local-rp-policy"
+            | "purge-local-rp-tickets" => RELATION_ADMIN,
+            // Claim-type registry admin (policy-admin web UI parity): same
+            // explicit-arm treatment as the local-rp surface above — an
+            // external controller with an admin-relation API key manages
+            // the registry, not merely a manage_claims operator.
+            "list-claim-types"
+            | "set-claim-type"
+            | "remove-claim-type"
+            | "set-claim-type-label"
+            | "remove-claim-type-label" => RELATION_ADMIN,
+            // Trusted-issuer and release-default admin (policy-admin web UI
+            // parity, slice 2): same explicit-arm treatment as the
+            // claim-type registry surface above.
+            "list-trusted-issuers"
+            | "add-trusted-issuer"
+            | "remove-trusted-issuer"
+            | "list-release-rules"
+            | "set-release-rule"
+            | "remove-release-rule" => RELATION_ADMIN,
+            // Claim-approval queue and admin-issued attestations (policy-admin
+            // web UI parity, slice 3): same explicit-arm treatment as the
+            // trusted-issuer/release-default surface above.
+            "list-pending-claim-approvals"
+            | "approve-claim"
+            | "reject-claim"
+            | "admin-issue-attestation" => RELATION_ADMIN,
+            // Admin-ops slice 4 (CLI/web-only surfaces exposed over CSIL-RPC):
+            // user reactivation, user tombstone-purge, and domain signing-key
+            // revocation. purge-user and revoke-domain-key are destructive/
+            // terminal, and activate-user mirrors deactivate-user's protected-
+            // admin-account gating concerns closely enough that all three get
+            // the same explicit-arm treatment (full `admin`, not merely
+            // `manage_users`) as the surfaces above.
+            "activate-user" | "purge-user" | "revoke-domain-key" => RELATION_ADMIN,
             _ => RELATION_ADMIN,
         }),
         // The Rp service exposes the domain signing/decryption keys as oracles

@@ -63,7 +63,7 @@ def _certificate(case: dict) -> RevocationCertificate:
 
 def test_registry_constants(revocations):
     assert revocations["quorum"] == revocation_mod.REVOCATION_QUORUM
-    assert revocations["tag"] == "linkkeys-key-revocation-v1"
+    assert revocations["tag"] == "linkkeys-key-revocation-v1alpha"
 
 
 def test_certificate_cbor_round_trips(revocations):

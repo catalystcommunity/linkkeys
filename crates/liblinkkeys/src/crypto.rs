@@ -444,12 +444,13 @@ pub fn decrypt_with_key(key: &[u8; 32], encrypted: &[u8]) -> Result<Vec<u8>, Cry
 // encryption keys are now separate: encryption keys are generated independently
 // via `generate_x25519_keypair`, never derived from a signing key.
 
-/// Domain-separation tag / version for the sealed-box construction. Bumped to
-/// v2 when the KDF moved from a bare SHA-256 hash to HKDF-SHA256 with the
-/// context bound as AES-GCM associated data. Sealed boxes are ephemeral
-/// (single-use auth-token transport), so there is no stored ciphertext to stay
-/// backward-compatible with; both peers run the same construction.
-const SEALED_BOX_TAG: &[u8] = b"linkkeys-sealed-box-v2";
+/// Domain-separation tag for the sealed-box construction (HKDF-SHA256 with the
+/// context bound as AES-GCM associated data). The `-v1alpha` suffix tracks the
+/// pre-alpha protocol epoch, not a per-change version — during alpha we re-sign
+/// rather than maintain compat, and sealed boxes are ephemeral (single-use
+/// auth-token transport) with no stored ciphertext to stay compatible with
+/// anyway; both peers run the same construction.
+const SEALED_BOX_TAG: &[u8] = b"linkkeys-sealed-box-v1alpha";
 
 /// Derive the AEAD key for a sealed box via HKDF-SHA256, and return the
 /// context bytes that double as AEAD associated data (AAD). The context binds

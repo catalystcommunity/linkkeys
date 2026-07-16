@@ -25,7 +25,7 @@ import community.catalyst.linkkeys.localrp.wire.Types.DomainPublicKey;
 public final class Claims {
     private Claims() {}
 
-    private static final String CLAIM_PAYLOAD_TAG = "linkkeys-claim-v2";
+    private static final String CLAIM_PAYLOAD_TAG = "linkkeys-claim-v1alpha";
 
     /** Bound on distinct claim-signer domains a completion will fetch keys for; see {@code Complete}. */
     public static final int MAX_CLAIM_SIGNER_DOMAINS = 8;

@@ -164,7 +164,7 @@ func PinKeysToFingerprints(keys []api.DomainPublicKey, pinned []string) []api.Do
 
 // keyVouchTag is the domain-separation tag for a signing key's vouch over an
 // encryption key.
-const keyVouchTag = "linkkeys-key-vouch-v1"
+const keyVouchTag = "linkkeys-key-vouch-v1alpha"
 
 // keyVouchPayload builds the canonical bytes a signing key signs to vouch
 // for an encryption key: `(tag, encrypt-key fingerprint, encrypt-key

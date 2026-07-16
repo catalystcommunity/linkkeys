@@ -47,7 +47,7 @@ public class ClaimsConformanceTests
     public void PositiveCasesRoundTripByteExactAndVerifyIndependently()
     {
         var d = Fixtures.Load("claims.json");
-        Assert.Equal("linkkeys-claim-v2", d.Get("tag").AsString());
+        Assert.Equal("linkkeys-claim-v1alpha", d.Get("tag").AsString());
         Assert.Equal(
             "CBOR([tag, claim_id, claim_type, claim_value(bstr), 'user_id@subject_domain', signing_domain, expires_at_or_null, attested_at])",
             d.Get("payload_layout").AsString());

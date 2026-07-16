@@ -451,6 +451,49 @@ pub struct DeactivateUserResponse {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ActivateUserRequest {
+    pub user_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActivateUserResponse {
+    pub user: AdminUser,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PurgeUserRequest {
+    pub user_id: String,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PurgeUserResponse {
+    pub user: AdminUser,
+    pub credentials_revoked: i64,
+    pub keys_revoked: i64,
+    pub claims_revoked: i64,
+    pub relations_removed: i64,
+    pub profiles_deleted: i64,
+    pub consent_grants_deleted: i64,
+    pub release_prefs_deleted: i64,
+    pub email_verifications_deleted: i64,
+    pub reviews_resolved: i64,
+    pub local_rp_claim_tickets_deleted: i64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RevokeDomainKeyRequest {
+    pub key_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RevokeDomainKeyResponse {
+    pub revoked_key: DomainPublicKey,
+    pub certificate_issued: bool,
+    pub dns_removal_reminder: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ResetPasswordRequest {
     pub user_id: String,
     pub new_password: String,
@@ -543,6 +586,205 @@ pub struct ListSettablePoliciesResponse {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ClaimTypePolicy {
+    pub claim_type: String,
+    pub label: String,
+    pub description: String,
+    pub value_type: String,
+    pub max_bytes: i64,
+    pub set_rule: String,
+    pub signing_rule: String,
+    pub requires_approval: bool,
+    pub user_settable: bool,
+    pub default_auto_sign: bool,
+    pub suggested: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListClaimTypesResponse {
+    pub claim_types: Vec<ClaimTypePolicy>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetClaimTypeRequest {
+    pub claim_type: String,
+    pub label: String,
+    pub description: Option<String>,
+    pub value_type: String,
+    pub max_bytes: i64,
+    pub set_rule: String,
+    pub signing_rule: String,
+    pub user_settable: bool,
+    pub default_auto_sign: bool,
+    pub requires_approval: bool,
+    pub suggested: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetClaimTypeResponse {
+    pub claim_type: ClaimTypePolicy,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoveClaimTypeRequest {
+    pub claim_type: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoveClaimTypeResponse {
+    pub success: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClaimTypeLabel {
+    pub claim_type: String,
+    pub locale: String,
+    pub label: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetClaimTypeLabelRequest {
+    pub claim_type: String,
+    pub locale: String,
+    pub label: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetClaimTypeLabelResponse {
+    pub label: ClaimTypeLabel,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoveClaimTypeLabelRequest {
+    pub claim_type: String,
+    pub locale: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoveClaimTypeLabelResponse {
+    pub success: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TrustedIssuer {
+    pub claim_type: String,
+    pub issuer_domain: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListTrustedIssuersResponse {
+    pub trusted_issuers: Vec<TrustedIssuer>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AddTrustedIssuerRequest {
+    pub claim_type: String,
+    pub issuer_domain: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AddTrustedIssuerResponse {
+    pub trusted_issuer: TrustedIssuer,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoveTrustedIssuerRequest {
+    pub claim_type: String,
+    pub issuer_domain: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoveTrustedIssuerResponse {
+    pub success: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReleaseRule {
+    pub audience: String,
+    pub claim_type: String,
+    pub disposition: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListReleaseRulesResponse {
+    pub release_rules: Vec<ReleaseRule>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetReleaseRuleRequest {
+    pub audience: String,
+    pub claim_type: String,
+    pub disposition: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetReleaseRuleResponse {
+    pub release_rule: ReleaseRule,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoveReleaseRuleRequest {
+    pub audience: String,
+    pub claim_type: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoveReleaseRuleResponse {
+    pub success: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClaimApproval {
+    pub id: String,
+    pub user_id: String,
+    pub claim_type: String,
+    pub claim_value: Vec<u8>,
+    pub status: String,
+    pub resolved_by: Option<String>,
+    pub resolved_at: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListPendingClaimApprovalsResponse {
+    pub approvals: Vec<ClaimApproval>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ApproveClaimRequest {
+    pub approval_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ApproveClaimResponse {
+    pub success: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RejectClaimRequest {
+    pub approval_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RejectClaimResponse {
+    pub success: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AdminIssueAttestationRequest {
+    pub user_id: String,
+    pub claim_type: String,
+    pub claim_value: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AdminIssueAttestationResponse {
+    pub claim: Claim,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct GrantRelationRequest {
     pub subject_type: String,
     pub subject_id: String,
@@ -607,6 +849,67 @@ pub struct GetMyInfoResponse {
     pub user: AdminUser,
     pub relations: Vec<Relation>,
     pub claims: Vec<Claim>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetMyClaimRequest {
+    pub claim_type: String,
+    pub claim_value: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetMyClaimResponse {
+    pub outcome: String,
+    pub claim: Option<Claim>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoveMyClaimRequest {
+    pub claim_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoveMyClaimResponse {
+    pub success: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetMyClaimSharingRequest {
+    pub claim_type: String,
+    pub share: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetMyClaimSharingResponse {}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Profile {
+    pub id: String,
+    pub account_id: String,
+    pub domain: String,
+    pub is_root: bool,
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CreateProfileRequest {
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CreateProfileResponse {
+    pub profile: Profile,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RequestVerificationRequest {
+    pub issuer_domain: String,
+    pub requested_claim_types: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RequestVerificationResponse {
+    pub signed_request: SignedSigningRequest,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -930,6 +1233,14 @@ pub struct SetLocalRpPolicyRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SetLocalRpPolicyResponse {
     pub policy: LocalRpPolicy,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PurgeLocalRpTicketsRequest {}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PurgeLocalRpTicketsResponse {
+    pub purged_count: i64,
 }
 
 pub type LocaleMessages = std::collections::HashMap<String, String>;

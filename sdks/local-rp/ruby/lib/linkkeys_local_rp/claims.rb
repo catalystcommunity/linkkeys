@@ -15,7 +15,7 @@ module LinkkeysLocalRp
   # only ever verifies claims returned from a ticket redemption, never signs
   # them).
   module Claims
-    CLAIM_PAYLOAD_TAG = 'linkkeys-claim-v2'
+    CLAIM_PAYLOAD_TAG = 'linkkeys-claim-v1alpha'
 
     class Error < StandardError; end
     class SignatureInvalid < Error; end

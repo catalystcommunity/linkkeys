@@ -167,7 +167,7 @@ public static class Dns
         return outKeys;
     }
 
-    private const string KeyVouchTag = "linkkeys-key-vouch-v1";
+    private const string KeyVouchTag = "linkkeys-key-vouch-v1alpha";
 
     internal static byte[] KeyVouchPayload(string encFingerprint, string encExpiresAt) =>
         Cbor.Encode(Cbor.Tuple(Cbor.VTextOf(KeyVouchTag), Cbor.VTextOf(encFingerprint), Cbor.VTextOf(encExpiresAt)));

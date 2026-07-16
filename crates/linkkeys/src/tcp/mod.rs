@@ -774,6 +774,16 @@ fn dispatch(
             if op == "recheck-pins" {
                 return dispatch_admin_recheck_pins(&envelope.payload, db_pool, outbound);
             }
+            // approve-claim/reject-claim record which admin resolved the queue
+            // entry, so they need the caller's identity — dispatch_admin's
+            // generic admin_op! macro only threads (db_pool, request), so these
+            // two are handled here where `user.id` is in scope.
+            if op == "approve-claim" {
+                return dispatch_admin_approve_claim(&envelope.payload, db_pool, &user.id);
+            }
+            if op == "reject-claim" {
+                return dispatch_admin_reject_claim(&envelope.payload, db_pool, &user.id);
+            }
             dispatch_admin(op, &envelope.payload, db_pool)
         }
         ("Account", op) => {
@@ -910,6 +920,35 @@ fn dispatch_admin_recheck_pins(
     ok_response(liblinkkeys::generated::encode_recheck_pins_response(
         &liblinkkeys::generated::types::RecheckPinsResponse { results },
     ))
+}
+
+/// `Admin/approve-claim`: approve a queued self-asserted claim, recording
+/// `caller_id` as the resolving admin. Handled outside `dispatch_admin`
+/// (see the call site) because it needs the caller's identity.
+fn dispatch_admin_approve_claim(payload: &[u8], db_pool: &DbPool, caller_id: &str) -> Vec<u8> {
+    use liblinkkeys::generated::codec;
+    let request = match codec::decode_approve_claim_request(payload) {
+        Ok(r) => r,
+        Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+    };
+    match crate::services::admin::approve_claim_request(db_pool, request, caller_id) {
+        Ok(resp) => ok_response(codec::encode_approve_claim_response(&resp)),
+        Err(e) => error_response(4, &e.message),
+    }
+}
+
+/// `Admin/reject-claim`: reject a queued self-asserted claim, recording
+/// `caller_id` as the resolving admin. See [`dispatch_admin_approve_claim`].
+fn dispatch_admin_reject_claim(payload: &[u8], db_pool: &DbPool, caller_id: &str) -> Vec<u8> {
+    use liblinkkeys::generated::codec;
+    let request = match codec::decode_reject_claim_request(payload) {
+        Ok(r) => r,
+        Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+    };
+    match crate::services::admin::reject_claim_request(db_pool, request, caller_id) {
+        Ok(resp) => ok_response(codec::encode_reject_claim_response(&resp)),
+        Err(e) => error_response(4, &e.message),
+    }
 }
 
 /// Whether a ticket-redemption request's `issued_at` is within the design's
@@ -1115,6 +1154,25 @@ fn dispatch_admin(op: &str, payload: &[u8], db_pool: &DbPool) -> Vec<u8> {
             admin::deactivate_user,
             codec::encode_deactivate_user_response
         ),
+        "activate-user" => admin_op!(
+            codec::decode_activate_user_request,
+            admin::activate_user_request,
+            codec::encode_activate_user_response
+        ),
+        // Admin-ops slice 4 (CLI/web-only surfaces exposed over CSIL-RPC):
+        // purge-user and revoke-domain-key are destructive/terminal, so both
+        // are explicit `required_relation_for_op` arms requiring `admin`
+        // (see services/authorization.rs), not merely `manage_users`.
+        "purge-user" => admin_op!(
+            codec::decode_purge_user_request,
+            admin::purge_user,
+            codec::encode_purge_user_response
+        ),
+        "revoke-domain-key" => admin_op!(
+            codec::decode_revoke_domain_key_request,
+            admin::revoke_domain_key,
+            codec::encode_revoke_domain_key_response
+        ),
         "reset-password" => admin_op!(
             codec::decode_reset_password_request,
             admin::reset_password,
@@ -1206,6 +1264,88 @@ fn dispatch_admin(op: &str, payload: &[u8], db_pool: &DbPool) -> Vec<u8> {
             admin::set_local_rp_policy,
             codec::encode_set_local_rp_policy_response
         ),
+        "purge-local-rp-tickets" => admin_op!(
+            codec::decode_purge_local_rp_tickets_request,
+            admin::purge_local_rp_tickets,
+            codec::encode_purge_local_rp_tickets_response
+        ),
+        // Claim-type registry admin (policy-admin web UI parity): second
+        // entry point onto the exact same DB calls
+        // `web/policy_admin_ui.rs`'s handlers make.
+        "list-claim-types" => admin_op!(
+            codec::decode_empty_request,
+            admin::list_claim_types,
+            codec::encode_list_claim_types_response
+        ),
+        "set-claim-type" => admin_op!(
+            codec::decode_set_claim_type_request,
+            admin::set_claim_type,
+            codec::encode_set_claim_type_response
+        ),
+        "remove-claim-type" => admin_op!(
+            codec::decode_remove_claim_type_request,
+            admin::remove_claim_type,
+            codec::encode_remove_claim_type_response
+        ),
+        "set-claim-type-label" => admin_op!(
+            codec::decode_set_claim_type_label_request,
+            admin::set_claim_type_label,
+            codec::encode_set_claim_type_label_response
+        ),
+        "remove-claim-type-label" => admin_op!(
+            codec::decode_remove_claim_type_label_request,
+            admin::remove_claim_type_label,
+            codec::encode_remove_claim_type_label_response
+        ),
+        // Trusted-issuer and release-default admin (policy-admin web UI
+        // parity, slice 2): second entry point onto the exact same DB calls
+        // `web/policy_admin_ui.rs`'s handlers make.
+        "list-trusted-issuers" => admin_op!(
+            codec::decode_empty_request,
+            admin::list_trusted_issuers,
+            codec::encode_list_trusted_issuers_response
+        ),
+        "add-trusted-issuer" => admin_op!(
+            codec::decode_add_trusted_issuer_request,
+            admin::add_trusted_issuer,
+            codec::encode_add_trusted_issuer_response
+        ),
+        "remove-trusted-issuer" => admin_op!(
+            codec::decode_remove_trusted_issuer_request,
+            admin::remove_trusted_issuer,
+            codec::encode_remove_trusted_issuer_response
+        ),
+        "list-release-rules" => admin_op!(
+            codec::decode_empty_request,
+            admin::list_release_rules,
+            codec::encode_list_release_rules_response
+        ),
+        "set-release-rule" => admin_op!(
+            codec::decode_set_release_rule_request,
+            admin::set_release_rule,
+            codec::encode_set_release_rule_response
+        ),
+        "remove-release-rule" => admin_op!(
+            codec::decode_remove_release_rule_request,
+            admin::remove_release_rule,
+            codec::encode_remove_release_rule_response
+        ),
+        // Claim-approval queue and admin-issued attestations (policy-admin web
+        // UI parity, slice 3): third entry point onto the exact same DB/service
+        // calls `web/policy_admin_ui.rs`'s handlers make (approve-claim and
+        // reject-claim themselves are dispatched one level up, in `dispatch`,
+        // since they need the caller's identity — see
+        // `dispatch_admin_approve_claim`/`dispatch_admin_reject_claim`).
+        "list-pending-claim-approvals" => admin_op!(
+            codec::decode_empty_request,
+            admin::list_pending_claim_approvals,
+            codec::encode_list_pending_claim_approvals_response
+        ),
+        "admin-issue-attestation" => admin_op!(
+            codec::decode_admin_issue_attestation_request,
+            admin::admin_issue_attestation,
+            codec::encode_admin_issue_attestation_response
+        ),
         _ => error_response(3, &format!("Unknown Admin operation: {}", op)),
     }
 }
@@ -1235,6 +1375,68 @@ fn dispatch_account(
             Ok(resp) => ok_response(liblinkkeys::generated::encode_get_my_info_response(&resp)),
             Err(e) => error_response(4, &e.message),
         },
+        "set-my-claim" => {
+            let request = match liblinkkeys::generated::decode_set_my_claim_request(payload) {
+                Ok(r) => r,
+                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+            };
+            match account::set_my_claim(db_pool, &user.id, request) {
+                Ok(resp) => {
+                    ok_response(liblinkkeys::generated::encode_set_my_claim_response(&resp))
+                }
+                Err(e) => error_response(4, &e.message),
+            }
+        }
+        "remove-my-claim" => {
+            let request = match liblinkkeys::generated::decode_remove_my_claim_request(payload) {
+                Ok(r) => r,
+                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+            };
+            match account::remove_my_claim(db_pool, &user.id, request) {
+                Ok(resp) => ok_response(liblinkkeys::generated::encode_remove_my_claim_response(
+                    &resp,
+                )),
+                Err(e) => error_response(4, &e.message),
+            }
+        }
+        "set-my-claim-sharing" => {
+            let request = match liblinkkeys::generated::decode_set_my_claim_sharing_request(payload)
+            {
+                Ok(r) => r,
+                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+            };
+            match account::set_my_claim_sharing(db_pool, &user.id, request) {
+                Ok(resp) => {
+                    ok_response(liblinkkeys::generated::encode_set_my_claim_sharing_response(&resp))
+                }
+                Err(e) => error_response(4, &e.message),
+            }
+        }
+        "create-profile" => {
+            let request = match liblinkkeys::generated::decode_create_profile_request(payload) {
+                Ok(r) => r,
+                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+            };
+            match account::create_profile(db_pool, &user.id, request) {
+                Ok(resp) => ok_response(liblinkkeys::generated::encode_create_profile_response(
+                    &resp,
+                )),
+                Err(e) => error_response(4, &e.message),
+            }
+        }
+        "request-verification" => {
+            let request = match liblinkkeys::generated::decode_request_verification_request(payload)
+            {
+                Ok(r) => r,
+                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+            };
+            match account::request_verification(db_pool, &user.id, request) {
+                Ok(resp) => {
+                    ok_response(liblinkkeys::generated::encode_request_verification_response(&resp))
+                }
+                Err(e) => error_response(4, &e.message),
+            }
+        }
         _ => error_response(3, &format!("Unknown Account operation: {}", op)),
     }
 }

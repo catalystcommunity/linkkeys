@@ -13,7 +13,7 @@ Wire-precision gotchas, per `sdks/local-rp/conformance/README.md`'s
 
 - The signed payload is `CBOR([tag, target_key_id, target_fingerprint,
   revoked_at, signing_domain])` — a **five-element** CBOR array with the
-  domain-separation tag `linkkeys-key-revocation-v1` first. This is the
+  domain-separation tag `linkkeys-key-revocation-v1alpha` first. This is the
   older house tuple pattern, NOT the local-RP envelopes' two-element
   `CBOR([context, payload])` framing.
 - The verifier recomputes each signature's payload from that signature's
@@ -41,7 +41,7 @@ from .generated.types import DomainPublicKey, RevocationCertificate
 # Minimum number of distinct sibling signatures required to revoke a key.
 REVOCATION_QUORUM = 2
 
-_REVOCATION_TAG = "linkkeys-key-revocation-v1"
+_REVOCATION_TAG = "linkkeys-key-revocation-v1alpha"
 
 
 class RevocationError(Exception):

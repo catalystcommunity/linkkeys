@@ -17,7 +17,7 @@ public static class Revocation
     public const int Quorum = 2;
 
     /// <summary>Domain-separation tag/version for the signed revocation payload.</summary>
-    private const string Tag = "linkkeys-key-revocation-v1";
+    private const string Tag = "linkkeys-key-revocation-v1alpha";
 
     /// <summary>
     /// The canonical signed bytes: the tag, the target key id + fingerprint, the

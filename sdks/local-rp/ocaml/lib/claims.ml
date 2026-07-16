@@ -7,7 +7,7 @@
    SDK itself only ever verifies claims returned from a ticket redemption,
    never signs them). *)
 
-let claim_payload_tag = "linkkeys-claim-v2"
+let claim_payload_tag = "linkkeys-claim-v1alpha"
 
 type domain_key_set = { domain : string; keys : Types.Domain_public_key.t list }
 

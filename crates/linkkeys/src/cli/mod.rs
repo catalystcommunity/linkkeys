@@ -44,6 +44,13 @@ pub enum Commands {
     #[command(subcommand)]
     LocalRp(LocalRpCommands),
 
+    /// Claim-type registry admin commands (list/set/remove claim types and
+    /// their per-locale name translations). CSIL-RPC parity for what the
+    /// `policy-admin` web UI's registry/translation forms do, for a
+    /// controller holding an admin-relation API key.
+    #[command(subcommand)]
+    Policy(PolicyCommands),
+
     /// Create an encrypted, storage-agnostic backup of the whole database.
     ///
     /// The artifact is encrypted in-process with a per-domain 256-bit backup key
@@ -87,11 +94,21 @@ pub enum DomainCommands {
     DnsCheck,
     /// List this domain's keys with their ids, usage, fingerprint, and status
     ListKeys,
-    /// Revoke a domain key by id (SEC-08). Verification stops honoring it; remove
-    /// its fingerprint from DNS so peers drop it on their next pin recheck.
+    /// Revoke a domain key by id (SEC-08), writing directly to the DB.
+    /// Verification stops honoring it; remove its fingerprint from DNS so
+    /// peers drop it on their next pin recheck.
     RevokeKey {
         /// The key id to revoke (see `domain list-keys`)
         key_id: String,
+    },
+    /// Revoke a domain key by id (via TCP, admin-relation API key required).
+    /// CSIL-RPC parity for `revoke-key`, for a controller that isn't running
+    /// on the box holding the domain's own DB/passphrase.
+    RevokeKeyRemote {
+        /// The key id to revoke (see `domain list-keys`)
+        key_id: String,
+        #[arg(long)]
+        server: Option<String>,
     },
 }
 
@@ -163,6 +180,13 @@ pub enum UserCommands {
         /// User: username or UUID
         user: String,
     },
+    /// Reactivate a previously deactivated user (via TCP)
+    Activate {
+        /// User UUID
+        user_id: String,
+        #[arg(long)]
+        server: Option<String>,
+    },
     /// Reset a user's password (via TCP)
     ResetPassword {
         /// User UUID
@@ -194,6 +218,20 @@ pub enum UserCommands {
         /// Operator-visible audit reason.
         #[arg(long)]
         reason: String,
+    },
+    /// Irreversibly minimize a user while keeping its UUID tombstoned forever
+    /// (via TCP, admin-relation API key required). CSIL-RPC parity for
+    /// `purge-local`: refuses an already-purged user or a protected admin
+    /// account, with no override lever over the wire (unlike `purge-local`'s
+    /// `--force-admin`).
+    Purge {
+        /// User UUID
+        user_id: String,
+        /// Operator-visible audit reason, stored on the tombstoned user row.
+        #[arg(long)]
+        reason: Option<String>,
+        #[arg(long)]
+        server: Option<String>,
     },
 }
 
@@ -352,6 +390,156 @@ pub enum LocalRpCommands {
         #[arg(long)]
         server: Option<String>,
     },
+    /// Delete every expired claim-get ticket (via TCP). Intended to be driven
+    /// on a schedule by an external controller holding an admin-relation API
+    /// key; the server uses its own clock, so there are no parameters.
+    PurgeTickets {
+        #[arg(long)]
+        server: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PolicyCommands {
+    /// List the domain's full claim-type registry (via TCP). CSIL-RPC
+    /// parity for the `policy-admin` web UI's registry table.
+    ListClaimTypes {
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Create or update a claim-type definition (via TCP). CSIL-RPC parity
+    /// for the `policy-admin` web UI's "Add / edit a claim type" form.
+    SetClaimType {
+        /// Claim type id (e.g. "pronouns")
+        claim_type: String,
+        #[arg(long)]
+        label: String,
+        #[arg(long)]
+        description: Option<String>,
+        /// text | url | email | bool | int | float | decimal | date | timestamp | opaque
+        #[arg(long)]
+        value_type: String,
+        #[arg(long, default_value_t = 33792)]
+        max_bytes: i64,
+        /// user_self | idp_on_request | trusted_issuer_only | admin_only | deny
+        #[arg(long)]
+        set_rule: String,
+        /// self_signed | verified | attested | unsigned
+        #[arg(long)]
+        signing_rule: String,
+        #[arg(long)]
+        user_settable: bool,
+        #[arg(long)]
+        default_auto_sign: bool,
+        #[arg(long)]
+        requires_approval: bool,
+        #[arg(long)]
+        suggested: bool,
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Delete a claim-type definition by id (via TCP).
+    RemoveClaimType {
+        claim_type: String,
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Set a claim-type name translation (via TCP). Fails if `claim_type`
+    /// is not already registered.
+    SetLabel {
+        claim_type: String,
+        /// e.g. es-ES, pt-BR
+        locale: String,
+        #[arg(long)]
+        label: String,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Delete a claim-type name translation (via TCP).
+    RemoveLabel {
+        claim_type: String,
+        locale: String,
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// List every trusted issuer across all claim types (via TCP). CSIL-RPC
+    /// parity for the `policy-admin` web UI's trusted-issuers table.
+    ListTrustedIssuers {
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Add a trusted issuer for a claim type (via TCP).
+    AddTrustedIssuer {
+        claim_type: String,
+        issuer_domain: String,
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Remove a trusted issuer for a claim type (via TCP).
+    RemoveTrustedIssuer {
+        claim_type: String,
+        issuer_domain: String,
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// List every per-audience release rule (via TCP). CSIL-RPC parity for
+    /// the `policy-admin` web UI's release-rules table.
+    ListReleaseRules {
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Create or update a release rule (via TCP). Audience `*` is the
+    /// global default.
+    SetReleaseRule {
+        audience: String,
+        claim_type: String,
+        /// forced_allow | forced_deny
+        disposition: String,
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Delete a release rule (via TCP).
+    RemoveReleaseRule {
+        audience: String,
+        claim_type: String,
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// List claims queued for admin approval (via TCP). CSIL-RPC parity for
+    /// the `policy-admin` web UI's approvals table.
+    ListPendingApprovals {
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Approve a queued claim: signs it with the domain's active keys and
+    /// stores it for the subject (via TCP).
+    ApproveClaim {
+        /// Approval queue entry id (see `policy list-pending-approvals`)
+        approval_id: String,
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Reject a queued claim without signing anything (via TCP).
+    RejectClaim {
+        /// Approval queue entry id (see `policy list-pending-approvals`)
+        approval_id: String,
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Issue a signed attestation for one of this domain's own users (via
+    /// TCP). CSIL-RPC parity for the `policy-admin` web UI's "Issue an
+    /// attestation" flow — signs `claim_value` with the domain's active keys
+    /// and stores it directly for `user_id`.
+    IssueAttestation {
+        /// Subject user UUID (must be one of this domain's own accounts)
+        user_id: String,
+        claim_type: String,
+        claim_value: String,
+        #[arg(long)]
+        server: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -363,6 +551,61 @@ pub enum AccountCommands {
     },
     /// Get your own account info (via TCP)
     MyInfo {
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Set one of your OWN claim values (via TCP), subject to this domain's
+    /// set-rule / user-settable policy for the claim type. CSIL-RPC parity
+    /// for the web identity editor's "save" button.
+    SetClaim {
+        claim_type: String,
+        claim_value: String,
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Remove one of your OWN active claims by id (via TCP). Rejected if the
+    /// claim belongs to another user.
+    RemoveClaim {
+        claim_id: String,
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Create an additional presentable profile on your OWN account (via
+    /// TCP), capped by the operator's MAX_PROFILES_PER_ACCOUNT.
+    CreateProfile {
+        /// Optional display label for the new profile.
+        #[arg(long)]
+        label: Option<String>,
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Pre-approve (or remove pre-approval for) sharing one of your OWN
+    /// claim types with ALL audiences (via TCP). This is a STANDING RELEASE
+    /// PREFERENCE, not a one-off share: once turned on, matching claims are
+    /// released to any relying party without a fresh consent prompt.
+    /// CSIL-RPC parity for the web identity editor's "share" toggle.
+    ShareClaim {
+        claim_type: String,
+        /// Turn sharing on.
+        #[arg(long, conflicts_with = "off")]
+        on: bool,
+        /// Turn sharing off.
+        #[arg(long, conflicts_with = "on")]
+        off: bool,
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Mint a signing-request bundle for your OWN account (via TCP),
+    /// addressed to an issuer, asking it to attest the given claim types.
+    /// CSIL-RPC parity for `/account/request-verification`; the printed
+    /// base64 is the same bundle the web QR/download offers.
+    RequestVerification {
+        /// Domain to address the request to (the would-be issuer).
+        issuer_domain: String,
+        /// Claim type to request attestation for (repeatable), e.g.
+        /// `--type age_over_21 --type driver_license_number`.
+        #[arg(long = "type")]
+        claim_types: Vec<String>,
         #[arg(long)]
         server: Option<String>,
     },

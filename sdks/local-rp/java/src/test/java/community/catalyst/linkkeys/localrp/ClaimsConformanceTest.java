@@ -70,7 +70,7 @@ class ClaimsConformanceTest {
     @Test
     void positiveCasesRoundTripByteExactlyAndVerify() {
         JsonValue d = Fixtures.load("claims.json");
-        assertEquals("linkkeys-claim-v2", d.get("tag").asString());
+        assertEquals("linkkeys-claim-v1alpha", d.get("tag").asString());
         String fileSubjectDomain = d.get("subject_domain").asString();
         List<Claims.DomainKeySet> defaultDomainKeys = parseDomainKeySets(d.get("domain_keys"));
 

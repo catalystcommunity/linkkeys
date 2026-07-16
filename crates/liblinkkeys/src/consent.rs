@@ -31,7 +31,7 @@ pub const DEFAULT_CONSENT_TTL_SECONDS: i64 = 365 * 24 * 60 * 60;
 
 /// Domain-separation tag + version for the consent grant signature payload.
 /// Bumping this invalidates old grant signatures by design.
-const CONSENT_PAYLOAD_TAG: &str = "linkkeys-consent-v1";
+const CONSENT_PAYLOAD_TAG: &str = "linkkeys-consent-v1alpha";
 
 /// What can go wrong verifying a [`SignedConsentGrant`].
 #[derive(Debug)]

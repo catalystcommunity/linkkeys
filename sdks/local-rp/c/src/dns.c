@@ -180,7 +180,7 @@ static int fingerprint_pinned(const char *fp_lower, const char *const *pinned, s
     return 0;
 }
 
-static const char KEY_VOUCH_TAG[] = "linkkeys-key-vouch-v1";
+static const char KEY_VOUCH_TAG[] = "linkkeys-key-vouch-v1alpha";
 
 static int key_vouch_payload(const char *enc_fingerprint, const char *enc_expires_at,
                               lrp_bytes *out, lrp_error *err) {

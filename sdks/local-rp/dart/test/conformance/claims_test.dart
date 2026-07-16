@@ -74,7 +74,7 @@ void main() {
     const signingDomain = 'conformance.example';
 
     test('file-level constants match the README', () {
-      expect(d['tag'], equals('linkkeys-claim-v2'));
+      expect(d['tag'], equals('linkkeys-claim-v1alpha'));
       expect(d['subject_domain'], equals(signingDomain));
       expect(
         d['payload_layout'],

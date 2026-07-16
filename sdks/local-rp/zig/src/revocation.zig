@@ -16,7 +16,7 @@ const local_rp = @import("local_rp.zig");
 pub const revocation_quorum: usize = 2;
 
 /// Domain-separation tag / version for the signed revocation payload.
-pub const revocation_tag = "linkkeys-key-revocation-v1";
+pub const revocation_tag = "linkkeys-key-revocation-v1alpha";
 
 /// Builds the canonical signed bytes: the tag, the target key id +
 /// fingerprint, the revocation instant, and the signing sibling's domain

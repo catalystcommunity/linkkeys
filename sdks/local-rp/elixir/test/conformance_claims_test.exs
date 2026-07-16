@@ -78,7 +78,7 @@ defmodule LinkkeysLocalRp.ConformanceClaimsTest do
     subject = "#{claim.user_id}@#{subject_domain}"
 
     Cbor.encode([
-      "linkkeys-claim-v2",
+      "linkkeys-claim-v1alpha",
       claim.claim_id,
       claim.claim_type,
       Cbor.bytes(claim.claim_value),

@@ -15,7 +15,7 @@ use crate::crypto::CryptoError;
 use crate::generated::types::{ClaimSignature, SignedSigningRequest, SigningRequest};
 
 /// Domain-separation tag + version for the signing-request signature payload.
-const SIGNING_REQUEST_TAG: &str = "linkkeys-signing-request-v1";
+const SIGNING_REQUEST_TAG: &str = "linkkeys-signing-request-v1alpha";
 
 /// What can go wrong verifying a [`SignedSigningRequest`].
 #[derive(Debug)]

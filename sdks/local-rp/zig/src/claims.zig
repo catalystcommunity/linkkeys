@@ -13,7 +13,7 @@ const xcrypto = @import("crypto.zig");
 const local_rp = @import("local_rp.zig");
 
 /// Domain-separation tag + version for the claim signature payload.
-pub const claim_payload_tag = "linkkeys-claim-v2";
+pub const claim_payload_tag = "linkkeys-claim-v1alpha";
 
 /// Builds the canonical bytes a single signature covers for a claim. The
 /// subject is the single full identity `user_id@subject_domain` (not the

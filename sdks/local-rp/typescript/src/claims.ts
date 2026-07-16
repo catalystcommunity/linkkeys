@@ -30,7 +30,7 @@ export class ClaimError extends Error {
   }
 }
 
-const CLAIM_PAYLOAD_TAG = "linkkeys-claim-v2";
+const CLAIM_PAYLOAD_TAG = "linkkeys-claim-v1alpha";
 
 /**
  * Canonical bytes a single signature covers for a claim. The subject is the

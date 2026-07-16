@@ -3,7 +3,7 @@
 //!
 //! A [`DomainClaim`] is structurally a `Claim` without a `user_id`: the subject
 //! is a domain, supplied by the verifier from authoritative context and bound
-//! into every signature (tag `"linkkeys-domain-claim-v1"`) so a claim about
+//! into every signature (tag `"linkkeys-domain-claim-v1alpha"`) so a claim about
 //! domain A cannot be replayed as one about domain B. It is signed by one or
 //! more domains via the shared [`ClaimSignature`] list, so third parties can
 //! attest — `us.gov` can sign a `government_entity` claim about
@@ -20,7 +20,7 @@ use crate::generated::types::{ClaimSignature, DomainClaim};
 use chrono::Utc;
 
 /// Domain-separation tag + version for the domain-claim signature payload.
-const DOMAIN_CLAIM_PAYLOAD_TAG: &str = "linkkeys-domain-claim-v1";
+const DOMAIN_CLAIM_PAYLOAD_TAG: &str = "linkkeys-domain-claim-v1alpha";
 
 /// Build the canonical bytes a single signature covers for a domain claim.
 ///
