@@ -15,7 +15,7 @@ defmodule LinkkeysLocalRp.Revocation do
 
   - The signed payload is `CBOR([tag, target_key_id, target_fingerprint,
     revoked_at, signing_domain])` — a **five-element** CBOR array with the
-    domain-separation tag `linkkeys-key-revocation-v1` first. This is the
+    domain-separation tag `linkkeys-key-revocation-v1alpha` first. This is the
     older house tuple pattern, NOT the local-RP envelopes' two-element
     `CBOR([context, payload])` framing.
   - The verifier recomputes each signature's payload from that signature's
@@ -39,7 +39,7 @@ defmodule LinkkeysLocalRp.Revocation do
   @revocation_quorum 2
   def revocation_quorum, do: @revocation_quorum
 
-  @revocation_tag "linkkeys-key-revocation-v1"
+  @revocation_tag "linkkeys-key-revocation-v1alpha"
 
   @doc "The canonical signed bytes: `CBOR([tag, target_key_id, target_fingerprint, revoked_at, signing_domain])` — the signing sibling's domain is bound per-signature to stop cross-domain reuse."
   def revocation_payload(target_key_id, target_fingerprint, revoked_at, signing_domain) do

@@ -10,7 +10,7 @@
 #include "local_rp.h"
 #include "time_util.h"
 
-static const char CLAIM_PAYLOAD_TAG[] = "linkkeys-claim-v2";
+static const char CLAIM_PAYLOAD_TAG[] = "linkkeys-claim-v1alpha";
 
 /* `(TAG, claim_id, claim_type, claim_value: bstr, "user_id@subject_domain",
  * signing_domain, expires_at: tstr/null, attested_at)` — an 8-element CBOR

@@ -46,7 +46,7 @@ defmodule LinkkeysLocalRp.ConformanceRevocationsTest do
 
   test "registry constants" do
     assert @revocations["quorum"] == Revocation.revocation_quorum()
-    assert @revocations["tag"] == "linkkeys-key-revocation-v1"
+    assert @revocations["tag"] == "linkkeys-key-revocation-v1alpha"
   end
 
   test "certificate CBOR round trips" do

@@ -50,7 +50,7 @@ class RevocationsConformanceTest {
     fun certificateCasesMatchExpectedValidity() {
         val d = Fixtures.load("revocations.json")
         assertEquals(2, d.get("quorum").asLong())
-        assertEquals("linkkeys-key-revocation-v1", d.get("tag").asString())
+        assertEquals("linkkeys-key-revocation-v1alpha", d.get("tag").asString())
         assertEquals(Revocations.QUORUM.toLong(), d.get("quorum").asLong())
 
         val domainKeys = d.get("domain_keys").asArray().map { parseDomainKey(it) }

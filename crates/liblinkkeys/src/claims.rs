@@ -58,11 +58,15 @@ impl fmt::Display for ClaimError {
 
 impl std::error::Error for ClaimError {}
 
-/// Domain-separation tag + version for the claim signature payload. Bumping
-/// this invalidates old signatures by design (versioned construction).
-/// `pub` so conformance-vector generation and consumers can reference the
-/// exact tag string rather than retyping it.
-pub const CLAIM_PAYLOAD_TAG: &str = "linkkeys-claim-v2";
+/// Domain-separation tag for the claim signature payload. The `-v1alpha` suffix
+/// is the pre-alpha protocol EPOCH, not a per-change version counter: while we
+/// are in alpha the signed structure may change freely and we re-sign rather
+/// than migrate old signatures, so there is no need to bump within alpha. The
+/// epoch (and thus this tag) changes when we leave alpha, which is the point at
+/// which invalidating older signatures becomes a deliberate compatibility act.
+/// `pub` so conformance-vector generation and consumers can reference the exact
+/// tag string rather than retyping it.
+pub const CLAIM_PAYLOAD_TAG: &str = "linkkeys-claim-v1alpha";
 
 /// Build the canonical bytes a single signature covers for a claim.
 ///

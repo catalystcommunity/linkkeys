@@ -89,7 +89,7 @@ def _error_kind(exc: Exception) -> str:
 
 
 def test_registry_constants(claims_vectors):
-    assert claims_vectors["tag"] == claims_mod.CLAIM_PAYLOAD_TAG == "linkkeys-claim-v2"
+    assert claims_vectors["tag"] == claims_mod.CLAIM_PAYLOAD_TAG == "linkkeys-claim-v1alpha"
 
 
 def test_positive_cases_round_trip_and_verify(claims_vectors):

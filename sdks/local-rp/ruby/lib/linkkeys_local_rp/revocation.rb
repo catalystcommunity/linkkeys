@@ -20,7 +20,7 @@ module LinkkeysLocalRp
   #
   # - The signed payload is `CBOR([tag, target_key_id, target_fingerprint,
   #   revoked_at, signing_domain])` -- a FIVE-element CBOR array with the
-  #   domain-separation tag `linkkeys-key-revocation-v1` first. This is the
+  #   domain-separation tag `linkkeys-key-revocation-v1alpha` first. This is the
   #   older house tuple pattern, NOT the local-RP envelopes' two-element
   #   `CBOR([context, payload])` framing.
   # - The verifier recomputes each signature's payload from that
@@ -40,7 +40,7 @@ module LinkkeysLocalRp
     # key.
     REVOCATION_QUORUM = 2
 
-    REVOCATION_TAG = 'linkkeys-key-revocation-v1'
+    REVOCATION_TAG = 'linkkeys-key-revocation-v1alpha'
 
     # The certificate did not reach the sibling-signature quorum.
     class RevocationError < StandardError

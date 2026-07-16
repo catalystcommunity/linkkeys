@@ -406,22 +406,15 @@ pub fn set_share_submit(
         Some(id) => id,
         None => return Redirect::found("/account/login"),
     };
-    // Only let a user pre-share a claim type that actually exists and is theirs
-    // to set — don't accumulate junk standing prefs from crafted POSTs.
-    let known = matches!(
-        pool.find_claim_policy(&form.claim_type),
-        Ok(Some(ref p)) if p.user_settable
-    );
-    if !known {
-        return Redirect::found("/account/identity?error=Unknown+claim+type");
-    }
-    let result = if form.share_any.is_some() {
-        pool.add_user_release_pref(&account_id, "*", &form.claim_type)
-    } else {
-        pool.remove_user_release_pref(&account_id, "*", &form.claim_type)
-    };
-    match result {
-        Ok(_) => Redirect::found("/account/identity?msg=Sharing+updated"),
+    let share = form.share_any.is_some();
+    match self_service::set_my_claim_sharing(pool.inner(), &account_id, &form.claim_type, share) {
+        Ok(()) => Redirect::found("/account/identity?msg=Sharing+updated"),
+        // Unknown / non-user-settable claim type (400/403) vs. a DB failure
+        // on the add/remove itself (500) — preserve the two distinct messages
+        // the inline handler used to give.
+        Err(e) if e.code == 400 || e.code == 403 => {
+            Redirect::found("/account/identity?error=Unknown+claim+type")
+        }
         Err(_) => Redirect::found("/account/identity?error=Could+not+update+sharing"),
     }
 }

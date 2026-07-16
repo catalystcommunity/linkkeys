@@ -11,7 +11,7 @@ import type { DomainPublicKey, RevocationCertificate } from "./generated/types.g
 export const REVOCATION_QUORUM = 2;
 
 /** Domain-separation tag / version for the signed revocation payload. */
-export const REVOCATION_TAG = "linkkeys-key-revocation-v1";
+export const REVOCATION_TAG = "linkkeys-key-revocation-v1alpha";
 
 /**
  * Canonical bytes one sibling signature covers:

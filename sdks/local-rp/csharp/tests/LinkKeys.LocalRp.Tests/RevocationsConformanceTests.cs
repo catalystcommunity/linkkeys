@@ -44,7 +44,7 @@ public class RevocationsConformanceTests
     {
         var d = Fixtures.Load("revocations.json");
         Assert.Equal(2, d.Get("quorum").AsLong());
-        Assert.Equal("linkkeys-key-revocation-v1", d.Get("tag").AsString());
+        Assert.Equal("linkkeys-key-revocation-v1alpha", d.Get("tag").AsString());
 
         var domainKeys = d.Get("domain_keys").AsArray().Select(ParseDomainKey).ToList();
 

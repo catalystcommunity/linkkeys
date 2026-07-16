@@ -189,7 +189,7 @@ pub fn pin_keys_to_fingerprints(
 }
 
 /// Domain-separation tag for a signing key's vouch over an encryption key.
-const KEY_VOUCH_TAG: &str = "linkkeys-key-vouch-v1";
+const KEY_VOUCH_TAG: &str = "linkkeys-key-vouch-v1alpha";
 
 /// Canonical bytes a signing key signs to vouch for an encryption key:
 /// `(tag, encrypt-key fingerprint, encrypt-key expires_at)` as deterministic

@@ -15,7 +15,7 @@ use Csilgen\Generated\DomainPublicKey;
  */
 final class Claims
 {
-    public const CLAIM_PAYLOAD_TAG = 'linkkeys-claim-v2';
+    public const CLAIM_PAYLOAD_TAG = 'linkkeys-claim-v1alpha';
 
     /**
      * The subject is bound as the single full identity `user_id@subject_domain`

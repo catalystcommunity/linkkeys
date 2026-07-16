@@ -529,7 +529,7 @@ class FlowTest {
         // reads lazily (after this mutator has already run). The canonical
         // signed payload (`CBOR([tag, target_key_id, target_fingerprint,
         // revoked_at, signing_domain])`) is rebuilt here via the public
-        // `Cbor` wire helper -- the tag "linkkeys-key-revocation-v1" is the
+        // `Cbor` wire helper -- the tag "linkkeys-key-revocation-v1alpha" is the
         // same protocol constant RevocationsConformanceTest asserts against
         // `revocations.json`; the underlying dependency's own payload
         // builder is a package-private white-box hook, not part of this
@@ -538,7 +538,7 @@ class FlowTest {
             val revokedAt = rfc3339(now)
             val payload = JCbor.encode(
                 JCbor.tuple(
-                    JCbor.vtext("linkkeys-key-revocation-v1"),
+                    JCbor.vtext("linkkeys-key-revocation-v1alpha"),
                     JCbor.vtext(k.keyId()),
                     JCbor.vtext(k.fingerprint()),
                     JCbor.vtext(revokedAt),

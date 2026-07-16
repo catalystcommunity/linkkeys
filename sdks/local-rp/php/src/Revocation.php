@@ -19,7 +19,7 @@ use Csilgen\Generated\RevocationCertificate;
 final class Revocation
 {
     public const QUORUM = 2;
-    public const TAG = 'linkkeys-key-revocation-v1';
+    public const TAG = 'linkkeys-key-revocation-v1alpha';
 
     /**
      * Canonical signed bytes: a FIVE-element CBOR array with the

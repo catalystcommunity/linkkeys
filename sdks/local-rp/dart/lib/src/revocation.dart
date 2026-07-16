@@ -19,7 +19,7 @@ import 'wire/types.dart';
 const int revocationQuorum = 2;
 
 /// Domain-separation tag/version for the signed revocation payload.
-const String _revocationTag = 'linkkeys-key-revocation-v1';
+const String _revocationTag = 'linkkeys-key-revocation-v1alpha';
 
 /// The canonical signed bytes: the tag, the target key id + fingerprint, the
 /// revocation instant, and the signing sibling's domain (bound per-signature

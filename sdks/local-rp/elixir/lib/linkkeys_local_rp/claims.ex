@@ -16,7 +16,7 @@ defmodule LinkkeysLocalRp.Claims do
   alias LinkkeysLocalRp.Timeutil
   alias LinkkeysLocalRp.Types.{Claim, ClaimSignature}
 
-  @claim_payload_tag "linkkeys-claim-v2"
+  @claim_payload_tag "linkkeys-claim-v1alpha"
 
   defmodule DomainKeySet do
     @moduledoc "A signer domain and the (already DNS-pinned) public keys fetched for it."

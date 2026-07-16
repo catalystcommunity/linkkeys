@@ -1,7 +1,9 @@
-use liblinkkeys::generated::types::{Claim, ClaimSignature, DomainPublicKey, UserPublicKey};
+use liblinkkeys::generated::types::{
+    Claim, ClaimSignature, DomainPublicKey, Profile as GeneratedProfile, UserPublicKey,
+};
 use std::env;
 
-use crate::db::models::{ClaimRow, ClaimSignatureRow, DomainKey, UserKey};
+use crate::db::models::{ClaimRow, ClaimSignatureRow, DomainKey, Profile, UserKey};
 
 pub fn get_domain_name() -> String {
     env::var("DOMAIN_NAME").unwrap_or_else(|_| "localhost".to_string())
@@ -64,6 +66,18 @@ impl From<&ClaimRow> for Claim {
             created_at: c.created_at.clone(),
             expires_at: c.expires_at.clone(),
             revoked_at: c.revoked_at.clone(),
+        }
+    }
+}
+
+impl From<&Profile> for GeneratedProfile {
+    fn from(p: &Profile) -> Self {
+        GeneratedProfile {
+            id: p.id.clone(),
+            account_id: p.account_id.clone(),
+            domain: p.domain.clone(),
+            is_root: p.is_root,
+            label: p.label.clone(),
         }
     }
 }

@@ -305,11 +305,16 @@ pub fn issue_attested_claim(
         })
         .collect();
     let claim_id = uuid::Uuid::now_v7().to_string();
-    let expires_at =
-        (chrono::Utc::now() + chrono::Duration::seconds(attested_claim_ttl_seconds())).to_rfc3339();
-    // Signed attestation time, normalized to whole seconds so it round-trips
-    // byte-identically when the subject's home domain stores it.
+    // Both timestamps are part of the signed payload, so both are normalized to
+    // whole seconds: they must round-trip byte-identically through both
+    // Postgres (timestamptz, microsecond) and SQLite (RFC3339 text) storage, or
+    // a claim re-verified after a DB round-trip would no longer match its own
+    // signature (SEC-08's same concern, applied to expires_at here too).
     use chrono::Timelike;
+    let expires_at = (chrono::Utc::now() + chrono::Duration::seconds(attested_claim_ttl_seconds()))
+        .with_nanosecond(0)
+        .unwrap()
+        .to_rfc3339();
     let attested_at = chrono::Utc::now().with_nanosecond(0).unwrap().to_rfc3339();
     liblinkkeys::claims::sign_claim(
         &liblinkkeys::claims::ClaimSpec {

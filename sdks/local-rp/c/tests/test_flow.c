@@ -305,7 +305,7 @@ static void claim_sign_payload(const char *claim_id, const char *claim_type,
     cbor_buf b;
     cbor_buf_init(&b);
     cbor_write_array_header(&b, 8);
-    cbor_write_text_cstr(&b, "linkkeys-claim-v2");
+    cbor_write_text_cstr(&b, "linkkeys-claim-v1alpha");
     cbor_write_text_cstr(&b, claim_id);
     cbor_write_text_cstr(&b, claim_type);
     cbor_write_bytes(&b, (const uint8_t *)claim_value, strlen(claim_value));

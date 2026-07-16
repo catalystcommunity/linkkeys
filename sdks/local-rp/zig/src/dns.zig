@@ -127,7 +127,7 @@ pub fn pinKeysToFingerprints(allocator: std.mem.Allocator, keys: []const types.D
 }
 
 /// Domain-separation tag for a signing key's vouch over an encryption key.
-pub const key_vouch_tag = "linkkeys-key-vouch-v1";
+pub const key_vouch_tag = "linkkeys-key-vouch-v1alpha";
 
 pub fn keyVouchPayload(allocator: std.mem.Allocator, enc_fingerprint: []const u8, enc_expires_at: []const u8) ![]u8 {
     const cbor = @import("cbor.zig");

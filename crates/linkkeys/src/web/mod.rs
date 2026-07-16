@@ -740,7 +740,7 @@ button {{ padding: 10px 20px; margin-top: 12px; }}
 // It never leaves the IDP, so it is server-internal and not part of the CSIL
 // protocol.
 
-const LOGIN_PROOF_TAG: &str = "linkkeys-login-proof-v1";
+const LOGIN_PROOF_TAG: &str = "linkkeys-login-proof-v1alpha";
 /// Lifetime of a login proof: long enough to read a consent screen, short
 /// enough to bound replay.
 const LOGIN_PROOF_TTL_SECONDS: i64 = 600;

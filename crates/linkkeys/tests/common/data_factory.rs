@@ -7,7 +7,8 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use linkkeys::db::models::{
-    AuthCredential, DomainKey, GuestbookEntry, LocalRp, LocalRpClaimTicket, Relation, User,
+    AuthCredential, ClaimTypePolicy, DomainKey, GuestbookEntry, LocalRp, LocalRpClaimTicket,
+    Relation, ReleasePolicy, TrustedIssuer, User,
 };
 use linkkeys::db::DbPool;
 
@@ -111,6 +112,103 @@ pub fn create_relation(
 ) -> Relation {
     pool.create_relation(subject_type, subject_id, relation, object_type, object_id)
         .expect("Failed to create test relation")
+}
+
+/// Create a claim-type registry entry directly via `DbPool::upsert_claim_policy`
+/// (the same call `services::admin::set_claim_type`/the policy-admin web UI's
+/// `upsert_policy` make). Overrides: `claim_type`, `label`, `description`,
+/// `value_type` (default `"text"`), `max_bytes` (default `33792`), `set_rule`
+/// (default `"user_self"`), `signing_rule` (default `"self_signed"`),
+/// `requires_approval`, `user_settable`, `default_auto_sign`, `suggested`
+/// (bool flags, default `false`).
+#[allow(dead_code)]
+pub fn create_claim_policy(pool: &DbPool, overrides: &DataMap) -> ClaimTypePolicy {
+    let claim_type = extract_str(overrides, "claim_type", || {
+        format!("test-claim-{}", rand_suffix())
+    });
+    let label = extract_str(overrides, "label", || {
+        format!("Test Claim {}", rand_suffix())
+    });
+    let description = extract_str(overrides, "description", String::new);
+    let value_type = extract_str(overrides, "value_type", || "text".to_string());
+    let max_bytes = overrides
+        .get("max_bytes")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(33792);
+    let set_rule = extract_str(overrides, "set_rule", || "user_self".to_string());
+    let signing_rule = extract_str(overrides, "signing_rule", || "self_signed".to_string());
+    let requires_approval = extract_bool(overrides, "requires_approval", false);
+    let user_settable = extract_bool(overrides, "user_settable", false);
+    let default_auto_sign = extract_bool(overrides, "default_auto_sign", false);
+    let suggested = extract_bool(overrides, "suggested", false);
+
+    let policy = ClaimTypePolicy {
+        claim_type,
+        label,
+        description,
+        value_type,
+        max_bytes,
+        set_rule,
+        signing_rule,
+        requires_approval,
+        user_settable,
+        default_auto_sign,
+        suggested,
+    };
+    pool.upsert_claim_policy(policy.clone())
+        .expect("Failed to create test claim policy");
+    policy
+}
+
+/// Create a trusted-issuer entry directly via `DbPool::add_trusted_issuer`
+/// (the same call `services::admin::add_trusted_issuer`/the policy-admin
+/// web UI's `add_issuer` make).
+#[allow(dead_code)]
+pub fn create_trusted_issuer(
+    pool: &DbPool,
+    claim_type: &str,
+    issuer_domain: &str,
+) -> TrustedIssuer {
+    pool.add_trusted_issuer(claim_type, issuer_domain)
+        .expect("Failed to create test trusted issuer");
+    TrustedIssuer {
+        claim_type: claim_type.to_string(),
+        issuer_domain: issuer_domain.to_string(),
+    }
+}
+
+/// Create a release-rule entry directly via `DbPool::upsert_release_policy`
+/// (the same call `services::admin::set_release_rule`/the policy-admin web
+/// UI's `upsert_release` make).
+#[allow(dead_code)]
+pub fn create_release_rule(
+    pool: &DbPool,
+    audience: &str,
+    claim_type: &str,
+    disposition: &str,
+) -> ReleasePolicy {
+    pool.upsert_release_policy(audience, claim_type, disposition)
+        .expect("Failed to create test release rule");
+    ReleasePolicy {
+        audience: audience.to_string(),
+        claim_type: claim_type.to_string(),
+        disposition: disposition.to_string(),
+    }
+}
+
+/// Queue a self-asserted claim for admin approval directly via
+/// `DbPool::enqueue_approval` (the same call `services::self_service::
+/// set_my_claim` makes for a `requires_approval` claim type). Returns the
+/// approval queue entry id.
+#[allow(dead_code)]
+pub fn create_pending_approval(
+    pool: &DbPool,
+    user_id: &str,
+    claim_type: &str,
+    claim_value: &[u8],
+) -> String {
+    pool.enqueue_approval(user_id, claim_type, claim_value)
+        .expect("Failed to queue test approval")
 }
 
 /// Create a local RP registry row directly (bypassing the pending-queue
@@ -221,6 +319,14 @@ fn extract_str(overrides: &DataMap, key: &str, default: impl Fn() -> String) -> 
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .unwrap_or_else(default)
+}
+
+#[allow(dead_code)]
+fn extract_bool(overrides: &DataMap, key: &str, default: bool) -> bool {
+    overrides
+        .get(key)
+        .and_then(|v| v.as_bool())
+        .unwrap_or(default)
 }
 
 #[allow(dead_code)]

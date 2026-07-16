@@ -152,7 +152,7 @@ public final class Dns {
         return out;
     }
 
-    private static final String KEY_VOUCH_TAG = "linkkeys-key-vouch-v1";
+    private static final String KEY_VOUCH_TAG = "linkkeys-key-vouch-v1alpha";
 
     static byte[] keyVouchPayload(String encFingerprint, String encExpiresAt) {
         return Cbor.encode(Cbor.tuple(Cbor.vtext(KEY_VOUCH_TAG), Cbor.vtext(encFingerprint), Cbor.vtext(encExpiresAt)));

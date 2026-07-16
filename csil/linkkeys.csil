@@ -190,7 +190,7 @@ ClaimSignature = {
 ;; equal peers; when one is compromised the OTHERS co-sign its revocation. A
 ;; verifier accepts it only with a quorum (>= 2) of distinct, currently-valid
 ;; signing keys of the domain, over a canonical tagged payload
-;; (linkkeys-key-revocation-v1); the revoked key may never sign its own
+;; (linkkeys-key-revocation-v1alpha); the revoked key may never sign its own
 ;; revocation. The signing/verifying logic lives in liblinkkeys::revocation.
 ;; NOTE: not yet emitted into the generated codec — the checked-in generated code
 ;; predates the current csilgen and a full regen is a separate reconciliation
@@ -565,6 +565,60 @@ DeactivateUserResponse = {
     user: AdminUser
 }
 
+;; Reactivate a previously deactivated user (mirrors deactivate-user). CSIL-RPC
+;; parity for what the `policy-admin`/`user-admin` web UI's "Activate User"
+;; button already does (`services::admin::activate_user`), so an external
+;; controller holding an admin-relation API key can reactivate without the UI.
+ActivateUserRequest = {
+    user_id: text
+}
+
+ActivateUserResponse = {
+    user: AdminUser
+}
+
+;; Irreversibly minimize a user to a permanent tombstone (CSIL-RPC parity for
+;; the `linkkeys user purge-local` CLI command, admin-ops slice 4). `reason` is
+;; stored on the tombstoned user row for audit purposes; omit for none. The
+;; counts mirror `DbPool::UserPurgeSummary` — what got revoked/removed/deleted
+;; during minimization.
+PurgeUserRequest = {
+    user_id: text,
+    ? reason: text
+}
+
+PurgeUserResponse = {
+    user: AdminUser,
+    credentials_revoked: int,
+    keys_revoked: int,
+    claims_revoked: int,
+    relations_removed: int,
+    profiles_deleted: int,
+    consent_grants_deleted: int,
+    release_prefs_deleted: int,
+    email_verifications_deleted: int,
+    reviews_resolved: int,
+    local_rp_claim_tickets_deleted: int
+}
+
+;; Revoke one of this domain's own signing keys (CSIL-RPC parity for the
+;; `linkkeys domain revoke-key` CLI command, admin-ops slice 4): marks the key
+;; revoked and, if enough sibling signing keys remain (REVOCATION_QUORUM),
+;; produces and stores a sibling-signed revocation certificate peers can pull
+;; via `DomainKeys/get-revocations`. DNS is never touched here — removing the
+;; key's fingerprint from the domain's `_linkkeys` TXT record is a separate,
+;; manual operator step; `dns_removal_reminder` carries the same reminder the
+;; CLI prints.
+RevokeDomainKeyRequest = {
+    key_id: text
+}
+
+RevokeDomainKeyResponse = {
+    revoked_key: DomainPublicKey,
+    certificate_issued: bool,
+    dns_removal_reminder: text
+}
+
 ResetPasswordRequest = {
     user_id: text,
     new_password: text
@@ -651,6 +705,245 @@ ListSettablePoliciesResponse = {
     policies: [* SettableClaimPolicy]
 }
 
+;; ============================================================
+;; Claim-type registry admin (policy-admin web UI parity)
+;; ============================================================
+;;
+;; The `policy-admin` web UI manages the domain's full claim-type registry
+;; and per-locale name translations via HTML forms with no CSIL-RPC
+;; equivalent. These types/ops mirror that surface (crates/linkkeys/src/
+;; web/policy_admin_ui.rs: upsert_policy/delete_policy/upsert_claim_label/
+;; delete_claim_label) exactly, field-for-field with
+;; `crate::db::models::ClaimTypePolicy`/`ClaimLabelI18n`, so a controller
+;; holding an admin-relation API key can manage the registry without the web
+;; UI. Unlike `SettableClaimPolicy` (a filtered, user-facing subset for
+;; self-service set rules), `ClaimTypePolicy` here is the complete registry
+;; row, matching what the web UI's registry table and add/edit form expose.
+
+;; One claim-type registry entry: the rules for setting and signing a single
+;; claim type. See `liblinkkeys::claim_policy` for the `value_type`/
+;; `set_rule`/`signing_rule` vocabularies.
+ClaimTypePolicy = {
+    claim_type: text,
+    label: text,
+    description: text,
+    value_type: text,
+    max_bytes: int,
+    set_rule: text,
+    signing_rule: text,
+    requires_approval: bool,
+    user_settable: bool,
+    default_auto_sign: bool,
+    suggested: bool
+}
+
+ListClaimTypesResponse = {
+    claim_types: [* ClaimTypePolicy]
+}
+
+;; Create-or-update a claim-type definition. `description` defaults to empty
+;; when omitted (mirrors the web form's `Option<String>` -> empty-string
+;; default). Server-side validates `value_type`/`set_rule`/`signing_rule`
+;; against the recognised vocabularies before storing (same validation the
+;; web handler performs).
+SetClaimTypeRequest = {
+    claim_type: text,
+    label: text,
+    ? description: text,
+    value_type: text,
+    max_bytes: int,
+    set_rule: text,
+    signing_rule: text,
+    user_settable: bool,
+    default_auto_sign: bool,
+    requires_approval: bool,
+    suggested: bool
+}
+
+SetClaimTypeResponse = {
+    claim_type: ClaimTypePolicy
+}
+
+RemoveClaimTypeRequest = {
+    claim_type: text
+}
+
+RemoveClaimTypeResponse = {
+    success: bool
+}
+
+;; An operator-supplied per-locale name/description for a claim type,
+;; overriding the built-in `liblinkkeys::i18n` catalog for this domain's own
+;; registry entries.
+ClaimTypeLabel = {
+    claim_type: text,
+    locale: text,
+    label: text,
+    ? description: text
+}
+
+;; Set a claim-type name translation. Fails if `claim_type` is not already
+;; registered (same "only translate a claim type that actually exists"
+;; check the web handler performs).
+SetClaimTypeLabelRequest = {
+    claim_type: text,
+    locale: text,
+    label: text,
+    ? description: text
+}
+
+SetClaimTypeLabelResponse = {
+    label: ClaimTypeLabel
+}
+
+RemoveClaimTypeLabelRequest = {
+    claim_type: text,
+    locale: text
+}
+
+RemoveClaimTypeLabelResponse = {
+    success: bool
+}
+
+;; ============================================================
+;; Trusted-issuer and release-default admin (policy-admin web UI parity,
+;; slice 2)
+;; ============================================================
+;;
+;; The `policy-admin` web UI also manages which domains are trusted to
+;; attest a claim type (lane C, `trusted_issuer_only`) and the per-audience
+;; release defaults applied at consent (`forced_allow`/`forced_deny`). These
+;; types/ops mirror that surface (crates/linkkeys/src/web/
+;; policy_admin_ui.rs: add_issuer/remove_issuer/upsert_release/
+;; delete_release) exactly, field-for-field with
+;; `crate::db::models::TrustedIssuer`/`ReleasePolicy`, so a controller
+;; holding an admin-relation API key can manage them without the web UI.
+
+;; A domain trusted to attest a given claim type (lane C).
+TrustedIssuer = {
+    claim_type: text,
+    issuer_domain: text
+}
+
+ListTrustedIssuersResponse = {
+    trusted_issuers: [* TrustedIssuer]
+}
+
+AddTrustedIssuerRequest = {
+    claim_type: text,
+    issuer_domain: text
+}
+
+AddTrustedIssuerResponse = {
+    trusted_issuer: TrustedIssuer
+}
+
+RemoveTrustedIssuerRequest = {
+    claim_type: text,
+    issuer_domain: text
+}
+
+RemoveTrustedIssuerResponse = {
+    success: bool
+}
+
+;; A per-audience release default applied at consent. Audience `*` is the
+;; global default. `disposition` is `forced_allow` (always releases) or
+;; `forced_deny` (never releases; deny wins).
+ReleaseRule = {
+    audience: text,
+    claim_type: text,
+    disposition: text
+}
+
+ListReleaseRulesResponse = {
+    release_rules: [* ReleaseRule]
+}
+
+;; Create-or-update a release rule, keyed on (audience, claim_type).
+;; Server-side validates `disposition` against forced_allow|forced_deny
+;; (same validation the web handler performs) before storing.
+SetReleaseRuleRequest = {
+    audience: text,
+    claim_type: text,
+    disposition: text
+}
+
+SetReleaseRuleResponse = {
+    release_rule: ReleaseRule
+}
+
+RemoveReleaseRuleRequest = {
+    audience: text,
+    claim_type: text
+}
+
+RemoveReleaseRuleResponse = {
+    success: bool
+}
+
+;; ============================================================
+;; Claim-approval queue admin (policy-admin web UI parity, slice 3)
+;; ============================================================
+;;
+;; A self-asserted claim a user submitted under a `requires_approval` claim
+;; type, held unsigned until an admin approves (signs + stores it) or rejects
+;; it. Mirrors `web/policy_admin_ui.rs`'s approvals table row exactly.
+ClaimApproval = {
+    id: text,
+    user_id: text,
+    claim_type: text,
+    claim_value: bytes,
+    status: text,
+    ? resolved_by: text,
+    ? resolved_at: text,
+    created_at: text
+}
+
+ListPendingClaimApprovalsResponse = {
+    approvals: [* ClaimApproval]
+}
+
+ApproveClaimRequest = {
+    approval_id: text
+}
+
+ApproveClaimResponse = {
+    success: bool
+}
+
+RejectClaimRequest = {
+    approval_id: text
+}
+
+RejectClaimResponse = {
+    success: bool
+}
+
+;; ============================================================
+;; Admin-issued attestations (policy-admin web UI parity, slice 3)
+;; ============================================================
+;;
+;; The domain admin signs+stores an attested claim directly for one of this
+;; domain's OWN users (the `policy-admin` "Issue an attestation" web flow,
+;; collapsed to one call). Distinct from `Rp/issue-attestation`: that op signs
+;; on behalf of a (possibly remote) subject named in a caller-supplied,
+;; home-domain-signed `SignedSigningRequest` and is gated by the RP_ISSUE_CLAIMS
+;; env allowlist (a browser-facing RP server with no domain-admin identity of
+;; its own). Here the caller already holds this domain's `admin` relation —
+;; the same authority `Admin/set-claim` already has to write any user's claims
+;; — so no separate request/consent proof is required; `user_id` names one of
+;; this domain's own accounts directly.
+AdminIssueAttestationRequest = {
+    user_id: text,
+    claim_type: text,
+    claim_value: bytes
+}
+
+AdminIssueAttestationResponse = {
+    claim: Claim
+}
+
 GrantRelationRequest = {
     subject_type: text,
     subject_id: text,
@@ -709,6 +1002,91 @@ GetMyInfoResponse = {
     user: AdminUser,
     relations: [* Relation],
     claims: [* Claim]
+}
+
+;; Self-service claim set: the caller sets/updates ONE OF THEIR OWN claim
+;; values (never another user's — the acting subject is the CSIL-RPC caller's
+;; authenticated identity, not a field on this request). Reuses the exact
+;; claim-policy evaluation `Admin/set-user-claim` uses
+;; (`services::self_service::set_my_claim`), so the same set-rule / signing
+;; policy applies whether an admin sets it on a user's behalf or the user sets
+;; it themselves.
+SetMyClaimRequest = {
+    claim_type: text,
+    claim_value: text
+}
+
+SetMyClaimResponse = {
+    ;; "signed" | "stored_unsigned" | "verification_required" | "queued".
+    ;; On verification_required/queued, the claim is not live yet and must not
+    ;; be released to an RP assertion.
+    outcome: text,
+    ? claim: Claim
+}
+
+;; Self-service claim removal: the caller removes ONE OF THEIR OWN active
+;; claims by id. The handler verifies the claim belongs to the authenticated
+;; caller before removing it — a claim id for another user's claim is
+;; rejected, not silently ignored.
+RemoveMyClaimRequest = {
+    claim_id: text
+}
+
+RemoveMyClaimResponse = {
+    success: bool
+}
+
+;; Set or clear a STANDING RELEASE PREFERENCE for one of the CALLER's OWN claim
+;; types: pre-approving (`share == true`) or removing pre-approval
+;; (`share == false`) for releasing it to ALL audiences ("*"). The acting
+;; subject is the CSIL-RPC caller's authenticated identity, never a field on
+;; this request — a client cannot pre-share another user's claim through this
+;; op. Reuses the same claim-policy `user_settable` gate `Account/set-my-claim`
+;; uses (`services::self_service::set_my_claim_sharing`), so the same
+;; authorization applies whether the preference is set via the web identity
+;; editor or this op.
+SetMyClaimSharingRequest = {
+    claim_type: text,
+    share: bool
+}
+
+SetMyClaimSharingResponse = {
+}
+
+;; A pseudonymous identity (UUID@domain) belonging to a human account. Mirrors
+;; `crate::db::models::Profile` field-for-field. The root (never-leaked)
+;; anchor is never returned from self-service listing/creation.
+Profile = {
+    id: text,
+    account_id: text,
+    domain: text,
+    is_root: bool,
+    ? label: text
+}
+
+;; Create an additional presentable profile for the CALLER's own account
+;; (capped by the operator's MAX_PROFILES_PER_ACCOUNT).
+CreateProfileRequest = {
+    ? label: text
+}
+
+CreateProfileResponse = {
+    profile: Profile
+}
+
+;; Mint a home-domain-signed signing REQUEST bundle for the CALLER's own
+;; account, addressed to `issuer_domain`, asking it to attest
+;; `requested_claim_types`. The caller carries the returned bundle to the
+;; issuer however they like (QR, file, direct POST) — this is the
+;; CSIL-RPC equivalent of the web `/account/request-verification` /
+;; `/account/request-verification.bin` routes.
+RequestVerificationRequest = {
+    issuer_domain: text,
+    requested_claim_types: [* text]
+}
+
+RequestVerificationResponse = {
+    signed_request: SignedSigningRequest
 }
 
 ;; ============================================================
@@ -1006,6 +1384,16 @@ SetLocalRpPolicyResponse = {
     policy: LocalRpPolicy
 }
 
+;; Admin-triggered claim-ticket cleanup (mirrors RecheckPinsRequest/Response's
+;; cron-friendly shape): deletes every expired `LocalRp` claim-get ticket. No
+;; parameters — the server uses its own clock, so there is nothing for a
+;; caller to pass.
+PurgeLocalRpTicketsRequest = {}
+
+PurgeLocalRpTicketsResponse = {
+    purged_count: int
+}
+
 ;; ============================================================
 ;; I18n
 ;; ============================================================
@@ -1100,6 +1488,9 @@ service Admin {
     create-user: CreateUserRequest -> CreateUserResponse,
     update-user: UpdateUserRequest -> UpdateUserResponse,
     deactivate-user: DeactivateUserRequest -> DeactivateUserResponse,
+    activate-user: ActivateUserRequest -> ActivateUserResponse,
+    purge-user: PurgeUserRequest -> PurgeUserResponse,
+    revoke-domain-key: RevokeDomainKeyRequest -> RevokeDomainKeyResponse,
     reset-password: ResetPasswordRequest -> ResetPasswordResponse,
     authenticate: AuthenticateRequest -> AuthenticateResponse,
     remove-credential: RemoveCredentialRequest -> RemoveCredentialResponse,
@@ -1108,6 +1499,21 @@ service Admin {
     list-user-claims: ListUserClaimsRequest -> ListUserClaimsResponse,
     set-user-claim: SetUserClaimRequest -> SetUserClaimResponse,
     list-settable-policies: EmptyRequest -> ListSettablePoliciesResponse,
+    list-claim-types: EmptyRequest -> ListClaimTypesResponse,
+    set-claim-type: SetClaimTypeRequest -> SetClaimTypeResponse,
+    remove-claim-type: RemoveClaimTypeRequest -> RemoveClaimTypeResponse,
+    set-claim-type-label: SetClaimTypeLabelRequest -> SetClaimTypeLabelResponse,
+    remove-claim-type-label: RemoveClaimTypeLabelRequest -> RemoveClaimTypeLabelResponse,
+    list-trusted-issuers: EmptyRequest -> ListTrustedIssuersResponse,
+    add-trusted-issuer: AddTrustedIssuerRequest -> AddTrustedIssuerResponse,
+    remove-trusted-issuer: RemoveTrustedIssuerRequest -> RemoveTrustedIssuerResponse,
+    list-release-rules: EmptyRequest -> ListReleaseRulesResponse,
+    set-release-rule: SetReleaseRuleRequest -> SetReleaseRuleResponse,
+    remove-release-rule: RemoveReleaseRuleRequest -> RemoveReleaseRuleResponse,
+    list-pending-claim-approvals: EmptyRequest -> ListPendingClaimApprovalsResponse,
+    approve-claim: ApproveClaimRequest -> ApproveClaimResponse,
+    reject-claim: RejectClaimRequest -> RejectClaimResponse,
+    admin-issue-attestation: AdminIssueAttestationRequest -> AdminIssueAttestationResponse,
     grant-relation: GrantRelationRequest -> GrantRelationResponse,
     remove-relation: RemoveRelationRequest -> RemoveRelationResponse,
     list-relations: ListRelationsRequest -> ListRelationsResponse,
@@ -1119,12 +1525,18 @@ service Admin {
     deny-local-rp: DenyLocalRpRequest -> DenyLocalRpResponse,
     revoke-local-rp: RevokeLocalRpRequest -> RevokeLocalRpResponse,
     get-local-rp-policy: GetLocalRpPolicyRequest -> GetLocalRpPolicyResponse,
-    set-local-rp-policy: SetLocalRpPolicyRequest -> SetLocalRpPolicyResponse
+    set-local-rp-policy: SetLocalRpPolicyRequest -> SetLocalRpPolicyResponse,
+    purge-local-rp-tickets: PurgeLocalRpTicketsRequest -> PurgeLocalRpTicketsResponse
 }
 
 service Account {
     change-password: ChangePasswordRequest -> ChangePasswordResponse,
-    get-my-info: EmptyRequest -> GetMyInfoResponse
+    get-my-info: EmptyRequest -> GetMyInfoResponse,
+    set-my-claim: SetMyClaimRequest -> SetMyClaimResponse,
+    remove-my-claim: RemoveMyClaimRequest -> RemoveMyClaimResponse,
+    set-my-claim-sharing: SetMyClaimSharingRequest -> SetMyClaimSharingResponse,
+    create-profile: CreateProfileRequest -> CreateProfileResponse,
+    request-verification: RequestVerificationRequest -> RequestVerificationResponse
 }
 
 ;; Attested claims (server-to-server). An issuer deposits a claim it signed about

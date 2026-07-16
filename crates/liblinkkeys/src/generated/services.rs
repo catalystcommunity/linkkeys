@@ -173,6 +173,24 @@ pub trait Admin {
         ctx: &Self::Context,
         input: DeactivateUserRequest,
     ) -> Result<DeactivateUserResponse, ServiceError>;
+    /// activate-user (request/response).
+    fn activate_user(
+        &self,
+        ctx: &Self::Context,
+        input: ActivateUserRequest,
+    ) -> Result<ActivateUserResponse, ServiceError>;
+    /// purge-user (request/response).
+    fn purge_user(
+        &self,
+        ctx: &Self::Context,
+        input: PurgeUserRequest,
+    ) -> Result<PurgeUserResponse, ServiceError>;
+    /// revoke-domain-key (request/response).
+    fn revoke_domain_key(
+        &self,
+        ctx: &Self::Context,
+        input: RevokeDomainKeyRequest,
+    ) -> Result<RevokeDomainKeyResponse, ServiceError>;
     /// reset-password (request/response).
     fn reset_password(
         &self,
@@ -221,6 +239,96 @@ pub trait Admin {
         ctx: &Self::Context,
         input: EmptyRequest,
     ) -> Result<ListSettablePoliciesResponse, ServiceError>;
+    /// list-claim-types (request/response).
+    fn list_claim_types(
+        &self,
+        ctx: &Self::Context,
+        input: EmptyRequest,
+    ) -> Result<ListClaimTypesResponse, ServiceError>;
+    /// set-claim-type (request/response).
+    fn set_claim_type(
+        &self,
+        ctx: &Self::Context,
+        input: SetClaimTypeRequest,
+    ) -> Result<SetClaimTypeResponse, ServiceError>;
+    /// remove-claim-type (request/response).
+    fn remove_claim_type(
+        &self,
+        ctx: &Self::Context,
+        input: RemoveClaimTypeRequest,
+    ) -> Result<RemoveClaimTypeResponse, ServiceError>;
+    /// set-claim-type-label (request/response).
+    fn set_claim_type_label(
+        &self,
+        ctx: &Self::Context,
+        input: SetClaimTypeLabelRequest,
+    ) -> Result<SetClaimTypeLabelResponse, ServiceError>;
+    /// remove-claim-type-label (request/response).
+    fn remove_claim_type_label(
+        &self,
+        ctx: &Self::Context,
+        input: RemoveClaimTypeLabelRequest,
+    ) -> Result<RemoveClaimTypeLabelResponse, ServiceError>;
+    /// list-trusted-issuers (request/response).
+    fn list_trusted_issuers(
+        &self,
+        ctx: &Self::Context,
+        input: EmptyRequest,
+    ) -> Result<ListTrustedIssuersResponse, ServiceError>;
+    /// add-trusted-issuer (request/response).
+    fn add_trusted_issuer(
+        &self,
+        ctx: &Self::Context,
+        input: AddTrustedIssuerRequest,
+    ) -> Result<AddTrustedIssuerResponse, ServiceError>;
+    /// remove-trusted-issuer (request/response).
+    fn remove_trusted_issuer(
+        &self,
+        ctx: &Self::Context,
+        input: RemoveTrustedIssuerRequest,
+    ) -> Result<RemoveTrustedIssuerResponse, ServiceError>;
+    /// list-release-rules (request/response).
+    fn list_release_rules(
+        &self,
+        ctx: &Self::Context,
+        input: EmptyRequest,
+    ) -> Result<ListReleaseRulesResponse, ServiceError>;
+    /// set-release-rule (request/response).
+    fn set_release_rule(
+        &self,
+        ctx: &Self::Context,
+        input: SetReleaseRuleRequest,
+    ) -> Result<SetReleaseRuleResponse, ServiceError>;
+    /// remove-release-rule (request/response).
+    fn remove_release_rule(
+        &self,
+        ctx: &Self::Context,
+        input: RemoveReleaseRuleRequest,
+    ) -> Result<RemoveReleaseRuleResponse, ServiceError>;
+    /// list-pending-claim-approvals (request/response).
+    fn list_pending_claim_approvals(
+        &self,
+        ctx: &Self::Context,
+        input: EmptyRequest,
+    ) -> Result<ListPendingClaimApprovalsResponse, ServiceError>;
+    /// approve-claim (request/response).
+    fn approve_claim(
+        &self,
+        ctx: &Self::Context,
+        input: ApproveClaimRequest,
+    ) -> Result<ApproveClaimResponse, ServiceError>;
+    /// reject-claim (request/response).
+    fn reject_claim(
+        &self,
+        ctx: &Self::Context,
+        input: RejectClaimRequest,
+    ) -> Result<RejectClaimResponse, ServiceError>;
+    /// admin-issue-attestation (request/response).
+    fn admin_issue_attestation(
+        &self,
+        ctx: &Self::Context,
+        input: AdminIssueAttestationRequest,
+    ) -> Result<AdminIssueAttestationResponse, ServiceError>;
     /// grant-relation (request/response).
     fn grant_relation(
         &self,
@@ -293,6 +401,12 @@ pub trait Admin {
         ctx: &Self::Context,
         input: SetLocalRpPolicyRequest,
     ) -> Result<SetLocalRpPolicyResponse, ServiceError>;
+    /// purge-local-rp-tickets (request/response).
+    fn purge_local_rp_tickets(
+        &self,
+        ctx: &Self::Context,
+        input: PurgeLocalRpTicketsRequest,
+    ) -> Result<PurgeLocalRpTicketsResponse, ServiceError>;
 }
 
 /// Account service trait
@@ -310,6 +424,36 @@ pub trait Account {
         ctx: &Self::Context,
         input: EmptyRequest,
     ) -> Result<GetMyInfoResponse, ServiceError>;
+    /// set-my-claim (request/response).
+    fn set_my_claim(
+        &self,
+        ctx: &Self::Context,
+        input: SetMyClaimRequest,
+    ) -> Result<SetMyClaimResponse, ServiceError>;
+    /// remove-my-claim (request/response).
+    fn remove_my_claim(
+        &self,
+        ctx: &Self::Context,
+        input: RemoveMyClaimRequest,
+    ) -> Result<RemoveMyClaimResponse, ServiceError>;
+    /// set-my-claim-sharing (request/response).
+    fn set_my_claim_sharing(
+        &self,
+        ctx: &Self::Context,
+        input: SetMyClaimSharingRequest,
+    ) -> Result<SetMyClaimSharingResponse, ServiceError>;
+    /// create-profile (request/response).
+    fn create_profile(
+        &self,
+        ctx: &Self::Context,
+        input: CreateProfileRequest,
+    ) -> Result<CreateProfileResponse, ServiceError>;
+    /// request-verification (request/response).
+    fn request_verification(
+        &self,
+        ctx: &Self::Context,
+        input: RequestVerificationRequest,
+    ) -> Result<RequestVerificationResponse, ServiceError>;
 }
 
 /// Attestation service trait

@@ -8,7 +8,7 @@
 #include "error.h"
 #include "local_rp.h"
 
-static const char REVOCATION_TAG[] = "linkkeys-key-revocation-v1";
+static const char REVOCATION_TAG[] = "linkkeys-key-revocation-v1alpha";
 
 int lrp_revocation_payload(const char *target_key_id, const char *target_fingerprint,
                             const char *revoked_at, const char *signing_domain, lrp_bytes *out,

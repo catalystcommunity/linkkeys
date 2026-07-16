@@ -3325,6 +3325,325 @@ pub fn decode_deactivate_user_response(
     csil_dec_deactivate_user_response(&csil_root)
 }
 
+/// Build the canonical CBOR value tree for a ActivateUserRequest.
+fn csil_enc_activate_user_request(csil_v: &ActivateUserRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("user_id"), cbor_text(&csil_v.user_id)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ActivateUserRequest from a decoded CBOR value tree.
+fn csil_dec_activate_user_request(
+    csil_root: &CsilCborValue,
+) -> Result<ActivateUserRequest, CsilCborError> {
+    let user_id = {
+        let csil_field = cbor_require(csil_root, "user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(ActivateUserRequest { user_id })
+}
+
+/// Encode a ActivateUserRequest to canonical CSIL CBOR bytes.
+pub fn encode_activate_user_request(csil_v: &ActivateUserRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_activate_user_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ActivateUserRequest.
+pub fn decode_activate_user_request(
+    csil_data: &[u8],
+) -> Result<ActivateUserRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_activate_user_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ActivateUserResponse.
+fn csil_enc_activate_user_response(csil_v: &ActivateUserResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("user"), csil_enc_admin_user(&csil_v.user)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ActivateUserResponse from a decoded CBOR value tree.
+fn csil_dec_activate_user_response(
+    csil_root: &CsilCborValue,
+) -> Result<ActivateUserResponse, CsilCborError> {
+    let user = {
+        let csil_field = cbor_require(csil_root, "user")?;
+        let csil_decode = csil_dec_admin_user;
+        csil_decode(csil_field)?
+    };
+    Ok(ActivateUserResponse { user })
+}
+
+/// Encode a ActivateUserResponse to canonical CSIL CBOR bytes.
+pub fn encode_activate_user_response(csil_v: &ActivateUserResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_activate_user_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ActivateUserResponse.
+pub fn decode_activate_user_response(
+    csil_data: &[u8],
+) -> Result<ActivateUserResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_activate_user_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a PurgeUserRequest.
+fn csil_enc_purge_user_request(csil_v: &PurgeUserRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    if let Some(csil_inner) = &csil_v.reason {
+        csil_entries.push((cbor_text("reason"), cbor_text(csil_inner)));
+    }
+    csil_entries.push((cbor_text("user_id"), cbor_text(&csil_v.user_id)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a PurgeUserRequest from a decoded CBOR value tree.
+fn csil_dec_purge_user_request(
+    csil_root: &CsilCborValue,
+) -> Result<PurgeUserRequest, CsilCborError> {
+    let user_id = {
+        let csil_field = cbor_require(csil_root, "user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let reason = match cbor_map_get(csil_root, "reason") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(PurgeUserRequest { user_id, reason })
+}
+
+/// Encode a PurgeUserRequest to canonical CSIL CBOR bytes.
+pub fn encode_purge_user_request(csil_v: &PurgeUserRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_purge_user_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a PurgeUserRequest.
+pub fn decode_purge_user_request(csil_data: &[u8]) -> Result<PurgeUserRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_purge_user_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a PurgeUserResponse.
+fn csil_enc_purge_user_response(csil_v: &PurgeUserResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(11);
+    csil_entries.push((cbor_text("user"), csil_enc_admin_user(&csil_v.user)));
+    csil_entries.push((cbor_text("keys_revoked"), cbor_int(csil_v.keys_revoked)));
+    csil_entries.push((cbor_text("claims_revoked"), cbor_int(csil_v.claims_revoked)));
+    csil_entries.push((
+        cbor_text("profiles_deleted"),
+        cbor_int(csil_v.profiles_deleted),
+    ));
+    csil_entries.push((
+        cbor_text("reviews_resolved"),
+        cbor_int(csil_v.reviews_resolved),
+    ));
+    csil_entries.push((
+        cbor_text("relations_removed"),
+        cbor_int(csil_v.relations_removed),
+    ));
+    csil_entries.push((
+        cbor_text("credentials_revoked"),
+        cbor_int(csil_v.credentials_revoked),
+    ));
+    csil_entries.push((
+        cbor_text("release_prefs_deleted"),
+        cbor_int(csil_v.release_prefs_deleted),
+    ));
+    csil_entries.push((
+        cbor_text("consent_grants_deleted"),
+        cbor_int(csil_v.consent_grants_deleted),
+    ));
+    csil_entries.push((
+        cbor_text("email_verifications_deleted"),
+        cbor_int(csil_v.email_verifications_deleted),
+    ));
+    csil_entries.push((
+        cbor_text("local_rp_claim_tickets_deleted"),
+        cbor_int(csil_v.local_rp_claim_tickets_deleted),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a PurgeUserResponse from a decoded CBOR value tree.
+fn csil_dec_purge_user_response(
+    csil_root: &CsilCborValue,
+) -> Result<PurgeUserResponse, CsilCborError> {
+    let user = {
+        let csil_field = cbor_require(csil_root, "user")?;
+        let csil_decode = csil_dec_admin_user;
+        csil_decode(csil_field)?
+    };
+    let credentials_revoked = {
+        let csil_field = cbor_require(csil_root, "credentials_revoked")?;
+        let csil_decode = cbor_as_i64;
+        csil_decode(csil_field)?
+    };
+    let keys_revoked = {
+        let csil_field = cbor_require(csil_root, "keys_revoked")?;
+        let csil_decode = cbor_as_i64;
+        csil_decode(csil_field)?
+    };
+    let claims_revoked = {
+        let csil_field = cbor_require(csil_root, "claims_revoked")?;
+        let csil_decode = cbor_as_i64;
+        csil_decode(csil_field)?
+    };
+    let relations_removed = {
+        let csil_field = cbor_require(csil_root, "relations_removed")?;
+        let csil_decode = cbor_as_i64;
+        csil_decode(csil_field)?
+    };
+    let profiles_deleted = {
+        let csil_field = cbor_require(csil_root, "profiles_deleted")?;
+        let csil_decode = cbor_as_i64;
+        csil_decode(csil_field)?
+    };
+    let consent_grants_deleted = {
+        let csil_field = cbor_require(csil_root, "consent_grants_deleted")?;
+        let csil_decode = cbor_as_i64;
+        csil_decode(csil_field)?
+    };
+    let release_prefs_deleted = {
+        let csil_field = cbor_require(csil_root, "release_prefs_deleted")?;
+        let csil_decode = cbor_as_i64;
+        csil_decode(csil_field)?
+    };
+    let email_verifications_deleted = {
+        let csil_field = cbor_require(csil_root, "email_verifications_deleted")?;
+        let csil_decode = cbor_as_i64;
+        csil_decode(csil_field)?
+    };
+    let reviews_resolved = {
+        let csil_field = cbor_require(csil_root, "reviews_resolved")?;
+        let csil_decode = cbor_as_i64;
+        csil_decode(csil_field)?
+    };
+    let local_rp_claim_tickets_deleted = {
+        let csil_field = cbor_require(csil_root, "local_rp_claim_tickets_deleted")?;
+        let csil_decode = cbor_as_i64;
+        csil_decode(csil_field)?
+    };
+    Ok(PurgeUserResponse {
+        user,
+        credentials_revoked,
+        keys_revoked,
+        claims_revoked,
+        relations_removed,
+        profiles_deleted,
+        consent_grants_deleted,
+        release_prefs_deleted,
+        email_verifications_deleted,
+        reviews_resolved,
+        local_rp_claim_tickets_deleted,
+    })
+}
+
+/// Encode a PurgeUserResponse to canonical CSIL CBOR bytes.
+pub fn encode_purge_user_response(csil_v: &PurgeUserResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_purge_user_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a PurgeUserResponse.
+pub fn decode_purge_user_response(csil_data: &[u8]) -> Result<PurgeUserResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_purge_user_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RevokeDomainKeyRequest.
+fn csil_enc_revoke_domain_key_request(csil_v: &RevokeDomainKeyRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("key_id"), cbor_text(&csil_v.key_id)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RevokeDomainKeyRequest from a decoded CBOR value tree.
+fn csil_dec_revoke_domain_key_request(
+    csil_root: &CsilCborValue,
+) -> Result<RevokeDomainKeyRequest, CsilCborError> {
+    let key_id = {
+        let csil_field = cbor_require(csil_root, "key_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(RevokeDomainKeyRequest { key_id })
+}
+
+/// Encode a RevokeDomainKeyRequest to canonical CSIL CBOR bytes.
+pub fn encode_revoke_domain_key_request(csil_v: &RevokeDomainKeyRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_revoke_domain_key_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RevokeDomainKeyRequest.
+pub fn decode_revoke_domain_key_request(
+    csil_data: &[u8],
+) -> Result<RevokeDomainKeyRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_revoke_domain_key_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RevokeDomainKeyResponse.
+fn csil_enc_revoke_domain_key_response(csil_v: &RevokeDomainKeyResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
+    csil_entries.push((
+        cbor_text("revoked_key"),
+        csil_enc_domain_public_key(&csil_v.revoked_key),
+    ));
+    csil_entries.push((
+        cbor_text("certificate_issued"),
+        cbor_bool(csil_v.certificate_issued),
+    ));
+    csil_entries.push((
+        cbor_text("dns_removal_reminder"),
+        cbor_text(&csil_v.dns_removal_reminder),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RevokeDomainKeyResponse from a decoded CBOR value tree.
+fn csil_dec_revoke_domain_key_response(
+    csil_root: &CsilCborValue,
+) -> Result<RevokeDomainKeyResponse, CsilCborError> {
+    let revoked_key = {
+        let csil_field = cbor_require(csil_root, "revoked_key")?;
+        let csil_decode = csil_dec_domain_public_key;
+        csil_decode(csil_field)?
+    };
+    let certificate_issued = {
+        let csil_field = cbor_require(csil_root, "certificate_issued")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    let dns_removal_reminder = {
+        let csil_field = cbor_require(csil_root, "dns_removal_reminder")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(RevokeDomainKeyResponse {
+        revoked_key,
+        certificate_issued,
+        dns_removal_reminder,
+    })
+}
+
+/// Encode a RevokeDomainKeyResponse to canonical CSIL CBOR bytes.
+pub fn encode_revoke_domain_key_response(csil_v: &RevokeDomainKeyResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_revoke_domain_key_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RevokeDomainKeyResponse.
+pub fn decode_revoke_domain_key_response(
+    csil_data: &[u8],
+) -> Result<RevokeDomainKeyResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_revoke_domain_key_response(&csil_root)
+}
+
 /// Build the canonical CBOR value tree for a ResetPasswordRequest.
 fn csil_enc_reset_password_request(csil_v: &ResetPasswordRequest) -> CsilCborValue {
     let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
@@ -3936,6 +4255,1370 @@ pub fn decode_list_settable_policies_response(
     csil_dec_list_settable_policies_response(&csil_root)
 }
 
+/// Build the canonical CBOR value tree for a ClaimTypePolicy.
+fn csil_enc_claim_type_policy(csil_v: &ClaimTypePolicy) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(11);
+    csil_entries.push((cbor_text("label"), cbor_text(&csil_v.label)));
+    csil_entries.push((cbor_text("set_rule"), cbor_text(&csil_v.set_rule)));
+    csil_entries.push((cbor_text("max_bytes"), cbor_int(csil_v.max_bytes)));
+    csil_entries.push((cbor_text("suggested"), cbor_bool(csil_v.suggested)));
+    csil_entries.push((cbor_text("claim_type"), cbor_text(&csil_v.claim_type)));
+    csil_entries.push((cbor_text("value_type"), cbor_text(&csil_v.value_type)));
+    csil_entries.push((cbor_text("description"), cbor_text(&csil_v.description)));
+    csil_entries.push((cbor_text("signing_rule"), cbor_text(&csil_v.signing_rule)));
+    csil_entries.push((cbor_text("user_settable"), cbor_bool(csil_v.user_settable)));
+    csil_entries.push((
+        cbor_text("default_auto_sign"),
+        cbor_bool(csil_v.default_auto_sign),
+    ));
+    csil_entries.push((
+        cbor_text("requires_approval"),
+        cbor_bool(csil_v.requires_approval),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ClaimTypePolicy from a decoded CBOR value tree.
+fn csil_dec_claim_type_policy(csil_root: &CsilCborValue) -> Result<ClaimTypePolicy, CsilCborError> {
+    let claim_type = {
+        let csil_field = cbor_require(csil_root, "claim_type")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let label = {
+        let csil_field = cbor_require(csil_root, "label")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let description = {
+        let csil_field = cbor_require(csil_root, "description")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let value_type = {
+        let csil_field = cbor_require(csil_root, "value_type")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let max_bytes = {
+        let csil_field = cbor_require(csil_root, "max_bytes")?;
+        let csil_decode = cbor_as_i64;
+        csil_decode(csil_field)?
+    };
+    let set_rule = {
+        let csil_field = cbor_require(csil_root, "set_rule")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let signing_rule = {
+        let csil_field = cbor_require(csil_root, "signing_rule")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let requires_approval = {
+        let csil_field = cbor_require(csil_root, "requires_approval")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    let user_settable = {
+        let csil_field = cbor_require(csil_root, "user_settable")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    let default_auto_sign = {
+        let csil_field = cbor_require(csil_root, "default_auto_sign")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    let suggested = {
+        let csil_field = cbor_require(csil_root, "suggested")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    Ok(ClaimTypePolicy {
+        claim_type,
+        label,
+        description,
+        value_type,
+        max_bytes,
+        set_rule,
+        signing_rule,
+        requires_approval,
+        user_settable,
+        default_auto_sign,
+        suggested,
+    })
+}
+
+/// Encode a ClaimTypePolicy to canonical CSIL CBOR bytes.
+pub fn encode_claim_type_policy(csil_v: &ClaimTypePolicy) -> Vec<u8> {
+    cbor_encode(&csil_enc_claim_type_policy(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ClaimTypePolicy.
+pub fn decode_claim_type_policy(csil_data: &[u8]) -> Result<ClaimTypePolicy, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_claim_type_policy(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ListClaimTypesResponse.
+fn csil_enc_list_claim_types_response(csil_v: &ListClaimTypesResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("claim_types"),
+        cbor_enc_array(&csil_v.claim_types, csil_enc_claim_type_policy),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ListClaimTypesResponse from a decoded CBOR value tree.
+fn csil_dec_list_claim_types_response(
+    csil_root: &CsilCborValue,
+) -> Result<ListClaimTypesResponse, CsilCborError> {
+    let claim_types = {
+        let csil_field = cbor_require(csil_root, "claim_types")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_claim_type_policy);
+        csil_decode(csil_field)?
+    };
+    Ok(ListClaimTypesResponse { claim_types })
+}
+
+/// Encode a ListClaimTypesResponse to canonical CSIL CBOR bytes.
+pub fn encode_list_claim_types_response(csil_v: &ListClaimTypesResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_list_claim_types_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ListClaimTypesResponse.
+pub fn decode_list_claim_types_response(
+    csil_data: &[u8],
+) -> Result<ListClaimTypesResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_list_claim_types_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SetClaimTypeRequest.
+fn csil_enc_set_claim_type_request(csil_v: &SetClaimTypeRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(11);
+    csil_entries.push((cbor_text("label"), cbor_text(&csil_v.label)));
+    csil_entries.push((cbor_text("set_rule"), cbor_text(&csil_v.set_rule)));
+    csil_entries.push((cbor_text("max_bytes"), cbor_int(csil_v.max_bytes)));
+    csil_entries.push((cbor_text("suggested"), cbor_bool(csil_v.suggested)));
+    csil_entries.push((cbor_text("claim_type"), cbor_text(&csil_v.claim_type)));
+    csil_entries.push((cbor_text("value_type"), cbor_text(&csil_v.value_type)));
+    if let Some(csil_inner) = &csil_v.description {
+        csil_entries.push((cbor_text("description"), cbor_text(csil_inner)));
+    }
+    csil_entries.push((cbor_text("signing_rule"), cbor_text(&csil_v.signing_rule)));
+    csil_entries.push((cbor_text("user_settable"), cbor_bool(csil_v.user_settable)));
+    csil_entries.push((
+        cbor_text("default_auto_sign"),
+        cbor_bool(csil_v.default_auto_sign),
+    ));
+    csil_entries.push((
+        cbor_text("requires_approval"),
+        cbor_bool(csil_v.requires_approval),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SetClaimTypeRequest from a decoded CBOR value tree.
+fn csil_dec_set_claim_type_request(
+    csil_root: &CsilCborValue,
+) -> Result<SetClaimTypeRequest, CsilCborError> {
+    let claim_type = {
+        let csil_field = cbor_require(csil_root, "claim_type")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let label = {
+        let csil_field = cbor_require(csil_root, "label")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let description = match cbor_map_get(csil_root, "description") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let value_type = {
+        let csil_field = cbor_require(csil_root, "value_type")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let max_bytes = {
+        let csil_field = cbor_require(csil_root, "max_bytes")?;
+        let csil_decode = cbor_as_i64;
+        csil_decode(csil_field)?
+    };
+    let set_rule = {
+        let csil_field = cbor_require(csil_root, "set_rule")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let signing_rule = {
+        let csil_field = cbor_require(csil_root, "signing_rule")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let user_settable = {
+        let csil_field = cbor_require(csil_root, "user_settable")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    let default_auto_sign = {
+        let csil_field = cbor_require(csil_root, "default_auto_sign")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    let requires_approval = {
+        let csil_field = cbor_require(csil_root, "requires_approval")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    let suggested = {
+        let csil_field = cbor_require(csil_root, "suggested")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    Ok(SetClaimTypeRequest {
+        claim_type,
+        label,
+        description,
+        value_type,
+        max_bytes,
+        set_rule,
+        signing_rule,
+        user_settable,
+        default_auto_sign,
+        requires_approval,
+        suggested,
+    })
+}
+
+/// Encode a SetClaimTypeRequest to canonical CSIL CBOR bytes.
+pub fn encode_set_claim_type_request(csil_v: &SetClaimTypeRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_set_claim_type_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SetClaimTypeRequest.
+pub fn decode_set_claim_type_request(
+    csil_data: &[u8],
+) -> Result<SetClaimTypeRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_set_claim_type_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SetClaimTypeResponse.
+fn csil_enc_set_claim_type_response(csil_v: &SetClaimTypeResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("claim_type"),
+        csil_enc_claim_type_policy(&csil_v.claim_type),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SetClaimTypeResponse from a decoded CBOR value tree.
+fn csil_dec_set_claim_type_response(
+    csil_root: &CsilCborValue,
+) -> Result<SetClaimTypeResponse, CsilCborError> {
+    let claim_type = {
+        let csil_field = cbor_require(csil_root, "claim_type")?;
+        let csil_decode = csil_dec_claim_type_policy;
+        csil_decode(csil_field)?
+    };
+    Ok(SetClaimTypeResponse { claim_type })
+}
+
+/// Encode a SetClaimTypeResponse to canonical CSIL CBOR bytes.
+pub fn encode_set_claim_type_response(csil_v: &SetClaimTypeResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_set_claim_type_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SetClaimTypeResponse.
+pub fn decode_set_claim_type_response(
+    csil_data: &[u8],
+) -> Result<SetClaimTypeResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_set_claim_type_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RemoveClaimTypeRequest.
+fn csil_enc_remove_claim_type_request(csil_v: &RemoveClaimTypeRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("claim_type"), cbor_text(&csil_v.claim_type)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RemoveClaimTypeRequest from a decoded CBOR value tree.
+fn csil_dec_remove_claim_type_request(
+    csil_root: &CsilCborValue,
+) -> Result<RemoveClaimTypeRequest, CsilCborError> {
+    let claim_type = {
+        let csil_field = cbor_require(csil_root, "claim_type")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(RemoveClaimTypeRequest { claim_type })
+}
+
+/// Encode a RemoveClaimTypeRequest to canonical CSIL CBOR bytes.
+pub fn encode_remove_claim_type_request(csil_v: &RemoveClaimTypeRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_remove_claim_type_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RemoveClaimTypeRequest.
+pub fn decode_remove_claim_type_request(
+    csil_data: &[u8],
+) -> Result<RemoveClaimTypeRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_remove_claim_type_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RemoveClaimTypeResponse.
+fn csil_enc_remove_claim_type_response(csil_v: &RemoveClaimTypeResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("success"), cbor_bool(csil_v.success)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RemoveClaimTypeResponse from a decoded CBOR value tree.
+fn csil_dec_remove_claim_type_response(
+    csil_root: &CsilCborValue,
+) -> Result<RemoveClaimTypeResponse, CsilCborError> {
+    let success = {
+        let csil_field = cbor_require(csil_root, "success")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    Ok(RemoveClaimTypeResponse { success })
+}
+
+/// Encode a RemoveClaimTypeResponse to canonical CSIL CBOR bytes.
+pub fn encode_remove_claim_type_response(csil_v: &RemoveClaimTypeResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_remove_claim_type_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RemoveClaimTypeResponse.
+pub fn decode_remove_claim_type_response(
+    csil_data: &[u8],
+) -> Result<RemoveClaimTypeResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_remove_claim_type_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ClaimTypeLabel.
+fn csil_enc_claim_type_label(csil_v: &ClaimTypeLabel) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(4);
+    csil_entries.push((cbor_text("label"), cbor_text(&csil_v.label)));
+    csil_entries.push((cbor_text("locale"), cbor_text(&csil_v.locale)));
+    csil_entries.push((cbor_text("claim_type"), cbor_text(&csil_v.claim_type)));
+    if let Some(csil_inner) = &csil_v.description {
+        csil_entries.push((cbor_text("description"), cbor_text(csil_inner)));
+    }
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ClaimTypeLabel from a decoded CBOR value tree.
+fn csil_dec_claim_type_label(csil_root: &CsilCborValue) -> Result<ClaimTypeLabel, CsilCborError> {
+    let claim_type = {
+        let csil_field = cbor_require(csil_root, "claim_type")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let locale = {
+        let csil_field = cbor_require(csil_root, "locale")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let label = {
+        let csil_field = cbor_require(csil_root, "label")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let description = match cbor_map_get(csil_root, "description") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(ClaimTypeLabel {
+        claim_type,
+        locale,
+        label,
+        description,
+    })
+}
+
+/// Encode a ClaimTypeLabel to canonical CSIL CBOR bytes.
+pub fn encode_claim_type_label(csil_v: &ClaimTypeLabel) -> Vec<u8> {
+    cbor_encode(&csil_enc_claim_type_label(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ClaimTypeLabel.
+pub fn decode_claim_type_label(csil_data: &[u8]) -> Result<ClaimTypeLabel, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_claim_type_label(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SetClaimTypeLabelRequest.
+fn csil_enc_set_claim_type_label_request(csil_v: &SetClaimTypeLabelRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(4);
+    csil_entries.push((cbor_text("label"), cbor_text(&csil_v.label)));
+    csil_entries.push((cbor_text("locale"), cbor_text(&csil_v.locale)));
+    csil_entries.push((cbor_text("claim_type"), cbor_text(&csil_v.claim_type)));
+    if let Some(csil_inner) = &csil_v.description {
+        csil_entries.push((cbor_text("description"), cbor_text(csil_inner)));
+    }
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SetClaimTypeLabelRequest from a decoded CBOR value tree.
+fn csil_dec_set_claim_type_label_request(
+    csil_root: &CsilCborValue,
+) -> Result<SetClaimTypeLabelRequest, CsilCborError> {
+    let claim_type = {
+        let csil_field = cbor_require(csil_root, "claim_type")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let locale = {
+        let csil_field = cbor_require(csil_root, "locale")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let label = {
+        let csil_field = cbor_require(csil_root, "label")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let description = match cbor_map_get(csil_root, "description") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(SetClaimTypeLabelRequest {
+        claim_type,
+        locale,
+        label,
+        description,
+    })
+}
+
+/// Encode a SetClaimTypeLabelRequest to canonical CSIL CBOR bytes.
+pub fn encode_set_claim_type_label_request(csil_v: &SetClaimTypeLabelRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_set_claim_type_label_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SetClaimTypeLabelRequest.
+pub fn decode_set_claim_type_label_request(
+    csil_data: &[u8],
+) -> Result<SetClaimTypeLabelRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_set_claim_type_label_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SetClaimTypeLabelResponse.
+fn csil_enc_set_claim_type_label_response(csil_v: &SetClaimTypeLabelResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("label"), csil_enc_claim_type_label(&csil_v.label)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SetClaimTypeLabelResponse from a decoded CBOR value tree.
+fn csil_dec_set_claim_type_label_response(
+    csil_root: &CsilCborValue,
+) -> Result<SetClaimTypeLabelResponse, CsilCborError> {
+    let label = {
+        let csil_field = cbor_require(csil_root, "label")?;
+        let csil_decode = csil_dec_claim_type_label;
+        csil_decode(csil_field)?
+    };
+    Ok(SetClaimTypeLabelResponse { label })
+}
+
+/// Encode a SetClaimTypeLabelResponse to canonical CSIL CBOR bytes.
+pub fn encode_set_claim_type_label_response(csil_v: &SetClaimTypeLabelResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_set_claim_type_label_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SetClaimTypeLabelResponse.
+pub fn decode_set_claim_type_label_response(
+    csil_data: &[u8],
+) -> Result<SetClaimTypeLabelResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_set_claim_type_label_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RemoveClaimTypeLabelRequest.
+fn csil_enc_remove_claim_type_label_request(csil_v: &RemoveClaimTypeLabelRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("locale"), cbor_text(&csil_v.locale)));
+    csil_entries.push((cbor_text("claim_type"), cbor_text(&csil_v.claim_type)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RemoveClaimTypeLabelRequest from a decoded CBOR value tree.
+fn csil_dec_remove_claim_type_label_request(
+    csil_root: &CsilCborValue,
+) -> Result<RemoveClaimTypeLabelRequest, CsilCborError> {
+    let claim_type = {
+        let csil_field = cbor_require(csil_root, "claim_type")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let locale = {
+        let csil_field = cbor_require(csil_root, "locale")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(RemoveClaimTypeLabelRequest { claim_type, locale })
+}
+
+/// Encode a RemoveClaimTypeLabelRequest to canonical CSIL CBOR bytes.
+pub fn encode_remove_claim_type_label_request(csil_v: &RemoveClaimTypeLabelRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_remove_claim_type_label_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RemoveClaimTypeLabelRequest.
+pub fn decode_remove_claim_type_label_request(
+    csil_data: &[u8],
+) -> Result<RemoveClaimTypeLabelRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_remove_claim_type_label_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RemoveClaimTypeLabelResponse.
+fn csil_enc_remove_claim_type_label_response(
+    csil_v: &RemoveClaimTypeLabelResponse,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("success"), cbor_bool(csil_v.success)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RemoveClaimTypeLabelResponse from a decoded CBOR value tree.
+fn csil_dec_remove_claim_type_label_response(
+    csil_root: &CsilCborValue,
+) -> Result<RemoveClaimTypeLabelResponse, CsilCborError> {
+    let success = {
+        let csil_field = cbor_require(csil_root, "success")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    Ok(RemoveClaimTypeLabelResponse { success })
+}
+
+/// Encode a RemoveClaimTypeLabelResponse to canonical CSIL CBOR bytes.
+pub fn encode_remove_claim_type_label_response(csil_v: &RemoveClaimTypeLabelResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_remove_claim_type_label_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RemoveClaimTypeLabelResponse.
+pub fn decode_remove_claim_type_label_response(
+    csil_data: &[u8],
+) -> Result<RemoveClaimTypeLabelResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_remove_claim_type_label_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a TrustedIssuer.
+fn csil_enc_trusted_issuer(csil_v: &TrustedIssuer) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("claim_type"), cbor_text(&csil_v.claim_type)));
+    csil_entries.push((cbor_text("issuer_domain"), cbor_text(&csil_v.issuer_domain)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a TrustedIssuer from a decoded CBOR value tree.
+fn csil_dec_trusted_issuer(csil_root: &CsilCborValue) -> Result<TrustedIssuer, CsilCborError> {
+    let claim_type = {
+        let csil_field = cbor_require(csil_root, "claim_type")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let issuer_domain = {
+        let csil_field = cbor_require(csil_root, "issuer_domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(TrustedIssuer {
+        claim_type,
+        issuer_domain,
+    })
+}
+
+/// Encode a TrustedIssuer to canonical CSIL CBOR bytes.
+pub fn encode_trusted_issuer(csil_v: &TrustedIssuer) -> Vec<u8> {
+    cbor_encode(&csil_enc_trusted_issuer(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a TrustedIssuer.
+pub fn decode_trusted_issuer(csil_data: &[u8]) -> Result<TrustedIssuer, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_trusted_issuer(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ListTrustedIssuersResponse.
+fn csil_enc_list_trusted_issuers_response(csil_v: &ListTrustedIssuersResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("trusted_issuers"),
+        cbor_enc_array(&csil_v.trusted_issuers, csil_enc_trusted_issuer),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ListTrustedIssuersResponse from a decoded CBOR value tree.
+fn csil_dec_list_trusted_issuers_response(
+    csil_root: &CsilCborValue,
+) -> Result<ListTrustedIssuersResponse, CsilCborError> {
+    let trusted_issuers = {
+        let csil_field = cbor_require(csil_root, "trusted_issuers")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_trusted_issuer);
+        csil_decode(csil_field)?
+    };
+    Ok(ListTrustedIssuersResponse { trusted_issuers })
+}
+
+/// Encode a ListTrustedIssuersResponse to canonical CSIL CBOR bytes.
+pub fn encode_list_trusted_issuers_response(csil_v: &ListTrustedIssuersResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_list_trusted_issuers_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ListTrustedIssuersResponse.
+pub fn decode_list_trusted_issuers_response(
+    csil_data: &[u8],
+) -> Result<ListTrustedIssuersResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_list_trusted_issuers_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a AddTrustedIssuerRequest.
+fn csil_enc_add_trusted_issuer_request(csil_v: &AddTrustedIssuerRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("claim_type"), cbor_text(&csil_v.claim_type)));
+    csil_entries.push((cbor_text("issuer_domain"), cbor_text(&csil_v.issuer_domain)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a AddTrustedIssuerRequest from a decoded CBOR value tree.
+fn csil_dec_add_trusted_issuer_request(
+    csil_root: &CsilCborValue,
+) -> Result<AddTrustedIssuerRequest, CsilCborError> {
+    let claim_type = {
+        let csil_field = cbor_require(csil_root, "claim_type")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let issuer_domain = {
+        let csil_field = cbor_require(csil_root, "issuer_domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(AddTrustedIssuerRequest {
+        claim_type,
+        issuer_domain,
+    })
+}
+
+/// Encode a AddTrustedIssuerRequest to canonical CSIL CBOR bytes.
+pub fn encode_add_trusted_issuer_request(csil_v: &AddTrustedIssuerRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_add_trusted_issuer_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a AddTrustedIssuerRequest.
+pub fn decode_add_trusted_issuer_request(
+    csil_data: &[u8],
+) -> Result<AddTrustedIssuerRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_add_trusted_issuer_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a AddTrustedIssuerResponse.
+fn csil_enc_add_trusted_issuer_response(csil_v: &AddTrustedIssuerResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("trusted_issuer"),
+        csil_enc_trusted_issuer(&csil_v.trusted_issuer),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a AddTrustedIssuerResponse from a decoded CBOR value tree.
+fn csil_dec_add_trusted_issuer_response(
+    csil_root: &CsilCborValue,
+) -> Result<AddTrustedIssuerResponse, CsilCborError> {
+    let trusted_issuer = {
+        let csil_field = cbor_require(csil_root, "trusted_issuer")?;
+        let csil_decode = csil_dec_trusted_issuer;
+        csil_decode(csil_field)?
+    };
+    Ok(AddTrustedIssuerResponse { trusted_issuer })
+}
+
+/// Encode a AddTrustedIssuerResponse to canonical CSIL CBOR bytes.
+pub fn encode_add_trusted_issuer_response(csil_v: &AddTrustedIssuerResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_add_trusted_issuer_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a AddTrustedIssuerResponse.
+pub fn decode_add_trusted_issuer_response(
+    csil_data: &[u8],
+) -> Result<AddTrustedIssuerResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_add_trusted_issuer_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RemoveTrustedIssuerRequest.
+fn csil_enc_remove_trusted_issuer_request(csil_v: &RemoveTrustedIssuerRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("claim_type"), cbor_text(&csil_v.claim_type)));
+    csil_entries.push((cbor_text("issuer_domain"), cbor_text(&csil_v.issuer_domain)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RemoveTrustedIssuerRequest from a decoded CBOR value tree.
+fn csil_dec_remove_trusted_issuer_request(
+    csil_root: &CsilCborValue,
+) -> Result<RemoveTrustedIssuerRequest, CsilCborError> {
+    let claim_type = {
+        let csil_field = cbor_require(csil_root, "claim_type")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let issuer_domain = {
+        let csil_field = cbor_require(csil_root, "issuer_domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(RemoveTrustedIssuerRequest {
+        claim_type,
+        issuer_domain,
+    })
+}
+
+/// Encode a RemoveTrustedIssuerRequest to canonical CSIL CBOR bytes.
+pub fn encode_remove_trusted_issuer_request(csil_v: &RemoveTrustedIssuerRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_remove_trusted_issuer_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RemoveTrustedIssuerRequest.
+pub fn decode_remove_trusted_issuer_request(
+    csil_data: &[u8],
+) -> Result<RemoveTrustedIssuerRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_remove_trusted_issuer_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RemoveTrustedIssuerResponse.
+fn csil_enc_remove_trusted_issuer_response(csil_v: &RemoveTrustedIssuerResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("success"), cbor_bool(csil_v.success)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RemoveTrustedIssuerResponse from a decoded CBOR value tree.
+fn csil_dec_remove_trusted_issuer_response(
+    csil_root: &CsilCborValue,
+) -> Result<RemoveTrustedIssuerResponse, CsilCborError> {
+    let success = {
+        let csil_field = cbor_require(csil_root, "success")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    Ok(RemoveTrustedIssuerResponse { success })
+}
+
+/// Encode a RemoveTrustedIssuerResponse to canonical CSIL CBOR bytes.
+pub fn encode_remove_trusted_issuer_response(csil_v: &RemoveTrustedIssuerResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_remove_trusted_issuer_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RemoveTrustedIssuerResponse.
+pub fn decode_remove_trusted_issuer_response(
+    csil_data: &[u8],
+) -> Result<RemoveTrustedIssuerResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_remove_trusted_issuer_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ReleaseRule.
+fn csil_enc_release_rule(csil_v: &ReleaseRule) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
+    csil_entries.push((cbor_text("audience"), cbor_text(&csil_v.audience)));
+    csil_entries.push((cbor_text("claim_type"), cbor_text(&csil_v.claim_type)));
+    csil_entries.push((cbor_text("disposition"), cbor_text(&csil_v.disposition)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ReleaseRule from a decoded CBOR value tree.
+fn csil_dec_release_rule(csil_root: &CsilCborValue) -> Result<ReleaseRule, CsilCborError> {
+    let audience = {
+        let csil_field = cbor_require(csil_root, "audience")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let claim_type = {
+        let csil_field = cbor_require(csil_root, "claim_type")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let disposition = {
+        let csil_field = cbor_require(csil_root, "disposition")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(ReleaseRule {
+        audience,
+        claim_type,
+        disposition,
+    })
+}
+
+/// Encode a ReleaseRule to canonical CSIL CBOR bytes.
+pub fn encode_release_rule(csil_v: &ReleaseRule) -> Vec<u8> {
+    cbor_encode(&csil_enc_release_rule(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ReleaseRule.
+pub fn decode_release_rule(csil_data: &[u8]) -> Result<ReleaseRule, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_release_rule(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ListReleaseRulesResponse.
+fn csil_enc_list_release_rules_response(csil_v: &ListReleaseRulesResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("release_rules"),
+        cbor_enc_array(&csil_v.release_rules, csil_enc_release_rule),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ListReleaseRulesResponse from a decoded CBOR value tree.
+fn csil_dec_list_release_rules_response(
+    csil_root: &CsilCborValue,
+) -> Result<ListReleaseRulesResponse, CsilCborError> {
+    let release_rules = {
+        let csil_field = cbor_require(csil_root, "release_rules")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_release_rule);
+        csil_decode(csil_field)?
+    };
+    Ok(ListReleaseRulesResponse { release_rules })
+}
+
+/// Encode a ListReleaseRulesResponse to canonical CSIL CBOR bytes.
+pub fn encode_list_release_rules_response(csil_v: &ListReleaseRulesResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_list_release_rules_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ListReleaseRulesResponse.
+pub fn decode_list_release_rules_response(
+    csil_data: &[u8],
+) -> Result<ListReleaseRulesResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_list_release_rules_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SetReleaseRuleRequest.
+fn csil_enc_set_release_rule_request(csil_v: &SetReleaseRuleRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
+    csil_entries.push((cbor_text("audience"), cbor_text(&csil_v.audience)));
+    csil_entries.push((cbor_text("claim_type"), cbor_text(&csil_v.claim_type)));
+    csil_entries.push((cbor_text("disposition"), cbor_text(&csil_v.disposition)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SetReleaseRuleRequest from a decoded CBOR value tree.
+fn csil_dec_set_release_rule_request(
+    csil_root: &CsilCborValue,
+) -> Result<SetReleaseRuleRequest, CsilCborError> {
+    let audience = {
+        let csil_field = cbor_require(csil_root, "audience")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let claim_type = {
+        let csil_field = cbor_require(csil_root, "claim_type")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let disposition = {
+        let csil_field = cbor_require(csil_root, "disposition")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(SetReleaseRuleRequest {
+        audience,
+        claim_type,
+        disposition,
+    })
+}
+
+/// Encode a SetReleaseRuleRequest to canonical CSIL CBOR bytes.
+pub fn encode_set_release_rule_request(csil_v: &SetReleaseRuleRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_set_release_rule_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SetReleaseRuleRequest.
+pub fn decode_set_release_rule_request(
+    csil_data: &[u8],
+) -> Result<SetReleaseRuleRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_set_release_rule_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SetReleaseRuleResponse.
+fn csil_enc_set_release_rule_response(csil_v: &SetReleaseRuleResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("release_rule"),
+        csil_enc_release_rule(&csil_v.release_rule),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SetReleaseRuleResponse from a decoded CBOR value tree.
+fn csil_dec_set_release_rule_response(
+    csil_root: &CsilCborValue,
+) -> Result<SetReleaseRuleResponse, CsilCborError> {
+    let release_rule = {
+        let csil_field = cbor_require(csil_root, "release_rule")?;
+        let csil_decode = csil_dec_release_rule;
+        csil_decode(csil_field)?
+    };
+    Ok(SetReleaseRuleResponse { release_rule })
+}
+
+/// Encode a SetReleaseRuleResponse to canonical CSIL CBOR bytes.
+pub fn encode_set_release_rule_response(csil_v: &SetReleaseRuleResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_set_release_rule_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SetReleaseRuleResponse.
+pub fn decode_set_release_rule_response(
+    csil_data: &[u8],
+) -> Result<SetReleaseRuleResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_set_release_rule_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RemoveReleaseRuleRequest.
+fn csil_enc_remove_release_rule_request(csil_v: &RemoveReleaseRuleRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("audience"), cbor_text(&csil_v.audience)));
+    csil_entries.push((cbor_text("claim_type"), cbor_text(&csil_v.claim_type)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RemoveReleaseRuleRequest from a decoded CBOR value tree.
+fn csil_dec_remove_release_rule_request(
+    csil_root: &CsilCborValue,
+) -> Result<RemoveReleaseRuleRequest, CsilCborError> {
+    let audience = {
+        let csil_field = cbor_require(csil_root, "audience")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let claim_type = {
+        let csil_field = cbor_require(csil_root, "claim_type")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(RemoveReleaseRuleRequest {
+        audience,
+        claim_type,
+    })
+}
+
+/// Encode a RemoveReleaseRuleRequest to canonical CSIL CBOR bytes.
+pub fn encode_remove_release_rule_request(csil_v: &RemoveReleaseRuleRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_remove_release_rule_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RemoveReleaseRuleRequest.
+pub fn decode_remove_release_rule_request(
+    csil_data: &[u8],
+) -> Result<RemoveReleaseRuleRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_remove_release_rule_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RemoveReleaseRuleResponse.
+fn csil_enc_remove_release_rule_response(csil_v: &RemoveReleaseRuleResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("success"), cbor_bool(csil_v.success)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RemoveReleaseRuleResponse from a decoded CBOR value tree.
+fn csil_dec_remove_release_rule_response(
+    csil_root: &CsilCborValue,
+) -> Result<RemoveReleaseRuleResponse, CsilCborError> {
+    let success = {
+        let csil_field = cbor_require(csil_root, "success")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    Ok(RemoveReleaseRuleResponse { success })
+}
+
+/// Encode a RemoveReleaseRuleResponse to canonical CSIL CBOR bytes.
+pub fn encode_remove_release_rule_response(csil_v: &RemoveReleaseRuleResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_remove_release_rule_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RemoveReleaseRuleResponse.
+pub fn decode_remove_release_rule_response(
+    csil_data: &[u8],
+) -> Result<RemoveReleaseRuleResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_remove_release_rule_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ClaimApproval.
+fn csil_enc_claim_approval(csil_v: &ClaimApproval) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(8);
+    csil_entries.push((cbor_text("id"), cbor_text(&csil_v.id)));
+    csil_entries.push((cbor_text("status"), cbor_text(&csil_v.status)));
+    csil_entries.push((cbor_text("user_id"), cbor_text(&csil_v.user_id)));
+    csil_entries.push((cbor_text("claim_type"), cbor_text(&csil_v.claim_type)));
+    csil_entries.push((cbor_text("created_at"), cbor_text(&csil_v.created_at)));
+    csil_entries.push((cbor_text("claim_value"), cbor_bytes(&csil_v.claim_value)));
+    if let Some(csil_inner) = &csil_v.resolved_at {
+        csil_entries.push((cbor_text("resolved_at"), cbor_text(csil_inner)));
+    }
+    if let Some(csil_inner) = &csil_v.resolved_by {
+        csil_entries.push((cbor_text("resolved_by"), cbor_text(csil_inner)));
+    }
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ClaimApproval from a decoded CBOR value tree.
+fn csil_dec_claim_approval(csil_root: &CsilCborValue) -> Result<ClaimApproval, CsilCborError> {
+    let id = {
+        let csil_field = cbor_require(csil_root, "id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let user_id = {
+        let csil_field = cbor_require(csil_root, "user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let claim_type = {
+        let csil_field = cbor_require(csil_root, "claim_type")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let claim_value = {
+        let csil_field = cbor_require(csil_root, "claim_value")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let status = {
+        let csil_field = cbor_require(csil_root, "status")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let resolved_by = match cbor_map_get(csil_root, "resolved_by") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let resolved_at = match cbor_map_get(csil_root, "resolved_at") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let created_at = {
+        let csil_field = cbor_require(csil_root, "created_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(ClaimApproval {
+        id,
+        user_id,
+        claim_type,
+        claim_value,
+        status,
+        resolved_by,
+        resolved_at,
+        created_at,
+    })
+}
+
+/// Encode a ClaimApproval to canonical CSIL CBOR bytes.
+pub fn encode_claim_approval(csil_v: &ClaimApproval) -> Vec<u8> {
+    cbor_encode(&csil_enc_claim_approval(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ClaimApproval.
+pub fn decode_claim_approval(csil_data: &[u8]) -> Result<ClaimApproval, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_claim_approval(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ListPendingClaimApprovalsResponse.
+fn csil_enc_list_pending_claim_approvals_response(
+    csil_v: &ListPendingClaimApprovalsResponse,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("approvals"),
+        cbor_enc_array(&csil_v.approvals, csil_enc_claim_approval),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ListPendingClaimApprovalsResponse from a decoded CBOR value tree.
+fn csil_dec_list_pending_claim_approvals_response(
+    csil_root: &CsilCborValue,
+) -> Result<ListPendingClaimApprovalsResponse, CsilCborError> {
+    let approvals = {
+        let csil_field = cbor_require(csil_root, "approvals")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_claim_approval);
+        csil_decode(csil_field)?
+    };
+    Ok(ListPendingClaimApprovalsResponse { approvals })
+}
+
+/// Encode a ListPendingClaimApprovalsResponse to canonical CSIL CBOR bytes.
+pub fn encode_list_pending_claim_approvals_response(
+    csil_v: &ListPendingClaimApprovalsResponse,
+) -> Vec<u8> {
+    cbor_encode(&csil_enc_list_pending_claim_approvals_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ListPendingClaimApprovalsResponse.
+pub fn decode_list_pending_claim_approvals_response(
+    csil_data: &[u8],
+) -> Result<ListPendingClaimApprovalsResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_list_pending_claim_approvals_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ApproveClaimRequest.
+fn csil_enc_approve_claim_request(csil_v: &ApproveClaimRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("approval_id"), cbor_text(&csil_v.approval_id)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ApproveClaimRequest from a decoded CBOR value tree.
+fn csil_dec_approve_claim_request(
+    csil_root: &CsilCborValue,
+) -> Result<ApproveClaimRequest, CsilCborError> {
+    let approval_id = {
+        let csil_field = cbor_require(csil_root, "approval_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(ApproveClaimRequest { approval_id })
+}
+
+/// Encode a ApproveClaimRequest to canonical CSIL CBOR bytes.
+pub fn encode_approve_claim_request(csil_v: &ApproveClaimRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_approve_claim_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ApproveClaimRequest.
+pub fn decode_approve_claim_request(
+    csil_data: &[u8],
+) -> Result<ApproveClaimRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_approve_claim_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ApproveClaimResponse.
+fn csil_enc_approve_claim_response(csil_v: &ApproveClaimResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("success"), cbor_bool(csil_v.success)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ApproveClaimResponse from a decoded CBOR value tree.
+fn csil_dec_approve_claim_response(
+    csil_root: &CsilCborValue,
+) -> Result<ApproveClaimResponse, CsilCborError> {
+    let success = {
+        let csil_field = cbor_require(csil_root, "success")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    Ok(ApproveClaimResponse { success })
+}
+
+/// Encode a ApproveClaimResponse to canonical CSIL CBOR bytes.
+pub fn encode_approve_claim_response(csil_v: &ApproveClaimResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_approve_claim_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ApproveClaimResponse.
+pub fn decode_approve_claim_response(
+    csil_data: &[u8],
+) -> Result<ApproveClaimResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_approve_claim_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RejectClaimRequest.
+fn csil_enc_reject_claim_request(csil_v: &RejectClaimRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("approval_id"), cbor_text(&csil_v.approval_id)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RejectClaimRequest from a decoded CBOR value tree.
+fn csil_dec_reject_claim_request(
+    csil_root: &CsilCborValue,
+) -> Result<RejectClaimRequest, CsilCborError> {
+    let approval_id = {
+        let csil_field = cbor_require(csil_root, "approval_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(RejectClaimRequest { approval_id })
+}
+
+/// Encode a RejectClaimRequest to canonical CSIL CBOR bytes.
+pub fn encode_reject_claim_request(csil_v: &RejectClaimRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_reject_claim_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RejectClaimRequest.
+pub fn decode_reject_claim_request(csil_data: &[u8]) -> Result<RejectClaimRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_reject_claim_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RejectClaimResponse.
+fn csil_enc_reject_claim_response(csil_v: &RejectClaimResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("success"), cbor_bool(csil_v.success)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RejectClaimResponse from a decoded CBOR value tree.
+fn csil_dec_reject_claim_response(
+    csil_root: &CsilCborValue,
+) -> Result<RejectClaimResponse, CsilCborError> {
+    let success = {
+        let csil_field = cbor_require(csil_root, "success")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    Ok(RejectClaimResponse { success })
+}
+
+/// Encode a RejectClaimResponse to canonical CSIL CBOR bytes.
+pub fn encode_reject_claim_response(csil_v: &RejectClaimResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_reject_claim_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RejectClaimResponse.
+pub fn decode_reject_claim_response(
+    csil_data: &[u8],
+) -> Result<RejectClaimResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_reject_claim_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a AdminIssueAttestationRequest.
+fn csil_enc_admin_issue_attestation_request(
+    csil_v: &AdminIssueAttestationRequest,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
+    csil_entries.push((cbor_text("user_id"), cbor_text(&csil_v.user_id)));
+    csil_entries.push((cbor_text("claim_type"), cbor_text(&csil_v.claim_type)));
+    csil_entries.push((cbor_text("claim_value"), cbor_bytes(&csil_v.claim_value)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a AdminIssueAttestationRequest from a decoded CBOR value tree.
+fn csil_dec_admin_issue_attestation_request(
+    csil_root: &CsilCborValue,
+) -> Result<AdminIssueAttestationRequest, CsilCborError> {
+    let user_id = {
+        let csil_field = cbor_require(csil_root, "user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let claim_type = {
+        let csil_field = cbor_require(csil_root, "claim_type")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let claim_value = {
+        let csil_field = cbor_require(csil_root, "claim_value")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    Ok(AdminIssueAttestationRequest {
+        user_id,
+        claim_type,
+        claim_value,
+    })
+}
+
+/// Encode a AdminIssueAttestationRequest to canonical CSIL CBOR bytes.
+pub fn encode_admin_issue_attestation_request(csil_v: &AdminIssueAttestationRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_admin_issue_attestation_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a AdminIssueAttestationRequest.
+pub fn decode_admin_issue_attestation_request(
+    csil_data: &[u8],
+) -> Result<AdminIssueAttestationRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_admin_issue_attestation_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a AdminIssueAttestationResponse.
+fn csil_enc_admin_issue_attestation_response(
+    csil_v: &AdminIssueAttestationResponse,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("claim"), csil_enc_claim(&csil_v.claim)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a AdminIssueAttestationResponse from a decoded CBOR value tree.
+fn csil_dec_admin_issue_attestation_response(
+    csil_root: &CsilCborValue,
+) -> Result<AdminIssueAttestationResponse, CsilCborError> {
+    let claim = {
+        let csil_field = cbor_require(csil_root, "claim")?;
+        let csil_decode = csil_dec_claim;
+        csil_decode(csil_field)?
+    };
+    Ok(AdminIssueAttestationResponse { claim })
+}
+
+/// Encode a AdminIssueAttestationResponse to canonical CSIL CBOR bytes.
+pub fn encode_admin_issue_attestation_response(csil_v: &AdminIssueAttestationResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_admin_issue_attestation_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a AdminIssueAttestationResponse.
+pub fn decode_admin_issue_attestation_response(
+    csil_data: &[u8],
+) -> Result<AdminIssueAttestationResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_admin_issue_attestation_response(&csil_root)
+}
+
 /// Build the canonical CBOR value tree for a GrantRelationRequest.
 fn csil_enc_grant_relation_request(csil_v: &GrantRelationRequest) -> CsilCborValue {
     let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(5);
@@ -4401,6 +6084,423 @@ pub fn encode_get_my_info_response(csil_v: &GetMyInfoResponse) -> Vec<u8> {
 pub fn decode_get_my_info_response(csil_data: &[u8]) -> Result<GetMyInfoResponse, CsilCborError> {
     let csil_root = cbor_decode(csil_data)?;
     csil_dec_get_my_info_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SetMyClaimRequest.
+fn csil_enc_set_my_claim_request(csil_v: &SetMyClaimRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("claim_type"), cbor_text(&csil_v.claim_type)));
+    csil_entries.push((cbor_text("claim_value"), cbor_text(&csil_v.claim_value)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SetMyClaimRequest from a decoded CBOR value tree.
+fn csil_dec_set_my_claim_request(
+    csil_root: &CsilCborValue,
+) -> Result<SetMyClaimRequest, CsilCborError> {
+    let claim_type = {
+        let csil_field = cbor_require(csil_root, "claim_type")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let claim_value = {
+        let csil_field = cbor_require(csil_root, "claim_value")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(SetMyClaimRequest {
+        claim_type,
+        claim_value,
+    })
+}
+
+/// Encode a SetMyClaimRequest to canonical CSIL CBOR bytes.
+pub fn encode_set_my_claim_request(csil_v: &SetMyClaimRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_set_my_claim_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SetMyClaimRequest.
+pub fn decode_set_my_claim_request(csil_data: &[u8]) -> Result<SetMyClaimRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_set_my_claim_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SetMyClaimResponse.
+fn csil_enc_set_my_claim_response(csil_v: &SetMyClaimResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    if let Some(csil_inner) = &csil_v.claim {
+        csil_entries.push((cbor_text("claim"), csil_enc_claim(csil_inner)));
+    }
+    csil_entries.push((cbor_text("outcome"), cbor_text(&csil_v.outcome)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SetMyClaimResponse from a decoded CBOR value tree.
+fn csil_dec_set_my_claim_response(
+    csil_root: &CsilCborValue,
+) -> Result<SetMyClaimResponse, CsilCborError> {
+    let outcome = {
+        let csil_field = cbor_require(csil_root, "outcome")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let claim = match cbor_map_get(csil_root, "claim") {
+        Some(csil_field) => {
+            let csil_decode = csil_dec_claim;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(SetMyClaimResponse { outcome, claim })
+}
+
+/// Encode a SetMyClaimResponse to canonical CSIL CBOR bytes.
+pub fn encode_set_my_claim_response(csil_v: &SetMyClaimResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_set_my_claim_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SetMyClaimResponse.
+pub fn decode_set_my_claim_response(csil_data: &[u8]) -> Result<SetMyClaimResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_set_my_claim_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RemoveMyClaimRequest.
+fn csil_enc_remove_my_claim_request(csil_v: &RemoveMyClaimRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("claim_id"), cbor_text(&csil_v.claim_id)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RemoveMyClaimRequest from a decoded CBOR value tree.
+fn csil_dec_remove_my_claim_request(
+    csil_root: &CsilCborValue,
+) -> Result<RemoveMyClaimRequest, CsilCborError> {
+    let claim_id = {
+        let csil_field = cbor_require(csil_root, "claim_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(RemoveMyClaimRequest { claim_id })
+}
+
+/// Encode a RemoveMyClaimRequest to canonical CSIL CBOR bytes.
+pub fn encode_remove_my_claim_request(csil_v: &RemoveMyClaimRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_remove_my_claim_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RemoveMyClaimRequest.
+pub fn decode_remove_my_claim_request(
+    csil_data: &[u8],
+) -> Result<RemoveMyClaimRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_remove_my_claim_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RemoveMyClaimResponse.
+fn csil_enc_remove_my_claim_response(csil_v: &RemoveMyClaimResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("success"), cbor_bool(csil_v.success)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RemoveMyClaimResponse from a decoded CBOR value tree.
+fn csil_dec_remove_my_claim_response(
+    csil_root: &CsilCborValue,
+) -> Result<RemoveMyClaimResponse, CsilCborError> {
+    let success = {
+        let csil_field = cbor_require(csil_root, "success")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    Ok(RemoveMyClaimResponse { success })
+}
+
+/// Encode a RemoveMyClaimResponse to canonical CSIL CBOR bytes.
+pub fn encode_remove_my_claim_response(csil_v: &RemoveMyClaimResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_remove_my_claim_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RemoveMyClaimResponse.
+pub fn decode_remove_my_claim_response(
+    csil_data: &[u8],
+) -> Result<RemoveMyClaimResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_remove_my_claim_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SetMyClaimSharingRequest.
+fn csil_enc_set_my_claim_sharing_request(csil_v: &SetMyClaimSharingRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("share"), cbor_bool(csil_v.share)));
+    csil_entries.push((cbor_text("claim_type"), cbor_text(&csil_v.claim_type)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SetMyClaimSharingRequest from a decoded CBOR value tree.
+fn csil_dec_set_my_claim_sharing_request(
+    csil_root: &CsilCborValue,
+) -> Result<SetMyClaimSharingRequest, CsilCborError> {
+    let claim_type = {
+        let csil_field = cbor_require(csil_root, "claim_type")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let share = {
+        let csil_field = cbor_require(csil_root, "share")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    Ok(SetMyClaimSharingRequest { claim_type, share })
+}
+
+/// Encode a SetMyClaimSharingRequest to canonical CSIL CBOR bytes.
+pub fn encode_set_my_claim_sharing_request(csil_v: &SetMyClaimSharingRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_set_my_claim_sharing_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SetMyClaimSharingRequest.
+pub fn decode_set_my_claim_sharing_request(
+    csil_data: &[u8],
+) -> Result<SetMyClaimSharingRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_set_my_claim_sharing_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SetMyClaimSharingResponse.
+fn csil_enc_set_my_claim_sharing_response(_csil_v: &SetMyClaimSharingResponse) -> CsilCborValue {
+    CsilCborValue::Map(Vec::new())
+}
+
+/// Reconstruct a SetMyClaimSharingResponse from a decoded CBOR value tree.
+fn csil_dec_set_my_claim_sharing_response(
+    _csil_root: &CsilCborValue,
+) -> Result<SetMyClaimSharingResponse, CsilCborError> {
+    Ok(SetMyClaimSharingResponse {})
+}
+
+/// Encode a SetMyClaimSharingResponse to canonical CSIL CBOR bytes.
+pub fn encode_set_my_claim_sharing_response(csil_v: &SetMyClaimSharingResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_set_my_claim_sharing_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SetMyClaimSharingResponse.
+pub fn decode_set_my_claim_sharing_response(
+    csil_data: &[u8],
+) -> Result<SetMyClaimSharingResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_set_my_claim_sharing_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a Profile.
+fn csil_enc_profile(csil_v: &Profile) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(5);
+    csil_entries.push((cbor_text("id"), cbor_text(&csil_v.id)));
+    if let Some(csil_inner) = &csil_v.label {
+        csil_entries.push((cbor_text("label"), cbor_text(csil_inner)));
+    }
+    csil_entries.push((cbor_text("domain"), cbor_text(&csil_v.domain)));
+    csil_entries.push((cbor_text("is_root"), cbor_bool(csil_v.is_root)));
+    csil_entries.push((cbor_text("account_id"), cbor_text(&csil_v.account_id)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a Profile from a decoded CBOR value tree.
+fn csil_dec_profile(csil_root: &CsilCborValue) -> Result<Profile, CsilCborError> {
+    let id = {
+        let csil_field = cbor_require(csil_root, "id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let account_id = {
+        let csil_field = cbor_require(csil_root, "account_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let domain = {
+        let csil_field = cbor_require(csil_root, "domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let is_root = {
+        let csil_field = cbor_require(csil_root, "is_root")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    let label = match cbor_map_get(csil_root, "label") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(Profile {
+        id,
+        account_id,
+        domain,
+        is_root,
+        label,
+    })
+}
+
+/// Encode a Profile to canonical CSIL CBOR bytes.
+pub fn encode_profile(csil_v: &Profile) -> Vec<u8> {
+    cbor_encode(&csil_enc_profile(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a Profile.
+pub fn decode_profile(csil_data: &[u8]) -> Result<Profile, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_profile(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a CreateProfileRequest.
+fn csil_enc_create_profile_request(csil_v: &CreateProfileRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    if let Some(csil_inner) = &csil_v.label {
+        csil_entries.push((cbor_text("label"), cbor_text(csil_inner)));
+    }
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a CreateProfileRequest from a decoded CBOR value tree.
+fn csil_dec_create_profile_request(
+    csil_root: &CsilCborValue,
+) -> Result<CreateProfileRequest, CsilCborError> {
+    let label = match cbor_map_get(csil_root, "label") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(CreateProfileRequest { label })
+}
+
+/// Encode a CreateProfileRequest to canonical CSIL CBOR bytes.
+pub fn encode_create_profile_request(csil_v: &CreateProfileRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_create_profile_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a CreateProfileRequest.
+pub fn decode_create_profile_request(
+    csil_data: &[u8],
+) -> Result<CreateProfileRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_create_profile_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a CreateProfileResponse.
+fn csil_enc_create_profile_response(csil_v: &CreateProfileResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("profile"), csil_enc_profile(&csil_v.profile)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a CreateProfileResponse from a decoded CBOR value tree.
+fn csil_dec_create_profile_response(
+    csil_root: &CsilCborValue,
+) -> Result<CreateProfileResponse, CsilCborError> {
+    let profile = {
+        let csil_field = cbor_require(csil_root, "profile")?;
+        let csil_decode = csil_dec_profile;
+        csil_decode(csil_field)?
+    };
+    Ok(CreateProfileResponse { profile })
+}
+
+/// Encode a CreateProfileResponse to canonical CSIL CBOR bytes.
+pub fn encode_create_profile_response(csil_v: &CreateProfileResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_create_profile_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a CreateProfileResponse.
+pub fn decode_create_profile_response(
+    csil_data: &[u8],
+) -> Result<CreateProfileResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_create_profile_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RequestVerificationRequest.
+fn csil_enc_request_verification_request(csil_v: &RequestVerificationRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("issuer_domain"), cbor_text(&csil_v.issuer_domain)));
+    csil_entries.push((
+        cbor_text("requested_claim_types"),
+        cbor_enc_array(&csil_v.requested_claim_types, |csil_elem| {
+            cbor_text(csil_elem)
+        }),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RequestVerificationRequest from a decoded CBOR value tree.
+fn csil_dec_request_verification_request(
+    csil_root: &CsilCborValue,
+) -> Result<RequestVerificationRequest, CsilCborError> {
+    let issuer_domain = {
+        let csil_field = cbor_require(csil_root, "issuer_domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let requested_claim_types = {
+        let csil_field = cbor_require(csil_root, "requested_claim_types")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+        csil_decode(csil_field)?
+    };
+    Ok(RequestVerificationRequest {
+        issuer_domain,
+        requested_claim_types,
+    })
+}
+
+/// Encode a RequestVerificationRequest to canonical CSIL CBOR bytes.
+pub fn encode_request_verification_request(csil_v: &RequestVerificationRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_request_verification_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RequestVerificationRequest.
+pub fn decode_request_verification_request(
+    csil_data: &[u8],
+) -> Result<RequestVerificationRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_request_verification_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RequestVerificationResponse.
+fn csil_enc_request_verification_response(csil_v: &RequestVerificationResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("signed_request"),
+        csil_enc_signed_signing_request(&csil_v.signed_request),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RequestVerificationResponse from a decoded CBOR value tree.
+fn csil_dec_request_verification_response(
+    csil_root: &CsilCborValue,
+) -> Result<RequestVerificationResponse, CsilCborError> {
+    let signed_request = {
+        let csil_field = cbor_require(csil_root, "signed_request")?;
+        let csil_decode = csil_dec_signed_signing_request;
+        csil_decode(csil_field)?
+    };
+    Ok(RequestVerificationResponse { signed_request })
+}
+
+/// Encode a RequestVerificationResponse to canonical CSIL CBOR bytes.
+pub fn encode_request_verification_response(csil_v: &RequestVerificationResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_request_verification_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RequestVerificationResponse.
+pub fn decode_request_verification_response(
+    csil_data: &[u8],
+) -> Result<RequestVerificationResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_request_verification_response(&csil_root)
 }
 
 /// Build the canonical CBOR value tree for a RpSignRequest.
@@ -6116,6 +8216,63 @@ pub fn decode_set_local_rp_policy_response(
 ) -> Result<SetLocalRpPolicyResponse, CsilCborError> {
     let csil_root = cbor_decode(csil_data)?;
     csil_dec_set_local_rp_policy_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a PurgeLocalRpTicketsRequest.
+fn csil_enc_purge_local_rp_tickets_request(_csil_v: &PurgeLocalRpTicketsRequest) -> CsilCborValue {
+    CsilCborValue::Map(Vec::new())
+}
+
+/// Reconstruct a PurgeLocalRpTicketsRequest from a decoded CBOR value tree.
+fn csil_dec_purge_local_rp_tickets_request(
+    _csil_root: &CsilCborValue,
+) -> Result<PurgeLocalRpTicketsRequest, CsilCborError> {
+    Ok(PurgeLocalRpTicketsRequest {})
+}
+
+/// Encode a PurgeLocalRpTicketsRequest to canonical CSIL CBOR bytes.
+pub fn encode_purge_local_rp_tickets_request(csil_v: &PurgeLocalRpTicketsRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_purge_local_rp_tickets_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a PurgeLocalRpTicketsRequest.
+pub fn decode_purge_local_rp_tickets_request(
+    csil_data: &[u8],
+) -> Result<PurgeLocalRpTicketsRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_purge_local_rp_tickets_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a PurgeLocalRpTicketsResponse.
+fn csil_enc_purge_local_rp_tickets_response(csil_v: &PurgeLocalRpTicketsResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("purged_count"), cbor_int(csil_v.purged_count)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a PurgeLocalRpTicketsResponse from a decoded CBOR value tree.
+fn csil_dec_purge_local_rp_tickets_response(
+    csil_root: &CsilCborValue,
+) -> Result<PurgeLocalRpTicketsResponse, CsilCborError> {
+    let purged_count = {
+        let csil_field = cbor_require(csil_root, "purged_count")?;
+        let csil_decode = cbor_as_i64;
+        csil_decode(csil_field)?
+    };
+    Ok(PurgeLocalRpTicketsResponse { purged_count })
+}
+
+/// Encode a PurgeLocalRpTicketsResponse to canonical CSIL CBOR bytes.
+pub fn encode_purge_local_rp_tickets_response(csil_v: &PurgeLocalRpTicketsResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_purge_local_rp_tickets_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a PurgeLocalRpTicketsResponse.
+pub fn decode_purge_local_rp_tickets_response(
+    csil_data: &[u8],
+) -> Result<PurgeLocalRpTicketsResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_purge_local_rp_tickets_response(&csil_root)
 }
 
 /// Build the canonical CBOR value tree for a TranslationsRequest.

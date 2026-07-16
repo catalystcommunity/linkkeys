@@ -116,7 +116,7 @@ final class Dns
         return array_values(array_filter($keys, fn (DomainPublicKey $k) => isset($pinnedLower[strtolower(Crypto::fingerprint($k->publicKey))])));
     }
 
-    private const KEY_VOUCH_TAG = 'linkkeys-key-vouch-v1';
+    private const KEY_VOUCH_TAG = 'linkkeys-key-vouch-v1alpha';
 
     public static function keyVouchPayload(string $encFingerprint, string $encExpiresAt): string
     {

@@ -26,7 +26,7 @@ public final class Revocation {
     public static final int QUORUM = 2;
 
     /** Domain-separation tag/version for the signed revocation payload. */
-    private static final String TAG = "linkkeys-key-revocation-v1";
+    private static final String TAG = "linkkeys-key-revocation-v1alpha";
 
     /**
      * The canonical signed bytes: the tag, the target key id + fingerprint,

@@ -129,7 +129,7 @@ Future<List<DomainPublicKey>> pinKeysToFingerprints(
   return out;
 }
 
-const String _keyVouchTag = 'linkkeys-key-vouch-v1';
+const String _keyVouchTag = 'linkkeys-key-vouch-v1alpha';
 
 List<int> _keyVouchPayload(String encFingerprint, String encExpiresAt) {
   return Cbor.encode(Cbor.tuple([

@@ -96,7 +96,7 @@ module LinkkeysLocalRp
       keys.select { |k| pinned_lower.include?(Crypto.fingerprint(k.public_key).downcase) }
     end
 
-    KEY_VOUCH_TAG = 'linkkeys-key-vouch-v1'
+    KEY_VOUCH_TAG = 'linkkeys-key-vouch-v1alpha'
 
     def key_vouch_payload(enc_fingerprint, enc_expires_at)
       Cbor.encode([KEY_VOUCH_TAG, enc_fingerprint, enc_expires_at])

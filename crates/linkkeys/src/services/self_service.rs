@@ -229,6 +229,72 @@ pub fn list_user_settable_policies(
     Ok(all.into_iter().filter(|p| p.user_settable).collect())
 }
 
+/// Remove one of the caller's OWN active claims. `subject_id` is the
+/// authenticated caller (never a value taken from the request), so this is
+/// the self-service counterpart to `Admin/remove-claim`: it first loads the
+/// claim and rejects if it belongs to a different subject. A `claim_id` that
+/// either doesn't exist or belongs to someone else reports the same 404 —
+/// distinguishing the two would let a caller probe whether a given claim id
+/// belongs to another account.
+pub fn remove_my_claim(
+    pool: &DbPool,
+    subject_id: &str,
+    claim_id: &str,
+) -> Result<(), ServiceError> {
+    let not_found = || svc_err(404, "Claim not found");
+    let claim = pool.find_claim_by_id(claim_id).map_err(|e| match e {
+        diesel::result::Error::NotFound => not_found(),
+        other => db_err(other),
+    })?;
+    if claim.user_id != subject_id {
+        return Err(not_found());
+    }
+    pool.remove_claim(claim_id).map_err(db_err)?;
+    Ok(())
+}
+
+/// Set or clear a STANDING RELEASE PREFERENCE for one of the caller's OWN
+/// claim types: pre-approving (`share == true`) or removing pre-approval
+/// (`share == false`) for releasing it to ALL audiences (`"*"`). Reuses the
+/// same `find_claim_policy` + `user_settable` gate `set_my_claim` uses — a
+/// claim type a user can't set, they also can't pre-share; `claim_type`
+/// arrives from a client-controlled field, so the registry (not just a UI
+/// hint) is the authority. Backs both the web identity editor's "share"
+/// toggle (`web::profile_ui::set_share_submit`) and
+/// `Account/set-my-claim-sharing`.
+pub fn set_my_claim_sharing(
+    pool: &DbPool,
+    account_id: &str,
+    claim_type: &str,
+    share: bool,
+) -> Result<(), ServiceError> {
+    let row = pool
+        .find_claim_policy(claim_type)
+        .map_err(db_err)?
+        .ok_or_else(|| {
+            svc_err(
+                400,
+                &liblinkkeys::claim_policy::RejectionReason::UnknownClaimType.to_string(),
+            )
+        })?;
+
+    if !row.user_settable {
+        return Err(svc_err(
+            403,
+            &liblinkkeys::claim_policy::RejectionReason::SetterNotAuthorized.to_string(),
+        ));
+    }
+
+    if share {
+        pool.add_user_release_pref(account_id, "*", claim_type)
+            .map_err(db_err)?;
+    } else {
+        pool.remove_user_release_pref(account_id, "*", claim_type)
+            .map_err(db_err)?;
+    }
+    Ok(())
+}
+
 /// Create an additional presentable profile for the account (capped by
 /// `MAX_PROFILES_PER_ACCOUNT`). Deletion is an admin action — users never delete.
 pub fn create_profile(

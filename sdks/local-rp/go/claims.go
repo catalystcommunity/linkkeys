@@ -18,7 +18,7 @@ import (
 
 // claimPayloadTag is the domain-separation tag + version for the claim
 // signature payload.
-const claimPayloadTag = "linkkeys-claim-v2"
+const claimPayloadTag = "linkkeys-claim-v1alpha"
 
 // claimSignPayload builds the canonical bytes a single signature covers for
 // a claim. The subject is the single full identity `user_id@subject_domain`

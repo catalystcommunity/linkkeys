@@ -31,7 +31,7 @@ pub const REVOCATION_QUORUM: usize = 2;
 /// Domain-separation tag / version for the signed revocation payload.
 /// `pub` so conformance-vector generation and consumers can reference the
 /// exact tag string rather than retyping it.
-pub const REVOCATION_TAG: &str = "linkkeys-key-revocation-v1";
+pub const REVOCATION_TAG: &str = "linkkeys-key-revocation-v1alpha";
 
 #[derive(Debug)]
 pub enum RevocationError {

@@ -19,7 +19,7 @@ const RevocationQuorum = 2
 
 // revocationTag is the domain-separation tag / version for the signed
 // revocation payload.
-const revocationTag = "linkkeys-key-revocation-v1"
+const revocationTag = "linkkeys-key-revocation-v1alpha"
 
 // revocationPayload builds the canonical signed bytes: the tag, the target
 // key id + fingerprint, the revocation instant, and the signing sibling's

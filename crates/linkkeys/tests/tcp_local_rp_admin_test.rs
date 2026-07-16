@@ -18,7 +18,7 @@ use common::data_factory::{
 };
 use liblinkkeys::generated::types::{
     ApproveLocalRpRequest, DenyLocalRpRequest, GetLocalRpPolicyRequest, GetLocalRpRequest,
-    ListLocalRpsRequest, RevokeLocalRpRequest, SetLocalRpPolicyRequest,
+    ListLocalRpsRequest, PurgeLocalRpTicketsRequest, RevokeLocalRpRequest, SetLocalRpPolicyRequest,
 };
 use linkkeys::services::auth;
 use serde_json::Value;
@@ -612,4 +612,97 @@ fn set_local_rp_policy_rejects_invalid_vocabulary() {
     let resp = liblinkkeys::generated::decode_get_local_rp_policy_response(&body)
         .expect("decode GetLocalRpPolicyResponse");
     assert_eq!(resp.policy, linkkeys::db::local_rp::DEFAULT_POLICY);
+}
+
+// ---------------------------------------------------------------------
+// purge-local-rp-tickets
+// ---------------------------------------------------------------------
+
+fn purge_tickets_payload() -> Vec<u8> {
+    liblinkkeys::generated::encode_purge_local_rp_tickets_request(&PurgeLocalRpTicketsRequest {})
+}
+
+#[test]
+fn purge_local_rp_tickets_requires_admin() {
+    let pool = setup();
+
+    let nonadmin_key = make_caller(&pool, false);
+    let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
+        "Admin",
+        "purge-local-rp-tickets",
+        purge_tickets_payload(),
+        Some(&nonadmin_key),
+        &pool,
+        None,
+    );
+    assert_ne!(status, 0, "a caller without admin must be forbidden");
+
+    let admin_key = make_caller(&pool, true);
+    let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
+        "Admin",
+        "purge-local-rp-tickets",
+        purge_tickets_payload(),
+        Some(&admin_key),
+        &pool,
+        None,
+    );
+    assert_eq!(status, 0, "an admin caller must succeed");
+    let resp = liblinkkeys::generated::decode_purge_local_rp_tickets_response(&body)
+        .expect("decode PurgeLocalRpTicketsResponse");
+    assert_eq!(
+        resp.purged_count, 0,
+        "no tickets exist yet, so nothing is purged"
+    );
+}
+
+/// Phase 7 follow-up: `purge-local-rp-tickets` deletes only tickets whose
+/// `expires_at` is in the past, leaving a still-valid (future-expiry) ticket
+/// present and redeemable.
+#[test]
+fn purge_local_rp_tickets_removes_expired_but_keeps_valid() {
+    let pool = setup();
+    let admin_key = make_caller(&pool, true);
+
+    let mut expired_overrides = DataMap::new();
+    expired_overrides.insert(
+        "expires_at".to_string(),
+        Value::String((chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339()),
+    );
+    let expired_ticket = create_local_rp_claim_ticket(&pool, &expired_overrides);
+
+    let mut valid_overrides = DataMap::new();
+    valid_overrides.insert(
+        "expires_at".to_string(),
+        Value::String((chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339()),
+    );
+    let valid_ticket = create_local_rp_claim_ticket(&pool, &valid_overrides);
+
+    let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
+        "Admin",
+        "purge-local-rp-tickets",
+        purge_tickets_payload(),
+        Some(&admin_key),
+        &pool,
+        None,
+    );
+    assert_eq!(status, 0);
+    let resp = liblinkkeys::generated::decode_purge_local_rp_tickets_response(&body)
+        .expect("decode PurgeLocalRpTicketsResponse");
+    assert_eq!(
+        resp.purged_count, 1,
+        "only the expired ticket must be purged"
+    );
+
+    assert!(
+        pool.find_local_rp_claim_ticket(&expired_ticket.ticket_hash)
+            .unwrap()
+            .is_none(),
+        "expired ticket must be gone"
+    );
+    assert!(
+        pool.find_local_rp_claim_ticket(&valid_ticket.ticket_hash)
+            .unwrap()
+            .is_some(),
+        "still-valid ticket must remain present/redeemable"
+    );
 }

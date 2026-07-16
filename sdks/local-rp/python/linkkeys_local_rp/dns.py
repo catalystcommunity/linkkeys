@@ -124,7 +124,7 @@ def pin_keys_to_fingerprints(keys: List[DomainPublicKey], pinned: List[str]) -> 
     return [k for k in keys if crypto.fingerprint(k.public_key).lower() in pinned_lower]
 
 
-_KEY_VOUCH_TAG = "linkkeys-key-vouch-v1"
+_KEY_VOUCH_TAG = "linkkeys-key-vouch-v1alpha"
 
 
 def key_vouch_payload(enc_fingerprint: str, enc_expires_at: str) -> bytes:

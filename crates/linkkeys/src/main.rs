@@ -5,7 +5,7 @@ mod cli;
 use clap::Parser;
 use cli::{
     AccountCommands, ClaimCommands, Cli, Commands, DomainCommands, LocalRpCommands, PinCommands,
-    RelationCommands, UserCommands,
+    PolicyCommands, RelationCommands, UserCommands,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -71,6 +71,9 @@ async fn main() {
         Commands::Domain(DomainCommands::DnsCheck) => domain_dns_check().await,
         Commands::Domain(DomainCommands::ListKeys) => domain_list_keys(),
         Commands::Domain(DomainCommands::RevokeKey { key_id }) => domain_revoke_key(&key_id),
+        Commands::Domain(DomainCommands::RevokeKeyRemote { key_id, server }) => {
+            domain_revoke_key_remote(&key_id, server.as_deref())
+        }
         Commands::User(UserCommands::Create {
             username,
             display_name,
@@ -104,6 +107,9 @@ async fn main() {
             user_deactivate(&user_id, server.as_deref())
         }
         Commands::User(UserCommands::DeactivateLocal { user }) => user_deactivate_local(&user),
+        Commands::User(UserCommands::Activate { user_id, server }) => {
+            user_activate(&user_id, server.as_deref())
+        }
         Commands::User(UserCommands::ResetPassword { user_id, server }) => {
             user_reset_password(&user_id, server.as_deref())
         }
@@ -118,6 +124,11 @@ async fn main() {
             force_admin,
             reason,
         }) => user_purge_local(&user, force, force_admin, &reason),
+        Commands::User(UserCommands::Purge {
+            user_id,
+            reason,
+            server,
+        }) => user_purge(&user_id, reason.as_deref(), server.as_deref()),
         Commands::Claim(ClaimCommands::Set {
             user_id,
             claim_type,
@@ -133,6 +144,7 @@ async fn main() {
         Commands::Account(cmd) => handle_account_command(cmd),
         Commands::Pins(cmd) => handle_pins_command(cmd).await,
         Commands::LocalRp(cmd) => handle_local_rp_command(cmd),
+        Commands::Policy(cmd) => handle_policy_command(cmd),
         Commands::Backup {
             out,
             rotate,
@@ -570,6 +582,42 @@ fn domain_emit_revocation_cert(
         }
         Err(e) => eprintln!("Could not build revocation certificate: {e}"),
     }
+}
+
+/// `domain revoke-key-remote`: CSIL-RPC parity for `domain revoke-key`
+/// (`Admin/revoke-domain-key`), for a controller holding an admin-relation
+/// API key that isn't running on the box with the domain's own DB/passphrase.
+fn domain_revoke_key_remote(key_id: &str, server: Option<&str>) {
+    let addr = cli::tcp_client::get_server_addr(server);
+    let key = cli::tcp_client::get_api_key();
+    let req = liblinkkeys::generated::types::RevokeDomainKeyRequest {
+        key_id: key_id.to_string(),
+    };
+
+    let resp = tcp_call(
+        &addr,
+        "Admin",
+        "revoke-domain-key",
+        &req,
+        &key,
+        liblinkkeys::generated::encode_revoke_domain_key_request,
+        liblinkkeys::generated::decode_revoke_domain_key_response,
+    );
+
+    println!(
+        "Revoked domain key {} (revoked_at={}).",
+        resp.revoked_key.key_id,
+        resp.revoked_key.revoked_at.as_deref().unwrap_or("<none>")
+    );
+    if resp.certificate_issued {
+        println!("Sibling-signed revocation certificate produced and stored.");
+    } else {
+        println!(
+            "Note: not enough sibling signing keys remain to co-sign a revocation certificate. \
+             Revocation is recorded and enforced via DNS removal."
+        );
+    }
+    println!("Next: {}", resp.dns_removal_reminder);
 }
 
 /// Handle `linkkeys pins ...` (SEC-01 TOFU pin management). `recheck` is
@@ -1239,6 +1287,58 @@ fn user_deactivate(user_id: &str, server: Option<&str>) {
     println!("User deactivated: {} {}", resp.user.id, resp.user.username);
 }
 
+fn user_activate(user_id: &str, server: Option<&str>) {
+    let addr = cli::tcp_client::get_server_addr(server);
+    let key = cli::tcp_client::get_api_key();
+    let req = liblinkkeys::generated::types::ActivateUserRequest {
+        user_id: user_id.to_string(),
+    };
+
+    let resp = tcp_call(
+        &addr,
+        "Admin",
+        "activate-user",
+        &req,
+        &key,
+        liblinkkeys::generated::encode_activate_user_request,
+        liblinkkeys::generated::decode_activate_user_response,
+    );
+
+    println!("User activated: {} {}", resp.user.id, resp.user.username);
+}
+
+fn user_purge(user_id: &str, reason: Option<&str>, server: Option<&str>) {
+    let addr = cli::tcp_client::get_server_addr(server);
+    let key = cli::tcp_client::get_api_key();
+    let req = liblinkkeys::generated::types::PurgeUserRequest {
+        user_id: user_id.to_string(),
+        reason: reason.map(|r| r.to_string()),
+    };
+
+    let resp = tcp_call(
+        &addr,
+        "Admin",
+        "purge-user",
+        &req,
+        &key,
+        liblinkkeys::generated::encode_purge_user_request,
+        liblinkkeys::generated::decode_purge_user_response,
+    );
+
+    println!(
+        "User purged to tombstone: {} {}",
+        resp.user.id, resp.user.username
+    );
+    println!(
+        "Revoked: {} credential(s), {} key(s), {} claim(s); removed {} relation(s); deleted {} local RP claim ticket(s)",
+        resp.credentials_revoked,
+        resp.keys_revoked,
+        resp.claims_revoked,
+        resp.relations_removed,
+        resp.local_rp_claim_tickets_deleted
+    );
+}
+
 fn user_reset_password(user_id: &str, server: Option<&str>) {
     let addr = cli::tcp_client::get_server_addr(server);
     let key = cli::tcp_client::get_api_key();
@@ -1661,6 +1761,457 @@ fn handle_local_rp_command(cmd: LocalRpCommands) {
 
             println!("Local RP policy set: {}", resp.policy);
         }
+        LocalRpCommands::PurgeTickets { server } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+            let req = liblinkkeys::generated::types::PurgeLocalRpTicketsRequest {};
+
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "purge-local-rp-tickets",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_purge_local_rp_tickets_request,
+                liblinkkeys::generated::decode_purge_local_rp_tickets_response,
+            );
+
+            println!("Purged {} expired claim ticket(s)", resp.purged_count);
+        }
+    }
+}
+
+/// Human-readable rendering of one `ClaimTypePolicy` registry entry.
+fn print_claim_type(p: &liblinkkeys::generated::types::ClaimTypePolicy) {
+    let mut flags = Vec::new();
+    if p.user_settable {
+        flags.push("user-settable");
+    }
+    if p.default_auto_sign {
+        flags.push("auto-sign");
+    }
+    if p.requires_approval {
+        flags.push("approval");
+    }
+    if p.suggested {
+        flags.push("suggested");
+    }
+    println!(
+        "  {} [{}] value={} set={} sign={} max_bytes={}{}",
+        p.claim_type,
+        p.label,
+        p.value_type,
+        p.set_rule,
+        p.signing_rule,
+        p.max_bytes,
+        if flags.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", flags.join(", "))
+        }
+    );
+}
+
+fn handle_policy_command(cmd: PolicyCommands) {
+    match cmd {
+        PolicyCommands::ListClaimTypes { server } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+            let req = liblinkkeys::generated::types::EmptyRequest {};
+
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "list-claim-types",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_empty_request,
+                liblinkkeys::generated::decode_list_claim_types_response,
+            );
+
+            for ct in &resp.claim_types {
+                print_claim_type(ct);
+            }
+            println!("{} claim type(s)", resp.claim_types.len());
+        }
+        PolicyCommands::SetClaimType {
+            claim_type,
+            label,
+            description,
+            value_type,
+            max_bytes,
+            set_rule,
+            signing_rule,
+            user_settable,
+            default_auto_sign,
+            requires_approval,
+            suggested,
+            server,
+        } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+            let req = liblinkkeys::generated::types::SetClaimTypeRequest {
+                claim_type,
+                label,
+                description,
+                value_type,
+                max_bytes,
+                set_rule,
+                signing_rule,
+                user_settable,
+                default_auto_sign,
+                requires_approval,
+                suggested,
+            };
+
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "set-claim-type",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_set_claim_type_request,
+                liblinkkeys::generated::decode_set_claim_type_response,
+            );
+
+            println!("Claim type saved:");
+            print_claim_type(&resp.claim_type);
+        }
+        PolicyCommands::RemoveClaimType { claim_type, server } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+            let req = liblinkkeys::generated::types::RemoveClaimTypeRequest { claim_type };
+
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "remove-claim-type",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_remove_claim_type_request,
+                liblinkkeys::generated::decode_remove_claim_type_response,
+            );
+
+            println!(
+                "Claim type removed: {}",
+                if resp.success { "ok" } else { "failed" }
+            );
+        }
+        PolicyCommands::SetLabel {
+            claim_type,
+            locale,
+            label,
+            description,
+            server,
+        } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+            let req = liblinkkeys::generated::types::SetClaimTypeLabelRequest {
+                claim_type,
+                locale,
+                label,
+                description,
+            };
+
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "set-claim-type-label",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_set_claim_type_label_request,
+                liblinkkeys::generated::decode_set_claim_type_label_response,
+            );
+
+            println!(
+                "Translation saved: {} [{}] = \"{}\"",
+                resp.label.claim_type, resp.label.locale, resp.label.label
+            );
+        }
+        PolicyCommands::RemoveLabel {
+            claim_type,
+            locale,
+            server,
+        } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+            let req =
+                liblinkkeys::generated::types::RemoveClaimTypeLabelRequest { claim_type, locale };
+
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "remove-claim-type-label",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_remove_claim_type_label_request,
+                liblinkkeys::generated::decode_remove_claim_type_label_response,
+            );
+
+            println!(
+                "Translation removed: {}",
+                if resp.success { "ok" } else { "failed" }
+            );
+        }
+        PolicyCommands::ListTrustedIssuers { server } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+            let req = liblinkkeys::generated::types::EmptyRequest {};
+
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "list-trusted-issuers",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_empty_request,
+                liblinkkeys::generated::decode_list_trusted_issuers_response,
+            );
+
+            for issuer in &resp.trusted_issuers {
+                println!("  {} <- {}", issuer.claim_type, issuer.issuer_domain);
+            }
+            println!("{} trusted issuer(s)", resp.trusted_issuers.len());
+        }
+        PolicyCommands::AddTrustedIssuer {
+            claim_type,
+            issuer_domain,
+            server,
+        } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+            let req = liblinkkeys::generated::types::AddTrustedIssuerRequest {
+                claim_type,
+                issuer_domain,
+            };
+
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "add-trusted-issuer",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_add_trusted_issuer_request,
+                liblinkkeys::generated::decode_add_trusted_issuer_response,
+            );
+
+            println!(
+                "Trusted issuer added: {} <- {}",
+                resp.trusted_issuer.claim_type, resp.trusted_issuer.issuer_domain
+            );
+        }
+        PolicyCommands::RemoveTrustedIssuer {
+            claim_type,
+            issuer_domain,
+            server,
+        } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+            let req = liblinkkeys::generated::types::RemoveTrustedIssuerRequest {
+                claim_type,
+                issuer_domain,
+            };
+
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "remove-trusted-issuer",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_remove_trusted_issuer_request,
+                liblinkkeys::generated::decode_remove_trusted_issuer_response,
+            );
+
+            println!(
+                "Trusted issuer removed: {}",
+                if resp.success { "ok" } else { "failed" }
+            );
+        }
+        PolicyCommands::ListReleaseRules { server } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+            let req = liblinkkeys::generated::types::EmptyRequest {};
+
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "list-release-rules",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_empty_request,
+                liblinkkeys::generated::decode_list_release_rules_response,
+            );
+
+            for rule in &resp.release_rules {
+                println!(
+                    "  {} / {} = {}",
+                    rule.audience, rule.claim_type, rule.disposition
+                );
+            }
+            println!("{} release rule(s)", resp.release_rules.len());
+        }
+        PolicyCommands::SetReleaseRule {
+            audience,
+            claim_type,
+            disposition,
+            server,
+        } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+            let req = liblinkkeys::generated::types::SetReleaseRuleRequest {
+                audience,
+                claim_type,
+                disposition,
+            };
+
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "set-release-rule",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_set_release_rule_request,
+                liblinkkeys::generated::decode_set_release_rule_response,
+            );
+
+            println!(
+                "Release rule saved: {} / {} = {}",
+                resp.release_rule.audience,
+                resp.release_rule.claim_type,
+                resp.release_rule.disposition
+            );
+        }
+        PolicyCommands::RemoveReleaseRule {
+            audience,
+            claim_type,
+            server,
+        } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+            let req = liblinkkeys::generated::types::RemoveReleaseRuleRequest {
+                audience,
+                claim_type,
+            };
+
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "remove-release-rule",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_remove_release_rule_request,
+                liblinkkeys::generated::decode_remove_release_rule_response,
+            );
+
+            println!(
+                "Release rule removed: {}",
+                if resp.success { "ok" } else { "failed" }
+            );
+        }
+        PolicyCommands::ListPendingApprovals { server } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+            let req = liblinkkeys::generated::types::EmptyRequest {};
+
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "list-pending-claim-approvals",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_empty_request,
+                liblinkkeys::generated::decode_list_pending_claim_approvals_response,
+            );
+
+            for a in &resp.approvals {
+                println!(
+                    "  {} user={} type={} value={:?} status={}",
+                    a.id,
+                    a.user_id,
+                    a.claim_type,
+                    String::from_utf8_lossy(&a.claim_value),
+                    a.status
+                );
+            }
+            println!("{} pending approval(s)", resp.approvals.len());
+        }
+        PolicyCommands::ApproveClaim {
+            approval_id,
+            server,
+        } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+            let req = liblinkkeys::generated::types::ApproveClaimRequest { approval_id };
+
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "approve-claim",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_approve_claim_request,
+                liblinkkeys::generated::decode_approve_claim_response,
+            );
+
+            println!(
+                "Claim approved: {}",
+                if resp.success { "ok" } else { "failed" }
+            );
+        }
+        PolicyCommands::RejectClaim {
+            approval_id,
+            server,
+        } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+            let req = liblinkkeys::generated::types::RejectClaimRequest { approval_id };
+
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "reject-claim",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_reject_claim_request,
+                liblinkkeys::generated::decode_reject_claim_response,
+            );
+
+            println!(
+                "Claim rejected: {}",
+                if resp.success { "ok" } else { "failed" }
+            );
+        }
+        PolicyCommands::IssueAttestation {
+            user_id,
+            claim_type,
+            claim_value,
+            server,
+        } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+            let req = liblinkkeys::generated::types::AdminIssueAttestationRequest {
+                user_id,
+                claim_type,
+                claim_value: claim_value.into_bytes(),
+            };
+
+            let resp = tcp_call(
+                &addr,
+                "Admin",
+                "admin-issue-attestation",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_admin_issue_attestation_request,
+                liblinkkeys::generated::decode_admin_issue_attestation_response,
+            );
+
+            println!(
+                "Attestation issued: claim_id={} type={} signatures={}",
+                resp.claim.claim_id,
+                resp.claim.claim_type,
+                resp.claim.signatures.len()
+            );
+        }
     }
 }
 
@@ -1740,6 +2291,142 @@ fn handle_account_command(cmd: AccountCommands) {
                     println!("  {} {}={}", c.claim_id, c.claim_type, value);
                 }
             }
+        }
+        AccountCommands::SetClaim {
+            claim_type,
+            claim_value,
+            server,
+        } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+
+            let req = liblinkkeys::generated::types::SetMyClaimRequest {
+                claim_type,
+                claim_value,
+            };
+
+            let resp = tcp_call(
+                &addr,
+                "Account",
+                "set-my-claim",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_set_my_claim_request,
+                liblinkkeys::generated::decode_set_my_claim_response,
+            );
+
+            println!("Outcome: {}", resp.outcome);
+            if let Some(claim) = resp.claim {
+                println!("Claim: {} {}", claim.claim_id, claim.claim_type);
+            }
+        }
+        AccountCommands::RemoveClaim { claim_id, server } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+
+            let req = liblinkkeys::generated::types::RemoveMyClaimRequest { claim_id };
+
+            let resp = tcp_call(
+                &addr,
+                "Account",
+                "remove-my-claim",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_remove_my_claim_request,
+                liblinkkeys::generated::decode_remove_my_claim_response,
+            );
+
+            if resp.success {
+                println!("Claim removed.");
+            } else {
+                eprintln!("Claim removal failed.");
+                std::process::exit(1);
+            }
+        }
+        AccountCommands::ShareClaim {
+            claim_type,
+            on,
+            off,
+            server,
+        } => {
+            if on == off {
+                eprintln!("Error: specify exactly one of --on or --off");
+                std::process::exit(1);
+            }
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+
+            let req = liblinkkeys::generated::types::SetMyClaimSharingRequest {
+                claim_type,
+                share: on,
+            };
+
+            let _resp = tcp_call(
+                &addr,
+                "Account",
+                "set-my-claim-sharing",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_set_my_claim_sharing_request,
+                liblinkkeys::generated::decode_set_my_claim_sharing_response,
+            );
+
+            println!("Sharing {}.", if on { "enabled" } else { "disabled" });
+        }
+        AccountCommands::CreateProfile { label, server } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+
+            let req = liblinkkeys::generated::types::CreateProfileRequest { label };
+
+            let resp = tcp_call(
+                &addr,
+                "Account",
+                "create-profile",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_create_profile_request,
+                liblinkkeys::generated::decode_create_profile_response,
+            );
+
+            println!(
+                "Profile: {} label={}",
+                resp.profile.id,
+                resp.profile.label.as_deref().unwrap_or("(none)")
+            );
+        }
+        AccountCommands::RequestVerification {
+            issuer_domain,
+            claim_types,
+            server,
+        } => {
+            let addr = cli::tcp_client::get_server_addr(server.as_deref());
+            let key = cli::tcp_client::get_api_key();
+
+            if claim_types.is_empty() {
+                eprintln!("Error: at least one --type <claim_type> is required");
+                std::process::exit(1);
+            }
+
+            let req = liblinkkeys::generated::types::RequestVerificationRequest {
+                issuer_domain,
+                requested_claim_types: claim_types,
+            };
+
+            let resp = tcp_call(
+                &addr,
+                "Account",
+                "request-verification",
+                &req,
+                &key,
+                liblinkkeys::generated::encode_request_verification_request,
+                liblinkkeys::generated::decode_request_verification_response,
+            );
+
+            let cbor = liblinkkeys::generated::encode_signed_signing_request(&resp.signed_request);
+            use base64ct::{Base64UrlUnpadded, Encoding as _};
+            println!("Signing request bundle (base64url, carry this to the issuer):");
+            println!("{}", Base64UrlUnpadded::encode_string(&cbor));
         }
     }
 }

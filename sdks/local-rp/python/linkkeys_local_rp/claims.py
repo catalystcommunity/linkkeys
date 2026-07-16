@@ -20,7 +20,7 @@ from .generated.codec import cbor_encode
 from .generated.types import Claim, ClaimSignature, LocalRpTicketRedemptionResponse
 from .timeutil import parse_rfc3339
 
-CLAIM_PAYLOAD_TAG = "linkkeys-claim-v2"
+CLAIM_PAYLOAD_TAG = "linkkeys-claim-v1alpha"
 
 
 class ClaimError(Exception):

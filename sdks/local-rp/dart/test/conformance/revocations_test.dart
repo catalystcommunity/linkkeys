@@ -40,7 +40,7 @@ void main() {
         () async {
       final d = loadJson('revocations.json') as Map<String, dynamic>;
       expect(d['quorum'], equals(revocationQuorum));
-      expect(d['tag'], equals('linkkeys-key-revocation-v1'));
+      expect(d['tag'], equals('linkkeys-key-revocation-v1alpha'));
 
       final domainKeys = (d['domain_keys'] as List)
           .cast<Map<String, dynamic>>()

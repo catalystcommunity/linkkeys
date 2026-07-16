@@ -109,7 +109,7 @@ defmodule LinkkeysLocalRp.Dns do
     Enum.filter(keys, fn k -> MapSet.member?(pinned_lower, String.downcase(Crypto.fingerprint(k.public_key))) end)
   end
 
-  @key_vouch_tag "linkkeys-key-vouch-v1"
+  @key_vouch_tag "linkkeys-key-vouch-v1alpha"
 
   def key_vouch_payload(enc_fingerprint, enc_expires_at) do
     LinkkeysLocalRp.Cbor.encode([@key_vouch_tag, enc_fingerprint, enc_expires_at])
