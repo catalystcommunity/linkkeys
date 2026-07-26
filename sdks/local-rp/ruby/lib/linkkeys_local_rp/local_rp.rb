@@ -41,14 +41,14 @@ module LinkkeysLocalRp
   # serves both sides) purely so this package's own test suite can act as a
   # self-contained fake IDP in the flow tests.
   module LocalRp
-    CTX_LOCAL_RP_DESCRIPTOR = 'linkkeys-local-rp-descriptor'
-    CTX_LOCAL_RP_LOGIN_REQUEST = 'linkkeys-local-rp-login-request'
-    CTX_LOCAL_RP_CALLBACK = 'linkkeys-local-rp-callback'
-    CTX_LOCAL_RP_TICKET_REDEMPTION = 'linkkeys-local-rp-ticket-redemption'
+    CTX_LOCAL_RP_DESCRIPTOR = 'linkkeys-local-rp-descriptor-v1alpha'
+    CTX_LOCAL_RP_LOGIN_REQUEST = 'linkkeys-local-rp-login-request-v1alpha'
+    CTX_LOCAL_RP_CALLBACK = 'linkkeys-local-rp-callback-v1alpha'
+    CTX_LOCAL_RP_TICKET_REDEMPTION = 'linkkeys-local-rp-ticket-redemption-v1alpha'
 
     DEFAULT_CLOCK_SKEW_SECONDS = 300
 
-    LOCAL_RP_CALLBACK_BOX_TAG = 'linkkeys-local-rp-callback-box'.b
+    LOCAL_RP_CALLBACK_BOX_TAG = 'linkkeys-local-rp-callback-box-v1alpha'.b
 
     # ---------------------------------------------------------------
     # Errors. Base class for every local-RP protocol verification failure.

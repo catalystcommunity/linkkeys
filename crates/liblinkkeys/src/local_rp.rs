@@ -46,13 +46,13 @@ use std::fmt;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519StaticSecret};
 
 /// Signature context for [`SignedLocalRpDescriptor`].
-pub const CTX_LOCAL_RP_DESCRIPTOR: &str = "linkkeys-local-rp-descriptor";
+pub const CTX_LOCAL_RP_DESCRIPTOR: &str = "linkkeys-local-rp-descriptor-v1alpha";
 /// Signature context for [`SignedLocalRpLoginRequest`].
-pub const CTX_LOCAL_RP_LOGIN_REQUEST: &str = "linkkeys-local-rp-login-request";
+pub const CTX_LOCAL_RP_LOGIN_REQUEST: &str = "linkkeys-local-rp-login-request-v1alpha";
 /// Signature context for [`SignedLocalRpCallbackPayload`].
-pub const CTX_LOCAL_RP_CALLBACK: &str = "linkkeys-local-rp-callback";
+pub const CTX_LOCAL_RP_CALLBACK: &str = "linkkeys-local-rp-callback-v1alpha";
 /// Signature context for [`SignedLocalRpTicketRedemptionRequest`].
-pub const CTX_LOCAL_RP_TICKET_REDEMPTION: &str = "linkkeys-local-rp-ticket-redemption";
+pub const CTX_LOCAL_RP_TICKET_REDEMPTION: &str = "linkkeys-local-rp-ticket-redemption-v1alpha";
 
 /// Default bounded clock-skew tolerance (seconds) for timestamp checks, per
 /// the design doc's "expiry checking helpers with explicit clock-skew
@@ -64,7 +64,7 @@ pub const DEFAULT_CLOCK_SKEW_SECONDS: i64 = 300;
 /// construction additionally binds the negotiated suite id into the KDF
 /// context, and binds the cleartext header into the AEAD associated data, so
 /// it is its own construction rather than a call-site of the generic one.
-const LOCAL_RP_CALLBACK_BOX_TAG: &[u8] = b"linkkeys-local-rp-callback-box";
+const LOCAL_RP_CALLBACK_BOX_TAG: &[u8] = b"linkkeys-local-rp-callback-box-v1alpha";
 
 #[derive(Debug)]
 pub enum LocalRpError {

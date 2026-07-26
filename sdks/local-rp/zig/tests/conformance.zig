@@ -463,7 +463,7 @@ test "revocations.json: application case — certificate application flips verif
     const ac = root.object.get("application_case").?;
     const envelope = ac.object.get("envelope").?;
 
-    try std.testing.expectEqualStrings("linkkeys-local-rp-callback", str(envelope, "context"));
+    try std.testing.expectEqualStrings("linkkeys-local-rp-callback-v1alpha", str(envelope, "context"));
 
     const signed = lrp.types.SignedLocalRpCallbackPayload{
         .payload = try mustHex(a, str(envelope, "payload_cbor_hex")),

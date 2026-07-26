@@ -9,7 +9,7 @@
 #include "error.h"
 #include "time_util.h"
 
-static const char LOCAL_RP_CALLBACK_BOX_TAG[] = "linkkeys-local-rp-callback-box";
+static const char LOCAL_RP_CALLBACK_BOX_TAG[] = "linkkeys-local-rp-callback-box-v1alpha";
 
 int lrp_envelope_signature_input(const char *context, const uint8_t *payload, size_t payload_len,
                                   lrp_bytes *out, lrp_error *err) {

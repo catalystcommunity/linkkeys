@@ -226,7 +226,7 @@ pub fn aeadDecrypt(allocator: std.mem.Allocator, suite: AeadSuite, key: [32]u8, 
 /// Domain-separation tag for the local-RP callback sealed box, distinct from
 /// liblinkkeys' generic sealed-box tag: this construction additionally binds
 /// the negotiated suite id into the KDF context.
-pub const local_rp_callback_box_tag = "linkkeys-local-rp-callback-box";
+pub const local_rp_callback_box_tag = "linkkeys-local-rp-callback-box-v1alpha";
 
 /// Derives the AEAD key for the local-RP callback sealed box via
 /// HKDF-SHA256, and returns the context bytes (owned by `allocator`) that

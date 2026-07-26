@@ -167,7 +167,7 @@ func TestRevocationsApplicationCase(t *testing.T) {
 	keys := revocationFixtureKeys(t, &d)
 	ac := d.ApplicationCase
 
-	if ac.Envelope.Context != "linkkeys-local-rp-callback" {
+	if ac.Envelope.Context != "linkkeys-local-rp-callback-v1alpha" {
 		t.Fatalf("unexpected envelope context %q", ac.Envelope.Context)
 	}
 

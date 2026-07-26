@@ -222,7 +222,7 @@ func aeadDecrypt(suite AeadSuite, key [32]byte, nonce [12]byte, aad, ciphertext 
 // sealed-box tag: this construction additionally binds the negotiated suite
 // id into the KDF context, and binds the cleartext header into the AEAD
 // associated data.
-const localRpCallbackBoxTag = "linkkeys-local-rp-callback-box"
+const localRpCallbackBoxTag = "linkkeys-local-rp-callback-box-v1alpha"
 
 // localRpCallbackKDF derives the AEAD key for the local-RP callback sealed
 // box via HKDF-SHA256, and returns the context bytes that double as the AEAD

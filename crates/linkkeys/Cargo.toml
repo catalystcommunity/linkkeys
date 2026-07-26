@@ -34,6 +34,8 @@ uuid = { version = "1.10", features = ["v7", "serde"] }
 # Serialization
 ciborium = "0.2"
 serde = { version = "1.0", features = ["derive"] }
+# Persistence only — JSON-typed database columns. Never a wire format: the
+# protocol is CBOR end to end (see docs/spec invariant I-5).
 serde_json = "1.0"
 toml = "0.8"
 

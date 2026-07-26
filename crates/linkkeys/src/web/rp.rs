@@ -43,6 +43,13 @@ pub(crate) fn sign_request_core(
     // file. The whole request is signed below, so these ride inside the RP's
     // authenticated request.
     let domain = get_domain_name();
+    // Attestation time: signed, so normalize to whole seconds for a
+    // byte-identical round-trip through storage (same rule as claim expiry).
+    use chrono::Timelike;
+    let attested_at = chrono::Utc::now()
+        .with_nanosecond(0)
+        .expect("zeroing nanoseconds cannot fail")
+        .to_rfc3339();
     let mut rp_claims: Vec<liblinkkeys::generated::types::DomainClaim> = rp_config
         .self_claims
         .iter()
@@ -53,6 +60,7 @@ pub(crate) fn sign_request_core(
                     claim_value: c.value.as_bytes(),
                     subject_domain: &domain,
                     expires_at: None,
+                    attested_at: &attested_at,
                 },
                 &[liblinkkeys::claims::ClaimSigner {
                     domain: &domain,

@@ -248,6 +248,7 @@ pub struct DomainClaim {
     pub claim_type: String,
     pub claim_value: Vec<u8>,
     pub signatures: Vec<ClaimSignature>,
+    pub attested_at: String,
     pub expires_at: Option<String>,
 }
 

@@ -16,10 +16,10 @@ const cbor = @import("cbor.zig");
 const types = @import("types.zig");
 const xcrypto = @import("crypto.zig");
 
-pub const ctx_local_rp_descriptor = "linkkeys-local-rp-descriptor";
-pub const ctx_local_rp_login_request = "linkkeys-local-rp-login-request";
-pub const ctx_local_rp_callback = "linkkeys-local-rp-callback";
-pub const ctx_local_rp_ticket_redemption = "linkkeys-local-rp-ticket-redemption";
+pub const ctx_local_rp_descriptor = "linkkeys-local-rp-descriptor-v1alpha";
+pub const ctx_local_rp_login_request = "linkkeys-local-rp-login-request-v1alpha";
+pub const ctx_local_rp_callback = "linkkeys-local-rp-callback-v1alpha";
+pub const ctx_local_rp_ticket_redemption = "linkkeys-local-rp-ticket-redemption-v1alpha";
 
 /// Design doc: "±300 seconds" default bounded clock-skew tolerance.
 pub const default_clock_skew_seconds: i64 = 300;

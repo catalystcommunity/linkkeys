@@ -39,18 +39,18 @@ class LocalRp {
   LocalRp._();
 
   // Signature contexts for the four local-RP signed structures.
-  static const String ctxLocalRpDescriptor = 'linkkeys-local-rp-descriptor';
+  static const String ctxLocalRpDescriptor = 'linkkeys-local-rp-descriptor-v1alpha';
   static const String ctxLocalRpLoginRequest =
-      'linkkeys-local-rp-login-request';
-  static const String ctxLocalRpCallback = 'linkkeys-local-rp-callback';
+      'linkkeys-local-rp-login-request-v1alpha';
+  static const String ctxLocalRpCallback = 'linkkeys-local-rp-callback-v1alpha';
   static const String ctxLocalRpTicketRedemption =
-      'linkkeys-local-rp-ticket-redemption';
+      'linkkeys-local-rp-ticket-redemption-v1alpha';
 
   /// Default bounded clock-skew tolerance (seconds), design doc: "+/-300
   /// seconds".
   static const int defaultClockSkewSeconds = 300;
 
-  static const String _localRpCallbackBoxTag = 'linkkeys-local-rp-callback-box';
+  static const String _localRpCallbackBoxTag = 'linkkeys-local-rp-callback-box-v1alpha';
 
   // -----------------------------------------------------------------
   // Envelope signature input

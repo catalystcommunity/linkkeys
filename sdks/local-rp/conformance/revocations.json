@@ -3,9 +3,9 @@
     "certificate_ref": "certificate_cases[] entry with name == \"valid_quorum_two_siblings\"",
     "clock_skew_seconds": 300,
     "envelope": {
-      "context": "linkkeys-local-rp-callback",
+      "context": "linkkeys-local-rp-callback-v1alpha",
       "payload_cbor_hex": "a9656e6f6e636550aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa65737461746550bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb67757365725f696472636f6e666f726d616e63652d757365722d31696973737565645f61747819323032362d30312d30315430303a30363a30302b30303a30306a657870697265735f61747819323032362d30312d30315430303a31313a30302b30303a30306b757365725f646f6d61696e73636f6e666f726d616e63652e6578616d706c656c63616c6c6261636b5f75726c781e687474703a2f2f3132372e302e302e313a383038302f63616c6c6261636b6c636c61696d5f7469636b65745820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc7461756469656e63655f66696e6765727072696e74781b756e757365642d61756469656e63652d66696e6765727072696e74",
-      "signature_hex": "be675558ac9d7eade8b4bcfde1f1d754aa6cfe3cce385b6909f9c782e00a21b8a336414aa064b47fe39130953c1c36f56e0201c46eed63926a5d858abb4a960f",
+      "signature_hex": "07345ab3f3f5b71ea5447cd205274a14db9702ec4d6d646767f5a363b52ed7e54329b8d9789bcb48749f6b9fa3ddb114b7e24e7b2ec6f0fc5ab0e6b50c5aaa0c",
       "signing_key_id": "sibling-key-3",
       "structure": "callback_payload"
     },

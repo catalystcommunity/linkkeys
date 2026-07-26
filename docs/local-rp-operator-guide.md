@@ -64,7 +64,7 @@ browser-only in LinkKeys").
   an unauthenticated TLS peer, but authentication happens at the
   *application layer*: the request is `SignedLocalRpTicketRedemptionRequest`,
   signed with the local RP's signing key over context
-  `linkkeys-local-rp-ticket-redemption`. The server looks up the claimed
+  `linkkeys-local-rp-ticket-redemption-v1alpha`. The server looks up the claimed
   fingerprint, verifies the signature against that fingerprint's **stored**
   signing key (never a key supplied in the request), and only then proceeds
   — so a stolen ticket is useless without the RP's private key, and nothing

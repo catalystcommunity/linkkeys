@@ -173,7 +173,7 @@ typedef struct lrp_identity {
     uint8_t encryption_private_key[32]; /* X25519 */
     uint8_t encryption_public_key[32];
     /* Exact CBOR bytes of the LocalRpDescriptor payload, and its envelope
-     * signature (context "linkkeys-local-rp-descriptor"). Reused as-is in
+     * signature (context "linkkeys-local-rp-descriptor-v1alpha"). Reused as-is in
      * every begin_local_login call (no per-login descriptor churn). */
     lrp_bytes descriptor_cbor;
     lrp_bytes descriptor_signature;

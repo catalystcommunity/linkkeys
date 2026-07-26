@@ -25,6 +25,7 @@ fn consent_grant_records_offered_claims() {
             claim_value: b"GDPR-strict-v1",
             subject_domain: RP,
             expires_at: None,
+            attested_at: "2020-01-01T00:00:00+00:00",
         },
         &[liblinkkeys::claims::ClaimSigner {
             domain: RP,

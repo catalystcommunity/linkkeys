@@ -551,11 +551,11 @@ fn callback_box_json(
 
     // Wire Precision, "Callback sealed box": kdf/AAD context is
     // `tag || suite_id_utf8 || ephemeral_public(32) || recipient_public(32)`,
-    // tag `linkkeys-local-rp-callback-box`. Recomputed here (not exported
+    // tag `linkkeys-local-rp-callback-box-v1alpha`. Recomputed here (not exported
     // from `local_rp`, which keeps it private) purely so the vectors can
     // publish the intermediate KDF-context/AAD bytes for SDKs to unit-test
     // their own HKDF derivation independent of full decrypt.
-    const CALLBACK_BOX_TAG: &[u8] = b"linkkeys-local-rp-callback-box";
+    const CALLBACK_BOX_TAG: &[u8] = b"linkkeys-local-rp-callback-box-v1alpha";
     fn kdf_context(
         suite: AeadSuite,
         ephemeral_public: &[u8; 32],
@@ -778,7 +778,7 @@ fn callback_box_json(
     let json = json!({
         "note": "Both suites seal the SAME plaintext (envelopes.json's callback_payload case, re-wrapped as a SignedLocalRpCallbackPayload envelope) to local_rp.encryption from keys.json. Ephemeral X25519 keys and AEAD nonces are FIXED test constants here (see generator source) so ciphertexts are byte-stable across regeneration; production code always uses fresh randomness (see seal_local_rp_callback vs. seal_local_rp_callback_with_randomness in crates/liblinkkeys/src/local_rp.rs).",
         "kdf": {
-            "tag": "linkkeys-local-rp-callback-box",
+            "tag": "linkkeys-local-rp-callback-box-v1alpha",
             "info_and_aad_prefix_layout": "tag || suite_id_utf8 || ephemeral_public_key(32) || recipient_public_key(32)",
             "kdf_algorithm": "HKDF-SHA256, no salt, expand to 32 bytes",
             "aad_layout": "kdf_context || header_cbor_bytes",

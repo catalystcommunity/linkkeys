@@ -34,10 +34,10 @@ import (
 
 // Signature contexts for the four local-RP signed structures.
 const (
-	CtxLocalRpDescriptor       = "linkkeys-local-rp-descriptor"
-	CtxLocalRpLoginRequest     = "linkkeys-local-rp-login-request"
-	CtxLocalRpCallback         = "linkkeys-local-rp-callback"
-	CtxLocalRpTicketRedemption = "linkkeys-local-rp-ticket-redemption"
+	CtxLocalRpDescriptor       = "linkkeys-local-rp-descriptor-v1alpha"
+	CtxLocalRpLoginRequest     = "linkkeys-local-rp-login-request-v1alpha"
+	CtxLocalRpCallback         = "linkkeys-local-rp-callback-v1alpha"
+	CtxLocalRpTicketRedemption = "linkkeys-local-rp-ticket-redemption-v1alpha"
 )
 
 // DefaultClockSkewSeconds is the default bounded clock-skew tolerance for

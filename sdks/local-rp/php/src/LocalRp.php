@@ -25,14 +25,14 @@ use Csilgen\Generated\SignedLocalRpTicketRedemptionRequest;
  */
 final class LocalRp
 {
-    public const CTX_LOCAL_RP_DESCRIPTOR = 'linkkeys-local-rp-descriptor';
-    public const CTX_LOCAL_RP_LOGIN_REQUEST = 'linkkeys-local-rp-login-request';
-    public const CTX_LOCAL_RP_CALLBACK = 'linkkeys-local-rp-callback';
-    public const CTX_LOCAL_RP_TICKET_REDEMPTION = 'linkkeys-local-rp-ticket-redemption';
+    public const CTX_LOCAL_RP_DESCRIPTOR = 'linkkeys-local-rp-descriptor-v1alpha';
+    public const CTX_LOCAL_RP_LOGIN_REQUEST = 'linkkeys-local-rp-login-request-v1alpha';
+    public const CTX_LOCAL_RP_CALLBACK = 'linkkeys-local-rp-callback-v1alpha';
+    public const CTX_LOCAL_RP_TICKET_REDEMPTION = 'linkkeys-local-rp-ticket-redemption-v1alpha';
 
     public const DEFAULT_CLOCK_SKEW_SECONDS = 300;
 
-    private const LOCAL_RP_CALLBACK_BOX_TAG = 'linkkeys-local-rp-callback-box';
+    private const LOCAL_RP_CALLBACK_BOX_TAG = 'linkkeys-local-rp-callback-box-v1alpha';
 
     /**
      * The signature input for every local-RP signed structure:

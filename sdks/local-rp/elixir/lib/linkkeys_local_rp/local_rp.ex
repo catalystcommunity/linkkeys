@@ -45,10 +45,10 @@ defmodule LinkkeysLocalRp.LocalRp do
     SignedLocalRpTicketRedemptionRequest
   }
 
-  @ctx_descriptor "linkkeys-local-rp-descriptor"
-  @ctx_login_request "linkkeys-local-rp-login-request"
-  @ctx_callback "linkkeys-local-rp-callback"
-  @ctx_ticket_redemption "linkkeys-local-rp-ticket-redemption"
+  @ctx_descriptor "linkkeys-local-rp-descriptor-v1alpha"
+  @ctx_login_request "linkkeys-local-rp-login-request-v1alpha"
+  @ctx_callback "linkkeys-local-rp-callback-v1alpha"
+  @ctx_ticket_redemption "linkkeys-local-rp-ticket-redemption-v1alpha"
 
   def ctx_descriptor, do: @ctx_descriptor
   def ctx_login_request, do: @ctx_login_request
@@ -58,7 +58,7 @@ defmodule LinkkeysLocalRp.LocalRp do
   @default_clock_skew_seconds 300
   def default_clock_skew_seconds, do: @default_clock_skew_seconds
 
-  @callback_box_tag "linkkeys-local-rp-callback-box"
+  @callback_box_tag "linkkeys-local-rp-callback-box-v1alpha"
 
   # ---------------------------------------------------------------------
   # Errors — every case wraps `{:error, {tag, detail}}` from the pure

@@ -13,10 +13,10 @@
 
 /* The four mandatory signature context strings (Wire Precision). A
  * signature over one structure must never verify as another. */
-#define LRP_CTX_DESCRIPTOR "linkkeys-local-rp-descriptor"
-#define LRP_CTX_LOGIN_REQUEST "linkkeys-local-rp-login-request"
-#define LRP_CTX_CALLBACK "linkkeys-local-rp-callback"
-#define LRP_CTX_TICKET_REDEMPTION "linkkeys-local-rp-ticket-redemption"
+#define LRP_CTX_DESCRIPTOR "linkkeys-local-rp-descriptor-v1alpha"
+#define LRP_CTX_LOGIN_REQUEST "linkkeys-local-rp-login-request-v1alpha"
+#define LRP_CTX_CALLBACK "linkkeys-local-rp-callback-v1alpha"
+#define LRP_CTX_TICKET_REDEMPTION "linkkeys-local-rp-ticket-redemption-v1alpha"
 
 /* Default bounded clock-skew tolerance (seconds), Wire Precision. */
 #define LRP_DEFAULT_CLOCK_SKEW_SECONDS 300

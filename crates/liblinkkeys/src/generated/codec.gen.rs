@@ -1870,7 +1870,7 @@ pub fn decode_signed_consent_grant(csil_data: &[u8]) -> Result<SignedConsentGran
 
 /// Build the canonical CBOR value tree for a DomainClaim.
 fn csil_enc_domain_claim(csil_v: &DomainClaim) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(4);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(5);
     csil_entries.push((cbor_text("claim_type"), cbor_text(&csil_v.claim_type)));
     if let Some(csil_inner) = &csil_v.expires_at {
         csil_entries.push((cbor_text("expires_at"), cbor_text(csil_inner)));
@@ -1879,6 +1879,7 @@ fn csil_enc_domain_claim(csil_v: &DomainClaim) -> CsilCborValue {
         cbor_text("signatures"),
         cbor_enc_array(&csil_v.signatures, csil_enc_claim_signature),
     ));
+    csil_entries.push((cbor_text("attested_at"), cbor_text(&csil_v.attested_at)));
     csil_entries.push((cbor_text("claim_value"), cbor_bytes(&csil_v.claim_value)));
     CsilCborValue::Map(csil_entries)
 }
@@ -1900,6 +1901,11 @@ fn csil_dec_domain_claim(csil_root: &CsilCborValue) -> Result<DomainClaim, CsilC
         let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_claim_signature);
         csil_decode(csil_field)?
     };
+    let attested_at = {
+        let csil_field = cbor_require(csil_root, "attested_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
     let expires_at = match cbor_map_get(csil_root, "expires_at") {
         Some(csil_field) => {
             let csil_decode = cbor_as_text;
@@ -1911,6 +1917,7 @@ fn csil_dec_domain_claim(csil_root: &CsilCborValue) -> Result<DomainClaim, CsilC
         claim_type,
         claim_value,
         signatures,
+        attested_at,
         expires_at,
     })
 }

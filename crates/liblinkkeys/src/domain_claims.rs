@@ -33,6 +33,7 @@ fn domain_claim_sign_payload(
     subject_domain: &str,
     signing_domain: &str,
     expires_at: Option<&str>,
+    attested_at: &str,
 ) -> Vec<u8> {
     let payload = (
         DOMAIN_CLAIM_PAYLOAD_TAG,
@@ -41,6 +42,7 @@ fn domain_claim_sign_payload(
         subject_domain,
         signing_domain,
         expires_at,
+        attested_at,
     );
     let mut out = Vec::new();
     ciborium::ser::into_writer(&payload, &mut out)
@@ -55,6 +57,10 @@ pub struct DomainClaimSpec<'a> {
     /// The domain the claim is about. Bound into every signature.
     pub subject_domain: &'a str,
     pub expires_at: Option<&'a str>,
+    /// The signed attestation time (RFC3339 UTC) — when this claim is being
+    /// signed. Normalized to whole seconds by the caller so it round-trips
+    /// byte-identically through storage, exactly as `Claim::attested_at` is.
+    pub attested_at: &'a str,
 }
 
 /// Sign a domain claim with one or more keys, producing a [`DomainClaim`] with
@@ -73,6 +79,7 @@ pub fn sign_domain_claim(
             spec.subject_domain,
             signer.domain,
             spec.expires_at,
+            spec.attested_at,
         );
         let signature = crate::crypto::sign_with_algorithm(
             signer.algorithm,
@@ -90,6 +97,7 @@ pub fn sign_domain_claim(
         claim_type: spec.claim_type.to_string(),
         claim_value: spec.claim_value.to_vec(),
         signatures,
+        attested_at: spec.attested_at.to_string(),
         expires_at: spec.expires_at.map(|s| s.to_string()),
     })
 }
@@ -106,15 +114,21 @@ pub fn verify_domain_claim(
     subject_domain: &str,
     domain_keys: &[DomainKeySet],
 ) -> Result<(), ClaimError> {
-    verify_signature_quorum(&claim.signatures, domain_keys, |signing_domain| {
-        domain_claim_sign_payload(
-            &claim.claim_type,
-            &claim.claim_value,
-            subject_domain,
-            signing_domain,
-            claim.expires_at.as_deref(),
-        )
-    })?;
+    verify_signature_quorum(
+        &claim.signatures,
+        domain_keys,
+        Some(claim.attested_at.as_str()),
+        |signing_domain| {
+            domain_claim_sign_payload(
+                &claim.claim_type,
+                &claim.claim_value,
+                subject_domain,
+                signing_domain,
+                claim.expires_at.as_deref(),
+                &claim.attested_at,
+            )
+        },
+    )?;
 
     if let Some(exp) = claim.expires_at.as_deref() {
         let expires =
@@ -146,6 +160,8 @@ mod tests {
     use crate::crypto::{fingerprint, generate_keypair, SigningAlgorithm, ALGORITHM_ED25519};
     use crate::generated::types::DomainPublicKey;
 
+    /// Fixed attestation instant, inside every test key's validity window.
+    const ATTESTED: &str = "2020-01-01T00:00:00+00:00";
     const RP: &str = "us-forestry-service.example";
     const GOV: &str = "us.gov";
 
@@ -182,6 +198,7 @@ mod tests {
                 claim_value: b"GDPR-strict-v1",
                 subject_domain: RP,
                 expires_at: None,
+                attested_at: ATTESTED,
             },
             &[signer(RP, "rp-1", &sk)],
         )
@@ -205,6 +222,7 @@ mod tests {
                 claim_value: b"true",
                 subject_domain: RP,
                 expires_at: None,
+                attested_at: ATTESTED,
             },
             &[signer(GOV, "gov-1", &gov_sk)],
         )
@@ -229,6 +247,7 @@ mod tests {
                 claim_value: b"true",
                 subject_domain: RP,
                 expires_at: None,
+                attested_at: ATTESTED,
             },
             &[signer(GOV, "gov-1", &gov_sk)],
         )
@@ -252,6 +271,7 @@ mod tests {
                 claim_value: b"false",
                 subject_domain: RP,
                 expires_at: None,
+                attested_at: ATTESTED,
             },
             &[signer(GOV, "gov-1", &sk)],
         )
@@ -275,6 +295,7 @@ mod tests {
                 claim_value: b"y",
                 subject_domain: RP,
                 expires_at: None,
+                attested_at: ATTESTED,
             },
             &[],
         )
@@ -295,6 +316,7 @@ mod tests {
                 claim_value: b"v1",
                 subject_domain: RP,
                 expires_at: Some(&past),
+                attested_at: ATTESTED,
             },
             &[signer(RP, "rp-1", &sk)],
         )
@@ -318,6 +340,7 @@ mod tests {
                 claim_value: b"true",
                 subject_domain: RP,
                 expires_at: None,
+                attested_at: ATTESTED,
             },
             &[signer(GOV, "gov-1", &sk)],
         )

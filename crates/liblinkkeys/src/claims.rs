@@ -205,10 +205,40 @@ pub struct DomainKeySet {
 /// Verify one signature against a set of candidate keys for its domain: the
 /// referenced key must exist, be currently valid, and the signature must check
 /// out over `payload`.
+/// Whether `key` was in good standing at instant `at`: past neither its expiry
+/// nor its revocation. Per invariant I-7, a signature made while the key was
+/// good stays trustworthy afterward.
+///
+/// Deliberately NOT `crypto::signing_key_validity`, which short-circuits on
+/// revocation and never consults expiry. A key that expired early and was
+/// revoked later must still fail for an attestation dated in between — the
+/// short-circuit would silently accept it.
+///
+/// Every timestamp involved must parse. Anything unparseable is fail-closed: an
+/// attestation time we cannot read is not evidence of anything.
+fn key_valid_at(key: &DomainPublicKey, at: &str) -> Result<(), ClaimError> {
+    let Ok(at) = chrono::DateTime::parse_from_rfc3339(at) else {
+        return Err(ClaimError::KeyExpired(key.key_id.clone()));
+    };
+
+    if let Some(revoked_at) = key.revoked_at.as_deref() {
+        match chrono::DateTime::parse_from_rfc3339(revoked_at) {
+            Ok(revoked) if at < revoked => {}
+            _ => return Err(ClaimError::KeyRevoked(key.key_id.clone())),
+        }
+    }
+
+    match chrono::DateTime::parse_from_rfc3339(&key.expires_at) {
+        Ok(expires) if at < expires => Ok(()),
+        _ => Err(ClaimError::KeyExpired(key.key_id.clone())),
+    }
+}
+
 pub(crate) fn verify_one_signature(
     sig: &ClaimSignature,
     payload: &[u8],
     keys: &[DomainPublicKey],
+    attested_at: Option<&str>,
 ) -> Result<(), ClaimError> {
     let key = keys
         .iter()
@@ -221,19 +251,21 @@ pub(crate) fn verify_one_signature(
         return Err(ClaimError::SignatureInvalid);
     }
 
-    // TODO(attested_at revocation window): a revoked key currently hard-rejects
-    // any signature. Now that a claim carries a SIGNED `attested_at`, this should
-    // become time-relative for stored attestations: a signature whose
-    // `attested_at` predates `key.revoked_at` stays trustworthy (the attestation
-    // was made while the key was good); one dated after the revocation does not.
-    // Requires threading the claim's `attested_at` into this per-signature check
-    // (or a claim-level pass). Live/replayable flows keep the hard reject.
-    match crypto::signing_key_validity(&key.expires_at, key.revoked_at.as_deref()) {
-        crypto::KeyValidity::Valid => {}
-        crypto::KeyValidity::Revoked => return Err(ClaimError::KeyRevoked(key.key_id.clone())),
-        crypto::KeyValidity::Expired | crypto::KeyValidity::BadExpiry => {
-            return Err(ClaimError::KeyExpired(key.key_id.clone()))
-        }
+    // Neither revocation nor expiry is retroactive (invariant I-7): a signature
+    // made while the key was still good stays trustworthy. `attested_at` is
+    // signed precisely so this comparison is tamper-evident.
+    match attested_at {
+        // Stored attestation: judge the key as of when it signed.
+        Some(attested_at) => key_valid_at(key, attested_at)?,
+        // Live or replayable exchange: the presenter chooses what to present, so
+        // the key must be good NOW — a timestamp cannot buy validity here.
+        None => match crypto::signing_key_validity(&key.expires_at, key.revoked_at.as_deref()) {
+            crypto::KeyValidity::Valid => {}
+            crypto::KeyValidity::Revoked => return Err(ClaimError::KeyRevoked(key.key_id.clone())),
+            crypto::KeyValidity::Expired | crypto::KeyValidity::BadExpiry => {
+                return Err(ClaimError::KeyExpired(key.key_id.clone()))
+            }
+        },
     }
 
     crypto::resolve_and_verify(&key.algorithm, payload, &sig.signature, &key.public_key).map_err(
@@ -263,18 +295,23 @@ pub fn verify_claim_signatures(
     subject_domain: &str,
     domain_keys: &[DomainKeySet],
 ) -> Result<(), ClaimError> {
-    verify_signature_quorum(&claim.signatures, domain_keys, |signing_domain| {
-        claim_sign_payload(
-            &claim.claim_id,
-            &claim.claim_type,
-            &claim.claim_value,
-            &claim.user_id,
-            subject_domain,
-            signing_domain,
-            claim.expires_at.as_deref(),
-            &claim.attested_at,
-        )
-    })
+    verify_signature_quorum(
+        &claim.signatures,
+        domain_keys,
+        Some(claim.attested_at.as_str()),
+        |signing_domain| {
+            claim_sign_payload(
+                &claim.claim_id,
+                &claim.claim_type,
+                &claim.claim_value,
+                &claim.user_id,
+                subject_domain,
+                signing_domain,
+                claim.expires_at.as_deref(),
+                &claim.attested_at,
+            )
+        },
+    )
 }
 
 /// The cryptographic per-domain quorum shared by claim and consent-grant
@@ -288,9 +325,13 @@ pub fn verify_claim_signatures(
 /// `payload_for` is invoked once per distinct signing domain because each
 /// signature binds its own attesting domain into the signed bytes — the payload
 /// is not the same for two different domains.
+/// `attested_at` is the signed attestation time for stored material, enabling the
+/// non-retroactive revocation check in [`verify_one_signature`]. Pass `None` for
+/// live or replayable exchanges, where a revoked key must hard-reject.
 pub(crate) fn verify_signature_quorum(
     signatures: &[ClaimSignature],
     domain_keys: &[DomainKeySet],
+    attested_at: Option<&str>,
     payload_for: impl Fn(&str) -> Vec<u8>,
 ) -> Result<(), ClaimError> {
     if signatures.is_empty() {
@@ -314,7 +355,7 @@ pub(crate) fn verify_signature_quorum(
         let mut last_err = ClaimError::DomainUnverified(signing_domain.to_string());
         let mut satisfied = false;
         for sig in signatures.iter().filter(|s| s.domain == signing_domain) {
-            match verify_one_signature(sig, &payload, &set.keys) {
+            match verify_one_signature(sig, &payload, &set.keys, attested_at) {
                 Ok(()) => {
                     satisfied = true;
                     break;
@@ -500,24 +541,32 @@ mod tests {
         ));
     }
 
+    /// A signature dated after the key's revocation is rejected. (The helper
+    /// attests at 2020-01-01, so the revocation instant must predate that —
+    /// revoking "now" would leave the attestation legitimately in the clear, per
+    /// invariant I-7.)
     #[test]
     fn test_claim_signed_by_revoked_key_rejected() {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let mut domain_key = make_domain_key("key-1", &pk);
         let claim = signed_claim("key-1", &sk, None);
-        domain_key.revoked_at = Some(Utc::now().to_rfc3339());
+        domain_key.revoked_at = Some("2019-06-01T00:00:00+00:00".to_string());
         assert!(matches!(
             verify(&claim, &keyset(vec![domain_key])),
             Err(ClaimError::KeyRevoked(_))
         ));
     }
 
+    /// A signature dated after the key's expiry is rejected. (The helper attests
+    /// at 2020-01-01, so the expiry must predate that — expiring "an hour ago"
+    /// would leave the attestation legitimately inside the key's window, per
+    /// invariant I-7.)
     #[test]
     fn test_claim_signed_by_expired_key_rejected() {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let mut domain_key = make_domain_key("key-1", &pk);
         let claim = signed_claim("key-1", &sk, None);
-        domain_key.expires_at = (Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+        domain_key.expires_at = "2019-06-01T00:00:00+00:00".to_string();
         assert!(matches!(
             verify(&claim, &keyset(vec![domain_key])),
             Err(ClaimError::KeyExpired(_))
@@ -621,10 +670,12 @@ mod tests {
         )
         .unwrap();
 
+        // Revoked BEFORE the claim's 2020-01-01 attestation, so neither
+        // signature is excused by invariant I-7.
         let mut k1 = make_domain_key("key-1", &pk1);
-        k1.revoked_at = Some(Utc::now().to_rfc3339());
+        k1.revoked_at = Some("2019-06-01T00:00:00+00:00".to_string());
         let mut k2 = make_domain_key("key-2", &pk2);
-        k2.revoked_at = Some(Utc::now().to_rfc3339());
+        k2.revoked_at = Some("2019-06-01T00:00:00+00:00".to_string());
         assert!(matches!(
             verify(&claim, &keyset(vec![k1, k2])),
             Err(ClaimError::KeyRevoked(_))
@@ -744,6 +795,128 @@ mod tests {
         assert!(matches!(
             verify_claim(&claim, "evil.example", &gov_keys),
             Err(ClaimError::SignatureInvalid)
+        ));
+    }
+
+    /// I-7: revocation is not retroactive. The claim helper attests at
+    /// 2020-01-01; a key revoked AFTER that was still good when it signed, so the
+    /// signature stays trustworthy.
+    #[test]
+    fn revoked_key_accepts_signature_attested_before_revocation() {
+        let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
+        let mut key = make_domain_key("key-1", &pk);
+        key.revoked_at = Some("2021-06-01T00:00:00+00:00".to_string());
+
+        let claim = signed_claim("key-1", &sk, None);
+        assert!(verify_claim_signatures(&claim, DOMAIN, &keyset(vec![key])).is_ok());
+    }
+
+    /// The other side of I-7: a signature dated after the revocation instant is
+    /// not excused by the fact that a timestamp exists.
+    #[test]
+    fn revoked_key_rejects_signature_attested_after_revocation() {
+        let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
+        let mut key = make_domain_key("key-1", &pk);
+        key.revoked_at = Some("2019-06-01T00:00:00+00:00".to_string());
+
+        let claim = signed_claim("key-1", &sk, None);
+        assert!(matches!(
+            verify_claim_signatures(&claim, DOMAIN, &keyset(vec![key])),
+            Err(ClaimError::KeyRevoked(_))
+        ));
+    }
+
+    /// A live/replayable caller passes `None` and must keep the hard reject even
+    /// when the key was revoked long after the signature was made.
+    #[test]
+    fn live_exchange_hard_rejects_revoked_key_regardless_of_time() {
+        let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
+        let mut key = make_domain_key("key-1", &pk);
+        key.revoked_at = Some("2021-06-01T00:00:00+00:00".to_string());
+
+        let claim = signed_claim("key-1", &sk, None);
+        let payload = claim_sign_payload(
+            &claim.claim_id,
+            &claim.claim_type,
+            &claim.claim_value,
+            &claim.user_id,
+            DOMAIN,
+            DOMAIN,
+            None,
+            &claim.attested_at,
+        );
+        assert!(matches!(
+            verify_one_signature(&claim.signatures[0], &payload, &[key], None),
+            Err(ClaimError::KeyRevoked(_))
+        ));
+    }
+
+    /// Expiry is time-relative too: the helper's key expires an hour from now, so
+    /// a 2020 attestation is inside its validity window even once it lapses.
+    #[test]
+    fn expired_key_accepts_signature_attested_before_expiry() {
+        let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
+        let mut key = make_domain_key("key-1", &pk);
+        key.expires_at = "2021-06-01T00:00:00+00:00".to_string();
+
+        let claim = signed_claim("key-1", &sk, None);
+        assert!(verify_claim_signatures(&claim, DOMAIN, &keyset(vec![key])).is_ok());
+    }
+
+    #[test]
+    fn expired_key_rejects_signature_attested_after_expiry() {
+        let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
+        let mut key = make_domain_key("key-1", &pk);
+        key.expires_at = "2019-06-01T00:00:00+00:00".to_string();
+
+        let claim = signed_claim("key-1", &sk, None);
+        assert!(matches!(
+            verify_claim_signatures(&claim, DOMAIN, &keyset(vec![key])),
+            Err(ClaimError::KeyExpired(_))
+        ));
+    }
+
+    /// The interaction that a per-branch check would miss: expired BEFORE the
+    /// attestation, revoked AFTER it. `signing_key_validity` short-circuits on
+    /// revocation and would never consult expiry, so this must be rejected by the
+    /// point-in-time check rather than accepted by the revocation window alone.
+    #[test]
+    fn expired_early_then_revoked_late_is_rejected() {
+        let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
+        let mut key = make_domain_key("key-1", &pk);
+        key.expires_at = "2019-06-01T00:00:00+00:00".to_string();
+        key.revoked_at = Some("2021-06-01T00:00:00+00:00".to_string());
+
+        let claim = signed_claim("key-1", &sk, None);
+        assert!(matches!(
+            verify_claim_signatures(&claim, DOMAIN, &keyset(vec![key])),
+            Err(ClaimError::KeyExpired(_))
+        ));
+    }
+
+    /// An unparseable timestamp is never evidence of validity.
+    #[test]
+    fn unparseable_timestamps_fail_closed() {
+        let (pk, _sk) = generate_keypair(SigningAlgorithm::Ed25519);
+
+        // Unreadable attestation time.
+        let key = make_domain_key("key-1", &pk);
+        assert!(key_valid_at(&key, "not-a-timestamp").is_err());
+
+        // Unreadable revocation time on the key.
+        let mut bad_revoked = make_domain_key("key-1", &pk);
+        bad_revoked.revoked_at = Some("garbage".to_string());
+        assert!(matches!(
+            key_valid_at(&bad_revoked, "2020-01-01T00:00:00+00:00"),
+            Err(ClaimError::KeyRevoked(_))
+        ));
+
+        // Unreadable expiry on the key.
+        let mut bad_expiry = make_domain_key("key-1", &pk);
+        bad_expiry.expires_at = "garbage".to_string();
+        assert!(matches!(
+            key_valid_at(&bad_expiry, "2020-01-01T00:00:00+00:00"),
+            Err(ClaimError::KeyExpired(_))
         ));
     }
 

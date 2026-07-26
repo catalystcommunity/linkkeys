@@ -53,15 +53,15 @@ public final class LocalRp {
     private LocalRp() {}
 
     // Signature contexts for the four local-RP signed structures.
-    public static final String CTX_LOCAL_RP_DESCRIPTOR = "linkkeys-local-rp-descriptor";
-    public static final String CTX_LOCAL_RP_LOGIN_REQUEST = "linkkeys-local-rp-login-request";
-    public static final String CTX_LOCAL_RP_CALLBACK = "linkkeys-local-rp-callback";
-    public static final String CTX_LOCAL_RP_TICKET_REDEMPTION = "linkkeys-local-rp-ticket-redemption";
+    public static final String CTX_LOCAL_RP_DESCRIPTOR = "linkkeys-local-rp-descriptor-v1alpha";
+    public static final String CTX_LOCAL_RP_LOGIN_REQUEST = "linkkeys-local-rp-login-request-v1alpha";
+    public static final String CTX_LOCAL_RP_CALLBACK = "linkkeys-local-rp-callback-v1alpha";
+    public static final String CTX_LOCAL_RP_TICKET_REDEMPTION = "linkkeys-local-rp-ticket-redemption-v1alpha";
 
     /** Default bounded clock-skew tolerance (seconds), design doc: "&plusmn;300 seconds". */
     public static final long DEFAULT_CLOCK_SKEW_SECONDS = 300;
 
-    private static final String LOCAL_RP_CALLBACK_BOX_TAG = "linkkeys-local-rp-callback-box";
+    private static final String LOCAL_RP_CALLBACK_BOX_TAG = "linkkeys-local-rp-callback-box-v1alpha";
 
     // -----------------------------------------------------------------
     // Envelope signature input

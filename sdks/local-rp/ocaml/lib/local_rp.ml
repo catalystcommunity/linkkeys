@@ -33,12 +33,12 @@
    serves both sides) purely so this package's own test suite can act as a
    self-contained fake IDP in the flow tests. *)
 
-let ctx_local_rp_descriptor = "linkkeys-local-rp-descriptor"
-let ctx_local_rp_login_request = "linkkeys-local-rp-login-request"
-let ctx_local_rp_callback = "linkkeys-local-rp-callback"
-let ctx_local_rp_ticket_redemption = "linkkeys-local-rp-ticket-redemption"
+let ctx_local_rp_descriptor = "linkkeys-local-rp-descriptor-v1alpha"
+let ctx_local_rp_login_request = "linkkeys-local-rp-login-request-v1alpha"
+let ctx_local_rp_callback = "linkkeys-local-rp-callback-v1alpha"
+let ctx_local_rp_ticket_redemption = "linkkeys-local-rp-ticket-redemption-v1alpha"
 let default_clock_skew_seconds = 300.0
-let local_rp_callback_box_tag = "linkkeys-local-rp-callback-box"
+let local_rp_callback_box_tag = "linkkeys-local-rp-callback-box-v1alpha"
 
 (* [CBOR([context, payload_bytes])] -- a two-element CBOR array, context
    string first (CBOR text string), then the exact payload bytes (CBOR byte

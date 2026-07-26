@@ -38,10 +38,10 @@ import community.catalyst.linkkeys.localrp.kt.toKotlin
 
 /** The four mandatory, structure-specific signature context strings (design doc: "Signature Context Strings Are Mandatory"). */
 object SignatureContexts {
-    const val DESCRIPTOR = "linkkeys-local-rp-descriptor"
-    const val LOGIN_REQUEST = "linkkeys-local-rp-login-request"
-    const val CALLBACK = "linkkeys-local-rp-callback"
-    const val TICKET_REDEMPTION = "linkkeys-local-rp-ticket-redemption"
+    const val DESCRIPTOR = "linkkeys-local-rp-descriptor-v1alpha"
+    const val LOGIN_REQUEST = "linkkeys-local-rp-login-request-v1alpha"
+    const val CALLBACK = "linkkeys-local-rp-callback-v1alpha"
+    const val TICKET_REDEMPTION = "linkkeys-local-rp-ticket-redemption-v1alpha"
 }
 
 /**

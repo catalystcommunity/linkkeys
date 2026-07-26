@@ -96,7 +96,7 @@ let validate_callback_scheme (url : string) : unit =
 
 (* [begin_local_login(config) -> (LocalLoginRedirect, PendingLogin)] (design
    doc, "SDK API Shape"). Generates a fresh nonce/state, builds and signs a
-   [LocalRpLoginRequest] (envelope + linkkeys-local-rp-login-request
+   [LocalRpLoginRequest] (envelope + linkkeys-local-rp-login-request-v1alpha
    context) around the identity's descriptor, and returns the full
    redirect URL for the user's LinkKeys domain plus the pending-login
    state. *)

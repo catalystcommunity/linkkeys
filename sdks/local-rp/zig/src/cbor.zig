@@ -393,12 +393,12 @@ test "tuple encode/decode round trip" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const items = [_]Value{ text("linkkeys-local-rp-descriptor"), bytesVal("payload-bytes") };
+    const items = [_]Value{ text("linkkeys-local-rp-descriptor-v1alpha"), bytesVal("payload-bytes") };
     const encoded = try encodeTuple(a, &items);
     const decoded = try decode(a, encoded);
     const arr = try asArray(decoded);
     try std.testing.expectEqual(@as(usize, 2), arr.len);
-    try std.testing.expectEqualStrings("linkkeys-local-rp-descriptor", try asText(arr[0]));
+    try std.testing.expectEqualStrings("linkkeys-local-rp-descriptor-v1alpha", try asText(arr[0]));
     try std.testing.expectEqualStrings("payload-bytes", try asBytes(arr[1]));
 }
 

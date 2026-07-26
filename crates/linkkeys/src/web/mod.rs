@@ -24,7 +24,6 @@ use crate::conversions::{get_domain_name, html_escape};
 use crate::db::DbPool;
 use crate::net::Net;
 use crate::services::auth::PasswordAuthenticator;
-use crate::services::handshake::HandshakeHandler;
 use crate::services::hello::HelloHandler;
 use crate::services::self_service::{self, SetOutcome};
 
@@ -33,8 +32,7 @@ use liblinkkeys::consent::{
     DEFAULT_CONSENT_TTL_SECONDS,
 };
 use liblinkkeys::generated::types::{
-    AuthFlowContext, AuthRequest, Claim, ClaimRequest, ConsentGrant, DomainPublicKey,
-    GetDomainKeysResponse, GetUserKeysResponse, UserInfo,
+    AuthFlowContext, AuthRequest, Claim, ClaimRequest, ConsentGrant, DomainPublicKey, UserInfo,
 };
 
 /// Wall-clock budget for a `signed_request` to be considered fresh, from
@@ -593,65 +591,9 @@ fn hello_get() -> Result<(ContentType, Vec<u8>), Status> {
     Ok(cbor_response(out))
 }
 
-// -- Domain Keys --
-
-fn build_domain_keys_response(pool: &DbPool) -> Result<GetDomainKeysResponse, Status> {
-    let keys = pool
-        .list_active_domain_keys()
-        .map_err(|_| Status::InternalServerError)?;
-    Ok(GetDomainKeysResponse {
-        domain: get_domain_name(),
-        keys: keys.iter().map(Into::into).collect(),
-        recent_revocations_available: Some(
-            crate::services::revocations::recent_revocations_available(pool),
-        ),
-    })
-}
-
-// TODO: deprecated, remove later — server-to-server key/handshake/userinfo retrieval moved to the TCP CSIL-RPC transport.
-#[rocket::get("/v1alpha/domain-keys")]
-fn domain_keys_cbor(pool: &State<DbPool>) -> Result<(ContentType, Vec<u8>), Status> {
-    let resp = build_domain_keys_response(pool)?;
-    let out = liblinkkeys::generated::encode_get_domain_keys_response(&resp);
-    Ok(cbor_response(out))
-}
-
-// -- User Keys --
-
-fn build_user_keys_response(pool: &DbPool, user_id: &str) -> Result<GetUserKeysResponse, Status> {
-    pool.find_user_by_id(user_id).map_err(db_err_to_status)?;
-    let keys = pool
-        .list_active_user_keys(user_id)
-        .map_err(db_err_to_status)?;
-    Ok(GetUserKeysResponse {
-        user_id: user_id.to_string(),
-        domain: get_domain_name(),
-        keys: keys.iter().map(Into::into).collect(),
-    })
-}
-
-// TODO: deprecated, remove later — server-to-server key/handshake/userinfo retrieval moved to the TCP CSIL-RPC transport.
-#[rocket::get("/v1alpha/users/<user_id>/keys")]
-fn user_keys_cbor(pool: &State<DbPool>, user_id: &str) -> Result<(ContentType, Vec<u8>), Status> {
-    let resp = build_user_keys_response(pool, user_id)?;
-    let out = liblinkkeys::generated::encode_get_user_keys_response(&resp);
-    Ok(cbor_response(out))
-}
-
-// -- Handshake --
-
-// TODO: deprecated, remove later — server-to-server key/handshake/userinfo retrieval moved to the TCP CSIL-RPC transport.
-#[rocket::post("/v1alpha/handshake", data = "<body>")]
-fn handshake_cbor(body: Vec<u8>) -> Result<(ContentType, Vec<u8>), Status> {
-    use liblinkkeys::generated::services::Handshake;
-    let request =
-        liblinkkeys::generated::decode_handshake_request(&body).map_err(|_| Status::BadRequest)?;
-    let resp = HandshakeHandler
-        .handshake(&(), request)
-        .map_err(|_| Status::InternalServerError)?;
-    let out = liblinkkeys::generated::encode_handshake_response(&resp);
-    Ok(cbor_response(out))
-}
+// Server-to-server key, handshake, and userinfo retrieval is TCP CSIL-RPC only.
+// The former `/v1alpha/{domain-keys,users/<id>/keys,handshake,userinfo}` HTTP
+// routes are removed: HTTPS is the browser transport, never a peer transport.
 
 // -- Auth: Browser-facing HTML login flow --
 
@@ -2035,21 +1977,6 @@ pub async fn build_userinfo_signed(
     })
 }
 
-// TODO: deprecated, remove later — server-to-server key/handshake/userinfo retrieval moved to the TCP CSIL-RPC transport.
-#[rocket::post("/v1alpha/userinfo", data = "<body>")]
-async fn userinfo_cbor(
-    pool: &State<DbPool>,
-    net: &State<Net>,
-    body: Vec<u8>,
-) -> Result<(ContentType, Vec<u8>), Status> {
-    let signed = liblinkkeys::generated::decode_signed_user_info_request(&body)
-        .map_err(|_| Status::BadRequest)?;
-
-    let resp = build_userinfo_signed(pool, net, &signed).await?;
-    let out = liblinkkeys::generated::encode_user_info(&resp);
-    Ok(cbor_response(out))
-}
-
 /// Generic CBOR-RPC carrier: the web's second-class mirror of the TCP service
 /// dispatch. The body is a CBOR `RequestEnvelope`; we run the same `dispatch()`
 /// and return the CBOR `ResponseEnvelope`. This is how the web carries the whole
@@ -2162,10 +2089,6 @@ pub fn build_rocket(
         readiness,
         hello_get,
         hello_post,
-        domain_keys_cbor,
-        user_keys_cbor,
-        handshake_cbor,
-        userinfo_cbor,
         rpc_cbor,
         rp_authorize_validate,
         rp_authorize_finalize,

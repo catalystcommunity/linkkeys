@@ -85,7 +85,7 @@ ordinary redirect mechanics, and every value that matters is either signed,
 encrypted, or both:
 
 - The login request is signed by the local RP's key (envelope pattern,
-  context `linkkeys-local-rp-login-request`).
+  context `linkkeys-local-rp-login-request-v1alpha`).
 - The callback is signed by the domain's keys and then encrypted to the
   local RP's encryption key (negotiated AEAD suite, `aes-256-gcm` baseline).
   The cleartext callback header (fingerprint, nonce, state, chosen suite,
@@ -112,7 +112,7 @@ The callback carries a claim-get ticket, not claims. The ticket itself is
 raw value, in the same way session/credential secrets are handled elsewhere
 in this codebase. Redemption requires a **signed** request
 (`SignedLocalRpTicketRedemptionRequest`, context
-`linkkeys-local-rp-ticket-redemption`) — the server verifies that signature
+`linkkeys-local-rp-ticket-redemption-v1alpha`) — the server verifies that signature
 against the **stored** signing key for the fingerprint the request claims,
 never a key supplied in the request itself. A stolen ticket alone is
 useless without the local RP's private signing key: possession of the

@@ -33,7 +33,7 @@ class TestConformanceCallbackBox < Minitest::Test
       suite = c['suite']
       ephemeral_public = ConformanceHelper.hex(c['ephemeral_public_key_hex'])
       recipient_public = ConformanceHelper.hex(c['recipient_public_key_hex'])
-      tag = 'linkkeys-local-rp-callback-box'.b
+      tag = 'linkkeys-local-rp-callback-box-v1alpha'.b
       expected_context = tag + suite.b + ephemeral_public + recipient_public
       assert_equal c['kdf_context_hex'], expected_context.unpack1('H*')
       assert_equal c['aad_hex'], (expected_context + ConformanceHelper.hex(c['header_cbor_hex'])).unpack1('H*')

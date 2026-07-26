@@ -218,7 +218,9 @@ pub fn verify_consent(
     }
 
     let claim_types = canonical_types(&grant.claim_types);
-    verify_signature_quorum(&signed.signatures, domain_keys, |signing_domain| {
+    // `None`: a consent grant is a live, replayable credential, not a stored
+    // attestation — a revoked key must hard-reject regardless of issue time.
+    verify_signature_quorum(&signed.signatures, domain_keys, None, |signing_domain| {
         consent_sign_payload(
             &grant.grant_id,
             &grant.user_id,

@@ -50,10 +50,10 @@ four structures.
 
 | Structure | Context string |
 |---|---|
-| Local RP descriptor | `linkkeys-local-rp-descriptor` |
-| Local RP login request | `linkkeys-local-rp-login-request` |
-| Local RP callback payload | `linkkeys-local-rp-callback` |
-| Local RP ticket redemption request | `linkkeys-local-rp-ticket-redemption` |
+| Local RP descriptor | `linkkeys-local-rp-descriptor-v1alpha` |
+| Local RP login request | `linkkeys-local-rp-login-request-v1alpha` |
+| Local RP callback payload | `linkkeys-local-rp-callback-v1alpha` |
+| Local RP ticket redemption request | `linkkeys-local-rp-ticket-redemption-v1alpha` |
 
 A signature over one structure must **never** verify as another — every
 structure's vector in `envelopes.json` includes three "wrong context" negative
@@ -84,7 +84,7 @@ member (`callback_box.json`'s `unadvertised_suite_rejected` case).
    all-zero ephemeral public key) must be rejected outright.
 2. KDF/AAD-prefix context: `tag || suite_id_utf8 || ephemeral_public(32) ||
    recipient_public(32)` — raw byte concatenation. `tag` is the ASCII bytes
-   of `linkkeys-local-rp-callback-box`.
+   of `linkkeys-local-rp-callback-box-v1alpha`.
 3. AEAD key = HKDF-SHA256(salt=none, ikm=shared_secret).expand(info=context,
    32 bytes).
 4. AEAD = the negotiated suite, random 12-byte nonce (fixed, for these
@@ -96,7 +96,7 @@ member (`callback_box.json`'s `unadvertised_suite_rejected` case).
 
 The plaintext being encrypted is the CBOR encoding of a
 `SignedLocalRpCallbackPayload` envelope (itself a domain-signed envelope
-around `LocalRpCallbackPayload`, context `linkkeys-local-rp-callback` — see
+around `LocalRpCallbackPayload`, context `linkkeys-local-rp-callback-v1alpha` — see
 `envelopes.json`).
 
 ## File-by-file schema

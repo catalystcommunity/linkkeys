@@ -65,6 +65,33 @@ impl From<CryptoError> for VerifyError {
     }
 }
 
+/// Domain-separation tag for the identity-assertion signature payload. The
+/// `-v1alpha` suffix is the pre-alpha protocol EPOCH, not a per-change counter —
+/// same convention as every other signed structure (see `claims`, `revocation`).
+/// `pub` so conformance-vector generation and consumers can reference the exact
+/// tag string rather than retyping it.
+pub const ASSERTION_PAYLOAD_TAG: &str = "linkkeys-identity-assertion-v1alpha";
+
+/// The canonical bytes an assertion signature covers: the domain-separation tag
+/// and the assertion's CBOR bytes, as a deterministic two-element CBOR array.
+///
+/// The assertion itself stays an opaque byte string inside the payload rather
+/// than being re-encoded structurally, so a verifier signs and checks over the
+/// exact bytes it received — decoding happens only after the signature holds.
+///
+/// `pub` so conformance-vector generation and consumer-zero tests can compute
+/// the exact signed bytes without duplicating this construction.
+pub fn assertion_sign_payload(assertion_bytes: &[u8]) -> Vec<u8> {
+    let payload = (
+        ASSERTION_PAYLOAD_TAG,
+        serde_bytes::Bytes::new(assertion_bytes),
+    );
+    let mut out = Vec::new();
+    ciborium::ser::into_writer(&payload, &mut out)
+        .expect("CBOR serialization of assertion payload cannot fail");
+    out
+}
+
 pub fn build_assertion(
     user_id: &str,
     domain: &str,
@@ -89,8 +116,9 @@ pub fn build_assertion(
 }
 
 /// Sign an identity assertion with a domain key.
-/// The assertion is CBOR-encoded, then signed. The raw CBOR bytes become
-/// the `assertion` field in the signed envelope.
+/// The assertion is CBOR-encoded and its bytes become the `assertion` field in
+/// the signed envelope; the signature covers the tagged payload built from those
+/// bytes by [`assertion_sign_payload`].
 pub fn sign_assertion(
     assertion: &IdentityAssertion,
     key_id: &str,
@@ -99,7 +127,8 @@ pub fn sign_assertion(
 ) -> Result<SignedIdentityAssertion, CryptoError> {
     let assertion_bytes = crate::generated::encode_identity_assertion(assertion);
 
-    let signature = crypto::sign_with_algorithm(algorithm, &assertion_bytes, private_key_bytes)?;
+    let payload = assertion_sign_payload(&assertion_bytes);
+    let signature = crypto::sign_with_algorithm(algorithm, &payload, private_key_bytes)?;
 
     Ok(SignedIdentityAssertion {
         assertion: assertion_bytes,
@@ -124,16 +153,14 @@ pub fn verify_assertion(
     // Reject revoked/expired keys before trusting anything they signed.
     check_signing_key_valid(key)?;
 
-    crypto::resolve_and_verify(
-        &key.algorithm,
-        &signed.assertion,
-        &signed.signature,
-        &key.public_key,
-    )
-    .map_err(|e| match e {
-        CryptoError::UnsupportedAlgorithm(alg) => VerifyError::UnsupportedAlgorithm(alg),
-        _ => VerifyError::SignatureInvalid,
-    })?;
+    // Verify over the tagged payload built from the bytes AS RECEIVED; decoding
+    // happens only after the signature holds.
+    let payload = assertion_sign_payload(&signed.assertion);
+    crypto::resolve_and_verify(&key.algorithm, &payload, &signed.signature, &key.public_key)
+        .map_err(|e| match e {
+            CryptoError::UnsupportedAlgorithm(alg) => VerifyError::UnsupportedAlgorithm(alg),
+            _ => VerifyError::SignatureInvalid,
+        })?;
 
     let assertion = crate::generated::decode_identity_assertion(signed.assertion.as_slice())
         .map_err(|e| VerifyError::DeserializationFailed(format!("CBOR decode failed: {}", e)))?;
@@ -323,5 +350,50 @@ mod tests {
 
         let result = verify_assertion(&signed, &[domain_key]);
         assert!(matches!(result, Err(VerifyError::UnsupportedAlgorithm(_))));
+    }
+
+    /// Domain separation is enforced, not incidental: a signature over the bare
+    /// assertion CBOR — the pre-tag format — must NOT verify. This is the
+    /// regression guard against silently reverting to an untagged payload.
+    #[test]
+    fn untagged_signature_is_rejected() {
+        let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
+        let domain_key = make_domain_key("key-1", &pk);
+
+        let assertion = build_assertion(
+            "user-123",
+            "example.com",
+            "app.example.com",
+            "nonce",
+            None,
+            300,
+            vec![],
+        );
+        let assertion_bytes = crate::generated::encode_identity_assertion(&assertion);
+
+        // Sign the raw bytes directly, bypassing the tagged payload.
+        let signature =
+            crypto::sign_with_algorithm(SigningAlgorithm::Ed25519, &assertion_bytes, &sk).unwrap();
+        let forged = SignedIdentityAssertion {
+            assertion: assertion_bytes,
+            signing_key_id: "key-1".to_string(),
+            signature,
+        };
+
+        assert!(matches!(
+            verify_assertion(&forged, &[domain_key]),
+            Err(VerifyError::SignatureInvalid)
+        ));
+    }
+
+    /// The signed payload actually carries the tag, so a consumer in another
+    /// language can reproduce the exact bytes.
+    #[test]
+    fn assertion_payload_carries_the_tag() {
+        let payload = assertion_sign_payload(b"opaque-assertion-bytes");
+        let (tag, body): (String, serde_bytes::ByteBuf) =
+            ciborium::de::from_reader(payload.as_slice()).unwrap();
+        assert_eq!(tag, ASSERTION_PAYLOAD_TAG);
+        assert_eq!(body.as_ref(), b"opaque-assertion-bytes");
     }
 }

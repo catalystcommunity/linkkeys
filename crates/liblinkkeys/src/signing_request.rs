@@ -189,7 +189,9 @@ pub fn verify_signing_request(
     }
 
     let requested_claim_types = canonical_types(&request.requested_claim_types);
-    verify_signature_quorum(&signed.signatures, domain_keys, |signing_domain| {
+    // `None`: a signing request is a live, replayable credential presented to an
+    // issuer, not a stored attestation — a revoked key must hard-reject.
+    verify_signature_quorum(&signed.signatures, domain_keys, None, |signing_domain| {
         signing_request_payload(
             &request.request_id,
             &request.subject_user_id,

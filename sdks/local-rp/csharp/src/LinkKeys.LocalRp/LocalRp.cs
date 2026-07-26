@@ -32,15 +32,15 @@ namespace LinkKeys.LocalRp;
 public static class LocalRp
 {
     // Signature contexts for the four local-RP signed structures.
-    public const string CtxLocalRpDescriptor = "linkkeys-local-rp-descriptor";
-    public const string CtxLocalRpLoginRequest = "linkkeys-local-rp-login-request";
-    public const string CtxLocalRpCallback = "linkkeys-local-rp-callback";
-    public const string CtxLocalRpTicketRedemption = "linkkeys-local-rp-ticket-redemption";
+    public const string CtxLocalRpDescriptor = "linkkeys-local-rp-descriptor-v1alpha";
+    public const string CtxLocalRpLoginRequest = "linkkeys-local-rp-login-request-v1alpha";
+    public const string CtxLocalRpCallback = "linkkeys-local-rp-callback-v1alpha";
+    public const string CtxLocalRpTicketRedemption = "linkkeys-local-rp-ticket-redemption-v1alpha";
 
     /// <summary>Default bounded clock-skew tolerance (seconds), design doc: "±300 seconds".</summary>
     public const long DefaultClockSkewSeconds = 300;
 
-    private const string LocalRpCallbackBoxTag = "linkkeys-local-rp-callback-box";
+    private const string LocalRpCallbackBoxTag = "linkkeys-local-rp-callback-box-v1alpha";
 
     // -----------------------------------------------------------------
     // Envelope signature input

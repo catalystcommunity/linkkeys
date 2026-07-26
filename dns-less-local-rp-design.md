@@ -126,10 +126,10 @@ the single biggest cross-language conformance footgun available to us.
 Every signature is computed over `context || payload_bytes` with a fixed
 context string unique to the structure:
 
-- `linkkeys-local-rp-descriptor`
-- `linkkeys-local-rp-login-request`
-- `linkkeys-local-rp-callback`
-- `linkkeys-local-rp-ticket-redemption`
+- `linkkeys-local-rp-descriptor-v1alpha`
+- `linkkeys-local-rp-login-request-v1alpha`
+- `linkkeys-local-rp-callback-v1alpha`
+- `linkkeys-local-rp-ticket-redemption-v1alpha`
 
 A signature over one structure must never verify as another. Signatures are
 Ed25519, period. There is no signature versioning story and there must never be
@@ -210,7 +210,7 @@ CSIL-RPC to fetch the claims.
 Ticket semantics:
 
 - Bound to the local RP fingerprint. Redemption requests are signed with the
-  local RP signing key (context `linkkeys-local-rp-ticket-redemption`), so a
+  local RP signing key (context `linkkeys-local-rp-ticket-redemption-v1alpha`), so a
   stolen ticket is useless without the RP's private key.
 - Valid for a bounded window, default 1 hour. Multi-use within the window, so
   the app can retry or refresh. Each redemption returns the claim *values* as
@@ -589,13 +589,13 @@ first element (see `revocation_payload` in
 payload`; the CBOR array framing removes any ambiguity between context and
 payload bytes and is trivially reproducible in every target language.
 
-- descriptor: context `linkkeys-local-rp-descriptor`, payload = the exact CBOR
+- descriptor: context `linkkeys-local-rp-descriptor-v1alpha`, payload = the exact CBOR
   bytes shipped in `SignedLocalRpDescriptor.descriptor`
-- login request: context `linkkeys-local-rp-login-request`, payload =
+- login request: context `linkkeys-local-rp-login-request-v1alpha`, payload =
   `SignedLocalRpLoginRequest.request`
-- callback payload: context `linkkeys-local-rp-callback`, payload = the CBOR
+- callback payload: context `linkkeys-local-rp-callback-v1alpha`, payload = the CBOR
   bytes of `LocalRpCallbackPayload` (which then get sealed)
-- ticket redemption: context `linkkeys-local-rp-ticket-redemption`, payload =
+- ticket redemption: context `linkkeys-local-rp-ticket-redemption-v1alpha`, payload =
   `SignedLocalRpTicketRedemptionRequest.request`
 
 ### Callback sealed box
@@ -608,7 +608,7 @@ extended with suite selection and header binding. Exactly:
    reject an all-zero shared secret (`reject_low_order`).
 2. `context = tag || suite_id_utf8 || ephemeral_public(32) ||
    recipient_public(32)` — raw concatenation, matching `sealed_box_kdf`'s
-   existing layout, with tag `linkkeys-local-rp-callback-box` and the suite id
+   existing layout, with tag `linkkeys-local-rp-callback-box-v1alpha` and the suite id
    inserted after the tag.
 3. AEAD key = HKDF-SHA256(salt = none, ikm = shared_secret).expand(info =
    context, 32 bytes).

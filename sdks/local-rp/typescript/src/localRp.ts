@@ -35,15 +35,15 @@ import type {
   SignedLocalRpTicketRedemptionRequest,
 } from "./generated/types.gen.ts";
 
-export const CTX_LOCAL_RP_DESCRIPTOR = "linkkeys-local-rp-descriptor";
-export const CTX_LOCAL_RP_LOGIN_REQUEST = "linkkeys-local-rp-login-request";
-export const CTX_LOCAL_RP_CALLBACK = "linkkeys-local-rp-callback";
-export const CTX_LOCAL_RP_TICKET_REDEMPTION = "linkkeys-local-rp-ticket-redemption";
+export const CTX_LOCAL_RP_DESCRIPTOR = "linkkeys-local-rp-descriptor-v1alpha";
+export const CTX_LOCAL_RP_LOGIN_REQUEST = "linkkeys-local-rp-login-request-v1alpha";
+export const CTX_LOCAL_RP_CALLBACK = "linkkeys-local-rp-callback-v1alpha";
+export const CTX_LOCAL_RP_TICKET_REDEMPTION = "linkkeys-local-rp-ticket-redemption-v1alpha";
 
 /** Default bounded clock-skew tolerance (seconds) for timestamp checks. */
 export const DEFAULT_CLOCK_SKEW_SECONDS = 300;
 
-const LOCAL_RP_CALLBACK_BOX_TAG = new TextEncoder().encode("linkkeys-local-rp-callback-box");
+const LOCAL_RP_CALLBACK_BOX_TAG = new TextEncoder().encode("linkkeys-local-rp-callback-box-v1alpha");
 
 export type LocalRpErrorCode =
   | "decode"

@@ -315,6 +315,14 @@ DomainClaim = {
     claim_type: text,
     claim_value: bytes,
     signatures: [* ClaimSignature],
+    ;; The signed attestation time (RFC3339 UTC) — WHEN this claim was signed.
+    ;; Bound into every signature so it is tamper-evident, mirroring `Claim`.
+    ;; This is what lets a verifier judge a signing key as of the moment it
+    ;; signed: per invariant I-7 a signature made while the key was in good
+    ;; standing stays trustworthy after that key expires or is revoked. Without
+    ;; it there is no tamper-evident instant to compare, and a verifier must
+    ;; fail closed and reject any lapsed signer outright.
+    attested_at: text,
     ? expires_at: text
 }
 
@@ -1207,7 +1215,7 @@ LocalRpDescriptor = {
 
 SignedLocalRpDescriptor = {
     descriptor: bytes,  ;; exact CBOR of LocalRpDescriptor
-    signature: bytes    ;; ed25519 over CBOR([context, descriptor]); context linkkeys-local-rp-descriptor
+    signature: bytes    ;; ed25519 over CBOR([context, descriptor]); context linkkeys-local-rp-descriptor-v1alpha
 }
 
 ;; A local RP's signed request to begin a browser login at a LinkKeys domain.
@@ -1224,7 +1232,7 @@ LocalRpLoginRequest = {
 
 SignedLocalRpLoginRequest = {
     request: bytes,   ;; exact CBOR of LocalRpLoginRequest
-    signature: bytes  ;; ed25519 over CBOR([context, request]); context linkkeys-local-rp-login-request
+    signature: bytes  ;; ed25519 over CBOR([context, request]); context linkkeys-local-rp-login-request-v1alpha
 }
 
 ;; Cleartext routing/decryption metadata carried alongside the sealed callback.
@@ -1274,7 +1282,7 @@ LocalRpCallbackPayload = {
 SignedLocalRpCallbackPayload = {
     payload: bytes,       ;; exact CBOR of LocalRpCallbackPayload
     signing_key_id: text,
-    signature: bytes      ;; ed25519 over CBOR([context, payload]); context linkkeys-local-rp-callback
+    signature: bytes      ;; ed25519 over CBOR([context, payload]); context linkkeys-local-rp-callback-v1alpha
 }
 
 ;; Redemption of a claim-get ticket from LocalRpCallbackPayload, signed with
@@ -1288,7 +1296,7 @@ LocalRpTicketRedemptionRequest = {
 
 SignedLocalRpTicketRedemptionRequest = {
     request: bytes,   ;; exact CBOR of LocalRpTicketRedemptionRequest
-    signature: bytes  ;; ed25519 over CBOR([context, request]); context linkkeys-local-rp-ticket-redemption
+    signature: bytes  ;; ed25519 over CBOR([context, request]); context linkkeys-local-rp-ticket-redemption-v1alpha
 }
 
 LocalRpTicketRedemptionResponse = {
