@@ -31,6 +31,7 @@
 //!   lets the RP/app decide.
 
 use rocket::form::FromForm;
+use rocket::http::CookieJar;
 use rocket::http::Status;
 use rocket::response::content::RawHtml;
 use rocket::response::Redirect;
@@ -474,6 +475,7 @@ fn render_local_rp_consent_form(
     login_proof: &str,
     descriptor: &LocalRpDescriptor,
     rp_row: &crate::db::models::LocalRp,
+    flow_context: Option<&liblinkkeys::generated::types::AuthFlowContext>,
     callback_host: &str,
     screen: &ConsentScreen,
     labels: &std::collections::HashMap<String, String>,
@@ -489,6 +491,23 @@ fn render_local_rp_consent_form(
     let error_html = error
         .map(|e| format!(r#"<p class="error">{}</p>"#, html_escape(e)))
         .unwrap_or_default();
+    let flow_html = match flow_context {
+        Some(context) if context.flow == "claims_update" => {
+            let reason = context
+                .request_reason
+                .as_deref()
+                .unwrap_or_else(|| t(locale, "consent.updated_request_default_reason"));
+            format!(
+                r#"<div style="background:#eef6ff;border:1px solid #9ec5ee;padding:10px 14px;border-radius:6px;margin-bottom:12px;">{}</div>"#,
+                html_escape(&t_with(
+                    locale,
+                    "consent.updated_request_banner",
+                    &[("reason", reason)]
+                ))
+            )
+        }
+        _ => String::new(),
+    };
 
     let security_html = format!(
         r#"<div style="background:#fff7df;border:1px solid #ead39a;padding:10px 14px;border-radius:6px;margin-bottom:12px;">
@@ -597,6 +616,7 @@ em {{ color: #555; }}
 </head>
 <body>
 <h2>{title}</h2>
+{flow}
 {security}
 <p>{subtitle}</p>
 {error}
@@ -618,6 +638,7 @@ em {{ color: #555; }}
             &[("app", &descriptor.app_name)]
         )),
         security = security_html,
+        flow = flow_html,
         subtitle = html_escape(&t_with(
             locale,
             "consent.subtitle",
@@ -802,6 +823,7 @@ fn finalize_local_rp_login(
 fn proceed_to_consent_or_finalize(
     pool: &DbPool,
     nonces: &nonce_store::NonceStore,
+    cookies: &CookieJar<'_>,
     locale: &str,
     user: &crate::db::models::User,
     request: &LocalRpLoginRequest,
@@ -821,15 +843,30 @@ fn proceed_to_consent_or_finalize(
         }
     };
 
-    if let Some(prior) = pool
-        .find_active_consent_grant(&user.id, &descriptor.fingerprint)
-        .ok()
-        .flatten()
-    {
-        if super::grant_covers(&prior, &req) {
+    let claims_update = request
+        .flow_context
+        .as_ref()
+        .is_some_and(|context| context.flow == "claims_update");
+    if !claims_update {
+        let prior = pool
+            .find_active_consent_grant(&user.id, &descriptor.fingerprint)
+            .ok()
+            .flatten();
+        let admin_covers_all_required = !req.required.is_empty()
+            && req.required.iter().all(|claim| {
+                policy
+                    .forced_allow
+                    .iter()
+                    .any(|allowed| allowed == &claim.claim_type)
+            });
+        if prior.is_some() || admin_covers_all_required {
+            let prior_claims = prior
+                .as_ref()
+                .map(|grant| grant.claim_types.as_slice())
+                .unwrap_or(&[]);
             let authorized =
-                liblinkkeys::consent::compute_authorized_claims(&req, &prior.claim_types, &policy);
-            if super::first_missing_user_required(&req, &authorized, &policy).is_none()
+                liblinkkeys::consent::compute_authorized_claims(&req, prior_claims, &policy);
+            if super::all_required_authorized(&req, &authorized)
                 && super::first_authorized_required_without_value(pool, &user.id, &req, &authorized)
                     .is_none()
             {
@@ -843,7 +880,7 @@ fn proceed_to_consent_or_finalize(
                             )))
                         }
                     };
-                return finalize_local_rp_login(
+                let redirect = finalize_local_rp_login(
                     pool,
                     nonces,
                     locale,
@@ -855,13 +892,21 @@ fn proceed_to_consent_or_finalize(
                     &authorized,
                 )
                 .map(Redirect::found)
-                .map_err(|e| super::render_error_page(&e));
+                .map_err(|e| super::render_error_page(&e))?;
+                super::account_ui::touch_provider_session(cookies);
+                return Ok(redirect);
             }
         }
     }
 
     let nonce_b64 = Base64UrlUnpadded::encode_string(&request.nonce);
-    let proof = match super::mint_login_proof(pool, &user.id, &nonce_b64, &descriptor.fingerprint) {
+    let proof = match super::mint_login_proof(
+        pool,
+        &user.id,
+        &nonce_b64,
+        &descriptor.fingerprint,
+        signed_request_param,
+    ) {
         Ok(p) => p,
         Err(_) => {
             return Err(super::render_error_page(t(
@@ -881,6 +926,7 @@ fn proceed_to_consent_or_finalize(
         &proof,
         descriptor,
         rp_row,
+        request.flow_context.as_ref(),
         &callback_host,
         &screen,
         &labels,
@@ -896,25 +942,75 @@ fn proceed_to_consent_or_finalize(
 #[rocket::get("/auth/local-rp?<signed_request>")]
 pub(super) fn auth_local_rp_get(
     pool: &State<DbPool>,
+    nonces: &State<nonce_store::NonceStore>,
+    cookies: &CookieJar<'_>,
     locale: guard::Locale,
     signed_request: Option<&str>,
-) -> Result<RawHtml<String>, Status> {
+) -> Result<rocket::Either<Redirect, RawHtml<String>>, Status> {
     let sr = signed_request.ok_or(Status::BadRequest)?;
     let now = chrono::Utc::now();
-    let (_request, descriptor, _suite) = match validate_signed_local_rp_request(sr, now) {
+    let (request, descriptor, suite) = match validate_signed_local_rp_request(sr, now) {
         Ok(v) => v,
-        Err(e) => return Ok(super::render_error_page(t(&locale.0, e.i18n_key()))),
+        Err(e) => {
+            return Ok(rocket::Either::Right(super::render_error_page(t(
+                &locale.0,
+                e.i18n_key(),
+            ))))
+        }
     };
     if let Err(msg) = precheck_local_rp_gate(pool, &descriptor.fingerprint, &locale.0) {
-        return Ok(super::render_error_page(&msg));
+        return Ok(rocket::Either::Right(super::render_error_page(&msg)));
     }
-    Ok(render_local_rp_login_form(
+    let requirement = match crate::services::auth::resolve_assurance_requirement(
+        request.authentication_requirements.as_ref(),
+        1,
+    ) {
+        Ok(requirement) if crate::services::auth::provider_can_satisfy(requirement) => requirement,
+        _ => {
+            return Ok(rocket::Either::Right(super::render_error_page(
+                "This provider cannot satisfy the requested authentication assurance.",
+            )))
+        }
+    };
+    if let Some(session) = super::account_ui::peek_provider_session(cookies) {
+        if crate::services::auth::evidence_satisfies(&session.evidence(), requirement) {
+            if let Ok(user) = pool.find_user_by_id(&session.user_id) {
+                if user.is_active && !user.is_admin_account {
+                    return match resolve_local_rp_admission(pool, &user.id, &descriptor, &locale.0)
+                    {
+                        Admission::ErrorPage(msg) => {
+                            Ok(rocket::Either::Right(super::render_error_page(&msg)))
+                        }
+                        Admission::Pending => Ok(rocket::Either::Right(
+                            render_local_rp_pending_page(&locale.0, &descriptor.app_name),
+                        )),
+                        Admission::Approved(rp_row) => match proceed_to_consent_or_finalize(
+                            pool,
+                            nonces,
+                            cookies,
+                            &locale.0,
+                            &user,
+                            &request,
+                            &descriptor,
+                            suite,
+                            &rp_row,
+                            sr,
+                        ) {
+                            Ok(redirect) => Ok(rocket::Either::Left(redirect)),
+                            Err(page) => Ok(rocket::Either::Right(page)),
+                        },
+                    };
+                }
+            }
+        }
+    }
+    Ok(rocket::Either::Right(render_local_rp_login_form(
         sr,
         &descriptor,
         "",
         &locale.0,
         None,
-    ))
+    )))
 }
 
 #[derive(FromForm)]
@@ -928,6 +1024,7 @@ pub(super) struct LocalRpAuthorizeForm {
 pub(super) fn auth_local_rp_post(
     pool: &State<DbPool>,
     nonces: &State<nonce_store::NonceStore>,
+    cookies: &CookieJar<'_>,
     locale: guard::Locale,
     form: rocket::form::Form<LocalRpAuthorizeForm>,
 ) -> Result<Redirect, RawHtml<String>> {
@@ -958,12 +1055,12 @@ pub(super) fn auth_local_rp_post(
     }
 
     let authenticator = crate::services::auth::PasswordAuthenticator::new(pool.inner().clone());
-    let user = match crate::services::auth::Authenticator::authenticate(
+    let authentication = match crate::services::auth::Authenticator::authenticate_with_evidence(
         &authenticator,
         &form.username,
         &form.password,
     ) {
-        Ok(u) => u,
+        Ok(authentication) => authentication,
         Err(_) => {
             return Err(render_form_error(t(
                 &locale.0,
@@ -971,12 +1068,33 @@ pub(super) fn auth_local_rp_post(
             )))
         }
     };
+    let user = authentication.user;
+    if !user.is_active {
+        return Err(super::render_error_page("This account is not active."));
+    }
     if user.is_admin_account {
         return Err(super::render_error_page(t(
             &locale.0,
             "local_rp.login.admin_account_blocked",
         )));
     }
+    let requirement = match crate::services::auth::resolve_assurance_requirement(
+        request.authentication_requirements.as_ref(),
+        1,
+    ) {
+        Ok(requirement) => requirement,
+        Err(_) => {
+            return Err(super::render_error_page(
+                "The authentication assurance request is invalid.",
+            ))
+        }
+    };
+    if !crate::services::auth::evidence_satisfies(&authentication.evidence, requirement) {
+        return Err(super::render_error_page(
+            "This provider cannot satisfy the requested authentication assurance.",
+        ));
+    }
+    super::account_ui::establish_provider_session(cookies, &user.id, &authentication.evidence);
 
     match resolve_local_rp_admission(pool, &user.id, &descriptor, &locale.0) {
         Admission::ErrorPage(msg) => Err(super::render_error_page(&msg)),
@@ -987,6 +1105,7 @@ pub(super) fn auth_local_rp_post(
         Admission::Approved(rp_row) => proceed_to_consent_or_finalize(
             pool,
             nonces,
+            cookies,
             &locale.0,
             &user,
             &request,
@@ -1012,6 +1131,7 @@ pub(super) struct LocalRpConsentForm {
 pub(super) fn auth_local_rp_consent_post(
     pool: &State<DbPool>,
     nonces: &State<nonce_store::NonceStore>,
+    cookies: &CookieJar<'_>,
     locale: guard::Locale,
     form: rocket::form::Form<LocalRpConsentForm>,
 ) -> Result<Redirect, RawHtml<String>> {
@@ -1023,7 +1143,8 @@ pub(super) fn auth_local_rp_consent_post(
         ));
     }
 
-    let Ok((user_id, proof_nonce, proof_fp)) = super::verify_login_proof(pool, &form.login_proof)
+    let Ok((user_id, proof_nonce, proof_fp, proof_request)) =
+        super::verify_login_proof(pool, &form.login_proof)
     else {
         return Err(super::render_error_page(t(
             &locale.0,
@@ -1039,7 +1160,11 @@ pub(super) fn auth_local_rp_consent_post(
         };
 
     let nonce_b64 = Base64UrlUnpadded::encode_string(&request.nonce);
-    if proof_nonce != nonce_b64 || proof_fp != descriptor.fingerprint {
+    let request_binding = liblinkkeys::crypto::fingerprint(form.signed_request.as_bytes());
+    if proof_nonce != nonce_b64
+        || proof_fp != descriptor.fingerprint
+        || proof_request != request_binding
+    {
         return Err(super::render_error_page(t(
             &locale.0,
             "local_rp.error.login_proof_invalid",
@@ -1055,6 +1180,12 @@ pub(super) fn auth_local_rp_consent_post(
             )))
         }
     };
+    if !user.is_active || user.is_admin_account {
+        return Err(super::render_error_page(t(
+            &locale.0,
+            "local_rp.login.admin_account_blocked",
+        )));
+    }
 
     // Race safety: the domain's admission policy may have been disabled
     // between rendering consent and this submission (mirrors the
@@ -1119,6 +1250,7 @@ pub(super) fn auth_local_rp_consent_post(
                 &form.login_proof,
                 &descriptor,
                 &existing,
+                request.flow_context.as_ref(),
                 &callback_host,
                 &screen,
                 &labels,
@@ -1139,7 +1271,10 @@ pub(super) fn auth_local_rp_consent_post(
         &req,
         &authorized,
     ) {
-        Ok(url) => Ok(Redirect::found(url)),
+        Ok(url) => {
+            super::account_ui::touch_provider_session(cookies);
+            Ok(Redirect::found(url))
+        }
         Err(msg) => Err(super::render_error_page(&msg)),
     }
 }

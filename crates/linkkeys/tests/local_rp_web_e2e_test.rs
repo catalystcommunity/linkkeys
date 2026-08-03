@@ -346,7 +346,54 @@ async fn approved_local_rp_happy_path_end_to_end() {
         );
     }
 
-    // 6. Replaying the ORIGINAL signed_request (a prior grant now covers it,
+    // 6. An explicit claims update reuses the provider session but always
+    //    reopens the prior choices. Closing this page sends no callback.
+    let original_signed =
+        liblinkkeys::encoding::signed_local_rp_login_request_from_url_param(&fx.signed_request)
+            .unwrap();
+    let mut update_request =
+        liblinkkeys::generated::decode_local_rp_login_request(&original_signed.request).unwrap();
+    let fresh_now = chrono::Utc::now();
+    update_request.nonce = rand::random::<[u8; 16]>().to_vec();
+    update_request.state = rand::random::<[u8; 16]>().to_vec();
+    update_request.issued_at = fresh_now.to_rfc3339();
+    update_request.expires_at = (fresh_now + chrono::Duration::minutes(5)).to_rfc3339();
+    update_request.flow_context = Some(liblinkkeys::generated::types::AuthFlowContext {
+        flow: "claims_update".to_string(),
+        prior_session: Some("local-session-1".to_string()),
+        request_reason: Some("update sharing".to_string()),
+    });
+    let update_signed = sign_local_rp_login_request(&update_request, &fx.signing_sk).unwrap();
+    let update_sr =
+        liblinkkeys::encoding::signed_local_rp_login_request_to_url_param(&update_signed).unwrap();
+    let resp = client
+        .get(format!("/auth/local-rp?signed_request={}", update_sr))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let update_html = resp.into_string().await.unwrap();
+    assert!(update_html.contains("updated request"));
+    assert!(!update_html.contains("name=\"password\""));
+
+    // 7. A normal fresh request for the approved local RP reuses the provider
+    //    session and standing grant. It completes without another form.
+    let mut fresh_request = update_request;
+    fresh_request.nonce = rand::random::<[u8; 16]>().to_vec();
+    fresh_request.state = rand::random::<[u8; 16]>().to_vec();
+    fresh_request.flow_context = None;
+    let fresh_signed = sign_local_rp_login_request(&fresh_request, &fx.signing_sk).unwrap();
+    let fresh_sr =
+        liblinkkeys::encoding::signed_local_rp_login_request_to_url_param(&fresh_signed).unwrap();
+    let resp = client
+        .get(format!("/auth/local-rp?signed_request={}", fresh_sr))
+        .dispatch()
+        .await;
+    assert!(
+        resp.status().class().is_redirection(),
+        "covered local RP request completes through SSO"
+    );
+
+    // 8. Replaying the ORIGINAL signed_request (a prior grant now covers it,
     //    so it takes the finalize shortcut directly) must fail: the nonce was
     //    already burned.
     let (ct, b) = form(login_password_form(&fx.signed_request));

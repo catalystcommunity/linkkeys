@@ -257,6 +257,14 @@ ClaimRequest = {
     optional: [* RequestedClaim]
 }
 
+;; Authentication assurance requested by an RP. The RP may request only a
+;; number of distinct factors. It does not select authentication methods.
+;; The user's home domain decides which enabled methods count as factors and
+;; can require stronger assurance for the RP under its own policy.
+AuthenticationRequirements = {
+    minimum_factor_count: int
+}
+
 ;; Browser/native flows can attach context explaining why this auth request is
 ;; being made. IDPs treat this as signed RP metadata for display/audit only; the
 ;; claim request itself remains the source of truth for consent decisions.
@@ -450,6 +458,9 @@ AuthRequest = {
     ;; Claims the RP would like released on first contact. Drives the consent
     ;; screen. Absent => the RP requests no claims (authentication only).
     ? requested_claims: ClaimRequest,
+    ;; Optional assurance floor. Absent means one factor. The IDP can raise
+    ;; this floor but never lower it.
+    ? authentication_requirements: AuthenticationRequirements,
     ;; Optional signed context for first login vs later claims update flows.
     ? flow_context: AuthFlowContext,
     ;; Claims the RP asserts ABOUT ITSELF, each independently signed (self- or
@@ -1114,6 +1125,8 @@ RpSignRequest = {
     nonce: text,
     ;; Optional per-request override. Absent => use RP_CLAIMS_CONFIG.
     ? requested_claims: ClaimRequest,
+    ;; Optional factor-count request. The RP cannot name provider methods.
+    ? authentication_requirements: AuthenticationRequirements,
     ;; Optional signed flow context displayed by the IDP.
     ? flow_context: AuthFlowContext
 }
@@ -1226,6 +1239,10 @@ LocalRpLoginRequest = {
     state: bytes,
     requested_claims: [* text],
     required_claims: [* text],
+    ;; Optional factor-count request. The home domain chooses the methods.
+    ? authentication_requirements: AuthenticationRequirements,
+    ;; Optional signed context for an explicit claims-update flow.
+    ? flow_context: AuthFlowContext,
     issued_at: text,
     expires_at: text
 }

@@ -11,7 +11,9 @@ use common::data_factory::{create_auth_credential, create_user, DataMap};
 use liblinkkeys::auth_request::{build_auth_request, sign_auth_request};
 use liblinkkeys::crypto::{self, SigningAlgorithm};
 use liblinkkeys::encoding::signed_auth_request_to_url_param;
-use liblinkkeys::generated::types::{AuthFlowContext, ClaimRequest, RequestedClaim};
+use liblinkkeys::generated::types::{
+    AuthFlowContext, AuthenticationRequirements, ClaimRequest, RequestedClaim,
+};
 use rocket::http::{ContentType, Status};
 use rocket::local::asynchronous::Client;
 use std::sync::atomic::AtomicBool;
@@ -192,7 +194,42 @@ async fn consent_flow_end_to_end() {
     );
     let proof = hidden_field(&consent_html, "login_proof");
 
-    // 3b. Cancel must issue nothing: a neutral notice page, no redirect, no
+    // 3b. A proof is bound to the complete signed request, not only the RP and
+    //     nonce. A second signed body with the same RP-chosen nonce cannot use
+    //     the proof to change the claim or assurance request after login.
+    let mut swapped_req = req.clone();
+    swapped_req
+        .requested_claims
+        .as_mut()
+        .unwrap()
+        .optional
+        .push(RequestedClaim {
+            claim_type: "phone".to_string(),
+            datatype: "text".to_string(),
+        });
+    let swapped_sr = signed_auth_request_to_url_param(
+        &sign_auth_request(
+            &swapped_req,
+            &signing.id,
+            SigningAlgorithm::Ed25519,
+            &sk_bytes,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let resp = client
+        .post("/auth/consent")
+        .header(ContentType::Form)
+        .body(format!(
+            "signed_request={}&login_proof={}&grant=email",
+            swapped_sr, proof
+        ))
+        .dispatch()
+        .await;
+    let swapped_html = resp.into_string().await.unwrap();
+    assert!(swapped_html.contains("does not match"));
+
+    // 3c. Cancel must issue nothing: a neutral notice page, no redirect, no
     //     sealed token. It short-circuits before any grant is written.
     let resp = client
         .post("/auth/consent")
@@ -285,16 +322,8 @@ async fn consent_flow_end_to_end() {
     )
     .unwrap();
     let update_sr = signed_auth_request_to_url_param(&signed_update).unwrap();
-    let (ct, b) = form(&format!(
-        "username={}&password={}&signed_request={}",
-        USERNAME,
-        PASSWORD.replace(' ', "+"),
-        update_sr
-    ));
     let resp = client
-        .post("/auth/authorize")
-        .header(ct)
-        .body(b)
+        .get(format!("/auth/authorize?signed_request={}", update_sr))
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Ok);
@@ -306,6 +335,10 @@ async fn consent_flow_end_to_end() {
     assert!(
         update_consent_html.contains("phone"),
         "newly requested claim appears on the consent screen"
+    );
+    assert!(
+        !update_consent_html.contains("name=\"password\""),
+        "claims update reuses the provider session"
     );
 
     // 6. First-login missing claim: if a required claim is user-settable and
@@ -334,16 +367,8 @@ async fn consent_flow_end_to_end() {
     )
     .unwrap();
     let missing_sr = signed_auth_request_to_url_param(&signed_missing).unwrap();
-    let (ct, b) = form(&format!(
-        "username={}&password={}&signed_request={}",
-        USERNAME,
-        PASSWORD.replace(' ', "+"),
-        missing_sr
-    ));
     let resp = client
-        .post("/auth/authorize")
-        .header(ct)
-        .body(b)
+        .get(format!("/auth/authorize?signed_request={}", missing_sr))
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Ok);
@@ -378,7 +403,72 @@ async fn consent_flow_end_to_end() {
         "inline-created lane-A claim is signed"
     );
 
-    // 7. Replaying the same consent (login nonce already burned) is refused.
+    // 7. A normal login with the same approved required claim completes SSO
+    //    immediately. A newly listed optional claim does not force consent;
+    //    the app must use claims_update when it wants the user to revisit it.
+    let mut sso_req = build_auth_request(
+        TEST_DOMAIN,
+        &format!("https://{}/cb", TEST_DOMAIN),
+        "login-nonce-4",
+        &signing.id,
+        Some(ClaimRequest {
+            required: vec![RequestedClaim {
+                claim_type: "display_name".to_string(),
+                datatype: "text".to_string(),
+            }],
+            optional: vec![RequestedClaim {
+                claim_type: "new_optional".to_string(),
+                datatype: "text".to_string(),
+            }],
+        }),
+        None,
+    );
+    sso_req.relying_party_claims = None;
+    let sso_sr = signed_auth_request_to_url_param(
+        &sign_auth_request(&sso_req, &signing.id, SigningAlgorithm::Ed25519, &sk_bytes).unwrap(),
+    )
+    .unwrap();
+    let resp = client
+        .get(format!("/auth/authorize?signed_request={}", sso_sr))
+        .dispatch()
+        .await;
+    assert!(
+        resp.status().class().is_redirection(),
+        "covered required claims complete without another form"
+    );
+
+    // 8. RPs request only a factor count. This provider currently has one
+    //    browser method, so a two-factor request fails before credential entry.
+    let mut assurance_req = build_auth_request(
+        TEST_DOMAIN,
+        &format!("https://{}/cb", TEST_DOMAIN),
+        "login-nonce-5",
+        &signing.id,
+        None,
+        None,
+    );
+    assurance_req.authentication_requirements = Some(AuthenticationRequirements {
+        minimum_factor_count: 2,
+    });
+    let assurance_sr = signed_auth_request_to_url_param(
+        &sign_auth_request(
+            &assurance_req,
+            &signing.id,
+            SigningAlgorithm::Ed25519,
+            &sk_bytes,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let resp = client
+        .get(format!("/auth/authorize?signed_request={}", assurance_sr))
+        .dispatch()
+        .await;
+    let assurance_html = resp.into_string().await.unwrap();
+    assert!(assurance_html.contains("cannot satisfy"));
+    assert!(!assurance_html.contains("name=\"password\""));
+
+    // 9. Replaying the same consent (login nonce already burned) is refused.
     let resp = client
         .post("/auth/consent")
         .header(ContentType::Form)

@@ -494,6 +494,8 @@ pub fn build_local_rp_login_request(
         state,
         requested_claims,
         required_claims,
+        authentication_requirements: None,
+        flow_context: None,
         issued_at: issued_at.to_string(),
         expires_at: expires_at.to_string(),
     }

@@ -514,6 +514,7 @@ async fn begin_linkkeys_redirect(
             callback_url: callback_url.clone(),
             nonce: nonce.clone(),
             requested_claims: Some(requested_claims),
+            authentication_requirements: None,
             flow_context,
         },
         liblinkkeys::generated::encode_rp_sign_request,

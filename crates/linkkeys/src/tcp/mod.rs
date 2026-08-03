@@ -1478,6 +1478,7 @@ fn dispatch_rp(
                 &req.callback_url,
                 &req.nonce,
                 req.requested_claims,
+                req.authentication_requirements,
                 req.flow_context,
             ) {
                 Ok(resp) => ok_response(codec::encode_rp_sign_response(&resp)),

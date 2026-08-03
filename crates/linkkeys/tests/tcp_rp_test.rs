@@ -41,6 +41,7 @@ fn sign_request_payload() -> Vec<u8> {
         callback_url: "https://rp.test/callback".to_string(),
         nonce: "nonce-1".to_string(),
         requested_claims: None,
+        authentication_requirements: None,
         flow_context: None,
     })
 }

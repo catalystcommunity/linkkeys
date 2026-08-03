@@ -14,6 +14,7 @@ pub(crate) fn sign_request_core(
     callback_url: &str,
     nonce: &str,
     requested_claims: Option<liblinkkeys::generated::types::ClaimRequest>,
+    authentication_requirements: Option<liblinkkeys::generated::types::AuthenticationRequirements>,
     flow_context: Option<liblinkkeys::generated::types::AuthFlowContext>,
 ) -> Result<liblinkkeys::generated::types::RpSignResponse, Status> {
     let domain_keys = pool
@@ -37,6 +38,7 @@ pub(crate) fn sign_request_core(
         requested_claims.or_else(|| rp_config.to_claim_request()),
         flow_context,
     );
+    request.authentication_requirements = authentication_requirements;
 
     // Attach claims the RP asserts about itself: self-asserted ones signed now
     // with our domain key, plus any pre-signed third-party claims loaded from a

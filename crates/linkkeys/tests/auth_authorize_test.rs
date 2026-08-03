@@ -166,6 +166,7 @@ async fn rejects_expired_request() {
         timestamp: (Utc::now() - Duration::seconds(600)).to_rfc3339(),
         signing_key_id: key_id.clone(),
         requested_claims: None,
+        authentication_requirements: None,
         flow_context: None,
         relying_party_claims: None,
     };
