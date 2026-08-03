@@ -1688,6 +1688,43 @@ pub fn decode_claim_request(csil_data: &[u8]) -> Result<ClaimRequest, CsilCborEr
     csil_dec_claim_request(&csil_root)
 }
 
+/// Build the canonical CBOR value tree for a AuthenticationRequirements.
+fn csil_enc_authentication_requirements(csil_v: &AuthenticationRequirements) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("minimum_factor_count"),
+        cbor_int(csil_v.minimum_factor_count),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a AuthenticationRequirements from a decoded CBOR value tree.
+fn csil_dec_authentication_requirements(
+    csil_root: &CsilCborValue,
+) -> Result<AuthenticationRequirements, CsilCborError> {
+    let minimum_factor_count = {
+        let csil_field = cbor_require(csil_root, "minimum_factor_count")?;
+        let csil_decode = cbor_as_i64;
+        csil_decode(csil_field)?
+    };
+    Ok(AuthenticationRequirements {
+        minimum_factor_count,
+    })
+}
+
+/// Encode a AuthenticationRequirements to canonical CSIL CBOR bytes.
+pub fn encode_authentication_requirements(csil_v: &AuthenticationRequirements) -> Vec<u8> {
+    cbor_encode(&csil_enc_authentication_requirements(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a AuthenticationRequirements.
+pub fn decode_authentication_requirements(
+    csil_data: &[u8],
+) -> Result<AuthenticationRequirements, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_authentication_requirements(&csil_root)
+}
+
 /// Build the canonical CBOR value tree for a AuthFlowContext.
 fn csil_enc_auth_flow_context(csil_v: &AuthFlowContext) -> CsilCborValue {
     let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
@@ -2483,7 +2520,7 @@ pub fn decode_user_info(csil_data: &[u8]) -> Result<UserInfo, CsilCborError> {
 
 /// Build the canonical CBOR value tree for a AuthRequest.
 fn csil_enc_auth_request(csil_v: &AuthRequest) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(8);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(9);
     csil_entries.push((cbor_text("nonce"), cbor_text(&csil_v.nonce)));
     csil_entries.push((cbor_text("timestamp"), cbor_text(&csil_v.timestamp)));
     csil_entries.push((cbor_text("callback_url"), cbor_text(&csil_v.callback_url)));
@@ -2508,6 +2545,12 @@ fn csil_enc_auth_request(csil_v: &AuthRequest) -> CsilCborValue {
         csil_entries.push((
             cbor_text("relying_party_claims"),
             cbor_enc_array(csil_inner, csil_enc_domain_claim),
+        ));
+    }
+    if let Some(csil_inner) = &csil_v.authentication_requirements {
+        csil_entries.push((
+            cbor_text("authentication_requirements"),
+            csil_enc_authentication_requirements(csil_inner),
         ));
     }
     CsilCborValue::Map(csil_entries)
@@ -2547,6 +2590,13 @@ fn csil_dec_auth_request(csil_root: &CsilCborValue) -> Result<AuthRequest, CsilC
         }
         None => None,
     };
+    let authentication_requirements = match cbor_map_get(csil_root, "authentication_requirements") {
+        Some(csil_field) => {
+            let csil_decode = csil_dec_authentication_requirements;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
     let flow_context = match cbor_map_get(csil_root, "flow_context") {
         Some(csil_field) => {
             let csil_decode = csil_dec_auth_flow_context;
@@ -2568,6 +2618,7 @@ fn csil_dec_auth_request(csil_root: &CsilCborValue) -> Result<AuthRequest, CsilC
         timestamp,
         signing_key_id,
         requested_claims,
+        authentication_requirements,
         flow_context,
         relying_party_claims,
     })
@@ -6512,7 +6563,7 @@ pub fn decode_request_verification_response(
 
 /// Build the canonical CBOR value tree for a RpSignRequest.
 fn csil_enc_rp_sign_request(csil_v: &RpSignRequest) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(4);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(5);
     csil_entries.push((cbor_text("nonce"), cbor_text(&csil_v.nonce)));
     csil_entries.push((cbor_text("callback_url"), cbor_text(&csil_v.callback_url)));
     if let Some(csil_inner) = &csil_v.flow_context {
@@ -6525,6 +6576,12 @@ fn csil_enc_rp_sign_request(csil_v: &RpSignRequest) -> CsilCborValue {
         csil_entries.push((
             cbor_text("requested_claims"),
             csil_enc_claim_request(csil_inner),
+        ));
+    }
+    if let Some(csil_inner) = &csil_v.authentication_requirements {
+        csil_entries.push((
+            cbor_text("authentication_requirements"),
+            csil_enc_authentication_requirements(csil_inner),
         ));
     }
     CsilCborValue::Map(csil_entries)
@@ -6549,6 +6606,13 @@ fn csil_dec_rp_sign_request(csil_root: &CsilCborValue) -> Result<RpSignRequest, 
         }
         None => None,
     };
+    let authentication_requirements = match cbor_map_get(csil_root, "authentication_requirements") {
+        Some(csil_field) => {
+            let csil_decode = csil_dec_authentication_requirements;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
     let flow_context = match cbor_map_get(csil_root, "flow_context") {
         Some(csil_field) => {
             let csil_decode = csil_dec_auth_flow_context;
@@ -6560,6 +6624,7 @@ fn csil_dec_rp_sign_request(csil_root: &CsilCborValue) -> Result<RpSignRequest, 
         callback_url,
         nonce,
         requested_claims,
+        authentication_requirements,
         flow_context,
     })
 }
@@ -7029,7 +7094,7 @@ pub fn decode_signed_local_rp_descriptor(
 
 /// Build the canonical CBOR value tree for a LocalRpLoginRequest.
 fn csil_enc_local_rp_login_request(csil_v: &LocalRpLoginRequest) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(8);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(10);
     csil_entries.push((cbor_text("nonce"), cbor_bytes(&csil_v.nonce)));
     csil_entries.push((cbor_text("state"), cbor_bytes(&csil_v.state)));
     csil_entries.push((cbor_text("issued_at"), cbor_text(&csil_v.issued_at)));
@@ -7039,6 +7104,12 @@ fn csil_enc_local_rp_login_request(csil_v: &LocalRpLoginRequest) -> CsilCborValu
     ));
     csil_entries.push((cbor_text("expires_at"), cbor_text(&csil_v.expires_at)));
     csil_entries.push((cbor_text("callback_url"), cbor_text(&csil_v.callback_url)));
+    if let Some(csil_inner) = &csil_v.flow_context {
+        csil_entries.push((
+            cbor_text("flow_context"),
+            csil_enc_auth_flow_context(csil_inner),
+        ));
+    }
     csil_entries.push((
         cbor_text("required_claims"),
         cbor_enc_array(&csil_v.required_claims, |csil_elem| cbor_text(csil_elem)),
@@ -7047,6 +7118,12 @@ fn csil_enc_local_rp_login_request(csil_v: &LocalRpLoginRequest) -> CsilCborValu
         cbor_text("requested_claims"),
         cbor_enc_array(&csil_v.requested_claims, |csil_elem| cbor_text(csil_elem)),
     ));
+    if let Some(csil_inner) = &csil_v.authentication_requirements {
+        csil_entries.push((
+            cbor_text("authentication_requirements"),
+            csil_enc_authentication_requirements(csil_inner),
+        ));
+    }
     CsilCborValue::Map(csil_entries)
 }
 
@@ -7084,6 +7161,20 @@ fn csil_dec_local_rp_login_request(
         let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
         csil_decode(csil_field)?
     };
+    let authentication_requirements = match cbor_map_get(csil_root, "authentication_requirements") {
+        Some(csil_field) => {
+            let csil_decode = csil_dec_authentication_requirements;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let flow_context = match cbor_map_get(csil_root, "flow_context") {
+        Some(csil_field) => {
+            let csil_decode = csil_dec_auth_flow_context;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
     let issued_at = {
         let csil_field = cbor_require(csil_root, "issued_at")?;
         let csil_decode = cbor_as_text;
@@ -7101,6 +7192,8 @@ fn csil_dec_local_rp_login_request(
         state,
         requested_claims,
         required_claims,
+        authentication_requirements,
+        flow_context,
         issued_at,
         expires_at,
     })

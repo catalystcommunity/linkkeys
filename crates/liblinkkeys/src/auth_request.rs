@@ -23,6 +23,7 @@ pub fn build_auth_request(
         timestamp: Utc::now().to_rfc3339(),
         signing_key_id: signing_key_id.to_string(),
         requested_claims,
+        authentication_requirements: None,
         flow_context,
         // The caller sets `relying_party_claims` on the returned request if it
         // wants to assert claims about itself (signed self/third-party).
@@ -116,7 +117,7 @@ mod tests {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let domain_key = make_domain_key("key-1", &pk);
 
-        let request = build_auth_request(
+        let mut request = build_auth_request(
             "linkidspec.com",
             "https://linkidspec.com/callback",
             "nonce-123",
@@ -124,6 +125,10 @@ mod tests {
             None,
             None,
         );
+        request.authentication_requirements =
+            Some(crate::generated::types::AuthenticationRequirements {
+                minimum_factor_count: 2,
+            });
 
         let signed = sign_auth_request(&request, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
         let verified = verify_auth_request(&signed, &[domain_key], 300).unwrap();
@@ -131,6 +136,13 @@ mod tests {
         assert_eq!(verified.relying_party, "linkidspec.com");
         assert_eq!(verified.callback_url, "https://linkidspec.com/callback");
         assert_eq!(verified.nonce, "nonce-123");
+        assert_eq!(
+            verified
+                .authentication_requirements
+                .unwrap()
+                .minimum_factor_count,
+            2
+        );
     }
 
     #[test]
@@ -146,6 +158,7 @@ mod tests {
             timestamp: (Utc::now() - chrono::Duration::seconds(120)).to_rfc3339(),
             signing_key_id: "key-1".to_string(),
             requested_claims: None,
+            authentication_requirements: None,
             flow_context: None,
             relying_party_claims: None,
         };

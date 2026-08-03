@@ -219,6 +219,11 @@ pub struct ClaimRequest {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct AuthenticationRequirements {
+    pub minimum_factor_count: i64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct AuthFlowContext {
     pub flow: String,
     pub prior_session: Option<String>,
@@ -337,6 +342,7 @@ pub struct AuthRequest {
     pub timestamp: String,
     pub signing_key_id: String,
     pub requested_claims: Option<ClaimRequest>,
+    pub authentication_requirements: Option<AuthenticationRequirements>,
     pub flow_context: Option<AuthFlowContext>,
     pub relying_party_claims: Option<Vec<DomainClaim>>,
 }
@@ -918,6 +924,7 @@ pub struct RpSignRequest {
     pub callback_url: String,
     pub nonce: String,
     pub requested_claims: Option<ClaimRequest>,
+    pub authentication_requirements: Option<AuthenticationRequirements>,
     pub flow_context: Option<AuthFlowContext>,
 }
 
@@ -1025,6 +1032,8 @@ pub struct LocalRpLoginRequest {
     pub state: Vec<u8>,
     pub requested_claims: Vec<String>,
     pub required_claims: Vec<String>,
+    pub authentication_requirements: Option<AuthenticationRequirements>,
+    pub flow_context: Option<AuthFlowContext>,
     pub issued_at: String,
     pub expires_at: String,
 }

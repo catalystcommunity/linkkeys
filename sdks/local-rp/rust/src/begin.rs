@@ -44,6 +44,12 @@ pub struct BeginLocalLoginConfig<'a> {
     /// Required claims — login fails at the IDP if the user can't/won't
     /// satisfy these. Defaults to [`DEFAULT_REQUIRED_CLAIMS`] when `None`.
     pub required_claims: Option<Vec<String>>,
+    /// Optional number of distinct authentication factors to validate. The
+    /// provider selects and validates the actual methods.
+    pub minimum_factor_count: Option<i64>,
+    /// Optional signed context. Use `claims_update` to ask the provider to
+    /// reopen the user's prior claim choices instead of completing normal SSO.
+    pub flow_context: Option<liblinkkeys::generated::types::AuthFlowContext>,
     /// Login-request lifetime from `now`. Defaults to
     /// [`DEFAULT_LOGIN_REQUEST_LIFETIME`] when `None`.
     pub request_lifetime: Option<Duration>,
@@ -65,6 +71,8 @@ impl<'a> BeginLocalLoginConfig<'a> {
             user_domain: user_domain.into(),
             requested_claims: None,
             required_claims: None,
+            minimum_factor_count: None,
+            flow_context: None,
             request_lifetime: None,
             now,
         }
@@ -152,7 +160,7 @@ pub fn begin_local_login(
     // required-claim set so `complete_local_login` can enforce it later.
     let pending_required_claims = required_claims.clone();
 
-    let request = local_rp::build_local_rp_login_request(
+    let mut request = local_rp::build_local_rp_login_request(
         config.key_material.descriptor.clone(),
         &config.callback_url,
         nonce.to_vec(),
@@ -162,6 +170,12 @@ pub fn begin_local_login(
         &issued_at,
         &expires_at,
     );
+    request.authentication_requirements = config.minimum_factor_count.map(|minimum_factor_count| {
+        liblinkkeys::generated::types::AuthenticationRequirements {
+            minimum_factor_count,
+        }
+    });
+    request.flow_context = config.flow_context;
     let signed =
         local_rp::sign_local_rp_login_request(&request, &config.key_material.signing_private_key)
             .map_err(Error::from)?;

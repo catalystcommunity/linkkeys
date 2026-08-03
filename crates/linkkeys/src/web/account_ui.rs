@@ -13,7 +13,10 @@ use liblinkkeys::generated::types::ChangePasswordRequest;
 // -- Session helpers --
 //
 // The session is a Rocket *private* (encrypted + authenticated) cookie whose
-// value is `user_id|issued_at|last_seen` (unix seconds). Because it's
+// value is `v2|user_id|issued_at|last_seen|authenticated_at|methods`.
+// `methods` is a comma-separated set of provider-owned method identifiers.
+// Legacy `user_id|issued_at|last_seen` cookies came only from a password login
+// and are upgraded on read. Because the cookie is
 // authenticated, the client cannot forge the timestamps, so we enforce an
 // absolute lifetime cap and a sliding idle timeout server-side. Both windows
 // are configurable with safe defaults. A fresh login issues a new cookie
@@ -47,19 +50,76 @@ fn build_session_cookie(value: String) -> Cookie<'static> {
     cookie
 }
 
-/// Read and validate the session. Returns the user_id only if the session is
-/// within both its absolute and idle windows; renews the idle window on a
-/// successful read (sliding session). Clears an expired/malformed cookie.
-pub(super) fn get_session_user_id(cookies: &CookieJar<'_>) -> Option<String> {
-    let raw = cookies.get_private("user_id")?;
-    let mut parts = raw.value().split('|');
-    let user_id = parts.next().unwrap_or("").to_string();
-    let issued: Option<i64> = parts.next().and_then(|s| s.parse().ok());
-    let last_seen: Option<i64> = parts.next().and_then(|s| s.parse().ok());
+#[derive(Debug, Clone)]
+pub(super) struct ProviderSession {
+    pub user_id: String,
+    pub issued_at: i64,
+    pub authenticated_at: i64,
+    pub method_types: std::collections::BTreeSet<String>,
+}
 
-    let (issued, last_seen) = match (user_id.is_empty(), issued, last_seen) {
-        (false, Some(i), Some(l)) => (i, l),
-        // Malformed or legacy bare-user_id cookie: force re-login.
+impl ProviderSession {
+    pub(super) fn evidence(&self) -> crate::services::auth::AuthenticationEvidence {
+        crate::services::auth::AuthenticationEvidence {
+            method_types: self.method_types.clone(),
+            authenticated_at: chrono::DateTime::from_timestamp(self.authenticated_at, 0)
+                .unwrap_or_else(chrono::Utc::now),
+        }
+    }
+}
+
+fn encode_session(session: &ProviderSession, last_seen: i64) -> String {
+    let methods = session
+        .method_types
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(",");
+    format!(
+        "v2|{}|{}|{}|{}|{}",
+        session.user_id, session.issued_at, last_seen, session.authenticated_at, methods
+    )
+}
+
+fn read_session(cookies: &CookieJar<'_>, refresh_idle: bool) -> Option<ProviderSession> {
+    let raw = cookies.get_private("user_id")?;
+    let parts: Vec<&str> = raw.value().split('|').collect();
+    let (user_id, issued, last_seen, authenticated_at, method_types) = match parts.as_slice() {
+        ["v2", user_id, issued, last_seen, authenticated_at, methods] => {
+            let methods = methods
+                .split(',')
+                .filter(|m| {
+                    !m.is_empty()
+                        && m.chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                })
+                .map(str::to_string)
+                .collect::<std::collections::BTreeSet<_>>();
+            (
+                (*user_id).to_string(),
+                issued.parse::<i64>().ok(),
+                last_seen.parse::<i64>().ok(),
+                authenticated_at.parse::<i64>().ok(),
+                methods,
+            )
+        }
+        [user_id, issued, last_seen] => (
+            (*user_id).to_string(),
+            issued.parse::<i64>().ok(),
+            last_seen.parse::<i64>().ok(),
+            issued.parse::<i64>().ok(),
+            [crate::services::auth::METHOD_TYPE_PASSWORD.to_string()]
+                .into_iter()
+                .collect(),
+        ),
+        _ => {
+            cookies.remove_private("user_id");
+            return None;
+        }
+    };
+
+    let (issued, last_seen, authenticated_at) = match (issued, last_seen, authenticated_at) {
+        (Some(i), Some(l), Some(a)) if !user_id.is_empty() && !method_types.is_empty() => (i, l, a),
         _ => {
             cookies.remove_private("user_id");
             return None;
@@ -67,23 +127,68 @@ pub(super) fn get_session_user_id(cookies: &CookieJar<'_>) -> Option<String> {
     };
 
     let now = chrono::Utc::now().timestamp();
-    if now < issued || now - issued > session_absolute_ttl() || now - last_seen > session_idle_ttl()
+    if now < issued
+        || now < authenticated_at
+        || now - issued > session_absolute_ttl()
+        || now - last_seen > session_idle_ttl()
     {
         cookies.remove_private("user_id");
         return None;
     }
 
-    // Slide the idle window forward.
-    cookies.add_private(build_session_cookie(format!(
-        "{}|{}|{}",
-        user_id, issued, now
-    )));
-    Some(user_id)
+    let session = ProviderSession {
+        user_id,
+        issued_at: issued,
+        authenticated_at,
+        method_types,
+    };
+    if refresh_idle {
+        cookies.add_private(build_session_cookie(encode_session(&session, now)));
+    }
+    Some(session)
+}
+
+/// Read and validate the session. Returns the user_id only if the session is
+/// within both its absolute and idle windows; renews the idle window on a
+/// successful read (sliding session). Clears an expired/malformed cookie.
+pub(super) fn get_session_user_id(cookies: &CookieJar<'_>) -> Option<String> {
+    read_session(cookies, true).map(|s| s.user_id)
 }
 
 fn set_session(cookies: &CookieJar<'_>, user_id: &str) {
+    establish_provider_session(
+        cookies,
+        user_id,
+        &crate::services::auth::AuthenticationEvidence::single(
+            crate::services::auth::METHOD_TYPE_PASSWORD,
+        ),
+    );
+}
+
+pub(super) fn establish_provider_session(
+    cookies: &CookieJar<'_>,
+    user_id: &str,
+    evidence: &crate::services::auth::AuthenticationEvidence,
+) {
     let now = chrono::Utc::now().timestamp();
-    cookies.add_private(build_session_cookie(format!("{}|{}|{}", user_id, now, now)));
+    let session = ProviderSession {
+        user_id: user_id.to_string(),
+        issued_at: now,
+        authenticated_at: evidence.authenticated_at.timestamp(),
+        method_types: evidence.method_types.clone(),
+    };
+    cookies.add_private(build_session_cookie(encode_session(&session, now)));
+}
+
+/// Validate a provider session for a passive RP request without extending its
+/// idle lifetime. This prevents an RP from keeping a session alive through
+/// unsolicited top-level redirects.
+pub(super) fn peek_provider_session(cookies: &CookieJar<'_>) -> Option<ProviderSession> {
+    read_session(cookies, false)
+}
+
+pub(super) fn touch_provider_session(cookies: &CookieJar<'_>) {
+    let _ = read_session(cookies, true);
 }
 
 fn clear_session(cookies: &CookieJar<'_>) {
