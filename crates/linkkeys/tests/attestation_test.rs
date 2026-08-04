@@ -8,9 +8,18 @@ mod common;
 use common::data_factory::{create_domain_key, create_relation, create_user, DataMap};
 use linkkeys::db::models::PeerKey;
 use linkkeys::services::attestation;
+use std::sync::{Mutex, MutexGuard};
 
 const OUR_DOMAIN: &str = "test.com";
 const ISSUER: &str = "dmv.test";
+
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+fn lock_env() -> MutexGuard<'static, ()> {
+    ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// Mint an issuer keypair + an issuer-signed claim about `subject_id`, and return
 /// the claim plus the issuer's public key (to cache as a peer key).
@@ -56,16 +65,17 @@ fn issuer_signed_claim(
     (claim, peer)
 }
 
-fn setup() -> (linkkeys::db::DbPool, String) {
+fn setup() -> (MutexGuard<'static, ()>, linkkeys::db::DbPool, String) {
+    let env_guard = lock_env();
     std::env::set_var("DOMAIN_NAME", OUR_DOMAIN);
     let pool = common::create_test_pool();
     let user = create_user(&pool, &DataMap::new());
-    (pool, user.id)
+    (env_guard, pool, user.id)
 }
 
 #[test]
 fn trusted_issuer_claim_is_stored_and_verifies() {
-    let (pool, uid) = setup();
+    let (_env_guard, pool, uid) = setup();
     let (claim, peer) = issuer_signed_claim(&uid, "age_over_21", b"true");
 
     pool.cache_peer_key(&peer).expect("cache issuer key");
@@ -92,7 +102,7 @@ fn trusted_issuer_claim_is_stored_and_verifies() {
 
 #[test]
 fn deposit_via_rpc_dispatch_stores_claim() {
-    let (pool, uid) = setup();
+    let (_env_guard, pool, uid) = setup();
     let (claim, peer) = issuer_signed_claim(&uid, "age_over_21", b"true");
     pool.cache_peer_key(&peer).unwrap();
     pool.add_trusted_issuer("age_over_21", ISSUER).unwrap();
@@ -115,7 +125,7 @@ fn deposit_via_rpc_dispatch_stores_claim() {
 
 #[test]
 fn untrusted_issuer_is_rejected() {
-    let (pool, uid) = setup();
+    let (_env_guard, pool, uid) = setup();
     let (claim, peer) = issuer_signed_claim(&uid, "age_over_21", b"true");
     pool.cache_peer_key(&peer).unwrap();
     // No add_trusted_issuer → the signature is valid but the issuer isn't trusted.
@@ -125,7 +135,7 @@ fn untrusted_issuer_is_rejected() {
 
 #[test]
 fn tampered_value_fails_verification() {
-    let (pool, uid) = setup();
+    let (_env_guard, pool, uid) = setup();
     let (mut claim, peer) = issuer_signed_claim(&uid, "age_over_21", b"true");
     pool.cache_peer_key(&peer).unwrap();
     pool.add_trusted_issuer("age_over_21", ISSUER).unwrap();
@@ -139,6 +149,7 @@ fn tampered_value_fails_verification() {
 
 #[test]
 fn minted_signing_request_verifies_against_domain_keys() {
+    let _env_guard = lock_env();
     std::env::set_var("DOMAIN_NAME", OUR_DOMAIN);
     std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
     let pool = common::create_test_pool();
@@ -172,7 +183,7 @@ fn minted_signing_request_verifies_against_domain_keys() {
 
 #[test]
 fn verify_without_cached_key_is_unverified() {
-    let (pool, uid) = setup();
+    let (_env_guard, pool, uid) = setup();
     let (claim, _peer) = issuer_signed_claim(&uid, "age_over_21", b"true");
     // Issuer key never cached → cannot resolve → unverified (fail closed).
     assert!(!attestation::verify_stored_claim(&pool, &claim).verified);
@@ -180,6 +191,7 @@ fn verify_without_cached_key_is_unverified() {
 
 #[test]
 fn issuer_policy_denies_subject_tld_and_issued_claims_expire() {
+    let _env_guard = lock_env();
     std::env::set_var("DOMAIN_NAME", "issuer.test");
     std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
     std::env::set_var("ATTESTATION_DENY_SUBJECT_TLDS", "ru");
@@ -231,6 +243,7 @@ fn subject_domain_policy_can_be_evaluated_with_temporary_denies() {
 
 #[test]
 fn per_claim_issue_relation_authorizes_without_manage_claims() {
+    let _env_guard = lock_env();
     std::env::set_var("DOMAIN_NAME", OUR_DOMAIN);
     let pool = common::create_test_pool();
     let user = create_user(&pool, &DataMap::new());
