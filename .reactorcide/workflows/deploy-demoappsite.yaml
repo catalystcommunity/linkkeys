@@ -1,0 +1,14 @@
+# Demoappsite image build + Helm deploy, fired by its own version bump.
+id: linkkeys-deploy-demoappsite
+name: LinkKeys demoappsite deploy
+on:
+  events:
+    - push
+  branches:
+    - main
+paths:
+  include:
+    - "demoappsite/version/VERSION.txt"
+jobs:
+  linkkeys-demoappsite-build-and-deploy:
+    job_file: .reactorcide/jobs/demoappsite-build-and-deploy.yaml

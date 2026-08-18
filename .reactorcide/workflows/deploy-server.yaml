@@ -1,0 +1,22 @@
+# Server image publish + demo-RP rollout, fired by the release version bump.
+# linkkeys-rp-deploy now depends on the image build/push instead of running
+# concurrently; its WAIT_FOR_IMAGE_REPO registry poll stays as a belt against
+# registry propagation delay. The live IDPs (todandlorna, catalystsquad) stay
+# human-gated via ~/linkkeys-redeploy.sh — only the demo RP rolls here.
+id: linkkeys-deploy-server
+name: LinkKeys server deploy
+on:
+  events:
+    - push
+  branches:
+    - main
+paths:
+  include:
+    - "version/VERSION.txt"
+jobs:
+  linkkeys-server-build-and-deploy:
+    job_file: .reactorcide/jobs/server-build-and-deploy.yaml
+  linkkeys-rp-deploy:
+    job_file: .reactorcide/jobs/linkkeys-rp-deploy.yaml
+    depends_on:
+      - linkkeys-server-build-and-deploy

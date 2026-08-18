@@ -79,7 +79,13 @@ pub fn create_domain_encryption_key(pool: &DbPool, signing_key: &DomainKey) -> (
     let enc_priv_encrypted =
         liblinkkeys::crypto::encrypt_private_key(&enc_priv, b"test-passphrase")
             .expect("encrypt test encryption key");
-    let expires = chrono::Utc::now() + chrono::Duration::days(365);
+    // Whole-second expiry, as production does: the vouch signs this exact
+    // string, and only whole seconds round-trip byte-identically through
+    // pg timestamptz (which truncates nanoseconds).
+    use chrono::Timelike;
+    let expires = (chrono::Utc::now() + chrono::Duration::days(365))
+        .with_nanosecond(0)
+        .expect("zeroing nanoseconds cannot fail");
     let vouch = liblinkkeys::dns::sign_key_vouch(
         &enc_fp,
         &expires.to_rfc3339(),

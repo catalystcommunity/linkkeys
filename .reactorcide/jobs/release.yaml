@@ -1,12 +1,10 @@
 name: linkkeys-release
 description: "Version bump with semver-tags and create GitHub release on merge to main"
-triggers:
-  events:
-    - pull_request_merged
-  branches:
-    - main
+# Triggering lives in .reactorcide/workflows/release.yaml. Local runs must set
+# SKIP_GITHUB=true — that gate (here and in release.sh) skips the remote reset,
+# the version-bump push, and the GitHub release create.
 job:
-  image: containers.catalystsquad.com/public/reactorcide/runnerbase:dev
+  image: containers.catalystsquad.com/public/reactorcide/runnerbase:latest
   command: |
     set -e
     sudo apt-get update && sudo apt-get install -y --no-install-recommends \
@@ -47,7 +45,6 @@ job:
     sh .reactorcide/jobs/scripts/release.sh
   timeout: 3600
   priority: 15
-  disable_run_local: true
   run_as:
     user: runner
   run_local:

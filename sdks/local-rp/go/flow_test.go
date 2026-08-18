@@ -305,6 +305,9 @@ func runScenario(t *testing.T, sc scenario) (*localrp.VerifiedLocalLogin, error)
 		UserDomain:     userDomainFlowTest,
 		RequiredClaims: sc.requiredClaims,
 		Now:            now,
+		// Hermetic: browser endpoint discovery must not hit live DNS. A
+		// tcp-only answer exercises the identity-domain fallback.
+		DNS: &fakeDNSResolver{apisTXT: "v=lk1 tcp=127.0.0.1:1"},
 	})
 	if err != nil {
 		t.Fatalf("begin_local_login: %v", err)

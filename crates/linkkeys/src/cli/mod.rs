@@ -101,6 +101,10 @@ pub enum DomainCommands {
         /// The key id to revoke (see `domain list-keys`)
         key_id: String,
     },
+    /// Re-sign this domain's encryption-key vouches under the current vouch
+    /// tag. Run after an upgrade that changed the tag epoch (e.g. pre-0.14.1
+    /// domains), or any time a stored vouch no longer verifies. Idempotent.
+    ReVouch,
     /// Revoke a domain key by id (via TCP, admin-relation API key required).
     /// CSIL-RPC parity for `revoke-key`, for a controller that isn't running
     /// on the box holding the domain's own DB/passphrase.

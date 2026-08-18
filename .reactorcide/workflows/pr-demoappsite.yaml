@@ -1,0 +1,16 @@
+# PR check: the demoappsite Docker image must still build when demoappsite
+# files change.
+id: linkkeys-pr-demoappsite
+name: LinkKeys PR demoappsite image build
+on:
+  events:
+    - pull_request_opened
+    - pull_request_updated
+  branches:
+    - main
+paths:
+  include:
+    - "demoappsite/**"
+jobs:
+  linkkeys-demoappsite-build-test:
+    job_file: .reactorcide/jobs/demoappsite-build-test.yaml

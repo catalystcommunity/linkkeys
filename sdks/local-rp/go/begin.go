@@ -8,12 +8,20 @@ import (
 )
 
 // BeginLocalLogin (design doc: "SDK API Shape", "Flow" steps 4-6). Mirrors
-// sdks/local-rp/rust/src/begin.rs.
+// sdks/local-rp/rust/src/begin.rs (which does not perform endpoint
+// discovery yet — see sdks/local-rp/endpoint-discovery-parity.md).
 //
-// Pure/offline: no network access happens here. It generates a fresh
-// nonce/state, builds and signs a LocalRpLoginRequest around the identity's
-// already-signed descriptor, and returns a redirect URL plus the
-// pending-login state the app must persist and treat as single-use.
+// It generates a fresh nonce/state, builds and signs a LocalRpLoginRequest
+// around the identity's already-signed descriptor, and returns a redirect
+// URL plus the pending-login state the app must persist and treat as
+// single-use.
+//
+// The signing work is pure/offline. The one network touch is a DNS TXT
+// lookup of `_linkkeys_apis.<UserDomain>` to discover the browser-facing
+// HTTPS endpoint (the identity domain is a trust domain, not necessarily
+// the host serving the login routes). The resolver is injectable via
+// BeginLocalLoginConfig.DNS; on any discovery failure the redirect falls
+// back to `https://<UserDomain>`.
 
 // DefaultRequestedClaims are the default requested claims when the caller
 // doesn't specify any (design doc, "Default Claim Set"): a usable "identity"
@@ -53,6 +61,10 @@ type BeginLocalLoginConfig struct {
 	// DefaultLoginRequestLifetime when zero.
 	RequestLifetime time.Duration
 	Now             time.Time
+	// DNS is the DNS TXT lookup seam for browser endpoint discovery
+	// (`_linkkeys_apis.<UserDomain>`, its `https=` endpoint). Defaults to
+	// DefaultDNSResolver() when nil, same as CompleteLocalLoginConfig.DNS.
+	DNS DnsResolver
 }
 
 // LocalLoginRedirect is the redirect URL the app should send the user's
@@ -138,7 +150,18 @@ func BeginLocalLogin(config BeginLocalLoginConfig) (*LocalLoginRedirect, *Pendin
 
 	// Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>"
 	// — mirrors the existing GET /auth/authorize?signed_request=... shape.
-	redirectURL := fmt.Sprintf("https://%s/auth/local-rp?signed_request=%s", config.UserDomain, encoded)
+	// The host comes from `_linkkeys_apis.<UserDomain>` discovery (with a
+	// fallback to the identity domain itself); PendingLogin.UserDomain
+	// stays the identity domain — verification is bound to it, never to
+	// the discovered service host.
+	dns := config.DNS
+	if dns == nil {
+		dns = DefaultDNSResolver()
+	}
+	redirectURL, err := resolveBrowserEndpoint(dns, config.UserDomain, BrowserRouteLocalRp, encoded)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	return &LocalLoginRedirect{RedirectURL: redirectURL}, &PendingLogin{
 			Nonce:          nonce,

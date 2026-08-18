@@ -1185,6 +1185,77 @@ RpIssueAttestationResponse = {
 }
 
 ;; ============================================================
+;; IDP Authorize API Types
+;; ============================================================
+;;
+;; These back the IDP's authorize API (`/rp/authorize/validate`,
+;; `/rp/authorize/finalize`): an app that owns its own consent UI validates the
+;; RP's signed request and finalizes the login through these. CBOR over HTTPS,
+;; API-key authenticated, gated on the caller's api_access relation.
+
+;; Validate an RP's signed auth request before showing a consent UI.
+AuthorizeValidateRequest = {
+    ;; URL-param-encoded SignedAuthRequest.
+    signed_request: text
+}
+
+AuthorizeValidateResponse = {
+    relying_party: text,
+    callback_url: text,
+    requested_claims: [* text]
+}
+
+;; Finalize a login the consent UI approved: burn the request nonce, persist
+;; the consent grant, sign + encrypt the assertion, return the callback URL.
+AuthorizeFinalizeRequest = {
+    user_id: text,
+    ;; URL-param-encoded SignedAuthRequest.
+    signed_request: text,
+    ;; Claim types the user authorized; anything the RP did not request is ignored.
+    authorized_claims: [* text]
+}
+
+AuthorizeFinalizeResponse = {
+    redirect_url: text
+}
+
+;; ============================================================
+;; API Errors
+;; ============================================================
+;;
+;; Structured error body every HTTPS API route returns on failure (the CBOR
+;; equivalent of the CSIL-RPC envelope's status + error). `code` is the
+;; machine-readable cause a client switches on; `message` is human-readable and
+;; names the failed step. HTML error pages are a convenience of the built-in
+;; browser UI only — API surfaces always answer with this type.
+
+;; Machine-readable causes. Client action, by code:
+;; - request_already_used: the single-use login request is spent; start a new login.
+;; - rp_key_fetch_failed: the RP's keys could not be fetched or pinned (DNS/TCP);
+;;   the RP operator checks their DNS records and endpoint.
+;; - rp_encrypt_key_untrusted: no vouched encryption key for the RP; the RP
+;;   operator re-vouches (`linkkeys domain re-vouch`).
+;; - signing_failed / storage_failed: IDP-side fault; the IDP operator checks logs.
+;; - bad_request / unauthorized / forbidden / not_found / internal: generic
+;;   transport-shaped failures.
+ApiErrorCode =
+    "request_already_used" /
+    "rp_key_fetch_failed" /
+    "rp_encrypt_key_untrusted" /
+    "signing_failed" /
+    "storage_failed" /
+    "bad_request" /
+    "unauthorized" /
+    "forbidden" /
+    "not_found" /
+    "internal"
+
+ApiError = {
+    code: ApiErrorCode,
+    message: text
+}
+
+;; ============================================================
 ;; Local RP (DNS-less local relying party identity)
 ;; ============================================================
 ;;

@@ -96,7 +96,21 @@ redirect, pending, err := localrp.BeginLocalLogin(localrp.BeginLocalLoginConfig{
 })
 // Persist `pending` (a plain, JSON-taggable struct — put it in a
 // server-side session tied to the browser), then redirect the user's
-// browser to redirect.RedirectURL.
+// browser to redirect.RedirectURL — as returned, no rewriting.
+//
+// BeginLocalLogin discovers the browser endpoint itself: it reads the
+// `_linkkeys_apis.<UserDomain>` TXT record and uses its `https=` endpoint
+// (the identity domain is a trust domain, not necessarily the login host).
+// If discovery fails, it falls back to `https://<UserDomain>`. Set the DNS
+// field to inject a resolver (tests, hardened resolvers such as DoH):
+//
+//	redirect, pending, err := localrp.BeginLocalLogin(localrp.BeginLocalLoginConfig{
+//		// ... as above ...
+//		DNS: myResolver, // nil = system resolver
+//	})
+//
+// Regular-RP glue can reuse the same discovery for /auth/authorize via
+// ResolveBrowserBase + BuildBrowserEndpoint(base, BrowserRouteAuthorize, sr).
 
 // On callback, your app's HTTP handler receives a request whose query
 // string carries `encrypted_token=<...>`. Pass the request's full URL and

@@ -36,6 +36,9 @@ go.work.sum
 # Scratch notes (never commit)
 /scratch/
 
+# reactorcide run-local writes this summary at the repo root
+/reactorcide-workflow-summary.json
+
 # Security audit working notes / triage (never commit)
 /sec-explore/
 

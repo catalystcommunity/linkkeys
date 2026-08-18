@@ -89,6 +89,27 @@ pub mod pg {
             .map(Into::into)
     }
 
+    /// Replace an encryption key's vouch: the signing key that vouches for it
+    /// and that key's signature over the (fingerprint, expires_at) payload.
+    /// Used to re-vouch after a vouch-tag epoch change. Returns the resulting row.
+    pub fn update_vouch(
+        conn: &mut diesel::PgConnection,
+        key_id: &str,
+        signed_by_key_id: &str,
+        key_signature: &[u8],
+    ) -> QueryResult<DomainKey> {
+        let id: uuid::Uuid = key_id
+            .parse()
+            .map_err(|_| diesel::result::Error::NotFound)?;
+        diesel::update(domain_keys::table.find(id))
+            .set((
+                domain_keys::signed_by_key_id.eq(signed_by_key_id.to_string()),
+                domain_keys::key_signature.eq(key_signature.to_vec()),
+            ))
+            .get_result::<DomainKeyRow>(conn)
+            .map(Into::into)
+    }
+
     /// Mark a domain key revoked as of now, preserving an earlier revocation
     /// timestamp if one is already set (revocation time is load-bearing: messages
     /// before it stay valid). Returns the resulting row.
@@ -199,6 +220,27 @@ pub mod sqlite {
     }
 
     pub fn find_by_id(conn: &mut diesel::SqliteConnection, key_id: &str) -> QueryResult<DomainKey> {
+        domain_keys::table
+            .find(key_id)
+            .first::<DomainKeyRow>(conn)
+            .map(Into::into)
+    }
+
+    /// Replace an encryption key's vouch: the signing key that vouches for it
+    /// and that key's signature over the (fingerprint, expires_at) payload.
+    /// Used to re-vouch after a vouch-tag epoch change. Returns the resulting row.
+    pub fn update_vouch(
+        conn: &mut diesel::SqliteConnection,
+        key_id: &str,
+        signed_by_key_id: &str,
+        key_signature: &[u8],
+    ) -> QueryResult<DomainKey> {
+        diesel::update(domain_keys::table.find(key_id))
+            .set((
+                domain_keys::signed_by_key_id.eq(signed_by_key_id.to_string()),
+                domain_keys::key_signature.eq(key_signature.to_vec()),
+            ))
+            .execute(conn)?;
         domain_keys::table
             .find(key_id)
             .first::<DomainKeyRow>(conn)

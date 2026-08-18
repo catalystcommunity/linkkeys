@@ -6,15 +6,10 @@ description: "Deploy the linkidspec.com RP server (linkkeys-rp) on each release,
 # The live IDPs (todandlorna, catalystsquad) are deliberately NOT auto-deployed
 # here — those are human-gated via ~/linkkeys-redeploy.sh. Only the demo RP rolls
 # automatically so it stays in lockstep with the demoappsite.
-triggers:
-  events:
-    - push
-  branches:
-    - main
-paths:
-  include: ["version/VERSION.txt"]
+# Triggering lives in .reactorcide/workflows/deploy-server.yaml, where this
+# job depends on linkkeys-server-build-and-deploy.
 job:
-  image: containers.catalystsquad.com/public/reactorcide/runnerbase:dev
+  image: containers.catalystsquad.com/public/reactorcide/runnerbase:latest
   command: "bash ${REACTORCIDE_CODE_DIR:-/job/src}/.reactorcide/jobs/scripts/linkkeys-server-deploy.sh"
   # Long timeout: the deploy polls the registry for the freshly-built image
   # (WAIT_FOR_IMAGE_REPO) since the build job runs concurrently on the same bump.

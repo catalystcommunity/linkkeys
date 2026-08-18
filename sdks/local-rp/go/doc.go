@@ -28,7 +28,12 @@
 //	})
 //	// App: persist `pending` (it's a plain JSON-taggable struct — put it in
 //	// a server-side session), then redirect the browser to
-//	// redirect.RedirectURL.
+//	// redirect.RedirectURL. That URL's host comes from browser endpoint
+//	// discovery: [BeginLocalLogin] reads `_linkkeys_apis.<UserDomain>` and
+//	// uses its `https=` endpoint (falling back to `https://<UserDomain>`
+//	// when discovery fails), so the app never builds or corrects the
+//	// LinkKeys browser URL itself. Set BeginLocalLoginConfig.DNS to inject
+//	// a resolver (tests, hardened resolvers); nil uses the system resolver.
 //
 //	// On callback (app's HTTP handler received arrivedURL with an
 //	// `encrypted_token=` query parameter whose value is encryptedToken):

@@ -1,0 +1,20 @@
+# PR check: the linkkeys server Docker image must still build when server
+# code or the Dockerfile changes. Separate workflow so its path filter cannot
+# suppress the core PR checks.
+id: linkkeys-pr-server-image
+name: LinkKeys PR server image build
+on:
+  events:
+    - pull_request_opened
+    - pull_request_updated
+  branches:
+    - main
+paths:
+  include:
+    - "crates/**"
+    - "Cargo.toml"
+    - "Cargo.lock"
+    - "Dockerfile"
+jobs:
+  linkkeys-server-build-test:
+    job_file: .reactorcide/jobs/server-build-test.yaml
