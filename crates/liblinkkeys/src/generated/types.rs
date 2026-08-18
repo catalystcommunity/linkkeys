@@ -975,6 +975,51 @@ pub struct RpIssueAttestationResponse {
     pub deposited: bool,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct AuthorizeValidateRequest {
+    pub signed_request: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AuthorizeValidateResponse {
+    pub relying_party: String,
+    pub callback_url: String,
+    pub requested_claims: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AuthorizeFinalizeRequest {
+    pub user_id: String,
+    pub signed_request: String,
+    pub authorized_claims: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AuthorizeFinalizeResponse {
+    pub redirect_url: String,
+}
+
+/// ApiErrorCode variants
+#[derive(Debug, Clone, PartialEq)]
+pub enum ApiErrorCode {
+    RequestAlreadyUsed,
+    RpKeyFetchFailed,
+    RpEncryptKeyUntrusted,
+    SigningFailed,
+    StorageFailed,
+    BadRequest,
+    Unauthorized,
+    Forbidden,
+    NotFound,
+    Internal,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ApiError {
+    pub code: ApiErrorCode,
+    pub message: String,
+}
+
 pub type AeadSuite = String;
 
 pub type LocalRpPolicy = String;

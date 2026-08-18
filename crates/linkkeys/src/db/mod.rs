@@ -386,6 +386,32 @@ impl DbPool {
         }
     }
 
+    /// Replace an encryption key's vouch (signer id + signature). Used to
+    /// re-vouch under the current vouch-tag epoch.
+    pub fn update_domain_key_vouch(
+        &self,
+        key_id: &str,
+        signed_by_key_id: &str,
+        key_signature: &[u8],
+    ) -> QueryResult<models::DomainKey> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => domain_keys::pg::update_vouch(
+                &mut *pg_conn(p)?,
+                key_id,
+                signed_by_key_id,
+                key_signature,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => domain_keys::sqlite::update_vouch(
+                &mut *sqlite_conn(p)?,
+                key_id,
+                signed_by_key_id,
+                key_signature,
+            ),
+        }
+    }
+
     /// Revoke a domain key by id (SEC-08). Verification already rejects revoked
     /// keys via `signing_key_validity`; peers stop honoring it after their next
     /// pin recheck / DNS re-resolve.

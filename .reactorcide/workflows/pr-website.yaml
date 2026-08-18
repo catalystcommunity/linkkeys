@@ -1,0 +1,16 @@
+# PR check: the website Docker image must still build when website files
+# change.
+id: linkkeys-pr-website
+name: LinkKeys PR website image build
+on:
+  events:
+    - pull_request_opened
+    - pull_request_updated
+  branches:
+    - main
+paths:
+  include:
+    - "website/**"
+jobs:
+  linkkeys-website-build-test:
+    job_file: .reactorcide/jobs/website-build-test.yaml

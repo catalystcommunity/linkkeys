@@ -1,7 +1,7 @@
 name: linkkeys-test-sqlite
 description: "Run tests against SQLite backend"
 job:
-  image: containers.catalystsquad.com/public/reactorcide/runnerbase:dev
+  image: containers.catalystsquad.com/public/reactorcide/runnerbase:latest
   command: |
     set -e
     sudo apt-get update && sudo apt-get install -y --no-install-recommends \

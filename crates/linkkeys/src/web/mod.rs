@@ -65,6 +65,171 @@ fn cbor_response(data: Vec<u8>) -> (ContentType, Vec<u8>) {
     (ContentType::new("application", "cbor"), data)
 }
 
+/// The Err side of every CBOR API route: an HTTP status plus a CBOR `ApiError`
+/// body.
+type ApiErrorResponse = Custom<(ContentType, Vec<u8>)>;
+
+/// Build a structured API error response: an HTTP status plus a CBOR `ApiError`
+/// body (machine-readable `code`, human-readable `message` naming the failed
+/// step). Every API route answers failures with this — never a bare status and
+/// never HTML, so clients always get data they can act on.
+fn api_error(
+    status: Status,
+    code: liblinkkeys::generated::types::ApiErrorCode,
+    message: &str,
+) -> ApiErrorResponse {
+    let body = liblinkkeys::generated::encode_api_error(&liblinkkeys::generated::types::ApiError {
+        code,
+        message: message.to_string(),
+    });
+    Custom(status, cbor_response(body))
+}
+
+/// True for paths that are API surfaces: machine callers that must receive
+/// structured CBOR answers. Everything else is the built-in browser UI, whose
+/// convenience HTML pages are fine for people but never for API clients.
+fn is_api_path(path: &str) -> bool {
+    path.starts_with("/rp/")
+        || path.starts_with("/csil/")
+        || path == "/hello"
+        || path == "/healthcheck"
+        || path == "/readiness"
+}
+
+/// Default catcher: no failure may fall through to Rocket's built-in HTML
+/// error page on an API path. API surfaces answer a CBOR `ApiError`; browser
+/// paths get the minimal HTML error page. Every 5xx that reaches here is
+/// logged — routes log their specific cause at the failure site, this is the
+/// backstop for paths that don't.
+#[rocket::catch(default)]
+fn default_catcher(status: Status, req: &rocket::Request<'_>) -> ApiErrorResponse {
+    use liblinkkeys::generated::types::ApiErrorCode;
+    if status.code >= 500 {
+        log::error!(
+            "HTTP {} answered for {} {}",
+            status.code,
+            req.method(),
+            req.uri()
+        );
+    }
+    if is_api_path(req.uri().path().as_str()) {
+        let (code, message) = match status.code {
+            400 => (ApiErrorCode::BadRequest, "The request was malformed."),
+            401 => (
+                ApiErrorCode::Unauthorized,
+                "Authentication is required: send a valid API key.",
+            ),
+            403 => (ApiErrorCode::Forbidden, "The caller may not do this."),
+            404 => (ApiErrorCode::NotFound, "No such resource."),
+            422 => (
+                ApiErrorCode::BadRequest,
+                "The request body could not be parsed.",
+            ),
+            _ => (
+                ApiErrorCode::Internal,
+                "The server hit an unexpected error; the cause is in its logs.",
+            ),
+        };
+        api_error(status, code, message)
+    } else {
+        let page = render_error_page(&format!(
+            "Request failed ({}).",
+            status.reason().unwrap_or("error")
+        ));
+        Custom(status, (ContentType::HTML, page.0.into_bytes()))
+    }
+}
+
+/// Why a login finalize failed. Each variant carries enough to serve all three
+/// error surfaces: a machine-readable `ApiErrorCode` for API clients, a
+/// user-facing message for the browser consent flow, and a server-side log line
+/// naming the failed step (details stay out of client responses).
+#[derive(Debug)]
+pub enum FinalizeError {
+    /// The single-use login request nonce is already burned.
+    AlreadyUsed,
+    /// The RP's keys could not be fetched or pinned (DNS/TCP/pin failure).
+    RpKeyFetch(String),
+    /// The RP's keys were fetched but no trusted (vouched) encryption key
+    /// remained — the incident class the vouch-tag break caused.
+    RpEncryptKeyUntrusted,
+    /// Signing the consent grant or assertion, or sealing the token, failed.
+    Signing(String),
+    /// Persisting the consent grant failed.
+    Storage(String),
+}
+
+impl FinalizeError {
+    fn code(&self) -> liblinkkeys::generated::types::ApiErrorCode {
+        use liblinkkeys::generated::types::ApiErrorCode;
+        match self {
+            FinalizeError::AlreadyUsed => ApiErrorCode::RequestAlreadyUsed,
+            FinalizeError::RpKeyFetch(_) => ApiErrorCode::RpKeyFetchFailed,
+            FinalizeError::RpEncryptKeyUntrusted => ApiErrorCode::RpEncryptKeyUntrusted,
+            FinalizeError::Signing(_) => ApiErrorCode::SigningFailed,
+            FinalizeError::Storage(_) => ApiErrorCode::StorageFailed,
+        }
+    }
+
+    fn http_status(&self) -> Status {
+        match self {
+            FinalizeError::AlreadyUsed => Status::Conflict,
+            // The RP side is unreachable/untrustworthy, not this server.
+            FinalizeError::RpKeyFetch(_) | FinalizeError::RpEncryptKeyUntrusted => {
+                Status::BadGateway
+            }
+            FinalizeError::Signing(_) | FinalizeError::Storage(_) => Status::InternalServerError,
+        }
+    }
+
+    /// What the person at the consent screen (or an API client relaying to one)
+    /// should read: states the failed step and who can act on it.
+    fn user_message(&self, relying_party: &str) -> String {
+        match self {
+            FinalizeError::AlreadyUsed => {
+                "This login request has already been used. Please start a new login.".to_string()
+            }
+            FinalizeError::RpKeyFetch(_) => format!(
+                "Could not fetch {relying_party}'s keys. Its operator should check its \
+                 DNS records and endpoint."
+            ),
+            FinalizeError::RpEncryptKeyUntrusted => format!(
+                "{relying_party} has no trusted encryption key. Its operator should \
+                 re-vouch it (`linkkeys domain re-vouch`)."
+            ),
+            FinalizeError::Signing(_) => {
+                "Signing the login failed on this server. Contact its operator.".to_string()
+            }
+            FinalizeError::Storage(_) => {
+                "Storing the consent grant failed on this server. Contact its operator.".to_string()
+            }
+        }
+    }
+
+    /// Log the failure server-side with the failed step and the peer domain.
+    /// Client-caused errors log at warn; server/peer faults at error.
+    fn log(&self, relying_party: &str) {
+        match self {
+            FinalizeError::AlreadyUsed => {
+                log::warn!("finalize for {relying_party}: login request nonce already used")
+            }
+            FinalizeError::RpKeyFetch(cause) => {
+                log::error!("finalize for {relying_party}: RP key fetch failed: {cause}")
+            }
+            FinalizeError::RpEncryptKeyUntrusted => log::error!(
+                "finalize for {relying_party}: no trusted encryption key among its \
+                 fetched keys (vouch missing or not verifying — its operator must re-vouch)"
+            ),
+            FinalizeError::Signing(cause) => {
+                log::error!("finalize for {relying_party}: signing failed: {cause}")
+            }
+            FinalizeError::Storage(cause) => {
+                log::error!("finalize for {relying_party}: consent-grant store failed: {cause}")
+            }
+        }
+    }
+}
+
 /// Encode a list of CSIL `DomainClaim`s for opaque storage (the consent grant's
 /// recorded "offered claims"). The generated codec emits one encode/decode per
 /// record type, not for `Vec<T>`, so the list container is a plain CBOR array
@@ -86,6 +251,21 @@ fn db_err_to_status(e: diesel::result::Error) -> Status {
         diesel::result::Error::NotFound => Status::NotFound,
         _ => Status::InternalServerError,
     }
+}
+
+/// Log the cause of an internal failure and return the 500 status. Use in
+/// `map_err`/`ok_or_else` at every site that collapses an error to a 5xx, so
+/// the cause always lands in the server log (it never reaches the client).
+pub(crate) fn internal_error(step: &str, cause: impl std::fmt::Display) -> Status {
+    log::error!("{step} failed: {cause}");
+    Status::InternalServerError
+}
+
+/// Same as [`internal_error`] for upstream/peer failures: log the cause and
+/// return 502. The peer (or its operator) is the actionable party.
+pub(crate) fn bad_gateway(step: &str, cause: impl std::fmt::Display) -> Status {
+    log::error!("{step} failed: {cause}");
+    Status::BadGateway
 }
 
 /// Choose a random active *signing* key. Encryption keys (X25519) are excluded:
@@ -129,16 +309,23 @@ fn sign_assertion_for_user(
 ) -> Result<String, Status> {
     let domain_keys = pool
         .list_active_domain_keys()
-        .map_err(|_| Status::InternalServerError)?;
-    let dk = pick_active_signing_key(&domain_keys).ok_or(Status::InternalServerError)?;
+        .map_err(|e| internal_error("assertion signing: listing domain keys", e))?;
+    let dk = pick_active_signing_key(&domain_keys)
+        .ok_or_else(|| internal_error("assertion signing", "no active signing key"))?;
 
-    let passphrase = env::var("DOMAIN_KEY_PASSPHRASE").map_err(|_| Status::InternalServerError)?;
+    let passphrase = env::var("DOMAIN_KEY_PASSPHRASE")
+        .map_err(|_| internal_error("assertion signing", "DOMAIN_KEY_PASSPHRASE not set"))?;
     let sk_bytes =
         liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, passphrase.as_bytes())
-            .map_err(|_| Status::InternalServerError)?;
+            .map_err(|e| internal_error("assertion signing: decrypting domain key", e))?;
 
-    let algorithm = liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm)
-        .ok_or(Status::InternalServerError)?;
+    let algorithm =
+        liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm).ok_or_else(|| {
+            internal_error(
+                "assertion signing",
+                format!("unsupported algorithm {}", dk.algorithm),
+            )
+        })?;
 
     let subject = resolve_subject_profile(pool, &user.id);
     let assertion = liblinkkeys::assertions::build_assertion(
@@ -152,9 +339,10 @@ fn sign_assertion_for_user(
     );
 
     let signed = liblinkkeys::assertions::sign_assertion(&assertion, &dk.id, algorithm, &sk_bytes)
-        .map_err(|_| Status::InternalServerError)?;
+        .map_err(|e| internal_error("assertion signing", format!("{e:?}")))?;
 
-    liblinkkeys::encoding::assertion_to_url_param(&signed).map_err(|_| Status::InternalServerError)
+    liblinkkeys::encoding::assertion_to_url_param(&signed)
+        .map_err(|e| internal_error("assertion signing: encoding token", format!("{e:?}")))
 }
 
 /// Lifetime of a newly issued consent grant, from `CONSENT_GRANT_TTL_SECONDS`
@@ -426,8 +614,9 @@ pub(super) fn sign_consent_grant_for_user(
     let domain = get_domain_name();
     let domain_keys = pool
         .list_active_domain_keys()
-        .map_err(|_| Status::InternalServerError)?;
-    let passphrase = env::var("DOMAIN_KEY_PASSPHRASE").map_err(|_| Status::InternalServerError)?;
+        .map_err(|e| internal_error("consent grant signing: listing domain keys", e))?;
+    let passphrase = env::var("DOMAIN_KEY_PASSPHRASE")
+        .map_err(|_| internal_error("consent grant signing", "DOMAIN_KEY_PASSPHRASE not set"))?;
 
     // Own the decrypted private keys so the borrowed signers can reference them.
     let mut materials: Vec<(String, liblinkkeys::crypto::SigningAlgorithm, Vec<u8>)> = Vec::new();
@@ -440,11 +629,14 @@ pub(super) fn sign_consent_grant_for_user(
             &dk.private_key_encrypted,
             passphrase.as_bytes(),
         )
-        .map_err(|_| Status::InternalServerError)?;
+        .map_err(|e| internal_error("consent grant signing: decrypting domain key", e))?;
         materials.push((dk.id.clone(), algorithm, sk));
     }
     if materials.is_empty() {
-        return Err(Status::InternalServerError);
+        return Err(internal_error(
+            "consent grant signing",
+            "no usable signing key",
+        ));
     }
 
     let signers: Vec<liblinkkeys::claims::ClaimSigner> = materials
@@ -466,7 +658,8 @@ pub(super) fn sign_consent_grant_for_user(
         issued_at,
         expires_at,
     };
-    consent::sign_consent(&spec, &signers).map_err(|_| Status::InternalServerError)
+    consent::sign_consent(&spec, &signers)
+        .map_err(|e| internal_error("consent grant signing", format!("{e:?}")))
 }
 
 /// Verify a token and check that the audience matches the expected value.
@@ -480,7 +673,7 @@ fn verify_token_with_audience(
 
     let domain_keys = pool
         .list_active_domain_keys()
-        .map_err(|_| Status::InternalServerError)?;
+        .map_err(|e| internal_error("token verification: listing domain keys", e))?;
     let csil_keys: Vec<DomainPublicKey> = domain_keys.iter().map(Into::into).collect();
 
     let assertion = liblinkkeys::assertions::verify_assertion(&signed, &csil_keys)
@@ -528,7 +721,8 @@ fn readiness(ready: &State<Arc<AtomicBool>>) -> Result<(ContentType, Vec<u8>), S
     if ready.load(Ordering::SeqCst) {
         let resp = CheckResultResponse { result: true };
         let mut out = Vec::new();
-        ciborium::ser::into_writer(&resp, &mut out).map_err(|_| Status::InternalServerError)?;
+        ciborium::ser::into_writer(&resp, &mut out)
+            .map_err(|e| internal_error("readiness: encoding response", e))?;
         Ok(cbor_response(out))
     } else {
         Err(Status::ServiceUnavailable)
@@ -538,12 +732,18 @@ fn readiness(ready: &State<Arc<AtomicBool>>) -> Result<(ContentType, Vec<u8>), S
 // -- Hello --
 
 #[rocket::post("/hello", data = "<body>")]
-fn hello_post(body: Vec<u8>) -> Result<(ContentType, Vec<u8>), Custom<String>> {
+#[allow(clippy::result_large_err)]
+fn hello_post(body: Vec<u8>) -> Result<(ContentType, Vec<u8>), ApiErrorResponse> {
     let request: HelloRequest = if body.is_empty() {
         HelloRequest { name: None }
     } else {
-        ciborium::de::from_reader(&body[..])
-            .map_err(|e| Custom(Status::BadRequest, format!("Invalid CBOR: {}", e)))?
+        ciborium::de::from_reader(&body[..]).map_err(|e| {
+            api_error(
+                Status::BadRequest,
+                liblinkkeys::generated::types::ApiErrorCode::BadRequest,
+                &format!("Invalid CBOR: {}", e),
+            )
+        })?
     };
 
     let handler = HelloHandler;
@@ -552,9 +752,10 @@ fn hello_post(body: Vec<u8>) -> Result<(ContentType, Vec<u8>), Custom<String>> {
     let resp = HelloResponse { greeting };
     let mut out = Vec::new();
     ciborium::ser::into_writer(&resp, &mut out).map_err(|e| {
-        Custom(
+        api_error(
             Status::InternalServerError,
-            format!("CBOR encode error: {}", e),
+            liblinkkeys::generated::types::ApiErrorCode::Internal,
+            &format!("hello: encoding response failed: {}", e),
         )
     })?;
     Ok(cbor_response(out))
@@ -567,7 +768,8 @@ fn hello_get() -> Result<(ContentType, Vec<u8>), Status> {
 
     let resp = HelloResponse { greeting };
     let mut out = Vec::new();
-    ciborium::ser::into_writer(&resp, &mut out).map_err(|_| Status::InternalServerError)?;
+    ciborium::ser::into_writer(&resp, &mut out)
+        .map_err(|e| internal_error("hello: encoding response", e))?;
     Ok(cbor_response(out))
 }
 
@@ -713,14 +915,21 @@ pub(super) fn mint_login_proof(
 
     let domain_keys = pool
         .list_active_domain_keys()
-        .map_err(|_| Status::InternalServerError)?;
-    let dk = pick_active_signing_key(&domain_keys).ok_or(Status::InternalServerError)?;
-    let passphrase = env::var("DOMAIN_KEY_PASSPHRASE").map_err(|_| Status::InternalServerError)?;
+        .map_err(|e| internal_error("login proof: listing domain keys", e))?;
+    let dk = pick_active_signing_key(&domain_keys)
+        .ok_or_else(|| internal_error("login proof", "no active signing key"))?;
+    let passphrase = env::var("DOMAIN_KEY_PASSPHRASE")
+        .map_err(|_| internal_error("login proof", "DOMAIN_KEY_PASSPHRASE not set"))?;
     let sk_bytes =
         liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, passphrase.as_bytes())
-            .map_err(|_| Status::InternalServerError)?;
-    let algorithm = liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm)
-        .ok_or(Status::InternalServerError)?;
+            .map_err(|e| internal_error("login proof: decrypting domain key", e))?;
+    let algorithm =
+        liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm).ok_or_else(|| {
+            internal_error(
+                "login proof",
+                format!("unsupported algorithm {}", dk.algorithm),
+            )
+        })?;
 
     let expires_at =
         (chrono::Utc::now() + chrono::Duration::seconds(LOGIN_PROOF_TTL_SECONDS)).to_rfc3339();
@@ -733,7 +942,7 @@ pub(super) fn mint_login_proof(
         &expires_at,
     );
     let signature = liblinkkeys::crypto::sign_with_algorithm(algorithm, &payload, &sk_bytes)
-        .map_err(|_| Status::InternalServerError)?;
+        .map_err(|e| internal_error("login proof: signing", e))?;
 
     let envelope = LoginProofEnvelope {
         payload,
@@ -741,7 +950,8 @@ pub(super) fn mint_login_proof(
         signature,
     };
     let mut cbor = Vec::new();
-    ciborium::ser::into_writer(&envelope, &mut cbor).map_err(|_| Status::InternalServerError)?;
+    ciborium::ser::into_writer(&envelope, &mut cbor)
+        .map_err(|e| internal_error("login proof: encoding envelope", e))?;
     Ok(Base64UrlUnpadded::encode_string(&cbor))
 }
 
@@ -1147,12 +1357,14 @@ async fn finalize_login(
     )
     .await
     .map(Redirect::found)
+    .map_err(|e| e.user_message(&request.relying_party))
 }
 
 /// Same as `finalize_login` but returns the callback redirect URL instead of a
-/// `Redirect`, so the JSON authorize API (driven by our app's own consent UI)
+/// `Redirect`, so the CBOR authorize API (driven by an app's own consent UI)
 /// can hand the URL back to the browser. Burns the nonce + persists the consent
-/// grant exactly once, here.
+/// grant exactly once, here. Every failure is logged server-side with the
+/// failed step and the relying party before it is returned.
 async fn finalize_login_url(
     pool: &DbPool,
     net: &Net,
@@ -1161,13 +1373,42 @@ async fn finalize_login_url(
     request: &AuthRequest,
     authorized_claims: Vec<String>,
     requested: Vec<String>,
-) -> Result<String, String> {
+) -> Result<String, FinalizeError> {
+    let result = do_finalize_login_url(
+        pool,
+        net,
+        nonces,
+        user,
+        request,
+        authorized_claims,
+        requested,
+    )
+    .await;
+    if let Err(e) = &result {
+        e.log(&request.relying_party);
+    }
+    result
+}
+
+async fn do_finalize_login_url(
+    pool: &DbPool,
+    net: &Net,
+    nonces: &nonce_store::NonceStore,
+    user: &crate::db::models::User,
+    request: &AuthRequest,
+    authorized_claims: Vec<String>,
+    requested: Vec<String>,
+) -> Result<String, FinalizeError> {
+    // Fetch + trust-check the RP's encryption key FIRST: it is the only
+    // network-fallible step, so it runs before any single-use state is burned.
+    // A key-fetch or vouch failure leaves the login request retryable instead
+    // of consuming it and turning the retry into a second, different error.
+    let rp_enc_key = fetch_rp_encrypt_key(pool, net, &request.relying_party).await?;
+
     // Single-use: burn the trusted CBOR nonce now, at token issuance, so an
     // abandoned consent screen doesn't consume the login request prematurely.
     if !nonces.record(&format!("login:{}", request.nonce)) {
-        return Err(
-            "This login request has already been used. Please start a new login.".to_string(),
-        );
+        return Err(FinalizeError::AlreadyUsed);
     }
 
     // CBOR-record the claims the RP asserted about itself: the non-repudiable
@@ -1194,7 +1435,7 @@ async fn finalize_login_url(
             &issued_at,
             &expires_at,
         )
-        .map_err(|_| "Failed to sign consent grant.".to_string())?;
+        .map_err(|status| FinalizeError::Signing(format!("consent grant signing ({status})")))?;
         let grant_bytes = liblinkkeys::generated::encode_signed_consent_grant(&signed);
         pool.upsert_consent_grant(
             &grant_id,
@@ -1208,7 +1449,7 @@ async fn finalize_login_url(
             &issued_at,
             &expires_at,
         )
-        .map_err(|_| "Failed to store consent grant.".to_string())?;
+        .map_err(|e| FinalizeError::Storage(format!("consent grant upsert: {e}")))?;
     }
 
     let token = sign_assertion_for_user(
@@ -1218,11 +1459,10 @@ async fn finalize_login_url(
         &request.nonce,
         authorized_claims,
     )
-    .map_err(|_| "Internal server error during signing.".to_string())?;
+    .map_err(|status| FinalizeError::Signing(format!("assertion signing ({status})")))?;
 
-    let encrypted = encrypt_token_for_rp(pool, net, &token, &request.relying_party)
-        .await
-        .map_err(|_| "Failed to encrypt token for relying party.".to_string())?;
+    // Local-only from here: the RP's key is already in hand.
+    let encrypted = seal_token_for_rp(&token, &rp_enc_key)?;
 
     let separator = if request.callback_url.contains('?') {
         "&"
@@ -1235,10 +1475,12 @@ async fn finalize_login_url(
     ))
 }
 
-// -- JSON authorize API: our app owns the consent UI; these two authed routes
-// let it validate the RP's signed request and finalize (sign the assertion,
-// which must stay here since the domain key lives in linkkeys). net/nonces come
-// from Rocket state.
+// -- CBOR authorize API: an app that owns its own consent UI uses these two
+// authed routes to validate the RP's signed request and finalize (sign the
+// assertion, which must stay here since the domain key lives in linkkeys).
+// Bodies are CSIL CBOR (AuthorizeValidateRequest / AuthorizeFinalizeRequest);
+// every failure answers with a CBOR `ApiError` naming the cause. net/nonces
+// come from Rocket state.
 //
 // These are the browser-flow equivalent of the `Rp` CSIL-RPC oracles: finalize
 // mints a signed login assertion for a named user. `AuthenticatedUser` alone is
@@ -1247,7 +1489,11 @@ async fn finalize_login_url(
 // non-admin user, an impersonation path weaker than the SEC-06 TCP oracle yet
 // strictly more powerful. Both routes therefore require the same dedicated
 // `api_access` relation the `Rp` service demands.
-fn require_api_access(pool: &DbPool, user: &crate::db::models::User) -> Result<(), Status> {
+#[allow(clippy::result_large_err)]
+fn require_api_access(
+    pool: &DbPool,
+    user: &crate::db::models::User,
+) -> Result<(), ApiErrorResponse> {
     if crate::services::authorization::user_has_permission(
         pool,
         &user.id,
@@ -1257,22 +1503,31 @@ fn require_api_access(pool: &DbPool, user: &crate::db::models::User) -> Result<(
     ) {
         Ok(())
     } else {
-        Err(Status::Forbidden)
+        Err(api_error(
+            Status::Forbidden,
+            liblinkkeys::generated::types::ApiErrorCode::Forbidden,
+            "The calling API key lacks the api_access relation for this domain.",
+        ))
     }
 }
 
-#[derive(rocket::serde::Deserialize)]
-#[serde(crate = "rocket::serde")]
-struct AuthorizeValidateReq {
-    signed_request: String,
-}
-
-#[derive(rocket::serde::Serialize)]
-#[serde(crate = "rocket::serde")]
-struct AuthorizeValidateResp {
-    relying_party: String,
-    callback_url: String,
-    requested_claims: Vec<String>,
+/// Map an auth-request validation failure to its API error response. A key
+/// fetch failure is the RP side's fault (502, actionable by its operator);
+/// everything else means the submitted request itself is bad (400).
+fn validate_error_response(e: ValidateAuthRequestError) -> ApiErrorResponse {
+    use liblinkkeys::generated::types::ApiErrorCode;
+    match e {
+        ValidateAuthRequestError::KeyFetchFailed => api_error(
+            Status::BadGateway,
+            ApiErrorCode::RpKeyFetchFailed,
+            e.user_message(),
+        ),
+        _ => api_error(
+            Status::BadRequest,
+            ApiErrorCode::BadRequest,
+            e.user_message(),
+        ),
+    }
 }
 
 #[rocket::post("/rp/authorize/validate", data = "<body>")]
@@ -1280,35 +1535,33 @@ async fn rp_authorize_validate(
     auth: guard::AuthenticatedUser,
     pool: &State<DbPool>,
     net: &State<Net>,
-    body: rocket::serde::json::Json<AuthorizeValidateReq>,
-) -> Result<rocket::serde::json::Json<AuthorizeValidateResp>, Status> {
+    body: Vec<u8>,
+) -> Result<(ContentType, Vec<u8>), ApiErrorResponse> {
+    use liblinkkeys::generated::types::ApiErrorCode;
     require_api_access(pool, &auth.0)?;
-    match validate_signed_request(pool, net, &body.signed_request).await {
-        Ok(req) => Ok(rocket::serde::json::Json(AuthorizeValidateResp {
-            relying_party: req.relying_party.clone(),
-            callback_url: req.callback_url.clone(),
-            requested_claims: req
-                .requested_claims
-                .as_ref()
-                .map(requested_types)
-                .unwrap_or_default(),
-        })),
-        Err(_) => Err(Status::BadRequest),
-    }
-}
-
-#[derive(rocket::serde::Deserialize)]
-#[serde(crate = "rocket::serde")]
-struct AuthorizeFinalizeReq {
-    user_id: String,
-    signed_request: String,
-    authorized_claims: Vec<String>,
-}
-
-#[derive(rocket::serde::Serialize)]
-#[serde(crate = "rocket::serde")]
-struct AuthorizeFinalizeResp {
-    redirect_url: String,
+    let req = liblinkkeys::generated::decode_authorize_validate_request(&body).map_err(|e| {
+        api_error(
+            Status::BadRequest,
+            ApiErrorCode::BadRequest,
+            &format!("The request body is not a valid AuthorizeValidateRequest: {e}"),
+        )
+    })?;
+    let validated = validate_signed_request(pool, net, &req.signed_request)
+        .await
+        .map_err(validate_error_response)?;
+    Ok(cbor_response(
+        liblinkkeys::generated::encode_authorize_validate_response(
+            &liblinkkeys::generated::types::AuthorizeValidateResponse {
+                relying_party: validated.relying_party.clone(),
+                callback_url: validated.callback_url.clone(),
+                requested_claims: validated
+                    .requested_claims
+                    .as_ref()
+                    .map(requested_types)
+                    .unwrap_or_default(),
+            },
+        ),
+    ))
 }
 
 #[rocket::post("/rp/authorize/finalize", data = "<body>")]
@@ -1317,26 +1570,44 @@ async fn rp_authorize_finalize(
     pool: &State<DbPool>,
     net: &State<Net>,
     nonces: &State<nonce_store::NonceStore>,
-    body: rocket::serde::json::Json<AuthorizeFinalizeReq>,
-) -> Result<rocket::serde::json::Json<AuthorizeFinalizeResp>, Status> {
+    body: Vec<u8>,
+) -> Result<(ContentType, Vec<u8>), ApiErrorResponse> {
+    use liblinkkeys::generated::types::ApiErrorCode;
     require_api_access(pool, &auth.0)?;
-    let request = validate_signed_request(pool, net, &body.signed_request)
+    let req = liblinkkeys::generated::decode_authorize_finalize_request(&body).map_err(|e| {
+        api_error(
+            Status::BadRequest,
+            ApiErrorCode::BadRequest,
+            &format!("The request body is not a valid AuthorizeFinalizeRequest: {e}"),
+        )
+    })?;
+    let request = validate_signed_request(pool, net, &req.signed_request)
         .await
-        .map_err(|_| Status::BadRequest)?;
+        .map_err(validate_error_response)?;
     // This API does not carry provider-session evidence. It must not mint an
     // assertion for an explicit assurance request on an app's say-so. Browser
     // authorization routes validate that request against provider evidence.
     if request.authentication_requirements.is_some() {
-        return Err(Status::BadRequest);
+        return Err(api_error(
+            Status::BadRequest,
+            ApiErrorCode::BadRequest,
+            "This API cannot satisfy a request with authentication requirements; \
+             use the browser authorization flow.",
+        ));
     }
-    let user = pool
-        .find_user_by_id(&body.user_id)
-        .map_err(|_| Status::NotFound)?;
-    if !user.is_active {
-        return Err(Status::Forbidden);
-    }
-    if user.is_admin_account {
-        return Err(Status::Forbidden);
+    let user = pool.find_user_by_id(&req.user_id).map_err(|_| {
+        api_error(
+            Status::NotFound,
+            ApiErrorCode::NotFound,
+            "No user with the given user_id.",
+        )
+    })?;
+    if !user.is_active || user.is_admin_account {
+        return Err(api_error(
+            Status::Forbidden,
+            ApiErrorCode::Forbidden,
+            "This user cannot log in through this API.",
+        ));
     }
     let requested = request
         .requested_claims
@@ -1344,17 +1615,25 @@ async fn rp_authorize_finalize(
         .map(requested_types)
         .unwrap_or_default();
     // Never sign a claim the RP didn't request, whatever the caller passed.
-    let authorized: Vec<String> = body
+    let authorized: Vec<String> = req
         .authorized_claims
         .iter()
         .filter(|c| requested.contains(c))
         .cloned()
         .collect();
     match finalize_login_url(pool, net, nonces, &user, &request, authorized, requested).await {
-        Ok(url) => Ok(rocket::serde::json::Json(AuthorizeFinalizeResp {
-            redirect_url: url,
-        })),
-        Err(_) => Err(Status::InternalServerError),
+        Ok(url) => Ok(cbor_response(
+            liblinkkeys::generated::encode_authorize_finalize_response(
+                &liblinkkeys::generated::types::AuthorizeFinalizeResponse { redirect_url: url },
+            ),
+        )),
+        // The cause was already logged inside finalize_login_url; the client
+        // gets the code to switch on plus the actionable message.
+        Err(e) => Err(api_error(
+            e.http_status(),
+            e.code(),
+            &e.user_message(&request.relying_party),
+        )),
     }
 }
 
@@ -1956,32 +2235,44 @@ pub(super) fn render_error_page(message: &str) -> RawHtml<String> {
 /// Resolves RP keys via `rp::fetch_rp_keys` (local DB if same instance,
 /// DNS+HTTP otherwise), derives an X25519 public key from the first
 /// active key, and seals the assertion to it.
-pub async fn encrypt_token_for_rp(
+/// Fetch the RP's trusted keys and select its vouched X25519 encryption key.
+/// The only network-fallible part of token encryption — callers run it BEFORE
+/// burning any single-use state, so a fetch failure leaves the login request
+/// retryable. Distinguishes "could not fetch/pin keys" from "keys fetched but
+/// no vouched encryption key survived trust_keys" (the re-vouch incident class).
+pub(crate) async fn fetch_rp_encrypt_key(
     pool: &DbPool,
     net: &Net,
-    token_url_param: &str,
     rp_domain: &str,
-) -> Result<String, Status> {
+) -> Result<[u8; 32], FinalizeError> {
     let rp_keys = rp::fetch_rp_keys(pool, net, rp_domain)
         .await
-        .map_err(|_| Status::BadGateway)?;
+        .map_err(|e| FinalizeError::RpKeyFetch(e.to_string()))?;
 
     // Seal to the RP's dedicated X25519 ENCRYPTION key (key_usage == "encrypt"),
     // whose 32-byte public_key is used directly — no Ed25519→X25519 conversion.
     let rp_enc_key = rp_keys
         .iter()
         .find(|k| k.key_usage == "encrypt")
-        .ok_or(Status::BadGateway)?;
-    let x25519_pub: [u8; 32] = rp_enc_key
-        .public_key
-        .as_slice()
-        .try_into()
-        .map_err(|_| Status::InternalServerError)?;
+        .ok_or(FinalizeError::RpEncryptKeyUntrusted)?;
+    rp_enc_key.public_key.as_slice().try_into().map_err(|_| {
+        FinalizeError::RpKeyFetch(format!(
+            "encryption key {} for {} is not 32 bytes",
+            rp_enc_key.key_id, rp_domain
+        ))
+    })
+}
 
+/// Seal an already-signed token to the RP's X25519 encryption key. Local-only
+/// crypto — no network, no database.
+pub(crate) fn seal_token_for_rp(
+    token_url_param: &str,
+    x25519_pub: &[u8; 32],
+) -> Result<String, FinalizeError> {
     // The token is already base64url-encoded CBOR of SignedIdentityAssertion.
     // Decode it back to raw CBOR bytes for encryption.
     let signed_assertion = liblinkkeys::encoding::assertion_from_url_param(token_url_param)
-        .map_err(|_| Status::InternalServerError)?;
+        .map_err(|e| FinalizeError::Signing(format!("re-decoding token for sealing: {e:?}")))?;
     let cbor_bytes = liblinkkeys::generated::encode_signed_identity_assertion(&signed_assertion);
 
     // AEAD suite: no live negotiation channel reaches this call site yet (the
@@ -1992,8 +2283,8 @@ pub async fn encrypt_token_for_rp(
     // actually gets selected here. A future negotiation caller can set this
     // to any suite the RP has advertised support for.
     let suite = liblinkkeys::crypto::AeadSuite::Aes256Gcm;
-    let sealed = liblinkkeys::crypto::sealed_box_encrypt(&cbor_bytes, &x25519_pub, suite)
-        .map_err(|_| Status::InternalServerError)?;
+    let sealed = liblinkkeys::crypto::sealed_box_encrypt(&cbor_bytes, x25519_pub, suite)
+        .map_err(|e| FinalizeError::Signing(format!("sealing token: {e:?}")))?;
 
     let encrypted_token = liblinkkeys::generated::types::EncryptedToken {
         ephemeral_public_key: sealed.ephemeral_public_key,
@@ -2005,7 +2296,21 @@ pub async fn encrypt_token_for_rp(
     };
 
     liblinkkeys::encoding::encrypted_token_to_url_param(&encrypted_token)
-        .map_err(|_| Status::InternalServerError)
+        .map_err(|e| FinalizeError::Signing(format!("encoding encrypted token: {e:?}")))
+}
+
+/// Fetch the RP's encryption key and seal `token_url_param` to it. Kept as the
+/// one-call form for paths with no single-use state to protect; the finalize
+/// flow calls the two halves separately so the network fetch happens before
+/// the nonce burn.
+pub async fn encrypt_token_for_rp(
+    pool: &DbPool,
+    net: &Net,
+    token_url_param: &str,
+    rp_domain: &str,
+) -> Result<String, FinalizeError> {
+    let x25519_pub = fetch_rp_encrypt_key(pool, net, rp_domain).await?;
+    seal_token_for_rp(token_url_param, &x25519_pub)
 }
 
 // -- Userinfo: Token-based API --
@@ -2038,7 +2343,15 @@ pub async fn build_userinfo_signed(
         signed.public_keys.as_deref(),
     )
     .await
-    .map_err(|_| Status::BadGateway)?;
+    .map_err(|e| {
+        bad_gateway(
+            &format!(
+                "userinfo: resolving {}'s signing keys",
+                claimed.relying_party
+            ),
+            e,
+        )
+    })?;
 
     let request = liblinkkeys::userinfo::verify_user_info_request(
         signed,
@@ -2060,7 +2373,7 @@ pub async fn build_userinfo_signed(
             &format!("userinfo:{}", assertion.nonce),
             std::time::Duration::from_secs(MAX_USERINFO_REQUEST_AGE_SECONDS as u64),
         )
-        .map_err(|_| Status::InternalServerError)?;
+        .map_err(|e| internal_error("userinfo: recording redemption nonce", e))?;
     if !burned {
         return Err(Status::Unauthorized);
     }
@@ -2070,7 +2383,7 @@ pub async fn build_userinfo_signed(
         .map_err(db_err_to_status)?;
     let claims = pool
         .list_active_claims(&assertion.user_id)
-        .map_err(|_| Status::InternalServerError)?;
+        .map_err(|e| internal_error("userinfo: listing user claims", e))?;
 
     // Scope the released claims to exactly what the user consented to for this
     // audience, as recorded in the assertion. Fail-closed: an assertion with an
@@ -2227,6 +2540,7 @@ pub fn build_rocket(
     let rp_claims_config = crate::rp_config::RpClaimsConfig::load_from_env();
     let mut rocket_instance = rocket::custom(config)
         .mount("/", routes)
+        .register("/", rocket::catchers![default_catcher])
         .manage(db_pool)
         .manage(ready_flag)
         .manage(nonce_store)

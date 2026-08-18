@@ -5,6 +5,56 @@ use std::env;
 use crate::conversions::get_domain_name;
 use crate::db::DbPool;
 
+/// A core-operation failure: a transport status class plus a message that
+/// names the failed step. The message is wire-safe (no internals, no secrets)
+/// so the CSIL-RPC envelope's `error` field can carry it to the caller; the
+/// full cause is logged server-side by the constructors below.
+#[derive(Debug)]
+pub(crate) struct CoreError {
+    pub status: Status,
+    pub message: String,
+}
+
+/// Server-side fault: log the cause, put the step on the wire (500-class).
+fn core_internal(step: &str, cause: impl std::fmt::Display) -> CoreError {
+    log::error!("{step} failed: {cause}");
+    CoreError {
+        status: Status::InternalServerError,
+        message: format!("{step} failed on the serving domain"),
+    }
+}
+
+/// Upstream/peer fault: log the cause, put the step on the wire (502-class).
+fn core_upstream(step: &str, cause: impl std::fmt::Display) -> CoreError {
+    log::error!("{step} failed: {cause}");
+    CoreError {
+        status: Status::BadGateway,
+        message: format!("{step} failed"),
+    }
+}
+
+/// Caller fault: the message alone is the diagnosis; nothing to log.
+fn core_bad_request(message: &str) -> CoreError {
+    CoreError {
+        status: Status::BadRequest,
+        message: message.to_string(),
+    }
+}
+
+fn core_unauthorized(message: &str) -> CoreError {
+    CoreError {
+        status: Status::Unauthorized,
+        message: message.to_string(),
+    }
+}
+
+fn core_forbidden(message: &str) -> CoreError {
+    CoreError {
+        status: Status::Forbidden,
+        message: message.to_string(),
+    }
+}
+
 /// Core of sign-request: build and sign an auth request for the login redirect
 /// using this server's domain key. Shared by the web JSON route and the
 /// `Rp/sign-request` TCP op.
@@ -16,19 +66,26 @@ pub(crate) fn sign_request_core(
     requested_claims: Option<liblinkkeys::generated::types::ClaimRequest>,
     authentication_requirements: Option<liblinkkeys::generated::types::AuthenticationRequirements>,
     flow_context: Option<liblinkkeys::generated::types::AuthFlowContext>,
-) -> Result<liblinkkeys::generated::types::RpSignResponse, Status> {
+) -> Result<liblinkkeys::generated::types::RpSignResponse, CoreError> {
     let domain_keys = pool
         .list_active_domain_keys()
-        .map_err(|_| Status::InternalServerError)?;
-    let dk = super::pick_active_signing_key(&domain_keys).ok_or(Status::InternalServerError)?;
+        .map_err(|e| core_internal("sign-request: listing domain keys", e))?;
+    let dk = super::pick_active_signing_key(&domain_keys)
+        .ok_or_else(|| core_internal("sign-request", "no active signing key"))?;
 
-    let passphrase = env::var("DOMAIN_KEY_PASSPHRASE").map_err(|_| Status::InternalServerError)?;
+    let passphrase = env::var("DOMAIN_KEY_PASSPHRASE")
+        .map_err(|_| core_internal("sign-request", "DOMAIN_KEY_PASSPHRASE not set"))?;
     let sk_bytes =
         liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, passphrase.as_bytes())
-            .map_err(|_| Status::InternalServerError)?;
+            .map_err(|e| core_internal("sign-request: decrypting domain key", e))?;
 
-    let algorithm = liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm)
-        .ok_or(Status::InternalServerError)?;
+    let algorithm =
+        liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm).ok_or_else(|| {
+            core_internal(
+                "sign-request",
+                format!("unsupported algorithm {}", dk.algorithm),
+            )
+        })?;
 
     let mut request = liblinkkeys::auth_request::build_auth_request(
         &get_domain_name(),
@@ -73,7 +130,7 @@ pub(crate) fn sign_request_core(
             )
         })
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| Status::InternalServerError)?;
+        .map_err(|e| core_internal("sign-request: signing self claims", e))?;
     rp_claims.extend(crate::rp_config::load_signed_domain_claims());
     if !rp_claims.is_empty() {
         request.relying_party_claims = Some(rp_claims);
@@ -81,10 +138,10 @@ pub(crate) fn sign_request_core(
 
     let signed =
         liblinkkeys::auth_request::sign_auth_request(&request, &dk.id, algorithm, &sk_bytes)
-            .map_err(|_| Status::InternalServerError)?;
+            .map_err(|e| core_internal("sign-request: signing", format!("{e:?}")))?;
 
     let encoded = liblinkkeys::encoding::signed_auth_request_to_url_param(&signed)
-        .map_err(|_| Status::InternalServerError)?;
+        .map_err(|e| core_internal("sign-request: encoding", format!("{e:?}")))?;
 
     Ok(liblinkkeys::generated::types::RpSignResponse {
         signed_request: encoded,
@@ -97,22 +154,24 @@ pub(crate) fn sign_request_core(
 pub(crate) fn decrypt_token_core(
     pool: &DbPool,
     encrypted_token: &str,
-) -> Result<liblinkkeys::generated::types::RpDecryptResponse, Status> {
+) -> Result<liblinkkeys::generated::types::RpDecryptResponse, CoreError> {
     let encrypted_token = liblinkkeys::encoding::encrypted_token_from_url_param(encrypted_token)
-        .map_err(|_| Status::BadRequest)?;
+        .map_err(|_| core_bad_request("decrypt-token: the encrypted token is malformed"))?;
 
     // Absent `suite` means the mandatory-to-implement baseline (aes-256-gcm);
     // a present-but-unrecognized id is rejected outright rather than falling
     // back silently (Wire Precision: "reject an unadvertised/unsupported
     // suite").
-    let suite = liblinkkeys::crypto::resolve_aead_suite(encrypted_token.suite.as_deref())
-        .map_err(|_| Status::BadRequest)?;
+    let suite = liblinkkeys::crypto::resolve_aead_suite(encrypted_token.suite.as_deref()).map_err(
+        |_| core_bad_request("decrypt-token: the token names an unsupported AEAD suite"),
+    )?;
 
     let domain_keys = pool
         .list_active_domain_keys()
-        .map_err(|_| Status::InternalServerError)?;
+        .map_err(|e| core_internal("decrypt-token: listing domain keys", e))?;
 
-    let passphrase = env::var("DOMAIN_KEY_PASSPHRASE").map_err(|_| Status::InternalServerError)?;
+    let passphrase = env::var("DOMAIN_KEY_PASSPHRASE")
+        .map_err(|_| core_internal("decrypt-token", "DOMAIN_KEY_PASSPHRASE not set"))?;
 
     // Try each active ENCRYPTION key (key_usage == "encrypt"); its decrypted
     // private is an X25519 secret used directly — no Ed25519→X25519 conversion.
@@ -141,7 +200,9 @@ pub(crate) fn decrypt_token_core(
         }
     }
 
-    Err(Status::BadRequest)
+    Err(core_bad_request(
+        "decrypt-token: no active encryption key of this domain opens the token",
+    ))
 }
 
 /// Extract the bare host from an `https://` API base, dropping scheme, any
@@ -180,9 +241,9 @@ pub(crate) async fn fetch_userinfo_core(
     token: String,
     api_base: &str,
     domain: &str,
-) -> Result<liblinkkeys::generated::types::UserInfo, Status> {
+) -> Result<liblinkkeys::generated::types::UserInfo, CoreError> {
     if !api_base.starts_with("https://") {
-        return Err(Status::BadRequest);
+        return Err(core_bad_request("userinfo-fetch: api_base must be https"));
     }
 
     // Single-instance IDP+RP: when the IDP API we'd call is our own published
@@ -196,7 +257,13 @@ pub(crate) async fn fetch_userinfo_core(
     let our_api_host = env::var("API_HOSTNAME").unwrap_or_else(|_| get_domain_name());
     if api_base_host(api_base).is_some_and(|h| h.eq_ignore_ascii_case(&our_api_host)) {
         let signed = build_self_signed_userinfo_request(pool, token)?;
-        return super::build_userinfo_signed(pool, net, &signed).await;
+        // build_userinfo_signed logs its own cause at each failure site.
+        return super::build_userinfo_signed(pool, net, &signed)
+            .await
+            .map_err(|status| CoreError {
+                status,
+                message: "userinfo-fetch: local redemption failed".to_string(),
+            });
     }
 
     // Remote IDP: redeem over the server-to-server CSIL-RPC transport
@@ -206,10 +273,10 @@ pub(crate) async fn fetch_userinfo_core(
     // proof-of-possession signature the HTTPS path carries is unnecessary here.
     let fingerprints = lookup_linkkeys_fingerprints(net, domain)
         .await
-        .map_err(|_| Status::BadGateway)?;
+        .map_err(|e| core_upstream(&format!("userinfo-fetch: DNS anchors for {domain}"), e))?;
     let (addr, hostname) = lookup_tcp_target(net, domain)
         .await
-        .map_err(|_| Status::BadGateway)?;
+        .map_err(|e| core_upstream(&format!("userinfo-fetch: tcp target for {domain}"), e))?;
     let client_cert = own_client_cert(pool);
     let payload = liblinkkeys::generated::encode_get_user_info_request(
         &liblinkkeys::generated::types::GetUserInfoRequest {
@@ -229,8 +296,9 @@ pub(crate) async fn fetch_userinfo_core(
             None,
         )
         .await
-        .map_err(|_| Status::BadGateway)?;
-    liblinkkeys::generated::decode_user_info(&resp_bytes).map_err(|_| Status::BadGateway)
+        .map_err(|e| core_upstream(&format!("userinfo-fetch: get-user-info from {domain}"), e))?;
+    liblinkkeys::generated::decode_user_info(&resp_bytes)
+        .map_err(|e| core_upstream(&format!("userinfo-fetch: decoding {domain}'s response"), e))
 }
 
 /// Fetch a user's claims from the IDP on the relying party's behalf, proving
@@ -245,25 +313,31 @@ pub(crate) async fn fetch_userinfo_core(
 fn build_self_signed_userinfo_request(
     pool: &DbPool,
     token: String,
-) -> Result<liblinkkeys::generated::types::SignedUserInfoRequest, Status> {
+) -> Result<liblinkkeys::generated::types::SignedUserInfoRequest, CoreError> {
     let domain_keys = pool
         .list_active_domain_keys()
-        .map_err(|_| Status::InternalServerError)?;
+        .map_err(|e| core_internal("self-userinfo: listing domain keys", e))?;
     let signing_keys: Vec<_> = domain_keys
         .iter()
         .filter(|k| k.key_usage == "sign")
         .collect();
     if signing_keys.is_empty() {
-        return Err(Status::InternalServerError);
+        return Err(core_internal("self-userinfo", "no active signing key"));
     }
     let dk = signing_keys[rand::thread_rng().gen_range(0..signing_keys.len())];
 
-    let passphrase = env::var("DOMAIN_KEY_PASSPHRASE").map_err(|_| Status::InternalServerError)?;
+    let passphrase = env::var("DOMAIN_KEY_PASSPHRASE")
+        .map_err(|_| core_internal("self-userinfo", "DOMAIN_KEY_PASSPHRASE not set"))?;
     let sk_bytes =
         liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, passphrase.as_bytes())
-            .map_err(|_| Status::InternalServerError)?;
-    let algorithm = liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm)
-        .ok_or(Status::InternalServerError)?;
+            .map_err(|e| core_internal("self-userinfo: decrypting domain key", e))?;
+    let algorithm =
+        liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm).ok_or_else(|| {
+            core_internal(
+                "self-userinfo",
+                format!("unsupported algorithm {}", dk.algorithm),
+            )
+        })?;
 
     let mut nonce_bytes = [0u8; 16];
     rand::thread_rng().fill(&mut nonce_bytes[..]);
@@ -285,7 +359,7 @@ fn build_self_signed_userinfo_request(
         &sk_bytes,
         Some(inlined),
     )
-    .map_err(|_| Status::InternalServerError)
+    .map_err(|e| core_internal("self-userinfo: signing request", format!("{e:?}")))
 }
 
 /// Core of verify-assertion: verify a signed assertion against the issuing
@@ -296,21 +370,30 @@ pub(crate) async fn verify_assertion_core(
     net: &crate::net::Net,
     signed_assertion: &str,
     expected_domain: &str,
-) -> Result<liblinkkeys::generated::types::RpVerifyResponse, Status> {
+) -> Result<liblinkkeys::generated::types::RpVerifyResponse, CoreError> {
     // Decode the signed assertion from base64url
     let cbor_bytes = base64ct::Base64UrlUnpadded::decode_vec(signed_assertion)
-        .map_err(|_| Status::BadRequest)?;
+        .map_err(|_| core_bad_request("verify-assertion: the assertion is not valid base64url"))?;
     let signed = liblinkkeys::generated::decode_signed_identity_assertion(cbor_bytes.as_slice())
-        .map_err(|_| Status::BadRequest)?;
+        .map_err(|_| {
+            core_bad_request("verify-assertion: the assertion is not a SignedIdentityAssertion")
+        })?;
 
     // Fetch the domain's public keys
     let domain_keys = fetch_domain_keys(pool, net, expected_domain)
         .await
-        .map_err(|_| Status::BadGateway)?;
+        .map_err(|e| {
+            core_upstream(
+                &format!("verify-assertion: fetching {expected_domain}'s keys"),
+                e,
+            )
+        })?;
 
     // Verify the assertion
-    let assertion = liblinkkeys::assertions::verify_assertion(&signed, &domain_keys)
-        .map_err(|_| Status::Unauthorized)?;
+    let assertion =
+        liblinkkeys::assertions::verify_assertion(&signed, &domain_keys).map_err(|_| {
+            core_unauthorized("verify-assertion: no trusted key of the domain signed it")
+        })?;
 
     Ok(liblinkkeys::generated::types::RpVerifyResponse {
         assertion,
@@ -665,29 +748,43 @@ pub(crate) async fn issue_attestation_core(
     signed_request: liblinkkeys::generated::types::SignedSigningRequest,
     claim_type: &str,
     claim_value: &[u8],
-) -> Result<liblinkkeys::generated::types::RpIssueAttestationResponse, Status> {
+) -> Result<liblinkkeys::generated::types::RpIssueAttestationResponse, CoreError> {
     if !rp_issue_claim_allowed(claim_type) {
-        return Err(Status::Forbidden);
+        return Err(core_forbidden(
+            "issue-attestation: this domain does not issue that claim type",
+        ));
     }
 
     let preview = liblinkkeys::generated::decode_signing_request(&signed_request.request)
-        .map_err(|_| Status::BadRequest)?;
+        .map_err(|_| core_bad_request("issue-attestation: the signing request is malformed"))?;
     if !preview
         .requested_claim_types
         .iter()
         .any(|requested| requested == claim_type)
     {
-        return Err(Status::BadRequest);
+        return Err(core_bad_request(
+            "issue-attestation: the signing request does not ask for that claim type",
+        ));
     }
 
     let issuer_domain = get_domain_name();
     if preview.issuer_domain != issuer_domain {
-        return Err(Status::Forbidden);
+        return Err(core_forbidden(
+            "issue-attestation: the signing request names a different issuer domain",
+        ));
     }
 
     let keys = fetch_domain_keys(pool, net, &preview.subject_domain)
         .await
-        .map_err(|_| Status::BadGateway)?;
+        .map_err(|e| {
+            core_upstream(
+                &format!(
+                    "issue-attestation: fetching {}'s keys",
+                    preview.subject_domain
+                ),
+                e,
+            )
+        })?;
     let keysets = vec![liblinkkeys::claims::DomainKeySet {
         domain: preview.subject_domain.clone(),
         keys,
@@ -698,7 +795,7 @@ pub(crate) async fn issue_attestation_core(
         &issuer_domain,
         &keysets,
     )
-    .map_err(|_| Status::Unauthorized)?;
+    .map_err(|_| core_unauthorized("issue-attestation: the signing request's signature failed"))?;
 
     let claim = crate::services::attestation::issue_attested_claim(
         pool,
@@ -707,10 +804,13 @@ pub(crate) async fn issue_attestation_core(
         claim_type,
         claim_value,
     )
-    .map_err(|e| match e.code {
-        403 => Status::Forbidden,
-        400 => Status::BadRequest,
-        _ => Status::InternalServerError,
+    .map_err(|e| CoreError {
+        status: match e.code {
+            403 => Status::Forbidden,
+            400 => Status::BadRequest,
+            _ => Status::InternalServerError,
+        },
+        message: format!("issue-attestation: {}", e.message),
     })?;
 
     let deposited = match deposit_claim_to_domain(net, &request.subject_domain, &claim).await {

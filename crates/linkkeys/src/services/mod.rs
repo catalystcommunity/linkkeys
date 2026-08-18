@@ -3,6 +3,7 @@ pub mod admin;
 pub mod attestation;
 pub mod auth;
 pub mod authorization;
+pub mod domain_keys;
 pub mod handshake;
 pub mod hello;
 pub mod local_rp;

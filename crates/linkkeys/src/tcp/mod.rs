@@ -1442,13 +1442,15 @@ fn dispatch_account(
 }
 
 /// Map a web-layer `Status` (the Rp cores' error type) to a CSIL error response.
-fn rp_status_to_error(status: rocket::http::Status) -> Vec<u8> {
-    let code = match status.code {
+fn rp_status_to_error(e: crate::web::rp::CoreError) -> Vec<u8> {
+    let code = match e.status.code {
         400 => 2,       // BadRequest -> invalid payload
         401 | 403 => 5, // Unauthorized / Forbidden -> auth/verification
         _ => 4,         // BadGateway / InternalServerError -> internal
     };
-    error_response(code, status.reason().unwrap_or("error"))
+    // The message names the failed step (CoreError guarantees it is wire-safe),
+    // so a caller can act on the failure instead of guessing at a bare status.
+    error_response(code, &e.message)
 }
 
 /// Dispatch a `Rp` helper op, reusing the same core functions the web JSON routes

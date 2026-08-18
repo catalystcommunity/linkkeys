@@ -1,14 +1,8 @@
 name: linkkeys-website-build-and-deploy
 description: "Build website Docker image and deploy to Kubernetes via Helm"
-triggers:
-  events:
-    - push
-  branches:
-    - main
-paths:
-  include: ["website/content/extra_files/VERSION.txt"]
+# Triggering lives in .reactorcide/workflows/deploy-website.yaml.
 job:
-  image: containers.catalystsquad.com/public/reactorcide/runnerbase:dev
+  image: containers.catalystsquad.com/public/reactorcide/runnerbase:latest
   command: "bash ${REACTORCIDE_CODE_DIR:-/job/src}/.reactorcide/jobs/scripts/website-build-and-deploy.sh"
   timeout: 1800
   capabilities:

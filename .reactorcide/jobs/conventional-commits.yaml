@@ -1,13 +1,9 @@
 name: linkkeys-conventional-commits
 description: "Validate all PR commits follow conventional commit format"
-triggers:
-  events:
-    - pull_request_opened
-    - pull_request_updated
-  branches:
-    - main
+# Triggering and the downstream build/test fan-out live in
+# .reactorcide/workflows/pr.yaml — this file is the job body only.
 job:
-  image: containers.catalystsquad.com/public/reactorcide/runnerbase:dev
+  image: containers.catalystsquad.com/public/reactorcide/runnerbase:latest
   command: |
     set -e
     cd "${REACTORCIDE_CODE_DIR:-/job/src}"
@@ -53,11 +49,5 @@ job:
     fi
 
     echo "All commits follow conventional commit format."
-
-    runnerlib trigger \
-      .reactorcide/jobs/build.yaml \
-      .reactorcide/jobs/test-sqlite.yaml \
-      .reactorcide/jobs/test-postgres.yaml
   timeout: 300
   priority: 10
-  disable_run_local: true

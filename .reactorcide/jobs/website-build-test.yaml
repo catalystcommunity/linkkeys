@@ -1,15 +1,8 @@
 name: linkkeys-website-build-test
 description: "Verify the website Docker image builds successfully on PR"
-triggers:
-  events:
-    - pull_request_opened
-    - pull_request_updated
-  branches:
-    - main
-paths:
-  include: ["website/**"]
+# Triggering lives in .reactorcide/workflows/pr-website.yaml.
 job:
-  image: containers.catalystsquad.com/public/reactorcide/runnerbase:dev
+  image: containers.catalystsquad.com/public/reactorcide/runnerbase:latest
   command: "bash ${REACTORCIDE_CODE_DIR:-/job/src}/.reactorcide/jobs/scripts/website-build-test.sh"
   timeout: 900
   capabilities:

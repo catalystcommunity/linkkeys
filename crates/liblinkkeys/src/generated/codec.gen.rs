@@ -6957,6 +6957,212 @@ pub fn decode_rp_issue_attestation_response(
     csil_dec_rp_issue_attestation_response(&csil_root)
 }
 
+/// Build the canonical CBOR value tree for a AuthorizeValidateRequest.
+fn csil_enc_authorize_validate_request(csil_v: &AuthorizeValidateRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("signed_request"),
+        cbor_text(&csil_v.signed_request),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a AuthorizeValidateRequest from a decoded CBOR value tree.
+fn csil_dec_authorize_validate_request(
+    csil_root: &CsilCborValue,
+) -> Result<AuthorizeValidateRequest, CsilCborError> {
+    let signed_request = {
+        let csil_field = cbor_require(csil_root, "signed_request")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(AuthorizeValidateRequest { signed_request })
+}
+
+/// Encode a AuthorizeValidateRequest to canonical CSIL CBOR bytes.
+pub fn encode_authorize_validate_request(csil_v: &AuthorizeValidateRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_authorize_validate_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a AuthorizeValidateRequest.
+pub fn decode_authorize_validate_request(
+    csil_data: &[u8],
+) -> Result<AuthorizeValidateRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_authorize_validate_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a AuthorizeValidateResponse.
+fn csil_enc_authorize_validate_response(csil_v: &AuthorizeValidateResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
+    csil_entries.push((cbor_text("callback_url"), cbor_text(&csil_v.callback_url)));
+    csil_entries.push((cbor_text("relying_party"), cbor_text(&csil_v.relying_party)));
+    csil_entries.push((
+        cbor_text("requested_claims"),
+        cbor_enc_array(&csil_v.requested_claims, |csil_elem| cbor_text(csil_elem)),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a AuthorizeValidateResponse from a decoded CBOR value tree.
+fn csil_dec_authorize_validate_response(
+    csil_root: &CsilCborValue,
+) -> Result<AuthorizeValidateResponse, CsilCborError> {
+    let relying_party = {
+        let csil_field = cbor_require(csil_root, "relying_party")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let callback_url = {
+        let csil_field = cbor_require(csil_root, "callback_url")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let requested_claims = {
+        let csil_field = cbor_require(csil_root, "requested_claims")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+        csil_decode(csil_field)?
+    };
+    Ok(AuthorizeValidateResponse {
+        relying_party,
+        callback_url,
+        requested_claims,
+    })
+}
+
+/// Encode a AuthorizeValidateResponse to canonical CSIL CBOR bytes.
+pub fn encode_authorize_validate_response(csil_v: &AuthorizeValidateResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_authorize_validate_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a AuthorizeValidateResponse.
+pub fn decode_authorize_validate_response(
+    csil_data: &[u8],
+) -> Result<AuthorizeValidateResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_authorize_validate_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a AuthorizeFinalizeRequest.
+fn csil_enc_authorize_finalize_request(csil_v: &AuthorizeFinalizeRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
+    csil_entries.push((cbor_text("user_id"), cbor_text(&csil_v.user_id)));
+    csil_entries.push((
+        cbor_text("signed_request"),
+        cbor_text(&csil_v.signed_request),
+    ));
+    csil_entries.push((
+        cbor_text("authorized_claims"),
+        cbor_enc_array(&csil_v.authorized_claims, |csil_elem| cbor_text(csil_elem)),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a AuthorizeFinalizeRequest from a decoded CBOR value tree.
+fn csil_dec_authorize_finalize_request(
+    csil_root: &CsilCborValue,
+) -> Result<AuthorizeFinalizeRequest, CsilCborError> {
+    let user_id = {
+        let csil_field = cbor_require(csil_root, "user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let signed_request = {
+        let csil_field = cbor_require(csil_root, "signed_request")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let authorized_claims = {
+        let csil_field = cbor_require(csil_root, "authorized_claims")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+        csil_decode(csil_field)?
+    };
+    Ok(AuthorizeFinalizeRequest {
+        user_id,
+        signed_request,
+        authorized_claims,
+    })
+}
+
+/// Encode a AuthorizeFinalizeRequest to canonical CSIL CBOR bytes.
+pub fn encode_authorize_finalize_request(csil_v: &AuthorizeFinalizeRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_authorize_finalize_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a AuthorizeFinalizeRequest.
+pub fn decode_authorize_finalize_request(
+    csil_data: &[u8],
+) -> Result<AuthorizeFinalizeRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_authorize_finalize_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a AuthorizeFinalizeResponse.
+fn csil_enc_authorize_finalize_response(csil_v: &AuthorizeFinalizeResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("redirect_url"), cbor_text(&csil_v.redirect_url)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a AuthorizeFinalizeResponse from a decoded CBOR value tree.
+fn csil_dec_authorize_finalize_response(
+    csil_root: &CsilCborValue,
+) -> Result<AuthorizeFinalizeResponse, CsilCborError> {
+    let redirect_url = {
+        let csil_field = cbor_require(csil_root, "redirect_url")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(AuthorizeFinalizeResponse { redirect_url })
+}
+
+/// Encode a AuthorizeFinalizeResponse to canonical CSIL CBOR bytes.
+pub fn encode_authorize_finalize_response(csil_v: &AuthorizeFinalizeResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_authorize_finalize_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a AuthorizeFinalizeResponse.
+pub fn decode_authorize_finalize_response(
+    csil_data: &[u8],
+) -> Result<AuthorizeFinalizeResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_authorize_finalize_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ApiError.
+fn csil_enc_api_error(csil_v: &ApiError) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("code"), csil_enc_api_error_code(&csil_v.code)));
+    csil_entries.push((cbor_text("message"), cbor_text(&csil_v.message)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ApiError from a decoded CBOR value tree.
+fn csil_dec_api_error(csil_root: &CsilCborValue) -> Result<ApiError, CsilCborError> {
+    let code = {
+        let csil_field = cbor_require(csil_root, "code")?;
+        let csil_decode = csil_dec_api_error_code;
+        csil_decode(csil_field)?
+    };
+    let message = {
+        let csil_field = cbor_require(csil_root, "message")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(ApiError { code, message })
+}
+
+/// Encode a ApiError to canonical CSIL CBOR bytes.
+pub fn encode_api_error(csil_v: &ApiError) -> Vec<u8> {
+    cbor_encode(&csil_enc_api_error(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ApiError.
+pub fn decode_api_error(csil_data: &[u8]) -> Result<ApiError, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_api_error(&csil_root)
+}
+
 /// Build the canonical CBOR value tree for a LocalRpDescriptor.
 fn csil_enc_local_rp_descriptor(csil_v: &LocalRpDescriptor) -> CsilCborValue {
     let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(8);
@@ -8562,6 +8768,42 @@ fn csil_dec_check_value(csil_v: &CsilCborValue) -> Result<CheckValue, CsilCborEr
         }
         csil_other => Err(CsilCborError(format!(
             "csil cbor: unknown CheckValue variant {csil_other}"
+        ))),
+    }
+}
+
+/// Encode a ApiErrorCode enum as its bare literal value.
+fn csil_enc_api_error_code(csil_v: &ApiErrorCode) -> CsilCborValue {
+    match csil_v {
+        ApiErrorCode::RequestAlreadyUsed => cbor_text("request_already_used"),
+        ApiErrorCode::RpKeyFetchFailed => cbor_text("rp_key_fetch_failed"),
+        ApiErrorCode::RpEncryptKeyUntrusted => cbor_text("rp_encrypt_key_untrusted"),
+        ApiErrorCode::SigningFailed => cbor_text("signing_failed"),
+        ApiErrorCode::StorageFailed => cbor_text("storage_failed"),
+        ApiErrorCode::BadRequest => cbor_text("bad_request"),
+        ApiErrorCode::Unauthorized => cbor_text("unauthorized"),
+        ApiErrorCode::Forbidden => cbor_text("forbidden"),
+        ApiErrorCode::NotFound => cbor_text("not_found"),
+        ApiErrorCode::Internal => cbor_text("internal"),
+    }
+}
+
+/// Decode a bare literal value into a ApiErrorCode enum.
+fn csil_dec_api_error_code(csil_v: &CsilCborValue) -> Result<ApiErrorCode, CsilCborError> {
+    let csil_val = cbor_as_text(csil_v)?;
+    match csil_val.as_str() {
+        "request_already_used" => Ok(ApiErrorCode::RequestAlreadyUsed),
+        "rp_key_fetch_failed" => Ok(ApiErrorCode::RpKeyFetchFailed),
+        "rp_encrypt_key_untrusted" => Ok(ApiErrorCode::RpEncryptKeyUntrusted),
+        "signing_failed" => Ok(ApiErrorCode::SigningFailed),
+        "storage_failed" => Ok(ApiErrorCode::StorageFailed),
+        "bad_request" => Ok(ApiErrorCode::BadRequest),
+        "unauthorized" => Ok(ApiErrorCode::Unauthorized),
+        "forbidden" => Ok(ApiErrorCode::Forbidden),
+        "not_found" => Ok(ApiErrorCode::NotFound),
+        "internal" => Ok(ApiErrorCode::Internal),
+        csil_other => Err(CsilCborError(format!(
+            "csil cbor: unknown ApiErrorCode value {csil_other:?}"
         ))),
     }
 }

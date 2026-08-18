@@ -71,6 +71,7 @@ async fn main() {
         Commands::Domain(DomainCommands::DnsCheck) => domain_dns_check().await,
         Commands::Domain(DomainCommands::ListKeys) => domain_list_keys(),
         Commands::Domain(DomainCommands::RevokeKey { key_id }) => domain_revoke_key(&key_id),
+        Commands::Domain(DomainCommands::ReVouch) => domain_re_vouch(),
         Commands::Domain(DomainCommands::RevokeKeyRemote { key_id, server }) => {
             domain_revoke_key_remote(&key_id, server.as_deref())
         }
@@ -292,6 +293,9 @@ fn run_startup_transforms(pool: &linkkeys::db::DbPool) {
         Ok(_) => {}
         Err(e) => log::error!("Policy seed transform failed: {}", e),
     }
+    // Self-heal encryption-key vouches whose tag epoch is stale (they stop
+    // verifying on peers after a KEY_VOUCH_TAG change). Idempotent.
+    linkkeys::services::domain_keys::revouch_on_startup(pool);
 }
 
 fn get_passphrase() -> String {
@@ -386,6 +390,8 @@ fn generate_and_store_keypairs<F>(
 /// already exist. Re-running it on a domain created before split
 /// signing/encryption keys backfills the missing encryption key without minting
 /// new signing keys (which would be absent from DNS `fp=` and break pinning).
+/// A revoked encryption key does not block regeneration — "encryption key
+/// present" counts non-revoked keys only.
 ///
 /// Safety: the decision is made from the full key list. If that lookup *fails*
 /// we abort rather than generate — "I couldn't find the keys" must never become
@@ -400,7 +406,12 @@ fn domain_init() {
         std::process::exit(1);
     });
     let has_signing = existing.iter().any(|k| k.key_usage == "sign");
-    let has_encryption = existing.iter().any(|k| k.key_usage == "encrypt");
+    // Revoked encryption keys don't count: a domain whose only encryption key
+    // was revoked must be able to regenerate one, or it can never receive
+    // sealed tokens again.
+    let has_encryption = existing
+        .iter()
+        .any(|k| k.key_usage == "encrypt" && k.revoked_at.is_none());
 
     if has_signing {
         println!(
@@ -418,6 +429,35 @@ fn domain_init() {
     }
 
     println!("Domain init complete.");
+}
+
+/// Re-sign this domain's encryption-key vouches under the current vouch tag
+/// (`domain re-vouch`). A vouch is made once, at key creation; when the tag
+/// epoch changes (as in 0.14.1), stored vouches stop verifying on current peers
+/// and cross-domain logins fail at the encryption step. Idempotent: vouches
+/// that already verify are left untouched.
+fn domain_re_vouch() {
+    let passphrase = get_passphrase();
+    let db_pool = pool_with_migrations();
+    let results = linkkeys::services::domain_keys::revouch_encryption_keys(&db_pool, &passphrase)
+        .unwrap_or_else(|e| {
+            eprintln!("Re-vouch failed: {e}");
+            std::process::exit(1);
+        });
+    if results.is_empty() {
+        println!("No encryption keys to vouch for. Run `linkkeys domain init` to create one.");
+        return;
+    }
+    for (key_id, outcome) in results {
+        match outcome {
+            linkkeys::services::domain_keys::RevouchOutcome::AlreadyValid => {
+                println!("Encryption key {key_id}: vouch already valid under the current tag.");
+            }
+            linkkeys::services::domain_keys::RevouchOutcome::Revouched { signed_by_key_id } => {
+                println!("Encryption key {key_id}: re-vouched (signed by {signed_by_key_id}).");
+            }
+        }
+    }
 }
 
 /// List the domain's keys (DB-direct) so an admin can find a key id to revoke.

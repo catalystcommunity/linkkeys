@@ -1,0 +1,13 @@
+# Release on merge to main: semver-tags version bump plus GitHub release.
+# The version-bump push then fires the deploy-* workflows on their
+# VERSION.txt path filters.
+id: linkkeys-release
+name: LinkKeys release
+on:
+  events:
+    - pull_request_merged
+  branches:
+    - main
+jobs:
+  linkkeys-release:
+    job_file: .reactorcide/jobs/release.yaml

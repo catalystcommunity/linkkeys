@@ -1,0 +1,26 @@
+# Core pull-request checks: commit-message validation gates the workspace
+# build and the dual-database test matrix. Reactorcide owns discovery and the
+# graph — the old `runnerlib trigger` chain in conventional-commits is gone.
+id: linkkeys-pr
+name: LinkKeys pull request
+on:
+  events:
+    - pull_request_opened
+    - pull_request_updated
+  branches:
+    - main
+jobs:
+  linkkeys-conventional-commits:
+    job_file: .reactorcide/jobs/conventional-commits.yaml
+  linkkeys-build:
+    job_file: .reactorcide/jobs/build.yaml
+    depends_on:
+      - linkkeys-conventional-commits
+  linkkeys-test-sqlite:
+    job_file: .reactorcide/jobs/test-sqlite.yaml
+    depends_on:
+      - linkkeys-conventional-commits
+  linkkeys-test-postgres:
+    job_file: .reactorcide/jobs/test-postgres.yaml
+    depends_on:
+      - linkkeys-conventional-commits
