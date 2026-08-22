@@ -66,9 +66,14 @@ pub fn admin_ui_user_list(
     let nav = build_nav("admin", true, true);
     let flash = flash_html(msg, error);
 
+    // This internal admin UI has always shown every user, including purged
+    // ones — no reactivate/purge action lives here to react to, so keep that
+    // behavior explicit rather than picking up list-users' new default of
+    // excluding purged users.
     let req = ListUsersRequest {
         offset: None,
         limit: None,
+        include_purged: Some(true),
     };
     let resp = admin::list_users(pool.inner(), req).map_err(|_| Status::InternalServerError)?;
 

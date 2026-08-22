@@ -155,6 +155,31 @@ func TestBeginSignedRequestSurvivesDiscoveredURL(t *testing.T) {
 	}
 }
 
+func TestBeginParsesIdentityInput(t *testing.T) {
+	_, _, config := beginWith(t, &mapDNSResolver{err: errors.New("SERVFAIL")})
+	config.UserDomain = "Alice+work@ID.Example.TEST"
+	redirect, pending, err := localrp.BeginLocalLogin(config)
+	if err != nil {
+		t.Fatalf("BeginLocalLogin: %v", err)
+	}
+	if !strings.Contains(redirect.RedirectURL, "username=Alice%2Bwork") {
+		t.Fatalf("redirect missing encoded username: %s", redirect.RedirectURL)
+	}
+	if pending.UserDomain != "id.example.test" {
+		t.Fatalf("pending domain = %q", pending.UserDomain)
+	}
+}
+
+func TestBeginRejectsMalformedIdentityInput(t *testing.T) {
+	_, _, config := beginWith(t, &mapDNSResolver{err: errors.New("SERVFAIL")})
+	for _, input := range []string{"alice", "alice@@example.test", "https://example.test", "alice@example.test:+443"} {
+		config.UserDomain = input
+		if _, _, err := localrp.BeginLocalLogin(config); err == nil {
+			t.Fatalf("accepted %q", input)
+		}
+	}
+}
+
 // Case 9: a config without a DNS field compiles unchanged (this test is that
 // caller) and the default is the memoized system resolver. The default path
 // is not executed here — that would be a live DNS request.

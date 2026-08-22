@@ -1,5 +1,7 @@
 package community.catalyst.linkkeys.localrp;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -35,6 +37,7 @@ public final class Begin {
     public static final class BeginLocalLoginConfig {
         public final LocalRpKeyMaterial keyMaterial;
         public final String callbackUrl;
+        /** A LinkKeys login or domain. A full login adds a username hint. */
         public final String userDomain;
         public List<String> requestedClaims;
         public List<String> requiredClaims;
@@ -116,6 +119,42 @@ public final class Begin {
         }
     }
 
+    private record IdentityInput(String username, String domain) {}
+
+    private static IdentityInput parseIdentityInput(String value) {
+        String identity = value == null ? "" : value.trim();
+        if (!identity.matches("[\\x00-\\x7F]+") || identity.chars().filter(c -> c == '@').count() > 1) invalidIdentity();
+        int separator = identity.indexOf('@');
+        String username = separator >= 0 ? identity.substring(0, separator) : null;
+        String domain = separator >= 0 ? identity.substring(separator + 1) : identity;
+        if (username != null && !username.matches("(?!\\.)(?!.*\\.\\.)[A-Za-z0-9!#$%&'*+\\-/=?^_`{|}~.]{1,64}(?<!\\.)")) invalidIdentity();
+        if (!validDomain(domain)) invalidIdentity();
+        return new IdentityInput(username, domain.toLowerCase(java.util.Locale.ROOT));
+    }
+
+    private static boolean validDomain(String domain) {
+        if (domain.length() > 259 || !domain.matches("[^:]+(?::[0-9]+)?")) return false;
+        int separator = domain.lastIndexOf(':');
+        String host = separator >= 0 ? domain.substring(0, separator) : domain;
+        if (separator >= 0) {
+            try {
+                int port = Integer.parseInt(domain.substring(separator + 1));
+                if (port < 1 || port > 65535) return false;
+            } catch (NumberFormatException error) {
+                return false;
+            }
+        }
+        if (host.length() > 253 || (!host.contains(".") && separator < 0)) return false;
+        for (String label : host.split("\\.", -1)) {
+            if (label.length() < 1 || label.length() > 63 || !label.matches("(?!-)[A-Za-z0-9-]+(?<!-)")) return false;
+        }
+        return true;
+    }
+
+    private static void invalidIdentity() {
+        throw new SdkException(SdkException.Kind.INVALID_INPUT, "identity must be a username@domain or a domain");
+    }
+
     /**
      * {@code begin_local_login(config) -> (LocalLoginRedirect, PendingLogin)}
      * (design doc, "SDK API Shape"). Generates a fresh nonce/state, builds
@@ -125,9 +164,7 @@ public final class Begin {
      */
     public static BeginResult beginLocalLogin(BeginLocalLoginConfig config) {
         validateCallbackScheme(config.callbackUrl);
-        if (config.userDomain == null || config.userDomain.isBlank()) {
-            throw new SdkException(SdkException.Kind.INVALID_INPUT, "user_domain must not be empty");
-        }
+        IdentityInput identity = parseIdentityInput(config.userDomain);
 
         byte[] nonce = Crypto.randomBytes(32);
         byte[] state = Crypto.randomBytes(32);
@@ -152,10 +189,13 @@ public final class Begin {
         String encoded = Encoding.signedLocalRpLoginRequestToUrlParam(signed);
 
         // Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>".
-        String redirectUrl = "https://" + config.userDomain + "/auth/local-rp?signed_request=" + encoded;
+        String redirectUrl = "https://" + identity.domain() + "/auth/local-rp?signed_request=" + encoded;
+        if (identity.username() != null) {
+            redirectUrl += "&username=" + URLEncoder.encode(identity.username(), StandardCharsets.UTF_8).replace("+", "%20");
+        }
 
         return new BeginResult(
                 new LocalLoginRedirect(redirectUrl),
-                new PendingLogin(nonce, state, config.userDomain, config.callbackUrl, requiredClaims));
+                new PendingLogin(nonce, state, identity.domain(), config.callbackUrl, requiredClaims));
     }
 }

@@ -116,14 +116,15 @@ server-to-server calls to the IDP on your behalf):
    own `RP_CLAIMS_CONFIG`-configured defaults.
 2. **Redirect the browser** to
    `https://<user_domain>/auth/authorize?signed_request=<signed_request>`
-   (optionally `&user_hint=<hint>`) — or, more precisely, to the user's
+   (optionally `&username=<hint>`) — or, more precisely, to the user's
    domain's *published* HTTPS API base (its `_linkkeys_apis` TXT record's
    `https=` field), which normally equals `https://<user_domain>` but can be
    overridden. `user_domain` is whatever LinkKeys domain the *user* chose to
    log in with (e.g. from an `alice@example.com`-shaped identity string) —
    this is **not** your RP's own domain. The IDP's `GET /auth/authorize`
-   route only reads `signed_request` and `user_hint`; no other query
-   parameters matter.
+   route uses `signed_request` and the optional `username`. It also accepts
+   `user_hint` from old integrations. No other query parameters have an
+   effect.
 3. The user authenticates and consents at their IDP, which redirects back to
    your `callback_url` with `?encrypted_token=<...>`.
 4. **`Rp/decrypt-token`** `{encrypted_token}` → `{signed_assertion}`. Only
@@ -815,7 +816,7 @@ app.MapPost("/auth/login", async (HttpContext ctx) =>
 
     var redirectUrl = $"{apiBase}/auth/authorize" +
         $"?signed_request={Uri.EscapeDataString(signResult.SignedRequest)}" +
-        (userHint is not null ? $"&user_hint={Uri.EscapeDataString(userHint)}" : "");
+        (userHint is not null ? $"&username={Uri.EscapeDataString(userHint)}" : "");
 
     return Results.Redirect(redirectUrl);
 });
@@ -946,7 +947,7 @@ app.Run();
 // Helpers
 // ---------------------------------------------------------------------
 
-/// <summary>Parse "user@domain" or just "domain" into (user_hint, domain) — mirrors <c>demoappsite/src/main.rs</c>'s <c>parse_identity</c>.</summary>
+/// <summary>Parse "user@domain" or just "domain" into (username, domain) — mirrors <c>demoappsite/src/main.rs</c>'s <c>parse_identity</c>.</summary>
 static (string? UserHint, string Domain) ParseIdentity(string input)
 {
     var at = input.LastIndexOf('@');

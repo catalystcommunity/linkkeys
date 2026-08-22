@@ -939,13 +939,14 @@ fn proceed_to_consent_or_finalize(
 // Routes
 // ---------------------------------------------------------------------
 
-#[rocket::get("/auth/local-rp?<signed_request>")]
+#[rocket::get("/auth/local-rp?<signed_request>&<username>")]
 pub(super) fn auth_local_rp_get(
     pool: &State<DbPool>,
     nonces: &State<nonce_store::NonceStore>,
     cookies: &CookieJar<'_>,
     locale: guard::Locale,
     signed_request: Option<&str>,
+    username: Option<&str>,
 ) -> Result<rocket::Either<Redirect, RawHtml<String>>, Status> {
     let sr = signed_request.ok_or(Status::BadRequest)?;
     let now = chrono::Utc::now();
@@ -1007,7 +1008,7 @@ pub(super) fn auth_local_rp_get(
     Ok(rocket::Either::Right(render_local_rp_login_form(
         sr,
         &descriptor,
-        "",
+        username.unwrap_or(""),
         &locale.0,
         None,
     )))

@@ -51,7 +51,7 @@ const restored = localRpIdentityFromBytes(storedBytes);
 const { redirect, pending } = beginLocalLogin({
   keyMaterial: restored,
   callbackUrl: "http://jukebox.lan:8080/auth/callback",
-  userDomain: "example.com", // the LinkKeys domain the user selected/entered
+  userDomain: "alice@example.com", // a full login prefills alice; a bare domain only selects the IDP
   now: new Date(),
 });
 // Persist `pending` (it's plain JSON-serializable data — put it in a

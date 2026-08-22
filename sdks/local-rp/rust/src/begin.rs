@@ -8,7 +8,7 @@
 use crate::identity::LocalRpKeyMaterial;
 use crate::Error;
 use chrono::{DateTime, Duration, Utc};
-use liblinkkeys::{encoding, local_rp};
+use liblinkkeys::{encoding, identity_input::parse_identity_input, local_rp};
 use serde::{Deserialize, Serialize};
 
 /// Default requested claims when the caller doesn't specify any (design doc,
@@ -36,7 +36,8 @@ pub struct BeginLocalLoginConfig<'a> {
     /// misconfigured app fails fast instead of burning a round trip to
     /// discover it from the IDP's rejection page.
     pub callback_url: String,
-    /// The LinkKeys domain the user selected/entered.
+    /// The LinkKeys login or domain that the user entered. A full login adds
+    /// a username hint to the redirect. A bare domain selects only the IDP.
     pub user_domain: String,
     /// Requested (optional) claims. Defaults to [`DEFAULT_REQUESTED_CLAIMS`]
     /// when `None`.
@@ -129,11 +130,8 @@ pub fn begin_local_login(
     config: BeginLocalLoginConfig<'_>,
 ) -> Result<(LocalLoginRedirect, PendingLogin), Error> {
     validate_callback_scheme(&config.callback_url)?;
-    if config.user_domain.trim().is_empty() {
-        return Err(Error::InvalidInput(
-            "user_domain must not be empty".to_string(),
-        ));
-    }
+    let identity = parse_identity_input(&config.user_domain)
+        .map_err(|error| Error::InvalidInput(error.to_string()))?;
 
     let nonce: [u8; 32] = rand::random();
     let state: [u8; 32] = rand::random();
@@ -185,21 +183,38 @@ pub fn begin_local_login(
 
     // Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>"
     // — mirrors the existing GET /auth/authorize?signed_request=... shape.
-    let redirect_url = format!(
+    let mut redirect_url = format!(
         "https://{}/auth/local-rp?signed_request={}",
-        config.user_domain, encoded
+        identity.domain, encoded
     );
+    if let Some(username) = identity.username {
+        redirect_url.push_str("&username=");
+        redirect_url.push_str(&percent_encode_query_value(&username));
+    }
 
     Ok((
         LocalLoginRedirect { redirect_url },
         PendingLogin {
             nonce: nonce.to_vec(),
             state: state.to_vec(),
-            user_domain: config.user_domain,
+            user_domain: identity.domain,
             callback_url: config.callback_url,
             required_claims: pending_required_claims,
         },
     ))
+}
+
+fn percent_encode_query_value(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            output.push(char::from(byte));
+        } else {
+            use std::fmt::Write;
+            write!(&mut output, "%{byte:02X}").expect("writing to a String cannot fail");
+        }
+    }
+    output
 }
 
 #[cfg(test)]
@@ -237,6 +252,38 @@ mod tests {
                 .map(|s| s.to_string())
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn full_login_adds_username_hint_and_binds_pending_to_domain() {
+        let m = material();
+        let (redirect, pending) = begin_local_login(BeginLocalLoginConfig::new(
+            &m,
+            "http://localhost/callback",
+            "Alice+work@ID.Example.COM",
+            Utc::now(),
+        ))
+        .unwrap();
+
+        assert!(redirect.redirect_url.starts_with(
+            "https://id.example.com/auth/local-rp?signed_request="
+        ));
+        assert!(redirect.redirect_url.ends_with("&username=Alice%2Bwork"));
+        assert_eq!(pending.user_domain, "id.example.com");
+    }
+
+    #[test]
+    fn malformed_identity_is_rejected() {
+        let m = material();
+        for input in ["alice", "alice@@example.com", "https://example.com"] {
+            let result = begin_local_login(BeginLocalLoginConfig::new(
+                &m,
+                "http://localhost/callback",
+                input,
+                Utc::now(),
+            ));
+            assert!(result.is_err(), "accepted {input:?}");
+        }
     }
 
     #[test]

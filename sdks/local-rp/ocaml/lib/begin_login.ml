@@ -21,7 +21,7 @@ let default_login_request_lifetime = 5.0 *. 60.0
 type config = {
   key_material : Identity.key_material;
   callback_url : string;
-  user_domain : string;
+  user_domain : string; (* Full login or bare domain. A full login adds a username hint. *)
   now : float;
   requested_claims : string list option;
   required_claims : string list option;
@@ -94,6 +94,74 @@ let validate_callback_scheme (url : string) : unit =
   if not (has_prefix "http://" || has_prefix "https://") then
     Error.raise_ (Error.Invalid_config (Printf.sprintf "callback_url must be http:// or https://, got: %S" url))
 
+let invalid_identity () : 'a =
+  Error.raise_ (Error.Invalid_config "identity must be a username@domain or a domain")
+
+let string_for_all (f : char -> bool) (value : string) : bool =
+  let rec loop i = i = String.length value || (f value.[i] && loop (i + 1)) in
+  loop 0
+
+let valid_username (value : string) : bool =
+  let len = String.length value in
+  let allowed c =
+    match c with
+    | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9'
+    | '!' | '#' | '$' | '%' | '&' | '\'' | '*' | '+' | '-' | '/' | '=' | '?'
+    | '^' | '_' | '`' | '{' | '|' | '}' | '~' | '.' -> true
+    | _ -> false
+  in
+  len >= 1 && len <= 64 && value.[0] <> '.' && value.[len - 1] <> '.' &&
+  string_for_all allowed value &&
+  let rec no_double_dot i = i >= len || not (value.[i - 1] = '.' && value.[i] = '.') && no_double_dot (i + 1) in
+  no_double_dot 1
+
+let valid_domain (domain : string) : bool =
+  let len = String.length domain in
+  if len = 0 || len > 259 then false else
+  let colon = String.index_opt domain ':' in
+  let host, has_port, port_valid =
+    match colon with
+    | None -> (domain, false, true)
+    | Some i when String.index_from_opt domain (i + 1) ':' = None ->
+        let port = String.sub domain (i + 1) (len - i - 1) in
+        let valid = port <> "" && string_for_all (function '0' .. '9' -> true | _ -> false) port &&
+          try let n = int_of_string port in n >= 1 && n <= 65535 with Failure _ -> false in
+        (String.sub domain 0 i, true, valid)
+    | Some _ -> ("", false, false)
+  in
+  let valid_label label =
+    let n = String.length label in
+    n >= 1 && n <= 63 && label.[0] <> '-' && label.[n - 1] <> '-' &&
+    string_for_all (function 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' -> true | _ -> false) label
+  in
+  port_valid && String.length host <= 253 && (has_port || String.contains host '.') &&
+  List.for_all valid_label (String.split_on_char '.' host)
+
+let parse_identity_input (value : string) : string option * string =
+  let identity = String.trim value in
+  if identity = "" || not (string_for_all (fun c -> Char.code c <= 127) identity) then invalid_identity ();
+  let parts = String.split_on_char '@' identity in
+  let username, domain = match parts with
+    | [ domain ] -> (None, domain)
+    | [ username; domain ] when valid_username username -> (Some username, domain)
+    | _ -> invalid_identity ()
+  in
+  if not (valid_domain domain) then invalid_identity ();
+  (username, String.lowercase_ascii domain)
+
+let percent_encode_query_value (value : string) : string =
+  let hex = "0123456789ABCDEF" in
+  let output = Buffer.create (String.length value) in
+  String.iter (fun c ->
+    match c with
+    | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' | '.' | '_' | '~' -> Buffer.add_char output c
+    | _ ->
+        let n = Char.code c in
+        Buffer.add_char output '%';
+        Buffer.add_char output hex.[n lsr 4];
+        Buffer.add_char output hex.[n land 15]) value;
+  Buffer.contents output
+
 (* [begin_local_login(config) -> (LocalLoginRedirect, PendingLogin)] (design
    doc, "SDK API Shape"). Generates a fresh nonce/state, builds and signs a
    [LocalRpLoginRequest] (envelope + linkkeys-local-rp-login-request-v1alpha
@@ -102,7 +170,7 @@ let validate_callback_scheme (url : string) : unit =
    state. *)
 let begin_local_login_exn (config : config) : local_login_redirect * pending_login =
   validate_callback_scheme config.callback_url;
-  if String.trim config.user_domain = "" then Error.raise_ (Error.Invalid_config "user_domain must not be empty");
+  let username, domain = parse_identity_input config.user_domain in
   let nonce = Crypto.random_bytes 32 in
   let state = Crypto.random_bytes 32 in
   let requested_claims = match config.requested_claims with Some c -> c | None -> default_requested_claims in
@@ -119,9 +187,12 @@ let begin_local_login_exn (config : config) : local_login_redirect * pending_log
   (* Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>"
      -- mirrors the existing GET /auth/authorize?signed_request=... route
      shape. *)
-  let redirect_url = Printf.sprintf "https://%s/auth/local-rp?signed_request=%s" config.user_domain encoded in
+  let redirect_url = match username with
+    | Some username -> Printf.sprintf "https://%s/auth/local-rp?signed_request=%s&username=%s" domain encoded (percent_encode_query_value username)
+    | None -> Printf.sprintf "https://%s/auth/local-rp?signed_request=%s" domain encoded
+  in
   ( { redirect_url },
-    { nonce; state; user_domain = config.user_domain; callback_url = config.callback_url; required_claims } )
+    { nonce; state; user_domain = domain; callback_url = config.callback_url; required_claims } )
 
 let begin_local_login (config : config) : (local_login_redirect * pending_login, Error.t) result =
   Error.capture (fun () -> begin_local_login_exn config)

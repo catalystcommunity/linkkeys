@@ -84,6 +84,46 @@ defmodule LinkkeysLocalRp.Begin do
     end
   end
 
+  defp parse_identity_input!(value) do
+    identity = String.trim(value)
+    parts = String.split(identity, "@")
+    ascii = String.to_charlist(identity) |> Enum.all?(&(&1 <= 127))
+    if identity == "" or not ascii or length(parts) > 2, do: invalid_identity!()
+
+    {username, domain} =
+      case parts do
+        [domain] -> {nil, domain}
+        [username, domain] -> {username, domain}
+      end
+
+    if username != nil and
+         not Regex.match?(~r/^(?!\.)(?!.*\.\.)[A-Za-z0-9!#$%&'*+\-\/?=^_`{|}~.]{1,64}(?<!\.)$/, username),
+       do: invalid_identity!()
+
+    case Regex.run(~r/^([^:]+)(?::([0-9]+))?$/, domain) do
+      [_, host] -> validate_identity_domain!(domain, host, nil)
+      [_, host, port] -> validate_identity_domain!(domain, host, String.to_integer(port))
+      _ -> invalid_identity!()
+    end
+
+    {username, String.downcase(domain)}
+  end
+
+  defp validate_identity_domain!(domain, host, port) do
+    labels_valid =
+      String.split(host, ".", trim: false)
+      |> Enum.all?(fn label ->
+        String.length(label) in 1..63 and Regex.match?(~r/^(?!-)[A-Za-z0-9-]+(?<!-)$/, label)
+      end)
+
+    if String.length(domain) > 259 or String.length(host) > 253 or
+         (not String.contains?(host, ".") and port == nil) or not labels_valid or
+         (port != nil and port not in 1..65_535),
+       do: invalid_identity!()
+  end
+
+  defp invalid_identity!, do: raise(BeginLoginError, message: "identity must be a username@domain or a domain")
+
   @doc """
   `begin_local_login(config) -> {LocalLoginRedirect, PendingLogin}` (design
   doc, "SDK API Shape"). Generates a fresh nonce/state, builds and signs a
@@ -95,7 +135,7 @@ defmodule LinkkeysLocalRp.Begin do
   `config` (keyword list or map):
   - `:key_material` (required, `LocalRpKeyMaterial`)
   - `:callback_url` (required)
-  - `:user_domain` (required)
+  - `:user_domain` (required login or domain; a full login adds a username hint)
   - `:now` (required, `DateTime.t()`)
   - `:requested_claims` (optional, defaults to #{inspect(@default_requested_claims)})
   - `:required_claims` (optional, defaults to #{inspect(@default_required_claims)})
@@ -110,9 +150,7 @@ defmodule LinkkeysLocalRp.Begin do
 
     validate_callback_scheme!(callback_url)
 
-    if String.trim(user_domain) == "" do
-      raise BeginLoginError, message: "user_domain must not be empty"
-    end
+    {username, domain} = parse_identity_input!(user_domain)
 
     nonce = :crypto.strong_rand_bytes(32)
     state = :crypto.strong_rand_bytes(32)
@@ -143,14 +181,15 @@ defmodule LinkkeysLocalRp.Begin do
 
     # Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>"
     # — mirrors the existing GET /auth/authorize?signed_request=... shape.
-    redirect_url = "https://#{user_domain}/auth/local-rp?signed_request=#{encoded}"
+    redirect_url = "https://#{domain}/auth/local-rp?signed_request=#{encoded}"
+    redirect_url = if username, do: redirect_url <> "&username=" <> URI.encode_www_form(username), else: redirect_url
 
     {
       %LocalLoginRedirect{redirect_url: redirect_url},
       %PendingLogin{
         nonce: nonce,
         state: state,
-        user_domain: user_domain,
+        user_domain: domain,
         callback_url: callback_url,
         required_claims: required_claims
       }

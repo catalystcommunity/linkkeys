@@ -114,7 +114,7 @@ API-key-authenticated via the envelope's `auth` field
 1. **`Rp/sign-request`** `{callback_url, nonce}` → `{signed_request}` — the RP
    server signs an auth request with the domain key it holds.
 2. Redirect the browser to `https://<user's IDP>/auth/authorize?signed_request=<...>`
-   (optionally `&user_hint=<local-part>` if the user typed `user@domain`).
+   (optionally `&username=<local-part>` if the user typed `user@domain`).
 3. The browser comes back to your `/callback` carrying `?encrypted_token=<...>`.
 4. **`Rp/decrypt-token`** `{encrypted_token}` → `{signed_assertion}`.
 5. **`Rp/verify-assertion`** `{signed_assertion, expected_domain}` →
@@ -1126,7 +1126,7 @@ async function handleLogin(req: IncomingMessage, res: ServerResponse): Promise<v
   // the callback URL itself carries only `encrypted_token`.
   const target = new URL("/auth/authorize", apiBase);
   target.searchParams.set("signed_request", signed.signedRequest);
-  if (userHint) target.searchParams.set("user_hint", userHint);
+  if (userHint) target.searchParams.set("username", userHint);
 
   res.writeHead(302, {
     location: target.toString(),

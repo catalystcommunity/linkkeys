@@ -374,14 +374,6 @@ struct AttestationForm {
     request: String,
 }
 
-/// Parse "user@domain" or just "domain" into (user_hint, domain).
-fn parse_identity(input: &str) -> (Option<&str>, &str) {
-    match input.rsplit_once('@') {
-        Some((user, domain)) if !user.is_empty() && !domain.is_empty() => (Some(user), domain),
-        _ => (None, input),
-    }
-}
-
 /// Resolve a domain's HTTPS API base URL via its `_linkkeys_apis` DNS TXT
 /// record (the `https=host[:port][/path]` field; the scheme is implied).
 /// Falls back to `https://{domain}` if no record is found. The demo is a
@@ -498,7 +490,7 @@ async fn begin_linkkeys_redirect(
     cookies: &CookieJar<'_>,
     rp_config: &RpConfig,
     domain: &str,
-    user_hint: Option<&str>,
+    username: Option<&str>,
     requested_claims: lk::ClaimRequest,
     flow_context: Option<lk::AuthFlowContext>,
 ) -> Result<Redirect, RawHtml<String>> {
@@ -537,11 +529,11 @@ async fn begin_linkkeys_redirect(
     cookies.add_private(state_cookie);
 
     let redirect_url = format!(
-        "{}/auth/authorize?callback_url={}&nonce={}&user_hint={}&relying_party={}&signed_request={}",
+        "{}/auth/authorize?callback_url={}&nonce={}&username={}&relying_party={}&signed_request={}",
         api_base,
         simple_url_encode(&callback_url),
         simple_url_encode(&nonce),
-        simple_url_encode(user_hint.unwrap_or("")),
+        simple_url_encode(username.unwrap_or("")),
         simple_url_encode(&rp_config.domain),
         simple_url_encode(&sign_result.signed_request),
     );
@@ -555,25 +547,22 @@ async fn login(
     rp_config: &State<RpConfig>,
     form: rocket::form::Form<LoginForm>,
 ) -> Result<Redirect, RawHtml<String>> {
-    let (user_hint, domain) = parse_identity(form.identity.trim());
-
-    if domain.is_empty() {
-        return Err(login_form(Some(
-            "Please enter your identity (e.g. you@example.com)",
-        )));
-    }
-
-    if !domain.contains('.') && !domain.contains(':') {
-        return Err(login_form(Some(
-            "That doesn't look like a domain. Try something like you@example.com or example.com",
-        )));
-    }
+    let identity = match liblinkkeys::identity_input::parse_identity_input(&form.identity) {
+        Ok(identity) => identity,
+        Err(_) => {
+            return Err(login_form(Some(
+                "Enter a valid identity, such as you@example.com or example.com",
+            )))
+        }
+    };
+    let username = identity.username.as_deref();
+    let domain = identity.domain;
 
     begin_linkkeys_redirect(
         cookies,
         rp_config,
-        domain,
-        user_hint,
+        &domain,
+        username,
         demo_initial_claim_request(),
         None,
     )

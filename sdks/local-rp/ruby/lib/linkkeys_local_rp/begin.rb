@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'securerandom'
+require 'uri'
 require_relative 'url_params'
 require_relative 'local_rp'
 require_relative 'timeutil'
@@ -26,7 +27,8 @@ module LinkkeysLocalRp
 
     class Error < StandardError; end
 
-    # Input to begin_local_login. Big-config, single struct.
+    # Input to begin_local_login. user_domain accepts a full login or a bare
+    # domain. A full login adds a username hint.
     BeginLocalLoginConfig = Struct.new(
       :key_material, :callback_url, :user_domain, :now,
       :requested_claims, :required_claims, :request_lifetime,
@@ -83,6 +85,24 @@ module LinkkeysLocalRp
     end
     private_class_method :validate_callback_scheme!
 
+    def parse_identity_input!(value)
+      identity = value.to_s.strip
+      invalid = -> { raise Error, 'identity must be a username@domain or a domain' }
+      invalid.call unless identity.ascii_only? && !identity.empty? && identity.count('@') <= 1
+      username, domain = identity.include?('@') ? identity.split('@', 2) : [nil, identity]
+      invalid.call if username && !/\A(?!\.)(?!.*\.\.)[A-Za-z0-9!#$%&'*+\-\/?=^_`{|}~.]{1,64}(?<!\.)\z/.match?(username)
+      match = /\A([^:]+)(?::([0-9]+))?\z/.match(domain)
+      invalid.call unless match
+      host = match[1]
+      port = match[2]&.to_i
+      valid_host = host.length <= 253 && (host.include?('.') || port) && host.split('.', -1).all? do |label|
+        label.length.between?(1, 63) && /\A(?!-)[A-Za-z0-9-]+(?<!-)\z/.match?(label)
+      end
+      invalid.call unless valid_host && domain.length <= 259 && (!port || port.between?(1, 65_535))
+      [username, domain.downcase]
+    end
+    private_class_method :parse_identity_input!
+
     # `begin_local_login(config) -> [LocalLoginRedirect, PendingLogin]`
     # (design doc, "SDK API Shape"). Generates a fresh nonce/state, builds
     # and signs a LocalRpLoginRequest (envelope +
@@ -91,7 +111,7 @@ module LinkkeysLocalRp
     # domain plus the pending-login state.
     def begin_local_login(config)
       validate_callback_scheme!(config.callback_url)
-      raise Error, 'user_domain must not be empty' if config.user_domain.nil? || config.user_domain.strip.empty?
+      username, domain = parse_identity_input!(config.user_domain)
 
       nonce = SecureRandom.random_bytes(32)
       state = SecureRandom.random_bytes(32)
@@ -113,12 +133,13 @@ module LinkkeysLocalRp
       # Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>"
       # -- mirrors the existing GET /auth/authorize?signed_request=... route
       # shape.
-      redirect_url = "https://#{config.user_domain}/auth/local-rp?signed_request=#{encoded}"
+      redirect_url = "https://#{domain}/auth/local-rp?signed_request=#{encoded}"
+      redirect_url += "&username=#{URI.encode_www_form_component(username)}" if username
 
       [
         LocalLoginRedirect.new(redirect_url: redirect_url),
         PendingLogin.new(
-          nonce: nonce, state: state, user_domain: config.user_domain, callback_url: config.callback_url,
+          nonce: nonce, state: state, user_domain: domain, callback_url: config.callback_url,
           required_claims: required_claims
         )
       ]

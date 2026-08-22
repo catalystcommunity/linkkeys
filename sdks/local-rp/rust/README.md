@@ -65,7 +65,7 @@ let identity = local_rp_identity_from_bytes(&stored_bytes)?;
 let (redirect, pending) = begin_local_login(BeginLocalLoginConfig::new(
     &identity,
     "http://jukebox.lan:8080/auth/callback",
-    "example.com",   // the LinkKeys domain the user selected/entered
+    "alice@example.com", // a full login prefills alice; a bare domain only selects the IDP
     Utc::now(),
 ))?;
 // Persist `pending` (it derives Serialize/Deserialize — e.g. put it in a

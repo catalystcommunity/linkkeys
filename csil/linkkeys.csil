@@ -536,12 +536,17 @@ AdminUser = {
     display_name: text,
     is_active: bool,
     created_at: text,
-    updated_at: text
+    updated_at: text,
+    ;; Tombstone marker. Present only on a purged user.
+    ? purged_at: text,
+    ? purge_reason: text
 }
 
 ListUsersRequest = {
     ? offset: int,
-    ? limit: int
+    ? limit: int,
+    ;; Include purged (tombstoned) users. Default false.
+    ? include_purged: bool
 }
 
 ListUsersResponse = {
@@ -696,6 +701,16 @@ ListUserClaimsResponse = {
     ;; deliberately omitted; consumers only need presence to decide which
     ;; requested claims still need a value.
     claim_types: [* text]
+}
+
+AdminUserClaimsRequest = {
+    user_id: text
+}
+
+AdminUserClaimsResponse = {
+    ;; Full claim values, including signatures. Unlike ListUserClaimsResponse,
+    ;; this exposes claim_value and signatures — callers need manage_claims.
+    claims: [* Claim]
 }
 
 SetUserClaimRequest = {
@@ -1593,6 +1608,7 @@ service Admin {
     set-claim: SetClaimRequest -> SetClaimResponse,
     remove-claim: RemoveClaimRequest -> RemoveClaimResponse,
     list-user-claims: ListUserClaimsRequest -> ListUserClaimsResponse,
+    get-user-claims: AdminUserClaimsRequest -> AdminUserClaimsResponse,
     set-user-claim: SetUserClaimRequest -> SetUserClaimResponse,
     list-settable-policies: EmptyRequest -> ListSettablePoliciesResponse,
     list-claim-types: EmptyRequest -> ListClaimTypesResponse,

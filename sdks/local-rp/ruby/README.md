@@ -138,7 +138,7 @@ redirect, pending = LinkkeysLocalRp.begin_local_login(
   LinkkeysLocalRp::Begin::BeginLocalLoginConfig.new(
     key_material: identity,
     callback_url: "http://jukebox.lan:8080/auth/callback",
-    user_domain: "example.com",
+    user_domain: "alice@example.com",
     now: Time.now.utc
   )
 )

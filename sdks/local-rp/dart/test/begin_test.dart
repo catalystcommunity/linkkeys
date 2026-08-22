@@ -69,6 +69,34 @@ void main() {
       expect(result.pending.requiredClaims, isEmpty);
     });
 
+    test('beginLocalLogin parses identity input', () async {
+      final m = await _material();
+      final result = await beginLocalLogin(BeginLocalLoginConfig(
+        keyMaterial: m,
+        callbackUrl: 'http://localhost/callback',
+        userDomain: 'Alice+work@ID.Example.TEST',
+        now: DateTime.now().toUtc(),
+      ));
+      expect(result.redirect.redirectUrl, endsWith('&username=Alice%2Bwork'));
+      expect(result.pending.userDomain, equals('id.example.test'));
+      for (final input in [
+        'alice',
+        'alice@@example.test',
+        'https://example.test',
+        'alice@example.test:99999999999999999999',
+      ]) {
+        await expectLater(
+          beginLocalLogin(BeginLocalLoginConfig(
+            keyMaterial: m,
+            callbackUrl: 'http://localhost/callback',
+            userDomain: input,
+            now: DateTime.now().toUtc(),
+          )),
+          throwsA(isA<SdkException>()),
+        );
+      }
+    });
+
     test('beginLocalLogin rejects non-http callback scheme', () async {
       final m = await _material();
       await expectLater(

@@ -55,6 +55,8 @@ pub fn get_my_info(pool: &DbPool, user_id: &str) -> Result<GetMyInfoResponse, Se
             is_active: user.is_active,
             created_at: user.created_at,
             updated_at: user.updated_at,
+            purged_at: user.purged_at,
+            purge_reason: user.purge_reason,
         },
         relations: relations
             .iter()

@@ -17,7 +17,7 @@ Three services run together:
 Browser -> Demo App POST /login
   Demo App -> RP  TCP Rp/sign-request  (sign auth request; API key in the
                                         CSIL-RPC envelope's auth field)
-  <- 302 redirect to IDP /auth/authorize?...&relying_party=...&signed_request=...
+  <- 302 redirect to IDP /auth/authorize?username=...&signed_request=...
 
 Browser -> IDP GET /auth/authorize  (verifies signed request, shows login form)
 Browser -> IDP POST /auth/authorize  (authenticate, encrypt token for RP)
@@ -34,6 +34,16 @@ Browser -> Demo App GET /callback?encrypted_token=...
 All Demo App -> RP calls are TCP CSIL-RPC via the `Rp` service (see
 `demoappsite/src/main.rs`, which uses `linkkeys-rpc-client`). The old
 `POST /v1alpha/*.json` HTTP routes were removed when S2S moved to TCP.
+
+The demo app sends the local part of the identity in the optional `username`
+query parameter. For example, it sends `alice` for `alice@example.com`. The
+IDP uses this value only to fill the Username field. The signed request is
+still mandatory, and the user must still authenticate.
+
+A bare domain, such as `example.com`, selects the IDP without a username
+hint. The demo rejects malformed input before it creates a redirect. It also
+rejects schemes, paths, invalid ports, empty DNS labels, internal spaces, and
+values with more than one `@` character.
 
 ## Prerequisites
 
@@ -107,7 +117,7 @@ The demo app runs on `https://localhost:9090`.
 4. Click "Log In with LinkKeys"
 5. You'll be redirected to the IDP's login page
 6. Accept the self-signed certificate warning for the IDP
-7. Enter username: `alice`, password: `alice123`
+7. Confirm the username `alice`, and enter password: `alice123`
 8. You'll be redirected back to the demo app
 9. The dashboard shows your verified identity and claims
 

@@ -36,6 +36,17 @@ TestKit::test('begin.rejects_empty_user_domain', function () {
     TestKit::assertThrows(fn () => Begin::beginLocalLogin(new BeginLocalLoginConfig($m, 'http://localhost/callback', '', new \DateTimeImmutable('now'))));
 });
 
+TestKit::test('begin.parses_identity_input', function () {
+    $m = beginTestMaterial();
+    [$redirect, $pending] = Begin::beginLocalLogin(new BeginLocalLoginConfig($m, 'http://localhost/callback', 'Alice+work@ID.Example.TEST', new \DateTimeImmutable('now')));
+    TestKit::assertTrue(str_contains($redirect->redirectUrl, '&username=Alice%2Bwork'));
+    TestKit::assertEquals('id.example.test', $pending->userDomain);
+
+    foreach (['alice', 'alice@@example.test', 'https://example.test'] as $identity) {
+        TestKit::assertThrows(fn () => Begin::beginLocalLogin(new BeginLocalLoginConfig($m, 'http://localhost/callback', $identity, new \DateTimeImmutable('now'))));
+    }
+});
+
 TestKit::test('begin.two_calls_never_reuse_nonce_or_state', function () {
     $m = beginTestMaterial();
     [, $p1] = Begin::beginLocalLogin(new BeginLocalLoginConfig($m, 'http://localhost/callback', 'example.com', new \DateTimeImmutable('now')));

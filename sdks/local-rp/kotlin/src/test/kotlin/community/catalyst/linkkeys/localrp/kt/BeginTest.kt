@@ -32,6 +32,19 @@ class BeginTest {
     }
 
     @Test
+    fun beginParsesIdentityInput() {
+        val m = material()
+        val result = beginLocalLogin(m, "http://localhost/callback", "Alice+work@ID.Example.TEST", Instant.now())
+        assertTrue(result.redirect.redirectUrl.endsWith("&username=Alice%2Bwork"))
+        assertEquals("id.example.test", result.pending.userDomain)
+        for (input in listOf("alice", "alice@@example.test", "https://example.test")) {
+            assertThrows(LocalRpException.InvalidInput::class.java) {
+                beginLocalLogin(m, "http://localhost/callback", input, Instant.now())
+            }
+        }
+    }
+
+    @Test
     fun pendingLoginRoundTripsThroughItsByteSerializeForm() {
         val m = material()
         val pending = beginLocalLogin(

@@ -279,8 +279,9 @@ service Rp {
    redirecting the browser.
 2. **Redirect the browser** to
    `https://<user's chosen domain>/auth/authorize?signed_request=<...>`
-   (`user_hint=` is optional). Only `signed_request` and `user_hint` are
-   read by `GET /auth/authorize` — no other query parameter matters.
+   (`username=` is optional). `GET /auth/authorize` uses `signed_request`
+   and the optional `username`. It also accepts `user_hint` from old
+   integrations. No other query parameter has an effect.
 3. The identity provider authenticates the user and redirects the browser
    back to your `callback_url` with `?encrypted_token=<...>`.
 4. **`Rp/decrypt-token`** `{encrypted_token}` → `{signed_assertion}`. Only
@@ -1142,9 +1143,8 @@ String newRandomHexToken({int bytes = 16}) {
 }
 
 /// Steps 1-2: sign an auth request via the RP server and build the
-/// browser-redirect URL to the user's chosen LinkKeys domain. Only
-/// `signed_request` (and, optionally, `user_hint`) are read by
-/// `GET /auth/authorize` (`docs/DEPLOYING-RP.md`, "Web App Integration").
+/// browser-redirect URL to the user's chosen LinkKeys domain.
+/// `GET /auth/authorize` uses `signed_request` and optional `username`.
 Future<(String redirectUrl, RegularRpPendingLogin pending)> beginLogin(
   Transport transport,
   DnsResolver dns,
@@ -1161,7 +1161,7 @@ Future<(String redirectUrl, RegularRpPendingLogin pending)> beginLogin(
   final redirectUri =
       Uri.parse('$apiBase/auth/authorize').replace(queryParameters: {
     'signed_request': signedRequest,
-    if (userHint != null && userHint.isNotEmpty) 'user_hint': userHint,
+    if (userHint != null && userHint.isNotEmpty) 'username': userHint,
   });
 
   return (
@@ -1311,7 +1311,7 @@ Future<void> handleLogin(
         '?domain=<the identity provider domain> is required');
     return;
   }
-  final userHint = request.uri.queryParameters['user_hint'];
+  final userHint = request.uri.queryParameters['username'];
 
   final (String, RegularRpPendingLogin) beginResult;
   try {

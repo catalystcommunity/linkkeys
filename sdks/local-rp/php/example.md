@@ -175,11 +175,10 @@ sudo nerdctl run --rm -v "$(pwd)":/repo -w /repo php:8.3-cli php -l some_file.ph
    a key.
 2. Your app redirects the user's browser to
    `https://<user's-domain>/auth/authorize?signed_request=<...>` (optionally
-   `&user_hint=<...>`). This is the **only** thing the IDP's
-   `/auth/authorize` route reads — it's `#[rocket::get("/auth/authorize?<user_hint>&<signed_request>")]`
-   in `crates/linkkeys/src/web/mod.rs`; everything else about the request
-   (callback URL, nonce, requested claims) travels *inside* the signed
-   request, not as separate query params.
+   `&username=<...>`). The IDP uses `signed_request` and the optional
+   `username`. It also accepts `user_hint` from old integrations. Everything
+   else about the request (callback URL, nonce, requested claims) travels
+   *inside* the signed request, not as separate query params.
 3. The user authenticates at their own IDP and consents to the claim
    request. The IDP redirects back to your `callback_url` with
    `?encrypted_token=<...>`.
@@ -814,7 +813,7 @@ $userHint = isset($_GET['identity']) && is_string($_GET['identity']) ? $_GET['id
 
 $redirectUrl = $_SESSION['linkkeys_login']['api_base'] . '/auth/authorize?' . http_build_query(array_filter([
     'signed_request' => $signed->signedRequest,
-    'user_hint' => $userHint,
+    'username' => $userHint,
 ]));
 
 header('Location: ' . $redirectUrl, true, 302);

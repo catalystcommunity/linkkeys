@@ -140,11 +140,58 @@ async fn consent_flow_end_to_end() {
         body.contains("Log In"),
         "login form renders for a valid request"
     );
+    assert!(
+        body.contains(r#"name="username" value="""#),
+        "the username parameter is optional"
+    );
+
+    // 1a. A relying party can prefill the username. It is only a convenience
+    //     value; the signed request is still required and verified above.
+    let resp = client
+        .get(format!(
+            "/auth/authorize?username={}&callback_url=ignored&nonce=ignored&relying_party=ignored&signed_request={}",
+            USERNAME, sr
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let body = resp.into_string().await.unwrap();
+    assert!(
+        body.contains(r#"name="username" value="alice""#),
+        "username prefilled from the optional query parameter"
+    );
+
+    let resp = client
+        .get(format!(
+            "/auth/authorize?username=preferred-user&user_hint=legacy-user&signed_request={}",
+            sr
+        ))
+        .dispatch()
+        .await;
+    let body = resp.into_string().await.unwrap();
+    assert!(
+        body.contains(r#"name="username" value="preferred-user""#),
+        "username takes precedence over the compatibility alias"
+    );
+
+    // Keep the former parameter name as a compatibility alias.
+    let resp = client
+        .get(format!(
+            "/auth/authorize?user_hint=legacy-user&signed_request={}",
+            sr
+        ))
+        .dispatch()
+        .await;
+    let body = resp.into_string().await.unwrap();
+    assert!(
+        body.contains(r#"name="username" value="legacy-user""#),
+        "the user_hint compatibility alias still prefills the username"
+    );
 
     // 1b. GET with a malformed signed_request renders an error page, not a form
     //     (antagonistic: never phish credentials onto a crafted URL).
     let resp = client
-        .get("/auth/authorize?signed_request=not-valid")
+        .get("/auth/authorize?username=plausible-user&signed_request=not-valid")
         .dispatch()
         .await;
     let body = resp.into_string().await.unwrap();

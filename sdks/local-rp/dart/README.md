@@ -50,7 +50,7 @@ Future<void> main() async {
   final begun = await beginLocalLogin(BeginLocalLoginConfig(
     keyMaterial: reloaded,
     callbackUrl: 'http://jukebox.lan:8080/auth/callback',
-    userDomain: 'example.com',
+    userDomain: 'alice@example.com',
     now: DateTime.now().toUtc(),
   ));
   // App: persist begun.pending (e.g. in a server-side session), then

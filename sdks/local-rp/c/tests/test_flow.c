@@ -1181,8 +1181,43 @@ static void test_begin_rejects_non_http_scheme(void) {
     lrp_identity_free(&identity);
 }
 
+static void test_begin_parses_identity_input(void) {
+    lrp_error err = {0};
+    lrp_identity identity = {0};
+    lrp_generate_identity_config gen_cfg = {.app_name = "Identity Input Test", .now_unix = lrp_wall_clock_now()};
+    T_CHECK(lrp_generate_local_rp_identity(&gen_cfg, &identity, &err) == 0,
+             "identity-input: generate identity succeeds");
+
+    lrp_begin_login_config config = {0};
+    config.identity = &identity;
+    config.callback_url = "http://localhost/callback";
+    config.user_domain = "Alice+work@ID.Example.TEST";
+    config.now_unix = lrp_wall_clock_now();
+    lrp_login_redirect redirect = {0};
+    lrp_pending_login pending = {0};
+    T_CHECK(lrp_begin_local_login(&config, &redirect, &pending, &err) == 0,
+             "identity-input: full login succeeds");
+    T_CHECK(strstr(redirect.redirect_url.data, "&username=Alice%2Bwork") != NULL,
+             "identity-input: username is encoded in redirect");
+    T_CHECK(strcmp(pending.user_domain.data, "id.example.test") == 0,
+             "identity-input: pending state contains destination only");
+    lrp_login_redirect_free(&redirect);
+    lrp_pending_login_free(&pending);
+
+    const char *bad[] = {"alice", "alice@@example.test", "https://example.test",
+                         "alice@example.test:+443"};
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        config.user_domain = bad[i];
+        memset(&err, 0, sizeof(err));
+        T_CHECK(lrp_begin_local_login(&config, &redirect, &pending, &err) != 0,
+                 "identity-input: malformed input is rejected");
+    }
+    lrp_identity_free(&identity);
+}
+
 int run_flow_tests(void) {
     test_begin_rejects_non_http_scheme();
+    test_begin_parses_identity_input();
     test_flow_happy_path();
     test_flow_dns_pin_mismatch();
     test_flow_redemption_identity_mismatch_is_fatal();

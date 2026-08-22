@@ -161,7 +161,7 @@ deprecated HTTP routes" at the end of this document.
    auth (the CSIL-RPC `auth` field, not an HTTP header) carries the API key.
 2. Your app redirects the browser to
    `https://<user's home domain>/auth/authorize?signed_request=<...>`
-   (optionally `&user_hint=<...>` to pre-fill a username).
+   (optionally `&username=<...>` to pre-fill a username).
 3. The user authenticates at their home IDP and approves the request. The
    browser is redirected back to your `callback_url` with
    `?encrypted_token=<...>`.

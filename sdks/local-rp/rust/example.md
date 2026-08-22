@@ -161,11 +161,11 @@ it is the only carrier this server actually implements for these operations.
 1. **`Rp/sign-request`** — `{callback_url, nonce, ?requested_claims,
    ?flow_context}` → `{signed_request}`. Redirect the user's browser to
    `https://<user_domain>/auth/authorize?signed_request=<signed_request>`
-   (optionally `&user_hint=<hint>`). Everything the IDP needs —
+   (optionally `&username=<hint>`). Everything the IDP needs —
    `relying_party`, `callback_url`, `nonce` — travels signed inside
-   `signed_request`; the IDP's `/auth/authorize` handler reads only
-   `signed_request` and `user_hint` from the query string
-   (`crates/linkkeys/src/web/mod.rs`, `auth_authorize_get`).
+   `signed_request`; the IDP's `/auth/authorize` handler uses
+   `signed_request` and the optional `username`. It also accepts `user_hint`
+   from old integrations.
 2. The user authenticates at their own IDP and consents to the claims. The
    browser is redirected to your `callback_url` with `?encrypted_token=<...>`.
 3. **`Rp/decrypt-token`** — `{encrypted_token}` → `{signed_assertion}`.

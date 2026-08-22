@@ -153,7 +153,7 @@ covered further here.)
    authenticates as nothing and gets you `Forbidden`.
 2. **Redirect the browser** to
    `https://<user's chosen domain>/auth/authorize?...&signed_request=<...>`
-   (`user_hint=` is optional — a login-form-prefill hint, not a trust
+   (`username=` is optional — a login-form-prefill hint, not a trust
    input).
 3. The identity provider authenticates the user and redirects the browser
    back to your `callback_url` with `?encrypted_token=<...>`.
@@ -727,19 +727,19 @@ defmodule RegularRp.Client do
 
   @doc """
   Build the browser-redirect URL to the user's chosen LinkKeys domain.
-  `GET /auth/authorize` only reads `signed_request` and `user_hint`
-  (`crates/linkkeys/src/web/mod.rs`'s route signature) -- `relying_party`
+  `GET /auth/authorize` uses `signed_request` and optional `username`
+  (`AuthorizeQuery` in `crates/linkkeys/src/web/mod.rs`) -- `relying_party`
   and `callback_url`/`nonce` are carried inside the signed request itself,
   not re-read from the query string, but sending them too (as the Rust
   reference `demoappsite` does) costs nothing and helps a human eyeballing
   the redirect.
   """
   @spec build_authorize_redirect(String.t(), String.t(), String.t(), String.t(), String.t() | nil) :: String.t()
-  def build_authorize_redirect(api_base, callback_url, nonce, signed_request, user_hint) do
+  def build_authorize_redirect(api_base, callback_url, nonce, signed_request, username) do
     params = [
       {"callback_url", callback_url},
       {"nonce", nonce},
-      {"user_hint", user_hint || ""},
+      {"username", username || ""},
       {"signed_request", signed_request}
     ]
 
@@ -908,11 +908,11 @@ defmodule RegularRp.Flow do
     nonce = generate_nonce()
     callback_url = Keyword.fetch!(opts, :callback_url)
     requested_claims = Keyword.get(opts, :requested_claims)
-    user_hint = Keyword.get(opts, :user_hint)
+    username = Keyword.get(opts, :username)
 
     with {:ok, sign_resp} <- Client.sign_request(cfg, callback_url, nonce, requested_claims) do
       api_base = Client.resolve_api_base(dns, user_domain)
-      redirect_url = Client.build_authorize_redirect(api_base, callback_url, nonce, sign_resp.signed_request, user_hint)
+      redirect_url = Client.build_authorize_redirect(api_base, callback_url, nonce, sign_resp.signed_request, username)
 
       state_token =
         AuthState.sign(

@@ -37,6 +37,21 @@ public class BeginTests
         Assert.Equal(["email", "handle"], result.Pending.RequiredClaims);
     }
 
+    [Fact]
+    public void BeginParsesIdentityInput()
+    {
+        var m = Material();
+        var result = Begin.BeginLocalLogin(
+            new Begin.BeginLocalLoginConfig(m, "http://localhost/callback", "Alice+work@ID.Example.TEST", DateTimeOffset.UtcNow));
+        Assert.EndsWith("&username=Alice%2Bwork", result.Redirect.RedirectUrl);
+        Assert.Equal("id.example.test", result.Pending.UserDomain);
+        foreach (var input in new[] { "alice", "alice@@example.test", "https://example.test" })
+        {
+            Assert.Throws<SdkException>(() => Begin.BeginLocalLogin(
+                new Begin.BeginLocalLoginConfig(m, "http://localhost/callback", input, DateTimeOffset.UtcNow)));
+        }
+    }
+
     /// <summary>
     /// <see cref="Begin.PendingLogin"/> is what the app persists between
     /// <see cref="Begin.BeginLocalLogin"/> and <see cref="Complete.CompleteLocalLogin"/>
