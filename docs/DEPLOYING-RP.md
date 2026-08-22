@@ -92,6 +92,18 @@ Rp/verify-assertion  — verify the decrypted assertion against the IDP
 Rp/userinfo-fetch    — (optional) fetch the user's claims from the IDP
 ```
 
+When the app redirects the browser, it can add the user's local username:
+
+```text
+https://<user-domain>/auth/authorize?username=alice&signed_request=<signed-request>
+```
+
+The `username` parameter is optional. The IDP uses it only to fill the
+Username field. The IDP still verifies `signed_request`, and the user must
+still authenticate. URL-encode the username before you add it to the URL. The
+IDP also accepts `user_hint` from old integrations, but new integrations must
+use `username`.
+
 The CSIL-RPC request envelope's `auth` field carries the raw API key (no
 `Bearer ` prefix — that convention belongs to the remaining HTTP surfaces).
 Every `Rp` op additionally requires the caller to hold the `api_access`

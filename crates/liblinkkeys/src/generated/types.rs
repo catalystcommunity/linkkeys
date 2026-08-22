@@ -400,12 +400,15 @@ pub struct AdminUser {
     pub is_active: bool,
     pub created_at: String,
     pub updated_at: String,
+    pub purged_at: Option<String>,
+    pub purge_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListUsersRequest {
     pub offset: Option<i64>,
     pub limit: Option<i64>,
+    pub include_purged: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -563,6 +566,16 @@ pub struct ListUserClaimsRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListUserClaimsResponse {
     pub claim_types: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AdminUserClaimsRequest {
+    pub user_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AdminUserClaimsResponse {
+    pub claims: Vec<Claim>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

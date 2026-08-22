@@ -161,6 +161,100 @@ static int validate_callback_scheme(const char *url, lrp_error *err) {
     return lrp_fail(err, LRP_ERR_INVALID_INPUT, "callback_url must be http:// or https://");
 }
 
+typedef struct {
+    char username[65];
+    char domain[260];
+    int has_username;
+} parsed_identity_input;
+
+static int identity_username_char(unsigned char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+           strchr("!#$%&'*+-/=?^_`{|}~.", c) != NULL;
+}
+
+static int validate_identity_domain(const char *domain) {
+    size_t domain_len = strlen(domain);
+    if (domain_len == 0 || domain_len > 259) return 0;
+    const char *colon = strrchr(domain, ':');
+    size_t host_len = domain_len;
+    if (colon != NULL) {
+        if (strchr(domain, ':') != colon || colon == domain || colon[1] == '\0') return 0;
+        for (const char *p = colon + 1; *p != '\0'; p++) {
+            if (*p < '0' || *p > '9') return 0;
+        }
+        char *end = NULL;
+        long port = strtol(colon + 1, &end, 10);
+        if (*end != '\0' || port < 1 || port > 65535) return 0;
+        host_len = (size_t)(colon - domain);
+    }
+    if (host_len == 0 || host_len > 253 || (colon == NULL && memchr(domain, '.', host_len) == NULL)) return 0;
+    size_t label_len = 0;
+    for (size_t i = 0; i <= host_len; i++) {
+        unsigned char c = (unsigned char)(i == host_len ? '.' : domain[i]);
+        if (c == '.') {
+            if (label_len == 0 || label_len > 63 || domain[i - label_len] == '-' || domain[i - 1] == '-') return 0;
+            label_len = 0;
+        } else {
+            if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                  (c >= '0' && c <= '9') || c == '-')) return 0;
+            label_len++;
+        }
+    }
+    return 1;
+}
+
+static int parse_identity_input(const char *value, parsed_identity_input *out, lrp_error *err) {
+    if (value == NULL) return lrp_fail(err, LRP_ERR_INVALID_INPUT, "identity must be a username@domain or a domain");
+    while (*value == ' ' || *value == '\t' || *value == '\r' || *value == '\n') value++;
+    size_t len = strlen(value);
+    while (len > 0 && (value[len - 1] == ' ' || value[len - 1] == '\t' || value[len - 1] == '\r' || value[len - 1] == '\n')) len--;
+    const char *at = memchr(value, '@', len);
+    if (len == 0 || (at != NULL && memchr(at + 1, '@', len - (size_t)(at + 1 - value)) != NULL)) goto invalid;
+    size_t username_len = at == NULL ? 0 : (size_t)(at - value);
+    const char *domain = at == NULL ? value : at + 1;
+    size_t domain_len = len - (size_t)(domain - value);
+    if (username_len > 64 || domain_len > 259 || domain_len == 0) goto invalid;
+    memset(out, 0, sizeof(*out));
+    if (at != NULL) {
+        if (username_len == 0 || value[0] == '.' || value[username_len - 1] == '.') goto invalid;
+        for (size_t i = 0; i < username_len; i++) {
+            if ((unsigned char)value[i] > 127 || !identity_username_char((unsigned char)value[i]) ||
+                (value[i] == '.' && i > 0 && value[i - 1] == '.')) goto invalid;
+        }
+        memcpy(out->username, value, username_len);
+        out->username[username_len] = '\0';
+        out->has_username = 1;
+    }
+    memcpy(out->domain, domain, domain_len);
+    out->domain[domain_len] = '\0';
+    for (size_t i = 0; i < domain_len; i++) {
+        unsigned char c = (unsigned char)out->domain[i];
+        if (c > 127) goto invalid;
+        if (c >= 'A' && c <= 'Z') out->domain[i] = (char)(c + ('a' - 'A'));
+    }
+    if (!validate_identity_domain(out->domain)) goto invalid;
+    return 0;
+invalid:
+    return lrp_fail(err, LRP_ERR_INVALID_INPUT, "identity must be a username@domain or a domain");
+}
+
+static void percent_encode_username(const char *username, char out[193]) {
+    static const char hex[] = "0123456789ABCDEF";
+    size_t offset = 0;
+    for (const unsigned char *p = (const unsigned char *)username; *p != '\0'; p++) {
+        unsigned char c = *p;
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+            c == '-' || c == '.' || c == '_' || c == '~') {
+            out[offset++] = (char)c;
+        } else {
+            out[offset++] = '%';
+            out[offset++] = hex[c >> 4];
+            out[offset++] = hex[c & 15];
+        }
+    }
+    out[offset] = '\0';
+}
+
 int lrp_begin_local_login(const lrp_begin_login_config *config, lrp_login_redirect *out_redirect,
                            lrp_pending_login *out_pending, lrp_error *err) {
     memset(out_redirect, 0, sizeof(*out_redirect));
@@ -170,9 +264,8 @@ int lrp_begin_local_login(const lrp_begin_login_config *config, lrp_login_redire
         return lrp_fail(err, LRP_ERR_INVALID_INPUT, "identity is required");
     }
     if (validate_callback_scheme(config->callback_url, err) != 0) return -1;
-    if (config->user_domain == NULL || config->user_domain[0] == '\0') {
-        return lrp_fail(err, LRP_ERR_INVALID_INPUT, "user_domain must not be empty");
-    }
+    parsed_identity_input identity;
+    if (parse_identity_input(config->user_domain, &identity, err) != 0) return -1;
 
     uint8_t nonce[32], state[32];
     if (lrp_rand_bytes(nonce, 32, err) != 0) return -1;
@@ -235,15 +328,19 @@ int lrp_begin_local_login(const lrp_begin_login_config *config, lrp_login_redire
     lrp_bytes_free(&signed_request);
     if (rc != 0) return -1;
 
-    size_t url_len = strlen("https://") + strlen(config->user_domain) +
-                      strlen("/auth/local-rp?signed_request=") + strlen(encoded.data) + 1;
+    char encoded_username[193] = {0};
+    if (identity.has_username) percent_encode_username(identity.username, encoded_username);
+    size_t url_len = strlen("https://") + strlen(identity.domain) +
+                      strlen("/auth/local-rp?signed_request=") + strlen(encoded.data) +
+                      (identity.has_username ? strlen("&username=") + strlen(encoded_username) : 0) + 1;
     char *redirect_url = (char *)malloc(url_len);
     if (redirect_url == NULL) {
         lrp_str_free(&encoded);
         return lrp_fail(err, LRP_ERR_OUT_OF_MEMORY, "out of memory");
     }
-    snprintf(redirect_url, url_len, "https://%s/auth/local-rp?signed_request=%s",
-             config->user_domain, encoded.data);
+    snprintf(redirect_url, url_len, "https://%s/auth/local-rp?signed_request=%s%s%s",
+             identity.domain, encoded.data, identity.has_username ? "&username=" : "",
+             identity.has_username ? encoded_username : "");
     lrp_str_free(&encoded);
 
     out_redirect->redirect_url.data = redirect_url;
@@ -254,7 +351,7 @@ int lrp_begin_local_login(const lrp_begin_login_config *config, lrp_login_redire
     out_pending->state.data = (uint8_t *)malloc(32);
     memcpy(out_pending->state.data, state, 32);
     out_pending->state.len = 32;
-    out_pending->user_domain.data = strdup(config->user_domain);
+    out_pending->user_domain.data = strdup(identity.domain);
     out_pending->callback_url.data = strdup(config->callback_url);
 
     /* SEC fix (identity binding): retain the resolved (default-applied)

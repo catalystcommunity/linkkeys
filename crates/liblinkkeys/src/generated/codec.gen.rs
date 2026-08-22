@@ -2960,13 +2960,19 @@ pub fn decode_relation(csil_data: &[u8]) -> Result<Relation, CsilCborError> {
 
 /// Build the canonical CBOR value tree for a AdminUser.
 fn csil_enc_admin_user(csil_v: &AdminUser) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(6);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(8);
     csil_entries.push((cbor_text("id"), cbor_text(&csil_v.id)));
     csil_entries.push((cbor_text("username"), cbor_text(&csil_v.username)));
     csil_entries.push((cbor_text("is_active"), cbor_bool(csil_v.is_active)));
+    if let Some(csil_inner) = &csil_v.purged_at {
+        csil_entries.push((cbor_text("purged_at"), cbor_text(csil_inner)));
+    }
     csil_entries.push((cbor_text("created_at"), cbor_text(&csil_v.created_at)));
     csil_entries.push((cbor_text("updated_at"), cbor_text(&csil_v.updated_at)));
     csil_entries.push((cbor_text("display_name"), cbor_text(&csil_v.display_name)));
+    if let Some(csil_inner) = &csil_v.purge_reason {
+        csil_entries.push((cbor_text("purge_reason"), cbor_text(csil_inner)));
+    }
     CsilCborValue::Map(csil_entries)
 }
 
@@ -3002,6 +3008,20 @@ fn csil_dec_admin_user(csil_root: &CsilCborValue) -> Result<AdminUser, CsilCborE
         let csil_decode = cbor_as_text;
         csil_decode(csil_field)?
     };
+    let purged_at = match cbor_map_get(csil_root, "purged_at") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let purge_reason = match cbor_map_get(csil_root, "purge_reason") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
     Ok(AdminUser {
         id,
         username,
@@ -3009,6 +3029,8 @@ fn csil_dec_admin_user(csil_root: &CsilCborValue) -> Result<AdminUser, CsilCborE
         is_active,
         created_at,
         updated_at,
+        purged_at,
+        purge_reason,
     })
 }
 
@@ -3025,12 +3047,15 @@ pub fn decode_admin_user(csil_data: &[u8]) -> Result<AdminUser, CsilCborError> {
 
 /// Build the canonical CBOR value tree for a ListUsersRequest.
 fn csil_enc_list_users_request(csil_v: &ListUsersRequest) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
     if let Some(csil_inner) = &csil_v.limit {
         csil_entries.push((cbor_text("limit"), cbor_int(*csil_inner)));
     }
     if let Some(csil_inner) = &csil_v.offset {
         csil_entries.push((cbor_text("offset"), cbor_int(*csil_inner)));
+    }
+    if let Some(csil_inner) = &csil_v.include_purged {
+        csil_entries.push((cbor_text("include_purged"), cbor_bool(*csil_inner)));
     }
     CsilCborValue::Map(csil_entries)
 }
@@ -3053,7 +3078,18 @@ fn csil_dec_list_users_request(
         }
         None => None,
     };
-    Ok(ListUsersRequest { offset, limit })
+    let include_purged = match cbor_map_get(csil_root, "include_purged") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_bool;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(ListUsersRequest {
+        offset,
+        limit,
+        include_purged,
+    })
 }
 
 /// Encode a ListUsersRequest to canonical CSIL CBOR bytes.
@@ -4119,6 +4155,73 @@ pub fn decode_list_user_claims_response(
 ) -> Result<ListUserClaimsResponse, CsilCborError> {
     let csil_root = cbor_decode(csil_data)?;
     csil_dec_list_user_claims_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a AdminUserClaimsRequest.
+fn csil_enc_admin_user_claims_request(csil_v: &AdminUserClaimsRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("user_id"), cbor_text(&csil_v.user_id)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a AdminUserClaimsRequest from a decoded CBOR value tree.
+fn csil_dec_admin_user_claims_request(
+    csil_root: &CsilCborValue,
+) -> Result<AdminUserClaimsRequest, CsilCborError> {
+    let user_id = {
+        let csil_field = cbor_require(csil_root, "user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(AdminUserClaimsRequest { user_id })
+}
+
+/// Encode a AdminUserClaimsRequest to canonical CSIL CBOR bytes.
+pub fn encode_admin_user_claims_request(csil_v: &AdminUserClaimsRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_admin_user_claims_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a AdminUserClaimsRequest.
+pub fn decode_admin_user_claims_request(
+    csil_data: &[u8],
+) -> Result<AdminUserClaimsRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_admin_user_claims_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a AdminUserClaimsResponse.
+fn csil_enc_admin_user_claims_response(csil_v: &AdminUserClaimsResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("claims"),
+        cbor_enc_array(&csil_v.claims, csil_enc_claim),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a AdminUserClaimsResponse from a decoded CBOR value tree.
+fn csil_dec_admin_user_claims_response(
+    csil_root: &CsilCborValue,
+) -> Result<AdminUserClaimsResponse, CsilCborError> {
+    let claims = {
+        let csil_field = cbor_require(csil_root, "claims")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_claim);
+        csil_decode(csil_field)?
+    };
+    Ok(AdminUserClaimsResponse { claims })
+}
+
+/// Encode a AdminUserClaimsResponse to canonical CSIL CBOR bytes.
+pub fn encode_admin_user_claims_response(csil_v: &AdminUserClaimsResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_admin_user_claims_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a AdminUserClaimsResponse.
+pub fn decode_admin_user_claims_response(
+    csil_data: &[u8],
+) -> Result<AdminUserClaimsResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_admin_user_claims_response(&csil_root)
 }
 
 /// Build the canonical CBOR value tree for a SetUserClaimRequest.

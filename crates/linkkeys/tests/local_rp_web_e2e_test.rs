@@ -222,7 +222,7 @@ async fn approved_local_rp_happy_path_end_to_end() {
     // 1. GET renders the login form for an approved fingerprint.
     let resp = client
         .get(format!(
-            "/auth/local-rp?signed_request={}",
+            "/auth/local-rp?signed_request={}&username=Alice%2Bwork",
             fx.signed_request
         ))
         .dispatch()
@@ -230,6 +230,10 @@ async fn approved_local_rp_happy_path_end_to_end() {
     assert_eq!(resp.status(), Status::Ok);
     let body = resp.into_string().await.unwrap();
     assert!(body.contains("Test Jukebox"), "app name shown on login");
+    assert!(
+        body.contains(r#"name="username" value="Alice+work""#),
+        "username hint prefills the local-RP login form"
+    );
 
     // 2. POST correct credentials => consent screen (no prior grant yet).
     let (ct, b) = form(login_password_form(&fx.signed_request));

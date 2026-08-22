@@ -176,7 +176,7 @@ identity = local_rp_identity_from_bytes(stored_bytes)
 redirect, pending = begin_local_login(BeginLocalLoginConfig(
     key_material=identity,
     callback_url="http://jukebox.lan:8080/auth/callback",
-    user_domain="example.com",   # the LinkKeys domain the user selected/entered
+    user_domain="alice@example.com", # a full login prefills alice; a bare domain only selects the IDP
     now=datetime.now(timezone.utc),
 ))
 # Persist pending.to_dict() (e.g. in a server-side session tied to the

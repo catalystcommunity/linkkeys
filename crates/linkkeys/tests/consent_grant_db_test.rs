@@ -38,7 +38,7 @@ fn consent_grant_records_offered_claims() {
     // Offered claims are stored as a CBOR array of each claim's canonical codec
     // bytes (the generated codec has no `Vec<DomainClaim>` helper), matching the
     // server's `encode_domain_claim_list`.
-    let offered = vec![claim];
+    let offered = [claim];
     let encoded: Vec<Vec<u8>> = offered
         .iter()
         .map(liblinkkeys::generated::encode_domain_claim)

@@ -114,7 +114,7 @@ lrp_bytes_free(&stored);
 lrp_begin_login_config begin_cfg = {0};
 begin_cfg.identity = &identity;
 begin_cfg.callback_url = "http://jukebox.lan:8080/auth/callback";
-begin_cfg.user_domain = "example.com";
+begin_cfg.user_domain = "alice@example.com";
 begin_cfg.now_unix = time(NULL);
 
 lrp_login_redirect redirect = {0};

@@ -4,18 +4,19 @@ use liblinkkeys::generated::services::ServiceError;
 use liblinkkeys::generated::types::{
     ActivateUserRequest, ActivateUserResponse, AddTrustedIssuerRequest, AddTrustedIssuerResponse,
     AdminIssueAttestationRequest, AdminIssueAttestationResponse, AdminLocalRp, AdminUser,
-    ApproveClaimRequest, ApproveClaimResponse, ApproveLocalRpRequest, ApproveLocalRpResponse,
-    AuthenticateRequest, AuthenticateResponse, CheckPermissionRequest, CheckPermissionResponse,
-    Claim, ClaimApproval, ClaimTypeLabel, ClaimTypePolicy, CreateUserRequest, CreateUserResponse,
-    DeactivateUserRequest, DeactivateUserResponse, DenyLocalRpRequest, DenyLocalRpResponse,
-    GetLocalRpPolicyRequest, GetLocalRpPolicyResponse, GetLocalRpRequest, GetLocalRpResponse,
-    GetUserRequest, GetUserResponse, GrantRelationRequest, GrantRelationResponse,
-    ListClaimTypesResponse, ListLocalRpsRequest, ListLocalRpsResponse,
-    ListPendingClaimApprovalsResponse, ListRelationsRequest, ListRelationsResponse,
-    ListReleaseRulesResponse, ListSettablePoliciesResponse, ListTrustedIssuersResponse,
-    ListUserClaimsRequest, ListUserClaimsResponse, ListUsersRequest, ListUsersResponse,
-    PurgeLocalRpTicketsRequest, PurgeLocalRpTicketsResponse, PurgeUserRequest, PurgeUserResponse,
-    RejectClaimRequest, RejectClaimResponse, ReleaseRule, RemoveClaimRequest, RemoveClaimResponse,
+    AdminUserClaimsRequest, AdminUserClaimsResponse, ApproveClaimRequest, ApproveClaimResponse,
+    ApproveLocalRpRequest, ApproveLocalRpResponse, AuthenticateRequest, AuthenticateResponse,
+    CheckPermissionRequest, CheckPermissionResponse, Claim, ClaimApproval, ClaimTypeLabel,
+    ClaimTypePolicy, CreateUserRequest, CreateUserResponse, DeactivateUserRequest,
+    DeactivateUserResponse, DenyLocalRpRequest, DenyLocalRpResponse, GetLocalRpPolicyRequest,
+    GetLocalRpPolicyResponse, GetLocalRpRequest, GetLocalRpResponse, GetUserRequest,
+    GetUserResponse, GrantRelationRequest, GrantRelationResponse, ListClaimTypesResponse,
+    ListLocalRpsRequest, ListLocalRpsResponse, ListPendingClaimApprovalsResponse,
+    ListRelationsRequest, ListRelationsResponse, ListReleaseRulesResponse,
+    ListSettablePoliciesResponse, ListTrustedIssuersResponse, ListUserClaimsRequest,
+    ListUserClaimsResponse, ListUsersRequest, ListUsersResponse, PurgeLocalRpTicketsRequest,
+    PurgeLocalRpTicketsResponse, PurgeUserRequest, PurgeUserResponse, RejectClaimRequest,
+    RejectClaimResponse, ReleaseRule, RemoveClaimRequest, RemoveClaimResponse,
     RemoveClaimTypeLabelRequest, RemoveClaimTypeLabelResponse, RemoveClaimTypeRequest,
     RemoveClaimTypeResponse, RemoveCredentialRequest, RemoveCredentialResponse,
     RemoveRelationRequest, RemoveRelationResponse, RemoveReleaseRuleRequest,
@@ -66,8 +67,15 @@ fn user_to_admin_user(user: &models::User) -> AdminUser {
         is_active: user.is_active,
         created_at: user.created_at.clone(),
         updated_at: user.updated_at.clone(),
+        purged_at: user.purged_at.clone(),
+        purge_reason: user.purge_reason.clone(),
     }
 }
+
+/// Default page size for `list-users` when the caller does not set `limit`.
+const LIST_USERS_DEFAULT_LIMIT: usize = 200;
+/// `limit` is capped at this value regardless of what the caller asks for.
+const LIST_USERS_MAX_LIMIT: usize = 1000;
 
 fn relation_to_csil(rel: &models::Relation) -> liblinkkeys::generated::types::Relation {
     liblinkkeys::generated::types::Relation {
@@ -82,20 +90,53 @@ fn relation_to_csil(rel: &models::Relation) -> liblinkkeys::generated::types::Re
     }
 }
 
-pub fn list_users(
-    pool: &DbPool,
-    _req: ListUsersRequest,
-) -> Result<ListUsersResponse, ServiceError> {
+pub fn list_users(pool: &DbPool, req: ListUsersRequest) -> Result<ListUsersResponse, ServiceError> {
     let users = pool.list_all_users().map_err(db_err)?;
-    Ok(ListUsersResponse {
-        users: users.iter().map(user_to_admin_user).collect(),
-    })
+    let include_purged = req.include_purged.unwrap_or(false);
+    let offset = req.offset.filter(|o| *o > 0).unwrap_or(0) as usize;
+    let limit = req
+        .limit
+        .filter(|l| *l > 0)
+        .map(|l| l as usize)
+        .unwrap_or(LIST_USERS_DEFAULT_LIMIT)
+        .min(LIST_USERS_MAX_LIMIT);
+
+    let filtered: Vec<AdminUser> = users
+        .iter()
+        .filter(|u| include_purged || u.purged_at.is_none())
+        .map(user_to_admin_user)
+        .skip(offset)
+        .take(limit)
+        .collect();
+
+    Ok(ListUsersResponse { users: filtered })
 }
 
 pub fn get_user(pool: &DbPool, req: GetUserRequest) -> Result<GetUserResponse, ServiceError> {
     let user = pool.find_user_by_id(&req.user_id).map_err(db_err)?;
     Ok(GetUserResponse {
         user: user_to_admin_user(&user),
+    })
+}
+
+/// `Admin/get-user-claims`: full claim values (including signatures) for one
+/// user. Requires `manage_claims`. Unlike `list_user_claims` (types only,
+/// available today over the Admin service), this exposes `claim_value`, so it
+/// is gated the same way `set-claim`/`remove-claim` already are.
+pub fn get_user_claims(
+    pool: &DbPool,
+    req: AdminUserClaimsRequest,
+) -> Result<AdminUserClaimsResponse, ServiceError> {
+    let _user = pool.find_user_by_id(&req.user_id).map_err(|e| match e {
+        diesel::result::Error::NotFound => ServiceError {
+            code: 404,
+            message: "User not found".to_string(),
+        },
+        other => db_err(other),
+    })?;
+    let claims = pool.list_active_claims(&req.user_id).map_err(db_err)?;
+    Ok(AdminUserClaimsResponse {
+        claims: claims.iter().map(Into::into).collect(),
     })
 }
 

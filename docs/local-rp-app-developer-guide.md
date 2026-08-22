@@ -29,7 +29,7 @@ root. For what your domain admin will see and decide, see
    Treat these bytes with the same care as a database credential or API
    key — see "What the SDK deliberately does not own" below.
 3. **Begin a login** (`begin_local_login`) when a user wants to log in and
-   has told your app which LinkKeys domain to use. This builds and signs a
+   has entered a LinkKeys login or domain. This builds and signs a
    login request and returns two things: a redirect URL, and a
    `PendingLogin` state object your app must persist (see below).
 4. **Redirect the user's browser** to that URL. What "redirect" means is
@@ -46,6 +46,17 @@ root. For what your domain admin will see and decide, see
    completion, redeems the embedded claim ticket directly with the user's
    IDP over TCP CSIL-RPC to fetch the actual claim values. You get back
    verified user id/domain, claims, the domain keys used, and metadata.
+
+The `user_domain` or `userDomain` input accepts two forms. Use
+`alice@example.com` to send the browser to `example.com` and prefill
+`alice`. Use `example.com` to send the browser to that domain without a
+username hint. The SDK stores only `example.com` in `PendingLogin`. The field
+keeps its existing name for API compatibility.
+
+The SDK rejects malformed input before it creates a redirect. The input must
+have a valid DNS name. A numeric port is optional for development. The input
+must not have a URL scheme, path, internal space, empty DNS label, invalid
+port, or more than one `@` character.
 
 The callback carries a **claim-get ticket**, not the claims themselves — the
 browser round-trip stays small (fits in a GET redirect query parameter), and

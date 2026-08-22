@@ -154,7 +154,7 @@ scope here):
    ?flow_context}` → `{signed_request}`.
 2. Redirect the browser to
    `https://<user_domain>/auth/authorize?signed_request=<signed_request>`
-   (optionally `&user_hint=<hint>`). `user_domain` is whatever LinkKeys
+   (optionally `&username=<hint>`). `user_domain` is whatever LinkKeys
    domain the user chose — not your RP server's own domain.
 3. The user authenticates and consents at their IDP, which redirects back to
    your `callback_url` with `?encrypted_token=<...>`.

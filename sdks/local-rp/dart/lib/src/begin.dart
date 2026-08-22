@@ -30,6 +30,8 @@ const Duration defaultLoginRequestLifetime = Duration(minutes: 5);
 class BeginLocalLoginConfig {
   final LocalRpKeyMaterial keyMaterial;
   final String callbackUrl;
+
+  /// A LinkKeys login or domain. A full login adds a username hint.
   final String userDomain;
   final List<String>? requestedClaims;
   final List<String>? requiredClaims;
@@ -94,16 +96,52 @@ void _validateCallbackScheme(String url) {
   }
 }
 
+({String? username, String domain}) _parseIdentityInput(String value) {
+  final identity = value.trim();
+  if (identity.isEmpty ||
+      identity.codeUnits.any((c) => c > 127) ||
+      '@'.allMatches(identity).length > 1) {
+    throw SdkException(SdkExceptionKind.invalidInput,
+        'identity must be a username@domain or a domain');
+  }
+  final separator = identity.indexOf('@');
+  final username = separator >= 0 ? identity.substring(0, separator) : null;
+  final domain = separator >= 0 ? identity.substring(separator + 1) : identity;
+  if (username != null &&
+      !RegExp(r"^(?!\.)(?!.*\.\.)[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~.]{1,64}(?<!\.)$")
+          .hasMatch(username)) {
+    throw SdkException(SdkExceptionKind.invalidInput,
+        'identity must be a username@domain or a domain');
+  }
+  final match = RegExp(r'^([^:]+)(?::([0-9]+))?$').firstMatch(domain);
+  final host = match?.group(1) ?? '';
+  final portText = match?.group(2);
+  final port = portText == null ? null : int.tryParse(portText);
+  final validHost = host.length <= 253 &&
+      (host.contains('.') || port != null) &&
+      host.split('.').every(
+            (label) =>
+                label.isNotEmpty &&
+                label.length <= 63 &&
+                RegExp(r'^(?!-)[A-Za-z0-9-]+(?<!-)$').hasMatch(label),
+          );
+  if (!validHost ||
+      domain.length > 259 ||
+      (portText != null && port == null) ||
+      (port != null && (port < 1 || port > 65535))) {
+    throw SdkException(SdkExceptionKind.invalidInput,
+        'identity must be a username@domain or a domain');
+  }
+  return (username: username, domain: domain.toLowerCase());
+}
+
 /// `begin_local_login(config) -> (LocalLoginRedirect, PendingLogin)` (design
 /// doc, "SDK API Shape"). Generates a fresh nonce/state, builds and signs a
 /// `LocalRpLoginRequest` around the identity's descriptor, and returns the
 /// full redirect URL plus the pending-login state.
 Future<BeginResult> beginLocalLogin(BeginLocalLoginConfig config) async {
   _validateCallbackScheme(config.callbackUrl);
-  if (config.userDomain.trim().isEmpty) {
-    throw SdkException(
-        SdkExceptionKind.invalidInput, 'user_domain must not be empty');
-  }
+  final identity = _parseIdentityInput(config.userDomain);
 
   final nonce = Crypto.randomBytes(32);
   final state = Crypto.randomBytes(32);
@@ -130,15 +168,24 @@ Future<BeginResult> beginLocalLogin(BeginLocalLoginConfig config) async {
   final encoded = signedLocalRpLoginRequestToUrlParam(signed);
 
   // Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>".
-  final redirectUrl =
-      'https://${config.userDomain}/auth/local-rp?signed_request=$encoded';
+  final query = <String, String>{'signed_request': encoded};
+  if (identity.username != null) query['username'] = identity.username!;
+  final redirectUrl = Uri(
+          scheme: 'https',
+          host: identity.domain.split(':').first,
+          port: identity.domain.contains(':')
+              ? int.parse(identity.domain.split(':').last)
+              : null,
+          path: '/auth/local-rp',
+          queryParameters: query)
+      .toString();
 
   return BeginResult(
     LocalLoginRedirect(redirectUrl),
     PendingLogin(
       nonce: nonce,
       state: state,
-      userDomain: config.userDomain,
+      userDomain: identity.domain,
       callbackUrl: config.callbackUrl,
       requiredClaims: requiredClaims,
     ),

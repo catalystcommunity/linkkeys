@@ -231,7 +231,7 @@ identity = LocalRp.local_rp_identity_from_bytes(stored_bytes)
   LocalRp.begin_local_login(
     key_material: identity,
     callback_url: "http://jukebox.lan:8080/auth/callback",
-    user_domain: "example.com",
+    user_domain: "alice@example.com",
     now: DateTime.utc_now()
   )
 

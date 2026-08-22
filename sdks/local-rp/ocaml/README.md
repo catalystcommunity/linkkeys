@@ -30,7 +30,7 @@ let identity = Linkkeys_local_rp.local_rp_identity_from_bytes stored_bytes |> Re
 let redirect, pending =
   Linkkeys_local_rp.begin_local_login
     (Linkkeys_local_rp.Begin_login.make_config ~key_material:identity
-       ~callback_url:"http://jukebox.lan:8080/auth/callback" ~user_domain:"example.com"
+       ~callback_url:"http://jukebox.lan:8080/auth/callback" ~user_domain:"alice@example.com"
        ~now:(Unix.gettimeofday ()) ())
   |> Result.get_ok
 in

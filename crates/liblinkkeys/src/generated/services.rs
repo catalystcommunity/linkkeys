@@ -227,6 +227,12 @@ pub trait Admin {
         ctx: &Self::Context,
         input: ListUserClaimsRequest,
     ) -> Result<ListUserClaimsResponse, ServiceError>;
+    /// get-user-claims (request/response).
+    fn get_user_claims(
+        &self,
+        ctx: &Self::Context,
+        input: AdminUserClaimsRequest,
+    ) -> Result<AdminUserClaimsResponse, ServiceError>;
     /// set-user-claim (request/response).
     fn set_user_claim(
         &self,

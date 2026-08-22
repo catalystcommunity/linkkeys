@@ -24,7 +24,7 @@ export interface BeginLocalLoginConfig {
   keyMaterial: LocalRpKeyMaterial;
   /** Where the IDP should redirect the browser back to after login. Must be `http://` or `https://`. */
   callbackUrl: string;
-  /** The LinkKeys domain the user selected/entered. */
+  /** The LinkKeys login or domain. A full login adds a username hint. */
   userDomain: string;
   /** Requested (optional) claims. Defaults to `DEFAULT_REQUESTED_CLAIMS` when omitted. */
   requestedClaims?: readonly string[];
@@ -73,6 +73,31 @@ function toHex(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("hex");
 }
 
+function parseIdentityInput(value: string): { username?: string; domain: string } {
+  const input = value.trim();
+  if (!/^[\x00-\x7F]+$/.test(input) || (input.match(/@/g)?.length ?? 0) > 1) {
+    throw new InvalidInputError("identity must be a username@domain or a domain");
+  }
+  const separator = input.indexOf("@");
+  const username = separator >= 0 ? input.slice(0, separator) : undefined;
+  const domain = separator >= 0 ? input.slice(separator + 1) : input;
+  if (username !== undefined && !/^(?!\.)(?!.*\.\.)[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~.]{1,64}(?<!\.)$/.test(username)) {
+    throw new InvalidInputError("identity must be a username@domain or a domain");
+  }
+  const domainMatch = /^([^:]+)(?::([0-9]+))?$/.exec(domain);
+  const host = domainMatch?.[1] ?? "";
+  const port = domainMatch?.[2];
+  const labels = host.split(".");
+  const validHost = host.length <= 253 && (host.includes(".") || port !== undefined) && labels.every(
+    (label) => label.length >= 1 && label.length <= 63 && /^(?!-)[A-Za-z0-9-]+(?<!-)$/.test(label),
+  );
+  const portNumber = port === undefined ? undefined : Number(port);
+  if (!validHost || domain.length > 259 || (portNumber !== undefined && (!Number.isInteger(portNumber) || portNumber < 1 || portNumber > 65535))) {
+    throw new InvalidInputError("identity must be a username@domain or a domain");
+  }
+  return { username, domain: domain.toLowerCase() };
+}
+
 /**
  * `begin_local_login(config) -> (LocalLoginRedirect, PendingLogin)` (design
  * doc, "SDK API Shape"). Generates a fresh nonce/state, builds and signs a
@@ -84,9 +109,7 @@ export function beginLocalLogin(config: BeginLocalLoginConfig): {
   pending: PendingLogin;
 } {
   validateCallbackScheme(config.callbackUrl);
-  if (config.userDomain.trim().length === 0) {
-    throw new InvalidInputError("userDomain must not be empty");
-  }
+  const identity = parseIdentityInput(config.userDomain);
 
   const nonce = randomBytes(32);
   const state = randomBytes(32);
@@ -111,14 +134,17 @@ export function beginLocalLogin(config: BeginLocalLoginConfig): {
   const encoded = signedLocalRpLoginRequestToUrlParam(signed);
 
   // Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>".
-  const redirectUrl = `https://${config.userDomain}/auth/local-rp?signed_request=${encoded}`;
+  const redirect = new URL(`https://${identity.domain}/auth/local-rp`);
+  redirect.searchParams.set("signed_request", encoded);
+  if (identity.username !== undefined) redirect.searchParams.set("username", identity.username);
+  const redirectUrl = redirect.toString();
 
   return {
     redirect: { redirectUrl },
     pending: {
       nonceHex: toHex(nonce),
       stateHex: toHex(state),
-      userDomain: config.userDomain,
+      userDomain: identity.domain,
       callbackUrl: config.callbackUrl,
       requiredClaims: [...requiredClaims],
     },

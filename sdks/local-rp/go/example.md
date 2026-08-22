@@ -121,12 +121,12 @@ server-to-server calls to the IDP on your behalf):
    `RP_CLAIMS_CONFIG`-configured defaults.
 2. **Redirect the browser** to
    `https://<user_domain>/auth/authorize?signed_request=<signed_request>`
-   (optionally `&user_hint=<hint>`). `user_domain` is whatever LinkKeys
+   (optionally `&username=<hint>`). `user_domain` is whatever LinkKeys
    domain the *user* chose to log in with (e.g. from an
    `alice@example.com`-shaped identity string) — this is **not** your RP's
-   own domain. The IDP's `GET /auth/authorize` route only reads
-   `signed_request` and `user_hint`
-   (`crates/linkkeys/src/web/mod.rs:1418`); no other query parameters matter.
+   own domain. The IDP's `GET /auth/authorize` route uses `signed_request`
+   and the optional `username`. It also accepts `user_hint` from old
+   integrations. No other query parameters have an effect.
 3. The user authenticates and consents at their IDP, which redirects back to
    your `callback_url` with `?encrypted_token=<...>`.
 4. **`Rp/decrypt-token`** `{encrypted_token}` → `{signed_assertion}`. Only
@@ -521,10 +521,9 @@ type pendingLogin struct {
 }
 
 // beginLogin is steps 1-2: sign an auth request via the RP server and build
-// the browser-redirect URL to the user's chosen LinkKeys domain. Only
-// `signed_request` (and, optionally, `user_hint`) are read by
-// GET /auth/authorize — see crates/linkkeys/src/web/mod.rs's route
-// signature (`#[rocket::get("/auth/authorize?<user_hint>&<signed_request>")]`).
+// the browser-redirect URL to the user's chosen LinkKeys domain.
+// GET /auth/authorize uses signed_request and optional username. See
+// AuthorizeQuery in crates/linkkeys/src/web/mod.rs.
 func beginLogin(cfg rpConfig, userDomain, userHint, callbackURL string) (redirectURL string, pending pendingLogin, err error) {
 	nonce := newNonce()
 	signedRequest, err := signRequest(cfg, callbackURL, nonce)
@@ -536,7 +535,7 @@ func beginLogin(cfg rpConfig, userDomain, userHint, callbackURL string) (redirec
 	q := u.Query()
 	q.Set("signed_request", signedRequest)
 	if userHint != "" {
-		q.Set("user_hint", userHint)
+		q.Set("username", userHint)
 	}
 	u.RawQuery = q.Encode()
 
@@ -655,7 +654,7 @@ type app struct {
 // "example.com") and redirects the browser to that domain's authorize page.
 func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 	userDomain := r.URL.Query().Get("domain")
-	userHint := r.URL.Query().Get("user_hint")
+	userHint := r.URL.Query().Get("username")
 	if userDomain == "" {
 		http.Error(w, "missing domain", http.StatusBadRequest)
 		return

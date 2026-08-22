@@ -32,9 +32,7 @@ final class Begin
     public static function beginLocalLogin(BeginLocalLoginConfig $config): array
     {
         self::validateCallbackScheme($config->callbackUrl);
-        if (trim($config->userDomain) === '') {
-            throw new \InvalidArgumentException('user_domain must not be empty');
-        }
+        [$username, $domain] = self::parseIdentityInput($config->userDomain);
 
         $nonce = random_bytes(32);
         $state = random_bytes(32);
@@ -60,11 +58,14 @@ final class Begin
         $encoded = Encoding::signedLocalRpLoginRequestToUrlParam($signed);
 
         // Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>".
-        $redirectUrl = "https://{$config->userDomain}/auth/local-rp?signed_request={$encoded}";
+        $redirectUrl = "https://{$domain}/auth/local-rp?signed_request={$encoded}";
+        if ($username !== null) {
+            $redirectUrl .= '&username=' . rawurlencode($username);
+        }
 
         return [
             new LocalLoginRedirect($redirectUrl),
-            new PendingLogin($nonce, $state, $config->userDomain, $config->callbackUrl, $requiredClaims),
+            new PendingLogin($nonce, $state, $domain, $config->callbackUrl, $requiredClaims),
         ];
     }
 
@@ -74,6 +75,35 @@ final class Begin
             throw new \InvalidArgumentException("callback_url must be http:// or https://, got: {$url}");
         }
     }
+
+    /** @return array{0: ?string, 1: string} */
+    private static function parseIdentityInput(string $value): array
+    {
+        $identity = trim($value);
+        if ($identity === '' || preg_match('/[^\x00-\x7F]/', $identity) === 1 || substr_count($identity, '@') > 1) {
+            throw new \InvalidArgumentException('identity must be a username@domain or a domain');
+        }
+        $parts = explode('@', $identity, 2);
+        $username = count($parts) === 2 ? $parts[0] : null;
+        $domain = count($parts) === 2 ? $parts[1] : $parts[0];
+        if ($username !== null && preg_match("/^(?!\\.)(?!.*\\.\\.)[A-Za-z0-9!#$%&'*+\\-\\/=?^_`{|}~.]{1,64}(?<!\\.)$/D", $username) !== 1) {
+            throw new \InvalidArgumentException('identity must be a username@domain or a domain');
+        }
+        if (preg_match('/^([^:]+)(?::([0-9]+))?$/D', $domain, $match) !== 1) {
+            throw new \InvalidArgumentException('identity must be a username@domain or a domain');
+        }
+        $host = $match[1];
+        $port = isset($match[2]) ? (int) $match[2] : null;
+        $validHost = strlen($host) <= 253 && (str_contains($host, '.') || $port !== null);
+        foreach (explode('.', $host) as $label) {
+            $validHost = $validHost && strlen($label) >= 1 && strlen($label) <= 63
+                && preg_match('/^(?!-)[A-Za-z0-9-]+(?<!-)$/D', $label) === 1;
+        }
+        if (!$validHost || strlen($domain) > 259 || ($port !== null && ($port < 1 || $port > 65535))) {
+            throw new \InvalidArgumentException('identity must be a username@domain or a domain');
+        }
+        return [$username, strtolower($domain)];
+    }
 }
 
 /** Input to {@see Begin::beginLocalLogin}. Big-config, single struct. */
@@ -81,6 +111,7 @@ final class BeginLocalLoginConfig
 {
     public LocalRpKeyMaterial $keyMaterial;
     public string $callbackUrl;
+    /** A LinkKeys login or domain. A full login adds a username hint. */
     public string $userDomain;
     /** @var string[]|null */
     public ?array $requestedClaims;

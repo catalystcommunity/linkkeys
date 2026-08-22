@@ -25,9 +25,85 @@ fn test_service_list_users() {
     let req = ListUsersRequest {
         offset: None,
         limit: None,
+        include_purged: None,
     };
     let resp = admin::list_users(&pool, req).unwrap();
     assert!(resp.users.iter().any(|u| u.username == "svc-list-user"));
+}
+
+#[test]
+fn test_service_list_users_excludes_purged_by_default() {
+    let pool = common::create_test_pool();
+    let keep = create_user(
+        &pool,
+        &DataMap::from([("username".into(), Value::String("svc-keep".into()))]),
+    );
+    let purge_me = create_user(
+        &pool,
+        &DataMap::from([("username".into(), Value::String("svc-purge-me".into()))]),
+    );
+    admin::purge_user(
+        &pool,
+        PurgeUserRequest {
+            user_id: purge_me.id.clone(),
+            reason: Some("test cleanup".to_string()),
+        },
+    )
+    .unwrap();
+
+    let req = ListUsersRequest {
+        offset: None,
+        limit: None,
+        include_purged: None,
+    };
+    let resp = admin::list_users(&pool, req).unwrap();
+    assert!(resp.users.iter().any(|u| u.id == keep.id));
+    assert!(
+        !resp.users.iter().any(|u| u.id == purge_me.id),
+        "a purged user must not appear by default"
+    );
+
+    let req = ListUsersRequest {
+        offset: None,
+        limit: None,
+        include_purged: Some(true),
+    };
+    let resp = admin::list_users(&pool, req).unwrap();
+    let purged_row = resp
+        .users
+        .iter()
+        .find(|u| u.id == purge_me.id)
+        .expect("include_purged=true must return the purged user");
+    assert!(purged_row.purged_at.is_some());
+    assert_eq!(purged_row.purge_reason.as_deref(), Some("test cleanup"));
+}
+
+#[test]
+fn test_service_list_users_offset_and_limit() {
+    let pool = common::create_test_pool();
+    for i in 0..5 {
+        create_user(
+            &pool,
+            &DataMap::from([("username".into(), Value::String(format!("svc-page-{i}")))]),
+        );
+    }
+
+    let req = ListUsersRequest {
+        offset: None,
+        limit: Some(2),
+        include_purged: Some(true),
+    };
+    let first_page = admin::list_users(&pool, req).unwrap();
+    assert_eq!(first_page.users.len(), 2);
+
+    let req = ListUsersRequest {
+        offset: Some(2),
+        limit: Some(2),
+        include_purged: Some(true),
+    };
+    let second_page = admin::list_users(&pool, req).unwrap();
+    assert_eq!(second_page.users.len(), 2);
+    assert_ne!(first_page.users[0].id, second_page.users[0].id);
 }
 
 #[test]
@@ -536,6 +612,116 @@ fn test_rpc_list_user_claims_requires_manage_claims() {
     assert_eq!(status, 0);
     let resp = liblinkkeys::generated::decode_list_user_claims_response(&body).unwrap();
     assert_eq!(resp.claim_types, vec!["handle".to_string()]);
+}
+
+#[test]
+fn test_service_get_user_claims_returns_values_and_signatures() {
+    let pool = common::create_test_pool();
+    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
+    std::env::set_var("DOMAIN_NAME", "test.com");
+    create_domain_key(&pool);
+    let user = create_user(&pool, &DataMap::new());
+
+    admin::set_claim(
+        &pool,
+        SetClaimRequest {
+            user_id: user.id.clone(),
+            claim_type: "email".to_string(),
+            claim_value: "alice@example.com".to_string(),
+            expires_at: None,
+        },
+    )
+    .unwrap();
+
+    let resp = admin::get_user_claims(
+        &pool,
+        AdminUserClaimsRequest {
+            user_id: user.id.clone(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(resp.claims.len(), 1);
+    let claim = &resp.claims[0];
+    assert_eq!(claim.claim_type, "email");
+    assert_eq!(claim.claim_value, b"alice@example.com");
+    assert!(
+        !claim.signatures.is_empty(),
+        "set-claim signs with every active domain key"
+    );
+}
+
+#[test]
+fn test_service_get_user_claims_unknown_user_is_404() {
+    let pool = common::create_test_pool();
+    let err = admin::get_user_claims(
+        &pool,
+        AdminUserClaimsRequest {
+            user_id: "does-not-exist".to_string(),
+        },
+    )
+    .unwrap_err();
+    assert_eq!(err.code, 404);
+}
+
+#[test]
+fn test_rpc_get_user_claims_requires_manage_claims() {
+    let pool = common::create_test_pool();
+    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
+    std::env::set_var("DOMAIN_NAME", "test.com");
+    create_domain_key(&pool);
+
+    let service = create_user(&pool, &DataMap::new());
+    let target = create_user(&pool, &DataMap::new());
+    let (api_key, hash) = auth::generate_api_key(&service.id);
+    create_auth_credential(&pool, &service.id, auth::CREDENTIAL_TYPE_API_KEY, &hash);
+
+    admin::set_claim(
+        &pool,
+        SetClaimRequest {
+            user_id: target.id.clone(),
+            claim_type: "handle".to_string(),
+            claim_value: "alice".to_string(),
+            expires_at: None,
+        },
+    )
+    .unwrap();
+    let payload =
+        liblinkkeys::generated::encode_admin_user_claims_request(&AdminUserClaimsRequest {
+            user_id: target.id.clone(),
+        });
+
+    let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
+        "Admin",
+        "get-user-claims",
+        payload.clone(),
+        Some(&api_key),
+        &pool,
+        None,
+    );
+    assert_ne!(status, 0, "get-user-claims must require manage_claims");
+
+    create_relation(
+        &pool,
+        "user",
+        &service.id,
+        "manage_claims",
+        "domain",
+        "test.com",
+    );
+    let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
+        "Admin",
+        "get-user-claims",
+        payload,
+        Some(&api_key),
+        &pool,
+        None,
+    );
+    assert_eq!(status, 0);
+    let resp = liblinkkeys::generated::decode_admin_user_claims_response(&body).unwrap();
+    assert_eq!(resp.claims.len(), 1);
+    assert_eq!(resp.claims[0].claim_type, "handle");
+    assert_eq!(resp.claims[0].claim_value, b"alice");
 }
 
 #[test]

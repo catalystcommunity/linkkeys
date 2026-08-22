@@ -91,7 +91,7 @@ identity, err = localrp.LocalRpIdentityFromBytes(storedBytes)
 redirect, pending, err := localrp.BeginLocalLogin(localrp.BeginLocalLoginConfig{
 	KeyMaterial: identity,
 	CallbackURL: "http://jukebox.lan:8080/auth/callback",
-	UserDomain:  "example.com", // the LinkKeys domain the user selected/entered
+	UserDomain:  "alice@example.com", // a full login prefills alice; a bare domain only selects the IDP
 	Now:         time.Now(),
 })
 // Persist `pending` (a plain, JSON-taggable struct — put it in a

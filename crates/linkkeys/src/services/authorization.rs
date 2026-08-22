@@ -77,6 +77,7 @@ pub fn required_relation_for_op(service: &str, op: &str) -> Option<&'static str>
             "set-claim"
             | "remove-claim"
             | "list-user-claims"
+            | "get-user-claims"
             | "set-user-claim"
             | "list-settable-policies" => RELATION_MANAGE_CLAIMS,
             "grant-relation" | "remove-relation" | "list-relations" | "check-permission" => {

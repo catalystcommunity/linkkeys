@@ -3,6 +3,7 @@ package localrp
 import (
 	"crypto/rand"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -48,7 +49,8 @@ type BeginLocalLoginConfig struct {
 	// Rules") — the IDP enforces this authoritatively, but this SDK checks
 	// it too so a misconfigured app fails fast.
 	CallbackURL string
-	// UserDomain is the LinkKeys domain the user selected/entered.
+	// UserDomain is the LinkKeys login or domain that the user entered. A
+	// full login adds a username hint. A bare domain selects only the IDP.
 	UserDomain string
 	// RequestedClaims are the optional requested claims. Defaults to
 	// DefaultRequestedClaims when nil.
@@ -114,8 +116,9 @@ func BeginLocalLogin(config BeginLocalLoginConfig) (*LocalLoginRedirect, *Pendin
 	if err := validateCallbackScheme(config.CallbackURL); err != nil {
 		return nil, nil, err
 	}
-	if strings.TrimSpace(config.UserDomain) == "" {
-		return nil, nil, &InvalidInputError{Detail: "user_domain must not be empty"}
+	identity, err := parseIdentityInput(config.UserDomain)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	nonce := make([]byte, 32)
@@ -158,15 +161,25 @@ func BeginLocalLogin(config BeginLocalLoginConfig) (*LocalLoginRedirect, *Pendin
 	if dns == nil {
 		dns = DefaultDNSResolver()
 	}
-	redirectURL, err := resolveBrowserEndpoint(dns, config.UserDomain, BrowserRouteLocalRp, encoded)
+	redirectURL, err := resolveBrowserEndpoint(dns, identity.domain, BrowserRouteLocalRp, encoded)
 	if err != nil {
 		return nil, nil, err
+	}
+	if identity.username != "" {
+		parsedRedirect, parseErr := url.Parse(redirectURL)
+		if parseErr != nil {
+			return nil, nil, &InvalidInputError{Detail: "browser endpoint produced an invalid URL"}
+		}
+		query := parsedRedirect.Query()
+		query.Set("username", identity.username)
+		parsedRedirect.RawQuery = query.Encode()
+		redirectURL = parsedRedirect.String()
 	}
 
 	return &LocalLoginRedirect{RedirectURL: redirectURL}, &PendingLogin{
 			Nonce:          nonce,
 			State:          state,
-			UserDomain:     config.UserDomain,
+			UserDomain:     identity.domain,
 			CallbackURL:    config.CallbackURL,
 			RequiredClaims: requiredClaims,
 		},

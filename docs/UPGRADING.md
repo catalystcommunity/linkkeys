@@ -50,3 +50,49 @@ client must handle on finalize:
 A failed finalize no longer consumes the login request: the relying-party key
 fetch happens before the single-use nonce burn, so the same signed request can
 be retried after the cause is repaired.
+
+## Upgrading to the release after 0.14.4
+
+### `Admin/list-users` now excludes purged users by default (breaking)
+
+Before this release, `list-users` returned every user, including purged
+(tombstoned) ones. Now it excludes purged users unless the request sets
+`include_purged: true`.
+
+A caller that relies on the old behavior must set `include_purged: true` in
+`ListUsersRequest`. This includes:
+
+- Any script or SDK that lists users and expects tombstoned accounts to
+  appear.
+- Dashboards that count total users, including purged ones.
+
+`list-users` also now honors `offset` and `limit`. It ignored them before this
+release and always returned the full set. `limit` defaults to 200 and is
+capped at 1000 regardless of what the caller asks for.
+
+### `AdminUser` gained two optional fields
+
+`AdminUser` now carries `purged_at` and `purge_reason` when the user is
+purged. Both fields are absent (not present in the CBOR map) for a user that
+is not purged. A client built against an older CSIL subset that does not know
+these field names is unaffected: CSIL decode looks fields up by name and
+ignores keys it does not recognize.
+
+### New op: `Admin/get-user-claims`
+
+`get-user-claims` returns full claim values (value bytes and signatures) for
+one user, unlike `list-user-claims`, which returns claim type names only. It
+requires the `manage_claims` relation, the same as `list-user-claims`,
+`set-claim`, and `remove-claim`.
+
+Request: `AdminUserClaimsRequest { user_id: text }`.
+Response: `AdminUserClaimsResponse { claims: [* Claim] }`.
+
+An unknown `user_id` returns a `404` service error with message
+`"User not found"`, matching `get-user`'s error shape.
+
+A server built before this release does not know the `get-user-claims` op. It
+answers with the standard unknown-op error: status `UnknownServiceOrOp`
+(wire code 2), message `"Unknown Admin operation: get-user-claims"`. A client
+should treat that status as "this server predates get-user-claims" and fall
+back to `list-user-claims` (type names only, no values).

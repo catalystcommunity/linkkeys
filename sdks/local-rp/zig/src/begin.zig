@@ -36,7 +36,7 @@ pub const BeginLocalLoginConfig = struct {
     /// IDP enforces this authoritatively, but this SDK checks it too so a
     /// misconfigured app fails fast.
     callback_url: []const u8,
-    /// The LinkKeys domain the user selected/entered.
+    /// The LinkKeys login or domain. A full login adds a username hint.
     user_domain: []const u8,
     /// Optional requested claims. Defaults to `default_requested_claims`
     /// when null.
@@ -88,6 +88,83 @@ fn validateCallbackScheme(url: []const u8) !void {
     return error.InvalidCallbackScheme;
 }
 
+const IdentityInput = struct {
+    username: ?[]const u8,
+    domain: []const u8,
+};
+
+fn invalidIdentity() error{InvalidInput} {
+    return error.InvalidInput;
+}
+
+fn parseIdentityInput(allocator: std.mem.Allocator, value: []const u8) !IdentityInput {
+    const input = std.mem.trim(u8, value, " \t\r\n");
+    if (input.len == 0) return invalidIdentity();
+    var at: ?usize = null;
+    for (input, 0..) |c, i| {
+        if (c > 127) return invalidIdentity();
+        if (c == '@') {
+            if (at != null) return invalidIdentity();
+            at = i;
+        }
+    }
+    const username = if (at) |i| input[0..i] else null;
+    const domain_source = if (at) |i| input[i + 1 ..] else input;
+    if (username) |name| {
+        if (name.len == 0 or name.len > 64 or name[0] == '.' or name[name.len - 1] == '.') return invalidIdentity();
+        var previous_dot = false;
+        for (name) |c| {
+            const valid = std.ascii.isAlphanumeric(c) or std.mem.indexOfScalar(u8, "!#$%&'*+-/=?^_`{|}~.", c) != null;
+            if (!valid or (c == '.' and previous_dot)) return invalidIdentity();
+            previous_dot = c == '.';
+        }
+    }
+    if (!validIdentityDomain(domain_source)) return invalidIdentity();
+    const domain = try allocator.dupe(u8, domain_source);
+    for (domain) |*c| c.* = std.ascii.toLower(c.*);
+    return .{ .username = username, .domain = domain };
+}
+
+fn validIdentityDomain(domain: []const u8) bool {
+    if (domain.len == 0 or domain.len > 259) return false;
+    var host = domain;
+    var has_port = false;
+    if (std.mem.lastIndexOfScalar(u8, domain, ':')) |separator| {
+        if (std.mem.indexOfScalar(u8, domain, ':').? != separator) return false;
+        const port_text = domain[separator + 1 ..];
+        if (port_text.len == 0) return false;
+        for (port_text) |c| if (!std.ascii.isDigit(c)) return false;
+        const port = std.fmt.parseInt(u16, port_text, 10) catch return false;
+        if (port == 0) return false;
+        host = domain[0..separator];
+        has_port = true;
+    }
+    if (host.len == 0 or host.len > 253 or (std.mem.indexOfScalar(u8, host, '.') == null and !has_port)) return false;
+    var labels = std.mem.splitScalar(u8, host, '.');
+    while (labels.next()) |label| {
+        if (label.len == 0 or label.len > 63 or label[0] == '-' or label[label.len - 1] == '-') return false;
+        for (label) |c| if (!std.ascii.isAlphanumeric(c) and c != '-') return false;
+    }
+    return true;
+}
+
+fn percentEncodeUsername(username: []const u8, output: *[192]u8) []const u8 {
+    const hex = "0123456789ABCDEF";
+    var offset: usize = 0;
+    for (username) |c| {
+        if (std.ascii.isAlphanumeric(c) or c == '-' or c == '.' or c == '_' or c == '~') {
+            output[offset] = c;
+            offset += 1;
+        } else {
+            output[offset] = '%';
+            output[offset + 1] = hex[c >> 4];
+            output[offset + 2] = hex[c & 15];
+            offset += 3;
+        }
+    }
+    return output[0..offset];
+}
+
 /// Implements `begin_local_login(config) -> (LocalLoginRedirect,
 /// PendingLogin)` (design doc, "SDK API Shape"). Generates a fresh
 /// nonce/state, builds and signs a `LocalRpLoginRequest` (envelope +
@@ -96,7 +173,7 @@ fn validateCallbackScheme(url: []const u8) !void {
 /// domain plus the pending-login state.
 pub fn beginLocalLogin(allocator: std.mem.Allocator, config: BeginLocalLoginConfig) !BeginLocalLoginResult {
     try validateCallbackScheme(config.callback_url);
-    if (std.mem.trim(u8, config.user_domain, " \t\r\n").len == 0) return error.InvalidInput;
+    const identity_input = try parseIdentityInput(allocator, config.user_domain);
 
     var nonce: [32]u8 = undefined;
     xcrypto.randomBytes(&nonce);
@@ -121,11 +198,15 @@ pub fn beginLocalLogin(allocator: std.mem.Allocator, config: BeginLocalLoginConf
 
     // Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>"
     // — mirrors the existing GET /auth/authorize?signed_request=... shape.
-    const redirect_url = try std.fmt.allocPrint(allocator, "https://{s}/auth/local-rp?signed_request={s}", .{ config.user_domain, encoded });
+    var username_buffer: [192]u8 = undefined;
+    const redirect_url = if (identity_input.username) |username|
+        try std.fmt.allocPrint(allocator, "https://{s}/auth/local-rp?signed_request={s}&username={s}", .{ identity_input.domain, encoded, percentEncodeUsername(username, &username_buffer) })
+    else
+        try std.fmt.allocPrint(allocator, "https://{s}/auth/local-rp?signed_request={s}", .{ identity_input.domain, encoded });
 
     return .{
         .redirect = .{ .redirect_url = redirect_url },
-        .pending = .{ .nonce = nonce_owned, .state = state_owned, .user_domain = config.user_domain, .callback_url = config.callback_url, .required_claims = required_claims },
+        .pending = .{ .nonce = nonce_owned, .state = state_owned, .user_domain = identity_input.domain, .callback_url = config.callback_url, .required_claims = required_claims },
     };
 }
 
@@ -166,6 +247,20 @@ test "beginLocalLogin produces a redirect URL and single-use pending state" {
     try std.testing.expectEqualStrings("example.com", result.pending.user_domain);
     try std.testing.expectEqual(@as(usize, 1), result.pending.required_claims.len);
     try std.testing.expectEqualStrings("handle", result.pending.required_claims[0]);
+}
+
+test "beginLocalLogin parses identity input" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const now: i64 = try local_rp.parseTimestamp("2026-01-01T00:00:00Z");
+    const km = try identity.generateLocalRpIdentity(a, .{ .app_name = "Test App", .now = now });
+    const result = try beginLocalLogin(a, .{ .key_material = km, .callback_url = "http://localhost/callback", .user_domain = "Alice+work@ID.Example.TEST", .now = now });
+    try std.testing.expect(std.mem.endsWith(u8, result.redirect.redirect_url, "&username=Alice%2Bwork"));
+    try std.testing.expectEqualStrings("id.example.test", result.pending.user_domain);
+    for ([_][]const u8{ "alice", "alice@@example.test", "https://example.test", "alice@example.test:+443" }) |input| {
+        try std.testing.expectError(error.InvalidInput, beginLocalLogin(a, .{ .key_material = km, .callback_url = "http://localhost/callback", .user_domain = input, .now = now }));
+    }
 }
 
 test "beginLocalLogin retains caller-supplied required claims in the pending state" {

@@ -122,7 +122,7 @@ service Rp {
    before ever redirecting the browser.
 2. **Redirect the browser** to
    `https://<user's chosen domain>/auth/authorize?...&signed_request=<...>`
-   (`user_hint=` is optional — a login-form-prefill hint, not a trust
+   (`username=` is optional — a login-form-prefill hint, not a trust
    input).
 3. The identity provider authenticates the user and redirects the browser
    back to your `callback_url` with `?encrypted_token=<...>`.
@@ -308,11 +308,11 @@ def resolve_api_base(domain: str, resolver=None) -> str:
 
 
 def build_authorize_redirect(rp_config: RpConfig, api_base: str, callback_url: str,
-                              nonce: str, signed_request: str, user_hint: Optional[str]) -> str:
+                              nonce: str, signed_request: str, username: Optional[str]) -> str:
     params = {
         "callback_url": callback_url,
         "nonce": nonce,
-        "user_hint": user_hint or "",
+        "username": username or "",
         "relying_party": rp_config.domain,
         "signed_request": signed_request,
     }
@@ -320,7 +320,7 @@ def build_authorize_redirect(rp_config: RpConfig, api_base: str, callback_url: s
 
 
 def begin_login(rp_config: RpConfig, callback_url: str, user_domain: str,
-                 user_hint: Optional[str] = None) -> tuple[str, dict]:
+                 username: Optional[str] = None) -> tuple[str, dict]:
     """Returns (redirect_url, pending) -- `pending` must be persisted by the
     caller between this call and `complete_login`, tied to the browser
     session, and used at most once (see "App responsibilities")."""
@@ -336,7 +336,7 @@ def begin_login(rp_config: RpConfig, callback_url: str, user_domain: str,
     )
     api_base = resolve_api_base(user_domain)
     redirect_url = build_authorize_redirect(
-        rp_config, api_base, callback_url, nonce, sign_resp.signed_request, user_hint,
+        rp_config, api_base, callback_url, nonce, sign_resp.signed_request, username,
     )
     pending = {"nonce": nonce, "domain": user_domain, "api_base": api_base}
     return redirect_url, pending

@@ -1258,9 +1258,13 @@ fn tcp_call<Req, Resp>(
 fn user_list(server: Option<&str>) {
     let addr = cli::tcp_client::get_server_addr(server);
     let key = cli::tcp_client::get_api_key();
+    // Preserve this CLI command's existing behavior of listing every user,
+    // tombstoned ones included, rather than picking up list-users' new
+    // default of excluding purged users.
     let req = liblinkkeys::generated::types::ListUsersRequest {
         offset: None,
         limit: None,
+        include_purged: Some(true),
     };
 
     let resp = tcp_call(

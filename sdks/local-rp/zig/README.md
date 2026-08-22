@@ -157,7 +157,7 @@ const identity2 = try lrp.localRpIdentityFromBytes(allocator, stored_bytes);
 const result = try lrp.beginLocalLogin(allocator, .{
     .key_material = identity2,
     .callback_url = "http://jukebox.lan:8080/auth/callback",
-    .user_domain = "example.com", // the LinkKeys domain the user selected/entered
+    .user_domain = "alice@example.com", // a full login prefills alice; a bare domain only selects the IDP
     .now = std.time.timestamp(),
 });
 // Persist `result.pending` (a plain struct — put it in a server-side

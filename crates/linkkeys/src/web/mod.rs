@@ -1637,21 +1637,28 @@ async fn rp_authorize_finalize(
     }
 }
 
-#[rocket::get("/auth/authorize?<user_hint>&<signed_request>")]
+#[derive(FromForm)]
+struct AuthorizeQuery {
+    username: Option<String>,
+    // Keep the old name so existing relying parties continue to work.
+    user_hint: Option<String>,
+    signed_request: Option<String>,
+}
+
+#[rocket::get("/auth/authorize?<query..>")]
 async fn auth_authorize_get(
     pool: &State<DbPool>,
     net: &State<Net>,
     nonces: &State<nonce_store::NonceStore>,
     cookies: &CookieJar<'_>,
     locale: guard::Locale,
-    user_hint: Option<&str>,
-    signed_request: Option<&str>,
+    query: AuthorizeQuery,
 ) -> Result<rocket::Either<Redirect, RawHtml<String>>, Status> {
     // signed_request is the only accepted flow. A request without it (or one
     // that fails verification) renders an error page, never a login form — so
     // an attacker who can craft a URL cannot phish credentials onto a
     // legitimate-looking page.
-    let sr = signed_request.ok_or(Status::BadRequest)?;
+    let sr = query.signed_request.as_deref().ok_or(Status::BadRequest)?;
     let request = match validate_signed_request(pool, net, sr).await {
         Ok(request) => request,
         Err(e) => return Ok(rocket::Either::Right(render_error_page(e.user_message()))),
@@ -1688,7 +1695,11 @@ async fn auth_authorize_get(
     Ok(rocket::Either::Right(render_login_form(
         sr,
         &request.relying_party,
-        user_hint.unwrap_or(""),
+        query
+            .username
+            .as_deref()
+            .or(query.user_hint.as_deref())
+            .unwrap_or(""),
         &locale.0,
         None,
     )))

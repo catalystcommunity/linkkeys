@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
@@ -36,6 +37,19 @@ class BeginTest {
                 SdkException.class,
                 () -> Begin.beginLocalLogin(
                         new Begin.BeginLocalLoginConfig(m, "myapp://callback", "example.com", Instant.now())));
+    }
+
+    @Test
+    void beginParsesIdentityInput() {
+        Identity.LocalRpKeyMaterial m = material();
+        Begin.BeginResult result = Begin.beginLocalLogin(
+                new Begin.BeginLocalLoginConfig(m, "http://localhost/callback", "Alice+work@ID.Example.TEST", Instant.now()));
+        assertTrue(result.redirect().redirectUrl().endsWith("&username=Alice%2Bwork"));
+        assertEquals("id.example.test", result.pending().userDomain());
+        for (String input : List.of("alice", "alice@@example.test", "https://example.test")) {
+            assertThrows(SdkException.class, () -> Begin.beginLocalLogin(
+                    new Begin.BeginLocalLoginConfig(m, "http://localhost/callback", input, Instant.now())));
+        }
     }
 
     @Test

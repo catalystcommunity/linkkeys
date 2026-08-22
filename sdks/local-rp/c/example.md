@@ -126,13 +126,12 @@ has) — see "The deprecated HTTP path" below.
    own `RP_CLAIMS_CONFIG`-configured defaults.
 2. **Redirect the browser** to
    `https://<user_domain>/auth/authorize?signed_request=<signed_request>`
-   (optionally `&user_hint=<hint>`). `user_domain` is whatever LinkKeys
+   (optionally `&username=<hint>`). `user_domain` is whatever LinkKeys
    domain the *user* chose to log in with (e.g. from an
    `alice@example.com`-shaped identity string) — this is **not** your RP's
-   own domain. The IDP's `GET /auth/authorize` route only reads
-   `signed_request` and `user_hint`
-   (`crates/linkkeys/src/web/mod.rs:1418`); no other query parameters
-   matter.
+   own domain. The IDP's `GET /auth/authorize` route uses `signed_request`
+   and the optional `username`. It also accepts `user_hint` from old
+   integrations. No other query parameters have an effect.
 3. The user authenticates and consents at their IDP, which redirects back
    to your `callback_url` with `?encrypted_token=<...>`.
 4. **`Rp/decrypt-token`** `{encrypted_token}` -> `{signed_assertion}`. Only
@@ -334,13 +333,13 @@ void rrp_identity_free(rrp_identity *v);
  * app's RP server (Rp/sign-request) and build the browser-redirect URL to
  * the user's chosen LinkKeys domain. `user_domain` is whatever domain the
  * USER picked (e.g. parsed out of an "alice@example.com"-shaped identity
- * string) -- it is NOT this app's own domain. `user_hint` may be NULL.
+ * string) -- it is NOT this app's own domain. `username` may be NULL.
  *
  * On success (0): *out_redirect_url is a malloc'd NUL-terminated URL (free()
  * it) and *out_pending is populated for the caller to persist and pass
  * unchanged to rrp_handle_callback. On failure (-1): both are left zeroed
  * and *err (if non-NULL) explains why. */
-int rrp_begin_login(const rrp_config *cfg, const char *user_domain, const char *user_hint,
+int rrp_begin_login(const rrp_config *cfg, const char *user_domain, const char *username,
                      const char *callback_url, char **out_redirect_url,
                      rrp_pending_login *out_pending, lrp_error *err);
 
@@ -1827,7 +1826,7 @@ char *rrp_resolve_api_base(lrp_dns_resolver *dns, const char *domain) {
 /* Public API: rrp_begin_login / rrp_handle_callback                     */
 /* --------------------------------------------------------------------- */
 
-int rrp_begin_login(const rrp_config *cfg, const char *user_domain, const char *user_hint,
+int rrp_begin_login(const rrp_config *cfg, const char *user_domain, const char *username,
                      const char *callback_url, char **out_redirect_url,
                      rrp_pending_login *out_pending, lrp_error *err) {
     *out_redirect_url = NULL;
@@ -1859,18 +1858,17 @@ int rrp_begin_login(const rrp_config *cfg, const char *user_domain, const char *
         return -1;
     }
 
-    /* Only signed_request (and, optionally, user_hint) are read by
-     * GET /auth/authorize -- crates/linkkeys/src/web/mod.rs's route
-     * signature (#[rocket::get("/auth/authorize?<user_hint>&<signed_request>")]). */
+    /* GET /auth/authorize uses signed_request and optional username.
+     * See AuthorizeQuery in crates/linkkeys/src/web/mod.rs. */
     rc_buf url;
     rc_buf_init(&url);
     rc |= rc_write_cstr_raw(&url, "https://");
     rc |= rc_write_cstr_raw(&url, user_domain);
     rc |= rc_write_cstr_raw(&url, "/auth/authorize?signed_request=");
     rc |= rrp_url_encode_append(&url, signed_request.data);
-    if (user_hint != NULL && user_hint[0] != '\0') {
-        rc |= rc_write_cstr_raw(&url, "&user_hint=");
-        rc |= rrp_url_encode_append(&url, user_hint);
+    if (username != NULL && username[0] != '\0') {
+        rc |= rc_write_cstr_raw(&url, "&username=");
+        rc |= rrp_url_encode_append(&url, username);
     }
     lrp_str_free(&signed_request);
     if (rc != 0) {
@@ -2063,10 +2061,10 @@ and smoke-tested — see below — but not wired to a real HTTP server):
  * to *out_redirect_url and persist *out_pending (e.g. in a signed,
  * short-lived session cookie) for the callback route to retrieve. */
 int handle_login_route(const rrp_config *cfg, const char *user_domain,
-                        const char *user_hint, const char *callback_url,
+                        const char *username, const char *callback_url,
                         char **out_redirect_url, rrp_pending_login *out_pending) {
     lrp_error err = {0};
-    if (rrp_begin_login(cfg, user_domain, user_hint, callback_url, out_redirect_url, out_pending,
+    if (rrp_begin_login(cfg, user_domain, username, callback_url, out_redirect_url, out_pending,
                          &err) != 0) {
         fprintf(stderr, "begin login failed: [%s] %s\n", lrp_error_code_name(err.code), err.message);
         return -1;

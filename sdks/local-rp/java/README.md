@@ -46,7 +46,7 @@ byte[] storedBytes = Identity.localRpIdentityToBytes(identity);
 // Later, per login attempt:
 var reloaded = Identity.localRpIdentityFromBytes(storedBytes);
 var begun = Begin.beginLocalLogin(new Begin.BeginLocalLoginConfig(
-    reloaded, "http://jukebox.lan:8080/auth/callback", "example.com", Instant.now()));
+    reloaded, "http://jukebox.lan:8080/auth/callback", "alice@example.com", Instant.now()));
 // App: persist begun.pending() (e.g. in a server-side session), then redirect
 // the browser to begun.redirect().redirectUrl().
 

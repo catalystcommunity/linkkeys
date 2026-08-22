@@ -120,7 +120,7 @@ only way to complete this flow today:
    `crates/linkkeys/src/tcp/mod.rs`'s `authenticate_tcp_request` reads it).
 2. Redirect the browser to
    `https://<user's home domain>/auth/authorize?signed_request=<...>`
-   (optionally `&user_hint=`).
+   (optionally `&username=`).
 3. The browser comes back to your callback URL with `?encrypted_token=<...>`.
 4. **`Rp/decrypt-token`** `{encrypted_token}` → `{signed_assertion}`.
 5. **`Rp/verify-assertion`** `{signed_assertion, expected_domain}` →
@@ -619,7 +619,7 @@ public final class RpServer {
     }
 
     // -----------------------------------------------------------------
-    // GET /login?domain=example.com[&user_hint=alice]
+    // GET /login?domain=example.com[&username=alice]
     // -----------------------------------------------------------------
     private void handleLogin(HttpExchange exchange) throws IOException {
         Map<String, String> query = parseQuery(exchange.getRequestURI());
@@ -628,7 +628,7 @@ public final class RpServer {
             sendText(exchange, 400, "missing ?domain=");
             return;
         }
-        String userHint = query.get("user_hint");
+        String userHint = query.get("username");
 
         // The claims this app needs. A production app would derive this from
         // its own config, not hardcode it -- shown inline here for brevity.
@@ -651,7 +651,7 @@ public final class RpServer {
                 .append("/auth/authorize?signed_request=")
                 .append(urlEncode(signResponse.signedRequest()));
         if (userHint != null && !userHint.isBlank()) {
-            redirect.append("&user_hint=").append(urlEncode(userHint));
+            redirect.append("&username=").append(urlEncode(userHint));
         }
 
         exchange.getResponseHeaders().add("Location", redirect.toString());

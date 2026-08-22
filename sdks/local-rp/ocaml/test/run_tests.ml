@@ -537,6 +537,26 @@ let make_fake_idp ~now ~domain : fake_idp =
   in
   { domain; domain_signing_public = pub; domain_signing_private = priv; domain_signing_key_id = key_id; domain_keys = [ key ] }
 
+let string_contains (haystack : string) (needle : string) : bool =
+  let h = String.length haystack and n = String.length needle in
+  let rec loop i = i + n <= h && (String.sub haystack i n = needle || loop (i + 1)) in
+  loop 0
+
+let test_begin_identity_input () =
+  let now = Timeutil.parse_rfc3339 "2026-01-01T00:00:00Z" in
+  let identity = Identity.generate_local_rp_identity_exn (Identity.make_config ~app_name:"Test App" ~now ()) in
+  let redirect, pending = Begin_login.begin_local_login_exn
+      (Begin_login.make_config ~key_material:identity ~callback_url:"http://localhost/callback"
+         ~user_domain:"Alice+work@ID.Example.TEST" ~now ()) in
+  check_bool "username is encoded in redirect" true (string_contains redirect.redirect_url "&username=Alice%2Bwork");
+  Alcotest.(check string) "pending state contains destination only" "id.example.test" pending.user_domain;
+  List.iter (fun input ->
+    match Begin_login.begin_local_login
+        (Begin_login.make_config ~key_material:identity ~callback_url:"http://localhost/callback" ~user_domain:input ~now ()) with
+    | Error _ -> ()
+    | Ok _ -> Alcotest.failf "accepted malformed identity input %S" input)
+    [ "alice"; "alice@@example.test"; "https://example.test"; "alice@example.test:+443" ]
+
 (* Run the begin -> (fake IDP issues callback) -> complete chain, with
    [complete]'s domain-key-fetch step replaced by directly supplying
    [idp.domain_keys] (this is the untestable-without-a-live-server part;
@@ -1043,6 +1063,7 @@ let () =
       ("revocations.json", [ Alcotest.test_case "certificate_cases + application_case" `Quick test_revocations ]);
       ("tls pin extraction", [ Alcotest.test_case "openssl-minted Ed25519 cert fixture" `Quick test_tls_pin_extraction ]);
       ("rpc framing", [ Alcotest.test_case "length-prefix + envelope round-trip" `Quick test_rpc_framing ]);
+      ("begin login", [ Alcotest.test_case "identity input" `Quick test_begin_identity_input ]);
       ( "flow",
         [
           Alcotest.test_case "happy path end-to-end" `Quick test_flow_happy_path;

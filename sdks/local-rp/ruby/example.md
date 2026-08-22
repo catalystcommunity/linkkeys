@@ -127,7 +127,7 @@ service Rp {
    before ever redirecting the browser.
 2. **Redirect the browser** to
    `https://<user's chosen domain>/auth/authorize?...&signed_request=<...>`
-   (`user_hint=` is optional — a login-form-prefill hint, not a trust
+   (`username=` is optional — a login-form-prefill hint, not a trust
    input).
 3. The identity provider authenticates the user and redirects the browser
    back to your `callback_url` with `?encrypted_token=<...>`.
@@ -471,11 +471,11 @@ module RegularRp
     )
   end
 
-  def build_authorize_redirect(rp_config, api_base, callback_url, nonce, signed_request, user_hint)
+  def build_authorize_redirect(rp_config, api_base, callback_url, nonce, signed_request, username)
     query = URI.encode_www_form(
       'callback_url' => callback_url,
       'nonce' => nonce,
-      'user_hint' => user_hint || '',
+      'username' => username || '',
       'relying_party' => rp_config.domain,
       'signed_request' => signed_request
     )
@@ -485,7 +485,7 @@ module RegularRp
   # Returns [redirect_url, pending]. `pending` must be carried across the
   # redirect round trip (see AuthState below) and consumed exactly once by
   # complete_login.
-  def begin_login(rp_config, callback_url, user_domain, user_hint: nil)
+  def begin_login(rp_config, callback_url, user_domain, username: nil)
     nonce = SecureRandom.uuid
     sign_resp = rp_call(
       rp_config, 'sign-request',
@@ -493,7 +493,7 @@ module RegularRp
       Types::RpSignResponse
     )
     api_base = resolve_api_base(user_domain)
-    redirect_url = build_authorize_redirect(rp_config, api_base, callback_url, nonce, sign_resp.signed_request, user_hint)
+    redirect_url = build_authorize_redirect(rp_config, api_base, callback_url, nonce, sign_resp.signed_request, username)
     pending = { 'nonce' => nonce, 'domain' => user_domain, 'api_base' => api_base }
     [redirect_url, pending]
   end
@@ -849,7 +849,7 @@ OK   parse_response_envelope: error status raises RpCallError
 OK   send_frame/recv_frame round trip over a StringIO-backed fake socket
 OK   recv_frame rejects an oversized length prefix before reading
 OK   build_authorize_redirect produces a well-formed URL with expected params
-OK   build_authorize_redirect handles nil user_hint (empty string, not "nil")
+OK   build_authorize_redirect handles nil username (empty string, not "nil")
 OK   AuthState sign/verify round trip
 OK   AuthState.verify rejects a tampered payload
 OK   AuthState.verify rejects a malformed cookie (no dot separator)
@@ -877,7 +877,7 @@ were run against a `StringIO`-backed fake socket (a real byte-oriented I/O
 object, just not a real network socket) for both a normal frame and an
 oversized-length-prefix rejection; `build_authorize_redirect` was parsed
 back with `URI`/`URI.decode_www_form` to confirm every expected query
-parameter, including the `user_hint: nil` → empty-string case;
+parameter, including the `username: nil` → empty-string case;
 `AuthState.sign`/`.verify` round-tripped, and separately rejected a
 payload with one substring tampered (still MACs internally-consistent
 JSON, correctly caught as `TamperedState`), a cookie with no `.`

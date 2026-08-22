@@ -276,7 +276,9 @@ int lrp_pending_login_from_bytes(const uint8_t *data, size_t len,
 typedef struct lrp_begin_login_config {
     const lrp_identity *identity;  /* required */
     const char *callback_url;      /* required, http:// or https:// */
-    const char *user_domain;       /* required */
+    /* Required login or domain. A full login adds a username hint. A bare
+     * domain selects only the IDP. */
+    const char *user_domain;
     /* Optional claim lists. NULL/count 0 => defaults (display_name, email,
      * handle requested; handle required). */
     const char *const *requested_claims;

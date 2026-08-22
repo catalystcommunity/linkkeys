@@ -22,6 +22,7 @@ public static class Begin
     public static readonly TimeSpan DefaultLoginRequestLifetime = TimeSpan.FromMinutes(5);
 
     /// <summary>Input to <see cref="BeginLocalLogin"/>. Big-config, single record.</summary>
+    /// <param name="UserDomain">A LinkKeys login or domain. A full login adds a username hint.</param>
     public sealed record BeginLocalLoginConfig(
         Identity.LocalRpKeyMaterial KeyMaterial,
         string CallbackUrl,
@@ -63,6 +64,33 @@ public static class Begin
         }
     }
 
+    private sealed record IdentityInput(string? Username, string Domain);
+
+    private static IdentityInput ParseIdentityInput(string value)
+    {
+        var identity = value?.Trim() ?? "";
+        if (identity.Length == 0 || identity.Any(c => c > 127) || identity.Count(c => c == '@') > 1) InvalidIdentity();
+        var separator = identity.IndexOf('@');
+        var username = separator >= 0 ? identity[..separator] : null;
+        var domain = separator >= 0 ? identity[(separator + 1)..] : identity;
+        if (username is not null && !System.Text.RegularExpressions.Regex.IsMatch(username, @"^(?!\.)(?!.*\.\.)[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~.]{1,64}(?<!\.)$")) InvalidIdentity();
+        if (!ValidDomain(domain)) InvalidIdentity();
+        return new IdentityInput(username, domain.ToLowerInvariant());
+    }
+
+    private static bool ValidDomain(string domain)
+    {
+        if (domain.Length > 259 || !System.Text.RegularExpressions.Regex.IsMatch(domain, @"^[^:]+(?::[0-9]+)?$")) return false;
+        var separator = domain.LastIndexOf(':');
+        var host = separator >= 0 ? domain[..separator] : domain;
+        if (separator >= 0 && (!int.TryParse(domain[(separator + 1)..], out var port) || port < 1 || port > 65535)) return false;
+        if (host.Length > 253 || (!host.Contains('.') && separator < 0)) return false;
+        return host.Split('.').All(label => label.Length is >= 1 and <= 63 && System.Text.RegularExpressions.Regex.IsMatch(label, @"^(?!-)[A-Za-z0-9-]+(?<!-)$"));
+    }
+
+    private static void InvalidIdentity() =>
+        throw new SdkException(SdkException.ErrorKind.InvalidInput, "identity must be a username@domain or a domain");
+
     /// <summary>
     /// <c>begin_local_login(config) -&gt; (LocalLoginRedirect, PendingLogin)</c> (design
     /// doc, "SDK API Shape"). Generates a fresh nonce/state, builds and signs a
@@ -72,10 +100,7 @@ public static class Begin
     public static BeginResult BeginLocalLogin(BeginLocalLoginConfig config)
     {
         ValidateCallbackScheme(config.CallbackUrl);
-        if (string.IsNullOrWhiteSpace(config.UserDomain))
-        {
-            throw new SdkException(SdkException.ErrorKind.InvalidInput, "user_domain must not be empty");
-        }
+        var identity = ParseIdentityInput(config.UserDomain);
 
         var nonce = Crypto.Crypto.RandomBytes(32);
         var state = Crypto.Crypto.RandomBytes(32);
@@ -93,10 +118,11 @@ public static class Begin
         var encoded = UrlEncoding.SignedLocalRpLoginRequestToUrlParam(signed);
 
         // Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>".
-        var redirectUrl = $"https://{config.UserDomain}/auth/local-rp?signed_request={encoded}";
+        var redirectUrl = $"https://{identity.Domain}/auth/local-rp?signed_request={encoded}";
+        if (identity.Username is not null) redirectUrl += $"&username={Uri.EscapeDataString(identity.Username)}";
 
         return new BeginResult(
             new LocalLoginRedirect(redirectUrl),
-            new PendingLogin(nonce, state, config.UserDomain, config.CallbackUrl, requiredClaims));
+            new PendingLogin(nonce, state, identity.Domain, config.CallbackUrl, requiredClaims));
     }
 }
