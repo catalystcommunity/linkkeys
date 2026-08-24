@@ -1,55 +1,61 @@
 # LinkKeys
 
+> **We're in Alpha! Yay!**  
+> This project has core functionality implemented but is still evolving. It is stable enough for early adopters, and is in the battle testing phase. Come build it with us!
+
 LinkKeys is authentication for everywhere. It solves three major problems with the internet today:
 
-- Identity security is made hard when it shouldn't be, so let's make it easy to be secure.
+- Identity security is made hard when it shouldn't be, so let's make it easy to be secure, and only users can say what's easy.
 - We are all tired of making new accounts or signing in to websites with social media logins.
-- We would like to be able to know the user is a real person, or an adult, or local to us.
+- We would like to be able to know the user is a real person, or an adult, or local to us, etc.
 
-If you trust your domain admins (like you do with email) they handle all the technical headache, and everything else is easy on the user. Apps no longer have to pay for an Auth/SSO provider — they just use LinkKeys and develop their own app, so it's all win-win for everyone. One identity, used everywhere that will use LinkKeys. In fact, we think it will help eliminate spam and bots, too.
+If you trust your domain admins (like you do with your email) they handle all the technical headache, and everything else is easy on the user. Apps no longer have to pay for an Auth/SSO provider — they just use LinkKeys and they can stay , so it's all win-win for everyone. One identity, used everywhere that will use LinkKeys.
 
 For the nerdier version:
 
-LinkKeys is a domain-anchored identity protocol and server: domains hold keys, users hold claims, and relying parties verify them over a TCP-first, mutually authenticated protocol (with a browser HTTPS path for interactive flows). See [`docs/DESIGN.md`](docs/DESIGN.md) for the architecture and philosophy, and [`AGENTS.md`](AGENTS.md) for coding guidelines.
+LinkKeys is a domain-anchored identity protocol and server: domains hold keys, users hold claims (attributes that can be signed), and relying parties verify them over a TCP-first, mutually authenticated protocol (with a browser HTTPS path for interactive flows). See [`docs/DESIGN.md`](docs/DESIGN.md) for the architecture and philosophy, and [`AGENTS.md`](AGENTS.md) for coding guidelines.
 
 ## Quickstart
 
-Clone, check your environment, and run the tests:
+Use the regular relying-party (RP) flow for a website or app that has a public domain. Your application sends protocol operations to a LinkKeys RP server. The RP server holds the private domain keys. Your application does not hold them.
 
-```sh
-git clone <repo-url> && cd linkkeys
-./tools.sh setup     # checks deps, then runs the SQLite suite
-```
+LinkKeys supports Rust, Go, TypeScript and Node.js, Python, PHP, Java, Kotlin, C# and .NET, Dart, Ruby, Elixir, C, Zig, and OCaml. Each language has a regular-RP example and a local-RP SDK guide in [`sdks/local-rp/`](sdks/local-rp/). The code below uses Python only as one concrete example.
 
-That's it for the fast path — the SQLite suite runs in-memory with no database to provision.
+1. [Deploy a LinkKeys server in RP mode](docs/DEPLOYING-RP.md).
+2. Initialize its keys and create an API account for your application:
 
-### Prerequisites
+   ```sh
+   linkkeys domain init
+   linkkeys user create my-app "My Application" --api-key --relation api_access
+   linkkeys domain dns-check
+   ```
 
-- **Rust** (stable) — via [rustup](https://rustup.rs) or your distro package.
-- **System libraries**: `libpq` and `libsqlite3` development headers, `pkg-config`, and a C compiler. `libpq` is required even for the SQLite path because the workspace builds both backends by default.
-- **A container runtime** (optional) — only needed for the Postgres test path. `nerdctl` or `docker` works; `./tools.sh` auto-detects one.
+   Save the API key in your secret store. Publish the `_linkkeys` and `_linkkeys_apis` DNS records that `dns-check` shows.
 
-`./tools.sh setup` checks all of the above and prints install hints for your distro if anything is missing.
+3. Add a field for the user's LinkKeys login and a login button to your page. Send the value, such as `alice@idp.example`, to a login route. Add a callback route for the response from LinkKeys. Select your language in [`sdks/local-rp/`](sdks/local-rp/). For Python, the [complete example](sdks/local-rp/python/example.md) supplies the `begin_login` and `complete_login` helpers used below.
 
-### Common commands
+   ```python
+   # Login route
+   redirect_url, pending = begin_login(
+       rp_config,
+       "https://app.example.com/linkkeys/callback",
+       "alice@idp.example",
+   )
+   pending_logins.put_once(browser_session_id, pending)
+   return redirect(redirect_url)
 
-```sh
-./tools.sh test       # SQLite, in-memory, no container (fast path)
-./tools.sh test-pg    # PostgreSQL — starts a dev DB container automatically
-./tools.sh test-all   # both backends (local parity with CI)
-./tools.sh db-up      # start the dev Postgres container (idempotent)
-./tools.sh db-down    # stop & remove it
-./tools.sh db-shell   # psql into the dev database
-./tools.sh fmt        # cargo fmt
-./tools.sh clippy     # cargo clippy (workspace, all targets)
-```
+   # Callback route
+   pending = pending_logins.take_once(browser_session_id)
+   user_info = complete_login(rp_config, pending, encrypted_token)
+   return create_session(user_info.user_id, user_info.domain, user_info.claims)
+   ```
 
-Run `./tools.sh` with no arguments for the full command list.
+   Consume the pending login before you verify the callback. Do not permit a second use. Store the RP API key as a secret. Do not log the API key, tokens, or claim values.
 
-The dev Postgres container (`postgres:17`, user/password `devuser`/`devpass`, databases `linkkeys` and `linkkeys_test`) matches the server's baked-in dev defaults, so the test commands need no environment overrides. Set `LINKKEYS_PG_PORT` if 5432 is already in use locally.
+4. After `complete_login` succeeds, `user_info` contains the verified user ID, domain, display name, and released claims. Use the user ID and domain together as the external identity. Find or create the related local user record. Store the claims that your application needs, including their expiration data, in your datastore. Refresh the stored claims when LinkKeys returns new claim data. Then create a session with your existing session system.
 
-## Testing & CI
+The user's LinkKeys identity provider maintains the login credentials. Your application does not need to store a LinkKeys password. Your application still maintains its local user records, cached claims, sessions, and access rules.
 
-Tests run against a real database inside a transaction that rolls back — no mocks for the database layer. Every test gets its own transaction, so the suite parallelizes safely. CI (`.reactorcide/jobs/test-postgres.yaml` and `test-sqlite.yaml`) runs both backends; `./tools.sh test-all` reproduces that locally. See [`AGENTS.md`](AGENTS.md) for the full testing and architecture conventions.
+If your desktop, LAN, or self-hosted app has no public DNS, use the [local-RP app guide](docs/local-rp-app-developer-guide.md). Its language table links to each SDK quickstart. This mode does not need a separate RP server. The user's LinkKeys domain must approve the app identity.
 
-Of course, we use [Reactorcide](https://github.com/catalystcommunity/reactorcide/) for our CI/CD.
+To change LinkKeys itself, see [`contributing.md`](contributing.md).

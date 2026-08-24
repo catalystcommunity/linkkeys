@@ -77,6 +77,8 @@ A domain (subdomains are also domains) publishes at least three key fingerprints
 
 ### Key Signing (Web of Trust)
 
+Currently unimplemented until we have others to build/sign with, but it's a minor additional validation, not a requirement to current security.
+
 When a domain is not yet trusted, the verifier (the asking party) asks: "Who signed your keys?"
 
 **Signing process:**
@@ -145,6 +147,8 @@ The protocol is versioned (much less so during initial development phase). The s
 ## Authentication Flows
 
 ### Device Enrollment
+
+Device keys are not yet implemented, but this is their design.
 
 When a user's device is not yet enrolled with their domain:
 
