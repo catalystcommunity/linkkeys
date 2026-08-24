@@ -991,6 +991,7 @@ pub struct RpIssueAttestationResponse {
 #[derive(Debug, Clone, PartialEq)]
 pub struct AuthorizeValidateRequest {
     pub signed_request: String,
+    pub user_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -998,6 +999,8 @@ pub struct AuthorizeValidateResponse {
     pub relying_party: String,
     pub callback_url: String,
     pub requested_claims: Vec<String>,
+    pub already_consented: Option<bool>,
+    pub authorized_claims: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

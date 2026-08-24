@@ -1211,13 +1211,21 @@ RpIssueAttestationResponse = {
 ;; Validate an RP's signed auth request before showing a consent UI.
 AuthorizeValidateRequest = {
     ;; URL-param-encoded SignedAuthRequest.
-    signed_request: text
+    signed_request: text,
+    ;; When present, the server also evaluates this user's standing consent
+    ;; grant for the relying party (silent re-consent).
+    ? user_id: text
 }
 
 AuthorizeValidateResponse = {
     relying_party: text,
     callback_url: text,
-    requested_claims: [* text]
+    requested_claims: [* text],
+    ;; True when a standing grant covers the request and a finalize would
+    ;; succeed without new consent. Only computed when user_id was sent.
+    ? already_consented: bool,
+    ;; The claim types that silent finalize would release.
+    ? authorized_claims: [* text]
 }
 
 ;; Finalize a login the consent UI approved: burn the request nonce, persist

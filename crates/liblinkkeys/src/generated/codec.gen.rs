@@ -7062,7 +7062,10 @@ pub fn decode_rp_issue_attestation_response(
 
 /// Build the canonical CBOR value tree for a AuthorizeValidateRequest.
 fn csil_enc_authorize_validate_request(csil_v: &AuthorizeValidateRequest) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    if let Some(csil_inner) = &csil_v.user_id {
+        csil_entries.push((cbor_text("user_id"), cbor_text(csil_inner)));
+    }
     csil_entries.push((
         cbor_text("signed_request"),
         cbor_text(&csil_v.signed_request),
@@ -7079,7 +7082,17 @@ fn csil_dec_authorize_validate_request(
         let csil_decode = cbor_as_text;
         csil_decode(csil_field)?
     };
-    Ok(AuthorizeValidateRequest { signed_request })
+    let user_id = match cbor_map_get(csil_root, "user_id") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(AuthorizeValidateRequest {
+        signed_request,
+        user_id,
+    })
 }
 
 /// Encode a AuthorizeValidateRequest to canonical CSIL CBOR bytes.
@@ -7097,13 +7110,22 @@ pub fn decode_authorize_validate_request(
 
 /// Build the canonical CBOR value tree for a AuthorizeValidateResponse.
 fn csil_enc_authorize_validate_response(csil_v: &AuthorizeValidateResponse) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(5);
     csil_entries.push((cbor_text("callback_url"), cbor_text(&csil_v.callback_url)));
     csil_entries.push((cbor_text("relying_party"), cbor_text(&csil_v.relying_party)));
     csil_entries.push((
         cbor_text("requested_claims"),
         cbor_enc_array(&csil_v.requested_claims, |csil_elem| cbor_text(csil_elem)),
     ));
+    if let Some(csil_inner) = &csil_v.already_consented {
+        csil_entries.push((cbor_text("already_consented"), cbor_bool(*csil_inner)));
+    }
+    if let Some(csil_inner) = &csil_v.authorized_claims {
+        csil_entries.push((
+            cbor_text("authorized_claims"),
+            cbor_enc_array(csil_inner, |csil_elem| cbor_text(csil_elem)),
+        ));
+    }
     CsilCborValue::Map(csil_entries)
 }
 
@@ -7126,10 +7148,26 @@ fn csil_dec_authorize_validate_response(
         let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
         csil_decode(csil_field)?
     };
+    let already_consented = match cbor_map_get(csil_root, "already_consented") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_bool;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let authorized_claims = match cbor_map_get(csil_root, "authorized_claims") {
+        Some(csil_field) => {
+            let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
     Ok(AuthorizeValidateResponse {
         relying_party,
         callback_url,
         requested_claims,
+        already_consented,
+        authorized_claims,
     })
 }
 
