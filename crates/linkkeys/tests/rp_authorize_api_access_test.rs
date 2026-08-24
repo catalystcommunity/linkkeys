@@ -49,6 +49,7 @@ async fn client_for(pool: &linkkeys::db::DbPool) -> Client {
 fn validate_body() -> Vec<u8> {
     liblinkkeys::generated::encode_authorize_validate_request(&AuthorizeValidateRequest {
         signed_request: "not-a-real-request".to_string(),
+        user_id: None,
     })
 }
 

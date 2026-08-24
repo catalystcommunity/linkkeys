@@ -96,3 +96,34 @@ answers with the standard unknown-op error: status `UnknownServiceOrOp`
 (wire code 2), message `"Unknown Admin operation: get-user-claims"`. A client
 should treat that status as "this server predates get-user-claims" and fall
 back to `list-user-claims` (type names only, no values).
+
+## Upgrading to the release after 0.14.5
+
+### `POST /rp/authorize/validate` can report silent re-consent (additive)
+
+`AuthorizeValidateRequest` gained an optional `user_id` field. A caller that
+sends it asks the server to also check that user's standing consent grant
+for the relying party. `AuthorizeValidateResponse` gained two optional
+fields that answer that check: `already_consented` (`true` when a standing
+grant, or an admin forced-allow policy, already covers every required
+claim) and `authorized_claims` (the claim types a finalize would release
+without showing consent again).
+
+Both response fields are absent when `user_id` was not sent, when no
+standing grant covers the request, or when the answer would be "no" for any
+other reason (a `claims_update` request, an unknown `user_id`, or a required
+claim that has no active value to release). They are never sent as `false`
+or `[]` — absent is the only "no" shape, so a client on the old CSIL subset
+that never sends `user_id` sees a byte-identical response to before this
+change.
+
+A client that wants this convenience: send the signed-in user's `user_id` on
+`/rp/authorize/validate`, and when `already_consented` is `true`, skip the
+consent screen and call `/rp/authorize/finalize` with `authorized_claims`
+directly. Always keep the normal consent-screen fallback for every other
+case, including a finalize that fails.
+
+A server built before this release ignores an unknown `user_id` field (CSIL
+decode looks fields up by name) and never sends the new response fields, so
+a client that sends `user_id` against an older server simply never sees
+`already_consented`.

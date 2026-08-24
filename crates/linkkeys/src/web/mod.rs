@@ -443,6 +443,56 @@ pub(super) fn filter_authorized_to_active_values(
         .collect())
 }
 
+/// Decide whether a standing consent grant (or an admin forced-allow policy)
+/// already covers everything `request` asks for, so login can finish without
+/// showing the consent screen again. Shared by the browser `/auth/authorize`
+/// flow and the headless `/rp/authorize/validate` API so the two paths cannot
+/// drift.
+///
+/// Returns `Some(authorized_claims)` when a silent finalize would succeed:
+/// the request is not a `claims_update`, a prior grant or admin forced-allow
+/// covers every required claim, and every authorized required claim has a
+/// concrete active value (never a value-less release, which would just push
+/// the failure to the RP). Returns `None` when nothing is requested, no
+/// standing coverage exists, or any of the above checks fail — the caller
+/// must fall back to showing consent.
+pub(crate) fn silent_authorization(
+    pool: &DbPool,
+    policy: &DomainPolicy,
+    user_id: &str,
+    request: &AuthRequest,
+) -> Option<Vec<String>> {
+    let req = request.requested_claims.as_ref()?;
+    if is_claims_update(request) {
+        return None;
+    }
+    let prior = pool
+        .find_active_consent_grant(user_id, &request.relying_party)
+        .ok()
+        .flatten();
+    let admin_covers_all_required = !req.required.is_empty()
+        && req.required.iter().all(|claim| {
+            policy
+                .forced_allow
+                .iter()
+                .any(|allowed| allowed == &claim.claim_type)
+        });
+    if prior.is_none() && !admin_covers_all_required {
+        return None;
+    }
+    let prior_claims = prior
+        .as_ref()
+        .map(|grant| grant.claim_types.as_slice())
+        .unwrap_or(&[]);
+    let authorized = compute_authorized_claims(req, prior_claims, policy);
+    if !all_required_authorized(req, &authorized)
+        || first_authorized_required_without_value(pool, user_id, req, &authorized).is_some()
+    {
+        return None;
+    }
+    filter_authorized_to_active_values(pool, user_id, &authorized).ok()
+}
+
 /// Reconstruct the protocol `ConsentGrant` from a stored row for the consent
 /// screen (only `claim_types` drives pre-checking).
 fn prior_grant_object(row: &crate::db::models::ConsentGrantRow) -> ConsentGrant {
@@ -1549,6 +1599,28 @@ async fn rp_authorize_validate(
     let validated = validate_signed_request(pool, net, &req.signed_request)
         .await
         .map_err(validate_error_response)?;
+
+    // Silent re-consent: only evaluated when the caller sent a user_id. An
+    // unknown/invalid user_id, or a policy load failure, is treated as "not
+    // consented" rather than an error — this is a best-effort convenience,
+    // not a trust decision (finalize re-checks everything). On "no", both
+    // response fields stay absent so a client on an older CSIL subset that
+    // never sends user_id sees a byte-identical response to before this field
+    // existed.
+    let mut already_consented = None;
+    let mut authorized_claims = None;
+    if let Some(user_id) = req.user_id.as_deref() {
+        if let (Ok(user), Ok(policy)) = (
+            pool.find_user_by_id(user_id),
+            domain_policy_for(pool, &validated.relying_party),
+        ) {
+            if let Some(authorized) = silent_authorization(pool, &policy, &user.id, &validated) {
+                already_consented = Some(true);
+                authorized_claims = Some(authorized);
+            }
+        }
+    }
+
     Ok(cbor_response(
         liblinkkeys::generated::encode_authorize_validate_response(
             &liblinkkeys::generated::types::AuthorizeValidateResponse {
@@ -1559,6 +1631,8 @@ async fn rp_authorize_validate(
                     .as_ref()
                     .map(requested_types)
                     .unwrap_or_default(),
+                already_consented,
+                authorized_claims,
             },
         ),
     ))
@@ -1854,48 +1928,13 @@ async fn proceed_authenticated_dns(
             // approved and has a value. Newly listed optional claims wait for
             // an explicit claims_update request. That request always renders
             // consent, including the previous choices.
-            if !is_claims_update(request) {
-                let prior = pool
-                    .find_active_consent_grant(&user.id, &request.relying_party)
-                    .ok()
-                    .flatten();
-                let admin_covers_all_required = !req.required.is_empty()
-                    && req.required.iter().all(|claim| {
-                        policy
-                            .forced_allow
-                            .iter()
-                            .any(|allowed| allowed == &claim.claim_type)
-                    });
-                if prior.is_some() || admin_covers_all_required {
-                    let prior_claims = prior
-                        .as_ref()
-                        .map(|grant| grant.claim_types.as_slice())
-                        .unwrap_or(&[]);
-                    let authorized = compute_authorized_claims(&req, prior_claims, &policy);
-                    if all_required_authorized(&req, &authorized)
-                        && first_authorized_required_without_value(
-                            pool,
-                            &user.id,
-                            &req,
-                            &authorized,
-                        )
-                        .is_none()
-                    {
-                        let authorized =
-                            filter_authorized_to_active_values(pool, &user.id, &authorized)
-                                .map_err(|_| {
-                                    render_error_page(
-                                        "Could not load your claims. Please try again.",
-                                    )
-                                })?;
-                        let redirect =
-                            finalize_login(pool, net, nonces, user, request, authorized, requested)
-                                .await
-                                .map_err(|m| render_error_page(&m))?;
-                        account_ui::touch_provider_session(cookies);
-                        return Ok(redirect);
-                    }
-                }
+            if let Some(authorized) = silent_authorization(pool, &policy, &user.id, request) {
+                let redirect =
+                    finalize_login(pool, net, nonces, user, request, authorized, requested)
+                        .await
+                        .map_err(|m| render_error_page(&m))?;
+                account_ui::touch_provider_session(cookies);
+                return Ok(redirect);
             }
 
             // Consent needed: mint an IDP-signed login proof binding this user
