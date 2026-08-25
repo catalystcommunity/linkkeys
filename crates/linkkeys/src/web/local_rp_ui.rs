@@ -434,9 +434,9 @@ button {{ padding: 10px 20px; margin-top: 12px; }}
 <form method="POST" action="/auth/local-rp">
   <input type="hidden" name="signed_request" value="{sr}" />
   <label>{username_label}</label>
-  <input type="text" name="username" value="{username}" autofocus />
+  <input type="text" name="username" value="{username}" autocomplete="username" autofocus />
   <label>{password_label}</label>
-  <input type="password" name="password" />
+  <input type="password" name="password" autocomplete="current-password" />
   <button type="submit">{submit}</button>
 </form>
 </body>
@@ -670,12 +670,30 @@ fn finalize_local_rp_login(
     nonces: &nonce_store::NonceStore,
     locale: &str,
     user: &crate::db::models::User,
+    browser_session_digest: &str,
     request: &LocalRpLoginRequest,
     descriptor: &LocalRpDescriptor,
     suite: AeadSuite,
     req: &ClaimRequest,
     authorized_claims: &[String],
 ) -> Result<String, String> {
+    let fresh_user = pool
+        .find_user_by_id(&user.id)
+        .map_err(|_| "Your session has ended. Please start the login again.".to_string())?;
+    if !fresh_user.is_active || fresh_user.purged_at.is_some() || fresh_user.is_admin_account {
+        return Err("Your session has ended. Please start the login again.".to_string());
+    }
+    let session_is_valid = crate::services::browser_session::valid_digest_for_user(
+        pool,
+        browser_session_digest,
+        &fresh_user.id,
+    )
+    .unwrap_or(false);
+    if !session_is_valid {
+        return Err("Your session has ended. Please start the login again.".to_string());
+    }
+    let user = &fresh_user;
+
     let all_required_satisfied = request
         .required_claims
         .iter()
@@ -880,11 +898,20 @@ fn proceed_to_consent_or_finalize(
                             )))
                         }
                     };
+                let session_digest = cookies
+                    .get(crate::services::browser_session::COOKIE_NAME)
+                    .map(|cookie| crate::services::browser_session::token_digest(cookie.value()))
+                    .ok_or_else(|| {
+                        super::render_error_page(
+                            "Your session has ended. Please start the login again.",
+                        )
+                    })?;
                 let redirect = finalize_local_rp_login(
                     pool,
                     nonces,
                     locale,
                     user,
+                    &session_digest,
                     request,
                     descriptor,
                     suite,
@@ -893,7 +920,7 @@ fn proceed_to_consent_or_finalize(
                 )
                 .map(Redirect::found)
                 .map_err(|e| super::render_error_page(&e))?;
-                super::account_ui::touch_provider_session(cookies);
+                super::account_ui::touch_provider_session(cookies, pool);
                 return Ok(redirect);
             }
         }
@@ -973,7 +1000,7 @@ pub(super) fn auth_local_rp_get(
             )))
         }
     };
-    if let Some(session) = super::account_ui::peek_provider_session(cookies) {
+    if let Some(session) = super::account_ui::peek_provider_session(cookies, pool) {
         if crate::services::auth::evidence_satisfies(&session.evidence(), requirement) {
             if let Ok(user) = pool.find_user_by_id(&session.user_id) {
                 if user.is_active && !user.is_admin_account {
@@ -1027,6 +1054,8 @@ pub(super) fn auth_local_rp_post(
     nonces: &State<nonce_store::NonceStore>,
     cookies: &CookieJar<'_>,
     locale: guard::Locale,
+    source: guard::RequestSource,
+    _csrf: guard::SameOriginPost,
     form: rocket::form::Form<LocalRpAuthorizeForm>,
 ) -> Result<Redirect, RawHtml<String>> {
     let Some(sr) = form.signed_request.as_deref() else {
@@ -1048,7 +1077,9 @@ pub(super) fn auth_local_rp_post(
         render_local_rp_login_form(sr, &descriptor, &form.username, &locale.0, Some(msg))
     };
 
-    if !crate::services::ratelimit::LOGIN.check(&form.username.trim().to_lowercase()) {
+    if !crate::services::ratelimit::LOGIN_SOURCE.check(&source.0)
+        || !crate::services::ratelimit::LOGIN.check(&form.username.trim().to_lowercase())
+    {
         return Err(render_form_error(t(
             &locale.0,
             "local_rp.login.rate_limited",
@@ -1095,7 +1126,19 @@ pub(super) fn auth_local_rp_post(
             "This provider cannot satisfy the requested authentication assurance.",
         ));
     }
-    super::account_ui::establish_provider_session(cookies, &user.id, &authentication.evidence);
+    if super::account_ui::establish_provider_session(
+        cookies,
+        pool,
+        &user.id,
+        &authentication.evidence,
+        authentication.credential_id.as_deref().unwrap_or_default(),
+    )
+    .is_none()
+    {
+        return Err(super::render_error_page(
+            "Could not create the browser session.",
+        ));
+    }
 
     match resolve_local_rp_admission(pool, &user.id, &descriptor, &locale.0) {
         Admission::ErrorPage(msg) => Err(super::render_error_page(&msg)),
@@ -1134,6 +1177,7 @@ pub(super) fn auth_local_rp_consent_post(
     nonces: &State<nonce_store::NonceStore>,
     cookies: &CookieJar<'_>,
     locale: guard::Locale,
+    _csrf: guard::SameOriginPost,
     form: rocket::form::Form<LocalRpConsentForm>,
 ) -> Result<Redirect, RawHtml<String>> {
     if form.decision.as_deref() == Some("cancel") {
@@ -1186,6 +1230,21 @@ pub(super) fn auth_local_rp_consent_post(
             &locale.0,
             "local_rp.login.admin_account_blocked",
         )));
+    }
+    let Some(session_digest) = cookies
+        .get(crate::services::browser_session::COOKIE_NAME)
+        .map(|cookie| crate::services::browser_session::token_digest(cookie.value()))
+    else {
+        return Err(super::render_error_page(
+            "Your session has ended. Please start the login again.",
+        ));
+    };
+    if !crate::services::browser_session::valid_digest_for_user(pool, &session_digest, &user.id)
+        .unwrap_or(false)
+    {
+        return Err(super::render_error_page(
+            "Your session has ended. Please start the login again.",
+        ));
     }
 
     // Race safety: the domain's admission policy may have been disabled
@@ -1261,11 +1320,21 @@ pub(super) fn auth_local_rp_consent_post(
         }
     };
 
+    let session_is_valid =
+        crate::services::browser_session::valid_digest_for_user(pool, &session_digest, &user.id)
+            .unwrap_or(false);
+    if !session_is_valid {
+        return Err(super::render_error_page(
+            "Your session has ended. Please start the login again.",
+        ));
+    }
+
     match finalize_local_rp_login(
         pool,
         nonces,
         &locale.0,
         &user,
+        &session_digest,
         &request,
         &descriptor,
         suite,
@@ -1273,7 +1342,7 @@ pub(super) fn auth_local_rp_consent_post(
         &authorized,
     ) {
         Ok(url) => {
-            super::account_ui::touch_provider_session(cookies);
+            super::account_ui::touch_provider_session(cookies, pool);
             Ok(Redirect::found(url))
         }
         Err(msg) => Err(super::render_error_page(&msg)),

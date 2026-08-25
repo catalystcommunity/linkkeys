@@ -1,0 +1,11 @@
+{{- if .Values.ui.configuration }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "linkkeys.fullname" . }}-ui
+  labels:
+    {{- include "linkkeys.labels" . | nindent 4 }}
+data:
+  ui.toml: |
+{{ .Values.ui.configuration | indent 4 }}
+{{- end }}

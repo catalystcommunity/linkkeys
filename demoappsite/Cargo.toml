@@ -2,10 +2,11 @@
 name = "demoappsite"
 version = "0.1.0"
 edition = "2021"
+license = "Apache-2.0"
 
 [dependencies]
 # Web framework
-rocket = { version = "0.5", features = ["tls", "secrets"] }
+rocket = { version = "0.5", default-features = false, features = ["tls", "secrets"] }
 
 # LinkKeys protocol types + the shared CSIL-RPC TCP client. The demo is a thin
 # browser-facing relying party: it calls its RP server over TCP (the primary
@@ -27,7 +28,7 @@ uuid = { version = "1.10", features = ["v4"] }
 rcgen = "0.13"
 
 # DNS resolution (for resolving domain API base URL)
-hickory-resolver = "0.24"
+hickory-resolver = "0.26"
 
 # Utilities
 log = "0.4"

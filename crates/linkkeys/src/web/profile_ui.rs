@@ -48,7 +48,7 @@ pub fn identity_editor(
     msg: Option<&str>,
     error: Option<&str>,
 ) -> Result<RawHtml<String>, Box<Redirect>> {
-    let account_id = match get_session_user_id(cookies) {
+    let account_id = match get_session_user_id(cookies, pool.inner()) {
         Some(id) => id,
         None => return Err(Box::new(Redirect::found("/account/login"))),
     };
@@ -147,6 +147,11 @@ pub fn identity_editor(
         } else {
             ""
         };
+        let reauthentication = if p.set_rule == "verified" {
+            r#"<label>Current password<input type="password" name="current_password" autocomplete="current-password" required/></label>"#
+        } else {
+            ""
+        };
         rows.push_str(&format!(
             r#"<div style="border:1px solid #eee;border-radius:6px;padding:12px;margin:12px 0">
   <form method="POST" action="/account/identity/claim">
@@ -156,6 +161,7 @@ pub fn identity_editor(
     </div>
     {hint}
     <input type="text" name="value" value="{value}" placeholder="{label}"/>
+    {reauthentication}
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
       {auto_sign}
       <button type="submit" class="btn-primary">{save}</button>
@@ -163,8 +169,8 @@ pub fn identity_editor(
   </form>
   <form method="POST" action="/account/identity/share" style="margin-top:6px">
     <input type="hidden" name="claim_type" value="{ct}"/>
-    <label style="font-weight:normal"><input type="checkbox" name="share_any" value="1" {share_checked} onchange="this.form.submit()"/> {share_any}</label>
-    <noscript><button type="submit">{update_sharing}</button></noscript>
+    <label style="font-weight:normal"><input type="checkbox" name="share_any" value="1" {share_checked}/> {share_any}</label>
+    <button type="submit">{update_sharing}</button>
   </form>
 </div>"#,
             ct = html_escape(&p.claim_type),
@@ -173,6 +179,7 @@ pub fn identity_editor(
             hint = hint,
             value = html_escape(&value),
             auto_sign = auto_sign_field,
+            reauthentication = reauthentication,
             share_checked = share_checked,
             share_any = html_escape(t(loc, "identity.share_any")),
             update_sharing = html_escape(t(loc, "identity.update_sharing")),
@@ -303,6 +310,7 @@ pub struct SetClaimForm {
     claim_type: String,
     value: String,
     auto_sign: Option<String>,
+    current_password: Option<String>,
 }
 
 #[rocket::post("/account/identity/claim", data = "<form>")]
@@ -312,7 +320,7 @@ pub fn set_claim_submit(
     cookies: &CookieJar<'_>,
     form: rocket::form::Form<SetClaimForm>,
 ) -> Redirect {
-    let account_id = match get_session_user_id(cookies) {
+    let account_id = match get_session_user_id(cookies, pool.inner()) {
         Some(id) => id,
         None => return Redirect::found("/account/login"),
     };
@@ -334,6 +342,7 @@ pub fn set_claim_submit(
                 pool.inner(),
                 &subject_id,
                 form.value.trim(),
+                form.current_password.as_deref().unwrap_or_default(),
             ) {
                 Ok(()) => Redirect::found(format!(
                     "/account/identity?msg={}",
@@ -369,7 +378,7 @@ pub fn verify_email(pool: &State<DbPool>, cookies: &CookieJar<'_>, token: &str) 
     // Require a session, and confirm the link under the SAME account that
     // requested it — the service rechecks token.user_id == session user, so a
     // leaked link can't be redeemed by someone else.
-    let session_user = match get_session_user_id(cookies) {
+    let session_user = match get_session_user_id(cookies, pool.inner()) {
         Some(id) => id,
         None => return Redirect::found("/account/login"),
     };
@@ -402,7 +411,7 @@ pub fn set_share_submit(
     cookies: &CookieJar<'_>,
     form: rocket::form::Form<ShareForm>,
 ) -> Redirect {
-    let account_id = match get_session_user_id(cookies) {
+    let account_id = match get_session_user_id(cookies, pool.inner()) {
         Some(id) => id,
         None => return Redirect::found("/account/login"),
     };
@@ -432,7 +441,7 @@ pub fn request_verification(
     types: Option<&str>,
     error: Option<&str>,
 ) -> Result<RawHtml<String>, Box<Redirect>> {
-    let account_id = match get_session_user_id(cookies) {
+    let account_id = match get_session_user_id(cookies, pool.inner()) {
         Some(id) => id,
         None => return Err(Box::new(Redirect::found("/account/login"))),
     };
@@ -531,7 +540,7 @@ pub fn request_verification_download(
     issuer: &str,
     types: &str,
 ) -> Result<(ContentType, Vec<u8>), Status> {
-    let account_id = get_session_user_id(cookies).ok_or(Status::Unauthorized)?;
+    let account_id = get_session_user_id(cookies, pool.inner()).ok_or(Status::Unauthorized)?;
     let type_list = parse_type_list(types);
     if issuer.trim().is_empty() || type_list.is_empty() {
         return Err(Status::BadRequest);
@@ -555,7 +564,7 @@ pub fn create_profile_submit(
     cookies: &CookieJar<'_>,
     form: rocket::form::Form<CreateProfileForm>,
 ) -> Redirect {
-    let account_id = match get_session_user_id(cookies) {
+    let account_id = match get_session_user_id(cookies, pool.inner()) {
         Some(id) => id,
         None => return Redirect::found("/account/login"),
     };

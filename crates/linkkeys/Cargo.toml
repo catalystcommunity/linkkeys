@@ -3,11 +3,13 @@ name = "linkkeys"
 version = "0.1.0"
 edition = "2021"
 default-run = "linkkeys"
+license = "Apache-2.0"
 
 [features]
 default = ["postgres", "sqlite"]
 postgres = ["diesel/postgres"]
 sqlite = ["diesel/sqlite"]
+smtp-native-tls = ["lettre/tokio1-native-tls"]
 
 [dependencies]
 liblinkkeys = { path = "../liblinkkeys" }
@@ -21,10 +23,12 @@ csilgen-transport = { path = "../csilgen-transport" }
 clap = { version = "4.5", features = ["derive"] }
 
 # Web framework
-rocket = { version = "0.5", features = ["json", "tls", "secrets"] }
+# Rocket enables HTTP/2 by default. LinkKeys does not require HTTP/2, so keep
+# it disabled and reduce the exposed protocol and dependency surface.
+rocket = { version = "0.5", default-features = false, features = ["json", "tls", "secrets"] }
 
 # Database
-diesel = { version = "2.2", features = ["r2d2", "uuid", "chrono"] }
+diesel = { version = "2.2", features = ["r2d2", "uuid", "chrono", "i-implement-a-third-party-backend-and-opt-into-breaking-changes"] }
 diesel_migrations = "2.2"
 r2d2 = "0.8"
 
@@ -59,11 +63,16 @@ ed25519-dalek = { version = "2", features = ["rand_core"] }
 bcrypt = "0.17"
 
 # HTTP client (fetch RP public keys for auth flow)
-reqwest = { version = "0.12", features = ["rustls-tls", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 
 # DNS resolution
-hickory-resolver = "0.24"
+hickory-resolver = "0.26"
 tokio = { version = "1", features = ["rt-multi-thread"] }
+
+# Outbound email. Rustls is in the normal build. Native TLS is opt-in through
+# the `smtp-native-tls` LinkKeys feature because it can add an OpenSSL system
+# dependency on Linux.
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "pool", "tokio1-rustls", "ring", "rustls-platform-verifier"] }
 
 # Encoding
 base64ct = { version = "1", features = ["alloc"] }
@@ -74,7 +83,9 @@ qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 # Utilities
 env_logger = "0.11"
 log = "0.4"
+ipnet = "2"
 rand = "0.8"
+sha2 = "0.10"
 urlencoding = "2"
 
 [dev-dependencies]

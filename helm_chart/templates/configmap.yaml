@@ -24,7 +24,35 @@ data:
   {{- if .Values.server.publicPort }}
   PUBLIC_PORT: {{ .Values.server.publicPort | quote }}
   {{- end }}
-  {{- if eq .Values.server.disableTls "true" }}
+  {{- if .Values.server.trustedProxyCidrs }}
+  TRUSTED_PROXY_CIDRS: {{ .Values.server.trustedProxyCidrs | quote }}
+  {{- end }}
+  {{- if or .Values.server.publicOrigin .Values.smtp.enabled }}
+  PUBLIC_ORIGIN: {{ required "server.publicOrigin is required when SMTP is enabled" .Values.server.publicOrigin | quote }}
+  {{- end }}
+  {{- if .Values.smtp.enabled }}
+  SMTP_HOST: {{ required "smtp.host is required when SMTP is enabled" .Values.smtp.host | quote }}
+  {{- if .Values.smtp.port }}
+  SMTP_PORT: {{ .Values.smtp.port | quote }}
+  {{- end }}
+  SMTP_SECURITY: {{ .Values.smtp.security | quote }}
+  SMTP_TLS_BACKEND: {{ .Values.smtp.tlsBackend | quote }}
+  {{- if .Values.smtp.allowPlaintext }}
+  SMTP_ALLOW_PLAINTEXT: "true"
+  {{- end }}
+  SMTP_FROM: {{ required "smtp.from is required when SMTP is enabled" .Values.smtp.from | quote }}
+  SMTP_TIMEOUT_SECONDS: {{ .Values.smtp.timeoutSeconds | quote }}
+  OUTBOX_MAX_ATTEMPTS: {{ .Values.smtp.maxAttempts | quote }}
+  OUTBOX_LEASE_SECONDS: {{ .Values.smtp.leaseSeconds | quote }}
+  OUTBOX_POLL_MILLISECONDS: {{ .Values.smtp.pollMilliseconds | quote }}
+  {{- end }}
+  {{- if .Values.ui.configuration }}
+  UI_CONFIG_FILE: "/config/ui/ui.toml"
+  {{- end }}
+  {{- if .Values.ui.distExistingConfigMap }}
+  UI_DIST_DIR: "/config/ui-dist"
+  {{- end }}
+  {{- if eq (toString .Values.server.disableTls) "true" }}
   DISABLE_TLS: "true"
   {{- end }}
   {{- if .Values.server.consentForcedAllow }}

@@ -195,6 +195,15 @@ pub fn snapshot_table_names() -> &'static [&'static str] {
     SNAPSHOT_TABLES
 }
 
+/// Ephemeral bearer state that a backup must not preserve or revive.
+pub fn excluded_ephemeral_table_names() -> &'static [&'static str] {
+    &[
+        "account_challenges",
+        "notification_outbox",
+        "browser_sessions",
+    ]
+}
+
 /// Single source of truth for which tables a snapshot covers. Kept in sync with
 /// the SQLite row registry by the `backup_tables!` macro below.
 const SNAPSHOT_TABLES: &[&str] = &[
@@ -220,7 +229,7 @@ const SNAPSHOT_TABLES: &[&str] = &[
     "audit_log",
     "domain_key_pins",
     "issued_revocations",
-    "email_verifications",
+    "verified_contact_methods",
     "user_release_prefs",
     "local_rp_domain_policy",
     "local_rps",
@@ -342,8 +351,9 @@ mod sqlite_backend {
         id: String, target_key_id: String, target_fingerprint: String, revoked_at: String,
         cert: Vec<u8>, created_at: String,
     });
-    backup_row!(EmailVerificationRow => email_verifications {
-        token: String, user_id: String, email: String, expires_at: String, created_at: String,
+    backup_row!(VerifiedContactMethodBackupRow => verified_contact_methods {
+        id: String, user_id: String, channel: String, destination: String, purposes: String,
+        verified_at: String, revoked_at: Option<String>, created_at: String, updated_at: String,
     });
     backup_row!(UserReleasePrefRow => user_release_prefs {
         user_id: String, audience: String, claim_type: String, created_at: String,
@@ -388,7 +398,7 @@ mod sqlite_backend {
             $op!("audit_log", audit_log, AuditLogBackupRow, $($arg)*);
             $op!("domain_key_pins", domain_key_pins, DomainKeyPinBackupRow, $($arg)*);
             $op!("issued_revocations", issued_revocations, IssuedRevocationBackupRow, $($arg)*);
-            $op!("email_verifications", email_verifications, EmailVerificationRow, $($arg)*);
+            $op!("verified_contact_methods", verified_contact_methods, VerifiedContactMethodBackupRow, $($arg)*);
             $op!("user_release_prefs", user_release_prefs, UserReleasePrefRow, $($arg)*);
             $op!("local_rp_domain_policy", local_rp_domain_policy, LocalRpDomainPolicyBackupRow, $($arg)*);
             $op!("local_rps", local_rps, LocalRpBackupRow, $($arg)*);
@@ -418,6 +428,21 @@ mod sqlite_backend {
         }
         for_each_table!(wipe_one, conn);
         Ok(())
+    }
+
+    fn database_has_application_data(conn: &mut SqliteConnection) -> Result<bool, BackupError> {
+        use crate::schema::sqlite::*;
+        let mut rows = 0_i64;
+        macro_rules! count_one {
+            ($name:literal, $table:ident, $row:ident, $conn:ident, $rows:ident) => {
+                $rows += $table::table.count().get_result::<i64>($conn)?;
+            };
+        }
+        for_each_table!(count_one, conn, rows);
+        rows += browser_sessions::table.count().get_result::<i64>(conn)?;
+        rows += account_challenges::table.count().get_result::<i64>(conn)?;
+        rows += notification_outbox::table.count().get_result::<i64>(conn)?;
+        Ok(rows > 0)
     }
 
     fn load_tables(
@@ -569,18 +594,17 @@ mod sqlite_backend {
 
         conn.transaction::<_, BackupError, _>(|conn| {
             // Guard against clobbering a populated database unless forced.
-            if !opts.force {
-                use crate::schema::sqlite::users::dsl as u;
-                let existing: i64 = u::users.count().get_result(conn)?;
-                if existing > 0 {
-                    return Err(BackupError::Format(
-                        "target database is not empty; use --force to overwrite".to_string(),
-                    ));
-                }
+            if !opts.force && database_has_application_data(conn)? {
+                return Err(BackupError::Format(
+                    "target database is not empty; use --force to overwrite".to_string(),
+                ));
             }
             // Defer FK enforcement to commit: the snapshot is internally
             // consistent, so wipe+reload in any order is valid at commit time.
             diesel::sql_query("PRAGMA defer_foreign_keys = ON").execute(conn)?;
+            diesel::sql_query("DELETE FROM notification_outbox").execute(conn)?;
+            diesel::sql_query("DELETE FROM account_challenges").execute(conn)?;
+            diesel::sql_query("DELETE FROM browser_sessions").execute(conn)?;
             wipe_tables(conn)?;
             load_tables(conn, &bundle.tables)?;
             Ok(())

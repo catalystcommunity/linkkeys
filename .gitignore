@@ -51,7 +51,8 @@ go.work.sum
 target/            # Rust
 _build/            # OCaml (dune) / Elixir (mix)
 _opam/             # OCaml local switch
-node_modules/      # Node / TypeScript
+# Node and TypeScript fetched dependencies
+node_modules/
 __pycache__/       # Python
 *.pyc
 .venv/             # Python venv

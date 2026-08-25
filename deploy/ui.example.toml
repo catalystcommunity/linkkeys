@@ -1,0 +1,18 @@
+[display]
+site_name = "LinkKeys"
+support_url = "https://support.example.com/"
+
+# The theme can change CSS, the logo, and the favicon. It cannot run code.
+[theme]
+asset_dir = "/srv/linkkeys-ui/theme"
+stylesheet_url = "/_linkkeys/themes/operator/theme.css"
+logo_url = "/_linkkeys/themes/operator/logo.svg"
+favicon_url = "/_linkkeys/themes/operator/favicon.svg"
+
+# Each extension is a trusted ECMAScript module. LinkKeys loads it at runtime.
+[[extensions]]
+id = "catalyst"
+asset_dir = "/srv/catalyst-linkkeys/ui-dist"
+module_url = "/_linkkeys/extensions/catalyst/extension.js"
+api_version = 1
+stylesheet_url = "/_linkkeys/extensions/catalyst/extension.css"

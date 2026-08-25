@@ -1,4 +1,4 @@
-use rocket::http::{Cookie, CookieJar, SameSite};
+use rocket::http::CookieJar;
 use rocket::response::content::RawHtml;
 use rocket::response::Redirect;
 use rocket::State;
@@ -10,190 +10,10 @@ use crate::services::{account, authorization};
 
 use liblinkkeys::generated::types::ChangePasswordRequest;
 
-// -- Session helpers --
-//
-// The session is a Rocket *private* (encrypted + authenticated) cookie whose
-// value is `v2|user_id|issued_at|last_seen|authenticated_at|methods`.
-// `methods` is a comma-separated set of provider-owned method identifiers.
-// Legacy `user_id|issued_at|last_seen` cookies came only from a password login
-// and are upgraded on read. Because the cookie is
-// authenticated, the client cannot forge the timestamps, so we enforce an
-// absolute lifetime cap and a sliding idle timeout server-side. Both windows
-// are configurable with safe defaults. A fresh login issues a new cookie
-// (rotation); deactivating a user revokes access at the next request via the
-// is_active check at the handler boundary.
-
-/// Absolute session lifetime in seconds (cap regardless of activity).
-fn session_absolute_ttl() -> i64 {
-    std::env::var("SESSION_ABSOLUTE_TTL_SECONDS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .filter(|&n| n > 0)
-        .unwrap_or(43_200) // 12 hours
-}
-
-/// Idle timeout in seconds (session expires this long after the last request).
-fn session_idle_ttl() -> i64 {
-    std::env::var("SESSION_IDLE_TTL_SECONDS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .filter(|&n| n > 0)
-        .unwrap_or(3_600) // 1 hour
-}
-
-fn build_session_cookie(value: String) -> Cookie<'static> {
-    let mut cookie = Cookie::new("user_id", value);
-    cookie.set_same_site(SameSite::Lax);
-    cookie.set_path("/");
-    cookie.set_http_only(true);
-    cookie.set_secure(true);
-    cookie
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct ProviderSession {
-    pub user_id: String,
-    pub issued_at: i64,
-    pub authenticated_at: i64,
-    pub method_types: std::collections::BTreeSet<String>,
-}
-
-impl ProviderSession {
-    pub(super) fn evidence(&self) -> crate::services::auth::AuthenticationEvidence {
-        crate::services::auth::AuthenticationEvidence {
-            method_types: self.method_types.clone(),
-            authenticated_at: chrono::DateTime::from_timestamp(self.authenticated_at, 0)
-                .unwrap_or_else(chrono::Utc::now),
-        }
-    }
-}
-
-fn encode_session(session: &ProviderSession, last_seen: i64) -> String {
-    let methods = session
-        .method_types
-        .iter()
-        .map(String::as_str)
-        .collect::<Vec<_>>()
-        .join(",");
-    format!(
-        "v2|{}|{}|{}|{}|{}",
-        session.user_id, session.issued_at, last_seen, session.authenticated_at, methods
-    )
-}
-
-fn read_session(cookies: &CookieJar<'_>, refresh_idle: bool) -> Option<ProviderSession> {
-    let raw = cookies.get_private("user_id")?;
-    let parts: Vec<&str> = raw.value().split('|').collect();
-    let (user_id, issued, last_seen, authenticated_at, method_types) = match parts.as_slice() {
-        ["v2", user_id, issued, last_seen, authenticated_at, methods] => {
-            let methods = methods
-                .split(',')
-                .filter(|m| {
-                    !m.is_empty()
-                        && m.chars()
-                            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-                })
-                .map(str::to_string)
-                .collect::<std::collections::BTreeSet<_>>();
-            (
-                (*user_id).to_string(),
-                issued.parse::<i64>().ok(),
-                last_seen.parse::<i64>().ok(),
-                authenticated_at.parse::<i64>().ok(),
-                methods,
-            )
-        }
-        [user_id, issued, last_seen] => (
-            (*user_id).to_string(),
-            issued.parse::<i64>().ok(),
-            last_seen.parse::<i64>().ok(),
-            issued.parse::<i64>().ok(),
-            [crate::services::auth::METHOD_TYPE_PASSWORD.to_string()]
-                .into_iter()
-                .collect(),
-        ),
-        _ => {
-            cookies.remove_private("user_id");
-            return None;
-        }
-    };
-
-    let (issued, last_seen, authenticated_at) = match (issued, last_seen, authenticated_at) {
-        (Some(i), Some(l), Some(a)) if !user_id.is_empty() && !method_types.is_empty() => (i, l, a),
-        _ => {
-            cookies.remove_private("user_id");
-            return None;
-        }
-    };
-
-    let now = chrono::Utc::now().timestamp();
-    if now < issued
-        || now < authenticated_at
-        || now - issued > session_absolute_ttl()
-        || now - last_seen > session_idle_ttl()
-    {
-        cookies.remove_private("user_id");
-        return None;
-    }
-
-    let session = ProviderSession {
-        user_id,
-        issued_at: issued,
-        authenticated_at,
-        method_types,
-    };
-    if refresh_idle {
-        cookies.add_private(build_session_cookie(encode_session(&session, now)));
-    }
-    Some(session)
-}
-
-/// Read and validate the session. Returns the user_id only if the session is
-/// within both its absolute and idle windows; renews the idle window on a
-/// successful read (sliding session). Clears an expired/malformed cookie.
-pub(super) fn get_session_user_id(cookies: &CookieJar<'_>) -> Option<String> {
-    read_session(cookies, true).map(|s| s.user_id)
-}
-
-fn set_session(cookies: &CookieJar<'_>, user_id: &str) {
-    establish_provider_session(
-        cookies,
-        user_id,
-        &crate::services::auth::AuthenticationEvidence::single(
-            crate::services::auth::METHOD_TYPE_PASSWORD,
-        ),
-    );
-}
-
-pub(super) fn establish_provider_session(
-    cookies: &CookieJar<'_>,
-    user_id: &str,
-    evidence: &crate::services::auth::AuthenticationEvidence,
-) {
-    let now = chrono::Utc::now().timestamp();
-    let session = ProviderSession {
-        user_id: user_id.to_string(),
-        issued_at: now,
-        authenticated_at: evidence.authenticated_at.timestamp(),
-        method_types: evidence.method_types.clone(),
-    };
-    cookies.add_private(build_session_cookie(encode_session(&session, now)));
-}
-
-/// Validate a provider session for a passive RP request without extending its
-/// idle lifetime. This prevents an RP from keeping a session alive through
-/// unsolicited top-level redirects.
-pub(super) fn peek_provider_session(cookies: &CookieJar<'_>) -> Option<ProviderSession> {
-    read_session(cookies, false)
-}
-
-pub(super) fn touch_provider_session(cookies: &CookieJar<'_>) {
-    let _ = read_session(cookies, true);
-}
-
-fn clear_session(cookies: &CookieJar<'_>) {
-    cookies.remove_private("user_id");
-}
+pub(super) use super::session::{
+    clear_session, establish_provider_session, get_session_user_id, peek_provider_session,
+    touch_provider_session,
+};
 
 // -- Layout helpers --
 
@@ -342,9 +162,9 @@ pub fn login_page(error: Option<&str>) -> RawHtml<String> {
 {error}
 <form method="POST" action="/account/login">
   <label>Username</label>
-  <input type="text" name="username" autofocus />
+  <input type="text" name="username" autocomplete="username" autofocus />
   <label>Password</label>
-  <input type="password" name="password" />
+  <input type="password" name="password" autocomplete="current-password" />
   <br/><br/>
   <button type="submit" class="btn-primary">Log In</button>
 </form>"#,
@@ -365,19 +185,40 @@ pub fn login_submit(
     _csrf: super::guard::SameOriginPost,
     pool: &State<DbPool>,
     cookies: &CookieJar<'_>,
+    source: super::guard::RequestSource,
     form: rocket::form::Form<LoginForm>,
 ) -> Result<Redirect, Box<Redirect>> {
     // SEC-05: throttle online brute force, keyed by username.
-    if !crate::services::ratelimit::LOGIN.check(&form.username.trim().to_lowercase()) {
+    if !crate::services::ratelimit::LOGIN_SOURCE.check(&source.0)
+        || !crate::services::ratelimit::LOGIN.check(&form.username.trim().to_lowercase())
+    {
         return Err(Box::new(Redirect::found(
             "/account/login?error=Too+many+attempts.+Please+wait+and+try+again.",
         )));
     }
 
     let authenticator = PasswordAuthenticator::new(pool.inner().clone());
-    match authenticator.authenticate(&form.username, &form.password) {
-        Ok(user) => {
-            set_session(cookies, &user.id);
+    match authenticator.authenticate_with_evidence(&form.username, &form.password) {
+        Ok(authentication) => {
+            let user = &authentication.user;
+            let Some(credential_id) = authentication.credential_id.as_deref() else {
+                return Err(Box::new(Redirect::found(
+                    "/account/login?error=Invalid+username+or+password",
+                )));
+            };
+            if establish_provider_session(
+                cookies,
+                pool.inner(),
+                &user.id,
+                &authentication.evidence,
+                credential_id,
+            )
+            .is_none()
+            {
+                return Err(Box::new(Redirect::found(
+                    "/account/login?error=Could+not+create+session",
+                )));
+            }
             Ok(Redirect::found("/account"))
         }
         Err(_) => Err(Box::new(Redirect::found(
@@ -389,8 +230,12 @@ pub fn login_submit(
 // -- Logout --
 
 #[rocket::post("/account/logout")]
-pub fn logout(_csrf: super::guard::SameOriginPost, cookies: &CookieJar<'_>) -> Redirect {
-    clear_session(cookies);
+pub fn logout(
+    _csrf: super::guard::SameOriginPost,
+    pool: &State<DbPool>,
+    cookies: &CookieJar<'_>,
+) -> Redirect {
+    clear_session(cookies, pool.inner());
     Redirect::found("/account/login")
 }
 
@@ -404,7 +249,7 @@ pub fn account_dashboard(
     msg: Option<&str>,
     error: Option<&str>,
 ) -> Result<RawHtml<String>, Box<Redirect>> {
-    let user_id = match get_session_user_id(cookies) {
+    let user_id = match get_session_user_id(cookies, pool.inner()) {
         Some(id) => id,
         None => return Err(Box::new(Redirect::found("/account/login"))),
     };
@@ -414,7 +259,7 @@ pub fn account_dashboard(
     let info = match account::get_my_info(pool.inner(), &user_id) {
         Ok(i) => i,
         Err(_) => {
-            clear_session(cookies);
+            clear_session(cookies, pool.inner());
             return Err(Box::new(Redirect::found(
                 "/account/login?error=Session+expired",
             )));
@@ -507,9 +352,13 @@ pub fn change_password_page(
     msg: Option<&str>,
     error: Option<&str>,
 ) -> Result<RawHtml<String>, Box<Redirect>> {
-    let user_id = match get_session_user_id(cookies) {
+    let user_id = match get_session_user_id(cookies, pool.inner()) {
         Some(id) => id,
         None => return Err(Box::new(Redirect::found("/account/login"))),
+    };
+    let user = match pool.find_user_by_id(&user_id) {
+        Ok(user) => user,
+        Err(_) => return Err(Box::new(Redirect::found("/account/login"))),
     };
     let admin = is_user_admin(pool.inner(), &user_id);
     let nav = build_nav("account", admin, true);
@@ -519,17 +368,19 @@ pub fn change_password_page(
         r#"{flash}
 <h1>Change Password</h1>
 <form method="POST" action="/account/change-password">
+  <input type="hidden" name="username" value="{username}" autocomplete="username" />
   <label>Current Password</label>
-  <input type="password" name="current_password" required />
+  <input type="password" name="current_password" autocomplete="current-password" required />
   <label>New Password</label>
-  <input type="password" name="new_password" required minlength="8" />
+  <input type="password" name="new_password" autocomplete="new-password" required minlength="8" />
   <label>Confirm Password</label>
-  <input type="password" name="confirm_password" required minlength="8" />
+  <input type="password" name="confirm_password" autocomplete="new-password" required minlength="8" />
   <br/><br/>
   <button type="submit" class="btn-primary">Change Password</button>
 </form>
 <p><a href="/account">Back to Account</a></p>"#,
         flash = flash,
+        username = html_escape(&user.username),
     );
 
     Ok(layout("Change Password", &nav, &content))
@@ -537,6 +388,8 @@ pub fn change_password_page(
 
 #[derive(rocket::FromForm)]
 pub struct ChangePasswordForm {
+    #[field(name = "username")]
+    _username: Option<String>,
     current_password: String,
     new_password: String,
     confirm_password: String,
@@ -549,31 +402,17 @@ pub fn change_password_submit(
     cookies: &CookieJar<'_>,
     form: rocket::form::Form<ChangePasswordForm>,
 ) -> Redirect {
-    let user_id = match get_session_user_id(cookies) {
+    let user_id = match get_session_user_id(cookies, pool.inner()) {
         Some(id) => id,
         None => return Redirect::found("/account/login"),
     };
-
-    // Re-authenticate with the current password before allowing a change
-    // (svc-05): a hijacked session alone must not be enough to take over the
-    // account by resetting the password.
-    let user = match pool.find_user_by_id(&user_id) {
-        Ok(u) => u,
-        Err(_) => return Redirect::found("/account/login"),
-    };
-    let authenticator = PasswordAuthenticator::new(pool.inner().clone());
-    if authenticator
-        .authenticate(&user.username, &form.current_password)
-        .is_err()
-    {
-        return Redirect::found("/account/change-password?error=Current+password+is+incorrect");
-    }
 
     if form.new_password != form.confirm_password {
         return Redirect::found("/account/change-password?error=Passwords+do+not+match");
     }
 
     let req = ChangePasswordRequest {
+        current_password: form.current_password.clone(),
         new_password: form.new_password.clone(),
     };
 

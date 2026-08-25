@@ -38,13 +38,18 @@ pub trait DnsResolver: Send + Sync {
 }
 
 /// Default [`DnsResolver`]: the OS-configured resolver
-/// (`hickory_resolver::Resolver::from_system_conf`), lazily built and reused
+/// (`hickory_resolver::TokioResolver::builder_tokio`), lazily built and reused
 /// across calls. Per the design doc's "Decided" section: resolver spoofing on
 /// a LAN is an accepted, documented tradeoff for this mode; operators wanting
 /// hardening can inject their own [`DnsResolver`] (e.g. a DoH client) instead.
 #[derive(Default)]
 pub struct SystemDnsResolver {
-    resolver: OnceLock<hickory_resolver::Resolver>,
+    state: OnceLock<ResolverState>,
+}
+
+struct ResolverState {
+    runtime: tokio::runtime::Runtime,
+    resolver: hickory_resolver::TokioResolver,
 }
 
 impl fmt::Debug for SystemDnsResolver {
@@ -58,23 +63,35 @@ impl SystemDnsResolver {
         Self::default()
     }
 
-    fn get(&self) -> Result<&hickory_resolver::Resolver, DnsLookupError> {
-        if let Some(r) = self.resolver.get() {
-            return Ok(r);
+    fn get(&self) -> Result<&ResolverState, DnsLookupError> {
+        if let Some(state) = self.state.get() {
+            return Ok(state);
         }
-        let built = hickory_resolver::Resolver::from_system_conf()
+        let runtime = tokio::runtime::Runtime::new()
             .map_err(|e| DnsLookupError::ResolverInit(e.to_string()))?;
-        Ok(self.resolver.get_or_init(|| built))
+        let resolver = runtime
+            .block_on(async {
+                hickory_resolver::TokioResolver::builder_tokio().and_then(|builder| builder.build())
+            })
+            .map_err(|e| DnsLookupError::ResolverInit(e.to_string()))?;
+        Ok(self
+            .state
+            .get_or_init(|| ResolverState { runtime, resolver }))
     }
 }
 
 impl DnsResolver for SystemDnsResolver {
     fn txt_lookup(&self, name: &str) -> Result<Vec<String>, DnsLookupError> {
-        let resolver = self.get()?;
-        let lookup = resolver
-            .txt_lookup(name)
+        let state = self.get()?;
+        let lookup = state
+            .runtime
+            .block_on(state.resolver.txt_lookup(name))
             .map_err(|e| DnsLookupError::Lookup(format!("{name}: {e}")))?;
-        Ok(lookup.iter().map(|txt| txt.to_string()).collect())
+        Ok(lookup
+            .answers()
+            .iter()
+            .map(|record| record.data.to_string())
+            .collect())
     }
 }
 

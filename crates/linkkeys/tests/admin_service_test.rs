@@ -1201,10 +1201,10 @@ fn sec04_manage_users_cannot_reset_admin_account_password() {
     );
 }
 
-/// A manage_users operator can still reset an ordinary (non-admin) user's
-/// password — SEC-04 only restricts protected admin targets.
+/// Password reset always needs full admin authority because it can take over
+/// the target account. This also avoids a race with an admin grant.
 #[test]
-fn sec04_manage_users_may_reset_ordinary_user() {
+fn sec04_manage_users_cannot_reset_ordinary_user() {
     std::env::set_var("DOMAIN_NAME", "test.com");
     std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
     let pool = common::create_test_pool();
@@ -1228,8 +1228,5 @@ fn sec04_manage_users_may_reset_ordinary_user() {
         &pool,
         None,
     );
-    assert_eq!(
-        status, 0,
-        "manage_users may reset an ordinary user's password"
-    );
+    assert_ne!(status, 0, "manage_users must not reset a password");
 }

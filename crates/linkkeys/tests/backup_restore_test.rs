@@ -6,8 +6,8 @@ mod common;
 
 use common::data_factory::{create_domain_key, create_user, DataMap};
 use linkkeys::backup::{
-    create_backup, key_from_hex, restore_backup, snapshot_table_names, BackupOptions,
-    RestoreOptions,
+    create_backup, excluded_ephemeral_table_names, key_from_hex, restore_backup,
+    snapshot_table_names, BackupOptions, RestoreOptions,
 };
 use linkkeys::db::DbPool;
 
@@ -44,6 +44,24 @@ fn backup_restore_round_trip_replaces_state() {
     let user_a = create_user(&pool, &DataMap::new());
     let fps_before = signing_fingerprints(&pool);
     assert!(fps_before.contains(&dk.fingerprint));
+    let (session_token, _) = linkkeys::services::browser_session::create(
+        &pool,
+        &user_a.id,
+        &linkkeys::services::auth::AuthenticationEvidence::single("password"),
+    )
+    .expect("create pre-backup session");
+    let action_token = "pre-backup-action-token";
+    pool.create_account_challenge_and_outbox(
+        &user_a.id,
+        "verify_contact",
+        "email",
+        "person@example.test",
+        &linkkeys::services::verification::token_digest(action_token),
+        vec![1, 2, 3],
+        chrono::Utc::now() + chrono::Duration::hours(1),
+        None,
+    )
+    .expect("create pre-backup action");
 
     // Back up the current state.
     let backup = create_backup(
@@ -86,6 +104,22 @@ fn backup_restore_round_trip_replaces_state() {
     );
     assert!(result.fingerprints.contains(&dk.fingerprint));
     assert_eq!(result.passphrase_in_bundle.as_deref(), Some(PASS));
+    assert!(
+        linkkeys::services::browser_session::get(&pool, &session_token, false)
+            .unwrap()
+            .is_none()
+    );
+    assert!(pool
+        .find_account_challenge(
+            &linkkeys::services::verification::token_digest(action_token),
+            "verify_contact",
+        )
+        .unwrap()
+        .is_none());
+    assert!(pool
+        .find_latest_notification_outbox(&user_a.id, "verify_contact")
+        .unwrap()
+        .is_none());
 }
 
 #[test]
@@ -254,8 +288,11 @@ fn snapshot_covers_every_table() {
     .load(&mut conn)
     .expect("list tables");
 
-    let covered: std::collections::BTreeSet<&str> =
-        snapshot_table_names().iter().copied().collect();
+    let covered: std::collections::BTreeSet<&str> = snapshot_table_names()
+        .iter()
+        .chain(excluded_ephemeral_table_names())
+        .copied()
+        .collect();
     let missing: Vec<String> = rows
         .into_iter()
         .map(|r| r.name)

@@ -64,6 +64,8 @@ docs/
 | `LIVE-ENV.md` | **Move** | `operations/live-env.md` |
 | `DEMO.md` | **Move** | `operations/demo.md` |
 | `reactorcide-jobs.md` | **Move** | `developing/ci.md` |
+| `claim-policy-and-consent.md` — outbound email limitation + `crates/linkkeys/src/email.rs` temporary design | **Absorbed** into the accepted server implementation design | `developing/outbound-communications-and-account-recovery.md` |
+| `DESIGN.md` — server plugin-hosting boundary + Rust-rendered application pages | **Expanded** into the accepted runtime UI design | `developing/runtime-web-ui.md` |
 | `rp-claims.example.toml` | **Move** beside its guide | `operations/` |
 | `/dns-less-local-rp-design.md` (repo root) | **Move out of root** — it is an agent prompt, not documentation. Its normative content is superseded by `spec/local-rp.md` | `.agents/` or delete after extraction |
 | `README.md` | **Rewrite** — lead with the value proposition, link the spec | — |

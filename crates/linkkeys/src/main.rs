@@ -7,10 +7,9 @@ use cli::{
     AccountCommands, ClaimCommands, Cli, Commands, DomainCommands, LocalRpCommands, PinCommands,
     PolicyCommands, RelationCommands, UserCommands,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
 
 #[rocket::main]
 async fn main() {
@@ -24,47 +23,32 @@ async fn main() {
 
             let db_pool = linkkeys::db::create_pool();
             let ready_flag = Arc::new(AtomicBool::new(false));
+            // Finish all schema and data work before any network service starts.
+            linkkeys::db::run_migrations_with_locking(&db_pool);
+            run_startup_transforms(&db_pool);
+            let ui_configuration = linkkeys::services::ui::load().unwrap_or_else(|error| {
+                eprintln!("Runtime UI configuration failed: {}", error.message);
+                std::process::exit(1);
+            });
+            let tcp_server = linkkeys::tcp::TcpServer::new(
+                ready_flag.clone(),
+                db_pool.clone(),
+                linkkeys::net::Net::production(),
+                ui_configuration.clone(),
+            )
+            .unwrap_or_else(|error| {
+                eprintln!("TCP server startup failed: {error}");
+                std::process::exit(1);
+            });
+            let _outbox_worker =
+                linkkeys::services::notification::start_worker(db_pool.clone(), ready_flag.clone())
+                    .unwrap_or_else(|error| {
+                        eprintln!("Outbound notification startup failed: {error}");
+                        std::process::exit(1);
+                    });
+            thread::spawn(move || tcp_server.run());
 
-            {
-                let pool = db_pool.clone();
-                let flag = ready_flag.clone();
-                thread::spawn(move || {
-                    // Schema migrations (diesel-tracked), then startup TRANSFORMS:
-                    // idempotent data ops that must run at least once, in order.
-                    // Transforms that were applied to every deployment from main
-                    // (legacy-claim re-sign, profile backfill, admin split) have
-                    // been removed; new transforms join the ordered list below.
-                    linkkeys::db::run_migrations_with_locking(&pool);
-                    run_startup_transforms(&pool);
-                    // Signal readiness only after every startup DB write is done,
-                    // so the TCP server's domain-key read can't contend on the
-                    // SQLite lock (which previously failed its TLS setup).
-                    flag.store(true, Ordering::SeqCst);
-                    log::info!("Startup complete, server ready");
-                });
-            }
-
-            {
-                let flag = ready_flag.clone();
-                let pool = db_pool.clone();
-                let tcp_net = linkkeys::net::Net::production();
-                thread::spawn(move || {
-                    // Wait until startup DB writes finish before constructing the
-                    // server: TcpServer::new reads domain keys for its TLS config,
-                    // which would otherwise contend on the SQLite lock held by the
-                    // migration/backfill thread, erroring out of new() (the bound
-                    // listener is dropped) so the port never serves.
-                    while !flag.load(Ordering::SeqCst) {
-                        thread::sleep(Duration::from_millis(100));
-                    }
-                    match linkkeys::tcp::TcpServer::new(flag, pool, tcp_net) {
-                        Ok(server) => server.run(),
-                        Err(e) => log::error!("Failed to start TCP server: {}", e),
-                    }
-                });
-            }
-
-            linkkeys::web::launch_rocket(db_pool, ready_flag).await;
+            linkkeys::web::launch_rocket(db_pool, ready_flag, ui_configuration).await;
         }
 
         Commands::Domain(DomainCommands::Init) => domain_init(),
@@ -2265,6 +2249,13 @@ fn handle_account_command(cmd: AccountCommands) {
             let addr = cli::tcp_client::get_server_addr(server.as_deref());
             let key = cli::tcp_client::get_api_key();
 
+            eprint!("Enter current password: ");
+            let mut current_password = String::new();
+            std::io::stdin()
+                .read_line(&mut current_password)
+                .expect("Failed to read password");
+            let current_password = current_password.trim().to_string();
+
             eprint!("Enter new password: ");
             let mut password = String::new();
             std::io::stdin()
@@ -2277,6 +2268,7 @@ fn handle_account_command(cmd: AccountCommands) {
             }
 
             let req = liblinkkeys::generated::types::ChangePasswordRequest {
+                current_password,
                 new_password: password,
             };
 
@@ -2551,7 +2543,7 @@ fn claim_set(user_id: &str, claim_type: &str, claim_value: &str, expires: Option
 }
 
 async fn domain_dns_check() {
-    use hickory_resolver::TokioAsyncResolver;
+    use hickory_resolver::TokioResolver;
     use linkkeys::conversions::get_domain_name;
 
     let domain_name = get_domain_name();
@@ -2577,11 +2569,16 @@ async fn domain_dns_check() {
     // behind a gateway/LB). TCP_HOSTNAME / TCP_PORT locate the protocol service;
     // the TCP port is omitted from the advert when it is the spec default.
     let api_hostname = std::env::var("API_HOSTNAME").unwrap_or_else(|_| domain_name.clone());
-    let public_port: u16 = std::env::var("PUBLIC_PORT")
-        .or_else(|_| std::env::var("HTTPS_PORT"))
-        .unwrap_or_else(|_| "8443".to_string())
-        .parse()
-        .unwrap_or(8443);
+    let public_port_name = if std::env::var_os("PUBLIC_PORT").is_some() {
+        "PUBLIC_PORT"
+    } else {
+        "HTTPS_PORT"
+    };
+    let public_port =
+        linkkeys::config::nonzero_u16_env(public_port_name, 8443).unwrap_or_else(|error| {
+            eprintln!("DNS check failed: {error}");
+            std::process::exit(1);
+        });
     let https_value = if public_port == 443 {
         api_hostname.clone()
     } else {
@@ -2589,10 +2586,12 @@ async fn domain_dns_check() {
     };
 
     let tcp_hostname = std::env::var("TCP_HOSTNAME").unwrap_or_else(|_| domain_name.clone());
-    let tcp_port: u16 = std::env::var("TCP_PORT")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(liblinkkeys::dns::DEFAULT_TCP_PORT);
+    let tcp_port =
+        linkkeys::config::nonzero_u16_env("TCP_PORT", liblinkkeys::dns::DEFAULT_TCP_PORT)
+            .unwrap_or_else(|error| {
+                eprintln!("DNS check failed: {error}");
+                std::process::exit(1);
+            });
     let tcp_value = if tcp_port == liblinkkeys::dns::DEFAULT_TCP_PORT {
         tcp_hostname.clone()
     } else {
@@ -2628,18 +2627,20 @@ async fn domain_dns_check() {
     warn_if_long("_linkkeys_apis", &expected_apis);
     println!();
 
-    let resolver = TokioAsyncResolver::tokio_from_system_conf().unwrap_or_else(|e| {
-        eprintln!("  Failed to create DNS resolver: {}", e);
-        std::process::exit(1);
-    });
+    let resolver = TokioResolver::builder_tokio()
+        .and_then(|builder| builder.build())
+        .unwrap_or_else(|e| {
+            eprintln!("  Failed to create DNS resolver: {}", e);
+            std::process::exit(1);
+        });
 
     // -- Check the _linkkeys trust-anchor record (fingerprints) --
     println!("DNS lookup: {}", trust_name);
     match resolver.txt_lookup(&trust_name).await {
         Ok(response) => {
             let mut found = false;
-            for record in response.iter() {
-                let txt_str = record.to_string();
+            for record in response.answers() {
+                let txt_str = record.data.to_string();
                 if let Ok(parsed) = liblinkkeys::dns::parse_linkkeys_txt(&txt_str) {
                     found = true;
                     println!("  TXT: \"{}\"", txt_str);
@@ -2680,8 +2681,8 @@ async fn domain_dns_check() {
     match resolver.txt_lookup(&apis_name).await {
         Ok(response) => {
             let mut found = false;
-            for record in response.iter() {
-                let txt_str = record.to_string();
+            for record in response.answers() {
+                let txt_str = record.data.to_string();
                 if let Ok(parsed) = liblinkkeys::dns::parse_linkkeys_apis_txt(&txt_str) {
                     found = true;
                     println!("  TXT: \"{}\"", txt_str);

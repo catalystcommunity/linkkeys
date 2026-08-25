@@ -3,6 +3,7 @@ name = "linkkeys-local-rp"
 version = "0.1.0"
 edition = "2021"
 description = "LinkKeys DNS-less local RP identity SDK (Rust)"
+license = "Apache-2.0"
 
 # Layout decision (dns-less-local-rp-design.md, "SDK Layout and Tooling"):
 # STANDALONE, like the other 13 language SDKs under sdks/local-rp/. The empty
@@ -61,7 +62,10 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "logg
 # `tokio-runtime`, which is what the blocking `Resolver::from_system_conf()`
 # type needs internally; this SDK's own public API stays fully synchronous
 # (no tokio runtime leaks into the SDK's surface).
-hickory-resolver = "0.24"
+hickory-resolver = "0.26"
+# The SDK API is synchronous. Hickory 0.26 is asynchronous, so the default DNS
+# adapter owns a small runtime at this private boundary.
+tokio = { version = "1", features = ["rt-multi-thread"] }
 
 # Timestamps (issued_at/expires_at, `now` parameters, expiration checks) —
 # already the workspace's date/time library (liblinkkeys, linkkeys).

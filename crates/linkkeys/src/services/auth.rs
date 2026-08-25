@@ -43,6 +43,10 @@ impl AuthenticationEvidence {
 pub struct AuthenticationResult {
     pub user: User,
     pub evidence: AuthenticationEvidence,
+    /// The credential that proved this authentication, when the method uses a
+    /// stored credential. Callers use this value for compare-and-swap checks
+    /// before they create a session or replace a password.
+    pub credential_id: Option<String>,
 }
 
 /// Provider policy result after combining its own minimum with the RP's
@@ -125,6 +129,7 @@ pub trait Authenticator: Send + Sync {
         Ok(AuthenticationResult {
             user,
             evidence: AuthenticationEvidence::single(self.method().method_type),
+            credential_id: None,
         })
     }
 }
@@ -150,6 +155,28 @@ impl Authenticator for PasswordAuthenticator {
     }
 
     fn authenticate(&self, username: &str, password: &str) -> Result<User, AuthError> {
+        self.authenticate_password(username, password)
+            .map(|result| result.user)
+    }
+
+    fn authenticate_with_evidence(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<AuthenticationResult, AuthError> {
+        self.authenticate_password(username, password)
+    }
+}
+
+impl PasswordAuthenticator {
+    fn authenticate_password(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<AuthenticationResult, AuthError> {
+        if !crate::services::password::valid_login_shape(username, password) {
+            return Err(AuthError::InvalidCredentials);
+        }
         let found = match &self.pool {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
@@ -167,7 +194,7 @@ impl Authenticator for PasswordAuthenticator {
             Err(_) => {
                 // SEC-05: equalize timing so a missing username is not
                 // distinguishable from a wrong password by response latency.
-                crate::services::password::dummy_verify(password);
+                crate::services::password::dummy_verify_bounded(password);
                 return Err(AuthError::InvalidCredentials);
             }
         };
@@ -177,13 +204,22 @@ impl Authenticator for PasswordAuthenticator {
             .find_credentials_for_user(&user.id, CREDENTIAL_TYPE_PASSWORD)
             .map_err(|e| AuthError::DbError(e.to_string()))?;
 
+        if creds.is_empty() {
+            crate::services::password::dummy_verify_bounded(password);
+            return Err(AuthError::InvalidCredentials);
+        }
+
         for cred in &creds {
             let outcome = crate::services::password::verify(password, &cred.credential_hash);
             if outcome.verified {
                 if outcome.needs_rehash {
                     self.rehash_to_argon2id(&cred.id, password);
                 }
-                return Ok(user);
+                return Ok(AuthenticationResult {
+                    user,
+                    evidence: AuthenticationEvidence::single(METHOD_TYPE_PASSWORD),
+                    credential_id: Some(cred.id.clone()),
+                });
             }
         }
 
@@ -197,7 +233,7 @@ impl PasswordAuthenticator {
     /// the user already passed, so errors are logged and swallowed — the upgrade
     /// simply retries on the next login.
     fn rehash_to_argon2id(&self, credential_id: &str, password: &str) {
-        match liblinkkeys::crypto::hash_password(password) {
+        match crate::services::password::hash_for_storage(password) {
             Ok(new_hash) => {
                 if let Err(e) = self.pool.update_credential_hash(credential_id, &new_hash) {
                     log::warn!("Failed to upgrade credential hash to Argon2id: {}", e);
@@ -209,10 +245,17 @@ impl PasswordAuthenticator {
 }
 
 /// Authenticates users via API key (bearer token).
-/// API key format: <8-char-user-id-prefix>.<secret>
-/// The prefix enables O(1) user lookup before the expensive bcrypt verify.
+/// API key format: <user-id>.<secret>. Legacy keys can contain the first eight
+/// hexadecimal characters of the user ID. New keys use the full user ID so
+/// the database lookup selects one account before the expensive bcrypt check.
 pub struct ApiKeyAuthenticator {
     pool: DbPool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ApiKeyAuthentication {
+    pub user: User,
+    pub credential_id: String,
 }
 
 impl ApiKeyAuthenticator {
@@ -221,86 +264,136 @@ impl ApiKeyAuthenticator {
     }
 
     pub fn authenticate_key(&self, api_key: &str) -> Result<User, AuthError> {
+        self.authenticate_key_with_credential(api_key)
+            .map(|authentication| authentication.user)
+    }
+
+    pub fn authenticate_key_with_credential(
+        &self,
+        api_key: &str,
+    ) -> Result<ApiKeyAuthentication, AuthError> {
         // Parse prefix.secret format
         let (prefix, secret) = api_key
             .split_once('.')
             .ok_or(AuthError::InvalidCredentials)?;
 
-        if prefix.len() != 8 {
+        if !valid_api_key_shape(prefix, secret) {
             return Err(AuthError::InvalidCredentials);
         }
 
-        // The prefix is only a lookup hint, not a unique key — UUIDv7 prefixes
-        // are timestamp-derived, so users created close in time share one.
-        // Correctness comes from the bcrypt check, so we try EVERY user matching
-        // the prefix rather than an arbitrary `.first()` (which would lock out
-        // all but one of the colliders — db-07). The match set is small.
-        let users = self.find_users_by_id_prefix(prefix)?;
-
-        for user in users {
-            let creds = self
+        // Current keys use an indexed digest lookup. This also makes a legacy
+        // key cheap after its first successful authentication upgrades it.
+        let digest = api_key_hash(secret);
+        if let Some(credential) = self
+            .pool
+            .find_active_credential_by_hash(CREDENTIAL_TYPE_API_KEY, &digest)
+            .map_err(|error| AuthError::DbError(error.to_string()))?
+        {
+            let user = self
                 .pool
-                .find_credentials_for_user(&user.id, CREDENTIAL_TYPE_API_KEY)
-                .map_err(|e| AuthError::DbError(e.to_string()))?;
+                .find_user_by_id(&credential.user_id)
+                .map_err(|_| AuthError::InvalidCredentials)?;
+            return Ok(ApiKeyAuthentication {
+                user,
+                credential_id: credential.id,
+            });
+        }
 
-            for cred in &creds {
-                if bcrypt::verify(secret, &cred.credential_hash).unwrap_or(false) {
-                    return Ok(user);
+        // Only an old eight-character prefix can need bcrypt. Collect the
+        // candidates before doing any expensive work. A bounded cohort keeps
+        // one first-use request from consuming unbounded CPU.
+        if prefix.len() != 8 {
+            return Err(AuthError::InvalidCredentials);
+        }
+        if !crate::services::ratelimit::LEGACY_API_PREFIX.check(prefix) {
+            return Err(AuthError::InvalidCredentials);
+        }
+        let candidates = self
+            .pool
+            .find_legacy_api_key_candidates(prefix, (MAX_LEGACY_API_KEY_CANDIDATES + 1) as i64)
+            .map_err(|error| AuthError::DbError(error.to_string()))?;
+
+        if candidates.len() > MAX_LEGACY_API_KEY_CANDIDATES {
+            log::warn!(
+                "Rejected a legacy API key because its prefix matched {} active credentials",
+                candidates.len()
+            );
+            return Err(AuthError::InvalidCredentials);
+        }
+        if candidates.is_empty() {
+            return Err(AuthError::InvalidCredentials);
+        }
+        let _permit = ApiKeyWorkPermit::acquire().ok_or(AuthError::InvalidCredentials)?;
+        for (user, credential) in candidates {
+            if bcrypt::verify(secret, &credential.credential_hash).unwrap_or(false) {
+                if let Err(error) = self.pool.update_credential_hash(&credential.id, &digest) {
+                    log::warn!("Failed to upgrade an API-key hash: {error}");
                 }
+                return Ok(ApiKeyAuthentication {
+                    user,
+                    credential_id: credential.id,
+                });
             }
         }
 
         Err(AuthError::InvalidCredentials)
     }
+}
 
-    fn find_users_by_id_prefix(&self, prefix: &str) -> Result<Vec<User>, AuthError> {
-        // Validate prefix contains only hex chars and dashes (UUID characters)
-        if !prefix.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
-            return Err(AuthError::InvalidCredentials);
-        }
+const API_KEY_SECRET_LENGTH: usize = 43;
+const MAX_ACTIVE_API_KEY_WORK: usize = 1;
+const MAX_LEGACY_API_KEY_CANDIDATES: usize = 32;
+static ACTIVE_API_KEY_WORK: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-        match &self.pool {
-            #[cfg(feature = "postgres")]
-            DbPool::Postgres(p) => {
-                use diesel::prelude::*;
-                let mut conn = p.get().map_err(|e| AuthError::DbError(e.to_string()))?;
-                let pattern = format!("{}%", prefix);
-                // Use diesel's text cast + parameterized LIKE to avoid injection.
-                // The prefix is already validated to contain only hex chars and dashes.
-                crate::schema::pg::users::table
-                    .filter(
-                        diesel::dsl::sql::<diesel::sql_types::Text>("CAST(id AS TEXT)")
-                            .like(&pattern),
-                    )
-                    .load::<crate::db::models::pg::UserRow>(&mut conn)
-                    .map(|rows| rows.into_iter().map(Into::into).collect())
-                    .map_err(|e| AuthError::DbError(e.to_string()))
-            }
-            #[cfg(feature = "sqlite")]
-            DbPool::Sqlite(p) => {
-                use diesel::prelude::*;
-                let mut conn = p.get().map_err(|e| AuthError::DbError(e.to_string()))?;
-                let pattern = format!("{}%", prefix);
-                crate::schema::sqlite::users::table
-                    .filter(crate::schema::sqlite::users::id.like(&pattern))
-                    .load::<crate::db::models::sqlite::UserRow>(&mut conn)
-                    .map(|rows| rows.into_iter().map(Into::into).collect())
-                    .map_err(|e| AuthError::DbError(e.to_string()))
-            }
-        }
+struct ApiKeyWorkPermit;
+
+impl ApiKeyWorkPermit {
+    fn acquire() -> Option<Self> {
+        use std::sync::atomic::Ordering;
+        ACTIVE_API_KEY_WORK
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+                (active < MAX_ACTIVE_API_KEY_WORK).then_some(active + 1)
+            })
+            .ok()
+            .map(|_| Self)
     }
 }
 
-/// Generate an API key for a user. Returns (api_key, bcrypt_hash).
-/// Format: <first-8-chars-of-user-id>.<32-bytes-random-base64url>
+impl Drop for ApiKeyWorkPermit {
+    fn drop(&mut self) {
+        ACTIVE_API_KEY_WORK.fetch_sub(1, std::sync::atomic::Ordering::Release);
+    }
+}
+
+fn valid_api_key_shape(prefix: &str, secret: &str) -> bool {
+    let valid_prefix = (prefix.len() == 8 && prefix.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        || (prefix.len() == 36 && uuid::Uuid::parse_str(prefix).is_ok());
+    valid_prefix
+        && secret.len() == API_KEY_SECRET_LENGTH
+        && secret
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+fn api_key_hash(secret: &str) -> String {
+    use base64ct::{Base64UrlUnpadded, Encoding};
+    use sha2::{Digest, Sha256};
+
+    format!(
+        "sha256:{}",
+        Base64UrlUnpadded::encode_string(&Sha256::digest(secret.as_bytes()))
+    )
+}
+
+/// Generate an API key for a user. Returns the key and its storage digest.
+/// Format: <user-id>.<32-bytes-random-base64url>
 pub fn generate_api_key(user_id: &str) -> (String, String) {
     use base64ct::{Base64UrlUnpadded, Encoding};
 
-    let prefix = &user_id[..8.min(user_id.len())];
     let secret_bytes: [u8; 32] = rand::random();
     let secret = Base64UrlUnpadded::encode_string(&secret_bytes);
-    let api_key = format!("{}.{}", prefix, secret);
-    let hash = bcrypt::hash(&secret, 12).expect("Failed to hash API key");
+    let api_key = format!("{}.{}", user_id, secret);
+    let hash = api_key_hash(&secret);
     (api_key, hash)
 }
 

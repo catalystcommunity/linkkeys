@@ -5,7 +5,7 @@ job:
   command: |
     set -e
     sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-      libpq-dev libsqlite3-dev pkg-config build-essential
+      libpq-dev libsqlite3-dev pkg-config build-essential nodejs npm
 
     export HOME=/home/runner
     export PATH="/usr/local/cargo/bin:$HOME/.cargo/bin:$PATH"
@@ -23,8 +23,18 @@ job:
     cd "${REACTORCIDE_CODE_DIR:-/job/src}"
     export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/tmp/linkkeys-target}"
 
+    echo "=== Checking embedded web UI ==="
+    (cd web-ui && npm ci --no-audit --no-fund && npm run build)
+    (cd web-ui && npm audit --omit=optional)
+    git diff --exit-code -- crates/linkkeys/assets/ui
+
+    if ! cargo deny --version >/dev/null 2>&1; then
+      cargo install cargo-deny --locked
+    fi
+    cargo deny check
+
     echo "=== Running tests (SQLite backend) ==="
-    TEST_DATABASE_BACKEND=sqlite cargo test 2>&1
+    TEST_DATABASE_BACKEND=sqlite cargo test --all-features 2>&1
 
     echo "=== SQLite tests passed ==="
   timeout: 1800

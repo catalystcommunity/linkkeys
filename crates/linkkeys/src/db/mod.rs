@@ -1,10 +1,10 @@
+pub mod account_security;
 pub mod auth_credentials;
 pub mod claim_policy;
 pub mod claims;
 pub mod consent_grants;
 pub mod domain_keys;
 pub mod domain_pins;
-pub mod email_verification;
 pub mod guestbook;
 pub mod issued_revocations;
 pub mod local_rp;
@@ -22,6 +22,25 @@ use diesel::r2d2::{self, ConnectionManager};
 use std::env;
 
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+
+#[cfg(feature = "sqlite")]
+#[derive(Debug)]
+struct SqliteConnectionCustomizer;
+
+#[cfg(feature = "sqlite")]
+impl r2d2::CustomizeConnection<diesel::SqliteConnection, diesel::r2d2::Error>
+    for SqliteConnectionCustomizer
+{
+    fn on_acquire(
+        &self,
+        connection: &mut diesel::SqliteConnection,
+    ) -> Result<(), diesel::r2d2::Error> {
+        use diesel::connection::SimpleConnection;
+        connection
+            .batch_execute("PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;")
+            .map_err(diesel::r2d2::Error::QueryError)
+    }
+}
 
 // Schema migrations are tracked by diesel (the `__diesel_schema_migrations`
 // table); diesel runs only the pending ones. Migrations are pure SCHEMA DDL,
@@ -242,6 +261,7 @@ pub fn create_pool() -> DbPool {
                 .max_size(15)
                 .min_idle(Some(5))
                 .test_on_check_out(true)
+                .connection_customizer(Box::new(SqliteConnectionCustomizer))
                 .build(manager)
                 .expect("Failed to create sqlite pool");
             DbPool::Sqlite(pool)
@@ -511,6 +531,48 @@ impl DbPool {
                 })?;
                 auth_credentials::sqlite::find_for_user(&mut conn, user_id, credential_type)
             }
+        }
+    }
+
+    pub fn find_active_credential_by_hash(
+        &self,
+        credential_type: &str,
+        credential_hash: &str,
+    ) -> QueryResult<Option<models::AuthCredential>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => auth_credentials::pg::find_by_active_hash(
+                &mut *pg_conn(p)?,
+                credential_type,
+                credential_hash,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => auth_credentials::sqlite::find_by_active_hash(
+                &mut *sqlite_conn(p)?,
+                credential_type,
+                credential_hash,
+            ),
+        }
+    }
+
+    pub fn find_legacy_api_key_candidates(
+        &self,
+        user_id_prefix: &str,
+        limit: i64,
+    ) -> QueryResult<Vec<(models::User, models::AuthCredential)>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => auth_credentials::pg::find_legacy_api_key_candidates(
+                &mut *pg_conn(p)?,
+                user_id_prefix,
+                limit,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => auth_credentials::sqlite::find_legacy_api_key_candidates(
+                &mut *sqlite_conn(p)?,
+                user_id_prefix,
+                limit,
+            ),
         }
     }
 
@@ -925,6 +987,22 @@ impl DbPool {
         }
     }
 
+    pub fn deactivate_account_security(&self, user_id: &str) -> QueryResult<models::User> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => account_security::pg::deactivate_account(
+                &mut *pg_conn(p)?,
+                user_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                account_security::sqlite::deactivate_account(&mut *sqlite_conn(p)?, user_id)
+            }
+        }
+    }
+
     /// Irreversibly minimize a user while keeping the UUID-bearing row as a
     /// permanent tombstone. This is not migration forwarding; callers must only
     /// use it when no forwarding/legal retention obligation needs live data.
@@ -937,9 +1015,10 @@ impl DbPool {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
                 use crate::schema::pg::{
-                    admin_review_queue, auth_credentials, claims, consent_grants,
-                    email_verifications, local_rp_claim_tickets, profile_claim_prefs, profiles,
-                    relations, user_keys, user_release_prefs,
+                    account_challenges, admin_review_queue, auth_credentials, browser_sessions,
+                    claims, consent_grants, local_rp_claim_tickets, notification_outbox,
+                    profile_claim_prefs, profiles, relations, user_keys, user_release_prefs,
+                    users as user_rows, verified_contact_methods,
                 };
 
                 let mut conn = p.get().map_err(|e| {
@@ -953,6 +1032,11 @@ impl DbPool {
                     .map_err(|_| diesel::result::Error::NotFound)?;
                 conn.transaction(|conn| {
                     let now = chrono::Utc::now();
+                    user_rows::table
+                        .find(uid)
+                        .select(user_rows::id)
+                        .for_update()
+                        .first::<uuid::Uuid>(conn)?;
 
                     let profile_ids: Vec<String> = profiles::table
                         .filter(profiles::account_id.eq(uid))
@@ -1022,8 +1106,22 @@ impl DbPool {
                         user_release_prefs::table.filter(user_release_prefs::user_id.eq(uid)),
                     )
                     .execute(conn)?;
-                    let email_verifications_deleted = diesel::delete(
-                        email_verifications::table.filter(email_verifications::user_id.eq(uid)),
+                    let email_verifications_deleted = 0;
+                    diesel::delete(
+                        notification_outbox::table.filter(notification_outbox::user_id.eq(uid)),
+                    )
+                    .execute(conn)?;
+                    diesel::delete(
+                        account_challenges::table.filter(account_challenges::user_id.eq(uid)),
+                    )
+                    .execute(conn)?;
+                    diesel::delete(
+                        verified_contact_methods::table
+                            .filter(verified_contact_methods::user_id.eq(uid)),
+                    )
+                    .execute(conn)?;
+                    diesel::delete(
+                        browser_sessions::table.filter(browser_sessions::user_id.eq(uid)),
                     )
                     .execute(conn)?;
                     let reviews_resolved = diesel::update(
@@ -1073,9 +1171,10 @@ impl DbPool {
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
                 use crate::schema::sqlite::{
-                    admin_review_queue, auth_credentials, claims, consent_grants,
-                    email_verifications, local_rp_claim_tickets, profile_claim_prefs, profiles,
-                    relations, user_keys, user_release_prefs,
+                    account_challenges, admin_review_queue, auth_credentials, browser_sessions,
+                    claims, consent_grants, local_rp_claim_tickets, notification_outbox,
+                    profile_claim_prefs, profiles, relations, user_keys, user_release_prefs,
+                    verified_contact_methods,
                 };
 
                 let mut conn = p.get().map_err(|e| {
@@ -1155,8 +1254,22 @@ impl DbPool {
                         user_release_prefs::table.filter(user_release_prefs::user_id.eq(user_id)),
                     )
                     .execute(conn)?;
-                    let email_verifications_deleted = diesel::delete(
-                        email_verifications::table.filter(email_verifications::user_id.eq(user_id)),
+                    let email_verifications_deleted = 0;
+                    diesel::delete(
+                        notification_outbox::table.filter(notification_outbox::user_id.eq(user_id)),
+                    )
+                    .execute(conn)?;
+                    diesel::delete(
+                        account_challenges::table.filter(account_challenges::user_id.eq(user_id)),
+                    )
+                    .execute(conn)?;
+                    diesel::delete(
+                        verified_contact_methods::table
+                            .filter(verified_contact_methods::user_id.eq(user_id)),
+                    )
+                    .execute(conn)?;
+                    diesel::delete(
+                        browser_sessions::table.filter(browser_sessions::user_id.eq(user_id)),
                     )
                     .execute(conn)?;
                     let reviews_resolved = diesel::update(
@@ -2351,50 +2464,462 @@ impl DbPool {
         }
     }
 
-    pub fn create_email_verification(
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_account_challenge_and_outbox(
         &self,
-        token: &str,
         user_id: &str,
-        email: &str,
+        kind: &str,
+        channel: &str,
+        destination: &str,
+        token_digest: &str,
+        encrypted_payload: Vec<u8>,
         expires_at: chrono::DateTime<chrono::Utc>,
-    ) -> QueryResult<usize> {
+        required_credential_id: Option<&str>,
+    ) -> QueryResult<models::AccountChallenge> {
         match self {
             #[cfg(feature = "postgres")]
-            DbPool::Postgres(p) => {
-                let uid: uuid::Uuid = user_id
+            DbPool::Postgres(p) => account_security::pg::create_challenge_and_outbox(
+                &mut *pg_conn(p)?,
+                user_id
                     .parse()
-                    .map_err(|_| diesel::result::Error::NotFound)?;
-                email_verification::pg::create(&mut *pg_conn(p)?, token, uid, email, expires_at)
-            }
+                    .map_err(|_| diesel::result::Error::NotFound)?,
+                kind,
+                channel,
+                destination,
+                token_digest,
+                encrypted_payload,
+                expires_at,
+                required_credential_id
+                    .map(str::parse)
+                    .transpose()
+                    .map_err(|_| diesel::result::Error::NotFound)?,
+            ),
             #[cfg(feature = "sqlite")]
-            DbPool::Sqlite(p) => email_verification::sqlite::create(
+            DbPool::Sqlite(p) => account_security::sqlite::create_challenge_and_outbox(
                 &mut *sqlite_conn(p)?,
-                token,
                 user_id,
-                email,
+                kind,
+                channel,
+                destination,
+                token_digest,
+                encrypted_payload,
                 &expires_at.to_rfc3339(),
+                required_credential_id,
             ),
         }
     }
 
-    pub fn find_email_verification(
+    pub fn find_account_challenge(
         &self,
-        token: &str,
-    ) -> QueryResult<Option<models::EmailVerification>> {
+        token_digest: &str,
+        kind: &str,
+    ) -> QueryResult<Option<models::AccountChallenge>> {
         match self {
             #[cfg(feature = "postgres")]
-            DbPool::Postgres(p) => email_verification::pg::find(&mut *pg_conn(p)?, token),
+            DbPool::Postgres(p) => {
+                account_security::pg::find_challenge(&mut *pg_conn(p)?, token_digest, kind)
+            }
             #[cfg(feature = "sqlite")]
-            DbPool::Sqlite(p) => email_verification::sqlite::find(&mut *sqlite_conn(p)?, token),
+            DbPool::Sqlite(p) => {
+                account_security::sqlite::find_challenge(&mut *sqlite_conn(p)?, token_digest, kind)
+            }
         }
     }
 
-    pub fn delete_email_verification(&self, token: &str) -> QueryResult<usize> {
+    pub fn confirm_contact_challenge(
+        &self,
+        challenge_id: &str,
+        claims: &[models::PreparedClaim],
+    ) -> QueryResult<models::VerifiedContactMethod> {
         match self {
             #[cfg(feature = "postgres")]
-            DbPool::Postgres(p) => email_verification::pg::delete(&mut *pg_conn(p)?, token),
+            DbPool::Postgres(p) => {
+                account_security::pg::confirm_contact(&mut *pg_conn(p)?, challenge_id, claims)
+            }
             #[cfg(feature = "sqlite")]
-            DbPool::Sqlite(p) => email_verification::sqlite::delete(&mut *sqlite_conn(p)?, token),
+            DbPool::Sqlite(p) => account_security::sqlite::confirm_contact(
+                &mut *sqlite_conn(p)?,
+                challenge_id,
+                claims,
+            ),
+        }
+    }
+
+    pub fn list_verified_contacts(
+        &self,
+        user_id: &str,
+    ) -> QueryResult<Vec<models::VerifiedContactMethod>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => account_security::pg::list_contacts(
+                &mut *pg_conn(p)?,
+                user_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                account_security::sqlite::list_contacts(&mut *sqlite_conn(p)?, user_id)
+            }
+        }
+    }
+
+    pub fn revoke_verified_contact(
+        &self,
+        user_id: &str,
+        contact_id: &str,
+        credential_id: &str,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => account_security::pg::revoke_contact(
+                &mut *pg_conn(p)?,
+                user_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?,
+                contact_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?,
+                credential_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => account_security::sqlite::revoke_contact(
+                &mut *sqlite_conn(p)?,
+                user_id,
+                contact_id,
+                credential_id,
+            ),
+        }
+    }
+
+    pub fn find_recovery_contact(
+        &self,
+        destination: &str,
+    ) -> QueryResult<Option<models::VerifiedContactMethod>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                account_security::pg::find_recovery_contact(&mut *pg_conn(p)?, destination)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                account_security::sqlite::find_recovery_contact(&mut *sqlite_conn(p)?, destination)
+            }
+        }
+    }
+
+    pub fn create_browser_session(
+        &self,
+        token_digest: &str,
+        user_id: &str,
+        issued_at: chrono::DateTime<chrono::Utc>,
+        authenticated_at: chrono::DateTime<chrono::Utc>,
+        methods: &str,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<models::BrowserSession> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => account_security::pg::create_session(
+                &mut *pg_conn(p)?,
+                models::pg::BrowserSessionRow {
+                    token_digest: token_digest.to_string(),
+                    user_id: user_id
+                        .parse()
+                        .map_err(|_| diesel::result::Error::NotFound)?,
+                    issued_at,
+                    last_seen_at: issued_at,
+                    authenticated_at,
+                    authentication_methods: methods.to_string(),
+                    expires_at,
+                    revoked_at: None,
+                    created_at: issued_at,
+                    updated_at: issued_at,
+                },
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => account_security::sqlite::create_session(
+                &mut *sqlite_conn(p)?,
+                models::sqlite::BrowserSessionRow {
+                    token_digest: token_digest.to_string(),
+                    user_id: user_id.to_string(),
+                    issued_at: issued_at.to_rfc3339(),
+                    last_seen_at: issued_at.to_rfc3339(),
+                    authenticated_at: authenticated_at.to_rfc3339(),
+                    authentication_methods: methods.to_string(),
+                    expires_at: expires_at.to_rfc3339(),
+                    revoked_at: None,
+                    created_at: issued_at.to_rfc3339(),
+                    updated_at: issued_at.to_rfc3339(),
+                },
+            ),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_browser_session_if_password_active(
+        &self,
+        token_digest: &str,
+        user_id: &str,
+        credential_id: &str,
+        issued_at: chrono::DateTime<chrono::Utc>,
+        authenticated_at: chrono::DateTime<chrono::Utc>,
+        methods: &str,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<models::BrowserSession> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => account_security::pg::create_session_if_password_active(
+                &mut *pg_conn(p)?,
+                models::pg::BrowserSessionRow {
+                    token_digest: token_digest.to_string(),
+                    user_id: user_id
+                        .parse()
+                        .map_err(|_| diesel::result::Error::NotFound)?,
+                    issued_at,
+                    last_seen_at: issued_at,
+                    authenticated_at,
+                    authentication_methods: methods.to_string(),
+                    expires_at,
+                    revoked_at: None,
+                    created_at: issued_at,
+                    updated_at: issued_at,
+                },
+                credential_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => account_security::sqlite::create_session_if_password_active(
+                &mut *sqlite_conn(p)?,
+                models::sqlite::BrowserSessionRow {
+                    token_digest: token_digest.to_string(),
+                    user_id: user_id.to_string(),
+                    issued_at: issued_at.to_rfc3339(),
+                    last_seen_at: issued_at.to_rfc3339(),
+                    authenticated_at: authenticated_at.to_rfc3339(),
+                    authentication_methods: methods.to_string(),
+                    expires_at: expires_at.to_rfc3339(),
+                    revoked_at: None,
+                    created_at: issued_at.to_rfc3339(),
+                    updated_at: issued_at.to_rfc3339(),
+                },
+                credential_id,
+            ),
+        }
+    }
+
+    pub fn find_browser_session(
+        &self,
+        digest: &str,
+    ) -> QueryResult<Option<models::BrowserSession>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => account_security::pg::find_session(&mut *pg_conn(p)?, digest),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                account_security::sqlite::find_session(&mut *sqlite_conn(p)?, digest)
+            }
+        }
+    }
+
+    pub fn touch_browser_session(
+        &self,
+        digest: &str,
+        at: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                account_security::pg::touch_session(&mut *pg_conn(p)?, digest, at)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => account_security::sqlite::touch_session(
+                &mut *sqlite_conn(p)?,
+                digest,
+                &at.to_rfc3339(),
+            ),
+        }
+    }
+
+    pub fn revoke_browser_session(&self, digest: &str) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => account_security::pg::revoke_session(&mut *pg_conn(p)?, digest),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                account_security::sqlite::revoke_session(&mut *sqlite_conn(p)?, digest)
+            }
+        }
+    }
+
+    pub fn complete_password_recovery(
+        &self,
+        challenge_id: &str,
+        password_hash: &str,
+    ) -> QueryResult<()> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => account_security::pg::complete_recovery(
+                &mut *pg_conn(p)?,
+                challenge_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?,
+                password_hash,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => account_security::sqlite::complete_recovery(
+                &mut *sqlite_conn(p)?,
+                challenge_id,
+                password_hash,
+            ),
+        }
+    }
+
+    pub fn replace_password(&self, user_id: &str, password_hash: &str) -> QueryResult<()> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => account_security::pg::replace_password(
+                &mut *pg_conn(p)?,
+                user_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?,
+                password_hash,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => account_security::sqlite::replace_password(
+                &mut *sqlite_conn(p)?,
+                user_id,
+                password_hash,
+            ),
+        }
+    }
+
+    pub fn replace_password_if_current(
+        &self,
+        user_id: &str,
+        credential_id: &str,
+        password_hash: &str,
+    ) -> QueryResult<()> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => account_security::pg::replace_password_if_current(
+                &mut *pg_conn(p)?,
+                user_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?,
+                credential_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?,
+                password_hash,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => account_security::sqlite::replace_password_if_current(
+                &mut *sqlite_conn(p)?,
+                user_id,
+                credential_id,
+                password_hash,
+            ),
+        }
+    }
+
+    pub fn claim_notification_outbox(
+        &self,
+        channel: &str,
+        worker_id: &str,
+        lease_seconds: i64,
+    ) -> QueryResult<Option<models::NotificationOutboxItem>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => account_security::pg::claim_outbox(
+                &mut *pg_conn(p)?,
+                channel,
+                worker_id,
+                lease_seconds,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => account_security::sqlite::claim_outbox(
+                &mut *sqlite_conn(p)?,
+                channel,
+                worker_id,
+                lease_seconds,
+            ),
+        }
+    }
+
+    pub fn finish_notification_outbox(
+        &self,
+        id: &str,
+        worker_id: &str,
+        state: &str,
+        next_attempt_at: chrono::DateTime<chrono::Utc>,
+        error_category: Option<&str>,
+        redact_payload: bool,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => account_security::pg::finish_outbox(
+                &mut *pg_conn(p)?,
+                id,
+                worker_id,
+                state,
+                next_attempt_at,
+                error_category,
+                redact_payload,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => account_security::sqlite::finish_outbox(
+                &mut *sqlite_conn(p)?,
+                id,
+                worker_id,
+                state,
+                &next_attempt_at.to_rfc3339(),
+                error_category,
+                redact_payload,
+            ),
+        }
+    }
+
+    pub fn expire_notification_outbox(&self) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => account_security::pg::expire_outbox(&mut *pg_conn(p)?),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => account_security::sqlite::expire_outbox(&mut *sqlite_conn(p)?),
+        }
+    }
+
+    pub fn find_notification_outbox(
+        &self,
+        id: &str,
+    ) -> QueryResult<Option<models::NotificationOutboxItem>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => account_security::pg::find_outbox(&mut *pg_conn(p)?, id),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => account_security::sqlite::find_outbox(&mut *sqlite_conn(p)?, id),
+        }
+    }
+
+    pub fn find_latest_notification_outbox(
+        &self,
+        user_id: &str,
+        purpose: &str,
+    ) -> QueryResult<Option<models::NotificationOutboxItem>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => account_security::pg::latest_outbox(
+                &mut *pg_conn(p)?,
+                user_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?,
+                purpose,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                account_security::sqlite::latest_outbox(&mut *sqlite_conn(p)?, user_id, purpose)
+            }
         }
     }
 

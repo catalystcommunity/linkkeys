@@ -5,6 +5,7 @@ pub const RELATION_MANAGE_USERS: &str = "manage_users";
 pub const RELATION_MANAGE_CLAIMS: &str = "manage_claims";
 pub const RELATION_API_ACCESS: &str = "api_access";
 pub const RELATION_ISSUE_CLAIMS: &str = "issue_claims";
+pub const RELATION_UI_EXTENSION: &str = "ui_extension";
 
 /// The relations an operator may grant to a service/admin identity on a domain.
 /// Break-glass provisioning (`user create --relation`, `relation grant-local`)
@@ -16,6 +17,7 @@ pub const GRANTABLE_RELATIONS: &[&str] = &[
     RELATION_MANAGE_CLAIMS,
     RELATION_API_ACCESS,
     RELATION_ISSUE_CLAIMS,
+    RELATION_UI_EXTENSION,
 ];
 
 /// True if `relation` is a name provisioning is allowed to grant.
@@ -72,8 +74,12 @@ pub fn caller_may_manage_target(pool: &DbPool, caller_id: &str, target_user_id: 
 pub fn required_relation_for_op(service: &str, op: &str) -> Option<&'static str> {
     match service {
         "Admin" => Some(match op {
-            "list-users" | "get-user" | "create-user" | "update-user" | "deactivate-user"
-            | "reset-password" | "authenticate" | "remove-credential" => RELATION_MANAGE_USERS,
+            "list-users" | "get-user" | "create-user" | "update-user" | "authenticate" => {
+                RELATION_MANAGE_USERS
+            }
+            // These operations can take over or disable an account. Requiring
+            // full admin authority avoids a race with concurrent admin grants.
+            "deactivate-user" | "reset-password" | "remove-credential" => RELATION_ADMIN,
             "set-claim"
             | "remove-claim"
             | "list-user-claims"

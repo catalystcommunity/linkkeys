@@ -729,7 +729,10 @@ SetUserClaimResponse = {
 
 SettableClaimPolicy = {
     claim_type: text,
+    label: text,
+    description: text,
     datatype: text,
+    max_bytes: int,
     set_rule: text,
     requires_approval: bool,
     signing_rule: text
@@ -1025,6 +1028,7 @@ CheckPermissionResponse = {
 ;; ============================================================
 
 ChangePasswordRequest = {
+    current_password: text,
     new_password: text
 }
 
@@ -1121,6 +1125,249 @@ RequestVerificationRequest = {
 
 RequestVerificationResponse = {
     signed_request: SignedSigningRequest
+}
+
+;; ============================================================
+;; Browser sessions
+;; ============================================================
+;;
+;; These operations use the canonical HTTP CSIL-RPC carrier. The HTTP carrier
+;; creates, reads, refreshes, and removes the private browser cookie. A client
+;; never receives the cookie value in a CSIL response. A non-HTTP carrier must
+;; reject login-password, get-current, and logout as unsupported.
+
+PasswordPolicy = {
+    min_length: int,
+    max_length: int
+}
+
+;; Safe information about the caller's current browser session. `expires_at`
+;; is the earlier of the absolute and idle expiry. It can move forward when a
+;; request refreshes the idle window, but it cannot exceed the absolute expiry.
+BrowserSessionInfo = {
+    user: AdminUser,
+    issued_at: text,
+    authenticated_at: text,
+    expires_at: text,
+    authentication_methods: [* text]
+}
+
+SessionPasswordLoginRequest = {
+    username: text,
+    password: text
+}
+
+SessionPasswordLoginResponse = {
+    session: BrowserSessionInfo
+}
+
+SessionCurrentResponse = {
+    session: BrowserSessionInfo
+}
+
+SessionLogoutResponse = {
+    success: bool
+}
+
+;; A trusted same-origin product backend can pass an opaque LinkKeys private
+;; cookie to LinkKeys over an authenticated and encrypted server connection.
+;; The caller needs the `ui_extension` relation. The response contains no
+;; username, display name, claim, relation, or cookie value.
+IntrospectBrowserSessionRequest = {
+    session_cookie: text
+}
+
+IntrospectBrowserSessionResponse = {
+    user_id: text,
+    user_domain: text,
+    authenticated_at: text,
+    expires_at: text,
+    authentication_methods: [* text]
+}
+
+;; ============================================================
+;; Outbound notification capabilities and verified contacts
+;; ============================================================
+
+;; One enabled purpose/channel pair. Initial purpose values are
+;; `verify_contact` and `reset_password`. The initial channel is `email`, and
+;; its destination_kind is `email`. These text registries can gain new
+;; values without changing this record.
+NotificationCapability = {
+    purpose: text,
+    channel: text,
+    destination_kind: text
+}
+
+GetNotificationCapabilitiesResponse = {
+    capabilities: [* NotificationCapability]
+}
+
+;; A private server record for a destination that the current account has
+;; verified. This record is not a LinkKeys claim. The signed `email` and
+;; `email_verified` claims remain the protocol-facing result for email.
+VerifiedContactMethod = {
+    id: text,
+    channel: text,
+    destination: text,
+    verified_at: text,
+    purposes: [* text],
+    ? revoked_at: text
+}
+
+ListVerifiedContactMethodsResponse = {
+    contact_methods: [* VerifiedContactMethod]
+}
+
+;; Removes one verified contact from the authenticated caller's account. A
+;; removed contact cannot authorize password recovery.
+RevokeVerifiedContactMethodRequest = {
+    contact_method_id: text,
+    current_password: text
+}
+
+RevokeVerifiedContactMethodResponse = {
+    success: bool
+}
+
+;; Acts only on the authenticated caller's account. The server chooses the
+;; purpose (`verify_contact`) and records the challenge plus outbox item in one
+;; transaction. The caller must confirm the current password before this
+;; contact can authorize password recovery. `expires_at` is the challenge
+;; expiry, not a delivery promise.
+RequestContactVerificationRequest = {
+    channel: text,
+    destination: text,
+    current_password: text
+}
+
+RequestContactVerificationResponse = {
+    expires_at: text
+}
+
+;; Acts only on the authenticated caller's account. The server rejects a token
+;; that belongs to a different account. The token is secret and must not enter
+;; a log or error message.
+ConfirmContactVerificationRequest = {
+    token: text
+}
+
+ConfirmContactVerificationResponse = {
+    contact_method: VerifiedContactMethod,
+    claims: [* Claim]
+}
+
+;; ============================================================
+;; Password recovery
+;; ============================================================
+;;
+;; These operations are public because the caller has no browser session. The
+;; request operation always returns the same successful response for a valid
+;; request shape. It does not reveal whether an account, verified contact, or
+;; outbox item exists.
+
+RequestPasswordRecoveryRequest = {
+    identifier: text
+}
+
+RequestPasswordRecoveryResponse = {
+}
+
+;; The reset page calls this before it asks for a new password. An unknown,
+;; expired, used, or revoked token must produce the same public error. The
+;; response must not identify the account or contact destination.
+ValidatePasswordRecoveryRequest = {
+    token: text
+}
+
+ValidatePasswordRecoveryResponse = {
+    expires_at: text,
+    password_policy: PasswordPolicy
+}
+
+CompletePasswordRecoveryRequest = {
+    token: text,
+    new_password: text
+}
+
+CompletePasswordRecoveryResponse = {
+    success: bool
+}
+
+;; ============================================================
+;; Browser authorization and consent
+;; ============================================================
+
+BrowserAuthorizationInspectRequest = {
+    signed_request: text
+}
+
+BrowserConsentClaim = {
+    claim_type: text,
+    label: text,
+    datatype: text,
+    required: bool,
+    available: bool,
+    default_granted: bool,
+    policy: text,
+    user_settable: bool,
+    max_bytes: int,
+    requires_approval: bool
+}
+
+BrowserAuthorizationInspectResponse = {
+    relying_party: text,
+    claims: [* BrowserConsentClaim],
+    ? request_reason: text
+}
+
+BrowserAuthorizationCompleteRequest = {
+    signed_request: text,
+    authorized_claims: [* text],
+    claim_types_to_set: [* text],
+    claim_values_to_set: [* text]
+}
+
+BrowserAuthorizationCompleteResponse = {
+    redirect_url: text
+}
+
+;; ============================================================
+;; Runtime web UI configuration
+;; ============================================================
+
+UiTheme = {
+    ? stylesheet_url: text,
+    ? logo_url: text,
+    ? favicon_url: text
+}
+
+UiExtension = {
+    id: text,
+    module_url: text,
+    api_version: int,
+    ? stylesheet_url: text
+}
+
+UiDisplaySettings = {
+    site_name: text,
+    ? support_url: text
+}
+
+;; Public configuration for the embedded or replacement UI host. Filesystem
+;; paths from UI_CONFIG_FILE never enter this response. Initial capability
+;; values are `password_login`, `verify_contact`, `reset_password`,
+;; and `runtime_extensions`. The notification capability service gives the
+;; purpose/channel details.
+GetUiConfigurationResponse = {
+    host_api_version: int,
+    domain: text,
+    ? public_origin: text,
+    capabilities: [* text],
+    display: UiDisplaySettings,
+    ? theme: UiTheme,
+    extensions: [* UiExtension],
+    ? password_policy: PasswordPolicy
 }
 
 ;; ============================================================
@@ -1601,6 +1848,42 @@ service I18n {
     list-locales: EmptyRequest -> ListLocalesResponse
 }
 
+;; Public runtime configuration for the embedded or replacement browser UI.
+service Ui {
+    get-configuration: EmptyRequest -> GetUiConfigurationResponse
+}
+
+;; Public report of enabled semantic purposes and delivery channels. It never
+;; reports a configured transport, host, credential, or private destination.
+service Notification {
+    get-capabilities: EmptyRequest -> GetNotificationCapabilitiesResponse
+}
+
+;; Browser session operations. login-password is public. get-current and logout
+;; require a valid private browser cookie. introspect requires an authenticated
+;; server identity with the `ui_extension` relation and an encrypted carrier.
+service Session {
+    login-password: SessionPasswordLoginRequest -> SessionPasswordLoginResponse,
+    get-current: EmptyRequest -> SessionCurrentResponse,
+    logout: EmptyRequest -> SessionLogoutResponse,
+    introspect: IntrospectBrowserSessionRequest -> IntrospectBrowserSessionResponse
+}
+
+;; Public password recovery. Every token error has one public error shape, and
+;; request-password-recovery never confirms that an account exists.
+service Recovery {
+    request-password-recovery: RequestPasswordRecoveryRequest -> RequestPasswordRecoveryResponse,
+    validate-password-recovery: ValidatePasswordRecoveryRequest -> ValidatePasswordRecoveryResponse,
+    complete-password-recovery: CompletePasswordRecoveryRequest -> CompletePasswordRecoveryResponse
+}
+
+;; This service is available only through the same-origin browser carrier. It
+;; uses the authenticated browser session and cannot use an API key.
+service BrowserAuthorization {
+    inspect: BrowserAuthorizationInspectRequest -> BrowserAuthorizationInspectResponse,
+    complete: BrowserAuthorizationCompleteRequest -> BrowserAuthorizationCompleteResponse
+}
+
 service Admin {
     list-users: ListUsersRequest -> ListUsersResponse,
     get-user: GetUserRequest -> GetUserResponse,
@@ -1652,11 +1935,16 @@ service Admin {
 service Account {
     change-password: ChangePasswordRequest -> ChangePasswordResponse,
     get-my-info: EmptyRequest -> GetMyInfoResponse,
+    list-settable-policies: EmptyRequest -> ListSettablePoliciesResponse,
     set-my-claim: SetMyClaimRequest -> SetMyClaimResponse,
     remove-my-claim: RemoveMyClaimRequest -> RemoveMyClaimResponse,
     set-my-claim-sharing: SetMyClaimSharingRequest -> SetMyClaimSharingResponse,
     create-profile: CreateProfileRequest -> CreateProfileResponse,
-    request-verification: RequestVerificationRequest -> RequestVerificationResponse
+    request-verification: RequestVerificationRequest -> RequestVerificationResponse,
+    list-verified-contact-methods: EmptyRequest -> ListVerifiedContactMethodsResponse,
+    revoke-verified-contact-method: RevokeVerifiedContactMethodRequest -> RevokeVerifiedContactMethodResponse,
+    request-contact-verification: RequestContactVerificationRequest -> RequestContactVerificationResponse,
+    confirm-contact-verification: ConfirmContactVerificationRequest -> ConfirmContactVerificationResponse
 }
 
 ;; Attested claims (server-to-server). An issuer deposits a claim it signed about

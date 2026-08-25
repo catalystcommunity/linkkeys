@@ -147,6 +147,26 @@ pub(crate) fn sign_and_store(
     claim_type: &str,
     value: &[u8],
 ) -> Result<(), ServiceError> {
+    let claim = prepare_signed_claim(pool, subject_id, claim_type, value)?;
+    pool.replace_active_claim_of_type(
+        &claim.id,
+        subject_id,
+        &claim.claim_type,
+        &claim.claim_value,
+        &claim.signatures,
+        None,
+        claim.attested_at,
+    )
+    .map_err(db_err)?;
+    Ok(())
+}
+
+pub(crate) fn prepare_signed_claim(
+    pool: &DbPool,
+    subject_id: &str,
+    claim_type: &str,
+    value: &[u8],
+) -> Result<crate::db::models::PreparedClaim, ServiceError> {
     let passphrase = env::var("DOMAIN_KEY_PASSPHRASE")
         .map_err(|_| svc_err(500, "DOMAIN_KEY_PASSPHRASE not set"))?;
     let domain_keys = pool.list_active_domain_keys().map_err(db_err)?;
@@ -172,17 +192,13 @@ pub(crate) fn sign_and_store(
     )
     .map_err(|e| svc_err(500, &e.to_string()))?;
 
-    pool.replace_active_claim_of_type(
-        &claim_id,
-        subject_id,
-        claim_type,
-        value,
-        &signed.signatures,
-        None,
-        attested_chrono,
-    )
-    .map_err(db_err)?;
-    Ok(())
+    Ok(crate::db::models::PreparedClaim {
+        id: claim_id,
+        claim_type: claim_type.to_string(),
+        claim_value: value.to_vec(),
+        signatures: signed.signatures,
+        attested_at: attested_chrono,
+    })
 }
 
 /// Store a claim with no domain signature, revoking any prior active value.

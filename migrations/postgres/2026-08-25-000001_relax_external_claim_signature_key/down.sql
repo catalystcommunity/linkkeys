@@ -1,0 +1,2 @@
+DROP INDEX users_legacy_api_prefix_idx;
+DROP INDEX auth_credentials_active_hash_idx;

@@ -140,6 +140,97 @@ pub trait I18n {
     ) -> Result<ListLocalesResponse, ServiceError>;
 }
 
+/// Ui service trait
+pub trait Ui {
+    type Context;
+    /// get-configuration (request/response).
+    fn get_configuration(
+        &self,
+        ctx: &Self::Context,
+        input: EmptyRequest,
+    ) -> Result<GetUiConfigurationResponse, ServiceError>;
+}
+
+/// Notification service trait
+pub trait Notification {
+    type Context;
+    /// get-capabilities (request/response).
+    fn get_capabilities(
+        &self,
+        ctx: &Self::Context,
+        input: EmptyRequest,
+    ) -> Result<GetNotificationCapabilitiesResponse, ServiceError>;
+}
+
+/// Session service trait
+pub trait Session {
+    type Context;
+    /// login-password (request/response).
+    fn login_password(
+        &self,
+        ctx: &Self::Context,
+        input: SessionPasswordLoginRequest,
+    ) -> Result<SessionPasswordLoginResponse, ServiceError>;
+    /// get-current (request/response).
+    fn get_current(
+        &self,
+        ctx: &Self::Context,
+        input: EmptyRequest,
+    ) -> Result<SessionCurrentResponse, ServiceError>;
+    /// logout (request/response).
+    fn logout(
+        &self,
+        ctx: &Self::Context,
+        input: EmptyRequest,
+    ) -> Result<SessionLogoutResponse, ServiceError>;
+    /// introspect (request/response).
+    fn introspect(
+        &self,
+        ctx: &Self::Context,
+        input: IntrospectBrowserSessionRequest,
+    ) -> Result<IntrospectBrowserSessionResponse, ServiceError>;
+}
+
+/// Recovery service trait
+pub trait Recovery {
+    type Context;
+    /// request-password-recovery (request/response).
+    fn request_password_recovery(
+        &self,
+        ctx: &Self::Context,
+        input: RequestPasswordRecoveryRequest,
+    ) -> Result<RequestPasswordRecoveryResponse, ServiceError>;
+    /// validate-password-recovery (request/response).
+    fn validate_password_recovery(
+        &self,
+        ctx: &Self::Context,
+        input: ValidatePasswordRecoveryRequest,
+    ) -> Result<ValidatePasswordRecoveryResponse, ServiceError>;
+    /// complete-password-recovery (request/response).
+    fn complete_password_recovery(
+        &self,
+        ctx: &Self::Context,
+        input: CompletePasswordRecoveryRequest,
+    ) -> Result<CompletePasswordRecoveryResponse, ServiceError>;
+}
+
+/// BrowserAuthorization service trait
+pub trait BrowserAuthorization {
+    type Context;
+    /// inspect (request/response).
+    fn inspect(
+        &self,
+        ctx: &Self::Context,
+        input: BrowserAuthorizationInspectRequest,
+    ) -> Result<BrowserAuthorizationInspectResponse, ServiceError>;
+    /// complete (request/response).
+    fn complete(
+        &self,
+        ctx: &Self::Context,
+        input: BrowserAuthorizationCompleteRequest,
+    ) -> Result<BrowserAuthorizationCompleteResponse, ServiceError>;
+}
+
 /// Admin service trait
 pub trait Admin {
     type Context;
@@ -430,6 +521,12 @@ pub trait Account {
         ctx: &Self::Context,
         input: EmptyRequest,
     ) -> Result<GetMyInfoResponse, ServiceError>;
+    /// list-settable-policies (request/response).
+    fn list_settable_policies(
+        &self,
+        ctx: &Self::Context,
+        input: EmptyRequest,
+    ) -> Result<ListSettablePoliciesResponse, ServiceError>;
     /// set-my-claim (request/response).
     fn set_my_claim(
         &self,
@@ -460,6 +557,30 @@ pub trait Account {
         ctx: &Self::Context,
         input: RequestVerificationRequest,
     ) -> Result<RequestVerificationResponse, ServiceError>;
+    /// list-verified-contact-methods (request/response).
+    fn list_verified_contact_methods(
+        &self,
+        ctx: &Self::Context,
+        input: EmptyRequest,
+    ) -> Result<ListVerifiedContactMethodsResponse, ServiceError>;
+    /// revoke-verified-contact-method (request/response).
+    fn revoke_verified_contact_method(
+        &self,
+        ctx: &Self::Context,
+        input: RevokeVerifiedContactMethodRequest,
+    ) -> Result<RevokeVerifiedContactMethodResponse, ServiceError>;
+    /// request-contact-verification (request/response).
+    fn request_contact_verification(
+        &self,
+        ctx: &Self::Context,
+        input: RequestContactVerificationRequest,
+    ) -> Result<RequestContactVerificationResponse, ServiceError>;
+    /// confirm-contact-verification (request/response).
+    fn confirm_contact_verification(
+        &self,
+        ctx: &Self::Context,
+        input: ConfirmContactVerificationRequest,
+    ) -> Result<ConfirmContactVerificationResponse, ServiceError>;
 }
 
 /// Attestation service trait

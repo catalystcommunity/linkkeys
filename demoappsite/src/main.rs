@@ -379,12 +379,12 @@ struct AttestationForm {
 /// Falls back to `https://{domain}` if no record is found. The demo is a
 /// browser-facing relying party, so it uses the HTTPS endpoint by design.
 async fn resolve_api_base(domain: &str) -> String {
-    use hickory_resolver::TokioAsyncResolver;
+    use hickory_resolver::TokioResolver;
 
     let dns_name = format!("_linkkeys_apis.{}", domain);
     let fallback = || format!("https://{}", domain);
 
-    let resolver = match TokioAsyncResolver::tokio_from_system_conf() {
+    let resolver = match TokioResolver::builder_tokio().and_then(|builder| builder.build()) {
         Ok(r) => r,
         Err(e) => {
             log::warn!("DNS resolver init failed, falling back to direct: {}", e);
@@ -394,8 +394,8 @@ async fn resolve_api_base(domain: &str) -> String {
 
     match resolver.txt_lookup(&dns_name).await {
         Ok(response) => {
-            for record in response.iter() {
-                let txt = record.to_string();
+            for record in response.answers() {
+                let txt = record.data.to_string();
                 // Look for "v=lk1 ... https=<host[:port][/path]>".
                 if txt.starts_with("v=lk1 ") {
                     for part in txt.split_whitespace() {

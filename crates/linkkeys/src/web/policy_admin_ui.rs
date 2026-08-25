@@ -26,7 +26,7 @@ use liblinkkeys::generated::types::{
 };
 
 fn require_manage_claims(pool: &DbPool, cookies: &CookieJar<'_>) -> Result<String, Status> {
-    let user_id = get_session_user_id(cookies).ok_or(Status::Unauthorized)?;
+    let user_id = get_session_user_id(cookies, pool).ok_or(Status::Unauthorized)?;
     let domain = get_domain_name();
     if !authorization::user_has_permission(pool, &user_id, "manage_claims", "domain", &domain) {
         return Err(Status::Forbidden);
@@ -35,7 +35,7 @@ fn require_manage_claims(pool: &DbPool, cookies: &CookieJar<'_>) -> Result<Strin
 }
 
 fn require_issue_page_access(pool: &DbPool, cookies: &CookieJar<'_>) -> Result<String, Status> {
-    let user_id = get_session_user_id(cookies).ok_or(Status::Unauthorized)?;
+    let user_id = get_session_user_id(cookies, pool).ok_or(Status::Unauthorized)?;
     let domain = get_domain_name();
     if authorization::user_has_permission(
         pool,

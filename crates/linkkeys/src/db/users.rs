@@ -52,7 +52,7 @@ pub mod pg {
         let id: uuid::Uuid = user_id
             .parse()
             .map_err(|_| diesel::result::Error::NotFound)?;
-        diesel::update(users::table.find(id))
+        diesel::update(users::table.find(id).filter(users::purged_at.is_null()))
             .set((
                 users::display_name.eq(new_display_name),
                 users::updated_at.eq(chrono::Utc::now()),
@@ -99,7 +99,7 @@ pub mod pg {
         let id: uuid::Uuid = user_id
             .parse()
             .map_err(|_| diesel::result::Error::NotFound)?;
-        diesel::update(users::table.find(id))
+        diesel::update(users::table.find(id).filter(users::purged_at.is_null()))
             .set((
                 users::is_active.eq(true),
                 users::updated_at.eq(chrono::Utc::now()),
@@ -169,15 +169,20 @@ pub mod sqlite {
         new_display_name: &str,
     ) -> QueryResult<User> {
         let now = chrono::Utc::now().to_rfc3339();
-        diesel::update(users::table.find(user_id))
-            .set((
-                users::display_name.eq(new_display_name),
-                users::updated_at.eq(&now),
-            ))
-            .execute(conn)?;
+        diesel::update(
+            users::table
+                .find(user_id)
+                .filter(users::purged_at.is_null()),
+        )
+        .set((
+            users::display_name.eq(new_display_name),
+            users::updated_at.eq(&now),
+        ))
+        .execute(conn)?;
 
         users::table
             .find(user_id)
+            .filter(users::purged_at.is_null())
             .first::<UserRow>(conn)
             .map(Into::into)
     }
@@ -218,12 +223,17 @@ pub mod sqlite {
 
     pub fn activate(conn: &mut diesel::SqliteConnection, user_id: &str) -> QueryResult<User> {
         let now = chrono::Utc::now().to_rfc3339();
-        diesel::update(users::table.find(user_id))
-            .set((users::is_active.eq(1), users::updated_at.eq(&now)))
-            .execute(conn)?;
+        diesel::update(
+            users::table
+                .find(user_id)
+                .filter(users::purged_at.is_null()),
+        )
+        .set((users::is_active.eq(1), users::updated_at.eq(&now)))
+        .execute(conn)?;
 
         users::table
             .find(user_id)
+            .filter(users::purged_at.is_null())
             .first::<UserRow>(conn)
             .map(Into::into)
     }

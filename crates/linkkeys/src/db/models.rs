@@ -291,13 +291,71 @@ pub struct IssuedRevocation {
     pub created_at: String,
 }
 
-/// A pending email-verification challenge. `expires_at` is RFC3339 UTC.
+/// A private destination that an account has proved it controls.
 #[derive(Debug, Clone)]
-pub struct EmailVerification {
-    pub token: String,
+pub struct VerifiedContactMethod {
+    pub id: String,
     pub user_id: String,
-    pub email: String,
+    pub channel: String,
+    pub destination: String,
+    pub purposes: String,
+    pub verified_at: String,
+    pub revoked_at: Option<String>,
+}
+
+/// A single-use account action. Only the digest of the bearer token is stored.
+#[derive(Debug, Clone)]
+pub struct AccountChallenge {
+    pub id: String,
+    pub token_digest: String,
+    pub user_id: String,
+    pub kind: String,
+    pub channel: String,
+    pub destination: String,
+    pub required_credential_id: Option<String>,
     pub expires_at: String,
+    pub consumed_at: Option<String>,
+    pub revoked_at: Option<String>,
+}
+
+/// A durable notification that waits for a delivery worker.
+#[derive(Debug, Clone)]
+pub struct NotificationOutboxItem {
+    pub id: String,
+    pub user_id: String,
+    pub purpose: String,
+    pub channel: String,
+    pub destination: String,
+    pub encrypted_payload: Option<Vec<u8>>,
+    pub state: String,
+    pub attempt_count: i64,
+    pub next_attempt_at: String,
+    pub lease_owner: Option<String>,
+    pub lease_expires_at: Option<String>,
+    pub last_error: Option<String>,
+    pub expires_at: String,
+}
+
+/// Server-side state for an opaque browser session token.
+#[derive(Debug, Clone)]
+pub struct BrowserSession {
+    pub token_digest: String,
+    pub user_id: String,
+    pub issued_at: String,
+    pub last_seen_at: String,
+    pub authenticated_at: String,
+    pub authentication_methods: String,
+    pub expires_at: String,
+    pub revoked_at: Option<String>,
+}
+
+/// A signed claim that is ready for one database transaction.
+pub struct PreparedClaim {
+    pub id: String,
+    pub claim_type: String,
+    pub claim_value: Vec<u8>,
+    pub signatures: Vec<liblinkkeys::generated::types::ClaimSignature>,
+    pub attested_at: chrono::DateTime<chrono::Utc>,
 }
 
 /// A cached public key of another domain (append-only). Lets us verify stored
@@ -1122,21 +1180,132 @@ pub mod pg {
     }
 
     #[derive(Queryable, Selectable, Insertable)]
-    #[diesel(table_name = crate::schema::pg::email_verifications)]
-    pub struct EmailVerificationRow {
-        pub token: String,
+    #[diesel(table_name = crate::schema::pg::verified_contact_methods)]
+    pub struct VerifiedContactMethodRow {
+        pub id: uuid::Uuid,
         pub user_id: uuid::Uuid,
-        pub email: String,
-        pub expires_at: chrono::DateTime<chrono::Utc>,
+        pub channel: String,
+        pub destination: String,
+        pub purposes: String,
+        pub verified_at: chrono::DateTime<chrono::Utc>,
+        pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+        pub created_at: chrono::DateTime<chrono::Utc>,
+        pub updated_at: chrono::DateTime<chrono::Utc>,
     }
 
-    impl From<EmailVerificationRow> for super::EmailVerification {
-        fn from(r: EmailVerificationRow) -> Self {
+    impl From<VerifiedContactMethodRow> for super::VerifiedContactMethod {
+        fn from(r: VerifiedContactMethodRow) -> Self {
             Self {
-                token: r.token,
+                id: r.id.to_string(),
                 user_id: r.user_id.to_string(),
-                email: r.email,
+                channel: r.channel,
+                destination: r.destination,
+                purposes: r.purposes,
+                verified_at: r.verified_at.to_rfc3339(),
+                revoked_at: r.revoked_at.map(|v| v.to_rfc3339()),
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable, Insertable)]
+    #[diesel(table_name = crate::schema::pg::account_challenges)]
+    pub struct AccountChallengeRow {
+        pub id: uuid::Uuid,
+        pub token_digest: String,
+        pub user_id: uuid::Uuid,
+        pub kind: String,
+        pub channel: String,
+        pub destination: String,
+        pub required_credential_id: Option<uuid::Uuid>,
+        pub expires_at: chrono::DateTime<chrono::Utc>,
+        pub consumed_at: Option<chrono::DateTime<chrono::Utc>>,
+        pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+        pub created_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    impl From<AccountChallengeRow> for super::AccountChallenge {
+        fn from(r: AccountChallengeRow) -> Self {
+            Self {
+                id: r.id.to_string(),
+                token_digest: r.token_digest,
+                user_id: r.user_id.to_string(),
+                kind: r.kind,
+                channel: r.channel,
+                destination: r.destination,
+                required_credential_id: r.required_credential_id.map(|value| value.to_string()),
                 expires_at: r.expires_at.to_rfc3339(),
+                consumed_at: r.consumed_at.map(|v| v.to_rfc3339()),
+                revoked_at: r.revoked_at.map(|v| v.to_rfc3339()),
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable, Insertable)]
+    #[diesel(table_name = crate::schema::pg::notification_outbox)]
+    pub struct NotificationOutboxRow {
+        pub id: uuid::Uuid,
+        pub user_id: uuid::Uuid,
+        pub purpose: String,
+        pub channel: String,
+        pub destination: String,
+        pub encrypted_payload: Option<Vec<u8>>,
+        pub state: String,
+        pub attempt_count: i64,
+        pub next_attempt_at: chrono::DateTime<chrono::Utc>,
+        pub lease_owner: Option<String>,
+        pub lease_expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        pub last_error: Option<String>,
+        pub expires_at: chrono::DateTime<chrono::Utc>,
+        pub created_at: chrono::DateTime<chrono::Utc>,
+        pub updated_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    impl From<NotificationOutboxRow> for super::NotificationOutboxItem {
+        fn from(r: NotificationOutboxRow) -> Self {
+            Self {
+                id: r.id.to_string(),
+                user_id: r.user_id.to_string(),
+                purpose: r.purpose,
+                channel: r.channel,
+                destination: r.destination,
+                encrypted_payload: r.encrypted_payload,
+                state: r.state,
+                attempt_count: r.attempt_count,
+                next_attempt_at: r.next_attempt_at.to_rfc3339(),
+                lease_owner: r.lease_owner,
+                lease_expires_at: r.lease_expires_at.map(|v| v.to_rfc3339()),
+                last_error: r.last_error,
+                expires_at: r.expires_at.to_rfc3339(),
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable, Insertable)]
+    #[diesel(table_name = crate::schema::pg::browser_sessions)]
+    pub struct BrowserSessionRow {
+        pub token_digest: String,
+        pub user_id: uuid::Uuid,
+        pub issued_at: chrono::DateTime<chrono::Utc>,
+        pub last_seen_at: chrono::DateTime<chrono::Utc>,
+        pub authenticated_at: chrono::DateTime<chrono::Utc>,
+        pub authentication_methods: String,
+        pub expires_at: chrono::DateTime<chrono::Utc>,
+        pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+        pub created_at: chrono::DateTime<chrono::Utc>,
+        pub updated_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    impl From<BrowserSessionRow> for super::BrowserSession {
+        fn from(r: BrowserSessionRow) -> Self {
+            Self {
+                token_digest: r.token_digest,
+                user_id: r.user_id.to_string(),
+                issued_at: r.issued_at.to_rfc3339(),
+                last_seen_at: r.last_seen_at.to_rfc3339(),
+                authenticated_at: r.authenticated_at.to_rfc3339(),
+                authentication_methods: r.authentication_methods,
+                expires_at: r.expires_at.to_rfc3339(),
+                revoked_at: r.revoked_at.map(|v| v.to_rfc3339()),
             }
         }
     }
@@ -2005,21 +2174,132 @@ pub mod sqlite {
     }
 
     #[derive(Queryable, Selectable, Insertable)]
-    #[diesel(table_name = crate::schema::sqlite::email_verifications)]
-    pub struct EmailVerificationRow {
-        pub token: String,
+    #[diesel(table_name = crate::schema::sqlite::verified_contact_methods)]
+    pub struct VerifiedContactMethodRow {
+        pub id: String,
         pub user_id: String,
-        pub email: String,
-        pub expires_at: String,
+        pub channel: String,
+        pub destination: String,
+        pub purposes: String,
+        pub verified_at: String,
+        pub revoked_at: Option<String>,
+        pub created_at: String,
+        pub updated_at: String,
     }
 
-    impl From<EmailVerificationRow> for super::EmailVerification {
-        fn from(r: EmailVerificationRow) -> Self {
+    impl From<VerifiedContactMethodRow> for super::VerifiedContactMethod {
+        fn from(r: VerifiedContactMethodRow) -> Self {
             Self {
-                token: r.token,
+                id: r.id,
                 user_id: r.user_id,
-                email: r.email,
+                channel: r.channel,
+                destination: r.destination,
+                purposes: r.purposes,
+                verified_at: r.verified_at,
+                revoked_at: r.revoked_at,
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable, Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::account_challenges)]
+    pub struct AccountChallengeRow {
+        pub id: String,
+        pub token_digest: String,
+        pub user_id: String,
+        pub kind: String,
+        pub channel: String,
+        pub destination: String,
+        pub required_credential_id: Option<String>,
+        pub expires_at: String,
+        pub consumed_at: Option<String>,
+        pub revoked_at: Option<String>,
+        pub created_at: String,
+    }
+
+    impl From<AccountChallengeRow> for super::AccountChallenge {
+        fn from(r: AccountChallengeRow) -> Self {
+            Self {
+                id: r.id,
+                token_digest: r.token_digest,
+                user_id: r.user_id,
+                kind: r.kind,
+                channel: r.channel,
+                destination: r.destination,
+                required_credential_id: r.required_credential_id,
                 expires_at: r.expires_at,
+                consumed_at: r.consumed_at,
+                revoked_at: r.revoked_at,
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable, Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::notification_outbox)]
+    pub struct NotificationOutboxRow {
+        pub id: String,
+        pub user_id: String,
+        pub purpose: String,
+        pub channel: String,
+        pub destination: String,
+        pub encrypted_payload: Option<Vec<u8>>,
+        pub state: String,
+        pub attempt_count: i64,
+        pub next_attempt_at: String,
+        pub lease_owner: Option<String>,
+        pub lease_expires_at: Option<String>,
+        pub last_error: Option<String>,
+        pub expires_at: String,
+        pub created_at: String,
+        pub updated_at: String,
+    }
+
+    impl From<NotificationOutboxRow> for super::NotificationOutboxItem {
+        fn from(r: NotificationOutboxRow) -> Self {
+            Self {
+                id: r.id,
+                user_id: r.user_id,
+                purpose: r.purpose,
+                channel: r.channel,
+                destination: r.destination,
+                encrypted_payload: r.encrypted_payload,
+                state: r.state,
+                attempt_count: r.attempt_count,
+                next_attempt_at: r.next_attempt_at,
+                lease_owner: r.lease_owner,
+                lease_expires_at: r.lease_expires_at,
+                last_error: r.last_error,
+                expires_at: r.expires_at,
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable, Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::browser_sessions)]
+    pub struct BrowserSessionRow {
+        pub token_digest: String,
+        pub user_id: String,
+        pub issued_at: String,
+        pub last_seen_at: String,
+        pub authenticated_at: String,
+        pub authentication_methods: String,
+        pub expires_at: String,
+        pub revoked_at: Option<String>,
+        pub created_at: String,
+        pub updated_at: String,
+    }
+
+    impl From<BrowserSessionRow> for super::BrowserSession {
+        fn from(r: BrowserSessionRow) -> Self {
+            Self {
+                token_digest: r.token_digest,
+                user_id: r.user_id,
+                issued_at: r.issued_at,
+                last_seen_at: r.last_seen_at,
+                authenticated_at: r.authenticated_at,
+                authentication_methods: r.authentication_methods,
+                expires_at: r.expires_at,
+                revoked_at: r.revoked_at,
             }
         }
     }

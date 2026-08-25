@@ -55,6 +55,14 @@ pub struct OutboundCtx<'a> {
     pub rt: &'a tokio::runtime::Handle,
 }
 
+struct DispatchContext<'a> {
+    client_domain: Option<&'a str>,
+    recovery_source_key: &'a str,
+    outbound: Option<&'a OutboundCtx<'a>>,
+    browser_user: Option<&'a crate::db::models::User>,
+    ui_configuration: Option<&'a crate::services::ui::LoadedUiConfiguration>,
+}
+
 pub struct TcpServer {
     listener: TcpListener,
     thread_pool: ThreadPool,
@@ -63,6 +71,19 @@ pub struct TcpServer {
     tls_config: Arc<rustls::ServerConfig>,
     net: crate::net::Net,
     runtime: Arc<tokio::runtime::Runtime>,
+    io_timeout: Duration,
+    ui_configuration: crate::services::ui::LoadedUiConfiguration,
+}
+
+#[derive(Clone)]
+struct ConnectionContext {
+    ready_flag: Arc<AtomicBool>,
+    db_pool: DbPool,
+    tls_config: Arc<rustls::ServerConfig>,
+    net: crate::net::Net,
+    runtime: tokio::runtime::Handle,
+    io_timeout: Duration,
+    ui_configuration: crate::services::ui::LoadedUiConfiguration,
 }
 
 impl TcpServer {
@@ -70,11 +91,14 @@ impl TcpServer {
         ready_flag: Arc<AtomicBool>,
         db_pool: DbPool,
         net: crate::net::Net,
+        ui_configuration: crate::services::ui::LoadedUiConfiguration,
     ) -> std::io::Result<Self> {
-        let port: u16 = env::var("TCP_PORT")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(liblinkkeys::dns::DEFAULT_TCP_PORT);
+        let port = crate::config::nonzero_u16_env("TCP_PORT", liblinkkeys::dns::DEFAULT_TCP_PORT)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
+        let io_timeout = Duration::from_secs(
+            crate::config::nonzero_u64_env("TCP_IO_TIMEOUT_SECONDS", 60)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?,
+        );
 
         let listener = TcpListener::bind(format!("0.0.0.0:{}", port))?;
 
@@ -112,6 +136,8 @@ impl TcpServer {
             tls_config,
             net,
             runtime,
+            io_timeout,
+            ui_configuration,
         })
     }
 
@@ -119,15 +145,17 @@ impl TcpServer {
         for stream in self.listener.incoming() {
             match stream {
                 Ok(stream) => {
-                    let ready_flag = self.ready_flag.clone();
-                    let db_pool = self.db_pool.clone();
-                    let tls_config = self.tls_config.clone();
-                    let net = self.net.clone();
-                    let rt = self.runtime.handle().clone();
+                    let context = ConnectionContext {
+                        ready_flag: self.ready_flag.clone(),
+                        db_pool: self.db_pool.clone(),
+                        tls_config: self.tls_config.clone(),
+                        net: self.net.clone(),
+                        runtime: self.runtime.handle().clone(),
+                        io_timeout: self.io_timeout,
+                        ui_configuration: self.ui_configuration.clone(),
+                    };
                     self.thread_pool.execute(move || {
-                        if let Err(e) =
-                            handle_connection(stream, ready_flag, &db_pool, tls_config, &net, &rt)
-                        {
+                        if let Err(e) = handle_connection(stream, context) {
                             log::debug!("Connection closed: {}", e);
                         }
                     });
@@ -209,37 +237,24 @@ fn write_frame(stream: &mut impl Write, data: &[u8]) -> std::io::Result<()> {
     stream.flush()
 }
 
-const MAX_FRAME_SIZE: usize = 1024 * 1024;
+pub(crate) const MAX_FRAME_SIZE: usize = 1024 * 1024;
 
-/// Per-connection read/write timeout in seconds. Bounds slowloris-style hold
-/// time. Configurable via TCP_IO_TIMEOUT_SECONDS; default 60s.
-fn tcp_io_timeout_secs() -> u64 {
-    env::var("TCP_IO_TIMEOUT_SECONDS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .filter(|&n| n > 0)
-        .unwrap_or(60)
-}
-
-fn handle_connection(
-    stream: TcpStream,
-    ready_flag: Arc<AtomicBool>,
-    db_pool: &DbPool,
-    tls_config: Arc<rustls::ServerConfig>,
-    net: &crate::net::Net,
-    rt: &tokio::runtime::Handle,
-) -> std::io::Result<()> {
+fn handle_connection(stream: TcpStream, context: ConnectionContext) -> std::io::Result<()> {
+    let source_key = stream
+        .peer_addr()
+        .map(|value| value.ip().to_string())
+        .unwrap_or_else(|_| "unknown-tcp-peer".to_string());
     log::debug!("New TCP connection from: {:?}", stream.peer_addr());
     // Bound how long a single connection can hold a worker thread. Both read
     // and write timeouts are set BEFORE the TLS handshake (which reads/writes
     // on this stream), so a slowloris that stalls mid-handshake or mid-frame is
     // dropped rather than pinning a thread (tcp-04). Configurable; safe default.
-    let timeout = Duration::from_secs(tcp_io_timeout_secs());
-    stream.set_read_timeout(Some(timeout))?;
-    stream.set_write_timeout(Some(timeout))?;
+    stream.set_read_timeout(Some(context.io_timeout))?;
+    stream.set_write_timeout(Some(context.io_timeout))?;
     stream.set_nodelay(true)?;
 
-    let conn = rustls::ServerConnection::new(tls_config).map_err(std::io::Error::other)?;
+    let conn =
+        rustls::ServerConnection::new(context.tls_config.clone()).map_err(std::io::Error::other)?;
     let mut tls_stream = rustls::StreamOwned::new(conn, stream);
 
     // Drive the handshake to completion before serving frames so the verified
@@ -254,11 +269,9 @@ fn handle_connection(
 
     handle_message_loop(
         &mut tls_stream,
-        &ready_flag,
-        db_pool,
+        &context,
         client_domain.as_deref(),
-        net,
-        rt,
+        &source_key,
     )
 }
 
@@ -270,7 +283,7 @@ const MAX_CBOR_DEPTH: usize = 64;
 /// Scan raw CBOR bytes and reject if nesting depth exceeds the limit.
 /// CBOR major types 4 (array) and 5 (map) increase depth; their items decrease it
 /// as they're consumed. This is a conservative linear scan, not a full parser.
-fn check_cbor_depth(data: &[u8]) -> bool {
+pub(crate) fn check_cbor_depth(data: &[u8]) -> bool {
     let mut stack: Vec<Option<usize>> = Vec::new();
     let mut i = 0;
     while i < data.len() {
@@ -375,11 +388,9 @@ fn check_cbor_depth(data: &[u8]) -> bool {
 
 fn handle_message_loop(
     stream: &mut (impl Read + Write),
-    ready_flag: &Arc<AtomicBool>,
-    db_pool: &DbPool,
+    context: &ConnectionContext,
     client_domain: Option<&str>,
-    net: &crate::net::Net,
-    rt: &tokio::runtime::Handle,
+    recovery_source_key: &str,
 ) -> std::io::Result<()> {
     loop {
         let frame = read_frame(stream)?;
@@ -418,14 +429,31 @@ fn handle_message_loop(
             write_frame(stream, &resp)?;
             continue;
         }
+        if envelope.auth.is_some()
+            && !crate::services::ratelimit::API_KEY_SOURCE.check(recovery_source_key)
+        {
+            write_frame(
+                stream,
+                &error_response(5, "Too many authentication attempts. Wait and try again"),
+            )?;
+            continue;
+        }
 
-        let outbound = OutboundCtx { net, rt };
+        let outbound = OutboundCtx {
+            net: &context.net,
+            rt: &context.runtime,
+        };
         let response = dispatch(
             &envelope,
-            ready_flag,
-            db_pool,
-            client_domain,
-            Some(&outbound),
+            &context.ready_flag,
+            &context.db_pool,
+            DispatchContext {
+                client_domain,
+                recovery_source_key,
+                outbound: Some(&outbound),
+                browser_user: None,
+                ui_configuration: Some(&context.ui_configuration),
+            },
         );
         write_frame(stream, &response)?;
     }
@@ -521,7 +549,18 @@ pub fn dispatch_for_test_authed(
         request = request.with_auth(a);
     }
     let ready = Arc::new(AtomicBool::new(true));
-    let bytes = dispatch(&request, &ready, db_pool, client_domain, None);
+    let bytes = dispatch(
+        &request,
+        &ready,
+        db_pool,
+        DispatchContext {
+            client_domain,
+            recovery_source_key: "test-peer",
+            outbound: None,
+            browser_user: None,
+            ui_configuration: None,
+        },
+    );
     let resp = RpcResponse::decode(&bytes).expect("response decodes");
     (resp.status.code() as i32, resp.payload)
 }
@@ -544,16 +583,59 @@ pub fn dispatch_envelope(
     // The web carrier runs inside tokio and cannot `block_on`, so it provides no
     // outbound context; the `Rp` helper ops (which need it) have dedicated HTTP
     // routes and are not served over `/csil/v1/rpc`.
-    dispatch(&request, ready_flag, db_pool, client_domain, None)
+    dispatch(
+        &request,
+        ready_flag,
+        db_pool,
+        DispatchContext {
+            client_domain,
+            recovery_source_key: "http-peer",
+            outbound: None,
+            browser_user: None,
+            ui_configuration: None,
+        },
+    )
+}
+
+/// Dispatch an HTTP CSIL request with an optional browser-session identity.
+pub fn dispatch_envelope_with_browser(
+    envelope_bytes: &[u8],
+    ready_flag: &Arc<AtomicBool>,
+    db_pool: &DbPool,
+    browser_user: Option<&crate::db::models::User>,
+    recovery_source_key: &str,
+) -> Vec<u8> {
+    let request = match RpcRequest::decode(envelope_bytes) {
+        Ok(request) => request,
+        Err(error) => return error_response(1, &format!("Invalid envelope: {error}")),
+    };
+    dispatch(
+        &request,
+        ready_flag,
+        db_pool,
+        DispatchContext {
+            client_domain: None,
+            recovery_source_key,
+            outbound: None,
+            browser_user,
+            ui_configuration: None,
+        },
+    )
 }
 
 fn dispatch(
     envelope: &RpcRequest,
     ready_flag: &Arc<AtomicBool>,
     db_pool: &DbPool,
-    client_domain: Option<&str>,
-    outbound: Option<&OutboundCtx>,
+    context: DispatchContext<'_>,
 ) -> Vec<u8> {
+    let DispatchContext {
+        client_domain,
+        recovery_source_key,
+        outbound,
+        browser_user,
+        ui_configuration,
+    } = context;
     match (envelope.service.as_str(), envelope.op.as_str()) {
         ("Ops", "healthcheck") => ok_response(cbor_response(&CheckResultResponse { result: true })),
         ("Ops", "readiness") => ok_response(cbor_response(&CheckResultResponse {
@@ -578,7 +660,7 @@ fn dispatch(
             };
             match HandshakeHandler.handshake(&(), request) {
                 Ok(resp) => ok_response(liblinkkeys::generated::encode_handshake_response(&resp)),
-                Err(e) => error_response(4, &e.message),
+                Err(error) => error_response(4, &error.message),
             }
         }
         ("DomainKeys", "get-domain-keys") => match db_pool.list_active_domain_keys() {
@@ -651,6 +733,107 @@ fn dispatch(
                     available_locales: liblinkkeys::i18n::available_locales(),
                 },
             ))
+        }
+        ("Ui", "get-configuration") => match ui_configuration
+            .map(crate::services::ui::public_configuration)
+            .map(Ok)
+            .unwrap_or_else(crate::services::ui::configuration)
+        {
+            Ok(response) => {
+                ok_response(liblinkkeys::generated::encode_get_ui_configuration_response(&response))
+            }
+            Err(error) => service_error_response(error),
+        },
+        ("Notification", "get-capabilities") => ok_response(
+            liblinkkeys::generated::encode_get_notification_capabilities_response(
+                &crate::services::notification::capabilities(),
+            ),
+        ),
+        ("Recovery", "request-password-recovery") => {
+            let request = match liblinkkeys::generated::decode_request_password_recovery_request(
+                &envelope.payload,
+            ) {
+                Ok(value) => value,
+                Err(error) => return error_response(2, &format!("Invalid payload: {error}")),
+            };
+            match crate::services::recovery::request(
+                db_pool,
+                &request.identifier,
+                recovery_source_key,
+            ) {
+                Ok(response) => ok_response(
+                    liblinkkeys::generated::encode_request_password_recovery_response(&response),
+                ),
+                Err(error) => service_error_response(error),
+            }
+        }
+        ("Recovery", "validate-password-recovery") => {
+            if !crate::services::ratelimit::RECOVERY_TOKEN_SOURCE.check(recovery_source_key) {
+                return error_response(5, "Too many recovery attempts. Wait and try again");
+            }
+            let request = match liblinkkeys::generated::decode_validate_password_recovery_request(
+                &envelope.payload,
+            ) {
+                Ok(value) => value,
+                Err(error) => return error_response(2, &format!("Invalid payload: {error}")),
+            };
+            match crate::services::recovery::validate(db_pool, &request.token) {
+                Ok(response) => ok_response(
+                    liblinkkeys::generated::encode_validate_password_recovery_response(&response),
+                ),
+                Err(error) => service_error_response(error),
+            }
+        }
+        ("Recovery", "complete-password-recovery") => {
+            if !crate::services::ratelimit::RECOVERY_TOKEN_SOURCE.check(recovery_source_key) {
+                return error_response(5, "Too many recovery attempts. Wait and try again");
+            }
+            let request = match liblinkkeys::generated::decode_complete_password_recovery_request(
+                &envelope.payload,
+            ) {
+                Ok(value) => value,
+                Err(error) => return error_response(2, &format!("Invalid payload: {error}")),
+            };
+            match crate::services::recovery::complete(
+                db_pool,
+                &request.token,
+                &request.new_password,
+            ) {
+                Ok(response) => ok_response(
+                    liblinkkeys::generated::encode_complete_password_recovery_response(&response),
+                ),
+                Err(error) => service_error_response(error),
+            }
+        }
+        ("Session", "introspect") => {
+            let caller = match authenticate_tcp_request(&envelope.auth, db_pool) {
+                Ok(value) => value,
+                Err(response) => return response,
+            };
+            if !crate::services::authorization::user_has_permission(
+                db_pool,
+                &caller.id,
+                "ui_extension",
+                "domain",
+                &get_domain_name(),
+            ) {
+                return error_response(5, "Forbidden");
+            }
+            let request = match liblinkkeys::generated::decode_introspect_browser_session_request(
+                &envelope.payload,
+            ) {
+                Ok(value) => value,
+                Err(error) => return error_response(2, &format!("Invalid payload: {error}")),
+            };
+            match crate::services::browser_session::get(db_pool, &request.session_cookie, false) {
+                Ok(Some(session)) => ok_response(
+                    liblinkkeys::generated::encode_introspect_browser_session_response(
+                        &crate::services::browser_session::introspection(&session),
+                    ),
+                ),
+                Ok(None) => error_response(5, "Invalid browser session"),
+                Err(error) => service_error_response(error),
+            }
         }
         ("UserKeys", "get-user-keys") => {
             let request =
@@ -745,7 +928,12 @@ fn dispatch(
             dispatch_local_rp_redeem_claim_ticket(&envelope.payload, db_pool)
         }
         ("Admin", op) => {
-            let user = match authenticate_tcp_request(&envelope.auth, db_pool) {
+            if op == "authenticate"
+                && !crate::services::ratelimit::LOGIN_SOURCE.check(recovery_source_key)
+            {
+                return error_response(5, "Too many attempts. Wait and try again");
+            }
+            let user = match authenticate_request(&envelope.auth, db_pool, browser_user) {
                 Ok(u) => u,
                 Err(resp) => return resp,
             };
@@ -784,10 +972,10 @@ fn dispatch(
             if op == "reject-claim" {
                 return dispatch_admin_reject_claim(&envelope.payload, db_pool, &user.id);
             }
-            dispatch_admin(op, &envelope.payload, db_pool)
+            dispatch_admin(op, &envelope.payload, db_pool, &user.id)
         }
         ("Account", op) => {
-            let user = match authenticate_tcp_request(&envelope.auth, db_pool) {
+            let user = match authenticate_request(&envelope.auth, db_pool, browser_user) {
                 Ok(u) => u,
                 Err(resp) => return resp,
             };
@@ -1106,7 +1294,7 @@ fn dispatch_local_rp_redeem_claim_ticket(payload: &[u8], db_pool: &DbPool) -> Ve
     )
 }
 
-fn dispatch_admin(op: &str, payload: &[u8], db_pool: &DbPool) -> Vec<u8> {
+fn dispatch_admin(op: &str, payload: &[u8], db_pool: &DbPool, caller_id: &str) -> Vec<u8> {
     use crate::services::admin;
     use liblinkkeys::generated::codec;
 
@@ -1149,11 +1337,16 @@ fn dispatch_admin(op: &str, payload: &[u8], db_pool: &DbPool) -> Vec<u8> {
             admin::update_user,
             codec::encode_update_user_response
         ),
-        "deactivate-user" => admin_op!(
-            codec::decode_deactivate_user_request,
-            admin::deactivate_user,
-            codec::encode_deactivate_user_response
-        ),
+        "deactivate-user" => {
+            let request = match codec::decode_deactivate_user_request(payload) {
+                Ok(value) => value,
+                Err(error) => return error_response(2, &format!("Invalid payload: {error}")),
+            };
+            match admin::deactivate_user_as(db_pool, caller_id, request) {
+                Ok(response) => ok_response(codec::encode_deactivate_user_response(&response)),
+                Err(error) => error_response(4, &error.message),
+            }
+        }
         "activate-user" => admin_op!(
             codec::decode_activate_user_request,
             admin::activate_user_request,
@@ -1373,12 +1566,21 @@ fn dispatch_account(
                 Ok(resp) => ok_response(liblinkkeys::generated::encode_change_password_response(
                     &resp,
                 )),
-                Err(e) => error_response(4, &e.message),
+                Err(error) => service_error_response(error),
             }
         }
         "get-my-info" => match account::get_my_info(db_pool, &user.id) {
             Ok(resp) => ok_response(liblinkkeys::generated::encode_get_my_info_response(&resp)),
             Err(e) => error_response(4, &e.message),
+        },
+        "list-settable-policies" => match crate::services::admin::list_settable_policies(
+            db_pool,
+            liblinkkeys::generated::types::EmptyRequest {},
+        ) {
+            Ok(response) => ok_response(
+                liblinkkeys::generated::encode_list_settable_policies_response(&response),
+            ),
+            Err(error) => service_error_response(error),
         },
         "set-my-claim" => {
             let request = match liblinkkeys::generated::decode_set_my_claim_request(payload) {
@@ -1440,6 +1642,75 @@ fn dispatch_account(
                     ok_response(liblinkkeys::generated::encode_request_verification_response(&resp))
                 }
                 Err(e) => error_response(4, &e.message),
+            }
+        }
+        "list-verified-contact-methods" => {
+            match crate::services::verification::list_verified_contacts(db_pool, &user.id) {
+                Ok(response) => ok_response(
+                    liblinkkeys::generated::encode_list_verified_contact_methods_response(
+                        &response,
+                    ),
+                ),
+                Err(error) => service_error_response(error),
+            }
+        }
+        "revoke-verified-contact-method" => {
+            let request =
+                match liblinkkeys::generated::decode_revoke_verified_contact_method_request(payload)
+                {
+                    Ok(value) => value,
+                    Err(error) => return error_response(2, &format!("Invalid payload: {error}")),
+                };
+            match crate::services::verification::revoke_verified_contact(
+                db_pool,
+                &user.id,
+                &request.contact_method_id,
+                &request.current_password,
+            ) {
+                Ok(response) => ok_response(
+                    liblinkkeys::generated::encode_revoke_verified_contact_method_response(
+                        &response,
+                    ),
+                ),
+                Err(error) => service_error_response(error),
+            }
+        }
+        "request-contact-verification" => {
+            let request = match liblinkkeys::generated::decode_request_contact_verification_request(
+                payload,
+            ) {
+                Ok(value) => value,
+                Err(error) => return error_response(2, &format!("Invalid payload: {error}")),
+            };
+            match crate::services::verification::request_contact_verification(
+                db_pool,
+                &user.id,
+                &request.channel,
+                &request.destination,
+                &request.current_password,
+            ) {
+                Ok(response) => ok_response(
+                    liblinkkeys::generated::encode_request_contact_verification_response(&response),
+                ),
+                Err(error) => service_error_response(error),
+            }
+        }
+        "confirm-contact-verification" => {
+            let request = match liblinkkeys::generated::decode_confirm_contact_verification_request(
+                payload,
+            ) {
+                Ok(value) => value,
+                Err(error) => return error_response(2, &format!("Invalid payload: {error}")),
+            };
+            match crate::services::verification::confirm_contact_verification(
+                db_pool,
+                &user.id,
+                &request.token,
+            ) {
+                Ok(response) => ok_response(
+                    liblinkkeys::generated::encode_confirm_contact_verification_response(&response),
+                ),
+                Err(error) => service_error_response(error),
             }
         }
         _ => error_response(3, &format!("Unknown Account operation: {}", op)),
@@ -1604,6 +1875,31 @@ fn error_response(status: i32, message: &str) -> Vec<u8> {
     RpcResponse::transport_error(status, message)
         .encode()
         .expect("encode RPC error response")
+}
+
+fn service_error_response(error: liblinkkeys::generated::services::ServiceError) -> Vec<u8> {
+    let status = if matches!(error.code, 401 | 403) {
+        5
+    } else if error.code >= 500 {
+        4
+    } else {
+        2
+    };
+    error_response(status, &error.message)
+}
+
+fn authenticate_request(
+    auth: &Option<String>,
+    db_pool: &DbPool,
+    browser_user: Option<&crate::db::models::User>,
+) -> Result<crate::db::models::User, Vec<u8>> {
+    if auth.is_some() {
+        return authenticate_tcp_request(auth, db_pool);
+    }
+    browser_user
+        .filter(|user| user.is_active && user.purged_at.is_none())
+        .cloned()
+        .ok_or_else(|| error_response(5, "Authentication required"))
 }
 
 /// Authenticate a TCP request using the auth field from the envelope.

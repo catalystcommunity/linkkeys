@@ -1,120 +1,229 @@
-//! Email verification (the lane-B flow). A user asks to verify an address; we
-//! store a single-use token and email a confirmation link. When the link is
-//! visited, the IDP signs both the `email` value and an `email_verified` boolean
-//! and deletes the token. No phone/SMS flow exists by design.
+//! Verified-contact operations and compatibility entry points for the HTML UI.
 
-use std::env;
-
+use base64ct::{Base64UrlUnpadded, Encoding};
 use liblinkkeys::claim_policy::ValueType;
 use liblinkkeys::generated::services::ServiceError;
+use liblinkkeys::generated::types::{
+    Claim, ConfirmContactVerificationResponse, ListVerifiedContactMethodsResponse,
+    RequestContactVerificationResponse, RevokeVerifiedContactMethodResponse, VerifiedContactMethod,
+};
+use rand::RngCore;
+use sha2::{Digest, Sha256};
 
-use crate::conversions::get_domain_name;
 use crate::db::DbPool;
-use crate::services::self_service;
+use crate::services::auth::{Authenticator, PasswordAuthenticator};
+use crate::services::notification::NotificationDispatcher;
+use crate::services::{notification, self_service};
 
-/// How long a verification link is valid.
 const VERIFICATION_TTL_HOURS: i64 = 24;
 
-fn svc_err(code: i32, msg: &str) -> ServiceError {
-    ServiceError {
-        code,
-        message: msg.to_string(),
+pub fn normalize_email(value: &str) -> Result<String, ServiceError> {
+    let value = value.trim().to_lowercase();
+    if ValueType::Email.validate(value.as_bytes()).is_err() {
+        return Err(svc_err(400, "The email address is invalid"));
+    }
+    Ok(value)
+}
+
+pub fn list_verified_contacts(
+    pool: &DbPool,
+    user_id: &str,
+) -> Result<ListVerifiedContactMethodsResponse, ServiceError> {
+    let rows = pool.list_verified_contacts(user_id).map_err(db_err)?;
+    Ok(ListVerifiedContactMethodsResponse {
+        contact_methods: rows.into_iter().map(contact_to_csil).collect(),
+    })
+}
+
+pub fn revoke_verified_contact(
+    pool: &DbPool,
+    user_id: &str,
+    contact_method_id: &str,
+    current_password: &str,
+) -> Result<RevokeVerifiedContactMethodResponse, ServiceError> {
+    let credential_id = authenticate_current_password(pool, user_id, current_password)?;
+    match pool
+        .revoke_verified_contact(user_id, contact_method_id, &credential_id)
+        .map_err(|error| match error {
+            diesel::result::Error::NotFound => {
+                svc_err(403, "The current password is no longer valid. Try again")
+            }
+            other => db_err(other),
+        })? {
+        1 => Ok(RevokeVerifiedContactMethodResponse { success: true }),
+        _ => Err(svc_err(404, "The verified contact was not found")),
     }
 }
 
-fn db_err(e: diesel::result::Error) -> ServiceError {
-    log::error!("Database error: {}", e);
-    svc_err(500, "Internal database error")
-}
-
-/// Public base URL for building the confirmation link, from `PUBLIC_ORIGIN` or
-/// `https://<domain>`.
-fn public_origin() -> String {
-    env::var("PUBLIC_ORIGIN").unwrap_or_else(|_| format!("https://{}", get_domain_name()))
-}
-
-/// Begin verifying `email` for `subject_id`: validate the address, store a token,
-/// and send the confirmation link. The address is not signed until the link is
-/// confirmed.
-pub fn request_email_verification(
+pub fn request_contact_verification(
     pool: &DbPool,
-    subject_id: &str,
-    email: &str,
-) -> Result<(), ServiceError> {
-    // SEC-05: throttle verification-email sends so an authenticated user can't
-    // turn this into a spam amplifier. Keyed per subject.
-    if !crate::services::ratelimit::EMAIL.check(subject_id) {
+    user_id: &str,
+    channel: &str,
+    destination: &str,
+    current_password: &str,
+) -> Result<RequestContactVerificationResponse, ServiceError> {
+    if !crate::services::password::authentication_enabled() {
+        return Err(svc_err(400, "Contact verification is not available"));
+    }
+    if channel != "email" || !notification::email_available() {
+        return Err(svc_err(400, "This notification channel is not available"));
+    }
+    let destination = normalize_email(destination)?;
+    let credential_id = authenticate_current_password(pool, user_id, current_password)?;
+    if !crate::services::ratelimit::EMAIL.check(user_id) {
         return Err(svc_err(
             429,
-            "too many verification emails requested; please wait before retrying",
+            "Too many verification requests. Wait before you try again",
         ));
     }
-
-    // Honor the registry: the type must exist and bound the value size.
-    let row = pool
+    let policy = pool
         .find_claim_policy("email")
         .map_err(db_err)?
-        .ok_or_else(|| svc_err(400, "email verification is not enabled on this domain"))?;
-    if email.len() as i64 > row.max_bytes {
-        return Err(svc_err(400, "email address is too long"));
+        .ok_or_else(|| svc_err(400, "Email verification is not enabled on this domain"))?;
+    if destination.len() as i64 > policy.max_bytes {
+        return Err(svc_err(400, "The email address is too long"));
     }
-    if ValueType::Email.validate(email.as_bytes()).is_err() {
-        return Err(svc_err(400, "that doesn't look like an email address"));
-    }
-
-    let token = uuid::Uuid::now_v7().to_string();
-    let expires_at = chrono::Utc::now() + chrono::Duration::hours(VERIFICATION_TTL_HOURS);
-    pool.create_email_verification(&token, subject_id, email, expires_at)
-        .map_err(db_err)?;
-
-    let link = format!(
-        "{}/account/identity/verify-email?token={}",
-        public_origin(),
-        token
-    );
-    crate::email::send_verification_email(email, &link).map_err(|e| svc_err(500, &e))?;
-    Ok(())
+    let token = new_token();
+    let digest = token_digest(&token);
+    let expires = chrono::Utc::now() + chrono::Duration::hours(VERIFICATION_TTL_HOURS);
+    let link = format!("{}/app/verify/contact#token={token}", public_origin());
+    notification::DatabaseNotificationDispatcher::new(pool.clone())
+        .dispatch(notification::NotificationIntent {
+            user_id: user_id.to_string(),
+            purpose: "verify_contact".to_string(),
+            channel: "email".to_string(),
+            destination,
+            token_digest: digest,
+            secret_payload: link.into_bytes(),
+            expires_at: expires,
+            required_credential_id: Some(credential_id),
+        })
+        .map_err(|_| {
+            log::error!("Could not queue contact verification");
+            svc_err(500, "Could not send the verification message")
+        })?;
+    Ok(RequestContactVerificationResponse {
+        expires_at: expires.to_rfc3339(),
+    })
 }
 
-/// Confirm a verification token: sign `email` and `email_verified` for the
-/// subject and consume the token. `session_user_id` is the logged-in user
-/// visiting the link; it must match the account that requested verification so a
-/// leaked link can't be redeemed under a different session. Returns the verified
-/// address.
+fn authenticate_current_password(
+    pool: &DbPool,
+    user_id: &str,
+    current_password: &str,
+) -> Result<String, ServiceError> {
+    if !crate::services::ratelimit::STEP_UP.check(user_id) {
+        return Err(svc_err(
+            429,
+            "Too many password attempts. Wait before you try again",
+        ));
+    }
+    let user = pool.find_user_by_id(user_id).map_err(db_err)?;
+    PasswordAuthenticator::new(pool.clone())
+        .authenticate_with_evidence(&user.username, current_password)
+        .map_err(|_| svc_err(403, "The current password is incorrect"))?
+        .credential_id
+        .ok_or_else(|| svc_err(403, "The current password is incorrect"))
+}
+
+pub fn confirm_contact_verification(
+    pool: &DbPool,
+    user_id: &str,
+    token: &str,
+) -> Result<ConfirmContactVerificationResponse, ServiceError> {
+    let digest = token_digest(token);
+    let challenge = pool
+        .find_account_challenge(&digest, "verify_contact")
+        .map_err(db_err)?
+        .ok_or_else(|| svc_err(400, "The verification link is invalid or expired"))?;
+    if challenge.user_id != user_id {
+        return Err(svc_err(400, "The verification link is invalid or expired"));
+    }
+    let email_claim = self_service::prepare_signed_claim(
+        pool,
+        user_id,
+        "email",
+        challenge.destination.as_bytes(),
+    )?;
+    let verified_claim =
+        self_service::prepare_signed_claim(pool, user_id, "email_verified", b"true")?;
+    let contact = pool
+        .confirm_contact_challenge(&challenge.id, &[email_claim, verified_claim])
+        .map_err(|error| match error {
+            diesel::result::Error::NotFound => {
+                svc_err(400, "The verification link is invalid or expired")
+            }
+            other => db_err(other),
+        })?;
+    let claims = pool
+        .list_active_claims(user_id)
+        .map_err(db_err)?
+        .into_iter()
+        .filter(|value| value.claim_type == "email" || value.claim_type == "email_verified")
+        .map(|value| Claim::from(&value))
+        .collect();
+    Ok(ConfirmContactVerificationResponse {
+        contact_method: contact_to_csil(contact),
+        claims,
+    })
+}
+
+pub fn request_email_verification(
+    pool: &DbPool,
+    user_id: &str,
+    email: &str,
+    current_password: &str,
+) -> Result<(), ServiceError> {
+    request_contact_verification(pool, user_id, "email", email, current_password).map(|_| ())
+}
+
 pub fn confirm_email_verification(
     pool: &DbPool,
     token: &str,
-    session_user_id: &str,
+    user_id: &str,
 ) -> Result<String, ServiceError> {
-    let v = pool
-        .find_email_verification(token)
-        .map_err(db_err)?
-        .ok_or_else(|| {
-            svc_err(
-                400,
-                "this verification link is invalid or has already been used",
-            )
-        })?;
+    confirm_contact_verification(pool, user_id, token).map(|value| value.contact_method.destination)
+}
 
-    if v.user_id != session_user_id {
-        return Err(svc_err(
-            403,
-            "this verification link belongs to a different account",
-        ));
+pub fn new_token() -> String {
+    let mut bytes = [0_u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    Base64UrlUnpadded::encode_string(&bytes)
+}
+
+pub fn token_digest(token: &str) -> String {
+    Sha256::digest(token.as_bytes())
+        .iter()
+        .map(|value| format!("{value:02x}"))
+        .collect()
+}
+
+fn public_origin() -> String {
+    std::env::var("PUBLIC_ORIGIN")
+        .unwrap_or_else(|_| format!("https://{}", crate::conversions::get_domain_name()))
+        .trim_end_matches('/')
+        .to_string()
+}
+
+fn contact_to_csil(value: crate::db::models::VerifiedContactMethod) -> VerifiedContactMethod {
+    VerifiedContactMethod {
+        id: value.id,
+        channel: value.channel,
+        destination: value.destination,
+        verified_at: value.verified_at,
+        purposes: value.purposes.split(',').map(str::to_string).collect(),
+        revoked_at: value.revoked_at,
     }
+}
 
-    let expired = chrono::DateTime::parse_from_rfc3339(&v.expires_at)
-        .map(|e| chrono::Utc::now() > e.with_timezone(&chrono::Utc))
-        .unwrap_or(true);
-    if expired {
-        let _ = pool.delete_email_verification(token);
-        return Err(svc_err(400, "this verification link has expired"));
+fn svc_err(code: i32, message: &str) -> ServiceError {
+    ServiceError {
+        code,
+        message: message.to_string(),
     }
+}
 
-    // Sign the address itself and the boolean flag, both bound to the subject.
-    self_service::sign_and_store(pool, &v.user_id, "email", v.email.as_bytes())?;
-    self_service::sign_and_store(pool, &v.user_id, "email_verified", b"true")?;
-
-    pool.delete_email_verification(token).map_err(db_err)?;
-    Ok(v.email)
+fn db_err(_: diesel::result::Error) -> ServiceError {
+    log::error!("Account security database operation failed");
+    svc_err(500, "Internal database error")
 }
