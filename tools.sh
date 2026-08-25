@@ -9,8 +9,14 @@
 #   ./tools.sh db-up      # start the dev PostgreSQL container (idempotent)
 #   ./tools.sh db-down    # stop & remove the dev PostgreSQL container
 #   ./tools.sh db-shell   # psql into the dev database
+#   ./tools.sh test-smtp  # test SMTP with an in-process relay
+#   ./tools.sh smtp-up    # start the local captured-email inbox
+#   ./tools.sh smtp-down  # stop and remove the local email inbox
+#   ./tools.sh smtp-demo  # run a disposable LinkKeys + Mailpit browser demo
 #   ./tools.sh fmt        # cargo fmt
 #   ./tools.sh clippy     # cargo clippy (workspace, all targets)
+#   ./tools.sh ui-build   # check and build the embedded SolidJS UI
+#   ./tools.sh audit      # dependency advisories and license policy
 #
 # The SQLite path needs only Rust + system libs. The Postgres path also needs a
 # container runtime; it is auto-detected in this order:
@@ -42,6 +48,11 @@ PG_PASSWORD="devpass"
 PG_DB="linkkeys"          # runtime DB (POSTGRES_DB creates it)
 PG_TEST_DB="linkkeys_test"
 PG_PORT="${LINKKEYS_PG_PORT:-5432}"
+MAILPIT_CONTAINER="linkkeys-dev-mailpit"
+MAILPIT_IMAGE="axllent/mailpit:v1.31.0"
+MAILPIT_SMTP_PORT="${LINKKEYS_MAILPIT_SMTP_PORT:-1025}"
+MAILPIT_UI_PORT="${LINKKEYS_MAILPIT_UI_PORT:-8025}"
+SMTP_DEMO_DIR=""
 
 log_status() {
     echo "${GREEN}---------------------------------  ${1}  ---------------------------------${NC}"
@@ -109,6 +120,18 @@ db_up() {
             "$PG_IMAGE" >/dev/null
     fi
 
+    local mapped_port
+    # shellcheck disable=SC2086
+    mapped_port="$($RT port "$PG_CONTAINER" 5432/tcp 2>/dev/null | sed -n 's/.*://p' | head -n 1)"
+    if [ -n "$mapped_port" ] && [ "$mapped_port" != "$PG_PORT" ]; then
+        if [ -n "${LINKKEYS_PG_PORT:-}" ]; then
+            err "The existing PostgreSQL container uses port ${mapped_port}, not ${PG_PORT}. Run './tools.sh db-down' before you change LINKKEYS_PG_PORT."
+            exit 1
+        fi
+        PG_PORT="$mapped_port"
+        log_status "using the existing PostgreSQL port $PG_PORT"
+    fi
+
     log_status "waiting for postgres to accept connections"
     local i
     for i in $(seq 1 30); do
@@ -156,6 +179,119 @@ db_shell() {
 }
 
 # ---------------------------------------------------------------------------
+# Local email capture
+# ---------------------------------------------------------------------------
+
+mailpit_running() {
+    # shellcheck disable=SC2086
+    $RT ps --filter "name=^${MAILPIT_CONTAINER}$" --format '{{.Names}}' 2>/dev/null | grep -q .
+}
+
+mailpit_exists() {
+    # shellcheck disable=SC2086
+    $RT ps -a --filter "name=^${MAILPIT_CONTAINER}$" --format '{{.Names}}' 2>/dev/null | grep -q .
+}
+
+smtp_up() {
+    detect_runtime
+    if mailpit_running; then
+        local smtp_mapping ui_mapping
+        # shellcheck disable=SC2086
+        smtp_mapping="$($RT port "$MAILPIT_CONTAINER" 1025/tcp 2>/dev/null)"
+        # shellcheck disable=SC2086
+        ui_mapping="$($RT port "$MAILPIT_CONTAINER" 8025/tcp 2>/dev/null)"
+        if ! printf '%s\n' "$smtp_mapping" | grep -q ":${MAILPIT_SMTP_PORT}$" \
+            || ! printf '%s\n' "$ui_mapping" | grep -q ":${MAILPIT_UI_PORT}$"; then
+            log_status "replacing local email inbox with the requested ports"
+            # shellcheck disable=SC2086
+            $RT rm -f "$MAILPIT_CONTAINER" >/dev/null
+        else
+            log_status "local email inbox already running"
+        fi
+    elif mailpit_exists; then
+        log_status "replacing stopped local email inbox"
+        # shellcheck disable=SC2086
+        $RT rm -f "$MAILPIT_CONTAINER" >/dev/null
+    fi
+    if ! mailpit_running; then
+        log_status "creating local email inbox ($MAILPIT_IMAGE)"
+        # Bind both services to loopback. Mailpit is a development tool and has
+        # no authentication in this configuration.
+        # shellcheck disable=SC2086
+        $RT run -d \
+            --name "$MAILPIT_CONTAINER" \
+            -p "127.0.0.1:${MAILPIT_SMTP_PORT}:1025" \
+            -p "127.0.0.1:${MAILPIT_UI_PORT}:8025" \
+            "$MAILPIT_IMAGE" >/dev/null
+    fi
+    log_status "local email inbox: http://127.0.0.1:${MAILPIT_UI_PORT}"
+    echo "Use deploy/smtp.local.env for the LinkKeys SMTP settings."
+}
+
+smtp_down() {
+    detect_runtime
+    if mailpit_exists; then
+        log_status "removing local email inbox"
+        # shellcheck disable=SC2086
+        $RT rm -f "$MAILPIT_CONTAINER" >/dev/null
+    else
+        log_status "no local email inbox to remove"
+    fi
+}
+
+test_smtp() {
+    log_status "running the SMTP protocol tests with an in-process relay"
+    TEST_DATABASE_BACKEND=sqlite cargo test -p linkkeys --test notification_smtp_test
+    TEST_DATABASE_BACKEND=sqlite cargo test -p linkkeys --test notification_outbox_test
+    log_status "SMTP protocol tests passed"
+}
+
+cleanup_smtp_demo() {
+    case "$SMTP_DEMO_DIR" in
+        "$SCRIPT_DIR"/target/smtp-demo.*) rm -rf -- "$SMTP_DEMO_DIR" ;;
+    esac
+}
+
+smtp_demo() {
+    smtp_up
+    mkdir -p "$SCRIPT_DIR/target"
+    SMTP_DEMO_DIR="$(mktemp -d "$SCRIPT_DIR/target/smtp-demo.XXXXXX")"
+    trap cleanup_smtp_demo EXIT
+    local demo_db="$SMTP_DEMO_DIR/linkkeys.db"
+
+    export DATABASE_BACKEND=sqlite
+    export DATABASE_URL="$demo_db"
+    export DOMAIN_NAME=localhost
+    export DOMAIN_KEY_PASSPHRASE=linkkeys-smtp-demo-passphrase
+    export SMTP_HOST=127.0.0.1
+    export SMTP_PORT="$MAILPIT_SMTP_PORT"
+    export SMTP_SECURITY=plaintext
+    export SMTP_ALLOW_PLAINTEXT=true
+    export SMTP_TLS_BACKEND=rustls
+    export SMTP_FROM="LinkKeys local development <linkkeys@example.test>"
+    export PUBLIC_ORIGIN=https://localhost:8443
+    export OUTBOX_ENCRYPTION_KEY=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+    export SMTP_TIMEOUT_SECONDS=5
+    export OUTBOX_MAX_ATTEMPTS=3
+    export OUTBOX_LEASE_SECONDS=30
+    export OUTBOX_POLL_MILLISECONDS=250
+
+    log_status "initializing the disposable SMTP demo"
+    cargo run -q -p linkkeys -- domain init
+    cargo run -q -p linkkeys -- user create demo-admin "Demo Administrator" --password demo-password-123 --admin
+
+    echo
+    echo "LinkKeys UI:  https://localhost:8443/app"
+    echo "Email inbox:  http://127.0.0.1:${MAILPIT_UI_PORT}"
+    echo "Username:     demo-admin"
+    echo "Password:     demo-password-123"
+    echo
+    echo "The browser will warn about the disposable local certificate."
+    echo "Stop LinkKeys with Ctrl-C. Then run './tools.sh smtp-down'."
+    cargo run -p linkkeys -- serve
+}
+
+# ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 
@@ -192,8 +328,26 @@ fmt() {
 }
 
 clippy() {
-    log_status "cargo clippy (workspace, all targets)"
-    cargo clippy --workspace --all-targets
+    log_status "cargo clippy (workspace, all targets, all features)"
+    cargo clippy --workspace --all-targets --all-features -- -D warnings
+}
+
+ui_build() {
+    log_status "checking and building the embedded web UI"
+    if [ ! -d web-ui/node_modules ]; then
+        (cd web-ui && npm ci)
+    fi
+    (cd web-ui && npm run build)
+}
+
+audit() {
+    log_status "checking dependency advisories, licenses, and sources"
+    if ! cargo deny --version >/dev/null 2>&1; then
+        err "missing: cargo-deny (install with 'cargo install cargo-deny --locked')"
+        exit 1
+    fi
+    cargo deny check
+    (cd web-ui && npm audit --omit=optional)
 }
 
 # ---------------------------------------------------------------------------
@@ -369,6 +523,9 @@ setup() {
     if ! command -v cargo >/dev/null 2>&1; then
         err "missing: cargo (Rust toolchain)"; missing=1
     fi
+    if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+        err "missing: Node.js and npm (needed when you change web-ui/)"; missing=1
+    fi
     if ! command -v pkg-config >/dev/null 2>&1; then
         err "missing: pkg-config"; missing=1
     fi
@@ -388,7 +545,8 @@ setup() {
         exit 1
     fi
 
-    log_status "prerequisites OK — running the SQLite suite"
+    log_status "prerequisites OK — checking the UI and running the SQLite suite"
+    ui_build
     test_sqlite
     echo ""
     log_status "setup complete"
@@ -409,8 +567,14 @@ Commands:
   db-up      Start the dev PostgreSQL container (idempotent)
   db-down    Stop & remove the dev PostgreSQL container
   db-shell   Open a psql shell into the dev database
+  smtp-up    Start a local email inbox on http://127.0.0.1:8025
+  smtp-down  Stop and remove the local email inbox
+  smtp-demo  Run a disposable SQLite server with a local email inbox
+  test-smtp  Test SMTP delivery with an in-process relay and no SMTP account
   fmt        Run cargo fmt
   clippy     Run cargo clippy (workspace, all targets)
+  ui-build   Check and build the embedded SolidJS UI
+  audit      Check dependency advisories, licenses, and sources
 
   generate-local-rp-sdks   Regenerate DNS-less local-RP SDK bindings (sdks/local-rp/)
   test-local-rp-rust       Run the DNS-less local-RP Rust SDK's tests
@@ -431,6 +595,8 @@ Commands:
 
 Env:
   LINKKEYS_PG_PORT   Host port for the dev Postgres container (default 5432)
+  LINKKEYS_MAILPIT_SMTP_PORT  Host port for local SMTP capture (default 1025)
+  LINKKEYS_MAILPIT_UI_PORT    Host port for the local email UI (default 8025)
 EOF
     exit 1
 }
@@ -443,8 +609,14 @@ case "${1:-}" in
     db-up)    shift; db_up "$@" ;;
     db-down)  shift; db_down "$@" ;;
     db-shell) shift; db_shell "$@" ;;
+    smtp-up)  shift; smtp_up "$@" ;;
+    smtp-down) shift; smtp_down "$@" ;;
+    smtp-demo) shift; smtp_demo "$@" ;;
+    test-smtp) shift; test_smtp "$@" ;;
     fmt)      shift; fmt "$@" ;;
     clippy)   shift; clippy "$@" ;;
+    ui-build) shift; ui_build "$@" ;;
+    audit)    shift; audit "$@" ;;
     generate-local-rp-sdks) shift; generate_local_rp_sdks "$@" ;;
     test-local-rp-rust)     shift; test_local_rp_rust "$@" ;;
     test-local-rp-go)       shift; test_local_rp_go "$@" ;;

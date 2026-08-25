@@ -4,6 +4,23 @@ This file collects the steps an operator must do when they upgrade across the
 named versions. Put the applicable entries in the release notes of each
 release.
 
+## API keys after the full-user-ID update
+
+New API keys use `<user-id>.<secret>`. LinkKeys stores a SHA-256 digest because
+the secret has 256 random bits. This format gives the server one exact account
+lookup and does not need password-strength hashing.
+
+Older keys with an eight-character user prefix still work. Their first
+successful use changes the stored bcrypt value to the SHA-256 digest. LinkKeys
+checks a maximum of 32 active legacy credentials for one prefix. If a prefix
+has more than 32 active legacy credentials, all old keys for that prefix fail.
+Current keys and old keys that LinkKeys already upgraded do not use this limit.
+
+Before the upgrade, find service accounts that share an eight-character
+prefix. If a prefix has more than 32 active legacy credentials, create a new
+API account for each application. Copy only the required relations. Update the
+application secret. Then remove the old credential or account.
+
 ## Upgrading to the release after 0.14.3
 
 ### Re-vouch encryption keys made before 0.14.1 (required)

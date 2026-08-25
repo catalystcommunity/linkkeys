@@ -95,22 +95,13 @@ fn test_generate_api_key_format() {
     let user_id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
     let (api_key, hash) = auth::generate_api_key(user_id);
 
-    // Format: <8-char-prefix>.<base64url-secret>
+    // Format: <user-id>.<base64url-secret>
     let parts: Vec<&str> = api_key.splitn(2, '.').collect();
     assert_eq!(parts.len(), 2, "API key should have prefix.secret format");
-    assert_eq!(parts[0].len(), 8, "Prefix should be 8 chars");
-    assert_eq!(
-        parts[0],
-        &user_id[..8],
-        "Prefix should match first 8 chars of user_id"
-    );
-    assert!(!parts[1].is_empty(), "Secret should not be empty");
+    assert_eq!(parts[0], user_id, "Prefix should be the full user ID");
+    assert_eq!(parts[1].len(), 43, "Secret should encode 32 random bytes");
 
-    // Hash should be valid bcrypt
-    assert!(hash.starts_with("$2b$") || hash.starts_with("$2a$"));
-
-    // The secret part should verify against the hash
-    assert!(bcrypt::verify(parts[1], &hash).unwrap());
+    assert!(hash.starts_with("sha256:"));
 }
 
 #[test]
@@ -248,15 +239,9 @@ fn test_api_key_prefix_secret_format_and_verify() {
 
     let parts: Vec<&str> = api_key.splitn(2, '.').collect();
     assert_eq!(parts.len(), 2);
-    assert_eq!(parts[0].len(), 8);
-    assert_eq!(parts[0], "abcdef01");
+    assert_eq!(parts[0], user_id);
 
-    // Secret part should verify against the stored hash
-    assert!(bcrypt::verify(parts[1], &hash).unwrap());
-
-    // A tampered secret should not verify
-    let tampered = format!("{}X", parts[1]);
-    assert!(!bcrypt::verify(&tampered, &hash).unwrap_or(true));
+    assert!(hash.starts_with("sha256:"));
 }
 
 #[test]
@@ -272,9 +257,45 @@ fn test_api_key_credential_stored_and_retrievable() {
         .unwrap();
     assert_eq!(creds.len(), 1);
 
-    // Extract secret from the api_key and verify against stored hash
-    let secret = api_key.split_once('.').unwrap().1;
-    assert!(bcrypt::verify(secret, &creds[0].credential_hash).unwrap());
+    assert!(api_key.contains('.'));
+    assert!(creds[0].credential_hash.starts_with("sha256:"));
+}
+
+#[test]
+fn test_api_key_authenticator_accepts_current_and_upgrades_legacy_keys() {
+    let pool = common::create_test_pool();
+    let user = create_user(&pool, &DataMap::new());
+    let (api_key, hash) = auth::generate_api_key(&user.id);
+    create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_API_KEY, &hash);
+    let authenticator = auth::ApiKeyAuthenticator::new(pool.clone());
+    assert_eq!(
+        authenticator.authenticate_key(&api_key).unwrap().id,
+        user.id
+    );
+
+    let (legacy_full_key, _) = auth::generate_api_key(&user.id);
+    let legacy_secret = legacy_full_key.split_once('.').unwrap().1;
+    let legacy_key = format!("{}.{}", &user.id[..8], legacy_secret);
+    let legacy_hash = bcrypt::hash(legacy_secret, 4).unwrap();
+    let legacy =
+        create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_API_KEY, &legacy_hash);
+    assert_eq!(
+        authenticator.authenticate_key(&legacy_key).unwrap().id,
+        user.id
+    );
+    let upgraded = pool
+        .find_credentials_for_user(&user.id, auth::CREDENTIAL_TYPE_API_KEY)
+        .unwrap()
+        .into_iter()
+        .find(|credential| credential.id == legacy.id)
+        .unwrap();
+    assert!(upgraded.credential_hash.starts_with("sha256:"));
+    assert_eq!(
+        authenticator.authenticate_key(&legacy_key).unwrap().id,
+        user.id,
+        "an upgraded legacy key uses the indexed digest lookup"
+    );
+    assert!(authenticator.authenticate_key("deadbeef.short").is_err());
 }
 
 #[test]

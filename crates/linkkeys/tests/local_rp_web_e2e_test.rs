@@ -21,15 +21,17 @@ use liblinkkeys::local_rp::{
     build_local_rp_descriptor, build_local_rp_login_request, sign_local_rp_descriptor,
     sign_local_rp_login_request, DEFAULT_CLOCK_SKEW_SECONDS,
 };
-use rocket::http::{ContentType, Status};
+use rocket::http::{ContentType, Header, Status};
 use rocket::local::asynchronous::Client;
 use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 const TEST_DOMAIN: &str = "local-rp-web.test";
 const PASSPHRASE: &[u8] = b"test-passphrase";
 const USERNAME: &str = "alice";
 const PASSWORD: &str = "correct horse battery staple";
+static PASSWORD_HASH: LazyLock<String> =
+    LazyLock::new(|| linkkeys::services::password::hash_for_storage(PASSWORD).unwrap());
 
 /// Pull a hidden form field's value out of rendered HTML.
 fn hidden_field(html: &str, name: &str) -> String {
@@ -45,6 +47,10 @@ fn hidden_field(html: &str, name: &str) -> String {
 
 fn form(body: String) -> (ContentType, String) {
     (ContentType::Form, body)
+}
+
+fn same_origin() -> Header<'static> {
+    Header::new("Origin", format!("https://{TEST_DOMAIN}"))
 }
 
 struct LocalRpFixture {
@@ -144,8 +150,7 @@ fn seed_idp_and_user(pool: &linkkeys::db::DbPool) -> linkkeys::db::models::User 
     let mut overrides = DataMap::new();
     overrides.insert("username".to_string(), serde_json::json!(USERNAME));
     let user = create_user(pool, &overrides);
-    let hash = linkkeys::services::password::hash_for_storage(PASSWORD).unwrap();
-    create_auth_credential(pool, &user.id, "password", &hash);
+    create_auth_credential(pool, &user.id, "password", &PASSWORD_HASH);
 
     for (ct, val) in [
         ("display_name", b"Alice Example".as_slice()),
@@ -234,12 +239,22 @@ async fn approved_local_rp_happy_path_end_to_end() {
         body.contains(r#"name="username" value="Alice+work""#),
         "username hint prefills the local-RP login form"
     );
+    assert!(
+        body.contains(r#"name="username" value="Alice+work" autocomplete="username""#),
+        "password managers can identify the username field"
+    );
+    assert!(
+        body.contains(r#"name="password" autocomplete="current-password""#),
+        "password managers can fill the current password"
+    );
 
     // 2. POST correct credentials => consent screen (no prior grant yet).
     let (ct, b) = form(login_password_form(&fx.signed_request));
     let resp = client
         .post("/auth/local-rp")
         .header(ct)
+        .header(Header::new("Host", TEST_DOMAIN))
+        .header(same_origin())
         .body(b)
         .dispatch()
         .await;
@@ -264,6 +279,8 @@ async fn approved_local_rp_happy_path_end_to_end() {
     let resp = client
         .post("/auth/local-rp/consent")
         .header(ct)
+        .header(Header::new("Host", TEST_DOMAIN))
+        .header(same_origin())
         .body(b)
         .dispatch()
         .await;
@@ -404,6 +421,8 @@ async fn approved_local_rp_happy_path_end_to_end() {
     let resp = client
         .post("/auth/local-rp")
         .header(ct)
+        .header(Header::new("Host", TEST_DOMAIN))
+        .header(same_origin())
         .body(b)
         .dispatch()
         .await;
@@ -436,6 +455,8 @@ async fn unknown_local_rp_under_admin_approval_goes_pending() {
     let resp = client
         .post("/auth/local-rp")
         .header(ct)
+        .header(Header::new("Host", TEST_DOMAIN))
+        .header(same_origin())
         .body(b)
         .dispatch()
         .await;
@@ -522,6 +543,8 @@ async fn assert_rejected_no_redirect(status: &str) {
     let resp = client
         .post("/auth/local-rp")
         .header(ct)
+        .header(Header::new("Host", TEST_DOMAIN))
+        .header(same_origin())
         .body(b)
         .dispatch()
         .await;
@@ -612,6 +635,8 @@ async fn disabled_policy_between_consent_render_and_submit_rejected() {
     let resp = client
         .post("/auth/local-rp")
         .header(ct)
+        .header(Header::new("Host", TEST_DOMAIN))
+        .header(same_origin())
         .body(b)
         .dispatch()
         .await;
@@ -630,6 +655,8 @@ async fn disabled_policy_between_consent_render_and_submit_rejected() {
     let resp = client
         .post("/auth/local-rp/consent")
         .header(ct)
+        .header(Header::new("Host", TEST_DOMAIN))
+        .header(same_origin())
         .body(b)
         .dispatch()
         .await;
@@ -763,6 +790,8 @@ async fn declined_required_claim_is_a_hard_error() {
     let resp = client
         .post("/auth/local-rp")
         .header(ct)
+        .header(Header::new("Host", TEST_DOMAIN))
+        .header(same_origin())
         .body(b)
         .dispatch()
         .await;
@@ -778,6 +807,8 @@ async fn declined_required_claim_is_a_hard_error() {
     let resp = client
         .post("/auth/local-rp/consent")
         .header(ct)
+        .header(Header::new("Host", TEST_DOMAIN))
+        .header(same_origin())
         .body(b)
         .dispatch()
         .await;

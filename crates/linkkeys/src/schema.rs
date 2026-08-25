@@ -279,12 +279,67 @@ pub mod pg {
     }
 
     diesel::table! {
-        email_verifications (token) {
-            token -> Varchar,
+        verified_contact_methods (id) {
+            id -> Uuid,
             user_id -> Uuid,
-            email -> Varchar,
+            channel -> Varchar,
+            destination -> Varchar,
+            purposes -> Varchar,
+            verified_at -> Timestamptz,
+            revoked_at -> Nullable<Timestamptz>,
+            created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        account_challenges (id) {
+            id -> Uuid,
+            token_digest -> Varchar,
+            user_id -> Uuid,
+            kind -> Varchar,
+            channel -> Varchar,
+            destination -> Varchar,
+            required_credential_id -> Nullable<Uuid>,
+            expires_at -> Timestamptz,
+            consumed_at -> Nullable<Timestamptz>,
+            revoked_at -> Nullable<Timestamptz>,
+            created_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        notification_outbox (id) {
+            id -> Uuid,
+            user_id -> Uuid,
+            purpose -> Varchar,
+            channel -> Varchar,
+            destination -> Varchar,
+            encrypted_payload -> Nullable<Binary>,
+            state -> Varchar,
+            attempt_count -> BigInt,
+            next_attempt_at -> Timestamptz,
+            lease_owner -> Nullable<Varchar>,
+            lease_expires_at -> Nullable<Timestamptz>,
+            last_error -> Nullable<Varchar>,
             expires_at -> Timestamptz,
             created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        browser_sessions (token_digest) {
+            token_digest -> Varchar,
+            user_id -> Uuid,
+            issued_at -> Timestamptz,
+            last_seen_at -> Timestamptz,
+            authenticated_at -> Timestamptz,
+            authentication_methods -> Varchar,
+            expires_at -> Timestamptz,
+            revoked_at -> Nullable<Timestamptz>,
+            created_at -> Timestamptz,
+            updated_at -> Timestamptz,
         }
     }
 
@@ -343,6 +398,10 @@ pub mod pg {
     diesel::joinable!(admin_review_queue -> users (user_id));
     diesel::joinable!(local_rp_claim_tickets -> users (user_id));
     diesel::joinable!(local_rp_claim_tickets -> local_rps (fingerprint));
+    diesel::joinable!(verified_contact_methods -> users (user_id));
+    diesel::joinable!(account_challenges -> users (user_id));
+    diesel::joinable!(browser_sessions -> users (user_id));
+    diesel::joinable!(notification_outbox -> users (user_id));
     diesel::allow_tables_to_appear_in_same_query!(
         guestbook_entries,
         backup_keys,
@@ -365,7 +424,10 @@ pub mod pg {
         audit_log,
         domain_key_pins,
         issued_revocations,
-        email_verifications,
+        verified_contact_methods,
+        account_challenges,
+        notification_outbox,
+        browser_sessions,
         user_release_prefs,
         local_rp_domain_policy,
         local_rps,
@@ -651,12 +713,67 @@ pub mod sqlite {
     }
 
     diesel::table! {
-        email_verifications (token) {
-            token -> Text,
+        verified_contact_methods (id) {
+            id -> Text,
             user_id -> Text,
-            email -> Text,
+            channel -> Text,
+            destination -> Text,
+            purposes -> Text,
+            verified_at -> Text,
+            revoked_at -> Nullable<Text>,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        account_challenges (id) {
+            id -> Text,
+            token_digest -> Text,
+            user_id -> Text,
+            kind -> Text,
+            channel -> Text,
+            destination -> Text,
+            required_credential_id -> Nullable<Text>,
+            expires_at -> Text,
+            consumed_at -> Nullable<Text>,
+            revoked_at -> Nullable<Text>,
+            created_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        notification_outbox (id) {
+            id -> Text,
+            user_id -> Text,
+            purpose -> Text,
+            channel -> Text,
+            destination -> Text,
+            encrypted_payload -> Nullable<Binary>,
+            state -> Text,
+            attempt_count -> BigInt,
+            next_attempt_at -> Text,
+            lease_owner -> Nullable<Text>,
+            lease_expires_at -> Nullable<Text>,
+            last_error -> Nullable<Text>,
             expires_at -> Text,
             created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        browser_sessions (token_digest) {
+            token_digest -> Text,
+            user_id -> Text,
+            issued_at -> Text,
+            last_seen_at -> Text,
+            authenticated_at -> Text,
+            authentication_methods -> Text,
+            expires_at -> Text,
+            revoked_at -> Nullable<Text>,
+            created_at -> Text,
+            updated_at -> Text,
         }
     }
 
@@ -715,6 +832,10 @@ pub mod sqlite {
     diesel::joinable!(admin_review_queue -> users (user_id));
     diesel::joinable!(local_rp_claim_tickets -> users (user_id));
     diesel::joinable!(local_rp_claim_tickets -> local_rps (fingerprint));
+    diesel::joinable!(verified_contact_methods -> users (user_id));
+    diesel::joinable!(account_challenges -> users (user_id));
+    diesel::joinable!(browser_sessions -> users (user_id));
+    diesel::joinable!(notification_outbox -> users (user_id));
     diesel::allow_tables_to_appear_in_same_query!(
         guestbook_entries,
         backup_keys,
@@ -737,7 +858,10 @@ pub mod sqlite {
         audit_log,
         domain_key_pins,
         issued_revocations,
-        email_verifications,
+        verified_contact_methods,
+        account_challenges,
+        notification_outbox,
+        browser_sessions,
         user_release_prefs,
         local_rp_domain_policy,
         local_rps,

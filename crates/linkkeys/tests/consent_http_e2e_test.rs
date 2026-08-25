@@ -1,20 +1,21 @@
-//! End-to-end test of the browser consent flow over real Rocket routing via the
-//! in-process local client — every handler runs, with NO network socket (the
-//! `Net` seam is the offline fake; the self-RP path uses the local DB).
+//! End-to-end test for the SPA authorization boundary.
 //!
-//! One test drives the whole flow plus antagonistic variants sequentially, so a
-//! single `DOMAIN_NAME` is set (avoids env races with parallel tests).
+//! The test uses Rocket's local client. It exercises the same routes, cookies,
+//! CSIL envelopes, consent logic, and database writes as a browser.
 
 mod common;
 
 use common::data_factory::{create_auth_credential, create_user, DataMap};
+use csilgen_transport::rpc::{RpcRequest, RpcResponse};
+use csilgen_transport::Status as RpcStatus;
 use liblinkkeys::auth_request::{build_auth_request, sign_auth_request};
 use liblinkkeys::crypto::{self, SigningAlgorithm};
 use liblinkkeys::encoding::signed_auth_request_to_url_param;
 use liblinkkeys::generated::types::{
-    AuthFlowContext, AuthenticationRequirements, ClaimRequest, RequestedClaim,
+    AuthenticationRequirements, BrowserAuthorizationCompleteRequest,
+    BrowserAuthorizationInspectRequest, ClaimRequest, RequestedClaim, SessionPasswordLoginRequest,
 };
-use rocket::http::{ContentType, Status};
+use rocket::http::{ContentType, Header, Status};
 use rocket::local::asynchronous::Client;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -24,24 +25,55 @@ const PASSPHRASE: &[u8] = b"test-passphrase";
 const USERNAME: &str = "alice";
 const PASSWORD: &str = "correct horse battery staple";
 
-/// Pull a hidden form field's value out of rendered HTML.
-fn hidden_field(html: &str, name: &str) -> String {
-    let marker = format!(r#"name="{}" value=""#, name);
-    let start = html
-        .find(&marker)
-        .unwrap_or_else(|| panic!("field {} present", name))
-        + marker.len();
-    let rest = &html[start..];
-    let end = rest.find('"').expect("closing quote");
-    rest[..end].to_string()
+fn envelope(service: &str, operation: &str, payload: Vec<u8>) -> Vec<u8> {
+    RpcRequest::new(service, operation, payload)
+        .encode()
+        .expect("encode RPC request")
 }
 
-fn form(body: &str) -> (ContentType, String) {
-    (ContentType::Form, body.to_string())
+async fn rpc(client: &Client, service: &str, operation: &str, payload: Vec<u8>) -> RpcResponse {
+    let response = client
+        .post("/csil/v1/rpc")
+        .header(ContentType::new("application", "cbor"))
+        .header(Header::new("Host", TEST_DOMAIN))
+        .header(Header::new("Origin", format!("https://{TEST_DOMAIN}")))
+        .body(envelope(service, operation, payload))
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Ok);
+    RpcResponse::decode(&response.into_bytes().await.expect("RPC response body"))
+        .expect("decode RPC response")
+}
+
+fn signed_request(
+    signing_key_id: &str,
+    signing_key: &[u8],
+    nonce: &str,
+    claims: Option<ClaimRequest>,
+    requirements: Option<AuthenticationRequirements>,
+) -> String {
+    let mut request = build_auth_request(
+        TEST_DOMAIN,
+        &format!("https://{TEST_DOMAIN}/cb"),
+        nonce,
+        signing_key_id,
+        claims,
+        None,
+    );
+    request.relying_party_claims = None;
+    request.authentication_requirements = requirements;
+    let signed = sign_auth_request(
+        &request,
+        signing_key_id,
+        SigningAlgorithm::Ed25519,
+        signing_key,
+    )
+    .expect("sign authorization request");
+    signed_auth_request_to_url_param(&signed).expect("encode authorization request")
 }
 
 #[rocket::async_test]
-async fn consent_flow_end_to_end() {
+async fn spa_consent_flow_end_to_end() {
     std::env::set_var("DOMAIN_NAME", TEST_DOMAIN);
     std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
     std::env::set_var("ENABLE_PASSWORD_AUTH", "true");
@@ -49,43 +81,55 @@ async fn consent_flow_end_to_end() {
     let pool = common::create_test_pool();
     pool.seed_default_policies().expect("seed policies");
 
-    // -- Seed the IDP: signing key (keep sk to mint the signed_request),
-    //    a vouched X25519 encryption key (the assertion is sealed to it),
-    //    a user with a password, and two claims.
-    let (vk, sk) = crypto::generate_ed25519_keypair();
-    let pk = vk.as_bytes().to_vec();
-    let sk_bytes = sk.to_bytes().to_vec();
-    let enc_sk = crypto::encrypt_private_key(&sk_bytes, PASSPHRASE).unwrap();
-    let fp = crypto::fingerprint(&pk);
+    let (verification_key, signing_key) = crypto::generate_ed25519_keypair();
+    let public_key = verification_key.as_bytes().to_vec();
+    let signing_key_bytes = signing_key.to_bytes().to_vec();
+    let encrypted_signing_key =
+        crypto::encrypt_private_key(&signing_key_bytes, PASSPHRASE).unwrap();
+    let fingerprint = crypto::fingerprint(&public_key);
     let expires = chrono::Utc::now() + chrono::Duration::days(365);
     let signing = pool
-        .create_domain_key(&pk, &enc_sk, &fp, "ed25519", expires)
+        .create_domain_key(
+            &public_key,
+            &encrypted_signing_key,
+            &fingerprint,
+            "ed25519",
+            expires,
+        )
         .expect("signing key");
 
-    let (epub, epriv) = crypto::generate_x25519_keypair();
-    let efp = crypto::fingerprint(&epub);
-    let epriv_enc = crypto::encrypt_private_key(&epriv, PASSPHRASE).unwrap();
+    let (encryption_public_key, encryption_private_key) = crypto::generate_x25519_keypair();
+    let encryption_fingerprint = crypto::fingerprint(&encryption_public_key);
+    let encrypted_private_key =
+        crypto::encrypt_private_key(&encryption_private_key, PASSPHRASE).unwrap();
     let vouch = liblinkkeys::dns::sign_key_vouch(
-        &efp,
+        &encryption_fingerprint,
         &expires.to_rfc3339(),
         SigningAlgorithm::Ed25519,
-        &sk_bytes,
+        &signing_key_bytes,
     )
     .unwrap();
-    pool.create_domain_encryption_key(&epub, &epriv_enc, &efp, &signing.id, &vouch, expires)
-        .expect("encryption key");
+    pool.create_domain_encryption_key(
+        &encryption_public_key,
+        &encrypted_private_key,
+        &encryption_fingerprint,
+        &signing.id,
+        &vouch,
+        expires,
+    )
+    .expect("encryption key");
 
     let mut overrides = DataMap::new();
     overrides.insert("username".to_string(), serde_json::json!(USERNAME));
     let user = create_user(&pool, &overrides);
     let hash = linkkeys::services::password::hash_for_storage(PASSWORD).unwrap();
     create_auth_credential(&pool, &user.id, "password", &hash);
-    for (ct, val) in [("email", b"a@b.com".as_slice()), ("ssn", b"123".as_slice())] {
+    for (claim_type, value) in [("email", b"a@b.com".as_slice()), ("ssn", b"123".as_slice())] {
         pool.create_claim(
             &uuid::Uuid::now_v7().to_string(),
             &user.id,
-            ct,
-            val,
+            claim_type,
+            value,
             &[],
             None,
             chrono::Utc::now(),
@@ -93,12 +137,10 @@ async fn consent_flow_end_to_end() {
         .expect("claim");
     }
 
-    // -- Mint a signed_request requesting email (required) + ssn (optional).
-    let mut req = build_auth_request(
-        TEST_DOMAIN,
-        &format!("https://{}/cb", TEST_DOMAIN),
-        "login-nonce-1",
+    let authorization = signed_request(
         &signing.id,
+        &signing_key_bytes,
+        "spa-login-nonce-1",
         Some(ClaimRequest {
             required: vec![RequestedClaim {
                 claim_type: "email".to_string(),
@@ -111,14 +153,9 @@ async fn consent_flow_end_to_end() {
         }),
         None,
     );
-    req.relying_party_claims = None;
-    let signed_req =
-        sign_auth_request(&req, &signing.id, SigningAlgorithm::Ed25519, &sk_bytes).unwrap();
-    let sr = signed_auth_request_to_url_param(&signed_req).unwrap();
 
-    // -- Build the real Rocket app and drive it in-process (no socket).
     let config = rocket::Config {
-        secret_key: rocket::config::SecretKey::derive_from(&[7u8; 64]),
+        secret_key: rocket::config::SecretKey::derive_from(&[7_u8; 64]),
         ..rocket::Config::debug_default()
     };
     let rocket = linkkeys::web::build_rocket(
@@ -127,404 +164,195 @@ async fn consent_flow_end_to_end() {
         common::net::offline_net(),
         config,
     );
-    let client = Client::tracked(rocket).await.expect("rocket client");
+    let client = Client::tracked(rocket).await.expect("Rocket client");
 
-    // 1. GET the login form (happy).
-    let resp = client
-        .get(format!("/auth/authorize?signed_request={}", sr))
+    let response = client
+        .get(format!("/auth/authorize?signed_request={authorization}"))
         .dispatch()
         .await;
-    assert_eq!(resp.status(), Status::Ok);
-    let body = resp.into_string().await.unwrap();
-    assert!(
-        body.contains("Log In"),
-        "login form renders for a valid request"
-    );
-    assert!(
-        body.contains(r#"name="username" value="""#),
-        "the username parameter is optional"
-    );
-
-    // 1a. A relying party can prefill the username. It is only a convenience
-    //     value; the signed request is still required and verified above.
-    let resp = client
-        .get(format!(
-            "/auth/authorize?username={}&callback_url=ignored&nonce=ignored&relying_party=ignored&signed_request={}",
-            USERNAME, sr
-        ))
-        .dispatch()
-        .await;
-    assert_eq!(resp.status(), Status::Ok);
-    let body = resp.into_string().await.unwrap();
-    assert!(
-        body.contains(r#"name="username" value="alice""#),
-        "username prefilled from the optional query parameter"
-    );
-
-    let resp = client
-        .get(format!(
-            "/auth/authorize?username=preferred-user&user_hint=legacy-user&signed_request={}",
-            sr
-        ))
-        .dispatch()
-        .await;
-    let body = resp.into_string().await.unwrap();
-    assert!(
-        body.contains(r#"name="username" value="preferred-user""#),
-        "username takes precedence over the compatibility alias"
-    );
-
-    // Keep the former parameter name as a compatibility alias.
-    let resp = client
-        .get(format!(
-            "/auth/authorize?user_hint=legacy-user&signed_request={}",
-            sr
-        ))
-        .dispatch()
-        .await;
-    let body = resp.into_string().await.unwrap();
-    assert!(
-        body.contains(r#"name="username" value="legacy-user""#),
-        "the user_hint compatibility alias still prefills the username"
-    );
-
-    // 1b. GET with a malformed signed_request renders an error page, not a form
-    //     (antagonistic: never phish credentials onto a crafted URL).
-    let resp = client
-        .get("/auth/authorize?username=plausible-user&signed_request=not-valid")
-        .dispatch()
-        .await;
-    let body = resp.into_string().await.unwrap();
-    assert!(
-        body.contains("malformed"),
-        "malformed request => error page"
-    );
-    assert!(
-        !body.contains("name=\"password\""),
-        "no login form on a bad request"
-    );
-
-    // 2. POST wrong password (antagonistic) => login form with an error.
-    let resp = client
-        .post("/auth/authorize")
-        .header(ContentType::Form)
-        .body(format!(
-            "username={}&password=wrong&signed_request={}",
-            USERNAME, sr
-        ))
-        .dispatch()
-        .await;
-    let body = resp.into_string().await.unwrap();
-    assert!(
-        body.contains("Invalid username or password"),
-        "wrong password rejected"
-    );
-
-    // 3. POST correct credentials => consent screen with a login proof.
-    let (ct, b) = form(&format!(
-        "username={}&password={}&signed_request={}",
-        USERNAME,
-        PASSWORD.replace(' ', "+"),
-        sr
-    ));
-    let resp = client
-        .post("/auth/authorize")
-        .header(ct)
-        .body(b)
-        .dispatch()
-        .await;
-    assert_eq!(resp.status(), Status::Ok);
-    let consent_html = resp.into_string().await.unwrap();
-    assert!(
-        consent_html.contains("What do you want to share with"),
-        "consent screen renders"
-    );
-    let proof = hidden_field(&consent_html, "login_proof");
-
-    // 3b. A proof is bound to the complete signed request, not only the RP and
-    //     nonce. A second signed body with the same RP-chosen nonce cannot use
-    //     the proof to change the claim or assurance request after login.
-    let mut swapped_req = req.clone();
-    swapped_req
-        .requested_claims
-        .as_mut()
-        .unwrap()
-        .optional
-        .push(RequestedClaim {
-            claim_type: "phone".to_string(),
-            datatype: "text".to_string(),
-        });
-    let swapped_sr = signed_auth_request_to_url_param(
-        &sign_auth_request(
-            &swapped_req,
-            &signing.id,
-            SigningAlgorithm::Ed25519,
-            &sk_bytes,
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    let resp = client
-        .post("/auth/consent")
-        .header(ContentType::Form)
-        .body(format!(
-            "signed_request={}&login_proof={}&grant=email",
-            swapped_sr, proof
-        ))
-        .dispatch()
-        .await;
-    let swapped_html = resp.into_string().await.unwrap();
-    assert!(swapped_html.contains("does not match"));
-
-    // 3c. Cancel must issue nothing: a neutral notice page, no redirect, no
-    //     sealed token. It short-circuits before any grant is written.
-    let resp = client
-        .post("/auth/consent")
-        .header(ContentType::Form)
-        .body(format!(
-            "signed_request={}&login_proof={}&decision=cancel",
-            sr, proof
-        ))
-        .dispatch()
-        .await;
+    assert_eq!(response.status(), Status::Found);
+    let expected_location = format!("/app/authorize#request={authorization}");
     assert_eq!(
-        resp.status(),
-        Status::Ok,
-        "cancel renders a notice, not a redirect"
-    );
-    assert!(
-        resp.headers().get_one("Location").is_none(),
-        "cancel must not redirect to any callback"
-    );
-    let cancel_html = resp.into_string().await.unwrap();
-    assert!(
-        cancel_html.contains("cancelled"),
-        "cancel shows a cancelled notice"
+        response.headers().get_one("Location"),
+        Some(expected_location.as_str())
     );
 
-    // 4. POST consent declining the required claim. The IDP preserves the
-    //    user's choice and redirects; the RP/app decides whether missing
-    //    required claims are fatal.
-    let resp = client
-        .post("/auth/consent")
-        .header(ContentType::Form)
-        .body(format!("signed_request={}&login_proof={}", sr, proof))
+    let response = client
+        .get("/auth/authorize?signed_request=not-valid")
         .dispatch()
         .await;
-    assert!(
-        resp.status().class().is_redirection(),
-        "declined required claim still completes at the IDP, got {:?}",
-        resp.status()
+    assert_eq!(response.status(), Status::Ok);
+    let body = response.into_string().await.unwrap();
+    assert!(body.contains("malformed"));
+    assert!(!body.contains("name=\"password\""));
+
+    let inspect_payload = liblinkkeys::generated::encode_browser_authorization_inspect_request(
+        &BrowserAuthorizationInspectRequest {
+            signed_request: authorization.clone(),
+        },
     );
-    let location = resp.headers().get_one("Location").unwrap_or("");
-    assert!(
-        location.contains("encrypted_token="),
-        "callback carries the sealed token"
+    let response = rpc(
+        &client,
+        "BrowserAuthorization",
+        "inspect",
+        inspect_payload.clone(),
+    )
+    .await;
+    assert_eq!(response.status, RpcStatus::Forbidden);
+
+    let wrong_login = rpc(
+        &client,
+        "Session",
+        "login-password",
+        liblinkkeys::generated::encode_session_password_login_request(
+            &SessionPasswordLoginRequest {
+                username: USERNAME.to_string(),
+                password: "wrong password".to_string(),
+            },
+        ),
+    )
+    .await;
+    assert_ne!(wrong_login.status, RpcStatus::Ok);
+
+    let login = rpc(
+        &client,
+        "Session",
+        "login-password",
+        liblinkkeys::generated::encode_session_password_login_request(
+            &SessionPasswordLoginRequest {
+                username: USERNAME.to_string(),
+                password: PASSWORD.to_string(),
+            },
+        ),
+    )
+    .await;
+    assert_eq!(login.status, RpcStatus::Ok);
+
+    let response = rpc(&client, "BrowserAuthorization", "inspect", inspect_payload).await;
+    assert_eq!(response.status, RpcStatus::Ok);
+    let inspection =
+        liblinkkeys::generated::decode_browser_authorization_inspect_response(&response.payload)
+            .expect("decode inspection");
+    assert_eq!(inspection.relying_party, TEST_DOMAIN);
+    assert_eq!(inspection.claims.len(), 2);
+    assert!(inspection
+        .claims
+        .iter()
+        .any(|claim| claim.claim_type == "email" && claim.required && claim.available));
+    assert!(inspection
+        .claims
+        .iter()
+        .any(|claim| claim.claim_type == "ssn" && !claim.required && claim.available));
+
+    let complete_payload = liblinkkeys::generated::encode_browser_authorization_complete_request(
+        &BrowserAuthorizationCompleteRequest {
+            signed_request: authorization.clone(),
+            authorized_claims: vec!["email".to_string()],
+            claim_types_to_set: Vec::new(),
+            claim_values_to_set: Vec::new(),
+        },
     );
+    let response = rpc(
+        &client,
+        "BrowserAuthorization",
+        "complete",
+        complete_payload.clone(),
+    )
+    .await;
+    assert_eq!(response.status, RpcStatus::Ok);
+    let completion =
+        liblinkkeys::generated::decode_browser_authorization_complete_response(&response.payload)
+            .expect("decode completion");
+    assert!(completion.redirect_url.starts_with("https://e2e.test/cb?"));
+    assert!(completion.redirect_url.contains("encrypted_token="));
 
     let grant = pool
         .find_active_consent_grant(&user.id, TEST_DOMAIN)
         .expect("query grant")
-        .expect("a grant was stored");
-    assert!(
-        grant.claim_types.is_empty(),
-        "grant records that no requested claims were shared"
-    );
+        .expect("stored grant");
+    assert_eq!(grant.claim_types, vec!["email"]);
 
-    // 5. A later signed claims-update request that asks for a new type must
-    //    re-prompt instead of silently reusing the prior standing grant.
-    let mut update_req = build_auth_request(
-        TEST_DOMAIN,
-        &format!("https://{}/cb", TEST_DOMAIN),
-        "login-nonce-2",
-        &signing.id,
-        Some(ClaimRequest {
-            required: vec![RequestedClaim {
-                claim_type: "email".to_string(),
-                datatype: "email".to_string(),
-            }],
-            optional: vec![
-                RequestedClaim {
-                    claim_type: "ssn".to_string(),
-                    datatype: "text".to_string(),
-                },
-                RequestedClaim {
-                    claim_type: "phone".to_string(),
-                    datatype: "text".to_string(),
-                },
-            ],
-        }),
-        Some(AuthFlowContext {
-            flow: "claims_update".to_string(),
-            prior_session: Some("rp-session-1".to_string()),
-            request_reason: Some("the app now supports phone recovery".to_string()),
-        }),
-    );
-    update_req.relying_party_claims = None;
-    let signed_update = sign_auth_request(
-        &update_req,
-        &signing.id,
-        SigningAlgorithm::Ed25519,
-        &sk_bytes,
+    let replay = rpc(
+        &client,
+        "BrowserAuthorization",
+        "complete",
+        complete_payload,
     )
-    .unwrap();
-    let update_sr = signed_auth_request_to_url_param(&signed_update).unwrap();
-    let resp = client
-        .get(format!("/auth/authorize?signed_request={}", update_sr))
-        .dispatch()
-        .await;
-    assert_eq!(resp.status(), Status::Ok);
-    let update_consent_html = resp.into_string().await.unwrap();
-    assert!(
-        update_consent_html.contains("This is an updated request"),
-        "claims-update context is displayed"
-    );
-    assert!(
-        update_consent_html.contains("phone"),
-        "newly requested claim appears on the consent screen"
-    );
-    assert!(
-        !update_consent_html.contains("name=\"password\""),
-        "claims update reuses the provider session"
-    );
+    .await;
+    assert_ne!(replay.status, RpcStatus::Ok);
 
-    // 6. First-login missing claim: if a required claim is user-settable and
-    //    absent, the consent screen lets the user set it before the assertion is
-    //    minted. The value is stored and signed under the normal claim policy.
-    let mut missing_req = build_auth_request(
-        TEST_DOMAIN,
-        &format!("https://{}/cb", TEST_DOMAIN),
-        "login-nonce-3",
+    let missing_claim_authorization = signed_request(
         &signing.id,
+        &signing_key_bytes,
+        "spa-login-nonce-2",
         Some(ClaimRequest {
             required: vec![RequestedClaim {
                 claim_type: "display_name".to_string(),
                 datatype: "text".to_string(),
             }],
-            optional: vec![],
+            optional: Vec::new(),
         }),
         None,
     );
-    missing_req.relying_party_claims = None;
-    let signed_missing = sign_auth_request(
-        &missing_req,
-        &signing.id,
-        SigningAlgorithm::Ed25519,
-        &sk_bytes,
+    let response = rpc(
+        &client,
+        "BrowserAuthorization",
+        "inspect",
+        liblinkkeys::generated::encode_browser_authorization_inspect_request(
+            &BrowserAuthorizationInspectRequest {
+                signed_request: missing_claim_authorization.clone(),
+            },
+        ),
     )
-    .unwrap();
-    let missing_sr = signed_auth_request_to_url_param(&signed_missing).unwrap();
-    let resp = client
-        .get(format!("/auth/authorize?signed_request={}", missing_sr))
-        .dispatch()
-        .await;
-    assert_eq!(resp.status(), Status::Ok);
-    let missing_html = resp.into_string().await.unwrap();
-    assert!(
-        missing_html.contains("claim_value_to_set"),
-        "missing user-settable claim gets an inline value field"
-    );
-    let missing_proof = hidden_field(&missing_html, "login_proof");
+    .await;
+    assert_eq!(response.status, RpcStatus::Ok);
+    let inspection =
+        liblinkkeys::generated::decode_browser_authorization_inspect_response(&response.payload)
+            .unwrap();
+    assert!(inspection.claims.iter().any(|claim| {
+        claim.claim_type == "display_name" && !claim.available && claim.user_settable
+    }));
 
-    let resp = client
-        .post("/auth/consent")
-        .header(ContentType::Form)
-        .body(format!(
-            "signed_request={}&login_proof={}&grant=display_name&claim_type_to_set=display_name&claim_value_to_set=Ada",
-            missing_sr, missing_proof
-        ))
-        .dispatch()
-        .await;
-    assert!(
-        resp.status().class().is_redirection(),
-        "setting a missing required claim completes login"
-    );
+    let response = rpc(
+        &client,
+        "BrowserAuthorization",
+        "complete",
+        liblinkkeys::generated::encode_browser_authorization_complete_request(
+            &BrowserAuthorizationCompleteRequest {
+                signed_request: missing_claim_authorization,
+                authorized_claims: vec!["display_name".to_string()],
+                claim_types_to_set: vec!["display_name".to_string()],
+                claim_values_to_set: vec!["Ada".to_string()],
+            },
+        ),
+    )
+    .await;
+    assert_eq!(response.status, RpcStatus::Ok);
     let claims = pool.list_active_claims(&user.id).expect("claims");
     let display_name = claims
         .iter()
-        .find(|c| c.claim_type == "display_name")
-        .expect("display_name claim stored");
+        .find(|claim| claim.claim_type == "display_name")
+        .expect("display name claim");
     assert_eq!(display_name.claim_value, b"Ada");
-    assert!(
-        !display_name.signatures.is_empty(),
-        "inline-created lane-A claim is signed"
-    );
+    assert!(!display_name.signatures.is_empty());
 
-    // 7. A normal login with the same approved required claim completes SSO
-    //    immediately. A newly listed optional claim does not force consent;
-    //    the app must use claims_update when it wants the user to revisit it.
-    let mut sso_req = build_auth_request(
-        TEST_DOMAIN,
-        &format!("https://{}/cb", TEST_DOMAIN),
-        "login-nonce-4",
+    let assurance_authorization = signed_request(
         &signing.id,
-        Some(ClaimRequest {
-            required: vec![RequestedClaim {
-                claim_type: "display_name".to_string(),
-                datatype: "text".to_string(),
-            }],
-            optional: vec![RequestedClaim {
-                claim_type: "new_optional".to_string(),
-                datatype: "text".to_string(),
-            }],
+        &signing_key_bytes,
+        "spa-login-nonce-3",
+        None,
+        Some(AuthenticationRequirements {
+            minimum_factor_count: 2,
         }),
-        None,
     );
-    sso_req.relying_party_claims = None;
-    let sso_sr = signed_auth_request_to_url_param(
-        &sign_auth_request(&sso_req, &signing.id, SigningAlgorithm::Ed25519, &sk_bytes).unwrap(),
-    )
-    .unwrap();
-    let resp = client
-        .get(format!("/auth/authorize?signed_request={}", sso_sr))
+    let response = client
+        .get(format!(
+            "/auth/authorize?signed_request={assurance_authorization}"
+        ))
         .dispatch()
         .await;
-    assert!(
-        resp.status().class().is_redirection(),
-        "covered required claims complete without another form"
-    );
-
-    // 8. RPs request only a factor count. This provider currently has one
-    //    browser method, so a two-factor request fails before credential entry.
-    let mut assurance_req = build_auth_request(
-        TEST_DOMAIN,
-        &format!("https://{}/cb", TEST_DOMAIN),
-        "login-nonce-5",
-        &signing.id,
-        None,
-        None,
-    );
-    assurance_req.authentication_requirements = Some(AuthenticationRequirements {
-        minimum_factor_count: 2,
-    });
-    let assurance_sr = signed_auth_request_to_url_param(
-        &sign_auth_request(
-            &assurance_req,
-            &signing.id,
-            SigningAlgorithm::Ed25519,
-            &sk_bytes,
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    let resp = client
-        .get(format!("/auth/authorize?signed_request={}", assurance_sr))
-        .dispatch()
-        .await;
-    let assurance_html = resp.into_string().await.unwrap();
-    assert!(assurance_html.contains("cannot satisfy"));
-    assert!(!assurance_html.contains("name=\"password\""));
-
-    // 9. Replaying the same consent (login nonce already burned) is refused.
-    let resp = client
-        .post("/auth/consent")
-        .header(ContentType::Form)
-        .body(format!("signed_request={}&login_proof={}", sr, proof))
-        .dispatch()
-        .await;
-    let body = resp.into_string().await.unwrap();
-    assert!(
-        body.contains("already been used"),
-        "the login request is single-use"
-    );
+    assert_eq!(response.status(), Status::Ok);
+    let body = response.into_string().await.unwrap();
+    assert!(body.contains("cannot satisfy"));
+    assert!(!body.contains("name=\"password\""));
 }

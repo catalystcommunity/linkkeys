@@ -14,6 +14,7 @@ fn test_service_change_password() {
     create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_PASSWORD, &old_hash);
 
     let req = ChangePasswordRequest {
+        current_password: "old-password".to_string(),
         new_password: "new-secure-password".to_string(),
     };
     let resp = account::change_password(&pool, &user.id, req).unwrap();
@@ -37,13 +38,41 @@ fn test_service_change_password() {
 }
 
 #[test]
+fn test_service_change_password_rejects_incorrect_current_password() {
+    let pool = common::create_test_pool();
+    let user = create_user(&pool, &DataMap::new());
+    let old_hash = bcrypt::hash("old-password", 4).unwrap();
+    create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_PASSWORD, &old_hash);
+
+    let error = account::change_password(
+        &pool,
+        &user.id,
+        ChangePasswordRequest {
+            current_password: "wrong-password".to_string(),
+            new_password: "new-secure-password".to_string(),
+        },
+    )
+    .unwrap_err();
+    assert_eq!(error.code, 403);
+
+    let credentials = pool
+        .find_credentials_for_user(&user.id, auth::CREDENTIAL_TYPE_PASSWORD)
+        .unwrap();
+    assert_eq!(credentials.len(), 1);
+    assert!(bcrypt::verify("old-password", &credentials[0].credential_hash).unwrap());
+}
+
+#[test]
 fn test_service_change_password_accepts_long_password() {
     // Beyond bcrypt's old 72-byte cap; Argon2id hashes the whole thing.
     let pool = common::create_test_pool();
     let user = create_user(&pool, &DataMap::new());
+    let old_hash = bcrypt::hash("old-password", 4).unwrap();
+    create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_PASSWORD, &old_hash);
 
     let long = "p".repeat(200);
     let req = ChangePasswordRequest {
+        current_password: "old-password".to_string(),
         new_password: long.clone(),
     };
     assert!(
@@ -67,6 +96,7 @@ fn test_service_change_password_rejects_too_long() {
     let user = create_user(&pool, &DataMap::new());
 
     let req = ChangePasswordRequest {
+        current_password: "not-used".to_string(),
         new_password: "q".repeat(1025),
     };
     assert!(
@@ -81,6 +111,7 @@ fn test_service_change_password_rejects_short() {
     let user = create_user(&pool, &DataMap::new());
 
     let req = ChangePasswordRequest {
+        current_password: "not-used".to_string(),
         new_password: "short".to_string(),
     };
     let result = account::change_password(&pool, &user.id, req);

@@ -21,18 +21,17 @@ fn require_admin_session(
     pool: &DbPool,
     cookies: &CookieJar<'_>,
 ) -> Result<String, Result<RawHtml<String>, Status>> {
-    require_relation(pool, cookies, "manage_users")
+    require_relation(pool, cookies, "admin")
 }
 
 /// Gate a route on the session user holding `relation` on the domain. Used to
-/// give relation-granting the full `admin` relation (SEC-03) while ordinary
-/// user administration stays at `manage_users`.
+/// give the legacy administration UI full `admin` authority.
 fn require_relation(
     pool: &DbPool,
     cookies: &CookieJar<'_>,
     relation: &str,
 ) -> Result<String, Result<RawHtml<String>, Status>> {
-    let user_id = get_session_user_id(cookies).ok_or(Err(Status::Unauthorized))?;
+    let user_id = get_session_user_id(cookies, pool).ok_or(Err(Status::Unauthorized))?;
 
     let domain = get_domain_name();
     if !authorization::user_has_permission(pool, &user_id, relation, "domain", &domain) {
@@ -62,7 +61,7 @@ pub fn admin_ui_user_list(
     msg: Option<&str>,
     error: Option<&str>,
 ) -> Result<RawHtml<String>, Status> {
-    let user_id = require_admin_session(pool.inner(), cookies).map_err(|e| e.unwrap_err())?;
+    let user_id = require_relation(pool.inner(), cookies, "admin").map_err(|e| e.unwrap_err())?;
     let nav = build_nav("admin", true, true);
     let flash = flash_html(msg, error);
 
@@ -123,11 +122,11 @@ fn create_user_page_html(error: Option<&str>) -> RawHtml<String> {
 <h1>Create User</h1>
 <form method="POST" action="/user-admin/users/create">
   <label>Username</label>
-  <input type="text" name="username" required />
+  <input type="text" name="username" autocomplete="username" required />
   <label>Display Name</label>
   <input type="text" name="display_name" required />
   <label>Password (leave blank for API key)</label>
-  <input type="password" name="password" minlength="8" />
+  <input type="password" name="password" autocomplete="new-password" minlength="8" />
   <br/><br/>
   <button type="submit" class="btn-primary">Create User</button>
 </form>
@@ -143,7 +142,7 @@ pub fn admin_ui_create_user_page(
     cookies: &CookieJar<'_>,
     error: Option<&str>,
 ) -> Result<RawHtml<String>, Status> {
-    let _user_id = require_admin_session(pool.inner(), cookies).map_err(|e| e.unwrap_err())?;
+    let _user_id = require_relation(pool.inner(), cookies, "admin").map_err(|e| e.unwrap_err())?;
     Ok(create_user_page_html(error))
 }
 
@@ -327,7 +326,7 @@ pub fn admin_ui_user_detail(
 
     let activate_deactivate = if u.is_active {
         format!(
-            r#"<form method="POST" action="/user-admin/users/{uid}/deactivate" style="display:inline"><button type="submit" class="btn-danger" onclick="return confirm('Deactivate this user?')">Deactivate User</button></form>"#,
+            r#"<form method="POST" action="/user-admin/users/{uid}/deactivate"><label><input type="checkbox" required/> I understand that this action revokes all sign-in credentials.</label><button type="submit" class="btn-danger">Disable User and Revoke Sign-In</button></form>"#,
             uid = html_escape(&u.id),
         )
     } else {
@@ -359,8 +358,9 @@ pub fn admin_ui_user_detail(
 
 <h2>Reset Password</h2>
 <form method="POST" action="/user-admin/users/{uid}/reset-password">
+  <input type="hidden" name="username" value="{username}" autocomplete="username" />
   <label>New Password</label>
-  <input type="password" name="new_password" required minlength="8" />
+  <input type="password" name="new_password" autocomplete="new-password" required minlength="8" />
   <br/><br/>
   <button type="submit" class="btn-primary">Reset Password</button>
 </form>
@@ -435,7 +435,7 @@ pub fn admin_ui_deactivate_user(
     cookies: &CookieJar<'_>,
     target_user_id: &str,
 ) -> Result<Redirect, Status> {
-    let user_id = require_admin_session(pool.inner(), cookies).map_err(|e| e.unwrap_err())?;
+    let user_id = require_relation(pool.inner(), cookies, "admin").map_err(|e| e.unwrap_err())?;
 
     if target_user_id == user_id {
         return Ok(Redirect::found(format!(
@@ -497,6 +497,8 @@ pub fn admin_ui_activate_user(
 
 #[derive(rocket::FromForm)]
 pub struct ResetPasswordForm {
+    #[field(name = "username")]
+    _username: Option<String>,
     new_password: String,
 }
 

@@ -594,7 +594,10 @@ pub struct SetUserClaimResponse {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SettableClaimPolicy {
     pub claim_type: String,
+    pub label: String,
+    pub description: String,
     pub datatype: String,
+    pub max_bytes: i64,
     pub set_rule: String,
     pub requires_approval: bool,
     pub signing_rule: String,
@@ -856,6 +859,7 @@ pub struct CheckPermissionResponse {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChangePasswordRequest {
+    pub current_password: String,
     pub new_password: String,
 }
 
@@ -930,6 +934,219 @@ pub struct RequestVerificationRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RequestVerificationResponse {
     pub signed_request: SignedSigningRequest,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PasswordPolicy {
+    pub min_length: i64,
+    pub max_length: i64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrowserSessionInfo {
+    pub user: AdminUser,
+    pub issued_at: String,
+    pub authenticated_at: String,
+    pub expires_at: String,
+    pub authentication_methods: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionPasswordLoginRequest {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionPasswordLoginResponse {
+    pub session: BrowserSessionInfo,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionCurrentResponse {
+    pub session: BrowserSessionInfo,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionLogoutResponse {
+    pub success: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IntrospectBrowserSessionRequest {
+    pub session_cookie: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IntrospectBrowserSessionResponse {
+    pub user_id: String,
+    pub user_domain: String,
+    pub authenticated_at: String,
+    pub expires_at: String,
+    pub authentication_methods: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct NotificationCapability {
+    pub purpose: String,
+    pub channel: String,
+    pub destination_kind: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetNotificationCapabilitiesResponse {
+    pub capabilities: Vec<NotificationCapability>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct VerifiedContactMethod {
+    pub id: String,
+    pub channel: String,
+    pub destination: String,
+    pub verified_at: String,
+    pub purposes: Vec<String>,
+    pub revoked_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListVerifiedContactMethodsResponse {
+    pub contact_methods: Vec<VerifiedContactMethod>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RevokeVerifiedContactMethodRequest {
+    pub contact_method_id: String,
+    pub current_password: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RevokeVerifiedContactMethodResponse {
+    pub success: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RequestContactVerificationRequest {
+    pub channel: String,
+    pub destination: String,
+    pub current_password: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RequestContactVerificationResponse {
+    pub expires_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConfirmContactVerificationRequest {
+    pub token: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConfirmContactVerificationResponse {
+    pub contact_method: VerifiedContactMethod,
+    pub claims: Vec<Claim>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RequestPasswordRecoveryRequest {
+    pub identifier: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RequestPasswordRecoveryResponse {}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ValidatePasswordRecoveryRequest {
+    pub token: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ValidatePasswordRecoveryResponse {
+    pub expires_at: String,
+    pub password_policy: PasswordPolicy,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CompletePasswordRecoveryRequest {
+    pub token: String,
+    pub new_password: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CompletePasswordRecoveryResponse {
+    pub success: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrowserAuthorizationInspectRequest {
+    pub signed_request: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrowserConsentClaim {
+    pub claim_type: String,
+    pub label: String,
+    pub datatype: String,
+    pub required: bool,
+    pub available: bool,
+    pub default_granted: bool,
+    pub policy: String,
+    pub user_settable: bool,
+    pub max_bytes: i64,
+    pub requires_approval: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrowserAuthorizationInspectResponse {
+    pub relying_party: String,
+    pub claims: Vec<BrowserConsentClaim>,
+    pub request_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrowserAuthorizationCompleteRequest {
+    pub signed_request: String,
+    pub authorized_claims: Vec<String>,
+    pub claim_types_to_set: Vec<String>,
+    pub claim_values_to_set: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrowserAuthorizationCompleteResponse {
+    pub redirect_url: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UiTheme {
+    pub stylesheet_url: Option<String>,
+    pub logo_url: Option<String>,
+    pub favicon_url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UiExtension {
+    pub id: String,
+    pub module_url: String,
+    pub api_version: i64,
+    pub stylesheet_url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UiDisplaySettings {
+    pub site_name: String,
+    pub support_url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetUiConfigurationResponse {
+    pub host_api_version: i64,
+    pub domain: String,
+    pub public_origin: Option<String>,
+    pub capabilities: Vec<String>,
+    pub display: UiDisplaySettings,
+    pub theme: Option<UiTheme>,
+    pub extensions: Vec<UiExtension>,
+    pub password_policy: Option<PasswordPolicy>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

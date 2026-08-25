@@ -135,7 +135,10 @@ New tables (Postgres + SQLite, single‑file idempotent migrations):
 - `profile_claim_prefs` — per‑profile auto‑sign toggle.
 - `release_policies` — `(audience, claim_type, disposition)`; `*` = global.
 - `claim_approval_queue` — pending approvals.
-- `email_verifications` — single‑use verification tokens (24h TTL).
+- `account_challenges` — digests for single-use account actions.
+- `verified_contact_methods` — private verified account destinations.
+- `notification_outbox` — encrypted pending notification data.
+- `browser_sessions` — digests and state for opaque browser sessions.
 - `user_release_prefs` — `(user_id, audience, claim_type)`; `*` = any domain.
 
 Env:
@@ -143,8 +146,8 @@ Env:
 - `CONSENT_FORCED_ALLOW` / `CONSENT_FORCED_DENY` — **deprecated**. Seeded once into
   `release_policies` (audience `*`) on first boot if the table is empty; the DB is
   now the source of truth. A `TODO` marks removal in a later session.
-- `PUBLIC_ORIGIN` — base URL for verification links (falls back to
-  `https://<DOMAIN_NAME>`).
+- `PUBLIC_ORIGIN` — required HTTPS origin for verification and recovery links
+  when SMTP is enabled.
 - `MAX_PROFILES_PER_ACCOUNT` — default 1 (hides multi‑profile UI).
 
 ---
@@ -179,11 +182,11 @@ Env:
    carries the whole RPC surface without per-op routes. The identity page's
    **Verified credentials** section runs `verify_stored_claim` live and shows
    "signed by `<domain>` ✓" per held claim. Nothing left on the attestation track.
-2. **Email sending is a stub** that logs the link (`crate::email`). Add an SMTP /
-   provider backend before production; gate link logging behind a dev flag.
-3. **Verification email rate limiting is basic.** Requests are throttled per
-   subject, but a real SMTP/provider backend should revisit provider-side
-   throttles and outstanding-token caps.
+2. **SMTP delivery is optional.** The server reports email as an available
+   channel only when the SMTP worker is ready. The SMTP and worker design is in
+   [`developing/outbound-communications-and-account-recovery.md`](developing/outbound-communications-and-account-recovery.md).
+3. **Verification request rate limiting is process-local.** Requests are
+   throttled per subject. Configure applicable limits on the SMTP relay too.
 4. **Per‑profile claim keying is pending.** Claims are still keyed by account id,
    so the identity editor operates on the default profile. Raising
    `MAX_PROFILES_PER_ACCOUNT` and using extra personas needs per‑profile claim
@@ -205,9 +208,11 @@ Env:
 1. As admin, open `/policy-admin`. Confirm the seeded claim types; add any you
    want (e.g. `pronouns`, lane A). Optionally add a `forced_deny` rule for a
    sensitive type, or a `forced_allow` for a specific app audience.
-2. As a user, open `/account/identity`. Fill in `display_name`, `handle`,
-   `website` → they show **Verified ✓**. Verify `email` (grab the link from the
-   server log). Tick **Share with any domain automatically** for `handle`.
+2. As a user, open `/account/identity`. Fill in `display_name`, `handle`, and
+   `website`. Confirm that the UI shows **Verified ✓**. Verify `email`. Get the
+   link from the configured SMTP test inbox. LinkKeys does not write action
+   links to its log. Select **Share with any domain automatically** for
+   `handle`.
 3. From a relying‑party app, start a login that requests `handle`, `display_name`,
    `email`. On the consent screen, `handle` is pre‑checked (standing "any domain"
    pref); the user confirms.

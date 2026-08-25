@@ -2,6 +2,7 @@
 name = "linkkeys-rpc-client"
 version = "0.1.0"
 edition = "2021"
+license = "Apache-2.0"
 
 # Pure CSIL-RPC client transport over TLS, shared by the server's outbound
 # server-to-server paths, the CLI, and the demo site. It depends only on

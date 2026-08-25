@@ -6,15 +6,19 @@ pub mod nonce_store;
 mod policy_admin_ui;
 mod profile_ui;
 pub mod rp;
+mod session;
 
+use rocket::fairing::{Fairing, Info, Kind};
 use rocket::form::FromForm;
 use rocket::http::{ContentType, CookieJar, Status};
 use rocket::response::content::RawHtml;
 use rocket::response::status::Custom;
-use rocket::response::Redirect;
-use rocket::{Config, State};
+use rocket::response::{Redirect, Responder, Response};
+use rocket::{Config, Request, State};
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::io::Cursor;
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -27,6 +31,7 @@ use crate::services::auth::PasswordAuthenticator;
 use crate::services::hello::HelloHandler;
 use crate::services::self_service::{self, SetOutcome};
 
+use csilgen_transport::rpc::{RpcRequest, RpcResponse};
 use liblinkkeys::consent::{
     self, compute_authorized_claims, resolve_consent_screen, ConsentScreen, DomainPolicy,
     DEFAULT_CONSENT_TTL_SECONDS,
@@ -109,7 +114,7 @@ fn default_catcher(status: Status, req: &rocket::Request<'_>) -> ApiErrorRespons
             "HTTP {} answered for {} {}",
             status.code,
             req.method(),
-            req.uri()
+            req.uri().path()
         );
     }
     if is_api_path(req.uri().path().as_str()) {
@@ -148,6 +153,10 @@ fn default_catcher(status: Status, req: &rocket::Request<'_>) -> ApiErrorRespons
 pub enum FinalizeError {
     /// The single-use login request nonce is already burned.
     AlreadyUsed,
+    /// The account or browser session stopped being valid during key lookup.
+    AuthenticationLost,
+    /// The API caller stopped being active or authorized during key lookup.
+    ApiAuthorizationLost,
     /// The RP's keys could not be fetched or pinned (DNS/TCP/pin failure).
     RpKeyFetch(String),
     /// The RP's keys were fetched but no trusted (vouched) encryption key
@@ -164,6 +173,8 @@ impl FinalizeError {
         use liblinkkeys::generated::types::ApiErrorCode;
         match self {
             FinalizeError::AlreadyUsed => ApiErrorCode::RequestAlreadyUsed,
+            FinalizeError::AuthenticationLost => ApiErrorCode::Forbidden,
+            FinalizeError::ApiAuthorizationLost => ApiErrorCode::Forbidden,
             FinalizeError::RpKeyFetch(_) => ApiErrorCode::RpKeyFetchFailed,
             FinalizeError::RpEncryptKeyUntrusted => ApiErrorCode::RpEncryptKeyUntrusted,
             FinalizeError::Signing(_) => ApiErrorCode::SigningFailed,
@@ -174,6 +185,8 @@ impl FinalizeError {
     fn http_status(&self) -> Status {
         match self {
             FinalizeError::AlreadyUsed => Status::Conflict,
+            FinalizeError::AuthenticationLost => Status::Forbidden,
+            FinalizeError::ApiAuthorizationLost => Status::Forbidden,
             // The RP side is unreachable/untrustworthy, not this server.
             FinalizeError::RpKeyFetch(_) | FinalizeError::RpEncryptKeyUntrusted => {
                 Status::BadGateway
@@ -188,6 +201,13 @@ impl FinalizeError {
         match self {
             FinalizeError::AlreadyUsed => {
                 "This login request has already been used. Please start a new login.".to_string()
+            }
+            FinalizeError::AuthenticationLost => {
+                "Your sign-in changed while LinkKeys checked the application. Sign in again."
+                    .to_string()
+            }
+            FinalizeError::ApiAuthorizationLost => {
+                "The API caller is no longer authorized. Start the request again.".to_string()
             }
             FinalizeError::RpKeyFetch(_) => format!(
                 "Could not fetch {relying_party}'s keys. Its operator should check its \
@@ -212,6 +232,12 @@ impl FinalizeError {
         match self {
             FinalizeError::AlreadyUsed => {
                 log::warn!("finalize for {relying_party}: login request nonce already used")
+            }
+            FinalizeError::AuthenticationLost => {
+                log::warn!("finalize for {relying_party}: account or session no longer active")
+            }
+            FinalizeError::ApiAuthorizationLost => {
+                log::warn!("finalize for {relying_party}: API caller no longer authorized")
             }
             FinalizeError::RpKeyFetch(cause) => {
                 log::error!("finalize for {relying_party}: RP key fetch failed: {cause}")
@@ -563,7 +589,7 @@ pub(super) fn missing_claim_user_settable(pool: &DbPool, claim_type: &str) -> bo
     let Ok(Some(row)) = pool.find_claim_policy(claim_type) else {
         return false;
     };
-    if !row.user_settable {
+    if !row.user_settable || row.signing_rule == "verified" || row.requires_approval {
         return false;
     }
     matches!(row.set_rule.as_str(), "user_self" | "idp_on_request")
@@ -742,7 +768,7 @@ fn verify_token_with_audience(
 
 #[rocket::get("/")]
 fn index(pool: &State<DbPool>, cookies: &CookieJar<'_>) -> RawHtml<String> {
-    let (is_logged_in, is_admin) = match account_ui::get_session_user_id(cookies) {
+    let (is_logged_in, is_admin) = match account_ui::get_session_user_id(cookies, pool.inner()) {
         Some(uid) => (true, account_ui::is_user_admin(pool.inner(), &uid)),
         None => (false, false),
     };
@@ -876,9 +902,9 @@ button {{ padding: 10px 20px; margin-top: 12px; }}
 <form method="POST" action="/auth/authorize">
 {hidden}
   <label>{username_label}</label>
-  <input type="text" name="username" value="{username}" autofocus />
+  <input type="text" name="username" value="{username}" autocomplete="username" autofocus />
   <label>{password_label}</label>
-  <input type="password" name="password" />
+  <input type="password" name="password" autocomplete="current-password" />
   <button type="submit">{submit}</button>
 </form>
 </body>
@@ -1322,6 +1348,10 @@ pub(super) fn store_inline_claim_values(
 ) -> Result<Vec<String>, String> {
     use std::collections::{BTreeMap, BTreeSet};
 
+    if claim_type_to_set.len() != claim_value_to_set.len() {
+        return Err("The submitted claim names and values do not match.".to_string());
+    }
+
     let requested: BTreeSet<&str> = req
         .required
         .iter()
@@ -1382,32 +1412,263 @@ pub(super) fn store_inline_claim_values(
         .collect())
 }
 
+async fn inspect_browser_authorization(
+    pool: &DbPool,
+    net: &Net,
+    user: &crate::db::models::User,
+    session: &crate::db::models::BrowserSession,
+    signed_request: &str,
+) -> Result<
+    liblinkkeys::generated::types::BrowserAuthorizationInspectResponse,
+    liblinkkeys::generated::services::ServiceError,
+> {
+    use liblinkkeys::consent::PolicyDisposition;
+    use liblinkkeys::generated::services::ServiceError;
+    use liblinkkeys::generated::types::BrowserConsentClaim;
+
+    let request = validate_signed_request(pool, net, signed_request)
+        .await
+        .map_err(|error| ServiceError {
+            code: 400,
+            message: error.user_message().to_string(),
+        })?;
+    if !user.is_active || user.is_admin_account {
+        return Err(ServiceError {
+            code: 403,
+            message: "This account cannot sign in to applications".to_string(),
+        });
+    }
+    let requirement = crate::services::auth::resolve_assurance_requirement(
+        request.authentication_requirements.as_ref(),
+        1,
+    )
+    .map_err(|_| ServiceError {
+        code: 400,
+        message: "The authentication assurance request is invalid".to_string(),
+    })?;
+    let evidence = crate::services::auth::AuthenticationEvidence {
+        method_types: session
+            .authentication_methods
+            .split(',')
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .collect(),
+        authenticated_at: chrono::DateTime::parse_from_rfc3339(&session.authenticated_at)
+            .map(|value| value.with_timezone(&chrono::Utc))
+            .map_err(|_| ServiceError {
+                code: 403,
+                message: "Authentication required".to_string(),
+            })?,
+    };
+    if !crate::services::auth::evidence_satisfies(&evidence, requirement) {
+        return Err(ServiceError {
+            code: 403,
+            message: "Sign in again to meet the application's security requirement".to_string(),
+        });
+    }
+
+    let claims = if let Some(claim_request) = &request.requested_claims {
+        let policy = domain_policy_for(pool, &request.relying_party).map_err(|_| ServiceError {
+            code: 500,
+            message: "Could not load the release policy".to_string(),
+        })?;
+        build_consent_screen(
+            pool,
+            &user.id,
+            &request.relying_party,
+            claim_request,
+            &policy,
+        )
+        .rows
+        .into_iter()
+        .map(|row| {
+            let default_granted = row.default_granted();
+            let label = pool
+                .resolved_label(&row.claim_type, "en-US")
+                .map(|value| value.0)
+                .unwrap_or_else(|_| row.claim_type.clone());
+            let claim_policy = pool.find_claim_policy(&row.claim_type).ok().flatten();
+            let max_bytes = claim_policy.as_ref().map_or(0, |policy| policy.max_bytes);
+            let requires_approval = claim_policy
+                .as_ref()
+                .is_some_and(|policy| policy.requires_approval);
+            let user_settable = claim_policy.as_ref().is_some_and(|policy| {
+                policy.user_settable
+                    && policy.signing_rule != "verified"
+                    && !policy.requires_approval
+                    && matches!(policy.set_rule.as_str(), "user_self" | "idp_on_request")
+                    && matches!(
+                        policy.value_type.as_str(),
+                        "text" | "string" | "email" | "date" | "datetime" | "int" | "bool"
+                    )
+            });
+            BrowserConsentClaim {
+                user_settable,
+                claim_type: row.claim_type,
+                label,
+                datatype: row.datatype,
+                max_bytes,
+                requires_approval,
+                required: row.required,
+                available: row.available,
+                default_granted,
+                policy: match row.policy {
+                    PolicyDisposition::User => "user",
+                    PolicyDisposition::ForcedAllow => "forced_allow",
+                    PolicyDisposition::ForcedDeny => "forced_deny",
+                }
+                .to_string(),
+            }
+        })
+        .collect()
+    } else {
+        Vec::new()
+    };
+    Ok(
+        liblinkkeys::generated::types::BrowserAuthorizationInspectResponse {
+            relying_party: request.relying_party,
+            claims,
+            request_reason: request.flow_context.and_then(|value| value.request_reason),
+        },
+    )
+}
+
+async fn complete_browser_authorization(
+    pool: &DbPool,
+    net: &Net,
+    nonces: &nonce_store::NonceStore,
+    user: &crate::db::models::User,
+    session: &crate::db::models::BrowserSession,
+    request_value: liblinkkeys::generated::types::BrowserAuthorizationCompleteRequest,
+) -> Result<
+    liblinkkeys::generated::types::BrowserAuthorizationCompleteResponse,
+    liblinkkeys::generated::services::ServiceError,
+> {
+    use liblinkkeys::generated::services::ServiceError;
+    let request = validate_signed_request(pool, net, &request_value.signed_request)
+        .await
+        .map_err(|error| ServiceError {
+            code: 400,
+            message: error.user_message().to_string(),
+        })?;
+    // Signed-request validation can wait on the relying party's network. Check
+    // the account and exact browser session again before any claim write.
+    let fresh_user = pool.find_user_by_id(&user.id).map_err(|_| ServiceError {
+        code: 403,
+        message: "Authentication required".to_string(),
+    })?;
+    let session_is_valid = crate::services::browser_session::valid_digest_for_user(
+        pool,
+        &session.token_digest,
+        &fresh_user.id,
+    )
+    .map_err(|_| ServiceError {
+        code: 500,
+        message: "Could not verify the browser session".to_string(),
+    })?;
+    if !fresh_user.is_active
+        || fresh_user.purged_at.is_some()
+        || fresh_user.is_admin_account
+        || !session_is_valid
+    {
+        return Err(ServiceError {
+            code: 403,
+            message: "Authentication required".to_string(),
+        });
+    }
+    let requirement = crate::services::auth::resolve_assurance_requirement(
+        request.authentication_requirements.as_ref(),
+        1,
+    )
+    .map_err(|_| ServiceError {
+        code: 400,
+        message: "The authentication assurance request is invalid".to_string(),
+    })?;
+    let evidence = crate::services::auth::AuthenticationEvidence {
+        method_types: session
+            .authentication_methods
+            .split(',')
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .collect(),
+        authenticated_at: chrono::DateTime::parse_from_rfc3339(&session.authenticated_at)
+            .map(|value| value.with_timezone(&chrono::Utc))
+            .map_err(|_| ServiceError {
+                code: 403,
+                message: "Authentication required".to_string(),
+            })?,
+    };
+    if !crate::services::auth::evidence_satisfies(&evidence, requirement) {
+        return Err(ServiceError {
+            code: 403,
+            message: "Sign in again to meet the application's security requirement".to_string(),
+        });
+    }
+
+    let (authorized, requested) = if let Some(claim_request) = &request.requested_claims {
+        let policy = domain_policy_for(pool, &request.relying_party).map_err(|_| ServiceError {
+            code: 500,
+            message: "Could not load the release policy".to_string(),
+        })?;
+        let policy_authorized =
+            compute_authorized_claims(claim_request, &request_value.authorized_claims, &policy);
+        let stored = store_inline_claim_values(
+            pool,
+            &fresh_user.id,
+            claim_request,
+            &policy_authorized,
+            &request_value.claim_types_to_set,
+            &request_value.claim_values_to_set,
+        )
+        .map_err(|message| ServiceError { code: 400, message })?;
+        (stored, requested_types(claim_request))
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    let redirect_url = finalize_login_url(LoginFinalization {
+        pool,
+        net,
+        nonces,
+        user: &fresh_user,
+        browser_session_digest: Some(&session.token_digest),
+        api_actor_id: None,
+        api_credential_id: None,
+        request: &request,
+        authorized_claims: authorized,
+        requested,
+    })
+    .await
+    .map_err(|error| ServiceError {
+        code: error.http_status().code as i32,
+        message: error.user_message(&request.relying_party),
+    })?;
+    Ok(liblinkkeys::generated::types::BrowserAuthorizationCompleteResponse { redirect_url })
+}
+
 /// Complete a login: burn the single-use request nonce, persist the consent
 /// decision as a standing grant (when the RP requested anything), sign the
 /// identity assertion carrying `authorized_claims`, encrypt it for the RP, and
 /// produce the callback redirect. On failure returns a user-facing message for
 /// the caller to render in its own page/form.
-async fn finalize_login(
-    pool: &DbPool,
-    net: &Net,
-    nonces: &nonce_store::NonceStore,
-    user: &crate::db::models::User,
-    request: &AuthRequest,
+struct LoginFinalization<'a> {
+    pool: &'a DbPool,
+    net: &'a Net,
+    nonces: &'a nonce_store::NonceStore,
+    user: &'a crate::db::models::User,
+    browser_session_digest: Option<&'a str>,
+    api_actor_id: Option<&'a str>,
+    api_credential_id: Option<&'a str>,
+    request: &'a AuthRequest,
     authorized_claims: Vec<String>,
     requested: Vec<String>,
-) -> Result<Redirect, String> {
-    finalize_login_url(
-        pool,
-        net,
-        nonces,
-        user,
-        request,
-        authorized_claims,
-        requested,
-    )
-    .await
-    .map(Redirect::found)
-    .map_err(|e| e.user_message(&request.relying_party))
+}
+
+async fn finalize_login(input: LoginFinalization<'_>) -> Result<Redirect, String> {
+    let relying_party = input.request.relying_party.clone();
+    finalize_login_url(input)
+        .await
+        .map(Redirect::found)
+        .map_err(|e| e.user_message(&relying_party))
 }
 
 /// Same as `finalize_login` but returns the callback redirect URL instead of a
@@ -1415,45 +1676,77 @@ async fn finalize_login(
 /// can hand the URL back to the browser. Burns the nonce + persists the consent
 /// grant exactly once, here. Every failure is logged server-side with the
 /// failed step and the relying party before it is returned.
-async fn finalize_login_url(
-    pool: &DbPool,
-    net: &Net,
-    nonces: &nonce_store::NonceStore,
-    user: &crate::db::models::User,
-    request: &AuthRequest,
-    authorized_claims: Vec<String>,
-    requested: Vec<String>,
-) -> Result<String, FinalizeError> {
-    let result = do_finalize_login_url(
-        pool,
-        net,
-        nonces,
-        user,
-        request,
-        authorized_claims,
-        requested,
-    )
-    .await;
+async fn finalize_login_url(input: LoginFinalization<'_>) -> Result<String, FinalizeError> {
+    let relying_party = input.request.relying_party.clone();
+    let result = do_finalize_login_url(input).await;
     if let Err(e) = &result {
-        e.log(&request.relying_party);
+        e.log(&relying_party);
     }
     result
 }
 
-async fn do_finalize_login_url(
-    pool: &DbPool,
-    net: &Net,
-    nonces: &nonce_store::NonceStore,
-    user: &crate::db::models::User,
-    request: &AuthRequest,
-    authorized_claims: Vec<String>,
-    requested: Vec<String>,
-) -> Result<String, FinalizeError> {
+async fn do_finalize_login_url(input: LoginFinalization<'_>) -> Result<String, FinalizeError> {
+    let LoginFinalization {
+        pool,
+        net,
+        nonces,
+        user,
+        browser_session_digest,
+        api_actor_id,
+        api_credential_id,
+        request,
+        authorized_claims,
+        requested,
+    } = input;
     // Fetch + trust-check the RP's encryption key FIRST: it is the only
     // network-fallible step, so it runs before any single-use state is burned.
     // A key-fetch or vouch failure leaves the login request retryable instead
     // of consuming it and turning the retry into a second, different error.
     let rp_enc_key = fetch_rp_encrypt_key(pool, net, &request.relying_party).await?;
+
+    if let Some(actor_id) = api_actor_id {
+        let actor = pool
+            .find_user_by_id(actor_id)
+            .map_err(|_| FinalizeError::ApiAuthorizationLost)?;
+        let still_authorized = actor.is_active
+            && actor.purged_at.is_none()
+            && crate::services::authorization::user_has_permission(
+                pool,
+                &actor.id,
+                crate::services::authorization::RELATION_API_ACCESS,
+                "domain",
+                &get_domain_name(),
+            );
+        if !still_authorized {
+            return Err(FinalizeError::ApiAuthorizationLost);
+        }
+        let credential_is_active = api_credential_id.is_some_and(|credential_id| {
+            pool.find_credentials_for_user(actor_id, crate::services::auth::CREDENTIAL_TYPE_API_KEY)
+                .is_ok_and(|credentials| {
+                    credentials
+                        .iter()
+                        .any(|credential| credential.id == credential_id)
+                })
+        });
+        if !credential_is_active {
+            return Err(FinalizeError::ApiAuthorizationLost);
+        }
+    }
+
+    let fresh_user = pool
+        .find_user_by_id(&user.id)
+        .map_err(|_| FinalizeError::AuthenticationLost)?;
+    if !fresh_user.is_active || fresh_user.purged_at.is_some() || fresh_user.is_admin_account {
+        return Err(FinalizeError::AuthenticationLost);
+    }
+    if let Some(digest) = browser_session_digest {
+        let session_is_valid =
+            crate::services::browser_session::valid_digest_for_user(pool, digest, &fresh_user.id)
+                .map_err(|_| FinalizeError::AuthenticationLost)?;
+        if !session_is_valid {
+            return Err(FinalizeError::AuthenticationLost);
+        }
+    }
 
     // Single-use: burn the trusted CBOR nonce now, at token issuance, so an
     // abandoned consent screen doesn't consume the login request prematurely.
@@ -1479,7 +1772,7 @@ async fn do_finalize_login_url(
         let signed = sign_consent_grant_for_user(
             pool,
             &grant_id,
-            &user.id,
+            &fresh_user.id,
             &request.relying_party,
             &authorized_claims,
             &issued_at,
@@ -1489,7 +1782,7 @@ async fn do_finalize_login_url(
         let grant_bytes = liblinkkeys::generated::encode_signed_consent_grant(&signed);
         pool.upsert_consent_grant(
             &grant_id,
-            &user.id,
+            &fresh_user.id,
             &get_domain_name(),
             &request.relying_party,
             &authorized_claims,
@@ -1504,7 +1797,7 @@ async fn do_finalize_login_url(
 
     let token = sign_assertion_for_user(
         pool,
-        user,
+        &fresh_user,
         &request.relying_party,
         &request.nonce,
         authorized_claims,
@@ -1695,7 +1988,20 @@ async fn rp_authorize_finalize(
         .filter(|c| requested.contains(c))
         .cloned()
         .collect();
-    match finalize_login_url(pool, net, nonces, &user, &request, authorized, requested).await {
+    match finalize_login_url(LoginFinalization {
+        pool,
+        net,
+        nonces,
+        user: &user,
+        browser_session_digest: None,
+        api_actor_id: Some(&auth.0.id),
+        api_credential_id: Some(&auth.1),
+        request: &request,
+        authorized_claims: authorized,
+        requested,
+    })
+    .await
+    {
         Ok(url) => Ok(cbor_response(
             liblinkkeys::generated::encode_authorize_finalize_response(
                 &liblinkkeys::generated::types::AuthorizeFinalizeResponse { redirect_url: url },
@@ -1713,9 +2019,6 @@ async fn rp_authorize_finalize(
 
 #[derive(FromForm)]
 struct AuthorizeQuery {
-    username: Option<String>,
-    // Keep the old name so existing relying parties continue to work.
-    user_hint: Option<String>,
     signed_request: Option<String>,
 }
 
@@ -1723,9 +2026,6 @@ struct AuthorizeQuery {
 async fn auth_authorize_get(
     pool: &State<DbPool>,
     net: &State<Net>,
-    nonces: &State<nonce_store::NonceStore>,
-    cookies: &CookieJar<'_>,
-    locale: guard::Locale,
     query: AuthorizeQuery,
 ) -> Result<rocket::Either<Redirect, RawHtml<String>>, Status> {
     // signed_request is the only accepted flow. A request without it (or one
@@ -1737,46 +2037,21 @@ async fn auth_authorize_get(
         Ok(request) => request,
         Err(e) => return Ok(rocket::Either::Right(render_error_page(e.user_message()))),
     };
-    let requirement = match crate::services::auth::resolve_assurance_requirement(
+    let requirement = crate::services::auth::resolve_assurance_requirement(
         request.authentication_requirements.as_ref(),
         1,
-    ) {
-        Ok(requirement) if crate::services::auth::provider_can_satisfy(requirement) => requirement,
-        _ => {
-            return Ok(rocket::Either::Right(render_error_page(
-                "This provider cannot satisfy the requested authentication assurance.",
-            )))
-        }
-    };
-
-    if let Some(session) = account_ui::peek_provider_session(cookies) {
-        if crate::services::auth::evidence_satisfies(&session.evidence(), requirement) {
-            if let Ok(user) = pool.find_user_by_id(&session.user_id) {
-                if user.is_active && !user.is_admin_account {
-                    return match proceed_authenticated_dns(
-                        pool, net, nonces, cookies, &locale.0, &user, &request, sr,
-                    )
-                    .await
-                    {
-                        Ok(redirect) => Ok(rocket::Either::Left(redirect)),
-                        Err(page) => Ok(rocket::Either::Right(page)),
-                    };
-                }
-            }
-        }
+    );
+    if requirement.is_err()
+        || !crate::services::auth::provider_can_satisfy(requirement.expect("checked above"))
+    {
+        return Ok(rocket::Either::Right(render_error_page(
+            "This provider cannot satisfy the requested authentication assurance.",
+        )));
     }
-
-    Ok(rocket::Either::Right(render_login_form(
-        sr,
-        &request.relying_party,
-        query
-            .username
-            .as_deref()
-            .or(query.user_hint.as_deref())
-            .unwrap_or(""),
-        &locale.0,
-        None,
-    )))
+    Ok(rocket::Either::Left(Redirect::found(format!(
+        "/app/authorize#request={}",
+        urlencoding::encode(sr)
+    ))))
 }
 
 #[derive(FromForm)]
@@ -1789,16 +2064,31 @@ struct AuthorizeForm {
 }
 
 #[rocket::post("/auth/authorize", data = "<form>")]
+#[allow(clippy::too_many_arguments)] // Rocket injects each request guard as an argument.
 async fn auth_authorize_post(
     pool: &State<DbPool>,
     net: &State<Net>,
     nonces: &State<nonce_store::NonceStore>,
     cookies: &CookieJar<'_>,
     locale: guard::Locale,
+    source: guard::RequestSource,
+    _csrf: guard::SameOriginPost,
     form: rocket::form::Form<AuthorizeForm>,
 ) -> Result<Redirect, RawHtml<String>> {
     if let Some(sr) = form.signed_request.as_deref() {
-        handle_signed_request_post(pool, net, nonces, cookies, &locale.0, &form, sr).await
+        handle_signed_request_post(
+            pool,
+            net,
+            nonces,
+            cookies,
+            LoginPostContext {
+                locale: &locale.0,
+                source_key: &source.0,
+            },
+            &form,
+            sr,
+        )
+        .await
     } else {
         Err(render_error_page(
             "Missing signed_request. This login flow is no longer supported.",
@@ -1806,12 +2096,17 @@ async fn auth_authorize_post(
     }
 }
 
+struct LoginPostContext<'a> {
+    locale: &'a str,
+    source_key: &'a str,
+}
+
 async fn handle_signed_request_post(
     pool: &State<DbPool>,
     net: &State<Net>,
     nonces: &State<nonce_store::NonceStore>,
     cookies: &CookieJar<'_>,
-    locale: &str,
+    context: LoginPostContext<'_>,
     form: &AuthorizeForm,
     signed_request_param: &str,
 ) -> Result<Redirect, RawHtml<String>> {
@@ -1825,13 +2120,15 @@ async fn handle_signed_request_post(
             signed_request_param,
             &request.relying_party,
             &form.username,
-            locale,
+            context.locale,
             Some(msg),
         )
     };
 
     // SEC-05: throttle online brute force, keyed by username.
-    if !crate::services::ratelimit::LOGIN.check(&form.username.trim().to_lowercase()) {
+    if !crate::services::ratelimit::LOGIN_SOURCE.check(context.source_key)
+        || !crate::services::ratelimit::LOGIN.check(&form.username.trim().to_lowercase())
+    {
         return Err(render_form_error(
             "Too many attempts. Please wait and try again.",
         ));
@@ -1870,14 +2167,24 @@ async fn handle_signed_request_post(
             "This provider cannot satisfy the requested authentication assurance.",
         ));
     }
-    account_ui::establish_provider_session(cookies, &user.id, &authentication.evidence);
+    if account_ui::establish_provider_session(
+        cookies,
+        pool.inner(),
+        &user.id,
+        &authentication.evidence,
+        authentication.credential_id.as_deref().unwrap_or_default(),
+    )
+    .is_none()
+    {
+        return Err(render_error_page("Could not create the browser session."));
+    }
 
     proceed_authenticated_dns(
         pool,
         net,
         nonces,
         cookies,
-        locale,
+        context.locale,
         &user,
         &request,
         signed_request_param,
@@ -1903,6 +2210,9 @@ async fn proceed_authenticated_dns(
     request: &AuthRequest,
     signed_request_param: &str,
 ) -> Result<Redirect, RawHtml<String>> {
+    let browser_session_digest = cookies
+        .get(crate::services::browser_session::COOKIE_NAME)
+        .map(|cookie| crate::services::browser_session::token_digest(cookie.value()));
     // Audience is the relying-party DOMAIN (what a verifier checks), not the
     // full callback URL. The login-request nonce is burned inside finalize_login
     // at token issuance — not here — so an abandoned consent screen doesn't
@@ -1915,10 +2225,21 @@ async fn proceed_authenticated_dns(
     match request.requested_claims.clone() {
         // Authentication only: no claims requested, nothing to consent to.
         None => {
-            let redirect = finalize_login(pool, net, nonces, user, request, vec![], vec![])
-                .await
-                .map_err(|m| render_error_page(&m))?;
-            account_ui::touch_provider_session(cookies);
+            let redirect = finalize_login(LoginFinalization {
+                pool,
+                net,
+                nonces,
+                user,
+                browser_session_digest: browser_session_digest.as_deref(),
+                api_actor_id: None,
+                api_credential_id: None,
+                request,
+                authorized_claims: vec![],
+                requested: vec![],
+            })
+            .await
+            .map_err(|m| render_error_page(&m))?;
+            account_ui::touch_provider_session(cookies, pool.inner());
             Ok(redirect)
         }
         Some(req) => {
@@ -1929,11 +2250,21 @@ async fn proceed_authenticated_dns(
             // an explicit claims_update request. That request always renders
             // consent, including the previous choices.
             if let Some(authorized) = silent_authorization(pool, &policy, &user.id, request) {
-                let redirect =
-                    finalize_login(pool, net, nonces, user, request, authorized, requested)
-                        .await
-                        .map_err(|m| render_error_page(&m))?;
-                account_ui::touch_provider_session(cookies);
+                let redirect = finalize_login(LoginFinalization {
+                    pool,
+                    net,
+                    nonces,
+                    user,
+                    browser_session_digest: browser_session_digest.as_deref(),
+                    api_actor_id: None,
+                    api_credential_id: None,
+                    request,
+                    authorized_claims: authorized,
+                    requested,
+                })
+                .await
+                .map_err(|m| render_error_page(&m))?;
+                account_ui::touch_provider_session(cookies, pool.inner());
                 return Ok(redirect);
             }
 
@@ -2027,6 +2358,7 @@ async fn auth_consent_post(
     nonces: &State<nonce_store::NonceStore>,
     cookies: &CookieJar<'_>,
     locale: guard::Locale,
+    _csrf: guard::SameOriginPost,
     form: rocket::form::Form<ConsentForm>,
 ) -> Result<Redirect, RawHtml<String>> {
     // The user declined the whole login. Issue nothing, consume nothing —
@@ -2078,6 +2410,25 @@ async fn auth_consent_post(
             "This account cannot sign in to applications.",
         ));
     }
+    let Some(browser_session_digest) = cookies
+        .get(crate::services::browser_session::COOKIE_NAME)
+        .map(|cookie| crate::services::browser_session::token_digest(cookie.value()))
+    else {
+        return Err(render_error_page(
+            "Your session has ended. Please start the login again.",
+        ));
+    };
+    if !crate::services::browser_session::valid_digest_for_user(
+        pool,
+        &browser_session_digest,
+        &user.id,
+    )
+    .unwrap_or(false)
+    {
+        return Err(render_error_page(
+            "Your session has ended. Please start the login again.",
+        ));
+    }
 
     let Ok(policy) = domain_policy_for(pool, &request.relying_party) else {
         return Err(render_error_page(
@@ -2111,18 +2462,32 @@ async fn auth_consent_post(
         }
     };
 
-    let redirect = finalize_login(
+    let session_is_valid = crate::services::browser_session::valid_digest_for_user(
+        pool,
+        &browser_session_digest,
+        &user.id,
+    )
+    .unwrap_or(false);
+    if !session_is_valid {
+        return Err(render_error_page(
+            "Your session has ended. Please start the login again.",
+        ));
+    }
+    let redirect = finalize_login(LoginFinalization {
         pool,
         net,
         nonces,
-        &user,
-        &request,
-        authorized,
-        requested_types(&req),
-    )
+        user: &user,
+        browser_session_digest: Some(&browser_session_digest),
+        api_actor_id: None,
+        api_credential_id: None,
+        request: &request,
+        authorized_claims: authorized,
+        requested: requested_types(&req),
+    })
     .await
     .map_err(|m| render_error_page(&m))?;
-    account_ui::touch_provider_session(cookies);
+    account_ui::touch_provider_session(cookies, pool.inner());
     Ok(redirect)
 }
 
@@ -2159,32 +2524,14 @@ impl ValidateAuthRequestError {
 /// check on top of the RP's signature: even a misbehaving RP cannot
 /// authorize callbacks to a domain it doesn't own.
 fn callback_within_rp_domain(callback_url: &str, rp_domain: &str) -> Result<bool, ()> {
-    let rest = match callback_url.strip_prefix("https://") {
-        Some(r) => r,
-        None => return Ok(false),
-    };
-    let host_with_extras = rest.split(['/', '?', '#']).next().ok_or(())?;
-    if host_with_extras.is_empty() {
-        return Err(());
+    let url = reqwest::Url::parse(callback_url).map_err(|_| ())?;
+    if url.scheme() != "https" {
+        return Ok(false);
     }
-    let after_userinfo = match host_with_extras.rsplit_once('@') {
-        Some((_, host)) => host,
-        None => host_with_extras,
-    };
-    // Strip port, but only the last ':' segment if it's all digits — this
-    // also leaves bracketed IPv6 hosts intact for the equality check.
-    let host = if let Some((h, port)) = after_userinfo.rsplit_once(':') {
-        if !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) {
-            h
-        } else {
-            after_userinfo
-        }
-    } else {
-        after_userinfo
-    };
-    if host.is_empty() {
-        return Err(());
+    if !url.username().is_empty() || url.password().is_some() {
+        return Ok(false);
     }
+    let host = url.host_str().ok_or(())?;
     Ok(host == rp_domain || host.ends_with(&format!(".{}", rp_domain)))
 }
 
@@ -2455,26 +2802,608 @@ pub async fn build_userinfo_signed(
     })
 }
 
-/// Generic CBOR-RPC carrier: the web's second-class mirror of the TCP service
-/// dispatch. The body is a CBOR `RequestEnvelope`; we run the same `dispatch()`
-/// and return the CBOR `ResponseEnvelope`. This is how the web carries the whole
-/// RPC surface (e.g. `Attestation/deposit-claim`) without per-op routes — a
-/// browser is never the intended caller here, another server is. `dispatch` is
-/// synchronous (diesel), so run it on a blocking thread.
-#[rocket::post("/csil/v1/rpc", data = "<body>")]
+/// Canonical CSIL-RPC HTTP carrier for browsers, API clients, and peer servers.
+/// Browser session identity is added to the shared dispatcher. API-key calls
+/// continue to use the envelope's auth field.
+#[rocket::post("/csil/v1/rpc", format = "application/cbor", data = "<body>")]
+#[allow(clippy::too_many_arguments)]
 async fn rpc_cbor(
     pool: &State<DbPool>,
     ready: &State<Arc<AtomicBool>>,
+    net: &State<Net>,
+    nonces: &State<nonce_store::NonceStore>,
+    ui_state: &State<crate::services::ui::LoadedUiConfiguration>,
+    cookies: &CookieJar<'_>,
+    same_origin: Option<guard::SameOriginPost>,
+    source: guard::RequestSource,
     body: Vec<u8>,
 ) -> (ContentType, Vec<u8>) {
+    if body.len() > crate::tcp::MAX_FRAME_SIZE || !crate::tcp::check_cbor_depth(&body) {
+        return cbor_response(rpc_error(
+            csilgen_transport::Status::MalformedEnvelope,
+            "The request is too large or too deeply nested",
+        ));
+    }
+    let request = match RpcRequest::decode(&body) {
+        Ok(value) => value,
+        Err(error) => {
+            return cbor_response(rpc_error(
+                csilgen_transport::Status::MalformedEnvelope,
+                &format!("Invalid envelope: {error}"),
+            ))
+        }
+    };
+    if request.auth.is_some() && !crate::services::ratelimit::API_KEY_SOURCE.check(&source.0) {
+        return cbor_response(rpc_error(
+            csilgen_transport::Status::Forbidden,
+            "Too many authentication attempts. Wait and try again",
+        ));
+    }
+
+    let needs_browser = request.auth.is_none()
+        && (matches!(
+            request.service.as_str(),
+            "Account" | "Admin" | "BrowserAuthorization"
+        ) || matches!(
+            (request.service.as_str(), request.op.as_str()),
+            ("Session", "get-current") | ("Session", "logout")
+        ));
+    let session_token = cookies
+        .get(crate::services::browser_session::COOKIE_NAME)
+        .map(|value| value.value().to_string());
+
+    let is_browser_login = request.service == "Session" && request.op == "login-password";
+    let is_browser_session_op =
+        request.service == "Session" && matches!(request.op.as_str(), "get-current" | "logout");
+    if (needs_browser || is_browser_login || is_browser_session_op) && same_origin.is_none() {
+        return cbor_response(rpc_error(
+            csilgen_transport::Status::Forbidden,
+            "A same-origin browser request is required",
+        ));
+    }
+    if is_browser_login && request.auth.is_some() {
+        return cbor_response(rpc_error(
+            csilgen_transport::Status::Forbidden,
+            "Password login is available only to the browser carrier",
+        ));
+    }
+    if is_browser_login && !crate::services::password::authentication_enabled() {
+        return cbor_response(rpc_error(
+            csilgen_transport::Status::Forbidden,
+            "Password sign-in is not available",
+        ));
+    }
+    if !crate::tcp::check_cbor_depth(&request.payload) {
+        return cbor_response(rpc_error(
+            csilgen_transport::Status::MalformedEnvelope,
+            "The request payload is too deeply nested",
+        ));
+    }
+    if request.service == "Ui" && request.op == "get-configuration" {
+        let public = crate::services::ui::public_configuration(ui_state);
+        return cbor_response(rpc_ok(
+            liblinkkeys::generated::encode_get_ui_configuration_response(&public),
+        ));
+    }
+
+    if request.service == "Session" {
+        let response = match request.op.as_str() {
+            "login-password" => {
+                let pool = pool.inner().clone();
+                let payload = request.payload.clone();
+                let source_key = source.0.clone();
+                match rocket::tokio::task::spawn_blocking(move || {
+                    rpc_session_login(&pool, &payload, &source_key)
+                })
+                .await
+                {
+                    Ok((response, Some(token))) => {
+                        session::add_session_cookie(cookies, token);
+                        response
+                    }
+                    Ok((response, None)) => response,
+                    Err(_) => rpc_error(csilgen_transport::Status::Internal, "Dispatch failed"),
+                }
+            }
+            "get-current" => {
+                let pool = pool.inner().clone();
+                let token = session_token.clone();
+                rocket::tokio::task::spawn_blocking(move || {
+                    rpc_session_current(&pool, token.as_deref())
+                })
+                .await
+                .unwrap_or_else(|_| {
+                    rpc_error(csilgen_transport::Status::Internal, "Dispatch failed")
+                })
+            }
+            "logout" => {
+                let Some(token) = session_token else {
+                    return cbor_response(rpc_error(
+                        csilgen_transport::Status::Forbidden,
+                        "Authentication required",
+                    ));
+                };
+                let pool = pool.inner().clone();
+                match rocket::tokio::task::spawn_blocking(move || {
+                    crate::services::browser_session::revoke(&pool, &token)
+                })
+                .await
+                {
+                    Ok(Ok(())) => {
+                        session::remove_session_cookie(cookies);
+                        rpc_ok(liblinkkeys::generated::encode_session_logout_response(
+                            &liblinkkeys::generated::types::SessionLogoutResponse { success: true },
+                        ))
+                    }
+                    Ok(Err(error)) if error.code == 403 => rpc_error(
+                        csilgen_transport::Status::Forbidden,
+                        "Authentication required",
+                    ),
+                    _ => rpc_error(
+                        csilgen_transport::Status::Internal,
+                        "Could not revoke browser session",
+                    ),
+                }
+            }
+            "introspect" => {
+                let pool = pool.inner().clone();
+                let ready = ready.inner().clone();
+                let body = body.clone();
+                rocket::tokio::task::spawn_blocking(move || {
+                    crate::tcp::dispatch_envelope_with_browser(
+                        &body, &ready, &pool, None, &source.0,
+                    )
+                })
+                .await
+                .unwrap_or_else(|_| {
+                    rpc_error(csilgen_transport::Status::Internal, "Dispatch failed")
+                })
+            }
+            _ => rpc_error(
+                csilgen_transport::Status::UnknownServiceOrOp,
+                "Unknown Session operation",
+            ),
+        };
+        return cbor_response(response);
+    }
+
+    let browser_identity = if needs_browser {
+        let Some(token) = session_token.as_deref() else {
+            return cbor_response(rpc_error(
+                csilgen_transport::Status::Forbidden,
+                "Authentication required",
+            ));
+        };
+        let pool = pool.inner().clone();
+        let token = token.to_string();
+        rocket::tokio::task::spawn_blocking(move || {
+            match crate::services::browser_session::get(&pool, &token, true) {
+                Ok(Some(session)) => pool
+                    .find_user_by_id(&session.user_id)
+                    .ok()
+                    .map(|user| (user, session)),
+                _ => None,
+            }
+        })
+        .await
+        .unwrap_or(None)
+    } else {
+        None
+    };
+    if needs_browser && browser_identity.is_none() {
+        return cbor_response(rpc_error(
+            csilgen_transport::Status::Forbidden,
+            "Authentication required",
+        ));
+    }
+
+    if request.service == "BrowserAuthorization" {
+        let Some((browser_user, browser_session)) = browser_identity else {
+            return cbor_response(rpc_error(
+                csilgen_transport::Status::Forbidden,
+                "Authentication required",
+            ));
+        };
+        let response = match request.op.as_str() {
+            "inspect" => {
+                match liblinkkeys::generated::decode_browser_authorization_inspect_request(
+                    &request.payload,
+                ) {
+                    Ok(value) => match inspect_browser_authorization(
+                        pool,
+                        net,
+                        &browser_user,
+                        &browser_session,
+                        &value.signed_request,
+                    )
+                    .await
+                    {
+                        Ok(value) => rpc_ok(
+                            liblinkkeys::generated::encode_browser_authorization_inspect_response(
+                                &value,
+                            ),
+                        ),
+                        Err(error) => service_rpc_error(error),
+                    },
+                    Err(error) => rpc_error(
+                        csilgen_transport::Status::MalformedEnvelope,
+                        &format!("Invalid payload: {error}"),
+                    ),
+                }
+            }
+            "complete" => {
+                match liblinkkeys::generated::decode_browser_authorization_complete_request(
+                    &request.payload,
+                ) {
+                    Ok(value) => match complete_browser_authorization(
+                        pool,
+                        net,
+                        nonces,
+                        &browser_user,
+                        &browser_session,
+                        value,
+                    )
+                    .await
+                    {
+                        Ok(value) => rpc_ok(
+                            liblinkkeys::generated::encode_browser_authorization_complete_response(
+                                &value,
+                            ),
+                        ),
+                        Err(error) => service_rpc_error(error),
+                    },
+                    Err(error) => rpc_error(
+                        csilgen_transport::Status::MalformedEnvelope,
+                        &format!("Invalid payload: {error}"),
+                    ),
+                }
+            }
+            _ => rpc_error(
+                csilgen_transport::Status::UnknownServiceOrOp,
+                "Unknown browser authorization operation",
+            ),
+        };
+        return cbor_response(response);
+    }
+
+    let browser_user = browser_identity.map(|value| value.0);
+
     let pool = pool.inner().clone();
     let ready = ready.inner().clone();
+    let source_key = source.0;
     let resp = rocket::tokio::task::spawn_blocking(move || {
-        crate::tcp::dispatch_envelope(&body, &ready, &pool, None)
+        crate::tcp::dispatch_envelope_with_browser(
+            &body,
+            &ready,
+            &pool,
+            browser_user.as_ref(),
+            &source_key,
+        )
     })
     .await
     .unwrap_or_default();
     cbor_response(resp)
+}
+
+fn rpc_session_login(pool: &DbPool, payload: &[u8], source_key: &str) -> (Vec<u8>, Option<String>) {
+    use crate::services::auth::Authenticator;
+    let request = match liblinkkeys::generated::decode_session_password_login_request(payload) {
+        Ok(value) => value,
+        Err(error) => {
+            return (
+                rpc_error(
+                    csilgen_transport::Status::MalformedEnvelope,
+                    &format!("Invalid payload: {error}"),
+                ),
+                None,
+            )
+        }
+    };
+    if !crate::services::password::authentication_enabled()
+        || !crate::services::password::valid_login_shape(&request.username, &request.password)
+    {
+        return (
+            rpc_error(
+                csilgen_transport::Status::Forbidden,
+                "Invalid username or password",
+            ),
+            None,
+        );
+    }
+    if !crate::services::ratelimit::LOGIN_SOURCE.check(source_key)
+        || !crate::services::ratelimit::LOGIN.check(&request.username.trim().to_lowercase())
+    {
+        return (
+            rpc_error(
+                csilgen_transport::Status::Forbidden,
+                "Too many attempts. Wait and try again",
+            ),
+            None,
+        );
+    }
+    let authenticator = PasswordAuthenticator::new(pool.clone());
+    let authentication =
+        match authenticator.authenticate_with_evidence(&request.username, &request.password) {
+            Ok(value) if value.user.is_active && value.user.purged_at.is_none() => value,
+            _ => {
+                return (
+                    rpc_error(
+                        csilgen_transport::Status::Forbidden,
+                        "Invalid username or password",
+                    ),
+                    None,
+                )
+            }
+        };
+    let Some(credential_id) = authentication.credential_id.as_deref() else {
+        return (
+            rpc_error(
+                csilgen_transport::Status::Forbidden,
+                "Invalid username or password",
+            ),
+            None,
+        );
+    };
+    let (token, stored) = match crate::services::browser_session::create_after_password(
+        pool,
+        &authentication.user.id,
+        credential_id,
+        &authentication.evidence,
+    ) {
+        Ok(value) => value,
+        Err(_) => {
+            return (
+                rpc_error(
+                    csilgen_transport::Status::Internal,
+                    "Could not create browser session",
+                ),
+                None,
+            )
+        }
+    };
+    match crate::services::browser_session::info(pool, &stored) {
+        Ok(session) => (
+            rpc_ok(
+                liblinkkeys::generated::encode_session_password_login_response(
+                    &liblinkkeys::generated::types::SessionPasswordLoginResponse { session },
+                ),
+            ),
+            Some(token),
+        ),
+        Err(error) => (
+            rpc_error(csilgen_transport::Status::Internal, &error.message),
+            None,
+        ),
+    }
+}
+
+fn rpc_session_current(pool: &DbPool, token: Option<&str>) -> Vec<u8> {
+    let Some(token) = token else {
+        return rpc_error(
+            csilgen_transport::Status::Forbidden,
+            "Authentication required",
+        );
+    };
+    match crate::services::browser_session::get(pool, token, true)
+        .and_then(|value| {
+            value.ok_or_else(|| liblinkkeys::generated::services::ServiceError {
+                code: 403,
+                message: "Authentication required".to_string(),
+            })
+        })
+        .and_then(|value| crate::services::browser_session::info(pool, &value))
+    {
+        Ok(session) => rpc_ok(liblinkkeys::generated::encode_session_current_response(
+            &liblinkkeys::generated::types::SessionCurrentResponse { session },
+        )),
+        Err(error) if error.code == 403 => {
+            rpc_error(csilgen_transport::Status::Forbidden, &error.message)
+        }
+        Err(_) => rpc_error(
+            csilgen_transport::Status::Internal,
+            "Could not read browser session",
+        ),
+    }
+}
+
+fn rpc_ok(payload: Vec<u8>) -> Vec<u8> {
+    RpcResponse {
+        id: None,
+        status: csilgen_transport::Status::Ok,
+        variant: None,
+        error: None,
+        payload,
+    }
+    .encode()
+    .expect("encode CSIL response")
+}
+
+fn rpc_error(status: csilgen_transport::Status, message: &str) -> Vec<u8> {
+    RpcResponse::transport_error(status, message)
+        .encode()
+        .expect("encode CSIL error")
+}
+
+fn service_rpc_error(error: liblinkkeys::generated::services::ServiceError) -> Vec<u8> {
+    let status = match error.code {
+        400 => csilgen_transport::Status::MalformedEnvelope,
+        401 | 403 => csilgen_transport::Status::Forbidden,
+        _ => csilgen_transport::Status::Internal,
+    };
+    rpc_error(status, &error.message)
+}
+
+struct UiAsset {
+    content_type: ContentType,
+    bytes: Vec<u8>,
+}
+
+impl<'r> Responder<'r, 'static> for UiAsset {
+    fn respond_to(self, _request: &'r Request<'_>) -> rocket::response::Result<'static> {
+        Response::build()
+            .header(self.content_type)
+            .raw_header("Cache-Control", "no-cache")
+            .sized_body(self.bytes.len(), Cursor::new(self.bytes))
+            .ok()
+    }
+}
+
+fn embedded_ui_asset(path: &Path) -> Option<UiAsset> {
+    let name = path.to_str()?;
+    let bytes: &[u8] = match name {
+        "index.html" => include_bytes!("../../assets/ui/index.html"),
+        "app.js" => include_bytes!("../../assets/ui/app.js"),
+        "app.css" => include_bytes!("../../assets/ui/app.css"),
+        _ => return None,
+    };
+    Some(UiAsset {
+        content_type: ContentType::from_extension(
+            path.extension()
+                .and_then(|value| value.to_str())
+                .unwrap_or(""),
+        )
+        .unwrap_or(ContentType::Binary),
+        bytes: bytes.to_vec(),
+    })
+}
+
+fn safe_asset_path(path: &Path) -> bool {
+    path.components()
+        .all(|component| matches!(component, Component::Normal(_)))
+}
+
+async fn configured_ui_asset(
+    path: &Path,
+    state: &State<crate::services::ui::LoadedUiConfiguration>,
+) -> Option<UiAsset> {
+    if !safe_asset_path(path) {
+        return None;
+    }
+    if let Some(dist_dir) = &state.dist_dir {
+        return filesystem_ui_asset(dist_dir, path).await;
+    }
+    embedded_ui_asset(path)
+}
+
+async fn filesystem_ui_asset(root: &Path, path: &Path) -> Option<UiAsset> {
+    if !safe_asset_path(path) {
+        return None;
+    }
+    let canonical_root = rocket::tokio::fs::canonicalize(root).await.ok()?;
+    let target = rocket::tokio::fs::canonicalize(root.join(path))
+        .await
+        .ok()?;
+    if !target.starts_with(&canonical_root) || !target.is_file() {
+        return None;
+    }
+    let bytes = rocket::tokio::fs::read(target).await.ok()?;
+    Some(UiAsset {
+        content_type: ContentType::from_extension(
+            path.extension()
+                .and_then(|value| value.to_str())
+                .unwrap_or(""),
+        )
+        .unwrap_or(ContentType::Binary),
+        bytes,
+    })
+}
+
+#[rocket::get("/app/<_path..>", rank = 100)]
+async fn ui_app_path(
+    _path: PathBuf,
+    state: &State<crate::services::ui::LoadedUiConfiguration>,
+) -> Option<UiAsset> {
+    configured_ui_asset(Path::new("index.html"), state).await
+}
+
+#[rocket::get("/_linkkeys/assets/<path..>")]
+async fn ui_asset(
+    path: PathBuf,
+    state: &State<crate::services::ui::LoadedUiConfiguration>,
+) -> Option<UiAsset> {
+    configured_ui_asset(&path, state).await
+}
+
+#[rocket::get("/_linkkeys/themes/operator/<path..>")]
+async fn ui_theme_asset(
+    path: PathBuf,
+    state: &State<crate::services::ui::LoadedUiConfiguration>,
+) -> Option<UiAsset> {
+    filesystem_ui_asset(state.theme_dir.as_deref()?, &path).await
+}
+
+#[rocket::get("/_linkkeys/extensions/<id>/<path..>")]
+async fn ui_extension_asset(
+    id: &str,
+    path: PathBuf,
+    state: &State<crate::services::ui::LoadedUiConfiguration>,
+) -> Option<UiAsset> {
+    let extension = state
+        .extension_assets
+        .iter()
+        .find(|extension| extension.id == id)?;
+    filesystem_ui_asset(&extension.asset_dir, &path).await
+}
+
+struct BrowserSecurityHeaders;
+
+#[rocket::async_trait]
+impl Fairing for BrowserSecurityHeaders {
+    fn info(&self) -> Info {
+        Info {
+            name: "LinkKeys browser security headers",
+            kind: Kind::Response,
+        }
+    }
+
+    async fn on_response<'r>(&self, request: &'r Request<'_>, response: &mut Response<'r>) {
+        let style_source = if request.uri().path().as_str().starts_with("/app") {
+            "style-src 'self'"
+        } else {
+            "style-src 'self' 'unsafe-inline'"
+        };
+        response.set_raw_header(
+            "Content-Security-Policy",
+            format!(
+                "default-src 'self'; script-src 'self'; {style_source}; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+            ),
+        );
+        response.set_raw_header("X-Content-Type-Options", "nosniff");
+        response.set_raw_header("Referrer-Policy", "no-referrer");
+        if request.uri().path().as_str().starts_with("/app")
+            || request.uri().path().as_str() == "/csil/v1/rpc"
+        {
+            response.set_raw_header("Cache-Control", "no-store");
+        } else if request
+            .uri()
+            .path()
+            .as_str()
+            .starts_with("/_linkkeys/assets/")
+        {
+            response.set_raw_header("Cache-Control", "no-cache");
+        }
+        response.set_raw_header(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        );
+    }
+}
+
+struct MarkReadyOnLiftoff(Arc<AtomicBool>);
+
+#[rocket::async_trait]
+impl Fairing for MarkReadyOnLiftoff {
+    fn info(&self) -> Info {
+        Info {
+            name: "LinkKeys readiness after HTTP liftoff",
+            kind: Kind::Liftoff,
+        }
+    }
+
+    async fn on_liftoff(&self, _rocket: &rocket::Rocket<rocket::Orbit>) {
+        self.0.store(true, Ordering::SeqCst);
+        log::info!("Startup complete, server ready");
+    }
 }
 
 // -- TLS + Launch --
@@ -2487,13 +3416,17 @@ fn generate_self_signed_cert() -> (String, String) {
     (cert_pem, key_pem)
 }
 
-pub async fn launch_rocket(db_pool: DbPool, ready_flag: Arc<AtomicBool>) {
+pub async fn launch_rocket(
+    db_pool: DbPool,
+    ready_flag: Arc<AtomicBool>,
+    ui_configuration: crate::services::ui::LoadedUiConfiguration,
+) {
     let disable_tls = env::var("DISABLE_TLS").unwrap_or_default() == "true";
-    let default_port = if disable_tls { "8080" } else { "8443" };
-    let port: u16 = env::var("HTTPS_PORT")
-        .unwrap_or_else(|_| default_port.to_string())
-        .parse()
-        .unwrap_or(8443);
+    let default_port = if disable_tls { 8080 } else { 8443 };
+    let port = crate::config::nonzero_u16_env("HTTPS_PORT", default_port).unwrap_or_else(|error| {
+        eprintln!("HTTP server startup failed: {error}");
+        std::process::exit(1);
+    });
 
     let tls = if disable_tls {
         log::info!(
@@ -2510,29 +3443,11 @@ pub async fn launch_rocket(db_pool: DbPool, ready_flag: Arc<AtomicBool>) {
         ))
     };
 
-    // Session-cookie signing/encryption key. Persist it via ROCKET_SECRET_KEY so
-    // sessions survive restarts and are consistent across replicas; otherwise
-    // generate an ephemeral key (dev only) and warn loudly (svc-04).
-    let secret_key = match env::var("ROCKET_SECRET_KEY") {
-        Ok(material) if material.len() >= 32 => {
-            rocket::config::SecretKey::derive_from(material.as_bytes())
-        }
-        Ok(_) => {
-            log::error!(
-                "ROCKET_SECRET_KEY is set but too short (need >= 32 chars); \
-                 generating an ephemeral key — sessions will not persist."
-            );
-            rocket::config::SecretKey::generate().expect("Failed to generate Rocket secret key")
-        }
-        Err(_) => {
-            log::warn!(
-                "ROCKET_SECRET_KEY not set; generating an ephemeral session key. \
-                 Sessions will NOT survive restart or work across replicas. \
-                 Set ROCKET_SECRET_KEY (>= 32 chars) in production."
-            );
-            rocket::config::SecretKey::generate().expect("Failed to generate Rocket secret key")
-        }
-    };
+    // LinkKeys stores browser-session state in the database and uses an opaque
+    // public cookie. Rocket still requires a process key for its cookie jar,
+    // but LinkKeys does not use it as session state.
+    let secret_key =
+        rocket::config::SecretKey::generate().expect("Failed to generate Rocket secret key");
 
     let config = Config {
         port,
@@ -2542,7 +3457,15 @@ pub async fn launch_rocket(db_pool: DbPool, ready_flag: Arc<AtomicBool>) {
         ..Config::default()
     };
 
-    let rocket_instance = build_rocket(db_pool, ready_flag, Net::production(), config);
+    let liftoff_ready = ready_flag.clone();
+    let rocket_instance = build_rocket_with_ui(
+        db_pool,
+        ready_flag,
+        Net::production(),
+        config,
+        ui_configuration,
+    )
+    .attach(MarkReadyOnLiftoff(liftoff_ready));
     if let Err(e) = rocket_instance.launch().await {
         log::error!("Rocket failed: {}", e);
         std::process::exit(1);
@@ -2561,6 +3484,19 @@ pub fn build_rocket(
     net: Net,
     config: Config,
 ) -> rocket::Rocket<rocket::Build> {
+    let ui_configuration = crate::services::ui::load().unwrap_or_else(|error| {
+        panic!("Could not load runtime UI configuration: {}", error.message)
+    });
+    build_rocket_with_ui(db_pool, ready_flag, net, config, ui_configuration)
+}
+
+fn build_rocket_with_ui(
+    db_pool: DbPool,
+    ready_flag: Arc<AtomicBool>,
+    net: Net,
+    config: Config,
+    ui_configuration: crate::services::ui::LoadedUiConfiguration,
+) -> rocket::Rocket<rocket::Build> {
     let mut routes = rocket::routes![
         index,
         healthcheck,
@@ -2568,12 +3504,16 @@ pub fn build_rocket(
         hello_get,
         hello_post,
         rpc_cbor,
+        ui_app_path,
+        ui_asset,
+        ui_theme_asset,
+        ui_extension_asset,
         rp_authorize_validate,
         rp_authorize_finalize,
     ];
 
     // Mount password auth routes (login form) when enabled (default: true)
-    if env::var("ENABLE_PASSWORD_AUTH").unwrap_or_else(|_| "true".to_string()) == "true" {
+    if crate::services::password::authentication_enabled() {
         log::info!("Password auth enabled");
         routes.extend(rocket::routes![
             auth_authorize_get,
@@ -2582,6 +3522,8 @@ pub fn build_rocket(
             local_rp_ui::auth_local_rp_get,
             local_rp_ui::auth_local_rp_post,
             local_rp_ui::auth_local_rp_consent_post,
+            account_ui::login_page,
+            account_ui::login_submit,
         ]);
     }
 
@@ -2591,18 +3533,18 @@ pub fn build_rocket(
     let mut rocket_instance = rocket::custom(config)
         .mount("/", routes)
         .register("/", rocket::catchers![default_catcher])
+        .attach(BrowserSecurityHeaders)
         .manage(db_pool)
         .manage(ready_flag)
         .manage(nonce_store)
         .manage(rp_claims_config)
+        .manage(ui_configuration.clone())
         .manage(net);
 
     // Mount server-rendered HTML UI for account self-service
     rocket_instance = rocket_instance.mount(
         "/",
         rocket::routes![
-            account_ui::login_page,
-            account_ui::login_submit,
             account_ui::logout,
             account_ui::account_dashboard,
             account_ui::change_password_page,
@@ -2720,15 +3662,13 @@ mod tests {
     }
 
     #[test]
-    fn callback_with_userinfo_uses_host() {
-        // userinfo precedes '@'; host check should still apply to the
-        // real host, not get spoofed by a username that contains a dot.
+    fn callback_with_userinfo_is_rejected() {
         assert_eq!(
             callback_within_rp_domain(
                 "https://user.attacker.com@todandlorna.com/cb",
                 "todandlorna.com"
             ),
-            Ok(true)
+            Ok(false)
         );
         assert_eq!(
             callback_within_rp_domain("https://todandlorna.com@attacker.com/cb", "todandlorna.com"),

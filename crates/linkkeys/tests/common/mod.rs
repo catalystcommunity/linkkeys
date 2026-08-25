@@ -69,6 +69,9 @@ pub fn create_test_pool() -> DbPool {
 
             {
                 let mut conn = pool.get().expect("Failed to get test connection");
+                use diesel::connection::SimpleConnection;
+                conn.batch_execute("PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;")
+                    .expect("Failed to configure SQLite test connection");
                 linkkeys::db::migrate_sqlite(&mut conn).expect("Failed to run test migrations");
                 conn.begin_test_transaction()
                     .expect("Failed to begin test transaction");

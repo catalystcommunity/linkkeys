@@ -202,6 +202,8 @@ async fn validate_reports_silent_consent_from_a_standing_grant() {
     let resp = client
         .post("/auth/authorize")
         .header(ContentType::Form)
+        .header(Header::new("Host", TEST_DOMAIN))
+        .header(Header::new("Origin", format!("https://{TEST_DOMAIN}")))
         .body(format!(
             "username={}&password={}&signed_request={}",
             USERNAME,
@@ -216,6 +218,8 @@ async fn validate_reports_silent_consent_from_a_standing_grant() {
     let resp = client
         .post("/auth/consent")
         .header(ContentType::Form)
+        .header(Header::new("Host", TEST_DOMAIN))
+        .header(Header::new("Origin", format!("https://{TEST_DOMAIN}")))
         .body(format!(
             "signed_request={}&login_proof={}&grant=email",
             sr_login, proof

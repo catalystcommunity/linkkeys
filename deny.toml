@@ -1,0 +1,39 @@
+[graph]
+all-features = true
+
+[advisories]
+yanked = "deny"
+ignore = [
+    # Rocket 0.5.1 is the latest release. These certificate-verification paths
+    # are not reachable because LinkKeys uses Rocket as a TLS server and does
+    # not enable Rocket's mutual-TLS feature.
+    { id = "RUSTSEC-2026-0098", reason = "Rocket uses the affected rustls-webpki only for server TLS; LinkKeys does not enable mutual TLS or verify client certificate names." },
+    { id = "RUSTSEC-2026-0099", reason = "Rocket uses the affected rustls-webpki only for server TLS; LinkKeys does not enable mutual TLS or verify client certificate names." },
+    { id = "RUSTSEC-2026-0104", reason = "LinkKeys and Rocket do not parse certificate revocation lists." },
+    { id = "RUSTSEC-2025-0134", reason = "The unmaintained crate is a private transitive dependency of Rocket 0.5.1, the latest Rocket release." },
+    { crate = "spin@0.9.8", reason = "Rocket 0.5.1 requires multer 3.1, which requires the yanked spin 0.9 release." },
+]
+
+[licenses]
+confidence-threshold = 0.8
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "0BSD",
+    "Unicode-3.0",
+    "Zlib",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

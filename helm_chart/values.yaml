@@ -40,12 +40,15 @@ server:
   # Public-facing port for API URL construction (when behind a gateway/LB).
   # Overrides httpsPort for dns-check output. Set to "443" when TLS is terminated at ingress.
   publicPort: ""
+  # Browser-visible HTTPS origin. This value is required when SMTP is enabled.
+  # Example: https://id.example.com
+  publicOrigin: ""
+  # Comma-separated proxy CIDRs that may supply X-Forwarded-For. Leave this
+  # empty for direct connections. Add only ingress networks that remove
+  # untrusted forwarding headers.
+  trustedProxyCidrs: ""
   # Passphrase for encrypting/decrypting domain key material
   domainKeyPassphrase: ""
-  # Stable secret key for browser session cookies (SEC-11). Leave empty for a
-  # single ephemeral instance; set a persistent random value (e.g. `openssl rand
-  # -base64 32`) so sessions survive restarts and work across replicas.
-  rocketSecretKey: ""
   # TLS on the LinkKeys TCP protocol is mandatory (FP-pinned mTLS) and cannot be
   # disabled — there is intentionally no knob for it. (deploy-08)
   # Disable TLS on the HTTP transport (use when behind TLS-terminating ingress/gateway)
@@ -90,6 +93,45 @@ server:
   attestationDenySubjectTlds: ""
   # Default lifetime for claims this domain issues as a third-party attestor.
   attestedClaimTtlSeconds: "31536000"
+
+# Outbound email. Email verification and password recovery stay disabled when
+# this section is disabled.
+smtp:
+  enabled: false
+  # Optional Secret with OUTBOX_ENCRYPTION_KEY and, when used, SMTP_USERNAME
+  # and SMTP_PASSWORD. This keeps secret values out of this values file.
+  existingSecret: ""
+  host: ""
+  # Leave empty to use 587 for STARTTLS, 465 for TLS, or 25 for plaintext.
+  port: ""
+  # starttls, tls, or plaintext
+  security: starttls
+  # rustls is in the standard image. Native needs a custom image that is built
+  # with the smtp-native-tls Cargo feature.
+  tlsBackend: rustls
+  # Plaintext is accepted only for a loopback relay and needs this value.
+  allowPlaintext: false
+  from: ""
+  username: ""
+  password: ""
+  # Generate 32 random bytes and encode them as hex or unpadded base64url.
+  outboxEncryptionKey: ""
+  timeoutSeconds: "30"
+  maxAttempts: "8"
+  leaseSeconds: "60"
+  pollMilliseconds: "1000"
+
+# Runtime web UI configuration. The default UI is embedded in the binary.
+ui:
+  # TOML content. See deploy/ui.example.toml.
+  configuration: ""
+  # Optional ConfigMap that contains index.html and all files that it uses.
+  # This replaces the complete embedded UI at runtime.
+  distExistingConfigMap: ""
+  # Use these fields to mount theme or extension assets that the TOML file
+  # refers to with asset_dir paths.
+  extraVolumeMounts: []
+  extraVolumes: []
 
 # Relying party mode — set these to run the same image as an RP server.
 # An RP is a LinkKeys server that holds domain keys and signs/decrypts

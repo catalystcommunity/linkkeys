@@ -144,12 +144,16 @@ pub fn create_user(
     pool: &DbPool,
     req: CreateUserRequest,
 ) -> Result<CreateUserResponse, ServiceError> {
+    if let Some(ref value) = req.password {
+        password::validate(value)?;
+    }
+    let passphrase =
+        env::var("DOMAIN_KEY_PASSPHRASE").map_err(|_| svc_err("DOMAIN_KEY_PASSPHRASE not set"))?;
     let user = pool
         .create_user(&req.username, &req.display_name)
         .map_err(db_err)?;
 
     let api_key = if let Some(ref pw) = req.password {
-        password::validate(pw)?;
         // Store password credential
         let hash = password::hash_for_storage(pw)?;
         pool.create_auth_credential(&user.id, auth::CREDENTIAL_TYPE_PASSWORD, &hash)
@@ -164,8 +168,6 @@ pub fn create_user(
     };
 
     // Generate keypairs
-    let passphrase =
-        env::var("DOMAIN_KEY_PASSPHRASE").map_err(|_| svc_err("DOMAIN_KEY_PASSPHRASE not set"))?;
     for years in &[2i64, 3, 4] {
         let (verifying_key, signing_key) = liblinkkeys::crypto::generate_ed25519_keypair();
         let pk_bytes = verifying_key.as_bytes().to_vec();
@@ -203,12 +205,32 @@ pub fn deactivate_user(
     pool: &DbPool,
     req: DeactivateUserRequest,
 ) -> Result<DeactivateUserResponse, ServiceError> {
-    let user = pool.deactivate_user(&req.user_id).map_err(db_err)?;
-    pool.revoke_all_credentials_for_user(&req.user_id)
-        .map_err(db_err)?;
+    let user = pool
+        .deactivate_account_security(&req.user_id)
+        .map_err(|error| match error {
+            diesel::result::Error::NotFound => ServiceError {
+                code: 400,
+                message: "This account cannot be disabled. Keep at least one active administrator account".to_string(),
+            },
+            other => db_err(other),
+        })?;
     Ok(DeactivateUserResponse {
         user: user_to_admin_user(&user),
     })
+}
+
+pub fn deactivate_user_as(
+    pool: &DbPool,
+    actor_user_id: &str,
+    req: DeactivateUserRequest,
+) -> Result<DeactivateUserResponse, ServiceError> {
+    if actor_user_id == req.user_id {
+        return Err(ServiceError {
+            code: 400,
+            message: "You cannot disable your own account".to_string(),
+        });
+    }
+    deactivate_user(pool, req)
 }
 
 pub fn activate_user(pool: &DbPool, user_id: &str) -> Result<AdminUser, ServiceError> {
@@ -371,6 +393,12 @@ pub fn authenticate(
     req: AuthenticateRequest,
 ) -> Result<AuthenticateResponse, ServiceError> {
     use auth::Authenticator;
+    if !crate::services::password::authentication_enabled() {
+        return Err(ServiceError {
+            code: 403,
+            message: "Password authentication is not available".to_string(),
+        });
+    }
     if !crate::services::ratelimit::LOGIN.check(&req.username.trim().to_lowercase()) {
         return Err(svc_err("Too many attempts. Please wait and try again."));
     }
@@ -394,18 +422,8 @@ pub fn reset_password(
 
     password::validate(&req.new_password)?;
 
-    // Remove old password credentials
-    let old_creds = pool
-        .find_credentials_for_user(&req.user_id, auth::CREDENTIAL_TYPE_PASSWORD)
-        .map_err(db_err)?;
-    for cred in &old_creds {
-        pool.remove_credential(&cred.id).map_err(db_err)?;
-    }
-
-    // Create new password credential
     let hash = password::hash_for_storage(&req.new_password)?;
-    pool.create_auth_credential(&req.user_id, auth::CREDENTIAL_TYPE_PASSWORD, &hash)
-        .map_err(db_err)?;
+    pool.replace_password(&req.user_id, &hash).map_err(db_err)?;
 
     Ok(ResetPasswordResponse { success: true })
 }
@@ -664,12 +682,20 @@ pub fn list_settable_policies(
         crate::services::self_service::list_user_settable_policies(pool)?
             .into_iter()
             .filter(|p| matches!(p.set_rule.as_str(), "user_self" | "idp_on_request"))
-            .map(|p| SettableClaimPolicy {
-                claim_type: p.claim_type,
-                datatype: p.value_type,
-                set_rule: p.set_rule,
-                requires_approval: p.requires_approval,
-                signing_rule: p.signing_rule,
+            .map(|p| {
+                let (label, description) = pool
+                    .resolved_label(&p.claim_type, liblinkkeys::i18n::EN_US)
+                    .unwrap_or_else(|_| (p.claim_type.clone(), String::new()));
+                SettableClaimPolicy {
+                    claim_type: p.claim_type,
+                    label,
+                    description,
+                    datatype: p.value_type,
+                    max_bytes: p.max_bytes,
+                    set_rule: p.set_rule,
+                    requires_approval: p.requires_approval,
+                    signing_rule: p.signing_rule,
+                }
             })
             .collect();
     policies.sort_by(|a, b| a.claim_type.cmp(&b.claim_type));

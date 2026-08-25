@@ -7,6 +7,7 @@ use liblinkkeys::generated::types::{
 };
 
 use crate::db::DbPool;
+use crate::services::auth::Authenticator;
 use crate::services::{attestation, auth, password, self_service};
 
 fn db_err(e: diesel::result::Error) -> ServiceError {
@@ -23,19 +24,34 @@ pub fn change_password(
     req: ChangePasswordRequest,
 ) -> Result<ChangePasswordResponse, ServiceError> {
     password::validate(&req.new_password)?;
-
-    // Remove old password credentials
-    let old_creds = pool
-        .find_credentials_for_user(user_id, auth::CREDENTIAL_TYPE_PASSWORD)
-        .map_err(db_err)?;
-    for cred in &old_creds {
-        pool.remove_credential(&cred.id).map_err(db_err)?;
+    if !crate::services::ratelimit::STEP_UP.check(user_id) {
+        return Err(ServiceError {
+            code: 429,
+            message: "Too many password attempts. Wait and try again".to_string(),
+        });
     }
+    let user = pool.find_user_by_id(user_id).map_err(db_err)?;
+    let authenticator = auth::PasswordAuthenticator::new(pool.clone());
+    let authentication = authenticator
+        .authenticate_with_evidence(&user.username, &req.current_password)
+        .map_err(|_| ServiceError {
+            code: 403,
+            message: "The current password is incorrect".to_string(),
+        })?;
+    let credential_id = authentication.credential_id.ok_or_else(|| ServiceError {
+        code: 403,
+        message: "The current password is incorrect".to_string(),
+    })?;
 
-    // Create new password credential
     let hash = password::hash_for_storage(&req.new_password)?;
-    pool.create_auth_credential(user_id, auth::CREDENTIAL_TYPE_PASSWORD, &hash)
-        .map_err(db_err)?;
+    pool.replace_password_if_current(user_id, &credential_id, &hash)
+        .map_err(|error| match error {
+            diesel::result::Error::NotFound => ServiceError {
+                code: 403,
+                message: "The current password is no longer valid. Try again".to_string(),
+            },
+            other => db_err(other),
+        })?;
 
     Ok(ChangePasswordResponse { success: true })
 }

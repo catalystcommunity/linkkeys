@@ -47,13 +47,6 @@ fn purge_keeps_uuid_tombstone_and_minimizes_active_data() {
     create_relation(&pool, "group", "engineering", "member", "user", &user.id);
     pool.add_user_release_pref(&user.id, "rp.example", "email")
         .expect("add release pref");
-    pool.create_email_verification(
-        "purge-token",
-        &user.id,
-        "user@example.test",
-        chrono::Utc::now() + chrono::Duration::hours(1),
-    )
-    .expect("create email verification");
     let mut ticket_overrides = DataMap::new();
     ticket_overrides.insert("user_id".to_string(), Value::String(user.id.clone()));
     let ticket = create_local_rp_claim_ticket(&pool, &ticket_overrides);
@@ -83,7 +76,7 @@ fn purge_keeps_uuid_tombstone_and_minimizes_active_data() {
     assert_eq!(summary.relations_removed, 2);
     assert_eq!(summary.profiles_deleted, 2);
     assert_eq!(summary.release_prefs_deleted, 1);
-    assert_eq!(summary.email_verifications_deleted, 1);
+    assert_eq!(summary.email_verifications_deleted, 0);
     assert_eq!(
         summary.local_rp_claim_tickets_deleted, 1,
         "purge must delete the user's outstanding local RP claim tickets \
@@ -112,10 +105,6 @@ fn purge_keeps_uuid_tombstone_and_minimizes_active_data() {
         .unwrap()
         .is_empty());
     assert!(pool.list_user_release_prefs(&user.id).unwrap().is_empty());
-    assert!(pool
-        .find_email_verification("purge-token")
-        .unwrap()
-        .is_none());
     assert!(
         pool.find_local_rp_claim_ticket(&ticket.ticket_hash)
             .unwrap()

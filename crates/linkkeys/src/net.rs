@@ -91,14 +91,19 @@ struct HickoryDnsResolver;
 #[rocket::async_trait]
 impl DnsResolver for HickoryDnsResolver {
     async fn txt_lookup(&self, name: &str) -> Result<Vec<String>, NetError> {
-        use hickory_resolver::TokioAsyncResolver;
-        let resolver = TokioAsyncResolver::tokio_from_system_conf()
+        use hickory_resolver::TokioResolver;
+        let resolver = TokioResolver::builder_tokio()
+            .and_then(|builder| builder.build())
             .map_err(|e| NetError(format!("DNS resolver init failed: {}", e)))?;
         let response = resolver
             .txt_lookup(name)
             .await
             .map_err(|e| NetError(format!("no TXT record at {}: {}", name, e)))?;
-        Ok(response.iter().map(|r| r.to_string()).collect())
+        Ok(response
+            .answers()
+            .iter()
+            .map(|record| record.data.to_string())
+            .collect())
     }
 }
 
