@@ -191,7 +191,10 @@ verified contact exists.
 
 The recovery flow is:
 
-1. The server normalizes the submitted identifier.
+1. The server normalizes the submitted identifier. It accepts a bare username
+   or a full name for the local `DOMAIN_NAME`. A value for the local domain is
+   always a LinkKeys name. The server does not use it as an email address. A
+   value for another domain can match an exact verified email address.
 2. The server performs a password-verification cost on a no-match path.
 3. The server applies limits for the source address, destination digest, and
    account when an account is known.

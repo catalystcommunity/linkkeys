@@ -10,6 +10,42 @@ pub const CREDENTIAL_TYPE_API_KEY: &str = "api_key";
 pub const METHOD_TYPE_PASSWORD: &str = "password";
 pub const METHOD_TYPE_API_KEY: &str = "api_key";
 
+/// Convert a login name to the username stored by this provider.
+///
+/// A user can enter a bare username or a full LinkKeys name for this domain.
+/// A full name for another domain is not valid on this provider.
+pub fn normalize_login_username(input: &str) -> Option<String> {
+    normalize_login_username_for_domain(input, &crate::conversions::get_domain_name())
+}
+
+fn normalize_login_username_for_domain(input: &str, domain: &str) -> Option<String> {
+    let input = input.trim();
+    if input.is_empty() {
+        return None;
+    }
+
+    let mut parts = input.split('@');
+    let username = parts.next()?;
+    let suffix = parts.next();
+    if parts.next().is_some() || username.is_empty() || username != username.trim() {
+        return None;
+    }
+    if suffix.is_some_and(|value| value.is_empty() || !value.eq_ignore_ascii_case(domain)) {
+        return None;
+    }
+    Some(username.to_string())
+}
+
+/// Return the rate-limit key for a login name.
+///
+/// Bare and same-domain forms use one key. Invalid names still get a stable
+/// key, so callers can limit them without accepting them.
+pub fn login_rate_limit_key(input: &str) -> String {
+    normalize_login_username(input)
+        .unwrap_or_else(|| input.trim().to_string())
+        .to_lowercase()
+}
+
 /// Provider-owned metadata for one authentication method. RPs never select a
 /// method by name. Provider policy uses these properties when it decides which
 /// methods satisfy an assurance request.
@@ -174,19 +210,22 @@ impl PasswordAuthenticator {
         username: &str,
         password: &str,
     ) -> Result<AuthenticationResult, AuthError> {
-        if !crate::services::password::valid_login_shape(username, password) {
+        let Some(username) = normalize_login_username(username) else {
+            return Err(AuthError::InvalidCredentials);
+        };
+        if !crate::services::password::valid_login_shape(&username, password) {
             return Err(AuthError::InvalidCredentials);
         }
         let found = match &self.pool {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
                 let mut conn = p.get().map_err(|e| AuthError::DbError(e.to_string()))?;
-                crate::db::users::pg::find_by_username(&mut conn, username)
+                crate::db::users::pg::find_by_username(&mut conn, &username)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
                 let mut conn = p.get().map_err(|e| AuthError::DbError(e.to_string()))?;
-                crate::db::users::sqlite::find_by_username(&mut conn, username)
+                crate::db::users::sqlite::find_by_username(&mut conn, &username)
             }
         };
         let user = match found {
@@ -445,6 +484,48 @@ mod assurance_tests {
                 1,
             )
             .is_err());
+        }
+    }
+}
+
+#[cfg(test)]
+mod login_username_tests {
+    use super::normalize_login_username_for_domain;
+
+    const DOMAIN: &str = "catalystlinkkeys.com";
+
+    #[test]
+    fn accepts_bare_and_matching_domain_login_names() {
+        assert_eq!(
+            normalize_login_username_for_domain("househansmann", DOMAIN).as_deref(),
+            Some("househansmann")
+        );
+        assert_eq!(
+            normalize_login_username_for_domain("househansmann@catalystlinkkeys.com", DOMAIN,)
+                .as_deref(),
+            Some("househansmann")
+        );
+        assert_eq!(
+            normalize_login_username_for_domain(" househansmann@CATALYSTLINKKEYS.COM ", DOMAIN,)
+                .as_deref(),
+            Some("househansmann")
+        );
+    }
+
+    #[test]
+    fn rejects_foreign_and_malformed_domain_login_names() {
+        for input in [
+            "househansmann@example.com",
+            "@catalystlinkkeys.com",
+            "househansmann@",
+            "househansmann@@catalystlinkkeys.com",
+            "househansmann @catalystlinkkeys.com",
+        ] {
+            assert_eq!(
+                normalize_login_username_for_domain(input, DOMAIN),
+                None,
+                "accepted {input:?}"
+            );
         }
     }
 }

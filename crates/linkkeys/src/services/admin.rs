@@ -399,7 +399,7 @@ pub fn authenticate(
             message: "Password authentication is not available".to_string(),
         });
     }
-    if !crate::services::ratelimit::LOGIN.check(&req.username.trim().to_lowercase()) {
+    if !crate::services::ratelimit::LOGIN.check(&auth::login_rate_limit_key(&req.username)) {
         return Err(svc_err("Too many attempts. Please wait and try again."));
     }
     let authenticator = auth::PasswordAuthenticator::new(pool.clone());

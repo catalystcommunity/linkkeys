@@ -187,8 +187,9 @@ async fn build_client(pool: &linkkeys::db::DbPool) -> Client {
 
 fn login_password_form(sr: &str) -> String {
     format!(
-        "username={}&password={}&signed_request={}",
+        "username={}%40{}&password={}&signed_request={}",
         USERNAME,
+        TEST_DOMAIN,
         PASSWORD.replace(' ', "+"),
         sr
     )

@@ -167,11 +167,41 @@ async fn spa_consent_flow_end_to_end() {
     let client = Client::tracked(rocket).await.expect("Rocket client");
 
     let response = client
-        .get(format!("/auth/authorize?signed_request={authorization}"))
+        .get(format!(
+            "/auth/authorize?username=alice%40{TEST_DOMAIN}&signed_request={authorization}"
+        ))
         .dispatch()
         .await;
     assert_eq!(response.status(), Status::Found);
-    let expected_location = format!("/app/authorize#request={authorization}");
+    let expected_location =
+        format!("/app/authorize?username=alice%40{TEST_DOMAIN}#request={authorization}");
+    assert_eq!(
+        response.headers().get_one("Location"),
+        Some(expected_location.as_str())
+    );
+
+    let response = client
+        .get(format!(
+            "/auth/authorize?user_hint=legacy%2Bname&signed_request={authorization}"
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Found);
+    let expected_location =
+        format!("/app/authorize?username=legacy%2Bname#request={authorization}");
+    assert_eq!(
+        response.headers().get_one("Location"),
+        Some(expected_location.as_str())
+    );
+
+    let response = client
+        .get(format!(
+            "/auth/authorize?username=preferred&user_hint=legacy&signed_request={authorization}"
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Found);
+    let expected_location = format!("/app/authorize?username=preferred#request={authorization}");
     assert_eq!(
         response.headers().get_one("Location"),
         Some(expected_location.as_str())
@@ -220,7 +250,7 @@ async fn spa_consent_flow_end_to_end() {
         "login-password",
         liblinkkeys::generated::encode_session_password_login_request(
             &SessionPasswordLoginRequest {
-                username: USERNAME.to_string(),
+                username: format!("{USERNAME}@{TEST_DOMAIN}"),
                 password: PASSWORD.to_string(),
             },
         ),
