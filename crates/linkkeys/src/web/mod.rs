@@ -2020,6 +2020,8 @@ async fn rp_authorize_finalize(
 #[derive(FromForm)]
 struct AuthorizeQuery {
     signed_request: Option<String>,
+    username: Option<String>,
+    user_hint: Option<String>,
 }
 
 #[rocket::get("/auth/authorize?<query..>")]
@@ -2048,8 +2050,12 @@ async fn auth_authorize_get(
             "This provider cannot satisfy the requested authentication assurance.",
         )));
     }
+    let username = query.username.as_deref().or(query.user_hint.as_deref());
+    let username_query = username
+        .map(|value| format!("?username={}", urlencoding::encode(value)))
+        .unwrap_or_default();
     Ok(rocket::Either::Left(Redirect::found(format!(
-        "/app/authorize#request={}",
+        "/app/authorize{username_query}#request={}",
         urlencoding::encode(sr)
     ))))
 }
@@ -2127,7 +2133,8 @@ async fn handle_signed_request_post(
 
     // SEC-05: throttle online brute force, keyed by username.
     if !crate::services::ratelimit::LOGIN_SOURCE.check(context.source_key)
-        || !crate::services::ratelimit::LOGIN.check(&form.username.trim().to_lowercase())
+        || !crate::services::ratelimit::LOGIN
+            .check(&crate::services::auth::login_rate_limit_key(&form.username))
     {
         return Err(render_form_error(
             "Too many attempts. Please wait and try again.",
@@ -3099,9 +3106,7 @@ fn rpc_session_login(pool: &DbPool, payload: &[u8], source_key: &str) -> (Vec<u8
             )
         }
     };
-    if !crate::services::password::authentication_enabled()
-        || !crate::services::password::valid_login_shape(&request.username, &request.password)
-    {
+    if !crate::services::password::authentication_enabled() {
         return (
             rpc_error(
                 csilgen_transport::Status::Forbidden,
@@ -3111,7 +3116,9 @@ fn rpc_session_login(pool: &DbPool, payload: &[u8], source_key: &str) -> (Vec<u8
         );
     }
     if !crate::services::ratelimit::LOGIN_SOURCE.check(source_key)
-        || !crate::services::ratelimit::LOGIN.check(&request.username.trim().to_lowercase())
+        || !crate::services::ratelimit::LOGIN.check(&crate::services::auth::login_rate_limit_key(
+            &request.username,
+        ))
     {
         return (
             rpc_error(

@@ -48,7 +48,9 @@ async fn account_and_admin_password_forms_describe_their_credentials() {
         .header(ContentType::Form)
         .header(Header::new("Host", DOMAIN))
         .header(Header::new("Origin", format!("https://{DOMAIN}")))
-        .body(format!("username={USERNAME}&password={PASSWORD}"))
+        .body(format!(
+            "username={USERNAME}%40{DOMAIN}&password={PASSWORD}"
+        ))
         .dispatch()
         .await;
     assert_eq!(response.status(), Status::Found);

@@ -342,6 +342,42 @@ fn test_password_authenticator_argon2id_credential() {
 }
 
 #[test]
+fn test_password_authenticator_accepts_only_local_login_names() {
+    let pool = common::create_test_pool();
+    let user = create_user(
+        &pool,
+        &DataMap::from([("username".into(), Value::String("househansmann".into()))]),
+    );
+    let password = "a-local-login-password";
+    let hash = liblinkkeys::crypto::hash_password(password).unwrap();
+    create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_PASSWORD, &hash);
+
+    let authenticator = PasswordAuthenticator::new(pool);
+    assert_eq!(
+        authenticator
+            .authenticate("househansmann", password)
+            .expect("bare username should authenticate")
+            .id,
+        user.id
+    );
+
+    let domain = linkkeys::conversions::get_domain_name();
+    assert_eq!(
+        authenticator
+            .authenticate(&format!("househansmann@{domain}"), password)
+            .expect("same-domain login name should authenticate")
+            .id,
+        user.id
+    );
+    assert!(
+        authenticator
+            .authenticate("househansmann@another.example", password)
+            .is_err(),
+        "a login name for another domain must not authenticate"
+    );
+}
+
+#[test]
 fn test_password_authenticator_accepts_long_password() {
     // Argon2id has no 72-byte ceiling. A password well beyond bcrypt's old limit
     // must authenticate by its full content, not a silent prefix.

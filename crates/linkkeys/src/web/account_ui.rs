@@ -190,7 +190,8 @@ pub fn login_submit(
 ) -> Result<Redirect, Box<Redirect>> {
     // SEC-05: throttle online brute force, keyed by username.
     if !crate::services::ratelimit::LOGIN_SOURCE.check(&source.0)
-        || !crate::services::ratelimit::LOGIN.check(&form.username.trim().to_lowercase())
+        || !crate::services::ratelimit::LOGIN
+            .check(&crate::services::auth::login_rate_limit_key(&form.username))
     {
         return Err(Box::new(Redirect::found(
             "/account/login?error=Too+many+attempts.+Please+wait+and+try+again.",

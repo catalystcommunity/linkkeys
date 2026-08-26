@@ -104,6 +104,10 @@ still authenticate. URL-encode the username before you add it to the URL. The
 IDP also accepts `user_hint` from old integrations, but new integrations must
 use `username`.
 
+The user can sign in with a bare username, such as `alice`. The user can also
+sign in with a full name, such as `alice@example.com`, when the suffix matches
+the IDP `DOMAIN_NAME`. The IDP rejects a full name for a different domain.
+
 The CSIL-RPC request envelope's `auth` field carries the raw API key (no
 `Bearer ` prefix — that convention belongs to the remaining HTTP surfaces).
 Every `Rp` op additionally requires the caller to hold the `api_access`

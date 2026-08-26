@@ -22,6 +22,32 @@ export function loginFailureMessage(error: unknown): string {
     : "Could not sign in. Check your connection and try again.";
 }
 
+export function authorizationLoginPath(username: string): string {
+  const base = "/app/login?next=/app/consent";
+  return username ? `${base}&username=${encodeURIComponent(username)}` : base;
+}
+
+export function authorizationHandoff(
+  search: string,
+  fragment: string,
+  hasSession: boolean,
+): { signedRequest: string; path: string } | undefined {
+  const signedRequest = new URLSearchParams(fragment.replace(/^#/, "")).get("request");
+  if (!signedRequest) return undefined;
+  const username = new URLSearchParams(search).get("username") ?? "";
+  return {
+    signedRequest,
+    path: hasSession ? "/app/consent" : authorizationLoginPath(username),
+  };
+}
+
+export function withLoginContext(path: string, next: string, username: string): string {
+  const parameters: string[] = [];
+  if (next) parameters.push(`next=${encodeURIComponent(next)}`);
+  if (username) parameters.push(`username=${encodeURIComponent(username)}`);
+  return parameters.length ? `${path}?${parameters.join("&")}` : path;
+}
+
 export function currentPasswordMessage(error: unknown, fallback: string): string {
   if (rateLimited(error)) return "Too many password attempts. Wait and try again.";
   return error instanceof CsilTransportError && error.status === CsilStatus.forbidden
@@ -50,8 +76,15 @@ export function verificationFailureMessage(error: unknown): string {
     : "LinkKeys could not check this link. Check your connection and try again.";
 }
 
-export function passwordManagerUsername(identifier: string): string {
-  return identifier.includes("@") ? "" : identifier;
+export function passwordManagerUsername(identifier: string, domain: string): string {
+  const value = identifier.trim();
+  const parts = value.split("@");
+  if (parts.length === 1) return value;
+  return parts.length === 2
+    && parts[0] !== ""
+    && parts[1].toLowerCase() === domain.toLowerCase()
+    ? value
+    : "";
 }
 
 export function transportFailed(error: unknown): boolean {

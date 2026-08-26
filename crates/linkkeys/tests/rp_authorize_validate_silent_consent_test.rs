@@ -205,8 +205,9 @@ async fn validate_reports_silent_consent_from_a_standing_grant() {
         .header(Header::new("Host", TEST_DOMAIN))
         .header(Header::new("Origin", format!("https://{TEST_DOMAIN}")))
         .body(format!(
-            "username={}&password={}&signed_request={}",
+            "username={}%40{}&password={}&signed_request={}",
             USERNAME,
+            TEST_DOMAIN,
             PASSWORD.replace(' ', "+"),
             sr_login
         ))

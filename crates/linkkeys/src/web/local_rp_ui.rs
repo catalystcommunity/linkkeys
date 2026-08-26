@@ -1078,7 +1078,8 @@ pub(super) fn auth_local_rp_post(
     };
 
     if !crate::services::ratelimit::LOGIN_SOURCE.check(&source.0)
-        || !crate::services::ratelimit::LOGIN.check(&form.username.trim().to_lowercase())
+        || !crate::services::ratelimit::LOGIN
+            .check(&crate::services::auth::login_rate_limit_key(&form.username))
     {
         return Err(render_form_error(t(
             &locale.0,

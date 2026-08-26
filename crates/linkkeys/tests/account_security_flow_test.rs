@@ -11,6 +11,7 @@ use linkkeys::services::auth::{AuthenticationEvidence, Authenticator, PasswordAu
 
 #[test]
 fn verified_contact_and_recovery_are_single_use_and_revoke_sessions() {
+    std::env::set_var("DOMAIN_NAME", "recovery.example.test");
     std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
     std::env::set_var("SMTP_HOST", "smtp.example.test");
     std::env::set_var("SMTP_FROM", "noreply@example.test");
@@ -132,8 +133,40 @@ fn verified_contact_and_recovery_are_single_use_and_revoke_sessions() {
         .iter()
         .any(|capability| capability.channel == "email"));
 
+    let mut same_domain_overrides = HashMap::new();
+    same_domain_overrides.insert("username".to_string(), "domain-email-owner".into());
+    let same_domain_email_user = common::data_factory::create_user(&pool, &same_domain_overrides);
+    let same_domain_token = "same-domain-verification-secret";
+    let challenge = pool
+        .create_account_challenge_and_outbox(
+            &same_domain_email_user.id,
+            "verify_contact",
+            "email",
+            "contact@recovery.example.test",
+            &linkkeys::services::verification::token_digest(same_domain_token),
+            vec![1, 2, 3],
+            chrono::Utc::now() + chrono::Duration::hours(24),
+            None,
+        )
+        .expect("create same-domain verification challenge");
+    pool.confirm_contact_challenge(&challenge.id, &[])
+        .expect("confirm same-domain contact");
+    linkkeys::services::recovery::request(
+        &pool,
+        "contact@recovery.example.test",
+        "same-domain-email-source",
+    )
+    .expect("return generic recovery response");
+    assert!(
+        pool.find_latest_notification_outbox(&same_domain_email_user.id, "reset_password")
+            .expect("find same-domain recovery outbox")
+            .is_none(),
+        "a matching-domain value must not change from username to email routing"
+    );
+
     let mut recovery_responses = Vec::new();
-    for identifier in [&user.username, "unknown-account"] {
+    let full_login_name = format!("{}@recovery.example.test", user.username);
+    for identifier in [&full_login_name, "unknown-account"] {
         let payload = liblinkkeys::generated::encode_request_password_recovery_request(
             &RequestPasswordRecoveryRequest {
                 identifier: identifier.to_string(),

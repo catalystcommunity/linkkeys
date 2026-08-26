@@ -39,8 +39,28 @@ async fn browser_csil_login_current_and_account_dispatch_share_one_session() {
     );
     let client = Client::tracked(rocket).await.expect("Rocket client");
 
+    let foreign_login = liblinkkeys::generated::types::SessionPasswordLoginRequest {
+        username: "browser-user@another.example".to_string(),
+        password: "correct-password".to_string(),
+    };
+    let response = client
+        .post("/csil/v1/rpc")
+        .header(ContentType::new("application", "cbor"))
+        .header(Header::new("Host", DOMAIN))
+        .header(Header::new("Origin", format!("https://{DOMAIN}")))
+        .body(envelope(
+            "Session",
+            "login-password",
+            liblinkkeys::generated::encode_session_password_login_request(&foreign_login),
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Ok);
+    let response = RpcResponse::decode(&response.into_bytes().await.unwrap()).unwrap();
+    assert_eq!(response.status, RpcStatus::Forbidden);
+
     let login = liblinkkeys::generated::types::SessionPasswordLoginRequest {
-        username: "browser-user".to_string(),
+        username: format!("browser-user@{DOMAIN}"),
         password: "correct-password".to_string(),
     };
     let response = client

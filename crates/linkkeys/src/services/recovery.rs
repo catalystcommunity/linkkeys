@@ -30,18 +30,9 @@ pub fn request(
     if !allowed || !password::dummy_verify_bounded(identifier) || !notification::email_available() {
         return Ok(RequestPasswordRecoveryResponse {});
     }
-    let contact = if normalized.contains('@') {
-        pool.find_recovery_contact(&normalized)
-            .ok()
-            .flatten()
-            .filter(|value| {
-                value
-                    .purposes
-                    .split(',')
-                    .any(|purpose| purpose == "reset_password")
-            })
-    } else {
-        pool.find_user_by_username(identifier.trim())
+    let local_username = crate::services::auth::normalize_login_username(identifier);
+    let contact = if let Some(username) = local_username {
+        pool.find_user_by_username(&username)
             .ok()
             .and_then(|user| pool.list_verified_contacts(&user.id).ok())
             .and_then(|rows| {
@@ -54,6 +45,18 @@ pub fn request(
                             .any(|purpose| purpose == "reset_password")
                 })
             })
+    } else if normalized.contains('@') {
+        pool.find_recovery_contact(&normalized)
+            .ok()
+            .flatten()
+            .filter(|value| {
+                value
+                    .purposes
+                    .split(',')
+                    .any(|purpose| purpose == "reset_password")
+            })
+    } else {
+        None
     };
     let Some(contact) = contact else {
         return Ok(RequestPasswordRecoveryResponse {});

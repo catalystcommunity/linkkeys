@@ -3,6 +3,8 @@ import type { BrowserConsentClaim } from "./generated/types.gen";
 import { CsilStatus, CsilTransportError } from "./transport";
 import {
   authenticationFailed,
+  authorizationHandoff,
+  authorizationLoginPath,
   authorizationRequestIsTerminal,
   claimValueTooLong,
   cleanupOnce,
@@ -17,6 +19,7 @@ import {
   recoveryValidationFailureMessage,
   transportFailed,
   verificationFailureMessage,
+  withLoginContext,
 } from "./ui-logic";
 
 const claim = (values: Partial<BrowserConsentClaim>): BrowserConsentClaim => ({
@@ -54,8 +57,10 @@ describe("browser UI decisions", () => {
   });
 
   it("does not give an email recovery address to the password manager as a username", () => {
-    expect(passwordManagerUsername("person@example.test")).toBe("");
-    expect(passwordManagerUsername("alice")).toBe("alice");
+    expect(passwordManagerUsername("person@example.test", "id.example.test")).toBe("");
+    expect(passwordManagerUsername("alice", "id.example.test")).toBe("alice");
+    expect(passwordManagerUsername("alice@ID.EXAMPLE.TEST", "id.example.test"))
+      .toBe("alice@ID.EXAMPLE.TEST");
   });
 
   it("distinguishes invalid links from connection failures", () => {
@@ -73,6 +78,31 @@ describe("browser UI decisions", () => {
       .toBe("The username or password is incorrect.");
     expect(loginFailureMessage(new CsilTransportError(CsilStatus.forbidden, "Too many attempts")))
       .toContain("Wait");
+  });
+
+  it("preserves the username hint when authorization needs login", () => {
+    expect(authorizationLoginPath("househansmann@catalystlinkkeys.com"))
+      .toBe("/app/login?next=/app/consent&username=househansmann%40catalystlinkkeys.com");
+    expect(authorizationLoginPath(""))
+      .toBe("/app/login?next=/app/consent");
+    expect(authorizationHandoff(
+      "?username=househansmann%40catalystlinkkeys.com",
+      "#request=signed%2Brequest",
+      false,
+    )).toEqual({
+      signedRequest: "signed+request",
+      path: "/app/login?next=/app/consent&username=househansmann%40catalystlinkkeys.com",
+    });
+  });
+
+  it("preserves login context through password recovery", () => {
+    expect(withLoginContext(
+      "/app/password/request",
+      "/app/consent",
+      "househansmann@catalystlinkkeys.com",
+    )).toBe(
+      "/app/password/request?next=%2Fapp%2Fconsent&username=househansmann%40catalystlinkkeys.com",
+    );
   });
 
   it("treats service outages as retryable link failures", () => {

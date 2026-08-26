@@ -4,7 +4,7 @@ import "./styles.css";
 import { api } from "./transport";
 import { RuntimeHost, addStylesheet, loadExtensions, type ExtensionRoute } from "./host";
 import type { BrowserSessionInfo, Claim, GetUiConfigurationResponse, SettableClaimPolicy, VerifiedContactMethod } from "./generated/types.gen";
-import { authenticationFailed, authorizationRequestIsTerminal, claimValueTooLong, cleanupOnce, currentPasswordMessage, hasBlockedRequiredClaim, inputType, loginFailureMessage, passwordLengthError, passwordManagerUsername, recoveryCompletionFailureMessage, recoveryLinkExpired, recoveryValidationFailureMessage, serviceMessage as message, transportFailed, verificationFailureMessage } from "./ui-logic";
+import { authenticationFailed, authorizationHandoff, authorizationRequestIsTerminal, claimValueTooLong, cleanupOnce, currentPasswordMessage, hasBlockedRequiredClaim, inputType, loginFailureMessage, passwordLengthError, passwordManagerUsername, recoveryCompletionFailureMessage, recoveryLinkExpired, recoveryValidationFailureMessage, serviceMessage as message, transportFailed, verificationFailureMessage, withLoginContext } from "./ui-logic";
 
 type PageProps = { navigate(path: string): void; configuration: GetUiConfigurationResponse; session?: BrowserSessionInfo; refreshSession(): Promise<void>; extensionFailures?: string[] };
 
@@ -63,7 +63,7 @@ const Login: Component<PageProps> = (props) => {
       <label><span>Username</span><input id="login-username" name="username" value={username()} onInput={(event) => setUsername(event.currentTarget.value)} autocomplete="username" autocapitalize="none" spellcheck={false} required autofocus /></label>
       <label><span>Password</span><input id="login-password" name="current-password" type="password" value={password()} onInput={(event) => setPassword(event.currentTarget.value)} autocomplete="current-password" required /></label>
       <button type="submit" disabled={busy()}>{busy() ? "Signing in…" : "Sign in"}</button>
-      <Show when={props.configuration.capabilities.includes("reset_password")}><small><Link href={withNext("/app/password/request", continuation())}>Forgot your password?</Link></small></Show>
+      <Show when={props.configuration.capabilities.includes("reset_password")}><small><Link href={withLoginContext("/app/password/request", continuation(), username())}>Forgot your password?</Link></small></Show>
       <Show when={error()}><p class="notice bad" role="alert">{error()}</p></Show>
     </form></main>;
 };
@@ -71,11 +71,11 @@ const Login: Component<PageProps> = (props) => {
 const AuthorizeGateway: Component<PageProps> = (props) => {
   const [missing, setMissing] = createSignal(false);
   onMount(() => {
-    const signedRequest = new URLSearchParams(window.location.hash.slice(1)).get("request");
-    if (!signedRequest) return setMissing(true);
-    sessionStorage.setItem("linkkeys-authorization-request", signedRequest);
+    const handoff = authorizationHandoff(window.location.search, window.location.hash, Boolean(props.session));
+    if (!handoff) return setMissing(true);
+    sessionStorage.setItem("linkkeys-authorization-request", handoff.signedRequest);
     window.history.replaceState({}, "", window.location.pathname);
-    props.navigate(props.session ? "/app/consent" : "/app/login?next=/app/consent");
+    props.navigate(handoff.path);
   });
   return <Show when={!missing()} fallback={<Unavailable title="Application sign-in link is invalid" detail="Return to the application and start sign-in again." />}><Loading /></Show>;
 };
@@ -233,22 +233,23 @@ const Account: Component<PageProps> = (props) => {
 };
 
 const RequestPassword: Component<PageProps> = (props) => {
-  const [identifier, setIdentifier] = createSignal(""); const [sent, setSent] = createSignal(false); const [busy, setBusy] = createSignal(false); const [error, setError] = createSignal("");
+  const [identifier, setIdentifier] = createSignal(query("username")); const [sent, setSent] = createSignal(false); const [busy, setBusy] = createSignal(false); const [error, setError] = createSignal("");
   const continuation = safeNext(query("next"));
+  const loginUsername = () => passwordManagerUsername(identifier(), props.configuration.domain);
   const submit = async (event: SubmitEvent) => { event.preventDefault(); setBusy(true); setError(""); try { sessionStorage.setItem("linkkeys-recovery-identifier", identifier()); if (continuation) sessionStorage.setItem("linkkeys-recovery-next", continuation); else sessionStorage.removeItem("linkkeys-recovery-next"); await api.recovery.requestPasswordRecovery({ identifier: identifier() }); setSent(true); } catch (cause) { setError(message(cause, "Could not request password recovery.")); } finally { setBusy(false); } };
   if (!props.configuration.capabilities.includes("reset_password")) return <Unavailable title="Password recovery is not available" detail="Contact this site's support team for help." />;
-  return <main class="wrap narrow"><section class="hero"><p class="eyebrow">Account recovery</p><h1>Reset your password</h1></section><Show when={!sent()} fallback={<section class="card good"><h2>Check your messages</h2><p>If the account has a verified recovery contact, LinkKeys sent a reset link.</p><Link href={withNext("/app/login", continuation)}>Return to sign in</Link></section>}>
-    <form class="card" aria-busy={busy()} onSubmit={submit}><p>Enter your username or verified email address.</p><label><span>Username or email</span><input value={identifier()} onInput={(event) => setIdentifier(event.currentTarget.value)} autocomplete="username" maxlength="320" required /></label><button type="submit" disabled={busy()}>{busy() ? "Sending…" : "Send reset link"}</button><Show when={error()}><p class="notice bad" role="alert">{error()}</p></Show></form></Show></main>;
+  return <main class="wrap narrow"><section class="hero"><p class="eyebrow">Account recovery</p><h1>Reset your password</h1></section><Show when={!sent()} fallback={<section class="card good"><h2>Check your messages</h2><p>If the account has a verified recovery contact, LinkKeys sent a reset link.</p><Link href={withLoginContext("/app/login", continuation, loginUsername())}>Return to sign in</Link></section>}>
+    <form class="card" aria-busy={busy()} onSubmit={submit}><p>Enter your username, LinkKeys name, or verified email address.</p><label><span>Username or email</span><input value={identifier()} onInput={(event) => setIdentifier(event.currentTarget.value)} autocomplete="username" maxlength="320" required /><small>LinkKeys treats a value that ends in @{props.configuration.domain} as an account name.</small></label><button type="submit" disabled={busy()}>{busy() ? "Sending…" : "Send reset link"}</button><Show when={error()}><p class="notice bad" role="alert">{error()}</p></Show></form></Show></main>;
 };
 
 const ResetPassword: Component<PageProps> = (props) => {
-  const token = takeFragmentToken("linkkeys-recovery-token"); const storedIdentifier = sessionStorage.getItem("linkkeys-recovery-identifier") ?? ""; const [username, setUsername] = createSignal(passwordManagerUsername(storedIdentifier)); const [password, setPassword] = createSignal(""); const [confirmation, setConfirmation] = createSignal(""); const [valid, setValid] = createSignal(false); const [done, setDone] = createSignal(false); const [busy, setBusy] = createSignal(false); const [checking, setChecking] = createSignal(true); const [retryValidation, setRetryValidation] = createSignal(false); const [error, setError] = createSignal("");
+  const token = takeFragmentToken("linkkeys-recovery-token"); const storedIdentifier = sessionStorage.getItem("linkkeys-recovery-identifier") ?? ""; const [username, setUsername] = createSignal(passwordManagerUsername(storedIdentifier, props.configuration.domain)); const [password, setPassword] = createSignal(""); const [confirmation, setConfirmation] = createSignal(""); const [valid, setValid] = createSignal(false); const [done, setDone] = createSignal(false); const [busy, setBusy] = createSignal(false); const [checking, setChecking] = createSignal(true); const [retryValidation, setRetryValidation] = createSignal(false); const [error, setError] = createSignal("");
   const continuation = safeNext(sessionStorage.getItem("linkkeys-recovery-next") ?? "");
   const validateToken = async () => { setChecking(true); setRetryValidation(false); setError(""); try { await api.recovery.validatePasswordRecovery({ token }); setValid(true); } catch (cause) { setError(recoveryValidationFailureMessage(cause)); setRetryValidation(transportFailed(cause)); } finally { setChecking(false); } };
   onMount(validateToken);
   const submit = async (event: SubmitEvent) => { event.preventDefault(); setBusy(true); setError(""); if (password() !== confirmation()) { setBusy(false); return setError("The passwords do not match."); } const lengthError = checkPassword(password(), props.configuration); if (lengthError) { setBusy(false); return setError(lengthError); } try { await api.recovery.completePasswordRecovery({ token, newPassword: password() }); sessionStorage.removeItem("linkkeys-recovery-identifier"); sessionStorage.removeItem("linkkeys-recovery-token"); setPassword(""); setConfirmation(""); setDone(true); } catch (cause) { if (recoveryLinkExpired(cause)) { setValid(false); setRetryValidation(false); setError("This recovery link is invalid or expired."); } else setError(recoveryCompletionFailureMessage(cause)); } finally { setBusy(false); } };
-  return <main class="wrap narrow"><section class="hero"><p class="eyebrow">Account recovery</p><h1>Set a new password</h1></section><Show when={!done()} fallback={<section class="card good"><h2>Password changed</h2><p>All earlier browser sessions are now signed out.</p><Link href={withNext("/app/login", continuation)}>{continuation ? "Sign in and continue" : "Sign in"}</Link></section>}>
-    <Show when={valid()} fallback={<section class="card" aria-busy={checking()}><p role={error() ? "alert" : "status"}>{error() || "Checking the recovery link…"}</p><Show when={retryValidation()} fallback={<Show when={error()}><Link href={withNext("/app/password/request", continuation)}>Request a new reset link</Link></Show>}><button type="button" disabled={checking()} onClick={validateToken}>Try again</button></Show></section>}><form id="reset-password-form" name="reset-password" class="card" aria-busy={busy()} onSubmit={submit}>
+  return <main class="wrap narrow"><section class="hero"><p class="eyebrow">Account recovery</p><h1>Set a new password</h1></section><Show when={!done()} fallback={<section class="card good"><h2>Password changed</h2><p>All earlier browser sessions are now signed out.</p><Link href={withLoginContext("/app/login", continuation, username())}>{continuation ? "Sign in and continue" : "Sign in"}</Link></section>}>
+    <Show when={valid()} fallback={<section class="card" aria-busy={checking()}><p role={error() ? "alert" : "status"}>{error() || "Checking the recovery link…"}</p><Show when={retryValidation()} fallback={<Show when={error()}><Link href={withLoginContext("/app/password/request", continuation, username())}>Request a new reset link</Link></Show>}><button type="button" disabled={checking()} onClick={validateToken}>Try again</button></Show></section>}><form id="reset-password-form" name="reset-password" class="card" aria-busy={busy()} onSubmit={submit}>
       <p id="reset-password-rule">{passwordRule(props.configuration)}</p>
       <label><span>Password manager username (optional)</span><input type="text" name="username" value={username()} onInput={(event) => setUsername(event.currentTarget.value)} autocomplete="username" autocapitalize="none" spellcheck={false} /><small>This value helps your password manager update the saved login. LinkKeys does not use it to choose the account.</small></label>
       <label><span>New password</span><input type="password" name="new-password" value={password()} onInput={(event) => setPassword(event.currentTarget.value)} autocomplete="new-password" aria-describedby="reset-password-rule" required /></label>
