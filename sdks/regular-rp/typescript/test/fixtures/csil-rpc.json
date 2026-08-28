@@ -1,0 +1,40 @@
+{
+  "vectors": [
+    {
+      "description": "A multiplexed request carrying a correlation id.",
+      "hex": "a561760162696407626f706d6465706f7369742d636c61696d677061796c6f6164d81841a067736572766963656b4174746573746174696f6e",
+      "input": { "auth": null, "id": 7, "kind": "request", "op": "deposit-claim", "payload_hex": "a0", "service": "Attestation" },
+      "name": "request_with_id"
+    },
+    {
+      "description": "A one-in-flight request with no correlation id.",
+      "hex": "a4617601626f706d6465706f7369742d636c61696d677061796c6f6164d81841a067736572766963656b4174746573746174696f6e",
+      "input": { "auth": null, "id": null, "kind": "request", "op": "deposit-claim", "payload_hex": "a0", "service": "Attestation" },
+      "name": "request_no_id"
+    },
+    {
+      "description": "A status-0 reply; variant names the success arm.",
+      "hex": "a5617601626964076673746174757300677061796c6f6164d81841a06776617269616e74744465706f736974436c61696d526573706f6e7365",
+      "input": { "error": null, "id": 7, "kind": "response", "payload_hex": "a0", "status": 0, "variant": "DepositClaimResponse" },
+      "name": "response_success"
+    },
+    {
+      "description": "An application error: transport status 0, variant names the error arm.",
+      "hex": "a5617601626964076673746174757300677061796c6f6164d81841a06776617269616e746c536572766963654572726f72",
+      "input": { "error": null, "id": 7, "kind": "response", "payload_hex": "a0", "status": 0, "variant": "ServiceError" },
+      "name": "response_application_error"
+    },
+    {
+      "description": "A non-zero transport status with an empty payload.",
+      "hex": "a561760162696407656572726f726a6e6f2073756368206f706673746174757302677061796c6f6164d81840",
+      "input": { "error": "no such op", "id": 7, "kind": "response", "payload_hex": "", "status": 2, "variant": null },
+      "name": "response_transport_error"
+    },
+    {
+      "description": "A server push for a <- operation.",
+      "hex": "a4617601656576656e746a726f6f6d2d64656c7461677061796c6f6164d81841a0677365727669636565576f726c64",
+      "input": { "event": "room-delta", "kind": "push", "payload_hex": "a0", "service": "World" },
+      "name": "push"
+    }
+  ]
+}

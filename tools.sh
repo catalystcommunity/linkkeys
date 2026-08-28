@@ -17,6 +17,8 @@
 #   ./tools.sh clippy     # cargo clippy (workspace, all targets)
 #   ./tools.sh ui-build   # check and build the embedded SolidJS UI
 #   ./tools.sh audit      # dependency advisories and license policy
+#   ./tools.sh generate-regular-rp-bindings # regenerate CSIL client bindings
+#   ./tools.sh test-regular-rp-typescript # test the web application SDK
 #
 # The SQLite path needs only Rust + system libs. The Postgres path also needs a
 # container runtime; it is auto-detected in this order:
@@ -494,6 +496,57 @@ generate_local_rp_sdks() {
     echo "rust: nothing to generate (consumes liblinkkeys directly) — see sdks/local-rp/rust/README.md"
 }
 
+generate_regular_rp_bindings() {
+    log_status "generate-regular-rp-bindings"
+
+    local generator="${CSILGEN_BIN:-}"
+    if [ -z "$generator" ]; then
+        if [ -x "$HOME/.cargo/bin/csilgen" ]; then
+            generator="$HOME/.cargo/bin/csilgen"
+        else
+            generator="csilgen"
+        fi
+    fi
+
+    local target
+    for target in \
+        rust:rust-client \
+        go:go-client \
+        typescript:typescript-client \
+        python:python-client \
+        java:java-client \
+        kotlin:kotlin-client \
+        csharp:csharp-client \
+        dart:dart-client \
+        php:php-client \
+        ruby:ruby-client \
+        elixir:elixir-client \
+        c:c-client \
+        zig:zig-client \
+        ocaml:ocaml-client \
+        swift:swift-client
+    do
+        local language="${target%%:*}"
+        local generator_target="${target#*:}"
+        "$generator" generate \
+            --input csil/linkkeys.csil \
+            --target "$generator_target" \
+            --output "sdks/regular-rp/$language/generated/"
+    done
+}
+
+test_regular_rp_typescript() {
+    log_status "testing regular-RP TypeScript SDK"
+    (
+        cd sdks/regular-rp/typescript
+        npm ci
+        npm run typecheck
+        npm test
+        npm run build
+    )
+    log_status "regular-RP TypeScript SDK tests passed"
+}
+
 # ---------------------------------------------------------------------------
 # Setup / preflight
 # ---------------------------------------------------------------------------
@@ -577,6 +630,8 @@ Commands:
   audit      Check dependency advisories, licenses, and sources
 
   generate-local-rp-sdks   Regenerate DNS-less local-RP SDK bindings (sdks/local-rp/)
+  generate-regular-rp-bindings Regenerate regular-RP protocol bindings (sdks/regular-rp/)
+  test-regular-rp-typescript Test and build the regular-RP TypeScript SDK
   test-local-rp-rust       Run the DNS-less local-RP Rust SDK's tests
   test-local-rp-go         Run the DNS-less local-RP Go SDK's tests
   test-local-rp-typescript Run the DNS-less local-RP TypeScript SDK's tests
@@ -618,6 +673,8 @@ case "${1:-}" in
     ui-build) shift; ui_build "$@" ;;
     audit)    shift; audit "$@" ;;
     generate-local-rp-sdks) shift; generate_local_rp_sdks "$@" ;;
+    generate-regular-rp-bindings) shift; generate_regular_rp_bindings "$@" ;;
+    test-regular-rp-typescript) shift; test_regular_rp_typescript "$@" ;;
     test-local-rp-rust)     shift; test_local_rp_rust "$@" ;;
     test-local-rp-go)       shift; test_local_rp_go "$@" ;;
     test-local-rp-typescript) shift; test_local_rp_typescript "$@" ;;
