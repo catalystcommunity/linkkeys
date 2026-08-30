@@ -24,3 +24,14 @@ jobs:
     job_file: .reactorcide/jobs/test-postgres.yaml
     depends_on:
       - linkkeys-conventional-commits
+  # The Go SDK carries the application-key verification rules for every Go
+  # consumer, and its tests replay the cross-language conformance vectors in
+  # sdks/regular-rp/conformance/. That replay is the only thing proving the Go
+  # implementation still agrees with the Rust reference in
+  # crates/liblinkkeys/src/application_keys.rs, so it runs on every PR rather
+  # than behind a path filter: a liblinkkeys change can invalidate the vectors
+  # without touching a single Go file.
+  linkkeys-test-regular-rp-go:
+    job_file: .reactorcide/jobs/test-regular-rp-go.yaml
+    depends_on:
+      - linkkeys-conventional-commits
