@@ -1,50 +1,15 @@
 name: linkkeys-test-regular-rp-go
 description: "Test the regular-RP Go SDK against the application-key conformance vectors"
+# Triggering lives in .reactorcide/workflows/pr.yaml.
+#
+# The body is a script rather than an inline command block, matching the other
+# non-trivial jobs here (server-build-test, server-build-and-deploy). An inline
+# block is re-quoted on its way to the runner's shell, which is how the first
+# version of this job died with "sh: Syntax error: Unterminated quoted string"
+# AFTER the tests had already passed.
 job:
   image: containers.catalystsquad.com/public/reactorcide/runnerbase:latest
-  command: |
-    set -e
-    export HOME=/home/runner
-
-    # The Go SDK carries the application-key verification rules for every Go
-    # consumer (Tinku first). Its tests replay the cross-language conformance
-    # vectors in sdks/regular-rp/conformance/, which is the only thing that
-    # proves the Go implementation still agrees with the Rust reference in
-    # crates/liblinkkeys/src/application_keys.rs. A drift here is a silent
-    # verification difference between two implementations of the same protocol,
-    # so this runs on its own rather than as an optional extra.
-    # This job runs under a non-root CI profile (may_run_as_root: false), so
-    # every path Go writes to must be inside the job's own workspace. The
-    # runner image ships GOPATH=/go, which the runner user cannot create:
-    #   go: could not create module cache: mkdir /go/pkg: permission denied
-    export GOPATH="${HOME}/go"
-    export GOMODCACHE="${GOPATH}/pkg/mod"
-    export GOCACHE="${HOME}/.cache/go-build"
-    mkdir -p "$GOMODCACHE" "$GOCACHE"
-
-    # Go is preinstalled on the runner image. Install into HOME only as a
-    # fallback, never with sudo, which this profile does not grant.
-    GO_VERSION="1.26.4"
-    if ! command -v go >/dev/null 2>&1; then
-      curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tgz
-      mkdir -p "$HOME/.local"
-      tar -C "$HOME/.local" -xzf /tmp/go.tgz
-      export PATH="$HOME/.local/go/bin:$PATH"
-    fi
-    go version
-
-    cd "${REACTORCIDE_CODE_DIR:-/job/src}/sdks/regular-rp/go"
-
-    echo "=== gofmt ==="
-    test -z "$(gofmt -l .)" || { echo "unformatted files:"; gofmt -l .; exit 1; }
-
-    echo "=== go vet ==="
-    go vet ./...
-
-    echo "=== go test (race) ==="
-    go test ./... -race
-
-    echo "=== regular-RP Go SDK tests passed ==="
+  command: "bash ${REACTORCIDE_CODE_DIR:-/job/src}/.reactorcide/jobs/scripts/test-regular-rp-go.sh"
   timeout: 900
   priority: 10
   run_as:
