@@ -3,6 +3,8 @@ use rustls::server::danger::ClientCertVerified;
 use rustls::SignatureScheme;
 use std::sync::Arc;
 
+use crate::tcp::dns_pin_cache::{DnsPinCache, PinLookup};
+
 // Client-side TLS (cert generation from a domain key, server-cert fingerprint
 // pinning, client config builders) lives in the shared `linkkeys-rpc-client`
 // crate so the CLI, the demo site, and the server's own outbound paths share one
@@ -40,23 +42,42 @@ pub fn build_server_config(
 /// The domain is extracted from the certificate's SAN (dNSName) or CN.
 #[derive(Debug)]
 pub struct FingerprintClientCertVerifier {
-    runtime: Arc<tokio::runtime::Runtime>,
     dns: Arc<dyn crate::net::DnsResolver>,
+    /// Bounded, TTL'd cache of DNS-resolved fingerprint sets — see
+    /// `tcp::dns_pin_cache` module docs for why this exists: it is what keeps
+    /// this synchronous rustls callback from blocking the async connection
+    /// task's thread on network I/O in the common (warm-cache) case.
+    cache: Arc<DnsPinCache>,
+    /// Small, SEPARATE semaphore (not `TCP_HANDSHAKE_CONCURRENCY`) bounding
+    /// how many handshakes may, at once, fall back to a synchronous DNS
+    /// lookup on a cache miss. This is what turns "first contact with a
+    /// domain" from a guaranteed-fail-once into a correct answer on the
+    /// first attempt in the common case (no retry exists anywhere in
+    /// `linkkeys-rpc-client`/`net::TcpRpcClient`, so a spurious first-attempt
+    /// failure would otherwise surface as a failed login/verification with
+    /// no automatic recovery) — while still bounding the worst case (a flood
+    /// of distinct unknown domains) to a handful of blocked threads rather
+    /// than blocking the async runtime without limit.
+    sync_fallback: Arc<tokio::sync::Semaphore>,
     provider: Arc<rustls::crypto::CryptoProvider>,
 }
 
 impl FingerprintClientCertVerifier {
-    /// `dns` is the resolver the verifier consults *inside the handshake* to pin
-    /// the connecting client's cert to its domain's DNS `fp=` set — real in
-    /// production, a static fake in tests. The lookup is blocking (rustls's
-    /// verifier trait is synchronous), driven on `runtime`.
+    /// `dns` is the resolver used for BOTH the bounded synchronous fallback
+    /// (directly, gated by `sync_fallback`) and a cache-miss background
+    /// refresh (via `DnsPinCache::spawn_refresh`, gated by the cache's own
+    /// `max_concurrent_refreshes`) — real in production, a static fake in
+    /// tests. This constructor itself does no I/O and needs no ambient Tokio
+    /// context; only `verify_client_cert` does (see its doc comment).
     pub fn new(
-        runtime: Arc<tokio::runtime::Runtime>,
         dns: Arc<dyn crate::net::DnsResolver>,
+        cache: Arc<DnsPinCache>,
+        sync_fallback: Arc<tokio::sync::Semaphore>,
     ) -> Self {
         Self {
-            runtime,
             dns,
+            cache,
+            sync_fallback,
             provider: Arc::new(rustls::crypto::ring::default_provider()),
         }
     }
@@ -82,6 +103,17 @@ impl rustls::server::danger::ClientCertVerifier for FingerprintClientCertVerifie
         &[]
     }
 
+    /// Synchronous by rustls's trait contract, and invoked from inside the
+    /// async `TlsAcceptor::accept` future on whichever Tokio task is driving
+    /// this connection's handshake. On a cache HIT this does no I/O at all.
+    /// On a cache MISS it takes a bounded, permit-gated synchronous DNS
+    /// fallback (`dns::resolve_fingerprints_via`'s `block_in_place` path) so
+    /// first contact with a domain gets a correct answer immediately in the
+    /// common case — see `sync_fallback`'s field doc for why that matters
+    /// (no retry exists anywhere in the callers of this server). Only when
+    /// that small semaphore is exhausted does it fall back to failing this
+    /// attempt closed and handing the lookup to a background task via
+    /// `DnsPinCache::spawn_refresh` (see that module's docs).
     fn verify_client_cert(
         &self,
         end_entity: &CertificateDer<'_>,
@@ -111,15 +143,58 @@ impl rustls::server::danger::ClientCertVerifier for FingerprintClientCertVerifie
             )
         })?;
 
-        // Resolve the client domain's fingerprints from DNS (through the seam).
-        let expected_fingerprints =
-            crate::dns::resolve_fingerprints_with(&self.runtime, self.dns.as_ref(), &domain)
-                .map_err(|e| {
-                    log::warn!("DNS fingerprint resolution failed for {}: {}", domain, e);
-                    rustls::Error::InvalidCertificate(
+        let expected_fingerprints = match self.cache.get(&domain) {
+            PinLookup::Hit(fingerprints) => fingerprints,
+            PinLookup::NegativeHit => {
+                log::warn!("Client cert verification for {domain}: cached DNS resolution failure");
+                return Err(rustls::Error::InvalidCertificate(
+                    rustls::CertificateError::ApplicationVerificationFailure,
+                ));
+            }
+            PinLookup::Miss => match self.sync_fallback.try_acquire() {
+                Ok(_permit) => {
+                    // Bounded synchronous fallback: a small, fixed number of
+                    // concurrent slots (never `TCP_HANDSHAKE_CONCURRENCY`),
+                    // so a flood of unknown domains cannot tie up the
+                    // blocking pool. `resolve_fingerprints_via` picks the
+                    // same `block_in_place`-on-a-multi-thread-runtime path
+                    // `cli/tcp_client.rs` relies on — always safe here since
+                    // this callback only ever runs on an async connection
+                    // task inside an ambient multi-thread runtime.
+                    match crate::dns::resolve_fingerprints_via(self.dns.clone(), &domain) {
+                        Ok(fingerprints) => {
+                            self.cache.insert_positive(&domain, fingerprints.clone());
+                            fingerprints
+                        }
+                        Err(error) => {
+                            log::warn!(
+                                "Client cert verification for {domain}: synchronous DNS \
+                                 fallback failed: {error}"
+                            );
+                            self.cache.insert_negative(&domain);
+                            return Err(rustls::Error::InvalidCertificate(
+                                rustls::CertificateError::ApplicationVerificationFailure,
+                            ));
+                        }
+                    }
+                }
+                Err(_) => {
+                    // The bounded fallback is fully busy: don't pile more
+                    // blocking work onto the runtime. Fail this attempt
+                    // closed and let the (separately bounded) background
+                    // refresh populate the cache for the next attempt.
+                    self.cache.spawn_refresh(self.dns.clone(), domain.clone());
+                    log::debug!(
+                        "Client cert verification for {domain}: DNS pin cache miss and the \
+                         synchronous fallback is fully busy; refreshing in the background and \
+                         failing this attempt closed"
+                    );
+                    return Err(rustls::Error::InvalidCertificate(
                         rustls::CertificateError::ApplicationVerificationFailure,
-                    )
-                })?;
+                    ));
+                }
+            },
+        };
 
         // Extract public key and compute fingerprint
         let spki = cert.tbs_certificate.subject_pki;
@@ -263,15 +338,18 @@ mod tests {
         let seed = sk.to_bytes();
         let (cert_der, key_der) = generate_domain_tls_cert("test.example.com", &seed).unwrap();
 
-        let runtime = Arc::new(
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap(),
-        );
+        let cache = Arc::new(DnsPinCache::new(
+            crate::tcp::dns_pin_cache::DnsPinCacheConfig {
+                positive_ttl: std::time::Duration::from_secs(300),
+                negative_ttl: std::time::Duration::from_secs(30),
+                max_entries: 100,
+                max_concurrent_refreshes: 4,
+            },
+        ));
         let verifier = Arc::new(FingerprintClientCertVerifier::new(
-            runtime,
             crate::net::Net::production().dns,
+            cache,
+            Arc::new(tokio::sync::Semaphore::new(4)),
         ));
         let config = build_server_config(cert_der, key_der, verifier);
         assert!(config.is_ok(), "Server config should build successfully");

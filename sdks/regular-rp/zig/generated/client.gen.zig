@@ -169,6 +169,70 @@ pub const UserKeysClient = struct {
     }
 };
 
+/// ApplicationKeysClient is a typed client for the ApplicationKeys service over a CsilgenTransport.
+pub const ApplicationKeysClient = struct {
+    transport: CsilgenTransport,
+
+    pub fn init(transport: CsilgenTransport) ApplicationKeysClient {
+        return .{ .transport = transport };
+    }
+
+    /// Invoke ApplicationKeys/get-application-keys with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn get_application_keys(self: ApplicationKeysClient, alloc: std.mem.Allocator, req: *const types.GetApplicationKeysRequest, out: *types.GetApplicationKeysResponse) anyerror!void {
+        const csil_reqb = try codec.encode_GetApplicationKeysRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "ApplicationKeys", "get-application-keys", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_GetApplicationKeysResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke ApplicationKeys/start-key-challenge with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn start_key_challenge(self: ApplicationKeysClient, alloc: std.mem.Allocator, req: *const types.StartApplicationKeyChallengeRequest, out: *types.StartApplicationKeyChallengeResponse) anyerror!void {
+        const csil_reqb = try codec.encode_StartApplicationKeyChallengeRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "ApplicationKeys", "start-key-challenge", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_StartApplicationKeyChallengeResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke ApplicationKeys/add-key with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn add_key(self: ApplicationKeysClient, alloc: std.mem.Allocator, req: *const types.AddApplicationKeyRequest, out: *types.AddApplicationKeyResponse) anyerror!void {
+        const csil_reqb = try codec.encode_AddApplicationKeyRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "ApplicationKeys", "add-key", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_AddApplicationKeyResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke ApplicationKeys/renew-attestation with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn renew_attestation(self: ApplicationKeysClient, alloc: std.mem.Allocator, req: *const types.RenewApplicationKeyAttestationRequest, out: *types.RenewApplicationKeyAttestationResponse) anyerror!void {
+        const csil_reqb = try codec.encode_RenewApplicationKeyAttestationRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "ApplicationKeys", "renew-attestation", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_RenewApplicationKeyAttestationResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke ApplicationKeys/revoke-key with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn revoke_key(self: ApplicationKeysClient, alloc: std.mem.Allocator, req: *const types.RevokeApplicationKeyRequest, out: *types.RevokeApplicationKeyResponse) anyerror!void {
+        const csil_reqb = try codec.encode_RevokeApplicationKeyRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "ApplicationKeys", "revoke-key", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_RevokeApplicationKeyResponse(alloc, csil_respb, out);
+    }
+};
+
 /// IdentityClient is a typed client for the Identity service over a CsilgenTransport.
 pub const IdentityClient = struct {
     transport: CsilgenTransport,
@@ -1049,6 +1113,17 @@ pub const AccountClient = struct {
         defer alloc.free(csil_respb);
         try codec.decode_ConfirmContactVerificationResponse(alloc, csil_respb, out);
     }
+
+    /// Invoke Account/enroll-application-instance with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn enroll_application_instance(self: AccountClient, alloc: std.mem.Allocator, req: *const types.EnrollApplicationInstanceRequest, out: *types.EnrollApplicationInstanceResponse) anyerror!void {
+        const csil_reqb = try codec.encode_EnrollApplicationInstanceRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Account", "enroll-application-instance", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_EnrollApplicationInstanceResponse(alloc, csil_respb, out);
+    }
 };
 
 /// AttestationClient is a typed client for the Attestation service over a CsilgenTransport.
@@ -1132,6 +1207,28 @@ pub const RpClient = struct {
         const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Rp", "issue-attestation", csil_reqb);
         defer alloc.free(csil_respb);
         try codec.decode_RpIssueAttestationResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke Rp/resolve-domain-keys with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn resolve_domain_keys(self: RpClient, alloc: std.mem.Allocator, req: *const types.RpResolveDomainKeysRequest, out: *types.RpResolveDomainKeysResponse) anyerror!void {
+        const csil_reqb = try codec.encode_RpResolveDomainKeysRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Rp", "resolve-domain-keys", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_RpResolveDomainKeysResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke Rp/resolve-application-keys with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn resolve_application_keys(self: RpClient, alloc: std.mem.Allocator, req: *const types.RpResolveApplicationKeysRequest, out: *types.RpResolveApplicationKeysResponse) anyerror!void {
+        const csil_reqb = try codec.encode_RpResolveApplicationKeysRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Rp", "resolve-application-keys", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_RpResolveApplicationKeysResponse(alloc, csil_respb, out);
     }
 };
 

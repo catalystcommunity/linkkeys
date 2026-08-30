@@ -321,6 +321,13 @@ pub fn revoke_domain_key(
         other => db_err(other),
     })?;
 
+    // The published domain-key snapshot and the revocation list both just
+    // changed, and the warm signer may be holding the key that was revoked.
+    // Drop both now that the write has committed — the database is the source
+    // of truth, and a revoked key must never be served or used warm.
+    crate::services::pubkey_cache::DOMAIN_SNAPSHOT_CACHE.invalidate_all();
+    crate::services::warm_signer::invalidate();
+
     // Produce the sibling-signed revocation certificate from the remaining
     // active signing keys (the target is now excluded from
     // list_active_domain_keys), same as domain_emit_revocation_cert in the

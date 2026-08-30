@@ -92,7 +92,7 @@ class CsilCbor {
 
   static Object? decode(List<int> bytes) {
     final b = Uint8List.fromList(bytes);
-    final r = _dec(b, 0);
+    final r = _dec(b, 0, 0);
     if (r.next != b.length) {
       throw ArgumentError('CsilCbor: trailing bytes');
     }
@@ -138,6 +138,10 @@ class CsilCbor {
 
   static _CsilRead _readArg(Uint8List b, int pos, int low) {
     if (low < 24) return _CsilRead(low, pos + 1);
+    final width = low == 24 ? 1 : low == 25 ? 2 : low == 26 ? 4 : low == 27 ? 8 : 0;
+    if (width == 0 || pos >= b.length || b.length - pos - 1 < width) {
+      throw ArgumentError('CsilCbor: truncated argument');
+    }
     if (low == 24) return _CsilRead(b[pos + 1], pos + 2);
     if (low == 25) return _CsilRead((b[pos + 1] << 8) | b[pos + 2], pos + 3);
     if (low == 26) {
@@ -157,7 +161,9 @@ class CsilCbor {
     throw ArgumentError('CsilCbor: bad head');
   }
 
-  static _CsilDecoded _dec(Uint8List b, int pos) {
+  static _CsilDecoded _dec(Uint8List b, int pos, int depth) {
+    if (depth > 64) throw ArgumentError('CsilCbor: nesting limit exceeded');
+    if (pos >= b.length) throw ArgumentError('CsilCbor: unexpected end of input');
     final ib = b[pos];
     final major = ib >> 5;
     final low = ib & 0x1f;
@@ -166,10 +172,12 @@ class CsilCbor {
       if (low == 21) return _CsilDecoded(true, pos + 1);
       if (low == 22 || low == 23) return _CsilDecoded(null, pos + 1);
       if (low == 26) {
+        if (b.length - pos < 5) throw ArgumentError('CsilCbor: truncated float');
         final bd = ByteData.sublistView(b, pos + 1, pos + 5);
         return _CsilDecoded(bd.getFloat32(0, Endian.big), pos + 5);
       }
       if (low == 27) {
+        if (b.length - pos < 9) throw ArgumentError('CsilCbor: truncated float');
         final bd = ByteData.sublistView(b, pos + 1, pos + 9);
         return _CsilDecoded(bd.getFloat64(0, Endian.big), pos + 9);
       }
@@ -184,30 +192,34 @@ class CsilCbor {
       case 1:
         return _CsilDecoded(-1 - arg, p);
       case 2:
+        if (arg > b.length - p) throw ArgumentError('CsilCbor: truncated byte string');
         return _CsilDecoded(Uint8List.sublistView(b, p, p + arg), p + arg);
       case 3:
+        if (arg > b.length - p) throw ArgumentError('CsilCbor: truncated text string');
         return _CsilDecoded(utf8.decode(b.sublist(p, p + arg)), p + arg);
       case 4:
+        if (arg > b.length - p) throw ArgumentError('CsilCbor: array length exceeds remaining input');
         final list = <Object?>[];
         var off4 = p;
         for (var i = 0; i < arg; i++) {
-          final d = _dec(b, off4);
+          final d = _dec(b, off4, depth + 1);
           list.add(d.value);
           off4 = d.next;
         }
         return _CsilDecoded(list, off4);
       case 5:
+        if (arg > b.length - p) throw ArgumentError('CsilCbor: map length exceeds remaining input');
         final map = <Object?, Object?>{};
         var off5 = p;
         for (var i = 0; i < arg; i++) {
-          final k = _dec(b, off5);
-          final v = _dec(b, k.next);
+          final k = _dec(b, off5, depth + 1);
+          final v = _dec(b, k.next, depth + 1);
           map[k.value] = v.value;
           off5 = v.next;
         }
         return _CsilDecoded(map, off5);
       case 6:
-        final inner = _dec(b, p);
+        final inner = _dec(b, p, depth + 1);
         if (arg == 0 && inner.value is String) {
           return _CsilDecoded(
             DateTime.parse(inner.value as String).toUtc(),

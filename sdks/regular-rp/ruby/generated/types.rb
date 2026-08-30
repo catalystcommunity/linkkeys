@@ -1228,3 +1228,184 @@ TranslationsResponse = Data.define(:locale, :available_locales, :messages)
 
 # available_locales [Array<String>]
 ListLocalesResponse = Data.define(:available_locales)
+
+# signed_by_key_id [String]
+# signature [String]
+ApplicationKeySignature = Data.define(:signed_by_key_id, :signature)
+
+# subject_user_id [String]
+# subject_domain [String]
+# application_id [String]
+# instance_id [String]
+# key_id [String]
+# key_usage [String]
+# algorithm [String]
+# public_key [String]
+# fingerprint [String]
+# key_created_at [String]
+# key_expires_at [String]
+# attested_at [String]
+# attestation_expires_at [String]
+ApplicationKeyAttestation = Data.define(:subject_user_id, :subject_domain, :application_id, :instance_id, :key_id, :key_usage, :algorithm, :public_key, :fingerprint, :key_created_at, :key_expires_at, :attested_at, :attestation_expires_at)
+
+# attestation [String]
+# signatures [Array<ClaimSignature>]
+SignedApplicationKeyAttestation = Data.define(:attestation, :signatures)
+
+# subject_user_id [String]
+# subject_domain [String]
+# application_id [String]
+# instance_id [String]
+# key_id [String]
+# key_usage [String]
+# algorithm [String]
+# public_key [String]
+# fingerprint [String]
+# requested_key_lifetime_seconds [Integer]
+# challenge_id [String]
+# challenge [String]
+# requested_at [String]
+# expires_at [String]
+ApplicationKeyAddition = Data.define(:subject_user_id, :subject_domain, :application_id, :instance_id, :key_id, :key_usage, :algorithm, :public_key, :fingerprint, :requested_key_lifetime_seconds, :challenge_id, :challenge, :requested_at, :expires_at)
+
+# addition [String]
+# signatures [Array<ApplicationKeySignature>]
+# possession_proof [String]
+SignedApplicationKeyAddition = Data.define(:addition, :signatures, :possession_proof) do
+  def initialize(addition:, signatures:, possession_proof: nil)
+    super
+  end
+end
+
+# subject_user_id [String]
+# subject_domain [String]
+# application_id [String]
+# instance_id [String]
+# key_id [String]
+# challenge_id [String]
+# challenge [String]
+# requested_at [String]
+# expires_at [String]
+ApplicationKeyRenewal = Data.define(:subject_user_id, :subject_domain, :application_id, :instance_id, :key_id, :challenge_id, :challenge, :requested_at, :expires_at)
+
+# renewal [String]
+# signatures [Array<ApplicationKeySignature>]
+# possession_proof [String]
+SignedApplicationKeyRenewal = Data.define(:renewal, :signatures, :possession_proof) do
+  def initialize(renewal:, signatures:, possession_proof: nil)
+    super
+  end
+end
+
+# subject_user_id [String]
+# subject_domain [String]
+# application_id [String]
+# instance_id [String]
+# target_key_id [String]
+# target_fingerprint [String]
+# revoked_at [String]
+# signatures [Array<ApplicationKeySignature>]
+ApplicationKeyRevocation = Data.define(:subject_user_id, :subject_domain, :application_id, :instance_id, :target_key_id, :target_fingerprint, :revoked_at, :signatures)
+
+# subject_user_id [String]
+# application_id [String]
+# instance_id [String]
+# purpose [String]
+# key_usage [String]
+# algorithm [String]
+# public_key [String]
+StartApplicationKeyChallengeRequest = Data.define(:subject_user_id, :application_id, :instance_id, :purpose, :key_usage, :algorithm, :public_key)
+
+# challenge_id [String]
+# challenge [String]
+# sealed_challenge [String]
+# expires_at [String]
+StartApplicationKeyChallengeResponse = Data.define(:challenge_id, :challenge, :sealed_challenge, :expires_at) do
+  def initialize(challenge_id:, expires_at:, challenge: nil, sealed_challenge: nil)
+    super
+  end
+end
+
+# request [SignedApplicationKeyAddition]
+AddApplicationKeyRequest = Data.define(:request)
+
+# attestation [SignedApplicationKeyAttestation]
+AddApplicationKeyResponse = Data.define(:attestation)
+
+# request [SignedApplicationKeyRenewal]
+RenewApplicationKeyAttestationRequest = Data.define(:request)
+
+# attestation [SignedApplicationKeyAttestation]
+# signed [Boolean]
+RenewApplicationKeyAttestationResponse = Data.define(:attestation, :signed)
+
+# revocation [ApplicationKeyRevocation]
+RevokeApplicationKeyRequest = Data.define(:revocation)
+
+# revoked_at [String]
+RevokeApplicationKeyResponse = Data.define(:revoked_at)
+
+# application_id [String]
+# instance_id [String]
+# keys [Array<SignedApplicationKeyAddition>]
+EnrollApplicationInstanceRequest = Data.define(:application_id, :instance_id, :keys)
+
+# subject_user_id [String]
+# subject_domain [String]
+# application_id [String]
+# instance_id [String]
+# attestations [Array<SignedApplicationKeyAttestation>]
+EnrollApplicationInstanceResponse = Data.define(:subject_user_id, :subject_domain, :application_id, :instance_id, :attestations)
+
+# subject_user_id [String]
+# application_id [String]
+# instance_id [String]
+GetApplicationKeysRequest = Data.define(:subject_user_id, :application_id, :instance_id)
+
+# subject_user_id [String]
+# subject_domain [String]
+# application_id [String]
+# instance_id [String]
+# keys [Array<SignedApplicationKeyAttestation>]
+# revocations [Array<ApplicationKeyRevocation>]
+GetApplicationKeysResponse = Data.define(:subject_user_id, :subject_domain, :application_id, :instance_id, :keys, :revocations)
+
+# domain [String]
+# max_cache_age_seconds [Integer]
+RpResolveDomainKeysRequest = Data.define(:domain, :max_cache_age_seconds) do
+  def initialize(domain:, max_cache_age_seconds: nil)
+    super
+  end
+end
+
+# domain [String]
+# keys [Array<DomainPublicKey>]
+# revocations [Array<RevocationCertificate>]
+# fetched_at [String]
+# revocations_checked_at [String]
+# cache_status [String]
+RpResolveDomainKeysResponse = Data.define(:domain, :keys, :revocations, :fetched_at, :revocations_checked_at, :cache_status)
+
+# subject_user_id [String]
+# subject_domain [String]
+# application_id [String]
+# instance_id [String]
+# max_cache_age_seconds [Integer]
+RpResolveApplicationKeysRequest = Data.define(:subject_user_id, :subject_domain, :application_id, :instance_id, :max_cache_age_seconds) do
+  def initialize(subject_user_id:, subject_domain:, application_id:, instance_id:, max_cache_age_seconds: nil)
+    super
+  end
+end
+
+# subject_user_id [String]
+# subject_domain [String]
+# application_id [String]
+# instance_id [String]
+# application_keys [Array<SignedApplicationKeyAttestation>]
+# application_key_revocations [Array<ApplicationKeyRevocation>]
+# home_domain_keys [Array<DomainPublicKey>]
+# home_domain_key_revocations [Array<RevocationCertificate>]
+# fetched_at [String]
+# revocations_checked_at [String]
+# cache_status [String]
+RpResolveApplicationKeysResponse = Data.define(:subject_user_id, :subject_domain, :application_id, :instance_id, :application_keys, :application_key_revocations, :home_domain_keys, :home_domain_key_revocations, :fetched_at, :revocations_checked_at, :cache_status)

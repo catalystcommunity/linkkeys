@@ -2,7 +2,7 @@
 // Source: <csil spec>
 // Target: typescript-codec
 
-import type { ActivateUserRequest, ActivateUserResponse, AddTrustedIssuerRequest, AddTrustedIssuerResponse, AdminIssueAttestationRequest, AdminIssueAttestationResponse, AdminLocalRp, AdminUser, AdminUserClaimsRequest, AdminUserClaimsResponse, AeadSuite, AlgorithmSupport, ApiError, ApiErrorCode, ApproveClaimRequest, ApproveClaimResponse, ApproveLocalRpRequest, ApproveLocalRpResponse, AuthFlowContext, AuthRequest, AuthenticateRequest, AuthenticateResponse, AuthenticationRequirements, AuthorizeFinalizeRequest, AuthorizeFinalizeResponse, AuthorizeValidateRequest, AuthorizeValidateResponse, BrowserAuthorizationCompleteRequest, BrowserAuthorizationCompleteResponse, BrowserAuthorizationInspectRequest, BrowserAuthorizationInspectResponse, BrowserConsentClaim, BrowserSessionInfo, ChangePasswordRequest, ChangePasswordResponse, CheckEntries, CheckPermissionRequest, CheckPermissionResponse, CheckResult, CheckValue, Claim, ClaimApproval, ClaimRequest, ClaimSignature, ClaimTypeLabel, ClaimTypePolicy, CompletePasswordRecoveryRequest, CompletePasswordRecoveryResponse, ConfirmContactVerificationRequest, ConfirmContactVerificationResponse, ConsentGrant, CreateGuestbookRequest, CreateProfileRequest, CreateProfileResponse, CreateUserRequest, CreateUserResponse, DeactivateUserRequest, DeactivateUserResponse, DeleteGuestbookRequest, DeleteGuestbookResponse, DenyLocalRpRequest, DenyLocalRpResponse, DepositClaimRequest, DepositClaimResponse, DomainClaim, DomainPublicKey, EmptyRequest, EncryptedToken, GetDomainKeysResponse, GetLocalRpPolicyRequest, GetLocalRpPolicyResponse, GetLocalRpRequest, GetLocalRpResponse, GetMyInfoResponse, GetNotificationCapabilitiesResponse, GetRevocationsRequest, GetRevocationsResponse, GetUiConfigurationResponse, GetUserClaimsRequest, GetUserClaimsResponse, GetUserInfoRequest, GetUserKeysRequest, GetUserKeysResponse, GetUserRequest, GetUserResponse, GrantRelationRequest, GrantRelationResponse, GuestbookEntry, GuestbookListRequest, GuestbookListResponse, HandshakeRequest, HandshakeResponse, HelloRequest, HelloResponse, IdentityAssertion, IntrospectBrowserSessionRequest, IntrospectBrowserSessionResponse, ListClaimTypesResponse, ListLocalRpsRequest, ListLocalRpsResponse, ListLocalesResponse, ListPendingClaimApprovalsResponse, ListRelationsRequest, ListRelationsResponse, ListReleaseRulesResponse, ListSettablePoliciesResponse, ListTrustedIssuersResponse, ListUserClaimsRequest, ListUserClaimsResponse, ListUsersRequest, ListUsersResponse, ListVerifiedContactMethodsResponse, LocalRpCallbackHeader, LocalRpCallbackPayload, LocalRpDescriptor, LocalRpEncryptedCallback, LocalRpLoginRequest, LocalRpPolicy, LocalRpTicketRedemptionRequest, LocalRpTicketRedemptionResponse, LocaleMessages, NotificationCapability, PasswordPolicy, PinRecheckResult, Profile, PurgeLocalRpTicketsRequest, PurgeLocalRpTicketsResponse, PurgeUserRequest, PurgeUserResponse, RecheckPinsRequest, RecheckPinsResponse, RejectClaimRequest, RejectClaimResponse, Relation, ReleaseRule, RemoveClaimRequest, RemoveClaimResponse, RemoveClaimTypeLabelRequest, RemoveClaimTypeLabelResponse, RemoveClaimTypeRequest, RemoveClaimTypeResponse, RemoveCredentialRequest, RemoveCredentialResponse, RemoveMyClaimRequest, RemoveMyClaimResponse, RemoveRelationRequest, RemoveRelationResponse, RemoveReleaseRuleRequest, RemoveReleaseRuleResponse, RemoveTrustedIssuerRequest, RemoveTrustedIssuerResponse, RequestContactVerificationRequest, RequestContactVerificationResponse, RequestPasswordRecoveryRequest, RequestPasswordRecoveryResponse, RequestVerificationRequest, RequestVerificationResponse, RequestedClaim, ResetPasswordRequest, ResetPasswordResponse, RevocationCertificate, RevokeDomainKeyRequest, RevokeDomainKeyResponse, RevokeLocalRpRequest, RevokeLocalRpResponse, RevokeVerifiedContactMethodRequest, RevokeVerifiedContactMethodResponse, RpDecryptRequest, RpDecryptResponse, RpIssueAttestationRequest, RpIssueAttestationResponse, RpSignRequest, RpSignResponse, RpUserInfoRequest, RpVerifyRequest, RpVerifyResponse, SessionCurrentResponse, SessionLogoutResponse, SessionPasswordLoginRequest, SessionPasswordLoginResponse, SetClaimRequest, SetClaimResponse, SetClaimTypeLabelRequest, SetClaimTypeLabelResponse, SetClaimTypeRequest, SetClaimTypeResponse, SetLocalRpPolicyRequest, SetLocalRpPolicyResponse, SetMyClaimRequest, SetMyClaimResponse, SetMyClaimSharingRequest, SetMyClaimSharingResponse, SetReleaseRuleRequest, SetReleaseRuleResponse, SetUserClaimRequest, SetUserClaimResponse, SettableClaimPolicy, SignedAuthRequest, SignedConsentGrant, SignedIdentityAssertion, SignedLocalRpCallbackPayload, SignedLocalRpDescriptor, SignedLocalRpLoginRequest, SignedLocalRpTicketRedemptionRequest, SignedSigningRequest, SignedUserInfoRequest, SigningRequest, TranslationsRequest, TranslationsResponse, TrustedIssuer, UiDisplaySettings, UiExtension, UiTheme, UpdateGuestbookRequest, UpdateUserRequest, UpdateUserResponse, UserInfo, UserInfoRequest, UserPublicKey, ValidatePasswordRecoveryRequest, ValidatePasswordRecoveryResponse, VerifiedContactMethod } from "./types.gen.ts";
+import type { ActivateUserRequest, ActivateUserResponse, AddApplicationKeyRequest, AddApplicationKeyResponse, AddTrustedIssuerRequest, AddTrustedIssuerResponse, AdminIssueAttestationRequest, AdminIssueAttestationResponse, AdminLocalRp, AdminUser, AdminUserClaimsRequest, AdminUserClaimsResponse, AeadSuite, AlgorithmSupport, ApiError, ApiErrorCode, ApplicationKeyAddition, ApplicationKeyAttestation, ApplicationKeyRenewal, ApplicationKeyRevocation, ApplicationKeySignature, ApproveClaimRequest, ApproveClaimResponse, ApproveLocalRpRequest, ApproveLocalRpResponse, AuthFlowContext, AuthRequest, AuthenticateRequest, AuthenticateResponse, AuthenticationRequirements, AuthorizeFinalizeRequest, AuthorizeFinalizeResponse, AuthorizeValidateRequest, AuthorizeValidateResponse, BrowserAuthorizationCompleteRequest, BrowserAuthorizationCompleteResponse, BrowserAuthorizationInspectRequest, BrowserAuthorizationInspectResponse, BrowserConsentClaim, BrowserSessionInfo, ChangePasswordRequest, ChangePasswordResponse, CheckEntries, CheckPermissionRequest, CheckPermissionResponse, CheckResult, CheckValue, Claim, ClaimApproval, ClaimRequest, ClaimSignature, ClaimTypeLabel, ClaimTypePolicy, CompletePasswordRecoveryRequest, CompletePasswordRecoveryResponse, ConfirmContactVerificationRequest, ConfirmContactVerificationResponse, ConsentGrant, CreateGuestbookRequest, CreateProfileRequest, CreateProfileResponse, CreateUserRequest, CreateUserResponse, DeactivateUserRequest, DeactivateUserResponse, DeleteGuestbookRequest, DeleteGuestbookResponse, DenyLocalRpRequest, DenyLocalRpResponse, DepositClaimRequest, DepositClaimResponse, DomainClaim, DomainPublicKey, EmptyRequest, EncryptedToken, EnrollApplicationInstanceRequest, EnrollApplicationInstanceResponse, GetApplicationKeysRequest, GetApplicationKeysResponse, GetDomainKeysResponse, GetLocalRpPolicyRequest, GetLocalRpPolicyResponse, GetLocalRpRequest, GetLocalRpResponse, GetMyInfoResponse, GetNotificationCapabilitiesResponse, GetRevocationsRequest, GetRevocationsResponse, GetUiConfigurationResponse, GetUserClaimsRequest, GetUserClaimsResponse, GetUserInfoRequest, GetUserKeysRequest, GetUserKeysResponse, GetUserRequest, GetUserResponse, GrantRelationRequest, GrantRelationResponse, GuestbookEntry, GuestbookListRequest, GuestbookListResponse, HandshakeRequest, HandshakeResponse, HelloRequest, HelloResponse, IdentityAssertion, IntrospectBrowserSessionRequest, IntrospectBrowserSessionResponse, ListClaimTypesResponse, ListLocalRpsRequest, ListLocalRpsResponse, ListLocalesResponse, ListPendingClaimApprovalsResponse, ListRelationsRequest, ListRelationsResponse, ListReleaseRulesResponse, ListSettablePoliciesResponse, ListTrustedIssuersResponse, ListUserClaimsRequest, ListUserClaimsResponse, ListUsersRequest, ListUsersResponse, ListVerifiedContactMethodsResponse, LocalRpCallbackHeader, LocalRpCallbackPayload, LocalRpDescriptor, LocalRpEncryptedCallback, LocalRpLoginRequest, LocalRpPolicy, LocalRpTicketRedemptionRequest, LocalRpTicketRedemptionResponse, LocaleMessages, NotificationCapability, PasswordPolicy, PinRecheckResult, Profile, PurgeLocalRpTicketsRequest, PurgeLocalRpTicketsResponse, PurgeUserRequest, PurgeUserResponse, RecheckPinsRequest, RecheckPinsResponse, RejectClaimRequest, RejectClaimResponse, Relation, ReleaseRule, RemoveClaimRequest, RemoveClaimResponse, RemoveClaimTypeLabelRequest, RemoveClaimTypeLabelResponse, RemoveClaimTypeRequest, RemoveClaimTypeResponse, RemoveCredentialRequest, RemoveCredentialResponse, RemoveMyClaimRequest, RemoveMyClaimResponse, RemoveRelationRequest, RemoveRelationResponse, RemoveReleaseRuleRequest, RemoveReleaseRuleResponse, RemoveTrustedIssuerRequest, RemoveTrustedIssuerResponse, RenewApplicationKeyAttestationRequest, RenewApplicationKeyAttestationResponse, RequestContactVerificationRequest, RequestContactVerificationResponse, RequestPasswordRecoveryRequest, RequestPasswordRecoveryResponse, RequestVerificationRequest, RequestVerificationResponse, RequestedClaim, ResetPasswordRequest, ResetPasswordResponse, RevocationCertificate, RevokeApplicationKeyRequest, RevokeApplicationKeyResponse, RevokeDomainKeyRequest, RevokeDomainKeyResponse, RevokeLocalRpRequest, RevokeLocalRpResponse, RevokeVerifiedContactMethodRequest, RevokeVerifiedContactMethodResponse, RpDecryptRequest, RpDecryptResponse, RpIssueAttestationRequest, RpIssueAttestationResponse, RpResolveApplicationKeysRequest, RpResolveApplicationKeysResponse, RpResolveDomainKeysRequest, RpResolveDomainKeysResponse, RpSignRequest, RpSignResponse, RpUserInfoRequest, RpVerifyRequest, RpVerifyResponse, SessionCurrentResponse, SessionLogoutResponse, SessionPasswordLoginRequest, SessionPasswordLoginResponse, SetClaimRequest, SetClaimResponse, SetClaimTypeLabelRequest, SetClaimTypeLabelResponse, SetClaimTypeRequest, SetClaimTypeResponse, SetLocalRpPolicyRequest, SetLocalRpPolicyResponse, SetMyClaimRequest, SetMyClaimResponse, SetMyClaimSharingRequest, SetMyClaimSharingResponse, SetReleaseRuleRequest, SetReleaseRuleResponse, SetUserClaimRequest, SetUserClaimResponse, SettableClaimPolicy, SignedApplicationKeyAddition, SignedApplicationKeyAttestation, SignedApplicationKeyRenewal, SignedAuthRequest, SignedConsentGrant, SignedIdentityAssertion, SignedLocalRpCallbackPayload, SignedLocalRpDescriptor, SignedLocalRpLoginRequest, SignedLocalRpTicketRedemptionRequest, SignedSigningRequest, SignedUserInfoRequest, SigningRequest, StartApplicationKeyChallengeRequest, StartApplicationKeyChallengeResponse, TranslationsRequest, TranslationsResponse, TrustedIssuer, UiDisplaySettings, UiExtension, UiTheme, UpdateGuestbookRequest, UpdateUserRequest, UpdateUserResponse, UserInfo, UserInfoRequest, UserPublicKey, ValidatePasswordRecoveryRequest, ValidatePasswordRecoveryResponse, VerifiedContactMethod } from "./types.gen.ts";
 
 /** A CBOR semantic tag wrapping an inner value (e.g. tag 0 timestamp, tag 4 decimal). */
 export type CborTag = { readonly tag: number; readonly value: CborValue };
@@ -20,7 +20,7 @@ export type CborValue =
   | CborTag;
 
 const csilTextEncoder = new TextEncoder();
-const csilTextDecoder = new TextDecoder();
+const csilTextDecoder = new TextDecoder("utf-8", { fatal: true });
 
 function head(major: number, n: number | bigint, out: number[]): void {
   const mt = major << 5;
@@ -98,6 +98,10 @@ function readArg(st: Cursor, low: number): bigint {
     st.pos += 1;
     return BigInt(low);
   }
+  const width = low === 24 ? 1 : low === 25 ? 2 : low === 26 ? 4 : low === 27 ? 8 : 0;
+  if (width === 0 || st.pos >= st.b.length || st.b.length - st.pos - 1 < width) {
+    throw new Error("truncated CBOR argument");
+  }
   if (low === 24) {
     const v = BigInt(st.b[st.pos + 1]);
     st.pos += 2;
@@ -140,7 +144,9 @@ function readFloat(st: Cursor, low: number): number {
   return view.getFloat64(0, false);
 }
 
-function decInto(st: Cursor): CborValue {
+function decInto(st: Cursor, depth: number): CborValue {
+  if (depth > 64) throw new Error("CBOR nesting limit exceeded");
+  if (st.pos >= st.b.length) throw new Error("unexpected end of CBOR input");
   const ib = st.b[st.pos];
   const major = ib >> 5;
   const low = ib & 0x1f;
@@ -169,35 +175,39 @@ function decInto(st: Cursor): CborValue {
       return n >= BigInt(Number.MIN_SAFE_INTEGER) ? Number(n) : n;
     }
     case 2: {
+      if (arg > BigInt(st.b.length - st.pos)) throw new Error("truncated CBOR byte string");
       const n = Number(arg);
       const slice = st.b.slice(st.pos, st.pos + n);
       st.pos += n;
       return slice;
     }
     case 3: {
+      if (arg > BigInt(st.b.length - st.pos)) throw new Error("truncated CBOR text string");
       const n = Number(arg);
       const text = csilTextDecoder.decode(st.b.subarray(st.pos, st.pos + n));
       st.pos += n;
       return text;
     }
     case 4: {
+      if (arg > BigInt(st.b.length - st.pos)) throw new Error("CBOR array length exceeds remaining input");
       const n = Number(arg);
       const arr: CborValue[] = [];
-      for (let i = 0; i < n; i++) arr.push(decInto(st));
+      for (let i = 0; i < n; i++) arr.push(decInto(st, depth + 1));
       return arr;
     }
     case 5: {
+      if (arg > BigInt(st.b.length - st.pos)) throw new Error("CBOR map length exceeds remaining input");
       const n = Number(arg);
       const m = new Map<CborValue, CborValue>();
       for (let i = 0; i < n; i++) {
-        const k = decInto(st);
-        const val = decInto(st);
+        const k = decInto(st, depth + 1);
+        const val = decInto(st, depth + 1);
         m.set(k, val);
       }
       return m;
     }
     case 6: {
-      const inner = decInto(st);
+      const inner = decInto(st, depth + 1);
       return { tag: Number(arg), value: inner };
     }
     default:
@@ -208,7 +218,7 @@ function decInto(st: Cursor): CborValue {
 /** Decode a CSIL CBOR byte payload into a CBOR value tree. */
 export function decode(bytes: Uint8Array): CborValue {
   const st: Cursor = { b: bytes, pos: 0 };
-  const v = decInto(st);
+  const v = decInto(st, 0);
   if (st.pos !== bytes.length) throw new Error("trailing bytes after CBOR value");
   return v;
 }
@@ -5359,5 +5369,663 @@ export function toListLocalesResponseCbor(v: ListLocalesResponse): Uint8Array {
 
 export function fromListLocalesResponseCbor(bytes: Uint8Array): ListLocalesResponse {
   return fromListLocalesResponseCborValue(decode(bytes));
+}
+
+export function toApplicationKeySignatureCborValue(v: ApplicationKeySignature): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("signature", v.signature);
+  csilMap.set("signed_by_key_id", v.signedByKeyId);
+  return csilMap;
+}
+
+export function fromApplicationKeySignatureCborValue(value: CborValue): ApplicationKeySignature {
+  return {
+    signedByKeyId: asString(requireKey(value, "signed_by_key_id")),
+    signature: asBytes(requireKey(value, "signature")),
+  };
+}
+
+export function toApplicationKeySignatureCbor(v: ApplicationKeySignature): Uint8Array {
+  return encodeValue(toApplicationKeySignatureCborValue(v));
+}
+
+export function fromApplicationKeySignatureCbor(bytes: Uint8Array): ApplicationKeySignature {
+  return fromApplicationKeySignatureCborValue(decode(bytes));
+}
+
+export function toApplicationKeyAttestationCborValue(v: ApplicationKeyAttestation): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("key_id", v.keyId);
+  csilMap.set("algorithm", v.algorithm);
+  csilMap.set("key_usage", v.keyUsage);
+  csilMap.set("public_key", v.publicKey);
+  csilMap.set("attested_at", v.attestedAt);
+  csilMap.set("fingerprint", v.fingerprint);
+  csilMap.set("instance_id", v.instanceId);
+  csilMap.set("application_id", v.applicationId);
+  csilMap.set("key_created_at", v.keyCreatedAt);
+  csilMap.set("key_expires_at", v.keyExpiresAt);
+  csilMap.set("subject_domain", v.subjectDomain);
+  csilMap.set("subject_user_id", v.subjectUserId);
+  csilMap.set("attestation_expires_at", v.attestationExpiresAt);
+  return csilMap;
+}
+
+export function fromApplicationKeyAttestationCborValue(value: CborValue): ApplicationKeyAttestation {
+  return {
+    subjectUserId: asString(requireKey(value, "subject_user_id")),
+    subjectDomain: asString(requireKey(value, "subject_domain")),
+    applicationId: asString(requireKey(value, "application_id")),
+    instanceId: asString(requireKey(value, "instance_id")),
+    keyId: asString(requireKey(value, "key_id")),
+    keyUsage: asString(requireKey(value, "key_usage")),
+    algorithm: asString(requireKey(value, "algorithm")),
+    publicKey: asBytes(requireKey(value, "public_key")),
+    fingerprint: asString(requireKey(value, "fingerprint")),
+    keyCreatedAt: asString(requireKey(value, "key_created_at")),
+    keyExpiresAt: asString(requireKey(value, "key_expires_at")),
+    attestedAt: asString(requireKey(value, "attested_at")),
+    attestationExpiresAt: asString(requireKey(value, "attestation_expires_at")),
+  };
+}
+
+export function toApplicationKeyAttestationCbor(v: ApplicationKeyAttestation): Uint8Array {
+  return encodeValue(toApplicationKeyAttestationCborValue(v));
+}
+
+export function fromApplicationKeyAttestationCbor(bytes: Uint8Array): ApplicationKeyAttestation {
+  return fromApplicationKeyAttestationCborValue(decode(bytes));
+}
+
+export function toSignedApplicationKeyAttestationCborValue(v: SignedApplicationKeyAttestation): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("signatures", v.signatures.map((csilE): CborValue => toClaimSignatureCborValue(csilE)));
+  csilMap.set("attestation", v.attestation);
+  return csilMap;
+}
+
+export function fromSignedApplicationKeyAttestationCborValue(value: CborValue): SignedApplicationKeyAttestation {
+  return {
+    attestation: asBytes(requireKey(value, "attestation")),
+    signatures: asArray(requireKey(value, "signatures")).map((csilE) => fromClaimSignatureCborValue(csilE)),
+  };
+}
+
+export function toSignedApplicationKeyAttestationCbor(v: SignedApplicationKeyAttestation): Uint8Array {
+  return encodeValue(toSignedApplicationKeyAttestationCborValue(v));
+}
+
+export function fromSignedApplicationKeyAttestationCbor(bytes: Uint8Array): SignedApplicationKeyAttestation {
+  return fromSignedApplicationKeyAttestationCborValue(decode(bytes));
+}
+
+export function toApplicationKeyAdditionCborValue(v: ApplicationKeyAddition): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("key_id", v.keyId);
+  csilMap.set("algorithm", v.algorithm);
+  csilMap.set("challenge", v.challenge);
+  csilMap.set("key_usage", v.keyUsage);
+  csilMap.set("expires_at", v.expiresAt);
+  csilMap.set("public_key", v.publicKey);
+  csilMap.set("fingerprint", v.fingerprint);
+  csilMap.set("instance_id", v.instanceId);
+  csilMap.set("challenge_id", v.challengeId);
+  csilMap.set("requested_at", v.requestedAt);
+  csilMap.set("application_id", v.applicationId);
+  csilMap.set("subject_domain", v.subjectDomain);
+  csilMap.set("subject_user_id", v.subjectUserId);
+  csilMap.set("requested_key_lifetime_seconds", v.requestedKeyLifetimeSeconds);
+  return csilMap;
+}
+
+export function fromApplicationKeyAdditionCborValue(value: CborValue): ApplicationKeyAddition {
+  return {
+    subjectUserId: asString(requireKey(value, "subject_user_id")),
+    subjectDomain: asString(requireKey(value, "subject_domain")),
+    applicationId: asString(requireKey(value, "application_id")),
+    instanceId: asString(requireKey(value, "instance_id")),
+    keyId: asString(requireKey(value, "key_id")),
+    keyUsage: asString(requireKey(value, "key_usage")),
+    algorithm: asString(requireKey(value, "algorithm")),
+    publicKey: asBytes(requireKey(value, "public_key")),
+    fingerprint: asString(requireKey(value, "fingerprint")),
+    requestedKeyLifetimeSeconds: asNumber(requireKey(value, "requested_key_lifetime_seconds")),
+    challengeId: asString(requireKey(value, "challenge_id")),
+    challenge: asBytes(requireKey(value, "challenge")),
+    requestedAt: asString(requireKey(value, "requested_at")),
+    expiresAt: asString(requireKey(value, "expires_at")),
+  };
+}
+
+export function toApplicationKeyAdditionCbor(v: ApplicationKeyAddition): Uint8Array {
+  return encodeValue(toApplicationKeyAdditionCborValue(v));
+}
+
+export function fromApplicationKeyAdditionCbor(bytes: Uint8Array): ApplicationKeyAddition {
+  return fromApplicationKeyAdditionCborValue(decode(bytes));
+}
+
+export function toSignedApplicationKeyAdditionCborValue(v: SignedApplicationKeyAddition): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("addition", v.addition);
+  csilMap.set("signatures", v.signatures.map((csilE): CborValue => toApplicationKeySignatureCborValue(csilE)));
+  if (v.possessionProof !== undefined) csilMap.set("possession_proof", v.possessionProof);
+  return csilMap;
+}
+
+export function fromSignedApplicationKeyAdditionCborValue(value: CborValue): SignedApplicationKeyAddition {
+  return {
+    addition: asBytes(requireKey(value, "addition")),
+    signatures: asArray(requireKey(value, "signatures")).map((csilE) => fromApplicationKeySignatureCborValue(csilE)),
+    possessionProof: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asBytes(csilV))(mapGet(value, "possession_proof")),
+  };
+}
+
+export function toSignedApplicationKeyAdditionCbor(v: SignedApplicationKeyAddition): Uint8Array {
+  return encodeValue(toSignedApplicationKeyAdditionCborValue(v));
+}
+
+export function fromSignedApplicationKeyAdditionCbor(bytes: Uint8Array): SignedApplicationKeyAddition {
+  return fromSignedApplicationKeyAdditionCborValue(decode(bytes));
+}
+
+export function toApplicationKeyRenewalCborValue(v: ApplicationKeyRenewal): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("key_id", v.keyId);
+  csilMap.set("challenge", v.challenge);
+  csilMap.set("expires_at", v.expiresAt);
+  csilMap.set("instance_id", v.instanceId);
+  csilMap.set("challenge_id", v.challengeId);
+  csilMap.set("requested_at", v.requestedAt);
+  csilMap.set("application_id", v.applicationId);
+  csilMap.set("subject_domain", v.subjectDomain);
+  csilMap.set("subject_user_id", v.subjectUserId);
+  return csilMap;
+}
+
+export function fromApplicationKeyRenewalCborValue(value: CborValue): ApplicationKeyRenewal {
+  return {
+    subjectUserId: asString(requireKey(value, "subject_user_id")),
+    subjectDomain: asString(requireKey(value, "subject_domain")),
+    applicationId: asString(requireKey(value, "application_id")),
+    instanceId: asString(requireKey(value, "instance_id")),
+    keyId: asString(requireKey(value, "key_id")),
+    challengeId: asString(requireKey(value, "challenge_id")),
+    challenge: asBytes(requireKey(value, "challenge")),
+    requestedAt: asString(requireKey(value, "requested_at")),
+    expiresAt: asString(requireKey(value, "expires_at")),
+  };
+}
+
+export function toApplicationKeyRenewalCbor(v: ApplicationKeyRenewal): Uint8Array {
+  return encodeValue(toApplicationKeyRenewalCborValue(v));
+}
+
+export function fromApplicationKeyRenewalCbor(bytes: Uint8Array): ApplicationKeyRenewal {
+  return fromApplicationKeyRenewalCborValue(decode(bytes));
+}
+
+export function toSignedApplicationKeyRenewalCborValue(v: SignedApplicationKeyRenewal): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("renewal", v.renewal);
+  csilMap.set("signatures", v.signatures.map((csilE): CborValue => toApplicationKeySignatureCborValue(csilE)));
+  if (v.possessionProof !== undefined) csilMap.set("possession_proof", v.possessionProof);
+  return csilMap;
+}
+
+export function fromSignedApplicationKeyRenewalCborValue(value: CborValue): SignedApplicationKeyRenewal {
+  return {
+    renewal: asBytes(requireKey(value, "renewal")),
+    signatures: asArray(requireKey(value, "signatures")).map((csilE) => fromApplicationKeySignatureCborValue(csilE)),
+    possessionProof: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asBytes(csilV))(mapGet(value, "possession_proof")),
+  };
+}
+
+export function toSignedApplicationKeyRenewalCbor(v: SignedApplicationKeyRenewal): Uint8Array {
+  return encodeValue(toSignedApplicationKeyRenewalCborValue(v));
+}
+
+export function fromSignedApplicationKeyRenewalCbor(bytes: Uint8Array): SignedApplicationKeyRenewal {
+  return fromSignedApplicationKeyRenewalCborValue(decode(bytes));
+}
+
+export function toApplicationKeyRevocationCborValue(v: ApplicationKeyRevocation): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("revoked_at", v.revokedAt);
+  csilMap.set("signatures", v.signatures.map((csilE): CborValue => toApplicationKeySignatureCborValue(csilE)));
+  csilMap.set("instance_id", v.instanceId);
+  csilMap.set("target_key_id", v.targetKeyId);
+  csilMap.set("application_id", v.applicationId);
+  csilMap.set("subject_domain", v.subjectDomain);
+  csilMap.set("subject_user_id", v.subjectUserId);
+  csilMap.set("target_fingerprint", v.targetFingerprint);
+  return csilMap;
+}
+
+export function fromApplicationKeyRevocationCborValue(value: CborValue): ApplicationKeyRevocation {
+  return {
+    subjectUserId: asString(requireKey(value, "subject_user_id")),
+    subjectDomain: asString(requireKey(value, "subject_domain")),
+    applicationId: asString(requireKey(value, "application_id")),
+    instanceId: asString(requireKey(value, "instance_id")),
+    targetKeyId: asString(requireKey(value, "target_key_id")),
+    targetFingerprint: asString(requireKey(value, "target_fingerprint")),
+    revokedAt: asString(requireKey(value, "revoked_at")),
+    signatures: asArray(requireKey(value, "signatures")).map((csilE) => fromApplicationKeySignatureCborValue(csilE)),
+  };
+}
+
+export function toApplicationKeyRevocationCbor(v: ApplicationKeyRevocation): Uint8Array {
+  return encodeValue(toApplicationKeyRevocationCborValue(v));
+}
+
+export function fromApplicationKeyRevocationCbor(bytes: Uint8Array): ApplicationKeyRevocation {
+  return fromApplicationKeyRevocationCborValue(decode(bytes));
+}
+
+export function toStartApplicationKeyChallengeRequestCborValue(v: StartApplicationKeyChallengeRequest): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("purpose", v.purpose);
+  csilMap.set("algorithm", v.algorithm);
+  csilMap.set("key_usage", v.keyUsage);
+  csilMap.set("public_key", v.publicKey);
+  csilMap.set("instance_id", v.instanceId);
+  csilMap.set("application_id", v.applicationId);
+  csilMap.set("subject_user_id", v.subjectUserId);
+  return csilMap;
+}
+
+export function fromStartApplicationKeyChallengeRequestCborValue(value: CborValue): StartApplicationKeyChallengeRequest {
+  return {
+    subjectUserId: asString(requireKey(value, "subject_user_id")),
+    applicationId: asString(requireKey(value, "application_id")),
+    instanceId: asString(requireKey(value, "instance_id")),
+    purpose: asString(requireKey(value, "purpose")),
+    keyUsage: asString(requireKey(value, "key_usage")),
+    algorithm: asString(requireKey(value, "algorithm")),
+    publicKey: asBytes(requireKey(value, "public_key")),
+  };
+}
+
+export function toStartApplicationKeyChallengeRequestCbor(v: StartApplicationKeyChallengeRequest): Uint8Array {
+  return encodeValue(toStartApplicationKeyChallengeRequestCborValue(v));
+}
+
+export function fromStartApplicationKeyChallengeRequestCbor(bytes: Uint8Array): StartApplicationKeyChallengeRequest {
+  return fromStartApplicationKeyChallengeRequestCborValue(decode(bytes));
+}
+
+export function toStartApplicationKeyChallengeResponseCborValue(v: StartApplicationKeyChallengeResponse): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  if (v.challenge !== undefined) csilMap.set("challenge", v.challenge);
+  csilMap.set("expires_at", v.expiresAt);
+  csilMap.set("challenge_id", v.challengeId);
+  if (v.sealedChallenge !== undefined) csilMap.set("sealed_challenge", v.sealedChallenge);
+  return csilMap;
+}
+
+export function fromStartApplicationKeyChallengeResponseCborValue(value: CborValue): StartApplicationKeyChallengeResponse {
+  return {
+    challengeId: asString(requireKey(value, "challenge_id")),
+    challenge: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asBytes(csilV))(mapGet(value, "challenge")),
+    sealedChallenge: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asBytes(csilV))(mapGet(value, "sealed_challenge")),
+    expiresAt: asString(requireKey(value, "expires_at")),
+  };
+}
+
+export function toStartApplicationKeyChallengeResponseCbor(v: StartApplicationKeyChallengeResponse): Uint8Array {
+  return encodeValue(toStartApplicationKeyChallengeResponseCborValue(v));
+}
+
+export function fromStartApplicationKeyChallengeResponseCbor(bytes: Uint8Array): StartApplicationKeyChallengeResponse {
+  return fromStartApplicationKeyChallengeResponseCborValue(decode(bytes));
+}
+
+export function toAddApplicationKeyRequestCborValue(v: AddApplicationKeyRequest): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("request", toSignedApplicationKeyAdditionCborValue(v.request));
+  return csilMap;
+}
+
+export function fromAddApplicationKeyRequestCborValue(value: CborValue): AddApplicationKeyRequest {
+  return {
+    request: fromSignedApplicationKeyAdditionCborValue(requireKey(value, "request")),
+  };
+}
+
+export function toAddApplicationKeyRequestCbor(v: AddApplicationKeyRequest): Uint8Array {
+  return encodeValue(toAddApplicationKeyRequestCborValue(v));
+}
+
+export function fromAddApplicationKeyRequestCbor(bytes: Uint8Array): AddApplicationKeyRequest {
+  return fromAddApplicationKeyRequestCborValue(decode(bytes));
+}
+
+export function toAddApplicationKeyResponseCborValue(v: AddApplicationKeyResponse): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("attestation", toSignedApplicationKeyAttestationCborValue(v.attestation));
+  return csilMap;
+}
+
+export function fromAddApplicationKeyResponseCborValue(value: CborValue): AddApplicationKeyResponse {
+  return {
+    attestation: fromSignedApplicationKeyAttestationCborValue(requireKey(value, "attestation")),
+  };
+}
+
+export function toAddApplicationKeyResponseCbor(v: AddApplicationKeyResponse): Uint8Array {
+  return encodeValue(toAddApplicationKeyResponseCborValue(v));
+}
+
+export function fromAddApplicationKeyResponseCbor(bytes: Uint8Array): AddApplicationKeyResponse {
+  return fromAddApplicationKeyResponseCborValue(decode(bytes));
+}
+
+export function toRenewApplicationKeyAttestationRequestCborValue(v: RenewApplicationKeyAttestationRequest): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("request", toSignedApplicationKeyRenewalCborValue(v.request));
+  return csilMap;
+}
+
+export function fromRenewApplicationKeyAttestationRequestCborValue(value: CborValue): RenewApplicationKeyAttestationRequest {
+  return {
+    request: fromSignedApplicationKeyRenewalCborValue(requireKey(value, "request")),
+  };
+}
+
+export function toRenewApplicationKeyAttestationRequestCbor(v: RenewApplicationKeyAttestationRequest): Uint8Array {
+  return encodeValue(toRenewApplicationKeyAttestationRequestCborValue(v));
+}
+
+export function fromRenewApplicationKeyAttestationRequestCbor(bytes: Uint8Array): RenewApplicationKeyAttestationRequest {
+  return fromRenewApplicationKeyAttestationRequestCborValue(decode(bytes));
+}
+
+export function toRenewApplicationKeyAttestationResponseCborValue(v: RenewApplicationKeyAttestationResponse): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("signed", v.signed);
+  csilMap.set("attestation", toSignedApplicationKeyAttestationCborValue(v.attestation));
+  return csilMap;
+}
+
+export function fromRenewApplicationKeyAttestationResponseCborValue(value: CborValue): RenewApplicationKeyAttestationResponse {
+  return {
+    attestation: fromSignedApplicationKeyAttestationCborValue(requireKey(value, "attestation")),
+    signed: asBool(requireKey(value, "signed")),
+  };
+}
+
+export function toRenewApplicationKeyAttestationResponseCbor(v: RenewApplicationKeyAttestationResponse): Uint8Array {
+  return encodeValue(toRenewApplicationKeyAttestationResponseCborValue(v));
+}
+
+export function fromRenewApplicationKeyAttestationResponseCbor(bytes: Uint8Array): RenewApplicationKeyAttestationResponse {
+  return fromRenewApplicationKeyAttestationResponseCborValue(decode(bytes));
+}
+
+export function toRevokeApplicationKeyRequestCborValue(v: RevokeApplicationKeyRequest): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("revocation", toApplicationKeyRevocationCborValue(v.revocation));
+  return csilMap;
+}
+
+export function fromRevokeApplicationKeyRequestCborValue(value: CborValue): RevokeApplicationKeyRequest {
+  return {
+    revocation: fromApplicationKeyRevocationCborValue(requireKey(value, "revocation")),
+  };
+}
+
+export function toRevokeApplicationKeyRequestCbor(v: RevokeApplicationKeyRequest): Uint8Array {
+  return encodeValue(toRevokeApplicationKeyRequestCborValue(v));
+}
+
+export function fromRevokeApplicationKeyRequestCbor(bytes: Uint8Array): RevokeApplicationKeyRequest {
+  return fromRevokeApplicationKeyRequestCborValue(decode(bytes));
+}
+
+export function toRevokeApplicationKeyResponseCborValue(v: RevokeApplicationKeyResponse): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("revoked_at", v.revokedAt);
+  return csilMap;
+}
+
+export function fromRevokeApplicationKeyResponseCborValue(value: CborValue): RevokeApplicationKeyResponse {
+  return {
+    revokedAt: asString(requireKey(value, "revoked_at")),
+  };
+}
+
+export function toRevokeApplicationKeyResponseCbor(v: RevokeApplicationKeyResponse): Uint8Array {
+  return encodeValue(toRevokeApplicationKeyResponseCborValue(v));
+}
+
+export function fromRevokeApplicationKeyResponseCbor(bytes: Uint8Array): RevokeApplicationKeyResponse {
+  return fromRevokeApplicationKeyResponseCborValue(decode(bytes));
+}
+
+export function toEnrollApplicationInstanceRequestCborValue(v: EnrollApplicationInstanceRequest): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("keys", v.keys.map((csilE): CborValue => toSignedApplicationKeyAdditionCborValue(csilE)));
+  csilMap.set("instance_id", v.instanceId);
+  csilMap.set("application_id", v.applicationId);
+  return csilMap;
+}
+
+export function fromEnrollApplicationInstanceRequestCborValue(value: CborValue): EnrollApplicationInstanceRequest {
+  return {
+    applicationId: asString(requireKey(value, "application_id")),
+    instanceId: asString(requireKey(value, "instance_id")),
+    keys: asArray(requireKey(value, "keys")).map((csilE) => fromSignedApplicationKeyAdditionCborValue(csilE)),
+  };
+}
+
+export function toEnrollApplicationInstanceRequestCbor(v: EnrollApplicationInstanceRequest): Uint8Array {
+  return encodeValue(toEnrollApplicationInstanceRequestCborValue(v));
+}
+
+export function fromEnrollApplicationInstanceRequestCbor(bytes: Uint8Array): EnrollApplicationInstanceRequest {
+  return fromEnrollApplicationInstanceRequestCborValue(decode(bytes));
+}
+
+export function toEnrollApplicationInstanceResponseCborValue(v: EnrollApplicationInstanceResponse): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("instance_id", v.instanceId);
+  csilMap.set("attestations", v.attestations.map((csilE): CborValue => toSignedApplicationKeyAttestationCborValue(csilE)));
+  csilMap.set("application_id", v.applicationId);
+  csilMap.set("subject_domain", v.subjectDomain);
+  csilMap.set("subject_user_id", v.subjectUserId);
+  return csilMap;
+}
+
+export function fromEnrollApplicationInstanceResponseCborValue(value: CborValue): EnrollApplicationInstanceResponse {
+  return {
+    subjectUserId: asString(requireKey(value, "subject_user_id")),
+    subjectDomain: asString(requireKey(value, "subject_domain")),
+    applicationId: asString(requireKey(value, "application_id")),
+    instanceId: asString(requireKey(value, "instance_id")),
+    attestations: asArray(requireKey(value, "attestations")).map((csilE) => fromSignedApplicationKeyAttestationCborValue(csilE)),
+  };
+}
+
+export function toEnrollApplicationInstanceResponseCbor(v: EnrollApplicationInstanceResponse): Uint8Array {
+  return encodeValue(toEnrollApplicationInstanceResponseCborValue(v));
+}
+
+export function fromEnrollApplicationInstanceResponseCbor(bytes: Uint8Array): EnrollApplicationInstanceResponse {
+  return fromEnrollApplicationInstanceResponseCborValue(decode(bytes));
+}
+
+export function toGetApplicationKeysRequestCborValue(v: GetApplicationKeysRequest): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("instance_id", v.instanceId);
+  csilMap.set("application_id", v.applicationId);
+  csilMap.set("subject_user_id", v.subjectUserId);
+  return csilMap;
+}
+
+export function fromGetApplicationKeysRequestCborValue(value: CborValue): GetApplicationKeysRequest {
+  return {
+    subjectUserId: asString(requireKey(value, "subject_user_id")),
+    applicationId: asString(requireKey(value, "application_id")),
+    instanceId: asString(requireKey(value, "instance_id")),
+  };
+}
+
+export function toGetApplicationKeysRequestCbor(v: GetApplicationKeysRequest): Uint8Array {
+  return encodeValue(toGetApplicationKeysRequestCborValue(v));
+}
+
+export function fromGetApplicationKeysRequestCbor(bytes: Uint8Array): GetApplicationKeysRequest {
+  return fromGetApplicationKeysRequestCborValue(decode(bytes));
+}
+
+export function toGetApplicationKeysResponseCborValue(v: GetApplicationKeysResponse): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("keys", v.keys.map((csilE): CborValue => toSignedApplicationKeyAttestationCborValue(csilE)));
+  csilMap.set("instance_id", v.instanceId);
+  csilMap.set("revocations", v.revocations.map((csilE): CborValue => toApplicationKeyRevocationCborValue(csilE)));
+  csilMap.set("application_id", v.applicationId);
+  csilMap.set("subject_domain", v.subjectDomain);
+  csilMap.set("subject_user_id", v.subjectUserId);
+  return csilMap;
+}
+
+export function fromGetApplicationKeysResponseCborValue(value: CborValue): GetApplicationKeysResponse {
+  return {
+    subjectUserId: asString(requireKey(value, "subject_user_id")),
+    subjectDomain: asString(requireKey(value, "subject_domain")),
+    applicationId: asString(requireKey(value, "application_id")),
+    instanceId: asString(requireKey(value, "instance_id")),
+    keys: asArray(requireKey(value, "keys")).map((csilE) => fromSignedApplicationKeyAttestationCborValue(csilE)),
+    revocations: asArray(requireKey(value, "revocations")).map((csilE) => fromApplicationKeyRevocationCborValue(csilE)),
+  };
+}
+
+export function toGetApplicationKeysResponseCbor(v: GetApplicationKeysResponse): Uint8Array {
+  return encodeValue(toGetApplicationKeysResponseCborValue(v));
+}
+
+export function fromGetApplicationKeysResponseCbor(bytes: Uint8Array): GetApplicationKeysResponse {
+  return fromGetApplicationKeysResponseCborValue(decode(bytes));
+}
+
+export function toRpResolveDomainKeysRequestCborValue(v: RpResolveDomainKeysRequest): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("domain", v.domain);
+  if (v.maxCacheAgeSeconds !== undefined) csilMap.set("max_cache_age_seconds", v.maxCacheAgeSeconds);
+  return csilMap;
+}
+
+export function fromRpResolveDomainKeysRequestCborValue(value: CborValue): RpResolveDomainKeysRequest {
+  return {
+    domain: asString(requireKey(value, "domain")),
+    maxCacheAgeSeconds: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asNumber(csilV))(mapGet(value, "max_cache_age_seconds")),
+  };
+}
+
+export function toRpResolveDomainKeysRequestCbor(v: RpResolveDomainKeysRequest): Uint8Array {
+  return encodeValue(toRpResolveDomainKeysRequestCborValue(v));
+}
+
+export function fromRpResolveDomainKeysRequestCbor(bytes: Uint8Array): RpResolveDomainKeysRequest {
+  return fromRpResolveDomainKeysRequestCborValue(decode(bytes));
+}
+
+export function toRpResolveDomainKeysResponseCborValue(v: RpResolveDomainKeysResponse): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("keys", v.keys.map((csilE): CborValue => toDomainPublicKeyCborValue(csilE)));
+  csilMap.set("domain", v.domain);
+  csilMap.set("fetched_at", v.fetchedAt);
+  csilMap.set("revocations", v.revocations.map((csilE): CborValue => toRevocationCertificateCborValue(csilE)));
+  csilMap.set("cache_status", v.cacheStatus);
+  csilMap.set("revocations_checked_at", v.revocationsCheckedAt);
+  return csilMap;
+}
+
+export function fromRpResolveDomainKeysResponseCborValue(value: CborValue): RpResolveDomainKeysResponse {
+  return {
+    domain: asString(requireKey(value, "domain")),
+    keys: asArray(requireKey(value, "keys")).map((csilE) => fromDomainPublicKeyCborValue(csilE)),
+    revocations: asArray(requireKey(value, "revocations")).map((csilE) => fromRevocationCertificateCborValue(csilE)),
+    fetchedAt: asString(requireKey(value, "fetched_at")),
+    revocationsCheckedAt: asString(requireKey(value, "revocations_checked_at")),
+    cacheStatus: asString(requireKey(value, "cache_status")),
+  };
+}
+
+export function toRpResolveDomainKeysResponseCbor(v: RpResolveDomainKeysResponse): Uint8Array {
+  return encodeValue(toRpResolveDomainKeysResponseCborValue(v));
+}
+
+export function fromRpResolveDomainKeysResponseCbor(bytes: Uint8Array): RpResolveDomainKeysResponse {
+  return fromRpResolveDomainKeysResponseCborValue(decode(bytes));
+}
+
+export function toRpResolveApplicationKeysRequestCborValue(v: RpResolveApplicationKeysRequest): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("instance_id", v.instanceId);
+  csilMap.set("application_id", v.applicationId);
+  csilMap.set("subject_domain", v.subjectDomain);
+  csilMap.set("subject_user_id", v.subjectUserId);
+  if (v.maxCacheAgeSeconds !== undefined) csilMap.set("max_cache_age_seconds", v.maxCacheAgeSeconds);
+  return csilMap;
+}
+
+export function fromRpResolveApplicationKeysRequestCborValue(value: CborValue): RpResolveApplicationKeysRequest {
+  return {
+    subjectUserId: asString(requireKey(value, "subject_user_id")),
+    subjectDomain: asString(requireKey(value, "subject_domain")),
+    applicationId: asString(requireKey(value, "application_id")),
+    instanceId: asString(requireKey(value, "instance_id")),
+    maxCacheAgeSeconds: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asNumber(csilV))(mapGet(value, "max_cache_age_seconds")),
+  };
+}
+
+export function toRpResolveApplicationKeysRequestCbor(v: RpResolveApplicationKeysRequest): Uint8Array {
+  return encodeValue(toRpResolveApplicationKeysRequestCborValue(v));
+}
+
+export function fromRpResolveApplicationKeysRequestCbor(bytes: Uint8Array): RpResolveApplicationKeysRequest {
+  return fromRpResolveApplicationKeysRequestCborValue(decode(bytes));
+}
+
+export function toRpResolveApplicationKeysResponseCborValue(v: RpResolveApplicationKeysResponse): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("fetched_at", v.fetchedAt);
+  csilMap.set("instance_id", v.instanceId);
+  csilMap.set("cache_status", v.cacheStatus);
+  csilMap.set("application_id", v.applicationId);
+  csilMap.set("subject_domain", v.subjectDomain);
+  csilMap.set("subject_user_id", v.subjectUserId);
+  csilMap.set("application_keys", v.applicationKeys.map((csilE): CborValue => toSignedApplicationKeyAttestationCborValue(csilE)));
+  csilMap.set("home_domain_keys", v.homeDomainKeys.map((csilE): CborValue => toDomainPublicKeyCborValue(csilE)));
+  csilMap.set("revocations_checked_at", v.revocationsCheckedAt);
+  csilMap.set("application_key_revocations", v.applicationKeyRevocations.map((csilE): CborValue => toApplicationKeyRevocationCborValue(csilE)));
+  csilMap.set("home_domain_key_revocations", v.homeDomainKeyRevocations.map((csilE): CborValue => toRevocationCertificateCborValue(csilE)));
+  return csilMap;
+}
+
+export function fromRpResolveApplicationKeysResponseCborValue(value: CborValue): RpResolveApplicationKeysResponse {
+  return {
+    subjectUserId: asString(requireKey(value, "subject_user_id")),
+    subjectDomain: asString(requireKey(value, "subject_domain")),
+    applicationId: asString(requireKey(value, "application_id")),
+    instanceId: asString(requireKey(value, "instance_id")),
+    applicationKeys: asArray(requireKey(value, "application_keys")).map((csilE) => fromSignedApplicationKeyAttestationCborValue(csilE)),
+    applicationKeyRevocations: asArray(requireKey(value, "application_key_revocations")).map((csilE) => fromApplicationKeyRevocationCborValue(csilE)),
+    homeDomainKeys: asArray(requireKey(value, "home_domain_keys")).map((csilE) => fromDomainPublicKeyCborValue(csilE)),
+    homeDomainKeyRevocations: asArray(requireKey(value, "home_domain_key_revocations")).map((csilE) => fromRevocationCertificateCborValue(csilE)),
+    fetchedAt: asString(requireKey(value, "fetched_at")),
+    revocationsCheckedAt: asString(requireKey(value, "revocations_checked_at")),
+    cacheStatus: asString(requireKey(value, "cache_status")),
+  };
+}
+
+export function toRpResolveApplicationKeysResponseCbor(v: RpResolveApplicationKeysResponse): Uint8Array {
+  return encodeValue(toRpResolveApplicationKeysResponseCborValue(v));
+}
+
+export function fromRpResolveApplicationKeysResponseCbor(bytes: Uint8Array): RpResolveApplicationKeysResponse {
+  return fromRpResolveApplicationKeysResponseCborValue(decode(bytes));
 }
 

@@ -20,8 +20,9 @@ use liblinkkeys::dns::{
     linkkeys_apis_dns_name, linkkeys_dns_name, parse_linkkeys_apis_txt, parse_linkkeys_txt,
 };
 use liblinkkeys::generated::types::{
-    DomainPublicKey, EmptyRequest, GetDomainKeysResponse, GetRevocationsRequest,
-    GetRevocationsResponse, LocalRpTicketRedemptionResponse, SignedLocalRpTicketRedemptionRequest,
+    DomainPublicKey, EmptyRequest, GetApplicationKeysRequest, GetApplicationKeysResponse,
+    GetDomainKeysResponse, GetRevocationsRequest, GetRevocationsResponse,
+    LocalRpTicketRedemptionResponse, SignedLocalRpTicketRedemptionRequest,
 };
 use std::io::{Read, Write};
 use std::sync::Arc;
@@ -241,6 +242,41 @@ pub fn fetch_domain_keys(
         return Err(Error::NoTrustedDomainKeys(domain.to_string()));
     }
     Ok(trusted)
+}
+
+/// Fetch `instance`'s application-key attestations and revocations from its
+/// home domain: the anonymous `ApplicationKeys/get-application-keys` read
+/// (`signing-things-request.md`, "Public key reads" — "The request has no API
+/// key and does not require a client certificate. It does not mean that the
+/// response is untrusted."), pinned to the domain's DNS `fp=` set exactly
+/// like [`fetch_domain_keys`]. This function does no verification of its
+/// own — it only fetches. The caller (`crate::application_key_resolver`)
+/// verifies every signed record with
+/// `liblinkkeys::application_keys::verify_application_key_set`.
+pub fn fetch_application_keys(
+    transport: &dyn Transport,
+    dns: &dyn DnsResolver,
+    subject_domain: &str,
+    subject_user_id: &str,
+    application_id: &str,
+    instance_id: &str,
+) -> Result<GetApplicationKeysResponse, Error> {
+    let endpoint = discover_domain_endpoint(dns, subject_domain)?;
+    let payload =
+        liblinkkeys::generated::encode_get_application_keys_request(&GetApplicationKeysRequest {
+            subject_user_id: subject_user_id.to_string(),
+            application_id: application_id.to_string(),
+            instance_id: instance_id.to_string(),
+        });
+    let resp_bytes = call(
+        transport,
+        &endpoint,
+        "ApplicationKeys",
+        "get-application-keys",
+        payload,
+    )?;
+    liblinkkeys::generated::decode_get_application_keys_response(&resp_bytes)
+        .map_err(|e| Error::Decode(format!("get-application-keys response: {e}")))
 }
 
 /// Redeem a claim ticket with `domain`'s IDP: `LocalRp/redeem-claim-ticket`

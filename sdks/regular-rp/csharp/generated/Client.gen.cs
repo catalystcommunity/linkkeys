@@ -75,6 +75,22 @@ public sealed class UserKeysClient(ICsilTransport transport)
         Codec.Decode<GetUserKeysResponse>(transport.Call("UserKeys", "get-user-keys", Codec.Encode(getUserKeysRequest)));
 }
 
+/// <summary>Typed RPC client for the ApplicationKeys service. The client owns
+/// (de)serialization via the generated codec; the transport only moves bytes.</summary>
+public sealed class ApplicationKeysClient(ICsilTransport transport)
+{
+    public GetApplicationKeysResponse GetApplicationKeys(GetApplicationKeysRequest getApplicationKeysRequest) =>
+        Codec.Decode<GetApplicationKeysResponse>(transport.Call("ApplicationKeys", "get-application-keys", Codec.Encode(getApplicationKeysRequest)));
+    public StartApplicationKeyChallengeResponse StartKeyChallenge(StartApplicationKeyChallengeRequest startApplicationKeyChallengeRequest) =>
+        Codec.Decode<StartApplicationKeyChallengeResponse>(transport.Call("ApplicationKeys", "start-key-challenge", Codec.Encode(startApplicationKeyChallengeRequest)));
+    public AddApplicationKeyResponse AddKey(AddApplicationKeyRequest addApplicationKeyRequest) =>
+        Codec.Decode<AddApplicationKeyResponse>(transport.Call("ApplicationKeys", "add-key", Codec.Encode(addApplicationKeyRequest)));
+    public RenewApplicationKeyAttestationResponse RenewAttestation(RenewApplicationKeyAttestationRequest renewApplicationKeyAttestationRequest) =>
+        Codec.Decode<RenewApplicationKeyAttestationResponse>(transport.Call("ApplicationKeys", "renew-attestation", Codec.Encode(renewApplicationKeyAttestationRequest)));
+    public RevokeApplicationKeyResponse RevokeKey(RevokeApplicationKeyRequest revokeApplicationKeyRequest) =>
+        Codec.Decode<RevokeApplicationKeyResponse>(transport.Call("ApplicationKeys", "revoke-key", Codec.Encode(revokeApplicationKeyRequest)));
+}
+
 /// <summary>Typed RPC client for the Identity service. The client owns
 /// (de)serialization via the generated codec; the transport only moves bytes.</summary>
 public sealed class IdentityClient(ICsilTransport transport)
@@ -277,6 +293,8 @@ public sealed class AccountClient(ICsilTransport transport)
         Codec.Decode<RequestContactVerificationResponse>(transport.Call("Account", "request-contact-verification", Codec.Encode(requestContactVerificationRequest)));
     public ConfirmContactVerificationResponse ConfirmContactVerification(ConfirmContactVerificationRequest confirmContactVerificationRequest) =>
         Codec.Decode<ConfirmContactVerificationResponse>(transport.Call("Account", "confirm-contact-verification", Codec.Encode(confirmContactVerificationRequest)));
+    public EnrollApplicationInstanceResponse EnrollApplicationInstance(EnrollApplicationInstanceRequest enrollApplicationInstanceRequest) =>
+        Codec.Decode<EnrollApplicationInstanceResponse>(transport.Call("Account", "enroll-application-instance", Codec.Encode(enrollApplicationInstanceRequest)));
 }
 
 /// <summary>Typed RPC client for the Attestation service. The client owns
@@ -301,6 +319,10 @@ public sealed class RpClient(ICsilTransport transport)
         Codec.Decode<UserInfo>(transport.Call("Rp", "userinfo-fetch", Codec.Encode(rpUserInfoRequest)));
     public RpIssueAttestationResponse IssueAttestation(RpIssueAttestationRequest rpIssueAttestationRequest) =>
         Codec.Decode<RpIssueAttestationResponse>(transport.Call("Rp", "issue-attestation", Codec.Encode(rpIssueAttestationRequest)));
+    public RpResolveDomainKeysResponse ResolveDomainKeys(RpResolveDomainKeysRequest rpResolveDomainKeysRequest) =>
+        Codec.Decode<RpResolveDomainKeysResponse>(transport.Call("Rp", "resolve-domain-keys", Codec.Encode(rpResolveDomainKeysRequest)));
+    public RpResolveApplicationKeysResponse ResolveApplicationKeys(RpResolveApplicationKeysRequest rpResolveApplicationKeysRequest) =>
+        Codec.Decode<RpResolveApplicationKeysResponse>(transport.Call("Rp", "resolve-application-keys", Codec.Encode(rpResolveApplicationKeysRequest)));
 }
 
 /// <summary>Typed RPC client for the LocalRp service. The client owns

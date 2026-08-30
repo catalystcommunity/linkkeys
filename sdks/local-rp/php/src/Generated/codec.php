@@ -973,6 +973,31 @@ class Codec
         ));
     }
 
+    public static function encodeAuthenticationRequirements($value)
+    {
+        return CBOR::encode(self::toCborAuthenticationRequirements($value));
+    }
+
+    public static function decodeAuthenticationRequirements($bytes)
+    {
+        return self::fromCborAuthenticationRequirements(CBOR::decode($bytes));
+    }
+
+    public static function toCborAuthenticationRequirements($value)
+    {
+        $out = array();
+        $field = $value instanceof AuthenticationRequirements ? $value->minimumFactorCount : (is_array($value) && array_key_exists('minimum_factor_count', $value) ? $value['minimum_factor_count'] : null);
+        $out['minimum_factor_count'] = $field;
+        return $out;
+    }
+
+    public static function fromCborAuthenticationRequirements($value)
+    {
+        return new AuthenticationRequirements(array(
+            'minimum_factor_count' => array_key_exists('minimum_factor_count', $value) ? $value['minimum_factor_count'] : null,
+        ));
+    }
+
     public static function encodeAuthFlowContext($value)
     {
         return CBOR::encode(self::toCborAuthFlowContext($value));
@@ -1103,6 +1128,8 @@ class Codec
         $out['claim_value'] = CBOR::bytes($field);
         $field = $value instanceof DomainClaim ? $value->signatures : (is_array($value) && array_key_exists('signatures', $value) ? $value['signatures'] : null);
         $out['signatures'] = array_map(function ($item) { return self::toCborClaimSignature($item); }, $field === null ? array() : $field);
+        $field = $value instanceof DomainClaim ? $value->attestedAt : (is_array($value) && array_key_exists('attested_at', $value) ? $value['attested_at'] : null);
+        $out['attested_at'] = $field;
         $field = $value instanceof DomainClaim ? $value->expiresAt : (is_array($value) && array_key_exists('expires_at', $value) ? $value['expires_at'] : null);
         if ($field !== null) {
             $out['expires_at'] = $field;
@@ -1116,6 +1143,7 @@ class Codec
             'claim_type' => array_key_exists('claim_type', $value) ? $value['claim_type'] : null,
             'claim_value' => array_key_exists('claim_value', $value) ? $value['claim_value'] : null,
             'signatures' => array_key_exists('signatures', $value) ? array_map(function ($item) { return self::fromCborClaimSignature($item); }, $value['signatures'] === null ? array() : $value['signatures']) : null,
+            'attested_at' => array_key_exists('attested_at', $value) ? $value['attested_at'] : null,
             'expires_at' => array_key_exists('expires_at', $value) ? $value['expires_at'] : null,
         ));
     }
@@ -1484,6 +1512,10 @@ class Codec
         if ($field !== null) {
             $out['requested_claims'] = self::toCborClaimRequest($field);
         }
+        $field = $value instanceof AuthRequest ? $value->authenticationRequirements : (is_array($value) && array_key_exists('authentication_requirements', $value) ? $value['authentication_requirements'] : null);
+        if ($field !== null) {
+            $out['authentication_requirements'] = self::toCborAuthenticationRequirements($field);
+        }
         $field = $value instanceof AuthRequest ? $value->flowContext : (is_array($value) && array_key_exists('flow_context', $value) ? $value['flow_context'] : null);
         if ($field !== null) {
             $out['flow_context'] = self::toCborAuthFlowContext($field);
@@ -1504,6 +1536,7 @@ class Codec
             'timestamp' => array_key_exists('timestamp', $value) ? $value['timestamp'] : null,
             'signing_key_id' => array_key_exists('signing_key_id', $value) ? $value['signing_key_id'] : null,
             'requested_claims' => array_key_exists('requested_claims', $value) ? self::fromCborClaimRequest($value['requested_claims']) : null,
+            'authentication_requirements' => array_key_exists('authentication_requirements', $value) ? self::fromCborAuthenticationRequirements($value['authentication_requirements']) : null,
             'flow_context' => array_key_exists('flow_context', $value) ? self::fromCborAuthFlowContext($value['flow_context']) : null,
             'relying_party_claims' => array_key_exists('relying_party_claims', $value) ? array_map(function ($item) { return self::fromCborDomainClaim($item); }, $value['relying_party_claims'] === null ? array() : $value['relying_party_claims']) : null,
         ));
@@ -1735,6 +1768,14 @@ class Codec
         $out['created_at'] = $field;
         $field = $value instanceof AdminUser ? $value->updatedAt : (is_array($value) && array_key_exists('updated_at', $value) ? $value['updated_at'] : null);
         $out['updated_at'] = $field;
+        $field = $value instanceof AdminUser ? $value->purgedAt : (is_array($value) && array_key_exists('purged_at', $value) ? $value['purged_at'] : null);
+        if ($field !== null) {
+            $out['purged_at'] = $field;
+        }
+        $field = $value instanceof AdminUser ? $value->purgeReason : (is_array($value) && array_key_exists('purge_reason', $value) ? $value['purge_reason'] : null);
+        if ($field !== null) {
+            $out['purge_reason'] = $field;
+        }
         return $out;
     }
 
@@ -1747,6 +1788,8 @@ class Codec
             'is_active' => array_key_exists('is_active', $value) ? $value['is_active'] : null,
             'created_at' => array_key_exists('created_at', $value) ? $value['created_at'] : null,
             'updated_at' => array_key_exists('updated_at', $value) ? $value['updated_at'] : null,
+            'purged_at' => array_key_exists('purged_at', $value) ? $value['purged_at'] : null,
+            'purge_reason' => array_key_exists('purge_reason', $value) ? $value['purge_reason'] : null,
         ));
     }
 
@@ -1771,6 +1814,10 @@ class Codec
         if ($field !== null) {
             $out['limit'] = $field;
         }
+        $field = $value instanceof ListUsersRequest ? $value->includePurged : (is_array($value) && array_key_exists('include_purged', $value) ? $value['include_purged'] : null);
+        if ($field !== null) {
+            $out['include_purged'] = $field;
+        }
         return $out;
     }
 
@@ -1779,6 +1826,7 @@ class Codec
         return new ListUsersRequest(array(
             'offset' => array_key_exists('offset', $value) ? $value['offset'] : null,
             'limit' => array_key_exists('limit', $value) ? $value['limit'] : null,
+            'include_purged' => array_key_exists('include_purged', $value) ? $value['include_purged'] : null,
         ));
     }
 
@@ -2022,6 +2070,197 @@ class Codec
     {
         return new DeactivateUserResponse(array(
             'user' => array_key_exists('user', $value) ? self::fromCborAdminUser($value['user']) : null,
+        ));
+    }
+
+    public static function encodeActivateUserRequest($value)
+    {
+        return CBOR::encode(self::toCborActivateUserRequest($value));
+    }
+
+    public static function decodeActivateUserRequest($bytes)
+    {
+        return self::fromCborActivateUserRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborActivateUserRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof ActivateUserRequest ? $value->userId : (is_array($value) && array_key_exists('user_id', $value) ? $value['user_id'] : null);
+        $out['user_id'] = $field;
+        return $out;
+    }
+
+    public static function fromCborActivateUserRequest($value)
+    {
+        return new ActivateUserRequest(array(
+            'user_id' => array_key_exists('user_id', $value) ? $value['user_id'] : null,
+        ));
+    }
+
+    public static function encodeActivateUserResponse($value)
+    {
+        return CBOR::encode(self::toCborActivateUserResponse($value));
+    }
+
+    public static function decodeActivateUserResponse($bytes)
+    {
+        return self::fromCborActivateUserResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborActivateUserResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof ActivateUserResponse ? $value->user : (is_array($value) && array_key_exists('user', $value) ? $value['user'] : null);
+        $out['user'] = self::toCborAdminUser($field);
+        return $out;
+    }
+
+    public static function fromCborActivateUserResponse($value)
+    {
+        return new ActivateUserResponse(array(
+            'user' => array_key_exists('user', $value) ? self::fromCborAdminUser($value['user']) : null,
+        ));
+    }
+
+    public static function encodePurgeUserRequest($value)
+    {
+        return CBOR::encode(self::toCborPurgeUserRequest($value));
+    }
+
+    public static function decodePurgeUserRequest($bytes)
+    {
+        return self::fromCborPurgeUserRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborPurgeUserRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof PurgeUserRequest ? $value->userId : (is_array($value) && array_key_exists('user_id', $value) ? $value['user_id'] : null);
+        $out['user_id'] = $field;
+        $field = $value instanceof PurgeUserRequest ? $value->reason : (is_array($value) && array_key_exists('reason', $value) ? $value['reason'] : null);
+        if ($field !== null) {
+            $out['reason'] = $field;
+        }
+        return $out;
+    }
+
+    public static function fromCborPurgeUserRequest($value)
+    {
+        return new PurgeUserRequest(array(
+            'user_id' => array_key_exists('user_id', $value) ? $value['user_id'] : null,
+            'reason' => array_key_exists('reason', $value) ? $value['reason'] : null,
+        ));
+    }
+
+    public static function encodePurgeUserResponse($value)
+    {
+        return CBOR::encode(self::toCborPurgeUserResponse($value));
+    }
+
+    public static function decodePurgeUserResponse($bytes)
+    {
+        return self::fromCborPurgeUserResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborPurgeUserResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof PurgeUserResponse ? $value->user : (is_array($value) && array_key_exists('user', $value) ? $value['user'] : null);
+        $out['user'] = self::toCborAdminUser($field);
+        $field = $value instanceof PurgeUserResponse ? $value->credentialsRevoked : (is_array($value) && array_key_exists('credentials_revoked', $value) ? $value['credentials_revoked'] : null);
+        $out['credentials_revoked'] = $field;
+        $field = $value instanceof PurgeUserResponse ? $value->keysRevoked : (is_array($value) && array_key_exists('keys_revoked', $value) ? $value['keys_revoked'] : null);
+        $out['keys_revoked'] = $field;
+        $field = $value instanceof PurgeUserResponse ? $value->claimsRevoked : (is_array($value) && array_key_exists('claims_revoked', $value) ? $value['claims_revoked'] : null);
+        $out['claims_revoked'] = $field;
+        $field = $value instanceof PurgeUserResponse ? $value->relationsRemoved : (is_array($value) && array_key_exists('relations_removed', $value) ? $value['relations_removed'] : null);
+        $out['relations_removed'] = $field;
+        $field = $value instanceof PurgeUserResponse ? $value->profilesDeleted : (is_array($value) && array_key_exists('profiles_deleted', $value) ? $value['profiles_deleted'] : null);
+        $out['profiles_deleted'] = $field;
+        $field = $value instanceof PurgeUserResponse ? $value->consentGrantsDeleted : (is_array($value) && array_key_exists('consent_grants_deleted', $value) ? $value['consent_grants_deleted'] : null);
+        $out['consent_grants_deleted'] = $field;
+        $field = $value instanceof PurgeUserResponse ? $value->releasePrefsDeleted : (is_array($value) && array_key_exists('release_prefs_deleted', $value) ? $value['release_prefs_deleted'] : null);
+        $out['release_prefs_deleted'] = $field;
+        $field = $value instanceof PurgeUserResponse ? $value->emailVerificationsDeleted : (is_array($value) && array_key_exists('email_verifications_deleted', $value) ? $value['email_verifications_deleted'] : null);
+        $out['email_verifications_deleted'] = $field;
+        $field = $value instanceof PurgeUserResponse ? $value->reviewsResolved : (is_array($value) && array_key_exists('reviews_resolved', $value) ? $value['reviews_resolved'] : null);
+        $out['reviews_resolved'] = $field;
+        $field = $value instanceof PurgeUserResponse ? $value->localRpClaimTicketsDeleted : (is_array($value) && array_key_exists('local_rp_claim_tickets_deleted', $value) ? $value['local_rp_claim_tickets_deleted'] : null);
+        $out['local_rp_claim_tickets_deleted'] = $field;
+        return $out;
+    }
+
+    public static function fromCborPurgeUserResponse($value)
+    {
+        return new PurgeUserResponse(array(
+            'user' => array_key_exists('user', $value) ? self::fromCborAdminUser($value['user']) : null,
+            'credentials_revoked' => array_key_exists('credentials_revoked', $value) ? $value['credentials_revoked'] : null,
+            'keys_revoked' => array_key_exists('keys_revoked', $value) ? $value['keys_revoked'] : null,
+            'claims_revoked' => array_key_exists('claims_revoked', $value) ? $value['claims_revoked'] : null,
+            'relations_removed' => array_key_exists('relations_removed', $value) ? $value['relations_removed'] : null,
+            'profiles_deleted' => array_key_exists('profiles_deleted', $value) ? $value['profiles_deleted'] : null,
+            'consent_grants_deleted' => array_key_exists('consent_grants_deleted', $value) ? $value['consent_grants_deleted'] : null,
+            'release_prefs_deleted' => array_key_exists('release_prefs_deleted', $value) ? $value['release_prefs_deleted'] : null,
+            'email_verifications_deleted' => array_key_exists('email_verifications_deleted', $value) ? $value['email_verifications_deleted'] : null,
+            'reviews_resolved' => array_key_exists('reviews_resolved', $value) ? $value['reviews_resolved'] : null,
+            'local_rp_claim_tickets_deleted' => array_key_exists('local_rp_claim_tickets_deleted', $value) ? $value['local_rp_claim_tickets_deleted'] : null,
+        ));
+    }
+
+    public static function encodeRevokeDomainKeyRequest($value)
+    {
+        return CBOR::encode(self::toCborRevokeDomainKeyRequest($value));
+    }
+
+    public static function decodeRevokeDomainKeyRequest($bytes)
+    {
+        return self::fromCborRevokeDomainKeyRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRevokeDomainKeyRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RevokeDomainKeyRequest ? $value->keyId : (is_array($value) && array_key_exists('key_id', $value) ? $value['key_id'] : null);
+        $out['key_id'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRevokeDomainKeyRequest($value)
+    {
+        return new RevokeDomainKeyRequest(array(
+            'key_id' => array_key_exists('key_id', $value) ? $value['key_id'] : null,
+        ));
+    }
+
+    public static function encodeRevokeDomainKeyResponse($value)
+    {
+        return CBOR::encode(self::toCborRevokeDomainKeyResponse($value));
+    }
+
+    public static function decodeRevokeDomainKeyResponse($bytes)
+    {
+        return self::fromCborRevokeDomainKeyResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborRevokeDomainKeyResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof RevokeDomainKeyResponse ? $value->revokedKey : (is_array($value) && array_key_exists('revoked_key', $value) ? $value['revoked_key'] : null);
+        $out['revoked_key'] = self::toCborDomainPublicKey($field);
+        $field = $value instanceof RevokeDomainKeyResponse ? $value->certificateIssued : (is_array($value) && array_key_exists('certificate_issued', $value) ? $value['certificate_issued'] : null);
+        $out['certificate_issued'] = $field;
+        $field = $value instanceof RevokeDomainKeyResponse ? $value->dnsRemovalReminder : (is_array($value) && array_key_exists('dns_removal_reminder', $value) ? $value['dns_removal_reminder'] : null);
+        $out['dns_removal_reminder'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRevokeDomainKeyResponse($value)
+    {
+        return new RevokeDomainKeyResponse(array(
+            'revoked_key' => array_key_exists('revoked_key', $value) ? self::fromCborDomainPublicKey($value['revoked_key']) : null,
+            'certificate_issued' => array_key_exists('certificate_issued', $value) ? $value['certificate_issued'] : null,
+            'dns_removal_reminder' => array_key_exists('dns_removal_reminder', $value) ? $value['dns_removal_reminder'] : null,
         ));
     }
 
@@ -2342,6 +2581,56 @@ class Codec
         ));
     }
 
+    public static function encodeAdminUserClaimsRequest($value)
+    {
+        return CBOR::encode(self::toCborAdminUserClaimsRequest($value));
+    }
+
+    public static function decodeAdminUserClaimsRequest($bytes)
+    {
+        return self::fromCborAdminUserClaimsRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborAdminUserClaimsRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof AdminUserClaimsRequest ? $value->userId : (is_array($value) && array_key_exists('user_id', $value) ? $value['user_id'] : null);
+        $out['user_id'] = $field;
+        return $out;
+    }
+
+    public static function fromCborAdminUserClaimsRequest($value)
+    {
+        return new AdminUserClaimsRequest(array(
+            'user_id' => array_key_exists('user_id', $value) ? $value['user_id'] : null,
+        ));
+    }
+
+    public static function encodeAdminUserClaimsResponse($value)
+    {
+        return CBOR::encode(self::toCborAdminUserClaimsResponse($value));
+    }
+
+    public static function decodeAdminUserClaimsResponse($bytes)
+    {
+        return self::fromCborAdminUserClaimsResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborAdminUserClaimsResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof AdminUserClaimsResponse ? $value->claims : (is_array($value) && array_key_exists('claims', $value) ? $value['claims'] : null);
+        $out['claims'] = array_map(function ($item) { return self::toCborClaim($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborAdminUserClaimsResponse($value)
+    {
+        return new AdminUserClaimsResponse(array(
+            'claims' => array_key_exists('claims', $value) ? array_map(function ($item) { return self::fromCborClaim($item); }, $value['claims'] === null ? array() : $value['claims']) : null,
+        ));
+    }
+
     public static function encodeSetUserClaimRequest($value)
     {
         return CBOR::encode(self::toCborSetUserClaimRequest($value));
@@ -2418,8 +2707,14 @@ class Codec
         $out = array();
         $field = $value instanceof SettableClaimPolicy ? $value->claimType : (is_array($value) && array_key_exists('claim_type', $value) ? $value['claim_type'] : null);
         $out['claim_type'] = $field;
+        $field = $value instanceof SettableClaimPolicy ? $value->label : (is_array($value) && array_key_exists('label', $value) ? $value['label'] : null);
+        $out['label'] = $field;
+        $field = $value instanceof SettableClaimPolicy ? $value->description : (is_array($value) && array_key_exists('description', $value) ? $value['description'] : null);
+        $out['description'] = $field;
         $field = $value instanceof SettableClaimPolicy ? $value->datatype : (is_array($value) && array_key_exists('datatype', $value) ? $value['datatype'] : null);
         $out['datatype'] = $field;
+        $field = $value instanceof SettableClaimPolicy ? $value->maxBytes : (is_array($value) && array_key_exists('max_bytes', $value) ? $value['max_bytes'] : null);
+        $out['max_bytes'] = $field;
         $field = $value instanceof SettableClaimPolicy ? $value->setRule : (is_array($value) && array_key_exists('set_rule', $value) ? $value['set_rule'] : null);
         $out['set_rule'] = $field;
         $field = $value instanceof SettableClaimPolicy ? $value->requiresApproval : (is_array($value) && array_key_exists('requires_approval', $value) ? $value['requires_approval'] : null);
@@ -2433,7 +2728,10 @@ class Codec
     {
         return new SettableClaimPolicy(array(
             'claim_type' => array_key_exists('claim_type', $value) ? $value['claim_type'] : null,
+            'label' => array_key_exists('label', $value) ? $value['label'] : null,
+            'description' => array_key_exists('description', $value) ? $value['description'] : null,
             'datatype' => array_key_exists('datatype', $value) ? $value['datatype'] : null,
+            'max_bytes' => array_key_exists('max_bytes', $value) ? $value['max_bytes'] : null,
             'set_rule' => array_key_exists('set_rule', $value) ? $value['set_rule'] : null,
             'requires_approval' => array_key_exists('requires_approval', $value) ? $value['requires_approval'] : null,
             'signing_rule' => array_key_exists('signing_rule', $value) ? $value['signing_rule'] : null,
@@ -2462,6 +2760,923 @@ class Codec
     {
         return new ListSettablePoliciesResponse(array(
             'policies' => array_key_exists('policies', $value) ? array_map(function ($item) { return self::fromCborSettableClaimPolicy($item); }, $value['policies'] === null ? array() : $value['policies']) : null,
+        ));
+    }
+
+    public static function encodeClaimTypePolicy($value)
+    {
+        return CBOR::encode(self::toCborClaimTypePolicy($value));
+    }
+
+    public static function decodeClaimTypePolicy($bytes)
+    {
+        return self::fromCborClaimTypePolicy(CBOR::decode($bytes));
+    }
+
+    public static function toCborClaimTypePolicy($value)
+    {
+        $out = array();
+        $field = $value instanceof ClaimTypePolicy ? $value->claimType : (is_array($value) && array_key_exists('claim_type', $value) ? $value['claim_type'] : null);
+        $out['claim_type'] = $field;
+        $field = $value instanceof ClaimTypePolicy ? $value->label : (is_array($value) && array_key_exists('label', $value) ? $value['label'] : null);
+        $out['label'] = $field;
+        $field = $value instanceof ClaimTypePolicy ? $value->description : (is_array($value) && array_key_exists('description', $value) ? $value['description'] : null);
+        $out['description'] = $field;
+        $field = $value instanceof ClaimTypePolicy ? $value->valueType : (is_array($value) && array_key_exists('value_type', $value) ? $value['value_type'] : null);
+        $out['value_type'] = $field;
+        $field = $value instanceof ClaimTypePolicy ? $value->maxBytes : (is_array($value) && array_key_exists('max_bytes', $value) ? $value['max_bytes'] : null);
+        $out['max_bytes'] = $field;
+        $field = $value instanceof ClaimTypePolicy ? $value->setRule : (is_array($value) && array_key_exists('set_rule', $value) ? $value['set_rule'] : null);
+        $out['set_rule'] = $field;
+        $field = $value instanceof ClaimTypePolicy ? $value->signingRule : (is_array($value) && array_key_exists('signing_rule', $value) ? $value['signing_rule'] : null);
+        $out['signing_rule'] = $field;
+        $field = $value instanceof ClaimTypePolicy ? $value->requiresApproval : (is_array($value) && array_key_exists('requires_approval', $value) ? $value['requires_approval'] : null);
+        $out['requires_approval'] = $field;
+        $field = $value instanceof ClaimTypePolicy ? $value->userSettable : (is_array($value) && array_key_exists('user_settable', $value) ? $value['user_settable'] : null);
+        $out['user_settable'] = $field;
+        $field = $value instanceof ClaimTypePolicy ? $value->defaultAutoSign : (is_array($value) && array_key_exists('default_auto_sign', $value) ? $value['default_auto_sign'] : null);
+        $out['default_auto_sign'] = $field;
+        $field = $value instanceof ClaimTypePolicy ? $value->suggested : (is_array($value) && array_key_exists('suggested', $value) ? $value['suggested'] : null);
+        $out['suggested'] = $field;
+        return $out;
+    }
+
+    public static function fromCborClaimTypePolicy($value)
+    {
+        return new ClaimTypePolicy(array(
+            'claim_type' => array_key_exists('claim_type', $value) ? $value['claim_type'] : null,
+            'label' => array_key_exists('label', $value) ? $value['label'] : null,
+            'description' => array_key_exists('description', $value) ? $value['description'] : null,
+            'value_type' => array_key_exists('value_type', $value) ? $value['value_type'] : null,
+            'max_bytes' => array_key_exists('max_bytes', $value) ? $value['max_bytes'] : null,
+            'set_rule' => array_key_exists('set_rule', $value) ? $value['set_rule'] : null,
+            'signing_rule' => array_key_exists('signing_rule', $value) ? $value['signing_rule'] : null,
+            'requires_approval' => array_key_exists('requires_approval', $value) ? $value['requires_approval'] : null,
+            'user_settable' => array_key_exists('user_settable', $value) ? $value['user_settable'] : null,
+            'default_auto_sign' => array_key_exists('default_auto_sign', $value) ? $value['default_auto_sign'] : null,
+            'suggested' => array_key_exists('suggested', $value) ? $value['suggested'] : null,
+        ));
+    }
+
+    public static function encodeListClaimTypesResponse($value)
+    {
+        return CBOR::encode(self::toCborListClaimTypesResponse($value));
+    }
+
+    public static function decodeListClaimTypesResponse($bytes)
+    {
+        return self::fromCborListClaimTypesResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborListClaimTypesResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof ListClaimTypesResponse ? $value->claimTypes : (is_array($value) && array_key_exists('claim_types', $value) ? $value['claim_types'] : null);
+        $out['claim_types'] = array_map(function ($item) { return self::toCborClaimTypePolicy($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborListClaimTypesResponse($value)
+    {
+        return new ListClaimTypesResponse(array(
+            'claim_types' => array_key_exists('claim_types', $value) ? array_map(function ($item) { return self::fromCborClaimTypePolicy($item); }, $value['claim_types'] === null ? array() : $value['claim_types']) : null,
+        ));
+    }
+
+    public static function encodeSetClaimTypeRequest($value)
+    {
+        return CBOR::encode(self::toCborSetClaimTypeRequest($value));
+    }
+
+    public static function decodeSetClaimTypeRequest($bytes)
+    {
+        return self::fromCborSetClaimTypeRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborSetClaimTypeRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof SetClaimTypeRequest ? $value->claimType : (is_array($value) && array_key_exists('claim_type', $value) ? $value['claim_type'] : null);
+        $out['claim_type'] = $field;
+        $field = $value instanceof SetClaimTypeRequest ? $value->label : (is_array($value) && array_key_exists('label', $value) ? $value['label'] : null);
+        $out['label'] = $field;
+        $field = $value instanceof SetClaimTypeRequest ? $value->description : (is_array($value) && array_key_exists('description', $value) ? $value['description'] : null);
+        if ($field !== null) {
+            $out['description'] = $field;
+        }
+        $field = $value instanceof SetClaimTypeRequest ? $value->valueType : (is_array($value) && array_key_exists('value_type', $value) ? $value['value_type'] : null);
+        $out['value_type'] = $field;
+        $field = $value instanceof SetClaimTypeRequest ? $value->maxBytes : (is_array($value) && array_key_exists('max_bytes', $value) ? $value['max_bytes'] : null);
+        $out['max_bytes'] = $field;
+        $field = $value instanceof SetClaimTypeRequest ? $value->setRule : (is_array($value) && array_key_exists('set_rule', $value) ? $value['set_rule'] : null);
+        $out['set_rule'] = $field;
+        $field = $value instanceof SetClaimTypeRequest ? $value->signingRule : (is_array($value) && array_key_exists('signing_rule', $value) ? $value['signing_rule'] : null);
+        $out['signing_rule'] = $field;
+        $field = $value instanceof SetClaimTypeRequest ? $value->userSettable : (is_array($value) && array_key_exists('user_settable', $value) ? $value['user_settable'] : null);
+        $out['user_settable'] = $field;
+        $field = $value instanceof SetClaimTypeRequest ? $value->defaultAutoSign : (is_array($value) && array_key_exists('default_auto_sign', $value) ? $value['default_auto_sign'] : null);
+        $out['default_auto_sign'] = $field;
+        $field = $value instanceof SetClaimTypeRequest ? $value->requiresApproval : (is_array($value) && array_key_exists('requires_approval', $value) ? $value['requires_approval'] : null);
+        $out['requires_approval'] = $field;
+        $field = $value instanceof SetClaimTypeRequest ? $value->suggested : (is_array($value) && array_key_exists('suggested', $value) ? $value['suggested'] : null);
+        $out['suggested'] = $field;
+        return $out;
+    }
+
+    public static function fromCborSetClaimTypeRequest($value)
+    {
+        return new SetClaimTypeRequest(array(
+            'claim_type' => array_key_exists('claim_type', $value) ? $value['claim_type'] : null,
+            'label' => array_key_exists('label', $value) ? $value['label'] : null,
+            'description' => array_key_exists('description', $value) ? $value['description'] : null,
+            'value_type' => array_key_exists('value_type', $value) ? $value['value_type'] : null,
+            'max_bytes' => array_key_exists('max_bytes', $value) ? $value['max_bytes'] : null,
+            'set_rule' => array_key_exists('set_rule', $value) ? $value['set_rule'] : null,
+            'signing_rule' => array_key_exists('signing_rule', $value) ? $value['signing_rule'] : null,
+            'user_settable' => array_key_exists('user_settable', $value) ? $value['user_settable'] : null,
+            'default_auto_sign' => array_key_exists('default_auto_sign', $value) ? $value['default_auto_sign'] : null,
+            'requires_approval' => array_key_exists('requires_approval', $value) ? $value['requires_approval'] : null,
+            'suggested' => array_key_exists('suggested', $value) ? $value['suggested'] : null,
+        ));
+    }
+
+    public static function encodeSetClaimTypeResponse($value)
+    {
+        return CBOR::encode(self::toCborSetClaimTypeResponse($value));
+    }
+
+    public static function decodeSetClaimTypeResponse($bytes)
+    {
+        return self::fromCborSetClaimTypeResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborSetClaimTypeResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof SetClaimTypeResponse ? $value->claimType : (is_array($value) && array_key_exists('claim_type', $value) ? $value['claim_type'] : null);
+        $out['claim_type'] = self::toCborClaimTypePolicy($field);
+        return $out;
+    }
+
+    public static function fromCborSetClaimTypeResponse($value)
+    {
+        return new SetClaimTypeResponse(array(
+            'claim_type' => array_key_exists('claim_type', $value) ? self::fromCborClaimTypePolicy($value['claim_type']) : null,
+        ));
+    }
+
+    public static function encodeRemoveClaimTypeRequest($value)
+    {
+        return CBOR::encode(self::toCborRemoveClaimTypeRequest($value));
+    }
+
+    public static function decodeRemoveClaimTypeRequest($bytes)
+    {
+        return self::fromCborRemoveClaimTypeRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRemoveClaimTypeRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RemoveClaimTypeRequest ? $value->claimType : (is_array($value) && array_key_exists('claim_type', $value) ? $value['claim_type'] : null);
+        $out['claim_type'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRemoveClaimTypeRequest($value)
+    {
+        return new RemoveClaimTypeRequest(array(
+            'claim_type' => array_key_exists('claim_type', $value) ? $value['claim_type'] : null,
+        ));
+    }
+
+    public static function encodeRemoveClaimTypeResponse($value)
+    {
+        return CBOR::encode(self::toCborRemoveClaimTypeResponse($value));
+    }
+
+    public static function decodeRemoveClaimTypeResponse($bytes)
+    {
+        return self::fromCborRemoveClaimTypeResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborRemoveClaimTypeResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof RemoveClaimTypeResponse ? $value->success : (is_array($value) && array_key_exists('success', $value) ? $value['success'] : null);
+        $out['success'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRemoveClaimTypeResponse($value)
+    {
+        return new RemoveClaimTypeResponse(array(
+            'success' => array_key_exists('success', $value) ? $value['success'] : null,
+        ));
+    }
+
+    public static function encodeClaimTypeLabel($value)
+    {
+        return CBOR::encode(self::toCborClaimTypeLabel($value));
+    }
+
+    public static function decodeClaimTypeLabel($bytes)
+    {
+        return self::fromCborClaimTypeLabel(CBOR::decode($bytes));
+    }
+
+    public static function toCborClaimTypeLabel($value)
+    {
+        $out = array();
+        $field = $value instanceof ClaimTypeLabel ? $value->claimType : (is_array($value) && array_key_exists('claim_type', $value) ? $value['claim_type'] : null);
+        $out['claim_type'] = $field;
+        $field = $value instanceof ClaimTypeLabel ? $value->locale : (is_array($value) && array_key_exists('locale', $value) ? $value['locale'] : null);
+        $out['locale'] = $field;
+        $field = $value instanceof ClaimTypeLabel ? $value->label : (is_array($value) && array_key_exists('label', $value) ? $value['label'] : null);
+        $out['label'] = $field;
+        $field = $value instanceof ClaimTypeLabel ? $value->description : (is_array($value) && array_key_exists('description', $value) ? $value['description'] : null);
+        if ($field !== null) {
+            $out['description'] = $field;
+        }
+        return $out;
+    }
+
+    public static function fromCborClaimTypeLabel($value)
+    {
+        return new ClaimTypeLabel(array(
+            'claim_type' => array_key_exists('claim_type', $value) ? $value['claim_type'] : null,
+            'locale' => array_key_exists('locale', $value) ? $value['locale'] : null,
+            'label' => array_key_exists('label', $value) ? $value['label'] : null,
+            'description' => array_key_exists('description', $value) ? $value['description'] : null,
+        ));
+    }
+
+    public static function encodeSetClaimTypeLabelRequest($value)
+    {
+        return CBOR::encode(self::toCborSetClaimTypeLabelRequest($value));
+    }
+
+    public static function decodeSetClaimTypeLabelRequest($bytes)
+    {
+        return self::fromCborSetClaimTypeLabelRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborSetClaimTypeLabelRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof SetClaimTypeLabelRequest ? $value->claimType : (is_array($value) && array_key_exists('claim_type', $value) ? $value['claim_type'] : null);
+        $out['claim_type'] = $field;
+        $field = $value instanceof SetClaimTypeLabelRequest ? $value->locale : (is_array($value) && array_key_exists('locale', $value) ? $value['locale'] : null);
+        $out['locale'] = $field;
+        $field = $value instanceof SetClaimTypeLabelRequest ? $value->label : (is_array($value) && array_key_exists('label', $value) ? $value['label'] : null);
+        $out['label'] = $field;
+        $field = $value instanceof SetClaimTypeLabelRequest ? $value->description : (is_array($value) && array_key_exists('description', $value) ? $value['description'] : null);
+        if ($field !== null) {
+            $out['description'] = $field;
+        }
+        return $out;
+    }
+
+    public static function fromCborSetClaimTypeLabelRequest($value)
+    {
+        return new SetClaimTypeLabelRequest(array(
+            'claim_type' => array_key_exists('claim_type', $value) ? $value['claim_type'] : null,
+            'locale' => array_key_exists('locale', $value) ? $value['locale'] : null,
+            'label' => array_key_exists('label', $value) ? $value['label'] : null,
+            'description' => array_key_exists('description', $value) ? $value['description'] : null,
+        ));
+    }
+
+    public static function encodeSetClaimTypeLabelResponse($value)
+    {
+        return CBOR::encode(self::toCborSetClaimTypeLabelResponse($value));
+    }
+
+    public static function decodeSetClaimTypeLabelResponse($bytes)
+    {
+        return self::fromCborSetClaimTypeLabelResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborSetClaimTypeLabelResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof SetClaimTypeLabelResponse ? $value->label : (is_array($value) && array_key_exists('label', $value) ? $value['label'] : null);
+        $out['label'] = self::toCborClaimTypeLabel($field);
+        return $out;
+    }
+
+    public static function fromCborSetClaimTypeLabelResponse($value)
+    {
+        return new SetClaimTypeLabelResponse(array(
+            'label' => array_key_exists('label', $value) ? self::fromCborClaimTypeLabel($value['label']) : null,
+        ));
+    }
+
+    public static function encodeRemoveClaimTypeLabelRequest($value)
+    {
+        return CBOR::encode(self::toCborRemoveClaimTypeLabelRequest($value));
+    }
+
+    public static function decodeRemoveClaimTypeLabelRequest($bytes)
+    {
+        return self::fromCborRemoveClaimTypeLabelRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRemoveClaimTypeLabelRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RemoveClaimTypeLabelRequest ? $value->claimType : (is_array($value) && array_key_exists('claim_type', $value) ? $value['claim_type'] : null);
+        $out['claim_type'] = $field;
+        $field = $value instanceof RemoveClaimTypeLabelRequest ? $value->locale : (is_array($value) && array_key_exists('locale', $value) ? $value['locale'] : null);
+        $out['locale'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRemoveClaimTypeLabelRequest($value)
+    {
+        return new RemoveClaimTypeLabelRequest(array(
+            'claim_type' => array_key_exists('claim_type', $value) ? $value['claim_type'] : null,
+            'locale' => array_key_exists('locale', $value) ? $value['locale'] : null,
+        ));
+    }
+
+    public static function encodeRemoveClaimTypeLabelResponse($value)
+    {
+        return CBOR::encode(self::toCborRemoveClaimTypeLabelResponse($value));
+    }
+
+    public static function decodeRemoveClaimTypeLabelResponse($bytes)
+    {
+        return self::fromCborRemoveClaimTypeLabelResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborRemoveClaimTypeLabelResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof RemoveClaimTypeLabelResponse ? $value->success : (is_array($value) && array_key_exists('success', $value) ? $value['success'] : null);
+        $out['success'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRemoveClaimTypeLabelResponse($value)
+    {
+        return new RemoveClaimTypeLabelResponse(array(
+            'success' => array_key_exists('success', $value) ? $value['success'] : null,
+        ));
+    }
+
+    public static function encodeTrustedIssuer($value)
+    {
+        return CBOR::encode(self::toCborTrustedIssuer($value));
+    }
+
+    public static function decodeTrustedIssuer($bytes)
+    {
+        return self::fromCborTrustedIssuer(CBOR::decode($bytes));
+    }
+
+    public static function toCborTrustedIssuer($value)
+    {
+        $out = array();
+        $field = $value instanceof TrustedIssuer ? $value->claimType : (is_array($value) && array_key_exists('claim_type', $value) ? $value['claim_type'] : null);
+        $out['claim_type'] = $field;
+        $field = $value instanceof TrustedIssuer ? $value->issuerDomain : (is_array($value) && array_key_exists('issuer_domain', $value) ? $value['issuer_domain'] : null);
+        $out['issuer_domain'] = $field;
+        return $out;
+    }
+
+    public static function fromCborTrustedIssuer($value)
+    {
+        return new TrustedIssuer(array(
+            'claim_type' => array_key_exists('claim_type', $value) ? $value['claim_type'] : null,
+            'issuer_domain' => array_key_exists('issuer_domain', $value) ? $value['issuer_domain'] : null,
+        ));
+    }
+
+    public static function encodeListTrustedIssuersResponse($value)
+    {
+        return CBOR::encode(self::toCborListTrustedIssuersResponse($value));
+    }
+
+    public static function decodeListTrustedIssuersResponse($bytes)
+    {
+        return self::fromCborListTrustedIssuersResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborListTrustedIssuersResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof ListTrustedIssuersResponse ? $value->trustedIssuers : (is_array($value) && array_key_exists('trusted_issuers', $value) ? $value['trusted_issuers'] : null);
+        $out['trusted_issuers'] = array_map(function ($item) { return self::toCborTrustedIssuer($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborListTrustedIssuersResponse($value)
+    {
+        return new ListTrustedIssuersResponse(array(
+            'trusted_issuers' => array_key_exists('trusted_issuers', $value) ? array_map(function ($item) { return self::fromCborTrustedIssuer($item); }, $value['trusted_issuers'] === null ? array() : $value['trusted_issuers']) : null,
+        ));
+    }
+
+    public static function encodeAddTrustedIssuerRequest($value)
+    {
+        return CBOR::encode(self::toCborAddTrustedIssuerRequest($value));
+    }
+
+    public static function decodeAddTrustedIssuerRequest($bytes)
+    {
+        return self::fromCborAddTrustedIssuerRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborAddTrustedIssuerRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof AddTrustedIssuerRequest ? $value->claimType : (is_array($value) && array_key_exists('claim_type', $value) ? $value['claim_type'] : null);
+        $out['claim_type'] = $field;
+        $field = $value instanceof AddTrustedIssuerRequest ? $value->issuerDomain : (is_array($value) && array_key_exists('issuer_domain', $value) ? $value['issuer_domain'] : null);
+        $out['issuer_domain'] = $field;
+        return $out;
+    }
+
+    public static function fromCborAddTrustedIssuerRequest($value)
+    {
+        return new AddTrustedIssuerRequest(array(
+            'claim_type' => array_key_exists('claim_type', $value) ? $value['claim_type'] : null,
+            'issuer_domain' => array_key_exists('issuer_domain', $value) ? $value['issuer_domain'] : null,
+        ));
+    }
+
+    public static function encodeAddTrustedIssuerResponse($value)
+    {
+        return CBOR::encode(self::toCborAddTrustedIssuerResponse($value));
+    }
+
+    public static function decodeAddTrustedIssuerResponse($bytes)
+    {
+        return self::fromCborAddTrustedIssuerResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborAddTrustedIssuerResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof AddTrustedIssuerResponse ? $value->trustedIssuer : (is_array($value) && array_key_exists('trusted_issuer', $value) ? $value['trusted_issuer'] : null);
+        $out['trusted_issuer'] = self::toCborTrustedIssuer($field);
+        return $out;
+    }
+
+    public static function fromCborAddTrustedIssuerResponse($value)
+    {
+        return new AddTrustedIssuerResponse(array(
+            'trusted_issuer' => array_key_exists('trusted_issuer', $value) ? self::fromCborTrustedIssuer($value['trusted_issuer']) : null,
+        ));
+    }
+
+    public static function encodeRemoveTrustedIssuerRequest($value)
+    {
+        return CBOR::encode(self::toCborRemoveTrustedIssuerRequest($value));
+    }
+
+    public static function decodeRemoveTrustedIssuerRequest($bytes)
+    {
+        return self::fromCborRemoveTrustedIssuerRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRemoveTrustedIssuerRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RemoveTrustedIssuerRequest ? $value->claimType : (is_array($value) && array_key_exists('claim_type', $value) ? $value['claim_type'] : null);
+        $out['claim_type'] = $field;
+        $field = $value instanceof RemoveTrustedIssuerRequest ? $value->issuerDomain : (is_array($value) && array_key_exists('issuer_domain', $value) ? $value['issuer_domain'] : null);
+        $out['issuer_domain'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRemoveTrustedIssuerRequest($value)
+    {
+        return new RemoveTrustedIssuerRequest(array(
+            'claim_type' => array_key_exists('claim_type', $value) ? $value['claim_type'] : null,
+            'issuer_domain' => array_key_exists('issuer_domain', $value) ? $value['issuer_domain'] : null,
+        ));
+    }
+
+    public static function encodeRemoveTrustedIssuerResponse($value)
+    {
+        return CBOR::encode(self::toCborRemoveTrustedIssuerResponse($value));
+    }
+
+    public static function decodeRemoveTrustedIssuerResponse($bytes)
+    {
+        return self::fromCborRemoveTrustedIssuerResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborRemoveTrustedIssuerResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof RemoveTrustedIssuerResponse ? $value->success : (is_array($value) && array_key_exists('success', $value) ? $value['success'] : null);
+        $out['success'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRemoveTrustedIssuerResponse($value)
+    {
+        return new RemoveTrustedIssuerResponse(array(
+            'success' => array_key_exists('success', $value) ? $value['success'] : null,
+        ));
+    }
+
+    public static function encodeReleaseRule($value)
+    {
+        return CBOR::encode(self::toCborReleaseRule($value));
+    }
+
+    public static function decodeReleaseRule($bytes)
+    {
+        return self::fromCborReleaseRule(CBOR::decode($bytes));
+    }
+
+    public static function toCborReleaseRule($value)
+    {
+        $out = array();
+        $field = $value instanceof ReleaseRule ? $value->audience : (is_array($value) && array_key_exists('audience', $value) ? $value['audience'] : null);
+        $out['audience'] = $field;
+        $field = $value instanceof ReleaseRule ? $value->claimType : (is_array($value) && array_key_exists('claim_type', $value) ? $value['claim_type'] : null);
+        $out['claim_type'] = $field;
+        $field = $value instanceof ReleaseRule ? $value->disposition : (is_array($value) && array_key_exists('disposition', $value) ? $value['disposition'] : null);
+        $out['disposition'] = $field;
+        return $out;
+    }
+
+    public static function fromCborReleaseRule($value)
+    {
+        return new ReleaseRule(array(
+            'audience' => array_key_exists('audience', $value) ? $value['audience'] : null,
+            'claim_type' => array_key_exists('claim_type', $value) ? $value['claim_type'] : null,
+            'disposition' => array_key_exists('disposition', $value) ? $value['disposition'] : null,
+        ));
+    }
+
+    public static function encodeListReleaseRulesResponse($value)
+    {
+        return CBOR::encode(self::toCborListReleaseRulesResponse($value));
+    }
+
+    public static function decodeListReleaseRulesResponse($bytes)
+    {
+        return self::fromCborListReleaseRulesResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborListReleaseRulesResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof ListReleaseRulesResponse ? $value->releaseRules : (is_array($value) && array_key_exists('release_rules', $value) ? $value['release_rules'] : null);
+        $out['release_rules'] = array_map(function ($item) { return self::toCborReleaseRule($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborListReleaseRulesResponse($value)
+    {
+        return new ListReleaseRulesResponse(array(
+            'release_rules' => array_key_exists('release_rules', $value) ? array_map(function ($item) { return self::fromCborReleaseRule($item); }, $value['release_rules'] === null ? array() : $value['release_rules']) : null,
+        ));
+    }
+
+    public static function encodeSetReleaseRuleRequest($value)
+    {
+        return CBOR::encode(self::toCborSetReleaseRuleRequest($value));
+    }
+
+    public static function decodeSetReleaseRuleRequest($bytes)
+    {
+        return self::fromCborSetReleaseRuleRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborSetReleaseRuleRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof SetReleaseRuleRequest ? $value->audience : (is_array($value) && array_key_exists('audience', $value) ? $value['audience'] : null);
+        $out['audience'] = $field;
+        $field = $value instanceof SetReleaseRuleRequest ? $value->claimType : (is_array($value) && array_key_exists('claim_type', $value) ? $value['claim_type'] : null);
+        $out['claim_type'] = $field;
+        $field = $value instanceof SetReleaseRuleRequest ? $value->disposition : (is_array($value) && array_key_exists('disposition', $value) ? $value['disposition'] : null);
+        $out['disposition'] = $field;
+        return $out;
+    }
+
+    public static function fromCborSetReleaseRuleRequest($value)
+    {
+        return new SetReleaseRuleRequest(array(
+            'audience' => array_key_exists('audience', $value) ? $value['audience'] : null,
+            'claim_type' => array_key_exists('claim_type', $value) ? $value['claim_type'] : null,
+            'disposition' => array_key_exists('disposition', $value) ? $value['disposition'] : null,
+        ));
+    }
+
+    public static function encodeSetReleaseRuleResponse($value)
+    {
+        return CBOR::encode(self::toCborSetReleaseRuleResponse($value));
+    }
+
+    public static function decodeSetReleaseRuleResponse($bytes)
+    {
+        return self::fromCborSetReleaseRuleResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborSetReleaseRuleResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof SetReleaseRuleResponse ? $value->releaseRule : (is_array($value) && array_key_exists('release_rule', $value) ? $value['release_rule'] : null);
+        $out['release_rule'] = self::toCborReleaseRule($field);
+        return $out;
+    }
+
+    public static function fromCborSetReleaseRuleResponse($value)
+    {
+        return new SetReleaseRuleResponse(array(
+            'release_rule' => array_key_exists('release_rule', $value) ? self::fromCborReleaseRule($value['release_rule']) : null,
+        ));
+    }
+
+    public static function encodeRemoveReleaseRuleRequest($value)
+    {
+        return CBOR::encode(self::toCborRemoveReleaseRuleRequest($value));
+    }
+
+    public static function decodeRemoveReleaseRuleRequest($bytes)
+    {
+        return self::fromCborRemoveReleaseRuleRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRemoveReleaseRuleRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RemoveReleaseRuleRequest ? $value->audience : (is_array($value) && array_key_exists('audience', $value) ? $value['audience'] : null);
+        $out['audience'] = $field;
+        $field = $value instanceof RemoveReleaseRuleRequest ? $value->claimType : (is_array($value) && array_key_exists('claim_type', $value) ? $value['claim_type'] : null);
+        $out['claim_type'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRemoveReleaseRuleRequest($value)
+    {
+        return new RemoveReleaseRuleRequest(array(
+            'audience' => array_key_exists('audience', $value) ? $value['audience'] : null,
+            'claim_type' => array_key_exists('claim_type', $value) ? $value['claim_type'] : null,
+        ));
+    }
+
+    public static function encodeRemoveReleaseRuleResponse($value)
+    {
+        return CBOR::encode(self::toCborRemoveReleaseRuleResponse($value));
+    }
+
+    public static function decodeRemoveReleaseRuleResponse($bytes)
+    {
+        return self::fromCborRemoveReleaseRuleResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborRemoveReleaseRuleResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof RemoveReleaseRuleResponse ? $value->success : (is_array($value) && array_key_exists('success', $value) ? $value['success'] : null);
+        $out['success'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRemoveReleaseRuleResponse($value)
+    {
+        return new RemoveReleaseRuleResponse(array(
+            'success' => array_key_exists('success', $value) ? $value['success'] : null,
+        ));
+    }
+
+    public static function encodeClaimApproval($value)
+    {
+        return CBOR::encode(self::toCborClaimApproval($value));
+    }
+
+    public static function decodeClaimApproval($bytes)
+    {
+        return self::fromCborClaimApproval(CBOR::decode($bytes));
+    }
+
+    public static function toCborClaimApproval($value)
+    {
+        $out = array();
+        $field = $value instanceof ClaimApproval ? $value->id : (is_array($value) && array_key_exists('id', $value) ? $value['id'] : null);
+        $out['id'] = $field;
+        $field = $value instanceof ClaimApproval ? $value->userId : (is_array($value) && array_key_exists('user_id', $value) ? $value['user_id'] : null);
+        $out['user_id'] = $field;
+        $field = $value instanceof ClaimApproval ? $value->claimType : (is_array($value) && array_key_exists('claim_type', $value) ? $value['claim_type'] : null);
+        $out['claim_type'] = $field;
+        $field = $value instanceof ClaimApproval ? $value->claimValue : (is_array($value) && array_key_exists('claim_value', $value) ? $value['claim_value'] : null);
+        $out['claim_value'] = CBOR::bytes($field);
+        $field = $value instanceof ClaimApproval ? $value->status : (is_array($value) && array_key_exists('status', $value) ? $value['status'] : null);
+        $out['status'] = $field;
+        $field = $value instanceof ClaimApproval ? $value->resolvedBy : (is_array($value) && array_key_exists('resolved_by', $value) ? $value['resolved_by'] : null);
+        if ($field !== null) {
+            $out['resolved_by'] = $field;
+        }
+        $field = $value instanceof ClaimApproval ? $value->resolvedAt : (is_array($value) && array_key_exists('resolved_at', $value) ? $value['resolved_at'] : null);
+        if ($field !== null) {
+            $out['resolved_at'] = $field;
+        }
+        $field = $value instanceof ClaimApproval ? $value->createdAt : (is_array($value) && array_key_exists('created_at', $value) ? $value['created_at'] : null);
+        $out['created_at'] = $field;
+        return $out;
+    }
+
+    public static function fromCborClaimApproval($value)
+    {
+        return new ClaimApproval(array(
+            'id' => array_key_exists('id', $value) ? $value['id'] : null,
+            'user_id' => array_key_exists('user_id', $value) ? $value['user_id'] : null,
+            'claim_type' => array_key_exists('claim_type', $value) ? $value['claim_type'] : null,
+            'claim_value' => array_key_exists('claim_value', $value) ? $value['claim_value'] : null,
+            'status' => array_key_exists('status', $value) ? $value['status'] : null,
+            'resolved_by' => array_key_exists('resolved_by', $value) ? $value['resolved_by'] : null,
+            'resolved_at' => array_key_exists('resolved_at', $value) ? $value['resolved_at'] : null,
+            'created_at' => array_key_exists('created_at', $value) ? $value['created_at'] : null,
+        ));
+    }
+
+    public static function encodeListPendingClaimApprovalsResponse($value)
+    {
+        return CBOR::encode(self::toCborListPendingClaimApprovalsResponse($value));
+    }
+
+    public static function decodeListPendingClaimApprovalsResponse($bytes)
+    {
+        return self::fromCborListPendingClaimApprovalsResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborListPendingClaimApprovalsResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof ListPendingClaimApprovalsResponse ? $value->approvals : (is_array($value) && array_key_exists('approvals', $value) ? $value['approvals'] : null);
+        $out['approvals'] = array_map(function ($item) { return self::toCborClaimApproval($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborListPendingClaimApprovalsResponse($value)
+    {
+        return new ListPendingClaimApprovalsResponse(array(
+            'approvals' => array_key_exists('approvals', $value) ? array_map(function ($item) { return self::fromCborClaimApproval($item); }, $value['approvals'] === null ? array() : $value['approvals']) : null,
+        ));
+    }
+
+    public static function encodeApproveClaimRequest($value)
+    {
+        return CBOR::encode(self::toCborApproveClaimRequest($value));
+    }
+
+    public static function decodeApproveClaimRequest($bytes)
+    {
+        return self::fromCborApproveClaimRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborApproveClaimRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof ApproveClaimRequest ? $value->approvalId : (is_array($value) && array_key_exists('approval_id', $value) ? $value['approval_id'] : null);
+        $out['approval_id'] = $field;
+        return $out;
+    }
+
+    public static function fromCborApproveClaimRequest($value)
+    {
+        return new ApproveClaimRequest(array(
+            'approval_id' => array_key_exists('approval_id', $value) ? $value['approval_id'] : null,
+        ));
+    }
+
+    public static function encodeApproveClaimResponse($value)
+    {
+        return CBOR::encode(self::toCborApproveClaimResponse($value));
+    }
+
+    public static function decodeApproveClaimResponse($bytes)
+    {
+        return self::fromCborApproveClaimResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborApproveClaimResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof ApproveClaimResponse ? $value->success : (is_array($value) && array_key_exists('success', $value) ? $value['success'] : null);
+        $out['success'] = $field;
+        return $out;
+    }
+
+    public static function fromCborApproveClaimResponse($value)
+    {
+        return new ApproveClaimResponse(array(
+            'success' => array_key_exists('success', $value) ? $value['success'] : null,
+        ));
+    }
+
+    public static function encodeRejectClaimRequest($value)
+    {
+        return CBOR::encode(self::toCborRejectClaimRequest($value));
+    }
+
+    public static function decodeRejectClaimRequest($bytes)
+    {
+        return self::fromCborRejectClaimRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRejectClaimRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RejectClaimRequest ? $value->approvalId : (is_array($value) && array_key_exists('approval_id', $value) ? $value['approval_id'] : null);
+        $out['approval_id'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRejectClaimRequest($value)
+    {
+        return new RejectClaimRequest(array(
+            'approval_id' => array_key_exists('approval_id', $value) ? $value['approval_id'] : null,
+        ));
+    }
+
+    public static function encodeRejectClaimResponse($value)
+    {
+        return CBOR::encode(self::toCborRejectClaimResponse($value));
+    }
+
+    public static function decodeRejectClaimResponse($bytes)
+    {
+        return self::fromCborRejectClaimResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborRejectClaimResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof RejectClaimResponse ? $value->success : (is_array($value) && array_key_exists('success', $value) ? $value['success'] : null);
+        $out['success'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRejectClaimResponse($value)
+    {
+        return new RejectClaimResponse(array(
+            'success' => array_key_exists('success', $value) ? $value['success'] : null,
+        ));
+    }
+
+    public static function encodeAdminIssueAttestationRequest($value)
+    {
+        return CBOR::encode(self::toCborAdminIssueAttestationRequest($value));
+    }
+
+    public static function decodeAdminIssueAttestationRequest($bytes)
+    {
+        return self::fromCborAdminIssueAttestationRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborAdminIssueAttestationRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof AdminIssueAttestationRequest ? $value->userId : (is_array($value) && array_key_exists('user_id', $value) ? $value['user_id'] : null);
+        $out['user_id'] = $field;
+        $field = $value instanceof AdminIssueAttestationRequest ? $value->claimType : (is_array($value) && array_key_exists('claim_type', $value) ? $value['claim_type'] : null);
+        $out['claim_type'] = $field;
+        $field = $value instanceof AdminIssueAttestationRequest ? $value->claimValue : (is_array($value) && array_key_exists('claim_value', $value) ? $value['claim_value'] : null);
+        $out['claim_value'] = CBOR::bytes($field);
+        return $out;
+    }
+
+    public static function fromCborAdminIssueAttestationRequest($value)
+    {
+        return new AdminIssueAttestationRequest(array(
+            'user_id' => array_key_exists('user_id', $value) ? $value['user_id'] : null,
+            'claim_type' => array_key_exists('claim_type', $value) ? $value['claim_type'] : null,
+            'claim_value' => array_key_exists('claim_value', $value) ? $value['claim_value'] : null,
+        ));
+    }
+
+    public static function encodeAdminIssueAttestationResponse($value)
+    {
+        return CBOR::encode(self::toCborAdminIssueAttestationResponse($value));
+    }
+
+    public static function decodeAdminIssueAttestationResponse($bytes)
+    {
+        return self::fromCborAdminIssueAttestationResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborAdminIssueAttestationResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof AdminIssueAttestationResponse ? $value->claim : (is_array($value) && array_key_exists('claim', $value) ? $value['claim'] : null);
+        $out['claim'] = self::toCborClaim($field);
+        return $out;
+    }
+
+    public static function fromCborAdminIssueAttestationResponse($value)
+    {
+        return new AdminIssueAttestationResponse(array(
+            'claim' => array_key_exists('claim', $value) ? self::fromCborClaim($value['claim']) : null,
         ));
     }
 
@@ -2716,6 +3931,8 @@ class Codec
     public static function toCborChangePasswordRequest($value)
     {
         $out = array();
+        $field = $value instanceof ChangePasswordRequest ? $value->currentPassword : (is_array($value) && array_key_exists('current_password', $value) ? $value['current_password'] : null);
+        $out['current_password'] = $field;
         $field = $value instanceof ChangePasswordRequest ? $value->newPassword : (is_array($value) && array_key_exists('new_password', $value) ? $value['new_password'] : null);
         $out['new_password'] = $field;
         return $out;
@@ -2724,6 +3941,7 @@ class Codec
     public static function fromCborChangePasswordRequest($value)
     {
         return new ChangePasswordRequest(array(
+            'current_password' => array_key_exists('current_password', $value) ? $value['current_password'] : null,
             'new_password' => array_key_exists('new_password', $value) ? $value['new_password'] : null,
         ));
     }
@@ -2784,6 +4002,1300 @@ class Codec
         ));
     }
 
+    public static function encodeSetMyClaimRequest($value)
+    {
+        return CBOR::encode(self::toCborSetMyClaimRequest($value));
+    }
+
+    public static function decodeSetMyClaimRequest($bytes)
+    {
+        return self::fromCborSetMyClaimRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborSetMyClaimRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof SetMyClaimRequest ? $value->claimType : (is_array($value) && array_key_exists('claim_type', $value) ? $value['claim_type'] : null);
+        $out['claim_type'] = $field;
+        $field = $value instanceof SetMyClaimRequest ? $value->claimValue : (is_array($value) && array_key_exists('claim_value', $value) ? $value['claim_value'] : null);
+        $out['claim_value'] = $field;
+        return $out;
+    }
+
+    public static function fromCborSetMyClaimRequest($value)
+    {
+        return new SetMyClaimRequest(array(
+            'claim_type' => array_key_exists('claim_type', $value) ? $value['claim_type'] : null,
+            'claim_value' => array_key_exists('claim_value', $value) ? $value['claim_value'] : null,
+        ));
+    }
+
+    public static function encodeSetMyClaimResponse($value)
+    {
+        return CBOR::encode(self::toCborSetMyClaimResponse($value));
+    }
+
+    public static function decodeSetMyClaimResponse($bytes)
+    {
+        return self::fromCborSetMyClaimResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborSetMyClaimResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof SetMyClaimResponse ? $value->outcome : (is_array($value) && array_key_exists('outcome', $value) ? $value['outcome'] : null);
+        $out['outcome'] = $field;
+        $field = $value instanceof SetMyClaimResponse ? $value->claim : (is_array($value) && array_key_exists('claim', $value) ? $value['claim'] : null);
+        if ($field !== null) {
+            $out['claim'] = self::toCborClaim($field);
+        }
+        return $out;
+    }
+
+    public static function fromCborSetMyClaimResponse($value)
+    {
+        return new SetMyClaimResponse(array(
+            'outcome' => array_key_exists('outcome', $value) ? $value['outcome'] : null,
+            'claim' => array_key_exists('claim', $value) ? self::fromCborClaim($value['claim']) : null,
+        ));
+    }
+
+    public static function encodeRemoveMyClaimRequest($value)
+    {
+        return CBOR::encode(self::toCborRemoveMyClaimRequest($value));
+    }
+
+    public static function decodeRemoveMyClaimRequest($bytes)
+    {
+        return self::fromCborRemoveMyClaimRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRemoveMyClaimRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RemoveMyClaimRequest ? $value->claimId : (is_array($value) && array_key_exists('claim_id', $value) ? $value['claim_id'] : null);
+        $out['claim_id'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRemoveMyClaimRequest($value)
+    {
+        return new RemoveMyClaimRequest(array(
+            'claim_id' => array_key_exists('claim_id', $value) ? $value['claim_id'] : null,
+        ));
+    }
+
+    public static function encodeRemoveMyClaimResponse($value)
+    {
+        return CBOR::encode(self::toCborRemoveMyClaimResponse($value));
+    }
+
+    public static function decodeRemoveMyClaimResponse($bytes)
+    {
+        return self::fromCborRemoveMyClaimResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborRemoveMyClaimResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof RemoveMyClaimResponse ? $value->success : (is_array($value) && array_key_exists('success', $value) ? $value['success'] : null);
+        $out['success'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRemoveMyClaimResponse($value)
+    {
+        return new RemoveMyClaimResponse(array(
+            'success' => array_key_exists('success', $value) ? $value['success'] : null,
+        ));
+    }
+
+    public static function encodeSetMyClaimSharingRequest($value)
+    {
+        return CBOR::encode(self::toCborSetMyClaimSharingRequest($value));
+    }
+
+    public static function decodeSetMyClaimSharingRequest($bytes)
+    {
+        return self::fromCborSetMyClaimSharingRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborSetMyClaimSharingRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof SetMyClaimSharingRequest ? $value->claimType : (is_array($value) && array_key_exists('claim_type', $value) ? $value['claim_type'] : null);
+        $out['claim_type'] = $field;
+        $field = $value instanceof SetMyClaimSharingRequest ? $value->share : (is_array($value) && array_key_exists('share', $value) ? $value['share'] : null);
+        $out['share'] = $field;
+        return $out;
+    }
+
+    public static function fromCborSetMyClaimSharingRequest($value)
+    {
+        return new SetMyClaimSharingRequest(array(
+            'claim_type' => array_key_exists('claim_type', $value) ? $value['claim_type'] : null,
+            'share' => array_key_exists('share', $value) ? $value['share'] : null,
+        ));
+    }
+
+    public static function encodeSetMyClaimSharingResponse($value)
+    {
+        return CBOR::encode(self::toCborSetMyClaimSharingResponse($value));
+    }
+
+    public static function decodeSetMyClaimSharingResponse($bytes)
+    {
+        return self::fromCborSetMyClaimSharingResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborSetMyClaimSharingResponse($value)
+    {
+        $out = array();
+        return $out;
+    }
+
+    public static function fromCborSetMyClaimSharingResponse($value)
+    {
+        return new SetMyClaimSharingResponse(array(
+        ));
+    }
+
+    public static function encodeProfile($value)
+    {
+        return CBOR::encode(self::toCborProfile($value));
+    }
+
+    public static function decodeProfile($bytes)
+    {
+        return self::fromCborProfile(CBOR::decode($bytes));
+    }
+
+    public static function toCborProfile($value)
+    {
+        $out = array();
+        $field = $value instanceof Profile ? $value->id : (is_array($value) && array_key_exists('id', $value) ? $value['id'] : null);
+        $out['id'] = $field;
+        $field = $value instanceof Profile ? $value->accountId : (is_array($value) && array_key_exists('account_id', $value) ? $value['account_id'] : null);
+        $out['account_id'] = $field;
+        $field = $value instanceof Profile ? $value->domain : (is_array($value) && array_key_exists('domain', $value) ? $value['domain'] : null);
+        $out['domain'] = $field;
+        $field = $value instanceof Profile ? $value->isRoot : (is_array($value) && array_key_exists('is_root', $value) ? $value['is_root'] : null);
+        $out['is_root'] = $field;
+        $field = $value instanceof Profile ? $value->label : (is_array($value) && array_key_exists('label', $value) ? $value['label'] : null);
+        if ($field !== null) {
+            $out['label'] = $field;
+        }
+        return $out;
+    }
+
+    public static function fromCborProfile($value)
+    {
+        return new Profile(array(
+            'id' => array_key_exists('id', $value) ? $value['id'] : null,
+            'account_id' => array_key_exists('account_id', $value) ? $value['account_id'] : null,
+            'domain' => array_key_exists('domain', $value) ? $value['domain'] : null,
+            'is_root' => array_key_exists('is_root', $value) ? $value['is_root'] : null,
+            'label' => array_key_exists('label', $value) ? $value['label'] : null,
+        ));
+    }
+
+    public static function encodeCreateProfileRequest($value)
+    {
+        return CBOR::encode(self::toCborCreateProfileRequest($value));
+    }
+
+    public static function decodeCreateProfileRequest($bytes)
+    {
+        return self::fromCborCreateProfileRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborCreateProfileRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof CreateProfileRequest ? $value->label : (is_array($value) && array_key_exists('label', $value) ? $value['label'] : null);
+        if ($field !== null) {
+            $out['label'] = $field;
+        }
+        return $out;
+    }
+
+    public static function fromCborCreateProfileRequest($value)
+    {
+        return new CreateProfileRequest(array(
+            'label' => array_key_exists('label', $value) ? $value['label'] : null,
+        ));
+    }
+
+    public static function encodeCreateProfileResponse($value)
+    {
+        return CBOR::encode(self::toCborCreateProfileResponse($value));
+    }
+
+    public static function decodeCreateProfileResponse($bytes)
+    {
+        return self::fromCborCreateProfileResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborCreateProfileResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof CreateProfileResponse ? $value->profile : (is_array($value) && array_key_exists('profile', $value) ? $value['profile'] : null);
+        $out['profile'] = self::toCborProfile($field);
+        return $out;
+    }
+
+    public static function fromCborCreateProfileResponse($value)
+    {
+        return new CreateProfileResponse(array(
+            'profile' => array_key_exists('profile', $value) ? self::fromCborProfile($value['profile']) : null,
+        ));
+    }
+
+    public static function encodeRequestVerificationRequest($value)
+    {
+        return CBOR::encode(self::toCborRequestVerificationRequest($value));
+    }
+
+    public static function decodeRequestVerificationRequest($bytes)
+    {
+        return self::fromCborRequestVerificationRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRequestVerificationRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RequestVerificationRequest ? $value->issuerDomain : (is_array($value) && array_key_exists('issuer_domain', $value) ? $value['issuer_domain'] : null);
+        $out['issuer_domain'] = $field;
+        $field = $value instanceof RequestVerificationRequest ? $value->requestedClaimTypes : (is_array($value) && array_key_exists('requested_claim_types', $value) ? $value['requested_claim_types'] : null);
+        $out['requested_claim_types'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborRequestVerificationRequest($value)
+    {
+        return new RequestVerificationRequest(array(
+            'issuer_domain' => array_key_exists('issuer_domain', $value) ? $value['issuer_domain'] : null,
+            'requested_claim_types' => array_key_exists('requested_claim_types', $value) ? array_map(function ($item) { return $item; }, $value['requested_claim_types'] === null ? array() : $value['requested_claim_types']) : null,
+        ));
+    }
+
+    public static function encodeRequestVerificationResponse($value)
+    {
+        return CBOR::encode(self::toCborRequestVerificationResponse($value));
+    }
+
+    public static function decodeRequestVerificationResponse($bytes)
+    {
+        return self::fromCborRequestVerificationResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborRequestVerificationResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof RequestVerificationResponse ? $value->signedRequest : (is_array($value) && array_key_exists('signed_request', $value) ? $value['signed_request'] : null);
+        $out['signed_request'] = self::toCborSignedSigningRequest($field);
+        return $out;
+    }
+
+    public static function fromCborRequestVerificationResponse($value)
+    {
+        return new RequestVerificationResponse(array(
+            'signed_request' => array_key_exists('signed_request', $value) ? self::fromCborSignedSigningRequest($value['signed_request']) : null,
+        ));
+    }
+
+    public static function encodePasswordPolicy($value)
+    {
+        return CBOR::encode(self::toCborPasswordPolicy($value));
+    }
+
+    public static function decodePasswordPolicy($bytes)
+    {
+        return self::fromCborPasswordPolicy(CBOR::decode($bytes));
+    }
+
+    public static function toCborPasswordPolicy($value)
+    {
+        $out = array();
+        $field = $value instanceof PasswordPolicy ? $value->minLength : (is_array($value) && array_key_exists('min_length', $value) ? $value['min_length'] : null);
+        $out['min_length'] = $field;
+        $field = $value instanceof PasswordPolicy ? $value->maxLength : (is_array($value) && array_key_exists('max_length', $value) ? $value['max_length'] : null);
+        $out['max_length'] = $field;
+        return $out;
+    }
+
+    public static function fromCborPasswordPolicy($value)
+    {
+        return new PasswordPolicy(array(
+            'min_length' => array_key_exists('min_length', $value) ? $value['min_length'] : null,
+            'max_length' => array_key_exists('max_length', $value) ? $value['max_length'] : null,
+        ));
+    }
+
+    public static function encodeBrowserSessionInfo($value)
+    {
+        return CBOR::encode(self::toCborBrowserSessionInfo($value));
+    }
+
+    public static function decodeBrowserSessionInfo($bytes)
+    {
+        return self::fromCborBrowserSessionInfo(CBOR::decode($bytes));
+    }
+
+    public static function toCborBrowserSessionInfo($value)
+    {
+        $out = array();
+        $field = $value instanceof BrowserSessionInfo ? $value->user : (is_array($value) && array_key_exists('user', $value) ? $value['user'] : null);
+        $out['user'] = self::toCborAdminUser($field);
+        $field = $value instanceof BrowserSessionInfo ? $value->issuedAt : (is_array($value) && array_key_exists('issued_at', $value) ? $value['issued_at'] : null);
+        $out['issued_at'] = $field;
+        $field = $value instanceof BrowserSessionInfo ? $value->authenticatedAt : (is_array($value) && array_key_exists('authenticated_at', $value) ? $value['authenticated_at'] : null);
+        $out['authenticated_at'] = $field;
+        $field = $value instanceof BrowserSessionInfo ? $value->expiresAt : (is_array($value) && array_key_exists('expires_at', $value) ? $value['expires_at'] : null);
+        $out['expires_at'] = $field;
+        $field = $value instanceof BrowserSessionInfo ? $value->authenticationMethods : (is_array($value) && array_key_exists('authentication_methods', $value) ? $value['authentication_methods'] : null);
+        $out['authentication_methods'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborBrowserSessionInfo($value)
+    {
+        return new BrowserSessionInfo(array(
+            'user' => array_key_exists('user', $value) ? self::fromCborAdminUser($value['user']) : null,
+            'issued_at' => array_key_exists('issued_at', $value) ? $value['issued_at'] : null,
+            'authenticated_at' => array_key_exists('authenticated_at', $value) ? $value['authenticated_at'] : null,
+            'expires_at' => array_key_exists('expires_at', $value) ? $value['expires_at'] : null,
+            'authentication_methods' => array_key_exists('authentication_methods', $value) ? array_map(function ($item) { return $item; }, $value['authentication_methods'] === null ? array() : $value['authentication_methods']) : null,
+        ));
+    }
+
+    public static function encodeSessionPasswordLoginRequest($value)
+    {
+        return CBOR::encode(self::toCborSessionPasswordLoginRequest($value));
+    }
+
+    public static function decodeSessionPasswordLoginRequest($bytes)
+    {
+        return self::fromCborSessionPasswordLoginRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborSessionPasswordLoginRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof SessionPasswordLoginRequest ? $value->username : (is_array($value) && array_key_exists('username', $value) ? $value['username'] : null);
+        $out['username'] = $field;
+        $field = $value instanceof SessionPasswordLoginRequest ? $value->password : (is_array($value) && array_key_exists('password', $value) ? $value['password'] : null);
+        $out['password'] = $field;
+        return $out;
+    }
+
+    public static function fromCborSessionPasswordLoginRequest($value)
+    {
+        return new SessionPasswordLoginRequest(array(
+            'username' => array_key_exists('username', $value) ? $value['username'] : null,
+            'password' => array_key_exists('password', $value) ? $value['password'] : null,
+        ));
+    }
+
+    public static function encodeSessionPasswordLoginResponse($value)
+    {
+        return CBOR::encode(self::toCborSessionPasswordLoginResponse($value));
+    }
+
+    public static function decodeSessionPasswordLoginResponse($bytes)
+    {
+        return self::fromCborSessionPasswordLoginResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborSessionPasswordLoginResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof SessionPasswordLoginResponse ? $value->session : (is_array($value) && array_key_exists('session', $value) ? $value['session'] : null);
+        $out['session'] = self::toCborBrowserSessionInfo($field);
+        return $out;
+    }
+
+    public static function fromCborSessionPasswordLoginResponse($value)
+    {
+        return new SessionPasswordLoginResponse(array(
+            'session' => array_key_exists('session', $value) ? self::fromCborBrowserSessionInfo($value['session']) : null,
+        ));
+    }
+
+    public static function encodeSessionCurrentResponse($value)
+    {
+        return CBOR::encode(self::toCborSessionCurrentResponse($value));
+    }
+
+    public static function decodeSessionCurrentResponse($bytes)
+    {
+        return self::fromCborSessionCurrentResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborSessionCurrentResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof SessionCurrentResponse ? $value->session : (is_array($value) && array_key_exists('session', $value) ? $value['session'] : null);
+        $out['session'] = self::toCborBrowserSessionInfo($field);
+        return $out;
+    }
+
+    public static function fromCborSessionCurrentResponse($value)
+    {
+        return new SessionCurrentResponse(array(
+            'session' => array_key_exists('session', $value) ? self::fromCborBrowserSessionInfo($value['session']) : null,
+        ));
+    }
+
+    public static function encodeSessionLogoutResponse($value)
+    {
+        return CBOR::encode(self::toCborSessionLogoutResponse($value));
+    }
+
+    public static function decodeSessionLogoutResponse($bytes)
+    {
+        return self::fromCborSessionLogoutResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborSessionLogoutResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof SessionLogoutResponse ? $value->success : (is_array($value) && array_key_exists('success', $value) ? $value['success'] : null);
+        $out['success'] = $field;
+        return $out;
+    }
+
+    public static function fromCborSessionLogoutResponse($value)
+    {
+        return new SessionLogoutResponse(array(
+            'success' => array_key_exists('success', $value) ? $value['success'] : null,
+        ));
+    }
+
+    public static function encodeIntrospectBrowserSessionRequest($value)
+    {
+        return CBOR::encode(self::toCborIntrospectBrowserSessionRequest($value));
+    }
+
+    public static function decodeIntrospectBrowserSessionRequest($bytes)
+    {
+        return self::fromCborIntrospectBrowserSessionRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborIntrospectBrowserSessionRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof IntrospectBrowserSessionRequest ? $value->sessionCookie : (is_array($value) && array_key_exists('session_cookie', $value) ? $value['session_cookie'] : null);
+        $out['session_cookie'] = $field;
+        return $out;
+    }
+
+    public static function fromCborIntrospectBrowserSessionRequest($value)
+    {
+        return new IntrospectBrowserSessionRequest(array(
+            'session_cookie' => array_key_exists('session_cookie', $value) ? $value['session_cookie'] : null,
+        ));
+    }
+
+    public static function encodeIntrospectBrowserSessionResponse($value)
+    {
+        return CBOR::encode(self::toCborIntrospectBrowserSessionResponse($value));
+    }
+
+    public static function decodeIntrospectBrowserSessionResponse($bytes)
+    {
+        return self::fromCborIntrospectBrowserSessionResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborIntrospectBrowserSessionResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof IntrospectBrowserSessionResponse ? $value->userId : (is_array($value) && array_key_exists('user_id', $value) ? $value['user_id'] : null);
+        $out['user_id'] = $field;
+        $field = $value instanceof IntrospectBrowserSessionResponse ? $value->userDomain : (is_array($value) && array_key_exists('user_domain', $value) ? $value['user_domain'] : null);
+        $out['user_domain'] = $field;
+        $field = $value instanceof IntrospectBrowserSessionResponse ? $value->authenticatedAt : (is_array($value) && array_key_exists('authenticated_at', $value) ? $value['authenticated_at'] : null);
+        $out['authenticated_at'] = $field;
+        $field = $value instanceof IntrospectBrowserSessionResponse ? $value->expiresAt : (is_array($value) && array_key_exists('expires_at', $value) ? $value['expires_at'] : null);
+        $out['expires_at'] = $field;
+        $field = $value instanceof IntrospectBrowserSessionResponse ? $value->authenticationMethods : (is_array($value) && array_key_exists('authentication_methods', $value) ? $value['authentication_methods'] : null);
+        $out['authentication_methods'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborIntrospectBrowserSessionResponse($value)
+    {
+        return new IntrospectBrowserSessionResponse(array(
+            'user_id' => array_key_exists('user_id', $value) ? $value['user_id'] : null,
+            'user_domain' => array_key_exists('user_domain', $value) ? $value['user_domain'] : null,
+            'authenticated_at' => array_key_exists('authenticated_at', $value) ? $value['authenticated_at'] : null,
+            'expires_at' => array_key_exists('expires_at', $value) ? $value['expires_at'] : null,
+            'authentication_methods' => array_key_exists('authentication_methods', $value) ? array_map(function ($item) { return $item; }, $value['authentication_methods'] === null ? array() : $value['authentication_methods']) : null,
+        ));
+    }
+
+    public static function encodeNotificationCapability($value)
+    {
+        return CBOR::encode(self::toCborNotificationCapability($value));
+    }
+
+    public static function decodeNotificationCapability($bytes)
+    {
+        return self::fromCborNotificationCapability(CBOR::decode($bytes));
+    }
+
+    public static function toCborNotificationCapability($value)
+    {
+        $out = array();
+        $field = $value instanceof NotificationCapability ? $value->purpose : (is_array($value) && array_key_exists('purpose', $value) ? $value['purpose'] : null);
+        $out['purpose'] = $field;
+        $field = $value instanceof NotificationCapability ? $value->channel : (is_array($value) && array_key_exists('channel', $value) ? $value['channel'] : null);
+        $out['channel'] = $field;
+        $field = $value instanceof NotificationCapability ? $value->destinationKind : (is_array($value) && array_key_exists('destination_kind', $value) ? $value['destination_kind'] : null);
+        $out['destination_kind'] = $field;
+        return $out;
+    }
+
+    public static function fromCborNotificationCapability($value)
+    {
+        return new NotificationCapability(array(
+            'purpose' => array_key_exists('purpose', $value) ? $value['purpose'] : null,
+            'channel' => array_key_exists('channel', $value) ? $value['channel'] : null,
+            'destination_kind' => array_key_exists('destination_kind', $value) ? $value['destination_kind'] : null,
+        ));
+    }
+
+    public static function encodeGetNotificationCapabilitiesResponse($value)
+    {
+        return CBOR::encode(self::toCborGetNotificationCapabilitiesResponse($value));
+    }
+
+    public static function decodeGetNotificationCapabilitiesResponse($bytes)
+    {
+        return self::fromCborGetNotificationCapabilitiesResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborGetNotificationCapabilitiesResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof GetNotificationCapabilitiesResponse ? $value->capabilities : (is_array($value) && array_key_exists('capabilities', $value) ? $value['capabilities'] : null);
+        $out['capabilities'] = array_map(function ($item) { return self::toCborNotificationCapability($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborGetNotificationCapabilitiesResponse($value)
+    {
+        return new GetNotificationCapabilitiesResponse(array(
+            'capabilities' => array_key_exists('capabilities', $value) ? array_map(function ($item) { return self::fromCborNotificationCapability($item); }, $value['capabilities'] === null ? array() : $value['capabilities']) : null,
+        ));
+    }
+
+    public static function encodeVerifiedContactMethod($value)
+    {
+        return CBOR::encode(self::toCborVerifiedContactMethod($value));
+    }
+
+    public static function decodeVerifiedContactMethod($bytes)
+    {
+        return self::fromCborVerifiedContactMethod(CBOR::decode($bytes));
+    }
+
+    public static function toCborVerifiedContactMethod($value)
+    {
+        $out = array();
+        $field = $value instanceof VerifiedContactMethod ? $value->id : (is_array($value) && array_key_exists('id', $value) ? $value['id'] : null);
+        $out['id'] = $field;
+        $field = $value instanceof VerifiedContactMethod ? $value->channel : (is_array($value) && array_key_exists('channel', $value) ? $value['channel'] : null);
+        $out['channel'] = $field;
+        $field = $value instanceof VerifiedContactMethod ? $value->destination : (is_array($value) && array_key_exists('destination', $value) ? $value['destination'] : null);
+        $out['destination'] = $field;
+        $field = $value instanceof VerifiedContactMethod ? $value->verifiedAt : (is_array($value) && array_key_exists('verified_at', $value) ? $value['verified_at'] : null);
+        $out['verified_at'] = $field;
+        $field = $value instanceof VerifiedContactMethod ? $value->purposes : (is_array($value) && array_key_exists('purposes', $value) ? $value['purposes'] : null);
+        $out['purposes'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        $field = $value instanceof VerifiedContactMethod ? $value->revokedAt : (is_array($value) && array_key_exists('revoked_at', $value) ? $value['revoked_at'] : null);
+        if ($field !== null) {
+            $out['revoked_at'] = $field;
+        }
+        return $out;
+    }
+
+    public static function fromCborVerifiedContactMethod($value)
+    {
+        return new VerifiedContactMethod(array(
+            'id' => array_key_exists('id', $value) ? $value['id'] : null,
+            'channel' => array_key_exists('channel', $value) ? $value['channel'] : null,
+            'destination' => array_key_exists('destination', $value) ? $value['destination'] : null,
+            'verified_at' => array_key_exists('verified_at', $value) ? $value['verified_at'] : null,
+            'purposes' => array_key_exists('purposes', $value) ? array_map(function ($item) { return $item; }, $value['purposes'] === null ? array() : $value['purposes']) : null,
+            'revoked_at' => array_key_exists('revoked_at', $value) ? $value['revoked_at'] : null,
+        ));
+    }
+
+    public static function encodeListVerifiedContactMethodsResponse($value)
+    {
+        return CBOR::encode(self::toCborListVerifiedContactMethodsResponse($value));
+    }
+
+    public static function decodeListVerifiedContactMethodsResponse($bytes)
+    {
+        return self::fromCborListVerifiedContactMethodsResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborListVerifiedContactMethodsResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof ListVerifiedContactMethodsResponse ? $value->contactMethods : (is_array($value) && array_key_exists('contact_methods', $value) ? $value['contact_methods'] : null);
+        $out['contact_methods'] = array_map(function ($item) { return self::toCborVerifiedContactMethod($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborListVerifiedContactMethodsResponse($value)
+    {
+        return new ListVerifiedContactMethodsResponse(array(
+            'contact_methods' => array_key_exists('contact_methods', $value) ? array_map(function ($item) { return self::fromCborVerifiedContactMethod($item); }, $value['contact_methods'] === null ? array() : $value['contact_methods']) : null,
+        ));
+    }
+
+    public static function encodeRevokeVerifiedContactMethodRequest($value)
+    {
+        return CBOR::encode(self::toCborRevokeVerifiedContactMethodRequest($value));
+    }
+
+    public static function decodeRevokeVerifiedContactMethodRequest($bytes)
+    {
+        return self::fromCborRevokeVerifiedContactMethodRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRevokeVerifiedContactMethodRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RevokeVerifiedContactMethodRequest ? $value->contactMethodId : (is_array($value) && array_key_exists('contact_method_id', $value) ? $value['contact_method_id'] : null);
+        $out['contact_method_id'] = $field;
+        $field = $value instanceof RevokeVerifiedContactMethodRequest ? $value->currentPassword : (is_array($value) && array_key_exists('current_password', $value) ? $value['current_password'] : null);
+        $out['current_password'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRevokeVerifiedContactMethodRequest($value)
+    {
+        return new RevokeVerifiedContactMethodRequest(array(
+            'contact_method_id' => array_key_exists('contact_method_id', $value) ? $value['contact_method_id'] : null,
+            'current_password' => array_key_exists('current_password', $value) ? $value['current_password'] : null,
+        ));
+    }
+
+    public static function encodeRevokeVerifiedContactMethodResponse($value)
+    {
+        return CBOR::encode(self::toCborRevokeVerifiedContactMethodResponse($value));
+    }
+
+    public static function decodeRevokeVerifiedContactMethodResponse($bytes)
+    {
+        return self::fromCborRevokeVerifiedContactMethodResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborRevokeVerifiedContactMethodResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof RevokeVerifiedContactMethodResponse ? $value->success : (is_array($value) && array_key_exists('success', $value) ? $value['success'] : null);
+        $out['success'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRevokeVerifiedContactMethodResponse($value)
+    {
+        return new RevokeVerifiedContactMethodResponse(array(
+            'success' => array_key_exists('success', $value) ? $value['success'] : null,
+        ));
+    }
+
+    public static function encodeRequestContactVerificationRequest($value)
+    {
+        return CBOR::encode(self::toCborRequestContactVerificationRequest($value));
+    }
+
+    public static function decodeRequestContactVerificationRequest($bytes)
+    {
+        return self::fromCborRequestContactVerificationRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRequestContactVerificationRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RequestContactVerificationRequest ? $value->channel : (is_array($value) && array_key_exists('channel', $value) ? $value['channel'] : null);
+        $out['channel'] = $field;
+        $field = $value instanceof RequestContactVerificationRequest ? $value->destination : (is_array($value) && array_key_exists('destination', $value) ? $value['destination'] : null);
+        $out['destination'] = $field;
+        $field = $value instanceof RequestContactVerificationRequest ? $value->currentPassword : (is_array($value) && array_key_exists('current_password', $value) ? $value['current_password'] : null);
+        $out['current_password'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRequestContactVerificationRequest($value)
+    {
+        return new RequestContactVerificationRequest(array(
+            'channel' => array_key_exists('channel', $value) ? $value['channel'] : null,
+            'destination' => array_key_exists('destination', $value) ? $value['destination'] : null,
+            'current_password' => array_key_exists('current_password', $value) ? $value['current_password'] : null,
+        ));
+    }
+
+    public static function encodeRequestContactVerificationResponse($value)
+    {
+        return CBOR::encode(self::toCborRequestContactVerificationResponse($value));
+    }
+
+    public static function decodeRequestContactVerificationResponse($bytes)
+    {
+        return self::fromCborRequestContactVerificationResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborRequestContactVerificationResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof RequestContactVerificationResponse ? $value->expiresAt : (is_array($value) && array_key_exists('expires_at', $value) ? $value['expires_at'] : null);
+        $out['expires_at'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRequestContactVerificationResponse($value)
+    {
+        return new RequestContactVerificationResponse(array(
+            'expires_at' => array_key_exists('expires_at', $value) ? $value['expires_at'] : null,
+        ));
+    }
+
+    public static function encodeConfirmContactVerificationRequest($value)
+    {
+        return CBOR::encode(self::toCborConfirmContactVerificationRequest($value));
+    }
+
+    public static function decodeConfirmContactVerificationRequest($bytes)
+    {
+        return self::fromCborConfirmContactVerificationRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborConfirmContactVerificationRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof ConfirmContactVerificationRequest ? $value->token : (is_array($value) && array_key_exists('token', $value) ? $value['token'] : null);
+        $out['token'] = $field;
+        return $out;
+    }
+
+    public static function fromCborConfirmContactVerificationRequest($value)
+    {
+        return new ConfirmContactVerificationRequest(array(
+            'token' => array_key_exists('token', $value) ? $value['token'] : null,
+        ));
+    }
+
+    public static function encodeConfirmContactVerificationResponse($value)
+    {
+        return CBOR::encode(self::toCborConfirmContactVerificationResponse($value));
+    }
+
+    public static function decodeConfirmContactVerificationResponse($bytes)
+    {
+        return self::fromCborConfirmContactVerificationResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborConfirmContactVerificationResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof ConfirmContactVerificationResponse ? $value->contactMethod : (is_array($value) && array_key_exists('contact_method', $value) ? $value['contact_method'] : null);
+        $out['contact_method'] = self::toCborVerifiedContactMethod($field);
+        $field = $value instanceof ConfirmContactVerificationResponse ? $value->claims : (is_array($value) && array_key_exists('claims', $value) ? $value['claims'] : null);
+        $out['claims'] = array_map(function ($item) { return self::toCborClaim($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborConfirmContactVerificationResponse($value)
+    {
+        return new ConfirmContactVerificationResponse(array(
+            'contact_method' => array_key_exists('contact_method', $value) ? self::fromCborVerifiedContactMethod($value['contact_method']) : null,
+            'claims' => array_key_exists('claims', $value) ? array_map(function ($item) { return self::fromCborClaim($item); }, $value['claims'] === null ? array() : $value['claims']) : null,
+        ));
+    }
+
+    public static function encodeRequestPasswordRecoveryRequest($value)
+    {
+        return CBOR::encode(self::toCborRequestPasswordRecoveryRequest($value));
+    }
+
+    public static function decodeRequestPasswordRecoveryRequest($bytes)
+    {
+        return self::fromCborRequestPasswordRecoveryRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRequestPasswordRecoveryRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RequestPasswordRecoveryRequest ? $value->identifier : (is_array($value) && array_key_exists('identifier', $value) ? $value['identifier'] : null);
+        $out['identifier'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRequestPasswordRecoveryRequest($value)
+    {
+        return new RequestPasswordRecoveryRequest(array(
+            'identifier' => array_key_exists('identifier', $value) ? $value['identifier'] : null,
+        ));
+    }
+
+    public static function encodeRequestPasswordRecoveryResponse($value)
+    {
+        return CBOR::encode(self::toCborRequestPasswordRecoveryResponse($value));
+    }
+
+    public static function decodeRequestPasswordRecoveryResponse($bytes)
+    {
+        return self::fromCborRequestPasswordRecoveryResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborRequestPasswordRecoveryResponse($value)
+    {
+        $out = array();
+        return $out;
+    }
+
+    public static function fromCborRequestPasswordRecoveryResponse($value)
+    {
+        return new RequestPasswordRecoveryResponse(array(
+        ));
+    }
+
+    public static function encodeValidatePasswordRecoveryRequest($value)
+    {
+        return CBOR::encode(self::toCborValidatePasswordRecoveryRequest($value));
+    }
+
+    public static function decodeValidatePasswordRecoveryRequest($bytes)
+    {
+        return self::fromCborValidatePasswordRecoveryRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborValidatePasswordRecoveryRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof ValidatePasswordRecoveryRequest ? $value->token : (is_array($value) && array_key_exists('token', $value) ? $value['token'] : null);
+        $out['token'] = $field;
+        return $out;
+    }
+
+    public static function fromCborValidatePasswordRecoveryRequest($value)
+    {
+        return new ValidatePasswordRecoveryRequest(array(
+            'token' => array_key_exists('token', $value) ? $value['token'] : null,
+        ));
+    }
+
+    public static function encodeValidatePasswordRecoveryResponse($value)
+    {
+        return CBOR::encode(self::toCborValidatePasswordRecoveryResponse($value));
+    }
+
+    public static function decodeValidatePasswordRecoveryResponse($bytes)
+    {
+        return self::fromCborValidatePasswordRecoveryResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborValidatePasswordRecoveryResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof ValidatePasswordRecoveryResponse ? $value->expiresAt : (is_array($value) && array_key_exists('expires_at', $value) ? $value['expires_at'] : null);
+        $out['expires_at'] = $field;
+        $field = $value instanceof ValidatePasswordRecoveryResponse ? $value->passwordPolicy : (is_array($value) && array_key_exists('password_policy', $value) ? $value['password_policy'] : null);
+        $out['password_policy'] = self::toCborPasswordPolicy($field);
+        return $out;
+    }
+
+    public static function fromCborValidatePasswordRecoveryResponse($value)
+    {
+        return new ValidatePasswordRecoveryResponse(array(
+            'expires_at' => array_key_exists('expires_at', $value) ? $value['expires_at'] : null,
+            'password_policy' => array_key_exists('password_policy', $value) ? self::fromCborPasswordPolicy($value['password_policy']) : null,
+        ));
+    }
+
+    public static function encodeCompletePasswordRecoveryRequest($value)
+    {
+        return CBOR::encode(self::toCborCompletePasswordRecoveryRequest($value));
+    }
+
+    public static function decodeCompletePasswordRecoveryRequest($bytes)
+    {
+        return self::fromCborCompletePasswordRecoveryRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborCompletePasswordRecoveryRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof CompletePasswordRecoveryRequest ? $value->token : (is_array($value) && array_key_exists('token', $value) ? $value['token'] : null);
+        $out['token'] = $field;
+        $field = $value instanceof CompletePasswordRecoveryRequest ? $value->newPassword : (is_array($value) && array_key_exists('new_password', $value) ? $value['new_password'] : null);
+        $out['new_password'] = $field;
+        return $out;
+    }
+
+    public static function fromCborCompletePasswordRecoveryRequest($value)
+    {
+        return new CompletePasswordRecoveryRequest(array(
+            'token' => array_key_exists('token', $value) ? $value['token'] : null,
+            'new_password' => array_key_exists('new_password', $value) ? $value['new_password'] : null,
+        ));
+    }
+
+    public static function encodeCompletePasswordRecoveryResponse($value)
+    {
+        return CBOR::encode(self::toCborCompletePasswordRecoveryResponse($value));
+    }
+
+    public static function decodeCompletePasswordRecoveryResponse($bytes)
+    {
+        return self::fromCborCompletePasswordRecoveryResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborCompletePasswordRecoveryResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof CompletePasswordRecoveryResponse ? $value->success : (is_array($value) && array_key_exists('success', $value) ? $value['success'] : null);
+        $out['success'] = $field;
+        return $out;
+    }
+
+    public static function fromCborCompletePasswordRecoveryResponse($value)
+    {
+        return new CompletePasswordRecoveryResponse(array(
+            'success' => array_key_exists('success', $value) ? $value['success'] : null,
+        ));
+    }
+
+    public static function encodeBrowserAuthorizationInspectRequest($value)
+    {
+        return CBOR::encode(self::toCborBrowserAuthorizationInspectRequest($value));
+    }
+
+    public static function decodeBrowserAuthorizationInspectRequest($bytes)
+    {
+        return self::fromCborBrowserAuthorizationInspectRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborBrowserAuthorizationInspectRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof BrowserAuthorizationInspectRequest ? $value->signedRequest : (is_array($value) && array_key_exists('signed_request', $value) ? $value['signed_request'] : null);
+        $out['signed_request'] = $field;
+        return $out;
+    }
+
+    public static function fromCborBrowserAuthorizationInspectRequest($value)
+    {
+        return new BrowserAuthorizationInspectRequest(array(
+            'signed_request' => array_key_exists('signed_request', $value) ? $value['signed_request'] : null,
+        ));
+    }
+
+    public static function encodeBrowserConsentClaim($value)
+    {
+        return CBOR::encode(self::toCborBrowserConsentClaim($value));
+    }
+
+    public static function decodeBrowserConsentClaim($bytes)
+    {
+        return self::fromCborBrowserConsentClaim(CBOR::decode($bytes));
+    }
+
+    public static function toCborBrowserConsentClaim($value)
+    {
+        $out = array();
+        $field = $value instanceof BrowserConsentClaim ? $value->claimType : (is_array($value) && array_key_exists('claim_type', $value) ? $value['claim_type'] : null);
+        $out['claim_type'] = $field;
+        $field = $value instanceof BrowserConsentClaim ? $value->label : (is_array($value) && array_key_exists('label', $value) ? $value['label'] : null);
+        $out['label'] = $field;
+        $field = $value instanceof BrowserConsentClaim ? $value->datatype : (is_array($value) && array_key_exists('datatype', $value) ? $value['datatype'] : null);
+        $out['datatype'] = $field;
+        $field = $value instanceof BrowserConsentClaim ? $value->required : (is_array($value) && array_key_exists('required', $value) ? $value['required'] : null);
+        $out['required'] = $field;
+        $field = $value instanceof BrowserConsentClaim ? $value->available : (is_array($value) && array_key_exists('available', $value) ? $value['available'] : null);
+        $out['available'] = $field;
+        $field = $value instanceof BrowserConsentClaim ? $value->defaultGranted : (is_array($value) && array_key_exists('default_granted', $value) ? $value['default_granted'] : null);
+        $out['default_granted'] = $field;
+        $field = $value instanceof BrowserConsentClaim ? $value->policy : (is_array($value) && array_key_exists('policy', $value) ? $value['policy'] : null);
+        $out['policy'] = $field;
+        $field = $value instanceof BrowserConsentClaim ? $value->userSettable : (is_array($value) && array_key_exists('user_settable', $value) ? $value['user_settable'] : null);
+        $out['user_settable'] = $field;
+        $field = $value instanceof BrowserConsentClaim ? $value->maxBytes : (is_array($value) && array_key_exists('max_bytes', $value) ? $value['max_bytes'] : null);
+        $out['max_bytes'] = $field;
+        $field = $value instanceof BrowserConsentClaim ? $value->requiresApproval : (is_array($value) && array_key_exists('requires_approval', $value) ? $value['requires_approval'] : null);
+        $out['requires_approval'] = $field;
+        return $out;
+    }
+
+    public static function fromCborBrowserConsentClaim($value)
+    {
+        return new BrowserConsentClaim(array(
+            'claim_type' => array_key_exists('claim_type', $value) ? $value['claim_type'] : null,
+            'label' => array_key_exists('label', $value) ? $value['label'] : null,
+            'datatype' => array_key_exists('datatype', $value) ? $value['datatype'] : null,
+            'required' => array_key_exists('required', $value) ? $value['required'] : null,
+            'available' => array_key_exists('available', $value) ? $value['available'] : null,
+            'default_granted' => array_key_exists('default_granted', $value) ? $value['default_granted'] : null,
+            'policy' => array_key_exists('policy', $value) ? $value['policy'] : null,
+            'user_settable' => array_key_exists('user_settable', $value) ? $value['user_settable'] : null,
+            'max_bytes' => array_key_exists('max_bytes', $value) ? $value['max_bytes'] : null,
+            'requires_approval' => array_key_exists('requires_approval', $value) ? $value['requires_approval'] : null,
+        ));
+    }
+
+    public static function encodeBrowserAuthorizationInspectResponse($value)
+    {
+        return CBOR::encode(self::toCborBrowserAuthorizationInspectResponse($value));
+    }
+
+    public static function decodeBrowserAuthorizationInspectResponse($bytes)
+    {
+        return self::fromCborBrowserAuthorizationInspectResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborBrowserAuthorizationInspectResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof BrowserAuthorizationInspectResponse ? $value->relyingParty : (is_array($value) && array_key_exists('relying_party', $value) ? $value['relying_party'] : null);
+        $out['relying_party'] = $field;
+        $field = $value instanceof BrowserAuthorizationInspectResponse ? $value->claims : (is_array($value) && array_key_exists('claims', $value) ? $value['claims'] : null);
+        $out['claims'] = array_map(function ($item) { return self::toCborBrowserConsentClaim($item); }, $field === null ? array() : $field);
+        $field = $value instanceof BrowserAuthorizationInspectResponse ? $value->requestReason : (is_array($value) && array_key_exists('request_reason', $value) ? $value['request_reason'] : null);
+        if ($field !== null) {
+            $out['request_reason'] = $field;
+        }
+        return $out;
+    }
+
+    public static function fromCborBrowserAuthorizationInspectResponse($value)
+    {
+        return new BrowserAuthorizationInspectResponse(array(
+            'relying_party' => array_key_exists('relying_party', $value) ? $value['relying_party'] : null,
+            'claims' => array_key_exists('claims', $value) ? array_map(function ($item) { return self::fromCborBrowserConsentClaim($item); }, $value['claims'] === null ? array() : $value['claims']) : null,
+            'request_reason' => array_key_exists('request_reason', $value) ? $value['request_reason'] : null,
+        ));
+    }
+
+    public static function encodeBrowserAuthorizationCompleteRequest($value)
+    {
+        return CBOR::encode(self::toCborBrowserAuthorizationCompleteRequest($value));
+    }
+
+    public static function decodeBrowserAuthorizationCompleteRequest($bytes)
+    {
+        return self::fromCborBrowserAuthorizationCompleteRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborBrowserAuthorizationCompleteRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof BrowserAuthorizationCompleteRequest ? $value->signedRequest : (is_array($value) && array_key_exists('signed_request', $value) ? $value['signed_request'] : null);
+        $out['signed_request'] = $field;
+        $field = $value instanceof BrowserAuthorizationCompleteRequest ? $value->authorizedClaims : (is_array($value) && array_key_exists('authorized_claims', $value) ? $value['authorized_claims'] : null);
+        $out['authorized_claims'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        $field = $value instanceof BrowserAuthorizationCompleteRequest ? $value->claimTypesToSet : (is_array($value) && array_key_exists('claim_types_to_set', $value) ? $value['claim_types_to_set'] : null);
+        $out['claim_types_to_set'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        $field = $value instanceof BrowserAuthorizationCompleteRequest ? $value->claimValuesToSet : (is_array($value) && array_key_exists('claim_values_to_set', $value) ? $value['claim_values_to_set'] : null);
+        $out['claim_values_to_set'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborBrowserAuthorizationCompleteRequest($value)
+    {
+        return new BrowserAuthorizationCompleteRequest(array(
+            'signed_request' => array_key_exists('signed_request', $value) ? $value['signed_request'] : null,
+            'authorized_claims' => array_key_exists('authorized_claims', $value) ? array_map(function ($item) { return $item; }, $value['authorized_claims'] === null ? array() : $value['authorized_claims']) : null,
+            'claim_types_to_set' => array_key_exists('claim_types_to_set', $value) ? array_map(function ($item) { return $item; }, $value['claim_types_to_set'] === null ? array() : $value['claim_types_to_set']) : null,
+            'claim_values_to_set' => array_key_exists('claim_values_to_set', $value) ? array_map(function ($item) { return $item; }, $value['claim_values_to_set'] === null ? array() : $value['claim_values_to_set']) : null,
+        ));
+    }
+
+    public static function encodeBrowserAuthorizationCompleteResponse($value)
+    {
+        return CBOR::encode(self::toCborBrowserAuthorizationCompleteResponse($value));
+    }
+
+    public static function decodeBrowserAuthorizationCompleteResponse($bytes)
+    {
+        return self::fromCborBrowserAuthorizationCompleteResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborBrowserAuthorizationCompleteResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof BrowserAuthorizationCompleteResponse ? $value->redirectUrl : (is_array($value) && array_key_exists('redirect_url', $value) ? $value['redirect_url'] : null);
+        $out['redirect_url'] = $field;
+        return $out;
+    }
+
+    public static function fromCborBrowserAuthorizationCompleteResponse($value)
+    {
+        return new BrowserAuthorizationCompleteResponse(array(
+            'redirect_url' => array_key_exists('redirect_url', $value) ? $value['redirect_url'] : null,
+        ));
+    }
+
+    public static function encodeUiTheme($value)
+    {
+        return CBOR::encode(self::toCborUiTheme($value));
+    }
+
+    public static function decodeUiTheme($bytes)
+    {
+        return self::fromCborUiTheme(CBOR::decode($bytes));
+    }
+
+    public static function toCborUiTheme($value)
+    {
+        $out = array();
+        $field = $value instanceof UiTheme ? $value->stylesheetUrl : (is_array($value) && array_key_exists('stylesheet_url', $value) ? $value['stylesheet_url'] : null);
+        if ($field !== null) {
+            $out['stylesheet_url'] = $field;
+        }
+        $field = $value instanceof UiTheme ? $value->logoUrl : (is_array($value) && array_key_exists('logo_url', $value) ? $value['logo_url'] : null);
+        if ($field !== null) {
+            $out['logo_url'] = $field;
+        }
+        $field = $value instanceof UiTheme ? $value->faviconUrl : (is_array($value) && array_key_exists('favicon_url', $value) ? $value['favicon_url'] : null);
+        if ($field !== null) {
+            $out['favicon_url'] = $field;
+        }
+        return $out;
+    }
+
+    public static function fromCborUiTheme($value)
+    {
+        return new UiTheme(array(
+            'stylesheet_url' => array_key_exists('stylesheet_url', $value) ? $value['stylesheet_url'] : null,
+            'logo_url' => array_key_exists('logo_url', $value) ? $value['logo_url'] : null,
+            'favicon_url' => array_key_exists('favicon_url', $value) ? $value['favicon_url'] : null,
+        ));
+    }
+
+    public static function encodeUiExtension($value)
+    {
+        return CBOR::encode(self::toCborUiExtension($value));
+    }
+
+    public static function decodeUiExtension($bytes)
+    {
+        return self::fromCborUiExtension(CBOR::decode($bytes));
+    }
+
+    public static function toCborUiExtension($value)
+    {
+        $out = array();
+        $field = $value instanceof UiExtension ? $value->id : (is_array($value) && array_key_exists('id', $value) ? $value['id'] : null);
+        $out['id'] = $field;
+        $field = $value instanceof UiExtension ? $value->moduleUrl : (is_array($value) && array_key_exists('module_url', $value) ? $value['module_url'] : null);
+        $out['module_url'] = $field;
+        $field = $value instanceof UiExtension ? $value->apiVersion : (is_array($value) && array_key_exists('api_version', $value) ? $value['api_version'] : null);
+        $out['api_version'] = $field;
+        $field = $value instanceof UiExtension ? $value->stylesheetUrl : (is_array($value) && array_key_exists('stylesheet_url', $value) ? $value['stylesheet_url'] : null);
+        if ($field !== null) {
+            $out['stylesheet_url'] = $field;
+        }
+        return $out;
+    }
+
+    public static function fromCborUiExtension($value)
+    {
+        return new UiExtension(array(
+            'id' => array_key_exists('id', $value) ? $value['id'] : null,
+            'module_url' => array_key_exists('module_url', $value) ? $value['module_url'] : null,
+            'api_version' => array_key_exists('api_version', $value) ? $value['api_version'] : null,
+            'stylesheet_url' => array_key_exists('stylesheet_url', $value) ? $value['stylesheet_url'] : null,
+        ));
+    }
+
+    public static function encodeUiDisplaySettings($value)
+    {
+        return CBOR::encode(self::toCborUiDisplaySettings($value));
+    }
+
+    public static function decodeUiDisplaySettings($bytes)
+    {
+        return self::fromCborUiDisplaySettings(CBOR::decode($bytes));
+    }
+
+    public static function toCborUiDisplaySettings($value)
+    {
+        $out = array();
+        $field = $value instanceof UiDisplaySettings ? $value->siteName : (is_array($value) && array_key_exists('site_name', $value) ? $value['site_name'] : null);
+        $out['site_name'] = $field;
+        $field = $value instanceof UiDisplaySettings ? $value->supportUrl : (is_array($value) && array_key_exists('support_url', $value) ? $value['support_url'] : null);
+        if ($field !== null) {
+            $out['support_url'] = $field;
+        }
+        return $out;
+    }
+
+    public static function fromCborUiDisplaySettings($value)
+    {
+        return new UiDisplaySettings(array(
+            'site_name' => array_key_exists('site_name', $value) ? $value['site_name'] : null,
+            'support_url' => array_key_exists('support_url', $value) ? $value['support_url'] : null,
+        ));
+    }
+
+    public static function encodeGetUiConfigurationResponse($value)
+    {
+        return CBOR::encode(self::toCborGetUiConfigurationResponse($value));
+    }
+
+    public static function decodeGetUiConfigurationResponse($bytes)
+    {
+        return self::fromCborGetUiConfigurationResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborGetUiConfigurationResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof GetUiConfigurationResponse ? $value->hostApiVersion : (is_array($value) && array_key_exists('host_api_version', $value) ? $value['host_api_version'] : null);
+        $out['host_api_version'] = $field;
+        $field = $value instanceof GetUiConfigurationResponse ? $value->domain : (is_array($value) && array_key_exists('domain', $value) ? $value['domain'] : null);
+        $out['domain'] = $field;
+        $field = $value instanceof GetUiConfigurationResponse ? $value->publicOrigin : (is_array($value) && array_key_exists('public_origin', $value) ? $value['public_origin'] : null);
+        if ($field !== null) {
+            $out['public_origin'] = $field;
+        }
+        $field = $value instanceof GetUiConfigurationResponse ? $value->capabilities : (is_array($value) && array_key_exists('capabilities', $value) ? $value['capabilities'] : null);
+        $out['capabilities'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        $field = $value instanceof GetUiConfigurationResponse ? $value->display : (is_array($value) && array_key_exists('display', $value) ? $value['display'] : null);
+        $out['display'] = self::toCborUiDisplaySettings($field);
+        $field = $value instanceof GetUiConfigurationResponse ? $value->theme : (is_array($value) && array_key_exists('theme', $value) ? $value['theme'] : null);
+        if ($field !== null) {
+            $out['theme'] = self::toCborUiTheme($field);
+        }
+        $field = $value instanceof GetUiConfigurationResponse ? $value->extensions : (is_array($value) && array_key_exists('extensions', $value) ? $value['extensions'] : null);
+        $out['extensions'] = array_map(function ($item) { return self::toCborUiExtension($item); }, $field === null ? array() : $field);
+        $field = $value instanceof GetUiConfigurationResponse ? $value->passwordPolicy : (is_array($value) && array_key_exists('password_policy', $value) ? $value['password_policy'] : null);
+        if ($field !== null) {
+            $out['password_policy'] = self::toCborPasswordPolicy($field);
+        }
+        return $out;
+    }
+
+    public static function fromCborGetUiConfigurationResponse($value)
+    {
+        return new GetUiConfigurationResponse(array(
+            'host_api_version' => array_key_exists('host_api_version', $value) ? $value['host_api_version'] : null,
+            'domain' => array_key_exists('domain', $value) ? $value['domain'] : null,
+            'public_origin' => array_key_exists('public_origin', $value) ? $value['public_origin'] : null,
+            'capabilities' => array_key_exists('capabilities', $value) ? array_map(function ($item) { return $item; }, $value['capabilities'] === null ? array() : $value['capabilities']) : null,
+            'display' => array_key_exists('display', $value) ? self::fromCborUiDisplaySettings($value['display']) : null,
+            'theme' => array_key_exists('theme', $value) ? self::fromCborUiTheme($value['theme']) : null,
+            'extensions' => array_key_exists('extensions', $value) ? array_map(function ($item) { return self::fromCborUiExtension($item); }, $value['extensions'] === null ? array() : $value['extensions']) : null,
+            'password_policy' => array_key_exists('password_policy', $value) ? self::fromCborPasswordPolicy($value['password_policy']) : null,
+        ));
+    }
+
     public static function encodeRpSignRequest($value)
     {
         return CBOR::encode(self::toCborRpSignRequest($value));
@@ -2805,6 +5317,10 @@ class Codec
         if ($field !== null) {
             $out['requested_claims'] = self::toCborClaimRequest($field);
         }
+        $field = $value instanceof RpSignRequest ? $value->authenticationRequirements : (is_array($value) && array_key_exists('authentication_requirements', $value) ? $value['authentication_requirements'] : null);
+        if ($field !== null) {
+            $out['authentication_requirements'] = self::toCborAuthenticationRequirements($field);
+        }
         $field = $value instanceof RpSignRequest ? $value->flowContext : (is_array($value) && array_key_exists('flow_context', $value) ? $value['flow_context'] : null);
         if ($field !== null) {
             $out['flow_context'] = self::toCborAuthFlowContext($field);
@@ -2818,6 +5334,7 @@ class Codec
             'callback_url' => array_key_exists('callback_url', $value) ? $value['callback_url'] : null,
             'nonce' => array_key_exists('nonce', $value) ? $value['nonce'] : null,
             'requested_claims' => array_key_exists('requested_claims', $value) ? self::fromCborClaimRequest($value['requested_claims']) : null,
+            'authentication_requirements' => array_key_exists('authentication_requirements', $value) ? self::fromCborAuthenticationRequirements($value['authentication_requirements']) : null,
             'flow_context' => array_key_exists('flow_context', $value) ? self::fromCborAuthFlowContext($value['flow_context']) : null,
         ));
     }
@@ -3043,6 +5560,187 @@ class Codec
         ));
     }
 
+    public static function encodeAuthorizeValidateRequest($value)
+    {
+        return CBOR::encode(self::toCborAuthorizeValidateRequest($value));
+    }
+
+    public static function decodeAuthorizeValidateRequest($bytes)
+    {
+        return self::fromCborAuthorizeValidateRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborAuthorizeValidateRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof AuthorizeValidateRequest ? $value->signedRequest : (is_array($value) && array_key_exists('signed_request', $value) ? $value['signed_request'] : null);
+        $out['signed_request'] = $field;
+        $field = $value instanceof AuthorizeValidateRequest ? $value->userId : (is_array($value) && array_key_exists('user_id', $value) ? $value['user_id'] : null);
+        if ($field !== null) {
+            $out['user_id'] = $field;
+        }
+        return $out;
+    }
+
+    public static function fromCborAuthorizeValidateRequest($value)
+    {
+        return new AuthorizeValidateRequest(array(
+            'signed_request' => array_key_exists('signed_request', $value) ? $value['signed_request'] : null,
+            'user_id' => array_key_exists('user_id', $value) ? $value['user_id'] : null,
+        ));
+    }
+
+    public static function encodeAuthorizeValidateResponse($value)
+    {
+        return CBOR::encode(self::toCborAuthorizeValidateResponse($value));
+    }
+
+    public static function decodeAuthorizeValidateResponse($bytes)
+    {
+        return self::fromCborAuthorizeValidateResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborAuthorizeValidateResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof AuthorizeValidateResponse ? $value->relyingParty : (is_array($value) && array_key_exists('relying_party', $value) ? $value['relying_party'] : null);
+        $out['relying_party'] = $field;
+        $field = $value instanceof AuthorizeValidateResponse ? $value->callbackUrl : (is_array($value) && array_key_exists('callback_url', $value) ? $value['callback_url'] : null);
+        $out['callback_url'] = $field;
+        $field = $value instanceof AuthorizeValidateResponse ? $value->requestedClaims : (is_array($value) && array_key_exists('requested_claims', $value) ? $value['requested_claims'] : null);
+        $out['requested_claims'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        $field = $value instanceof AuthorizeValidateResponse ? $value->alreadyConsented : (is_array($value) && array_key_exists('already_consented', $value) ? $value['already_consented'] : null);
+        if ($field !== null) {
+            $out['already_consented'] = $field;
+        }
+        $field = $value instanceof AuthorizeValidateResponse ? $value->authorizedClaims : (is_array($value) && array_key_exists('authorized_claims', $value) ? $value['authorized_claims'] : null);
+        if ($field !== null) {
+            $out['authorized_claims'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        }
+        return $out;
+    }
+
+    public static function fromCborAuthorizeValidateResponse($value)
+    {
+        return new AuthorizeValidateResponse(array(
+            'relying_party' => array_key_exists('relying_party', $value) ? $value['relying_party'] : null,
+            'callback_url' => array_key_exists('callback_url', $value) ? $value['callback_url'] : null,
+            'requested_claims' => array_key_exists('requested_claims', $value) ? array_map(function ($item) { return $item; }, $value['requested_claims'] === null ? array() : $value['requested_claims']) : null,
+            'already_consented' => array_key_exists('already_consented', $value) ? $value['already_consented'] : null,
+            'authorized_claims' => array_key_exists('authorized_claims', $value) ? array_map(function ($item) { return $item; }, $value['authorized_claims'] === null ? array() : $value['authorized_claims']) : null,
+        ));
+    }
+
+    public static function encodeAuthorizeFinalizeRequest($value)
+    {
+        return CBOR::encode(self::toCborAuthorizeFinalizeRequest($value));
+    }
+
+    public static function decodeAuthorizeFinalizeRequest($bytes)
+    {
+        return self::fromCborAuthorizeFinalizeRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborAuthorizeFinalizeRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof AuthorizeFinalizeRequest ? $value->userId : (is_array($value) && array_key_exists('user_id', $value) ? $value['user_id'] : null);
+        $out['user_id'] = $field;
+        $field = $value instanceof AuthorizeFinalizeRequest ? $value->signedRequest : (is_array($value) && array_key_exists('signed_request', $value) ? $value['signed_request'] : null);
+        $out['signed_request'] = $field;
+        $field = $value instanceof AuthorizeFinalizeRequest ? $value->authorizedClaims : (is_array($value) && array_key_exists('authorized_claims', $value) ? $value['authorized_claims'] : null);
+        $out['authorized_claims'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborAuthorizeFinalizeRequest($value)
+    {
+        return new AuthorizeFinalizeRequest(array(
+            'user_id' => array_key_exists('user_id', $value) ? $value['user_id'] : null,
+            'signed_request' => array_key_exists('signed_request', $value) ? $value['signed_request'] : null,
+            'authorized_claims' => array_key_exists('authorized_claims', $value) ? array_map(function ($item) { return $item; }, $value['authorized_claims'] === null ? array() : $value['authorized_claims']) : null,
+        ));
+    }
+
+    public static function encodeAuthorizeFinalizeResponse($value)
+    {
+        return CBOR::encode(self::toCborAuthorizeFinalizeResponse($value));
+    }
+
+    public static function decodeAuthorizeFinalizeResponse($bytes)
+    {
+        return self::fromCborAuthorizeFinalizeResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborAuthorizeFinalizeResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof AuthorizeFinalizeResponse ? $value->redirectUrl : (is_array($value) && array_key_exists('redirect_url', $value) ? $value['redirect_url'] : null);
+        $out['redirect_url'] = $field;
+        return $out;
+    }
+
+    public static function fromCborAuthorizeFinalizeResponse($value)
+    {
+        return new AuthorizeFinalizeResponse(array(
+            'redirect_url' => array_key_exists('redirect_url', $value) ? $value['redirect_url'] : null,
+        ));
+    }
+
+    public static function encodeApiErrorCode($value)
+    {
+        return CBOR::encode(self::toCborApiErrorCode($value));
+    }
+
+    public static function decodeApiErrorCode($bytes)
+    {
+        return self::fromCborApiErrorCode(CBOR::decode($bytes));
+    }
+
+    public static function toCborApiErrorCode($value)
+    {
+        return $value;
+    }
+
+    public static function fromCborApiErrorCode($value)
+    {
+        static $csilMembers = array('request_already_used', 'rp_key_fetch_failed', 'rp_encrypt_key_untrusted', 'signing_failed', 'storage_failed', 'bad_request', 'unauthorized', 'forbidden', 'not_found', 'internal');
+        foreach ($csilMembers as $csilMember) {
+            if ($value === $csilMember) {
+                return $value;
+            }
+        }
+        throw new CodecException('csil cbor: unknown ApiErrorCode value ' . var_export($value, true));
+    }
+
+    public static function encodeApiError($value)
+    {
+        return CBOR::encode(self::toCborApiError($value));
+    }
+
+    public static function decodeApiError($bytes)
+    {
+        return self::fromCborApiError(CBOR::decode($bytes));
+    }
+
+    public static function toCborApiError($value)
+    {
+        $out = array();
+        $field = $value instanceof ApiError ? $value->code : (is_array($value) && array_key_exists('code', $value) ? $value['code'] : null);
+        $out['code'] = $field;
+        $field = $value instanceof ApiError ? $value->message : (is_array($value) && array_key_exists('message', $value) ? $value['message'] : null);
+        $out['message'] = $field;
+        return $out;
+    }
+
+    public static function fromCborApiError($value)
+    {
+        return new ApiError(array(
+            'code' => array_key_exists('code', $value) ? self::fromCborApiErrorCode($value['code']) : null,
+            'message' => array_key_exists('message', $value) ? $value['message'] : null,
+        ));
+    }
+
     public static function encodeAeadSuite($value)
     {
         return CBOR::encode(self::toCborAeadSuite($value));
@@ -3184,6 +5882,14 @@ class Codec
         $out['requested_claims'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
         $field = $value instanceof LocalRpLoginRequest ? $value->requiredClaims : (is_array($value) && array_key_exists('required_claims', $value) ? $value['required_claims'] : null);
         $out['required_claims'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        $field = $value instanceof LocalRpLoginRequest ? $value->authenticationRequirements : (is_array($value) && array_key_exists('authentication_requirements', $value) ? $value['authentication_requirements'] : null);
+        if ($field !== null) {
+            $out['authentication_requirements'] = self::toCborAuthenticationRequirements($field);
+        }
+        $field = $value instanceof LocalRpLoginRequest ? $value->flowContext : (is_array($value) && array_key_exists('flow_context', $value) ? $value['flow_context'] : null);
+        if ($field !== null) {
+            $out['flow_context'] = self::toCborAuthFlowContext($field);
+        }
         $field = $value instanceof LocalRpLoginRequest ? $value->issuedAt : (is_array($value) && array_key_exists('issued_at', $value) ? $value['issued_at'] : null);
         $out['issued_at'] = $field;
         $field = $value instanceof LocalRpLoginRequest ? $value->expiresAt : (is_array($value) && array_key_exists('expires_at', $value) ? $value['expires_at'] : null);
@@ -3200,6 +5906,8 @@ class Codec
             'state' => array_key_exists('state', $value) ? $value['state'] : null,
             'requested_claims' => array_key_exists('requested_claims', $value) ? array_map(function ($item) { return $item; }, $value['requested_claims'] === null ? array() : $value['requested_claims']) : null,
             'required_claims' => array_key_exists('required_claims', $value) ? array_map(function ($item) { return $item; }, $value['required_claims'] === null ? array() : $value['required_claims']) : null,
+            'authentication_requirements' => array_key_exists('authentication_requirements', $value) ? self::fromCborAuthenticationRequirements($value['authentication_requirements']) : null,
+            'flow_context' => array_key_exists('flow_context', $value) ? self::fromCborAuthFlowContext($value['flow_context']) : null,
             'issued_at' => array_key_exists('issued_at', $value) ? $value['issued_at'] : null,
             'expires_at' => array_key_exists('expires_at', $value) ? $value['expires_at'] : null,
         ));
@@ -3917,6 +6625,53 @@ class Codec
         ));
     }
 
+    public static function encodePurgeLocalRpTicketsRequest($value)
+    {
+        return CBOR::encode(self::toCborPurgeLocalRpTicketsRequest($value));
+    }
+
+    public static function decodePurgeLocalRpTicketsRequest($bytes)
+    {
+        return self::fromCborPurgeLocalRpTicketsRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborPurgeLocalRpTicketsRequest($value)
+    {
+        $out = array();
+        return $out;
+    }
+
+    public static function fromCborPurgeLocalRpTicketsRequest($value)
+    {
+        return new PurgeLocalRpTicketsRequest(array(
+        ));
+    }
+
+    public static function encodePurgeLocalRpTicketsResponse($value)
+    {
+        return CBOR::encode(self::toCborPurgeLocalRpTicketsResponse($value));
+    }
+
+    public static function decodePurgeLocalRpTicketsResponse($bytes)
+    {
+        return self::fromCborPurgeLocalRpTicketsResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborPurgeLocalRpTicketsResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof PurgeLocalRpTicketsResponse ? $value->purgedCount : (is_array($value) && array_key_exists('purged_count', $value) ? $value['purged_count'] : null);
+        $out['purged_count'] = $field;
+        return $out;
+    }
+
+    public static function fromCborPurgeLocalRpTicketsResponse($value)
+    {
+        return new PurgeLocalRpTicketsResponse(array(
+            'purged_count' => array_key_exists('purged_count', $value) ? $value['purged_count'] : null,
+        ));
+    }
+
     public static function encodeLocaleMessages($value)
     {
         return CBOR::encode(self::toCborLocaleMessages($value));
@@ -4022,6 +6777,885 @@ class Codec
     {
         return new ListLocalesResponse(array(
             'available_locales' => array_key_exists('available_locales', $value) ? array_map(function ($item) { return $item; }, $value['available_locales'] === null ? array() : $value['available_locales']) : null,
+        ));
+    }
+
+    public static function encodeApplicationKeySignature($value)
+    {
+        return CBOR::encode(self::toCborApplicationKeySignature($value));
+    }
+
+    public static function decodeApplicationKeySignature($bytes)
+    {
+        return self::fromCborApplicationKeySignature(CBOR::decode($bytes));
+    }
+
+    public static function toCborApplicationKeySignature($value)
+    {
+        $out = array();
+        $field = $value instanceof ApplicationKeySignature ? $value->signedByKeyId : (is_array($value) && array_key_exists('signed_by_key_id', $value) ? $value['signed_by_key_id'] : null);
+        $out['signed_by_key_id'] = $field;
+        $field = $value instanceof ApplicationKeySignature ? $value->signature : (is_array($value) && array_key_exists('signature', $value) ? $value['signature'] : null);
+        $out['signature'] = CBOR::bytes($field);
+        return $out;
+    }
+
+    public static function fromCborApplicationKeySignature($value)
+    {
+        return new ApplicationKeySignature(array(
+            'signed_by_key_id' => array_key_exists('signed_by_key_id', $value) ? $value['signed_by_key_id'] : null,
+            'signature' => array_key_exists('signature', $value) ? $value['signature'] : null,
+        ));
+    }
+
+    public static function encodeApplicationKeyAttestation($value)
+    {
+        return CBOR::encode(self::toCborApplicationKeyAttestation($value));
+    }
+
+    public static function decodeApplicationKeyAttestation($bytes)
+    {
+        return self::fromCborApplicationKeyAttestation(CBOR::decode($bytes));
+    }
+
+    public static function toCborApplicationKeyAttestation($value)
+    {
+        $out = array();
+        $field = $value instanceof ApplicationKeyAttestation ? $value->subjectUserId : (is_array($value) && array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null);
+        $out['subject_user_id'] = $field;
+        $field = $value instanceof ApplicationKeyAttestation ? $value->subjectDomain : (is_array($value) && array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null);
+        $out['subject_domain'] = $field;
+        $field = $value instanceof ApplicationKeyAttestation ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        $out['application_id'] = $field;
+        $field = $value instanceof ApplicationKeyAttestation ? $value->instanceId : (is_array($value) && array_key_exists('instance_id', $value) ? $value['instance_id'] : null);
+        $out['instance_id'] = $field;
+        $field = $value instanceof ApplicationKeyAttestation ? $value->keyId : (is_array($value) && array_key_exists('key_id', $value) ? $value['key_id'] : null);
+        $out['key_id'] = $field;
+        $field = $value instanceof ApplicationKeyAttestation ? $value->keyUsage : (is_array($value) && array_key_exists('key_usage', $value) ? $value['key_usage'] : null);
+        $out['key_usage'] = $field;
+        $field = $value instanceof ApplicationKeyAttestation ? $value->algorithm : (is_array($value) && array_key_exists('algorithm', $value) ? $value['algorithm'] : null);
+        $out['algorithm'] = $field;
+        $field = $value instanceof ApplicationKeyAttestation ? $value->publicKey : (is_array($value) && array_key_exists('public_key', $value) ? $value['public_key'] : null);
+        $out['public_key'] = CBOR::bytes($field);
+        $field = $value instanceof ApplicationKeyAttestation ? $value->fingerprint : (is_array($value) && array_key_exists('fingerprint', $value) ? $value['fingerprint'] : null);
+        $out['fingerprint'] = $field;
+        $field = $value instanceof ApplicationKeyAttestation ? $value->keyCreatedAt : (is_array($value) && array_key_exists('key_created_at', $value) ? $value['key_created_at'] : null);
+        $out['key_created_at'] = $field;
+        $field = $value instanceof ApplicationKeyAttestation ? $value->keyExpiresAt : (is_array($value) && array_key_exists('key_expires_at', $value) ? $value['key_expires_at'] : null);
+        $out['key_expires_at'] = $field;
+        $field = $value instanceof ApplicationKeyAttestation ? $value->attestedAt : (is_array($value) && array_key_exists('attested_at', $value) ? $value['attested_at'] : null);
+        $out['attested_at'] = $field;
+        $field = $value instanceof ApplicationKeyAttestation ? $value->attestationExpiresAt : (is_array($value) && array_key_exists('attestation_expires_at', $value) ? $value['attestation_expires_at'] : null);
+        $out['attestation_expires_at'] = $field;
+        return $out;
+    }
+
+    public static function fromCborApplicationKeyAttestation($value)
+    {
+        return new ApplicationKeyAttestation(array(
+            'subject_user_id' => array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null,
+            'subject_domain' => array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null,
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+            'instance_id' => array_key_exists('instance_id', $value) ? $value['instance_id'] : null,
+            'key_id' => array_key_exists('key_id', $value) ? $value['key_id'] : null,
+            'key_usage' => array_key_exists('key_usage', $value) ? $value['key_usage'] : null,
+            'algorithm' => array_key_exists('algorithm', $value) ? $value['algorithm'] : null,
+            'public_key' => array_key_exists('public_key', $value) ? $value['public_key'] : null,
+            'fingerprint' => array_key_exists('fingerprint', $value) ? $value['fingerprint'] : null,
+            'key_created_at' => array_key_exists('key_created_at', $value) ? $value['key_created_at'] : null,
+            'key_expires_at' => array_key_exists('key_expires_at', $value) ? $value['key_expires_at'] : null,
+            'attested_at' => array_key_exists('attested_at', $value) ? $value['attested_at'] : null,
+            'attestation_expires_at' => array_key_exists('attestation_expires_at', $value) ? $value['attestation_expires_at'] : null,
+        ));
+    }
+
+    public static function encodeSignedApplicationKeyAttestation($value)
+    {
+        return CBOR::encode(self::toCborSignedApplicationKeyAttestation($value));
+    }
+
+    public static function decodeSignedApplicationKeyAttestation($bytes)
+    {
+        return self::fromCborSignedApplicationKeyAttestation(CBOR::decode($bytes));
+    }
+
+    public static function toCborSignedApplicationKeyAttestation($value)
+    {
+        $out = array();
+        $field = $value instanceof SignedApplicationKeyAttestation ? $value->attestation : (is_array($value) && array_key_exists('attestation', $value) ? $value['attestation'] : null);
+        $out['attestation'] = CBOR::bytes($field);
+        $field = $value instanceof SignedApplicationKeyAttestation ? $value->signatures : (is_array($value) && array_key_exists('signatures', $value) ? $value['signatures'] : null);
+        $out['signatures'] = array_map(function ($item) { return self::toCborClaimSignature($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborSignedApplicationKeyAttestation($value)
+    {
+        return new SignedApplicationKeyAttestation(array(
+            'attestation' => array_key_exists('attestation', $value) ? $value['attestation'] : null,
+            'signatures' => array_key_exists('signatures', $value) ? array_map(function ($item) { return self::fromCborClaimSignature($item); }, $value['signatures'] === null ? array() : $value['signatures']) : null,
+        ));
+    }
+
+    public static function encodeApplicationKeyAddition($value)
+    {
+        return CBOR::encode(self::toCborApplicationKeyAddition($value));
+    }
+
+    public static function decodeApplicationKeyAddition($bytes)
+    {
+        return self::fromCborApplicationKeyAddition(CBOR::decode($bytes));
+    }
+
+    public static function toCborApplicationKeyAddition($value)
+    {
+        $out = array();
+        $field = $value instanceof ApplicationKeyAddition ? $value->subjectUserId : (is_array($value) && array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null);
+        $out['subject_user_id'] = $field;
+        $field = $value instanceof ApplicationKeyAddition ? $value->subjectDomain : (is_array($value) && array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null);
+        $out['subject_domain'] = $field;
+        $field = $value instanceof ApplicationKeyAddition ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        $out['application_id'] = $field;
+        $field = $value instanceof ApplicationKeyAddition ? $value->instanceId : (is_array($value) && array_key_exists('instance_id', $value) ? $value['instance_id'] : null);
+        $out['instance_id'] = $field;
+        $field = $value instanceof ApplicationKeyAddition ? $value->keyId : (is_array($value) && array_key_exists('key_id', $value) ? $value['key_id'] : null);
+        $out['key_id'] = $field;
+        $field = $value instanceof ApplicationKeyAddition ? $value->keyUsage : (is_array($value) && array_key_exists('key_usage', $value) ? $value['key_usage'] : null);
+        $out['key_usage'] = $field;
+        $field = $value instanceof ApplicationKeyAddition ? $value->algorithm : (is_array($value) && array_key_exists('algorithm', $value) ? $value['algorithm'] : null);
+        $out['algorithm'] = $field;
+        $field = $value instanceof ApplicationKeyAddition ? $value->publicKey : (is_array($value) && array_key_exists('public_key', $value) ? $value['public_key'] : null);
+        $out['public_key'] = CBOR::bytes($field);
+        $field = $value instanceof ApplicationKeyAddition ? $value->fingerprint : (is_array($value) && array_key_exists('fingerprint', $value) ? $value['fingerprint'] : null);
+        $out['fingerprint'] = $field;
+        $field = $value instanceof ApplicationKeyAddition ? $value->requestedKeyLifetimeSeconds : (is_array($value) && array_key_exists('requested_key_lifetime_seconds', $value) ? $value['requested_key_lifetime_seconds'] : null);
+        $out['requested_key_lifetime_seconds'] = $field;
+        $field = $value instanceof ApplicationKeyAddition ? $value->challengeId : (is_array($value) && array_key_exists('challenge_id', $value) ? $value['challenge_id'] : null);
+        $out['challenge_id'] = $field;
+        $field = $value instanceof ApplicationKeyAddition ? $value->challenge : (is_array($value) && array_key_exists('challenge', $value) ? $value['challenge'] : null);
+        $out['challenge'] = CBOR::bytes($field);
+        $field = $value instanceof ApplicationKeyAddition ? $value->requestedAt : (is_array($value) && array_key_exists('requested_at', $value) ? $value['requested_at'] : null);
+        $out['requested_at'] = $field;
+        $field = $value instanceof ApplicationKeyAddition ? $value->expiresAt : (is_array($value) && array_key_exists('expires_at', $value) ? $value['expires_at'] : null);
+        $out['expires_at'] = $field;
+        return $out;
+    }
+
+    public static function fromCborApplicationKeyAddition($value)
+    {
+        return new ApplicationKeyAddition(array(
+            'subject_user_id' => array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null,
+            'subject_domain' => array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null,
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+            'instance_id' => array_key_exists('instance_id', $value) ? $value['instance_id'] : null,
+            'key_id' => array_key_exists('key_id', $value) ? $value['key_id'] : null,
+            'key_usage' => array_key_exists('key_usage', $value) ? $value['key_usage'] : null,
+            'algorithm' => array_key_exists('algorithm', $value) ? $value['algorithm'] : null,
+            'public_key' => array_key_exists('public_key', $value) ? $value['public_key'] : null,
+            'fingerprint' => array_key_exists('fingerprint', $value) ? $value['fingerprint'] : null,
+            'requested_key_lifetime_seconds' => array_key_exists('requested_key_lifetime_seconds', $value) ? $value['requested_key_lifetime_seconds'] : null,
+            'challenge_id' => array_key_exists('challenge_id', $value) ? $value['challenge_id'] : null,
+            'challenge' => array_key_exists('challenge', $value) ? $value['challenge'] : null,
+            'requested_at' => array_key_exists('requested_at', $value) ? $value['requested_at'] : null,
+            'expires_at' => array_key_exists('expires_at', $value) ? $value['expires_at'] : null,
+        ));
+    }
+
+    public static function encodeSignedApplicationKeyAddition($value)
+    {
+        return CBOR::encode(self::toCborSignedApplicationKeyAddition($value));
+    }
+
+    public static function decodeSignedApplicationKeyAddition($bytes)
+    {
+        return self::fromCborSignedApplicationKeyAddition(CBOR::decode($bytes));
+    }
+
+    public static function toCborSignedApplicationKeyAddition($value)
+    {
+        $out = array();
+        $field = $value instanceof SignedApplicationKeyAddition ? $value->addition : (is_array($value) && array_key_exists('addition', $value) ? $value['addition'] : null);
+        $out['addition'] = CBOR::bytes($field);
+        $field = $value instanceof SignedApplicationKeyAddition ? $value->signatures : (is_array($value) && array_key_exists('signatures', $value) ? $value['signatures'] : null);
+        $out['signatures'] = array_map(function ($item) { return self::toCborApplicationKeySignature($item); }, $field === null ? array() : $field);
+        $field = $value instanceof SignedApplicationKeyAddition ? $value->possessionProof : (is_array($value) && array_key_exists('possession_proof', $value) ? $value['possession_proof'] : null);
+        if ($field !== null) {
+            $out['possession_proof'] = CBOR::bytes($field);
+        }
+        return $out;
+    }
+
+    public static function fromCborSignedApplicationKeyAddition($value)
+    {
+        return new SignedApplicationKeyAddition(array(
+            'addition' => array_key_exists('addition', $value) ? $value['addition'] : null,
+            'signatures' => array_key_exists('signatures', $value) ? array_map(function ($item) { return self::fromCborApplicationKeySignature($item); }, $value['signatures'] === null ? array() : $value['signatures']) : null,
+            'possession_proof' => array_key_exists('possession_proof', $value) ? $value['possession_proof'] : null,
+        ));
+    }
+
+    public static function encodeApplicationKeyRenewal($value)
+    {
+        return CBOR::encode(self::toCborApplicationKeyRenewal($value));
+    }
+
+    public static function decodeApplicationKeyRenewal($bytes)
+    {
+        return self::fromCborApplicationKeyRenewal(CBOR::decode($bytes));
+    }
+
+    public static function toCborApplicationKeyRenewal($value)
+    {
+        $out = array();
+        $field = $value instanceof ApplicationKeyRenewal ? $value->subjectUserId : (is_array($value) && array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null);
+        $out['subject_user_id'] = $field;
+        $field = $value instanceof ApplicationKeyRenewal ? $value->subjectDomain : (is_array($value) && array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null);
+        $out['subject_domain'] = $field;
+        $field = $value instanceof ApplicationKeyRenewal ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        $out['application_id'] = $field;
+        $field = $value instanceof ApplicationKeyRenewal ? $value->instanceId : (is_array($value) && array_key_exists('instance_id', $value) ? $value['instance_id'] : null);
+        $out['instance_id'] = $field;
+        $field = $value instanceof ApplicationKeyRenewal ? $value->keyId : (is_array($value) && array_key_exists('key_id', $value) ? $value['key_id'] : null);
+        $out['key_id'] = $field;
+        $field = $value instanceof ApplicationKeyRenewal ? $value->challengeId : (is_array($value) && array_key_exists('challenge_id', $value) ? $value['challenge_id'] : null);
+        $out['challenge_id'] = $field;
+        $field = $value instanceof ApplicationKeyRenewal ? $value->challenge : (is_array($value) && array_key_exists('challenge', $value) ? $value['challenge'] : null);
+        $out['challenge'] = CBOR::bytes($field);
+        $field = $value instanceof ApplicationKeyRenewal ? $value->requestedAt : (is_array($value) && array_key_exists('requested_at', $value) ? $value['requested_at'] : null);
+        $out['requested_at'] = $field;
+        $field = $value instanceof ApplicationKeyRenewal ? $value->expiresAt : (is_array($value) && array_key_exists('expires_at', $value) ? $value['expires_at'] : null);
+        $out['expires_at'] = $field;
+        return $out;
+    }
+
+    public static function fromCborApplicationKeyRenewal($value)
+    {
+        return new ApplicationKeyRenewal(array(
+            'subject_user_id' => array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null,
+            'subject_domain' => array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null,
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+            'instance_id' => array_key_exists('instance_id', $value) ? $value['instance_id'] : null,
+            'key_id' => array_key_exists('key_id', $value) ? $value['key_id'] : null,
+            'challenge_id' => array_key_exists('challenge_id', $value) ? $value['challenge_id'] : null,
+            'challenge' => array_key_exists('challenge', $value) ? $value['challenge'] : null,
+            'requested_at' => array_key_exists('requested_at', $value) ? $value['requested_at'] : null,
+            'expires_at' => array_key_exists('expires_at', $value) ? $value['expires_at'] : null,
+        ));
+    }
+
+    public static function encodeSignedApplicationKeyRenewal($value)
+    {
+        return CBOR::encode(self::toCborSignedApplicationKeyRenewal($value));
+    }
+
+    public static function decodeSignedApplicationKeyRenewal($bytes)
+    {
+        return self::fromCborSignedApplicationKeyRenewal(CBOR::decode($bytes));
+    }
+
+    public static function toCborSignedApplicationKeyRenewal($value)
+    {
+        $out = array();
+        $field = $value instanceof SignedApplicationKeyRenewal ? $value->renewal : (is_array($value) && array_key_exists('renewal', $value) ? $value['renewal'] : null);
+        $out['renewal'] = CBOR::bytes($field);
+        $field = $value instanceof SignedApplicationKeyRenewal ? $value->signatures : (is_array($value) && array_key_exists('signatures', $value) ? $value['signatures'] : null);
+        $out['signatures'] = array_map(function ($item) { return self::toCborApplicationKeySignature($item); }, $field === null ? array() : $field);
+        $field = $value instanceof SignedApplicationKeyRenewal ? $value->possessionProof : (is_array($value) && array_key_exists('possession_proof', $value) ? $value['possession_proof'] : null);
+        if ($field !== null) {
+            $out['possession_proof'] = CBOR::bytes($field);
+        }
+        return $out;
+    }
+
+    public static function fromCborSignedApplicationKeyRenewal($value)
+    {
+        return new SignedApplicationKeyRenewal(array(
+            'renewal' => array_key_exists('renewal', $value) ? $value['renewal'] : null,
+            'signatures' => array_key_exists('signatures', $value) ? array_map(function ($item) { return self::fromCborApplicationKeySignature($item); }, $value['signatures'] === null ? array() : $value['signatures']) : null,
+            'possession_proof' => array_key_exists('possession_proof', $value) ? $value['possession_proof'] : null,
+        ));
+    }
+
+    public static function encodeApplicationKeyRevocation($value)
+    {
+        return CBOR::encode(self::toCborApplicationKeyRevocation($value));
+    }
+
+    public static function decodeApplicationKeyRevocation($bytes)
+    {
+        return self::fromCborApplicationKeyRevocation(CBOR::decode($bytes));
+    }
+
+    public static function toCborApplicationKeyRevocation($value)
+    {
+        $out = array();
+        $field = $value instanceof ApplicationKeyRevocation ? $value->subjectUserId : (is_array($value) && array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null);
+        $out['subject_user_id'] = $field;
+        $field = $value instanceof ApplicationKeyRevocation ? $value->subjectDomain : (is_array($value) && array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null);
+        $out['subject_domain'] = $field;
+        $field = $value instanceof ApplicationKeyRevocation ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        $out['application_id'] = $field;
+        $field = $value instanceof ApplicationKeyRevocation ? $value->instanceId : (is_array($value) && array_key_exists('instance_id', $value) ? $value['instance_id'] : null);
+        $out['instance_id'] = $field;
+        $field = $value instanceof ApplicationKeyRevocation ? $value->targetKeyId : (is_array($value) && array_key_exists('target_key_id', $value) ? $value['target_key_id'] : null);
+        $out['target_key_id'] = $field;
+        $field = $value instanceof ApplicationKeyRevocation ? $value->targetFingerprint : (is_array($value) && array_key_exists('target_fingerprint', $value) ? $value['target_fingerprint'] : null);
+        $out['target_fingerprint'] = $field;
+        $field = $value instanceof ApplicationKeyRevocation ? $value->revokedAt : (is_array($value) && array_key_exists('revoked_at', $value) ? $value['revoked_at'] : null);
+        $out['revoked_at'] = $field;
+        $field = $value instanceof ApplicationKeyRevocation ? $value->signatures : (is_array($value) && array_key_exists('signatures', $value) ? $value['signatures'] : null);
+        $out['signatures'] = array_map(function ($item) { return self::toCborApplicationKeySignature($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborApplicationKeyRevocation($value)
+    {
+        return new ApplicationKeyRevocation(array(
+            'subject_user_id' => array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null,
+            'subject_domain' => array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null,
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+            'instance_id' => array_key_exists('instance_id', $value) ? $value['instance_id'] : null,
+            'target_key_id' => array_key_exists('target_key_id', $value) ? $value['target_key_id'] : null,
+            'target_fingerprint' => array_key_exists('target_fingerprint', $value) ? $value['target_fingerprint'] : null,
+            'revoked_at' => array_key_exists('revoked_at', $value) ? $value['revoked_at'] : null,
+            'signatures' => array_key_exists('signatures', $value) ? array_map(function ($item) { return self::fromCborApplicationKeySignature($item); }, $value['signatures'] === null ? array() : $value['signatures']) : null,
+        ));
+    }
+
+    public static function encodeStartApplicationKeyChallengeRequest($value)
+    {
+        return CBOR::encode(self::toCborStartApplicationKeyChallengeRequest($value));
+    }
+
+    public static function decodeStartApplicationKeyChallengeRequest($bytes)
+    {
+        return self::fromCborStartApplicationKeyChallengeRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborStartApplicationKeyChallengeRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof StartApplicationKeyChallengeRequest ? $value->subjectUserId : (is_array($value) && array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null);
+        $out['subject_user_id'] = $field;
+        $field = $value instanceof StartApplicationKeyChallengeRequest ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        $out['application_id'] = $field;
+        $field = $value instanceof StartApplicationKeyChallengeRequest ? $value->instanceId : (is_array($value) && array_key_exists('instance_id', $value) ? $value['instance_id'] : null);
+        $out['instance_id'] = $field;
+        $field = $value instanceof StartApplicationKeyChallengeRequest ? $value->purpose : (is_array($value) && array_key_exists('purpose', $value) ? $value['purpose'] : null);
+        $out['purpose'] = $field;
+        $field = $value instanceof StartApplicationKeyChallengeRequest ? $value->keyUsage : (is_array($value) && array_key_exists('key_usage', $value) ? $value['key_usage'] : null);
+        $out['key_usage'] = $field;
+        $field = $value instanceof StartApplicationKeyChallengeRequest ? $value->algorithm : (is_array($value) && array_key_exists('algorithm', $value) ? $value['algorithm'] : null);
+        $out['algorithm'] = $field;
+        $field = $value instanceof StartApplicationKeyChallengeRequest ? $value->publicKey : (is_array($value) && array_key_exists('public_key', $value) ? $value['public_key'] : null);
+        $out['public_key'] = CBOR::bytes($field);
+        return $out;
+    }
+
+    public static function fromCborStartApplicationKeyChallengeRequest($value)
+    {
+        return new StartApplicationKeyChallengeRequest(array(
+            'subject_user_id' => array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null,
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+            'instance_id' => array_key_exists('instance_id', $value) ? $value['instance_id'] : null,
+            'purpose' => array_key_exists('purpose', $value) ? $value['purpose'] : null,
+            'key_usage' => array_key_exists('key_usage', $value) ? $value['key_usage'] : null,
+            'algorithm' => array_key_exists('algorithm', $value) ? $value['algorithm'] : null,
+            'public_key' => array_key_exists('public_key', $value) ? $value['public_key'] : null,
+        ));
+    }
+
+    public static function encodeStartApplicationKeyChallengeResponse($value)
+    {
+        return CBOR::encode(self::toCborStartApplicationKeyChallengeResponse($value));
+    }
+
+    public static function decodeStartApplicationKeyChallengeResponse($bytes)
+    {
+        return self::fromCborStartApplicationKeyChallengeResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborStartApplicationKeyChallengeResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof StartApplicationKeyChallengeResponse ? $value->challengeId : (is_array($value) && array_key_exists('challenge_id', $value) ? $value['challenge_id'] : null);
+        $out['challenge_id'] = $field;
+        $field = $value instanceof StartApplicationKeyChallengeResponse ? $value->challenge : (is_array($value) && array_key_exists('challenge', $value) ? $value['challenge'] : null);
+        if ($field !== null) {
+            $out['challenge'] = CBOR::bytes($field);
+        }
+        $field = $value instanceof StartApplicationKeyChallengeResponse ? $value->sealedChallenge : (is_array($value) && array_key_exists('sealed_challenge', $value) ? $value['sealed_challenge'] : null);
+        if ($field !== null) {
+            $out['sealed_challenge'] = CBOR::bytes($field);
+        }
+        $field = $value instanceof StartApplicationKeyChallengeResponse ? $value->expiresAt : (is_array($value) && array_key_exists('expires_at', $value) ? $value['expires_at'] : null);
+        $out['expires_at'] = $field;
+        return $out;
+    }
+
+    public static function fromCborStartApplicationKeyChallengeResponse($value)
+    {
+        return new StartApplicationKeyChallengeResponse(array(
+            'challenge_id' => array_key_exists('challenge_id', $value) ? $value['challenge_id'] : null,
+            'challenge' => array_key_exists('challenge', $value) ? $value['challenge'] : null,
+            'sealed_challenge' => array_key_exists('sealed_challenge', $value) ? $value['sealed_challenge'] : null,
+            'expires_at' => array_key_exists('expires_at', $value) ? $value['expires_at'] : null,
+        ));
+    }
+
+    public static function encodeAddApplicationKeyRequest($value)
+    {
+        return CBOR::encode(self::toCborAddApplicationKeyRequest($value));
+    }
+
+    public static function decodeAddApplicationKeyRequest($bytes)
+    {
+        return self::fromCborAddApplicationKeyRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborAddApplicationKeyRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof AddApplicationKeyRequest ? $value->request : (is_array($value) && array_key_exists('request', $value) ? $value['request'] : null);
+        $out['request'] = self::toCborSignedApplicationKeyAddition($field);
+        return $out;
+    }
+
+    public static function fromCborAddApplicationKeyRequest($value)
+    {
+        return new AddApplicationKeyRequest(array(
+            'request' => array_key_exists('request', $value) ? self::fromCborSignedApplicationKeyAddition($value['request']) : null,
+        ));
+    }
+
+    public static function encodeAddApplicationKeyResponse($value)
+    {
+        return CBOR::encode(self::toCborAddApplicationKeyResponse($value));
+    }
+
+    public static function decodeAddApplicationKeyResponse($bytes)
+    {
+        return self::fromCborAddApplicationKeyResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborAddApplicationKeyResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof AddApplicationKeyResponse ? $value->attestation : (is_array($value) && array_key_exists('attestation', $value) ? $value['attestation'] : null);
+        $out['attestation'] = self::toCborSignedApplicationKeyAttestation($field);
+        return $out;
+    }
+
+    public static function fromCborAddApplicationKeyResponse($value)
+    {
+        return new AddApplicationKeyResponse(array(
+            'attestation' => array_key_exists('attestation', $value) ? self::fromCborSignedApplicationKeyAttestation($value['attestation']) : null,
+        ));
+    }
+
+    public static function encodeRenewApplicationKeyAttestationRequest($value)
+    {
+        return CBOR::encode(self::toCborRenewApplicationKeyAttestationRequest($value));
+    }
+
+    public static function decodeRenewApplicationKeyAttestationRequest($bytes)
+    {
+        return self::fromCborRenewApplicationKeyAttestationRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRenewApplicationKeyAttestationRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RenewApplicationKeyAttestationRequest ? $value->request : (is_array($value) && array_key_exists('request', $value) ? $value['request'] : null);
+        $out['request'] = self::toCborSignedApplicationKeyRenewal($field);
+        return $out;
+    }
+
+    public static function fromCborRenewApplicationKeyAttestationRequest($value)
+    {
+        return new RenewApplicationKeyAttestationRequest(array(
+            'request' => array_key_exists('request', $value) ? self::fromCborSignedApplicationKeyRenewal($value['request']) : null,
+        ));
+    }
+
+    public static function encodeRenewApplicationKeyAttestationResponse($value)
+    {
+        return CBOR::encode(self::toCborRenewApplicationKeyAttestationResponse($value));
+    }
+
+    public static function decodeRenewApplicationKeyAttestationResponse($bytes)
+    {
+        return self::fromCborRenewApplicationKeyAttestationResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborRenewApplicationKeyAttestationResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof RenewApplicationKeyAttestationResponse ? $value->attestation : (is_array($value) && array_key_exists('attestation', $value) ? $value['attestation'] : null);
+        $out['attestation'] = self::toCborSignedApplicationKeyAttestation($field);
+        $field = $value instanceof RenewApplicationKeyAttestationResponse ? $value->signed : (is_array($value) && array_key_exists('signed', $value) ? $value['signed'] : null);
+        $out['signed'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRenewApplicationKeyAttestationResponse($value)
+    {
+        return new RenewApplicationKeyAttestationResponse(array(
+            'attestation' => array_key_exists('attestation', $value) ? self::fromCborSignedApplicationKeyAttestation($value['attestation']) : null,
+            'signed' => array_key_exists('signed', $value) ? $value['signed'] : null,
+        ));
+    }
+
+    public static function encodeRevokeApplicationKeyRequest($value)
+    {
+        return CBOR::encode(self::toCborRevokeApplicationKeyRequest($value));
+    }
+
+    public static function decodeRevokeApplicationKeyRequest($bytes)
+    {
+        return self::fromCborRevokeApplicationKeyRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRevokeApplicationKeyRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RevokeApplicationKeyRequest ? $value->revocation : (is_array($value) && array_key_exists('revocation', $value) ? $value['revocation'] : null);
+        $out['revocation'] = self::toCborApplicationKeyRevocation($field);
+        return $out;
+    }
+
+    public static function fromCborRevokeApplicationKeyRequest($value)
+    {
+        return new RevokeApplicationKeyRequest(array(
+            'revocation' => array_key_exists('revocation', $value) ? self::fromCborApplicationKeyRevocation($value['revocation']) : null,
+        ));
+    }
+
+    public static function encodeRevokeApplicationKeyResponse($value)
+    {
+        return CBOR::encode(self::toCborRevokeApplicationKeyResponse($value));
+    }
+
+    public static function decodeRevokeApplicationKeyResponse($bytes)
+    {
+        return self::fromCborRevokeApplicationKeyResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborRevokeApplicationKeyResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof RevokeApplicationKeyResponse ? $value->revokedAt : (is_array($value) && array_key_exists('revoked_at', $value) ? $value['revoked_at'] : null);
+        $out['revoked_at'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRevokeApplicationKeyResponse($value)
+    {
+        return new RevokeApplicationKeyResponse(array(
+            'revoked_at' => array_key_exists('revoked_at', $value) ? $value['revoked_at'] : null,
+        ));
+    }
+
+    public static function encodeEnrollApplicationInstanceRequest($value)
+    {
+        return CBOR::encode(self::toCborEnrollApplicationInstanceRequest($value));
+    }
+
+    public static function decodeEnrollApplicationInstanceRequest($bytes)
+    {
+        return self::fromCborEnrollApplicationInstanceRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborEnrollApplicationInstanceRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof EnrollApplicationInstanceRequest ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        $out['application_id'] = $field;
+        $field = $value instanceof EnrollApplicationInstanceRequest ? $value->instanceId : (is_array($value) && array_key_exists('instance_id', $value) ? $value['instance_id'] : null);
+        $out['instance_id'] = $field;
+        $field = $value instanceof EnrollApplicationInstanceRequest ? $value->keys : (is_array($value) && array_key_exists('keys', $value) ? $value['keys'] : null);
+        $out['keys'] = array_map(function ($item) { return self::toCborSignedApplicationKeyAddition($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborEnrollApplicationInstanceRequest($value)
+    {
+        return new EnrollApplicationInstanceRequest(array(
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+            'instance_id' => array_key_exists('instance_id', $value) ? $value['instance_id'] : null,
+            'keys' => array_key_exists('keys', $value) ? array_map(function ($item) { return self::fromCborSignedApplicationKeyAddition($item); }, $value['keys'] === null ? array() : $value['keys']) : null,
+        ));
+    }
+
+    public static function encodeEnrollApplicationInstanceResponse($value)
+    {
+        return CBOR::encode(self::toCborEnrollApplicationInstanceResponse($value));
+    }
+
+    public static function decodeEnrollApplicationInstanceResponse($bytes)
+    {
+        return self::fromCborEnrollApplicationInstanceResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborEnrollApplicationInstanceResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof EnrollApplicationInstanceResponse ? $value->subjectUserId : (is_array($value) && array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null);
+        $out['subject_user_id'] = $field;
+        $field = $value instanceof EnrollApplicationInstanceResponse ? $value->subjectDomain : (is_array($value) && array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null);
+        $out['subject_domain'] = $field;
+        $field = $value instanceof EnrollApplicationInstanceResponse ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        $out['application_id'] = $field;
+        $field = $value instanceof EnrollApplicationInstanceResponse ? $value->instanceId : (is_array($value) && array_key_exists('instance_id', $value) ? $value['instance_id'] : null);
+        $out['instance_id'] = $field;
+        $field = $value instanceof EnrollApplicationInstanceResponse ? $value->attestations : (is_array($value) && array_key_exists('attestations', $value) ? $value['attestations'] : null);
+        $out['attestations'] = array_map(function ($item) { return self::toCborSignedApplicationKeyAttestation($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborEnrollApplicationInstanceResponse($value)
+    {
+        return new EnrollApplicationInstanceResponse(array(
+            'subject_user_id' => array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null,
+            'subject_domain' => array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null,
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+            'instance_id' => array_key_exists('instance_id', $value) ? $value['instance_id'] : null,
+            'attestations' => array_key_exists('attestations', $value) ? array_map(function ($item) { return self::fromCborSignedApplicationKeyAttestation($item); }, $value['attestations'] === null ? array() : $value['attestations']) : null,
+        ));
+    }
+
+    public static function encodeGetApplicationKeysRequest($value)
+    {
+        return CBOR::encode(self::toCborGetApplicationKeysRequest($value));
+    }
+
+    public static function decodeGetApplicationKeysRequest($bytes)
+    {
+        return self::fromCborGetApplicationKeysRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborGetApplicationKeysRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof GetApplicationKeysRequest ? $value->subjectUserId : (is_array($value) && array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null);
+        $out['subject_user_id'] = $field;
+        $field = $value instanceof GetApplicationKeysRequest ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        $out['application_id'] = $field;
+        $field = $value instanceof GetApplicationKeysRequest ? $value->instanceId : (is_array($value) && array_key_exists('instance_id', $value) ? $value['instance_id'] : null);
+        $out['instance_id'] = $field;
+        return $out;
+    }
+
+    public static function fromCborGetApplicationKeysRequest($value)
+    {
+        return new GetApplicationKeysRequest(array(
+            'subject_user_id' => array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null,
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+            'instance_id' => array_key_exists('instance_id', $value) ? $value['instance_id'] : null,
+        ));
+    }
+
+    public static function encodeGetApplicationKeysResponse($value)
+    {
+        return CBOR::encode(self::toCborGetApplicationKeysResponse($value));
+    }
+
+    public static function decodeGetApplicationKeysResponse($bytes)
+    {
+        return self::fromCborGetApplicationKeysResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborGetApplicationKeysResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof GetApplicationKeysResponse ? $value->subjectUserId : (is_array($value) && array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null);
+        $out['subject_user_id'] = $field;
+        $field = $value instanceof GetApplicationKeysResponse ? $value->subjectDomain : (is_array($value) && array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null);
+        $out['subject_domain'] = $field;
+        $field = $value instanceof GetApplicationKeysResponse ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        $out['application_id'] = $field;
+        $field = $value instanceof GetApplicationKeysResponse ? $value->instanceId : (is_array($value) && array_key_exists('instance_id', $value) ? $value['instance_id'] : null);
+        $out['instance_id'] = $field;
+        $field = $value instanceof GetApplicationKeysResponse ? $value->keys : (is_array($value) && array_key_exists('keys', $value) ? $value['keys'] : null);
+        $out['keys'] = array_map(function ($item) { return self::toCborSignedApplicationKeyAttestation($item); }, $field === null ? array() : $field);
+        $field = $value instanceof GetApplicationKeysResponse ? $value->revocations : (is_array($value) && array_key_exists('revocations', $value) ? $value['revocations'] : null);
+        $out['revocations'] = array_map(function ($item) { return self::toCborApplicationKeyRevocation($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborGetApplicationKeysResponse($value)
+    {
+        return new GetApplicationKeysResponse(array(
+            'subject_user_id' => array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null,
+            'subject_domain' => array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null,
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+            'instance_id' => array_key_exists('instance_id', $value) ? $value['instance_id'] : null,
+            'keys' => array_key_exists('keys', $value) ? array_map(function ($item) { return self::fromCborSignedApplicationKeyAttestation($item); }, $value['keys'] === null ? array() : $value['keys']) : null,
+            'revocations' => array_key_exists('revocations', $value) ? array_map(function ($item) { return self::fromCborApplicationKeyRevocation($item); }, $value['revocations'] === null ? array() : $value['revocations']) : null,
+        ));
+    }
+
+    public static function encodeRpResolveDomainKeysRequest($value)
+    {
+        return CBOR::encode(self::toCborRpResolveDomainKeysRequest($value));
+    }
+
+    public static function decodeRpResolveDomainKeysRequest($bytes)
+    {
+        return self::fromCborRpResolveDomainKeysRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRpResolveDomainKeysRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RpResolveDomainKeysRequest ? $value->domain : (is_array($value) && array_key_exists('domain', $value) ? $value['domain'] : null);
+        $out['domain'] = $field;
+        $field = $value instanceof RpResolveDomainKeysRequest ? $value->maxCacheAgeSeconds : (is_array($value) && array_key_exists('max_cache_age_seconds', $value) ? $value['max_cache_age_seconds'] : null);
+        if ($field !== null) {
+            $out['max_cache_age_seconds'] = $field;
+        }
+        return $out;
+    }
+
+    public static function fromCborRpResolveDomainKeysRequest($value)
+    {
+        return new RpResolveDomainKeysRequest(array(
+            'domain' => array_key_exists('domain', $value) ? $value['domain'] : null,
+            'max_cache_age_seconds' => array_key_exists('max_cache_age_seconds', $value) ? $value['max_cache_age_seconds'] : null,
+        ));
+    }
+
+    public static function encodeRpResolveDomainKeysResponse($value)
+    {
+        return CBOR::encode(self::toCborRpResolveDomainKeysResponse($value));
+    }
+
+    public static function decodeRpResolveDomainKeysResponse($bytes)
+    {
+        return self::fromCborRpResolveDomainKeysResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborRpResolveDomainKeysResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof RpResolveDomainKeysResponse ? $value->domain : (is_array($value) && array_key_exists('domain', $value) ? $value['domain'] : null);
+        $out['domain'] = $field;
+        $field = $value instanceof RpResolveDomainKeysResponse ? $value->keys : (is_array($value) && array_key_exists('keys', $value) ? $value['keys'] : null);
+        $out['keys'] = array_map(function ($item) { return self::toCborDomainPublicKey($item); }, $field === null ? array() : $field);
+        $field = $value instanceof RpResolveDomainKeysResponse ? $value->revocations : (is_array($value) && array_key_exists('revocations', $value) ? $value['revocations'] : null);
+        $out['revocations'] = array_map(function ($item) { return self::toCborRevocationCertificate($item); }, $field === null ? array() : $field);
+        $field = $value instanceof RpResolveDomainKeysResponse ? $value->fetchedAt : (is_array($value) && array_key_exists('fetched_at', $value) ? $value['fetched_at'] : null);
+        $out['fetched_at'] = $field;
+        $field = $value instanceof RpResolveDomainKeysResponse ? $value->revocationsCheckedAt : (is_array($value) && array_key_exists('revocations_checked_at', $value) ? $value['revocations_checked_at'] : null);
+        $out['revocations_checked_at'] = $field;
+        $field = $value instanceof RpResolveDomainKeysResponse ? $value->cacheStatus : (is_array($value) && array_key_exists('cache_status', $value) ? $value['cache_status'] : null);
+        $out['cache_status'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRpResolveDomainKeysResponse($value)
+    {
+        return new RpResolveDomainKeysResponse(array(
+            'domain' => array_key_exists('domain', $value) ? $value['domain'] : null,
+            'keys' => array_key_exists('keys', $value) ? array_map(function ($item) { return self::fromCborDomainPublicKey($item); }, $value['keys'] === null ? array() : $value['keys']) : null,
+            'revocations' => array_key_exists('revocations', $value) ? array_map(function ($item) { return self::fromCborRevocationCertificate($item); }, $value['revocations'] === null ? array() : $value['revocations']) : null,
+            'fetched_at' => array_key_exists('fetched_at', $value) ? $value['fetched_at'] : null,
+            'revocations_checked_at' => array_key_exists('revocations_checked_at', $value) ? $value['revocations_checked_at'] : null,
+            'cache_status' => array_key_exists('cache_status', $value) ? $value['cache_status'] : null,
+        ));
+    }
+
+    public static function encodeRpResolveApplicationKeysRequest($value)
+    {
+        return CBOR::encode(self::toCborRpResolveApplicationKeysRequest($value));
+    }
+
+    public static function decodeRpResolveApplicationKeysRequest($bytes)
+    {
+        return self::fromCborRpResolveApplicationKeysRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRpResolveApplicationKeysRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RpResolveApplicationKeysRequest ? $value->subjectUserId : (is_array($value) && array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null);
+        $out['subject_user_id'] = $field;
+        $field = $value instanceof RpResolveApplicationKeysRequest ? $value->subjectDomain : (is_array($value) && array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null);
+        $out['subject_domain'] = $field;
+        $field = $value instanceof RpResolveApplicationKeysRequest ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        $out['application_id'] = $field;
+        $field = $value instanceof RpResolveApplicationKeysRequest ? $value->instanceId : (is_array($value) && array_key_exists('instance_id', $value) ? $value['instance_id'] : null);
+        $out['instance_id'] = $field;
+        $field = $value instanceof RpResolveApplicationKeysRequest ? $value->maxCacheAgeSeconds : (is_array($value) && array_key_exists('max_cache_age_seconds', $value) ? $value['max_cache_age_seconds'] : null);
+        if ($field !== null) {
+            $out['max_cache_age_seconds'] = $field;
+        }
+        return $out;
+    }
+
+    public static function fromCborRpResolveApplicationKeysRequest($value)
+    {
+        return new RpResolveApplicationKeysRequest(array(
+            'subject_user_id' => array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null,
+            'subject_domain' => array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null,
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+            'instance_id' => array_key_exists('instance_id', $value) ? $value['instance_id'] : null,
+            'max_cache_age_seconds' => array_key_exists('max_cache_age_seconds', $value) ? $value['max_cache_age_seconds'] : null,
+        ));
+    }
+
+    public static function encodeRpResolveApplicationKeysResponse($value)
+    {
+        return CBOR::encode(self::toCborRpResolveApplicationKeysResponse($value));
+    }
+
+    public static function decodeRpResolveApplicationKeysResponse($bytes)
+    {
+        return self::fromCborRpResolveApplicationKeysResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborRpResolveApplicationKeysResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof RpResolveApplicationKeysResponse ? $value->subjectUserId : (is_array($value) && array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null);
+        $out['subject_user_id'] = $field;
+        $field = $value instanceof RpResolveApplicationKeysResponse ? $value->subjectDomain : (is_array($value) && array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null);
+        $out['subject_domain'] = $field;
+        $field = $value instanceof RpResolveApplicationKeysResponse ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        $out['application_id'] = $field;
+        $field = $value instanceof RpResolveApplicationKeysResponse ? $value->instanceId : (is_array($value) && array_key_exists('instance_id', $value) ? $value['instance_id'] : null);
+        $out['instance_id'] = $field;
+        $field = $value instanceof RpResolveApplicationKeysResponse ? $value->applicationKeys : (is_array($value) && array_key_exists('application_keys', $value) ? $value['application_keys'] : null);
+        $out['application_keys'] = array_map(function ($item) { return self::toCborSignedApplicationKeyAttestation($item); }, $field === null ? array() : $field);
+        $field = $value instanceof RpResolveApplicationKeysResponse ? $value->applicationKeyRevocations : (is_array($value) && array_key_exists('application_key_revocations', $value) ? $value['application_key_revocations'] : null);
+        $out['application_key_revocations'] = array_map(function ($item) { return self::toCborApplicationKeyRevocation($item); }, $field === null ? array() : $field);
+        $field = $value instanceof RpResolveApplicationKeysResponse ? $value->homeDomainKeys : (is_array($value) && array_key_exists('home_domain_keys', $value) ? $value['home_domain_keys'] : null);
+        $out['home_domain_keys'] = array_map(function ($item) { return self::toCborDomainPublicKey($item); }, $field === null ? array() : $field);
+        $field = $value instanceof RpResolveApplicationKeysResponse ? $value->homeDomainKeyRevocations : (is_array($value) && array_key_exists('home_domain_key_revocations', $value) ? $value['home_domain_key_revocations'] : null);
+        $out['home_domain_key_revocations'] = array_map(function ($item) { return self::toCborRevocationCertificate($item); }, $field === null ? array() : $field);
+        $field = $value instanceof RpResolveApplicationKeysResponse ? $value->fetchedAt : (is_array($value) && array_key_exists('fetched_at', $value) ? $value['fetched_at'] : null);
+        $out['fetched_at'] = $field;
+        $field = $value instanceof RpResolveApplicationKeysResponse ? $value->revocationsCheckedAt : (is_array($value) && array_key_exists('revocations_checked_at', $value) ? $value['revocations_checked_at'] : null);
+        $out['revocations_checked_at'] = $field;
+        $field = $value instanceof RpResolveApplicationKeysResponse ? $value->cacheStatus : (is_array($value) && array_key_exists('cache_status', $value) ? $value['cache_status'] : null);
+        $out['cache_status'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRpResolveApplicationKeysResponse($value)
+    {
+        return new RpResolveApplicationKeysResponse(array(
+            'subject_user_id' => array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null,
+            'subject_domain' => array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null,
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+            'instance_id' => array_key_exists('instance_id', $value) ? $value['instance_id'] : null,
+            'application_keys' => array_key_exists('application_keys', $value) ? array_map(function ($item) { return self::fromCborSignedApplicationKeyAttestation($item); }, $value['application_keys'] === null ? array() : $value['application_keys']) : null,
+            'application_key_revocations' => array_key_exists('application_key_revocations', $value) ? array_map(function ($item) { return self::fromCborApplicationKeyRevocation($item); }, $value['application_key_revocations'] === null ? array() : $value['application_key_revocations']) : null,
+            'home_domain_keys' => array_key_exists('home_domain_keys', $value) ? array_map(function ($item) { return self::fromCborDomainPublicKey($item); }, $value['home_domain_keys'] === null ? array() : $value['home_domain_keys']) : null,
+            'home_domain_key_revocations' => array_key_exists('home_domain_key_revocations', $value) ? array_map(function ($item) { return self::fromCborRevocationCertificate($item); }, $value['home_domain_key_revocations'] === null ? array() : $value['home_domain_key_revocations']) : null,
+            'fetched_at' => array_key_exists('fetched_at', $value) ? $value['fetched_at'] : null,
+            'revocations_checked_at' => array_key_exists('revocations_checked_at', $value) ? $value['revocations_checked_at'] : null,
+            'cache_status' => array_key_exists('cache_status', $value) ? $value['cache_status'] : null,
         ));
     }
 

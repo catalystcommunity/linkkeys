@@ -64,6 +64,22 @@ public sealed class UserKeysAsyncClient(ICsilAsyncTransport transport)
         Codec.Decode<GetUserKeysResponse>(await transport.Call("UserKeys", "get-user-keys", Codec.Encode(getUserKeysRequest)));
 }
 
+/// <summary>Typed RPC client for the ApplicationKeys service. The client owns
+/// (de)serialization via the generated codec; the transport only moves bytes.</summary>
+public sealed class ApplicationKeysAsyncClient(ICsilAsyncTransport transport)
+{
+    public async System.Threading.Tasks.Task<GetApplicationKeysResponse> GetApplicationKeysAsync(GetApplicationKeysRequest getApplicationKeysRequest) =>
+        Codec.Decode<GetApplicationKeysResponse>(await transport.Call("ApplicationKeys", "get-application-keys", Codec.Encode(getApplicationKeysRequest)));
+    public async System.Threading.Tasks.Task<StartApplicationKeyChallengeResponse> StartKeyChallengeAsync(StartApplicationKeyChallengeRequest startApplicationKeyChallengeRequest) =>
+        Codec.Decode<StartApplicationKeyChallengeResponse>(await transport.Call("ApplicationKeys", "start-key-challenge", Codec.Encode(startApplicationKeyChallengeRequest)));
+    public async System.Threading.Tasks.Task<AddApplicationKeyResponse> AddKeyAsync(AddApplicationKeyRequest addApplicationKeyRequest) =>
+        Codec.Decode<AddApplicationKeyResponse>(await transport.Call("ApplicationKeys", "add-key", Codec.Encode(addApplicationKeyRequest)));
+    public async System.Threading.Tasks.Task<RenewApplicationKeyAttestationResponse> RenewAttestationAsync(RenewApplicationKeyAttestationRequest renewApplicationKeyAttestationRequest) =>
+        Codec.Decode<RenewApplicationKeyAttestationResponse>(await transport.Call("ApplicationKeys", "renew-attestation", Codec.Encode(renewApplicationKeyAttestationRequest)));
+    public async System.Threading.Tasks.Task<RevokeApplicationKeyResponse> RevokeKeyAsync(RevokeApplicationKeyRequest revokeApplicationKeyRequest) =>
+        Codec.Decode<RevokeApplicationKeyResponse>(await transport.Call("ApplicationKeys", "revoke-key", Codec.Encode(revokeApplicationKeyRequest)));
+}
+
 /// <summary>Typed RPC client for the Identity service. The client owns
 /// (de)serialization via the generated codec; the transport only moves bytes.</summary>
 public sealed class IdentityAsyncClient(ICsilAsyncTransport transport)
@@ -266,6 +282,8 @@ public sealed class AccountAsyncClient(ICsilAsyncTransport transport)
         Codec.Decode<RequestContactVerificationResponse>(await transport.Call("Account", "request-contact-verification", Codec.Encode(requestContactVerificationRequest)));
     public async System.Threading.Tasks.Task<ConfirmContactVerificationResponse> ConfirmContactVerificationAsync(ConfirmContactVerificationRequest confirmContactVerificationRequest) =>
         Codec.Decode<ConfirmContactVerificationResponse>(await transport.Call("Account", "confirm-contact-verification", Codec.Encode(confirmContactVerificationRequest)));
+    public async System.Threading.Tasks.Task<EnrollApplicationInstanceResponse> EnrollApplicationInstanceAsync(EnrollApplicationInstanceRequest enrollApplicationInstanceRequest) =>
+        Codec.Decode<EnrollApplicationInstanceResponse>(await transport.Call("Account", "enroll-application-instance", Codec.Encode(enrollApplicationInstanceRequest)));
 }
 
 /// <summary>Typed RPC client for the Attestation service. The client owns
@@ -290,6 +308,10 @@ public sealed class RpAsyncClient(ICsilAsyncTransport transport)
         Codec.Decode<UserInfo>(await transport.Call("Rp", "userinfo-fetch", Codec.Encode(rpUserInfoRequest)));
     public async System.Threading.Tasks.Task<RpIssueAttestationResponse> IssueAttestationAsync(RpIssueAttestationRequest rpIssueAttestationRequest) =>
         Codec.Decode<RpIssueAttestationResponse>(await transport.Call("Rp", "issue-attestation", Codec.Encode(rpIssueAttestationRequest)));
+    public async System.Threading.Tasks.Task<RpResolveDomainKeysResponse> ResolveDomainKeysAsync(RpResolveDomainKeysRequest rpResolveDomainKeysRequest) =>
+        Codec.Decode<RpResolveDomainKeysResponse>(await transport.Call("Rp", "resolve-domain-keys", Codec.Encode(rpResolveDomainKeysRequest)));
+    public async System.Threading.Tasks.Task<RpResolveApplicationKeysResponse> ResolveApplicationKeysAsync(RpResolveApplicationKeysRequest rpResolveApplicationKeysRequest) =>
+        Codec.Decode<RpResolveApplicationKeysResponse>(await transport.Call("Rp", "resolve-application-keys", Codec.Encode(rpResolveApplicationKeysRequest)));
 }
 
 /// <summary>Typed RPC client for the LocalRp service. The client owns

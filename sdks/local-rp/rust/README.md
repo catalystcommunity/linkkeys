@@ -140,6 +140,71 @@ local user authorization."* Concretely, the app owns:
   thresholds as facts — this crate never blocks a login or forces rotation on
   its own; that decision is the app's.
 
+## Application-key resolution (DNS-less RP cache)
+
+This SDK also resolves application keys for a peer identity. See
+`docs/application-keys.md` for the protocol. This section covers only the
+DNS-less RP's own SDK surface.
+
+A DNS-less RP has no DNS identity of its own. This is not a problem for a
+public-key read. The SDK reads the same anonymous data as any caller. It
+authenticates the home domain's server with DNS-pinned TLS. It verifies every
+signed record itself.
+
+Call `resolve_application_keys` to fetch and verify one peer's application
+keys:
+
+```rust
+use chrono::Utc;
+use linkkeys_local_rp::{resolve_application_keys, CacheFreshness, ResolveApplicationKeysConfig};
+
+let now = Utc::now();
+let config = ResolveApplicationKeysConfig::new(
+    "peer-user-id",
+    "peer.example.com",
+    "tinku",
+    "peer-instance-1",
+    now,
+);
+let resolved = resolve_application_keys(config)?;
+
+match resolved.freshness {
+    CacheFreshness::Fresh | CacheFreshness::Refreshed => {
+        // Treat `resolved.keys` as current trust.
+    }
+    CacheFreshness::Stale => {
+        // The home domain was unreachable. These are the last verified
+        // records this cache holds, not current trust. Apply your own
+        // policy — do not silently treat this as current.
+    }
+}
+
+let key = resolved.keys.key_for_use("peer-key-1", "sign", "ed25519")?;
+# Ok::<(), linkkeys_local_rp::Error>(())
+```
+
+Key points:
+
+- `resolve_application_keys` verifies every attestation and revocation with
+  `liblinkkeys::application_keys::verify_application_key_set` — the same
+  rules the server-side RP cache uses. This function adds no rule of its own.
+- The result carries `freshness` in the same struct as `keys`. There is no
+  bare key list. A caller cannot read the keys without also seeing whether
+  they are `Fresh`, `Refreshed`, or `Stale`.
+- The cache key is the canonical `subject_user_id` + `subject_domain` +
+  `application_id` + `instance_id`. It is never a handle. A handle can move
+  or be reused; a peer approval must never transfer with it.
+- The default cache store is `BoundedInMemoryApplicationKeyCache`, bounded at
+  `DEFAULT_MAX_ENTRIES` (512) entries with least-recently-used eviction. It
+  cannot grow past its bound under any sequence of inserts. Supply your own
+  `ApplicationKeyCacheStore` (for example, backed by a file or a database) if
+  your app needs a cache that survives a restart.
+- A caller may set `max_cache_age_seconds` to a value STRICTER than the SDK's
+  own default ceiling (`DEFAULT_MAX_CACHE_AGE_SECONDS`, 24 hours). A weaker
+  value has no effect — the SDK never loosens its own ceiling.
+- Concurrent resolves for the same peer identity share one network fetch. The
+  SDK coalesces them internally; you do not need to add your own locking.
+
 ## Testing
 
 - `tests/conformance.rs` consumes the conformance vectors under
@@ -159,3 +224,11 @@ local user authorization."* Concretely, the app owns:
   plus one test per verification-chain failure (wrong audience, wrong
   issuer, nonce mismatch, expired callback, DNS pin mismatch, revoked signing
   key, tampered claim signature).
+- `tests/application_key_resolver.rs` runs `resolve_application_keys` against
+  a fake home domain the same way: a cache miss fetches and verifies
+  (`Refreshed`), a following call within the allowed age is served from cache
+  with no further network request (`Fresh`), and an insufficient-quorum
+  revocation is rejected rather than silently dropping a key.
+- `src/application_key_cache.rs` has unit tests proving the default store's
+  bound: it evicts the least-recently-used entry before growing past its
+  configured limit, under any sequence of inserts.

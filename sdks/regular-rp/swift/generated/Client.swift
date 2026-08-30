@@ -120,6 +120,41 @@ public struct UserKeysClient {
 
 }
 
+/// ApplicationKeysClient is a typed client for the ApplicationKeys service. The client owns
+/// (de)serialization; the carrier only moves bytes.
+public struct ApplicationKeysClient {
+    public let transport: CsilTransport
+    public init(transport: CsilTransport) {
+        self.transport = transport
+    }
+
+    public func getApplicationKeys(_ request: GetApplicationKeysRequest) throws -> GetApplicationKeysResponse {
+        let csilResp = try transport.call(service: "ApplicationKeys", op: "get-application-keys", request: request.toCbor())
+        return try GetApplicationKeysResponse.fromCbor(csilResp)
+    }
+
+    public func startKeyChallenge(_ request: StartApplicationKeyChallengeRequest) throws -> StartApplicationKeyChallengeResponse {
+        let csilResp = try transport.call(service: "ApplicationKeys", op: "start-key-challenge", request: request.toCbor())
+        return try StartApplicationKeyChallengeResponse.fromCbor(csilResp)
+    }
+
+    public func addKey(_ request: AddApplicationKeyRequest) throws -> AddApplicationKeyResponse {
+        let csilResp = try transport.call(service: "ApplicationKeys", op: "add-key", request: request.toCbor())
+        return try AddApplicationKeyResponse.fromCbor(csilResp)
+    }
+
+    public func renewAttestation(_ request: RenewApplicationKeyAttestationRequest) throws -> RenewApplicationKeyAttestationResponse {
+        let csilResp = try transport.call(service: "ApplicationKeys", op: "renew-attestation", request: request.toCbor())
+        return try RenewApplicationKeyAttestationResponse.fromCbor(csilResp)
+    }
+
+    public func revokeKey(_ request: RevokeApplicationKeyRequest) throws -> RevokeApplicationKeyResponse {
+        let csilResp = try transport.call(service: "ApplicationKeys", op: "revoke-key", request: request.toCbor())
+        return try RevokeApplicationKeyResponse.fromCbor(csilResp)
+    }
+
+}
+
 /// IdentityClient is a typed client for the Identity service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 public struct IdentityClient {
@@ -578,6 +613,11 @@ public struct AccountClient {
         return try ConfirmContactVerificationResponse.fromCbor(csilResp)
     }
 
+    public func enrollApplicationInstance(_ request: EnrollApplicationInstanceRequest) throws -> EnrollApplicationInstanceResponse {
+        let csilResp = try transport.call(service: "Account", op: "enroll-application-instance", request: request.toCbor())
+        return try EnrollApplicationInstanceResponse.fromCbor(csilResp)
+    }
+
 }
 
 /// AttestationClient is a typed client for the Attestation service. The client owns
@@ -626,6 +666,16 @@ public struct RpClient {
     public func issueAttestation(_ request: RpIssueAttestationRequest) throws -> RpIssueAttestationResponse {
         let csilResp = try transport.call(service: "Rp", op: "issue-attestation", request: request.toCbor())
         return try RpIssueAttestationResponse.fromCbor(csilResp)
+    }
+
+    public func resolveDomainKeys(_ request: RpResolveDomainKeysRequest) throws -> RpResolveDomainKeysResponse {
+        let csilResp = try transport.call(service: "Rp", op: "resolve-domain-keys", request: request.toCbor())
+        return try RpResolveDomainKeysResponse.fromCbor(csilResp)
+    }
+
+    public func resolveApplicationKeys(_ request: RpResolveApplicationKeysRequest) throws -> RpResolveApplicationKeysResponse {
+        let csilResp = try transport.call(service: "Rp", op: "resolve-application-keys", request: request.toCbor())
+        return try RpResolveApplicationKeysResponse.fromCbor(csilResp)
     }
 
 }

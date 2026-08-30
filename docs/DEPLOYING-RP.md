@@ -199,3 +199,7 @@ gateway:
 For a gateway that routes a whole port (no SNI sharing), use `gateway.tcpRoute`
 instead. Both work on any cluster with the Gateway API installed (TLSRoute is in
 the experimental channel).
+
+See [Deploying at scale](deploying-at-scale.md) for file-descriptor limits,
+the TCP listen backlog, and connection tracking settings a deployment needs
+once it holds many concurrent protocol connections through this path.

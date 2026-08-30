@@ -279,6 +279,127 @@ pub mod pg {
     }
 
     diesel::table! {
+        application_instances (id) {
+            id -> Uuid,
+            subject_user_id -> Uuid,
+            application_id -> Varchar,
+            instance_id -> Varchar,
+            enrolled_at -> Timestamptz,
+            trust_reset_count -> BigInt,
+            last_trust_reset_at -> Nullable<Timestamptz>,
+            created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        application_keys (id) {
+            id -> Uuid,
+            instance_row_id -> Uuid,
+            key_id -> Varchar,
+            key_usage -> Varchar,
+            algorithm -> Varchar,
+            public_key -> Binary,
+            fingerprint -> Varchar,
+            created_at -> Timestamptz,
+            expires_at -> Timestamptz,
+            revoked_at -> Nullable<Timestamptz>,
+        }
+    }
+
+    diesel::table! {
+        application_key_attestations (id) {
+            id -> Uuid,
+            application_key_row_id -> Uuid,
+            signed_attestation -> Binary,
+            attested_at -> Timestamptz,
+            expires_at -> Timestamptz,
+            created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        application_key_revocations (id) {
+            id -> Uuid,
+            instance_row_id -> Uuid,
+            target_key_id -> Varchar,
+            target_fingerprint -> Varchar,
+            revoked_at -> Timestamptz,
+            record -> Binary,
+            created_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        application_key_challenges (id) {
+            id -> Uuid,
+            challenge_id -> Varchar,
+            subject_user_id -> Varchar,
+            application_id -> Varchar,
+            instance_id -> Varchar,
+            purpose -> Varchar,
+            key_usage -> Varchar,
+            algorithm -> Varchar,
+            public_key -> Binary,
+            nonce -> Binary,
+            expires_at -> Timestamptz,
+            consumed_at -> Nullable<Timestamptz>,
+            created_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        rp_domain_key_cache (domain) {
+            domain -> Varchar,
+            fetched_at -> Timestamptz,
+            revocations_checked_at -> Timestamptz,
+            last_used_at -> Timestamptz,
+            created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        rp_application_key_cache_entries (id) {
+            id -> Uuid,
+            subject_user_id -> Varchar,
+            subject_domain -> Varchar,
+            application_id -> Varchar,
+            instance_id -> Varchar,
+            fetched_at -> Timestamptz,
+            revocations_checked_at -> Timestamptz,
+            last_used_at -> Timestamptz,
+            created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        rp_application_key_attestations (id) {
+            id -> Uuid,
+            cache_entry_id -> Uuid,
+            key_id -> Varchar,
+            signed_attestation -> Binary,
+            attestation_expires_at -> Timestamptz,
+            verified_by_key_ids -> Varchar,
+            created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        rp_application_key_revocations (id) {
+            id -> Uuid,
+            cache_entry_id -> Uuid,
+            target_key_id -> Varchar,
+            revocation -> Binary,
+            revoked_at -> Timestamptz,
+            created_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
         verified_contact_methods (id) {
             id -> Uuid,
             user_id -> Uuid,
@@ -402,6 +523,12 @@ pub mod pg {
     diesel::joinable!(account_challenges -> users (user_id));
     diesel::joinable!(browser_sessions -> users (user_id));
     diesel::joinable!(notification_outbox -> users (user_id));
+    diesel::joinable!(application_instances -> users (subject_user_id));
+    diesel::joinable!(application_keys -> application_instances (instance_row_id));
+    diesel::joinable!(application_key_attestations -> application_keys (application_key_row_id));
+    diesel::joinable!(application_key_revocations -> application_instances (instance_row_id));
+    diesel::joinable!(rp_application_key_attestations -> rp_application_key_cache_entries (cache_entry_id));
+    diesel::joinable!(rp_application_key_revocations -> rp_application_key_cache_entries (cache_entry_id));
     diesel::allow_tables_to_appear_in_same_query!(
         guestbook_entries,
         backup_keys,
@@ -424,6 +551,15 @@ pub mod pg {
         audit_log,
         domain_key_pins,
         issued_revocations,
+        application_instances,
+        application_keys,
+        application_key_attestations,
+        application_key_revocations,
+        application_key_challenges,
+        rp_domain_key_cache,
+        rp_application_key_cache_entries,
+        rp_application_key_attestations,
+        rp_application_key_revocations,
         verified_contact_methods,
         account_challenges,
         notification_outbox,
@@ -713,6 +849,127 @@ pub mod sqlite {
     }
 
     diesel::table! {
+        application_instances (id) {
+            id -> Text,
+            subject_user_id -> Text,
+            application_id -> Text,
+            instance_id -> Text,
+            enrolled_at -> Text,
+            trust_reset_count -> BigInt,
+            last_trust_reset_at -> Nullable<Text>,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        application_keys (id) {
+            id -> Text,
+            instance_row_id -> Text,
+            key_id -> Text,
+            key_usage -> Text,
+            algorithm -> Text,
+            public_key -> Binary,
+            fingerprint -> Text,
+            created_at -> Text,
+            expires_at -> Text,
+            revoked_at -> Nullable<Text>,
+        }
+    }
+
+    diesel::table! {
+        application_key_attestations (id) {
+            id -> Text,
+            application_key_row_id -> Text,
+            signed_attestation -> Binary,
+            attested_at -> Text,
+            expires_at -> Text,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        application_key_revocations (id) {
+            id -> Text,
+            instance_row_id -> Text,
+            target_key_id -> Text,
+            target_fingerprint -> Text,
+            revoked_at -> Text,
+            record -> Binary,
+            created_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        application_key_challenges (id) {
+            id -> Text,
+            challenge_id -> Text,
+            subject_user_id -> Text,
+            application_id -> Text,
+            instance_id -> Text,
+            purpose -> Text,
+            key_usage -> Text,
+            algorithm -> Text,
+            public_key -> Binary,
+            nonce -> Binary,
+            expires_at -> Text,
+            consumed_at -> Nullable<Text>,
+            created_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        rp_domain_key_cache (domain) {
+            domain -> Text,
+            fetched_at -> Text,
+            revocations_checked_at -> Text,
+            last_used_at -> Text,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        rp_application_key_cache_entries (id) {
+            id -> Text,
+            subject_user_id -> Text,
+            subject_domain -> Text,
+            application_id -> Text,
+            instance_id -> Text,
+            fetched_at -> Text,
+            revocations_checked_at -> Text,
+            last_used_at -> Text,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        rp_application_key_attestations (id) {
+            id -> Text,
+            cache_entry_id -> Text,
+            key_id -> Text,
+            signed_attestation -> Binary,
+            attestation_expires_at -> Text,
+            verified_by_key_ids -> Text,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        rp_application_key_revocations (id) {
+            id -> Text,
+            cache_entry_id -> Text,
+            target_key_id -> Text,
+            revocation -> Binary,
+            revoked_at -> Text,
+            created_at -> Text,
+        }
+    }
+
+    diesel::table! {
         verified_contact_methods (id) {
             id -> Text,
             user_id -> Text,
@@ -836,6 +1093,12 @@ pub mod sqlite {
     diesel::joinable!(account_challenges -> users (user_id));
     diesel::joinable!(browser_sessions -> users (user_id));
     diesel::joinable!(notification_outbox -> users (user_id));
+    diesel::joinable!(application_instances -> users (subject_user_id));
+    diesel::joinable!(application_keys -> application_instances (instance_row_id));
+    diesel::joinable!(application_key_attestations -> application_keys (application_key_row_id));
+    diesel::joinable!(application_key_revocations -> application_instances (instance_row_id));
+    diesel::joinable!(rp_application_key_attestations -> rp_application_key_cache_entries (cache_entry_id));
+    diesel::joinable!(rp_application_key_revocations -> rp_application_key_cache_entries (cache_entry_id));
     diesel::allow_tables_to_appear_in_same_query!(
         guestbook_entries,
         backup_keys,
@@ -858,6 +1121,15 @@ pub mod sqlite {
         audit_log,
         domain_key_pins,
         issued_revocations,
+        application_instances,
+        application_keys,
+        application_key_attestations,
+        application_key_revocations,
+        application_key_challenges,
+        rp_domain_key_cache,
+        rp_application_key_cache_entries,
+        rp_application_key_attestations,
+        rp_application_key_revocations,
         verified_contact_methods,
         account_challenges,
         notification_outbox,

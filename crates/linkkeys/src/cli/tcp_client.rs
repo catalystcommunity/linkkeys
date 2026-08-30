@@ -73,9 +73,12 @@ fn load_own_domain_cert() -> Result<(Vec<u8>, Vec<u8>), Box<dyn std::error::Erro
         liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, passphrase.as_bytes())
             .map_err(|e| format!("Failed to decrypt domain key: {}", e))?;
 
-    let seed: [u8; 32] = sk_bytes
-        .try_into()
-        .map_err(|_| "Domain key is not 32 bytes")?;
+    let seed: zeroize::Zeroizing<[u8; 32]> = zeroize::Zeroizing::new(
+        sk_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| "Domain key is not 32 bytes")?,
+    );
 
     let domain_name = linkkeys::conversions::get_domain_name();
     linkkeys::tcp::tls::generate_domain_tls_cert(&domain_name, &seed)

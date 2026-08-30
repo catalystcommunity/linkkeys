@@ -867,3 +867,184 @@ and translations_response = {
 }
 
 and list_locales_response = { available_locales : string list }
+
+and application_key_signature = {
+  signed_by_key_id : string;
+  signature : bytes;
+}
+
+and application_key_attestation = {
+  subject_user_id : string;
+  subject_domain : string;
+  application_id : string;
+  instance_id : string;
+  key_id : string;
+  key_usage : string;
+  algorithm : string;
+  public_key : bytes;
+  fingerprint : string;
+  key_created_at : string;
+  key_expires_at : string;
+  attested_at : string;
+  attestation_expires_at : string;
+}
+
+and signed_application_key_attestation = {
+  attestation : bytes;
+  signatures : claim_signature list;
+}
+
+and application_key_addition = {
+  subject_user_id : string;
+  subject_domain : string;
+  application_id : string;
+  instance_id : string;
+  key_id : string;
+  key_usage : string;
+  algorithm : string;
+  public_key : bytes;
+  fingerprint : string;
+  requested_key_lifetime_seconds : int64;
+  challenge_id : string;
+  challenge : bytes;
+  requested_at : string;
+  expires_at : string;
+}
+
+and signed_application_key_addition = {
+  addition : bytes;
+  signatures : application_key_signature list;
+  possession_proof : bytes option;
+}
+
+and application_key_renewal = {
+  subject_user_id : string;
+  subject_domain : string;
+  application_id : string;
+  instance_id : string;
+  key_id : string;
+  challenge_id : string;
+  challenge : bytes;
+  requested_at : string;
+  expires_at : string;
+}
+
+and signed_application_key_renewal = {
+  renewal : bytes;
+  signatures : application_key_signature list;
+  possession_proof : bytes option;
+}
+
+and application_key_revocation = {
+  subject_user_id : string;
+  subject_domain : string;
+  application_id : string;
+  instance_id : string;
+  target_key_id : string;
+  target_fingerprint : string;
+  revoked_at : string;
+  signatures : application_key_signature list;
+}
+
+and start_application_key_challenge_request = {
+  subject_user_id : string;
+  application_id : string;
+  instance_id : string;
+  purpose : string;
+  key_usage : string;
+  algorithm : string;
+  public_key : bytes;
+}
+
+and start_application_key_challenge_response = {
+  challenge_id : string;
+  challenge : bytes option;
+  sealed_challenge : bytes option;
+  expires_at : string;
+}
+
+and add_application_key_request = { request : signed_application_key_addition }
+
+and add_application_key_response = {
+  attestation : signed_application_key_attestation;
+}
+
+and renew_application_key_attestation_request = {
+  request : signed_application_key_renewal;
+}
+
+and renew_application_key_attestation_response = {
+  attestation : signed_application_key_attestation;
+  signed : bool;
+}
+
+and revoke_application_key_request = {
+  revocation : application_key_revocation;
+}
+
+and revoke_application_key_response = { revoked_at : string }
+
+and enroll_application_instance_request = {
+  application_id : string;
+  instance_id : string;
+  keys : signed_application_key_addition list;
+}
+
+and enroll_application_instance_response = {
+  subject_user_id : string;
+  subject_domain : string;
+  application_id : string;
+  instance_id : string;
+  attestations : signed_application_key_attestation list;
+}
+
+and get_application_keys_request = {
+  subject_user_id : string;
+  application_id : string;
+  instance_id : string;
+}
+
+and get_application_keys_response = {
+  subject_user_id : string;
+  subject_domain : string;
+  application_id : string;
+  instance_id : string;
+  keys : signed_application_key_attestation list;
+  revocations : application_key_revocation list;
+}
+
+and rp_resolve_domain_keys_request = {
+  domain : string;
+  max_cache_age_seconds : int64 option;
+}
+
+and rp_resolve_domain_keys_response = {
+  domain : string;
+  keys : domain_public_key list;
+  revocations : revocation_certificate list;
+  fetched_at : string;
+  revocations_checked_at : string;
+  cache_status : string;
+}
+
+and rp_resolve_application_keys_request = {
+  subject_user_id : string;
+  subject_domain : string;
+  application_id : string;
+  instance_id : string;
+  max_cache_age_seconds : int64 option;
+}
+
+and rp_resolve_application_keys_response = {
+  subject_user_id : string;
+  subject_domain : string;
+  application_id : string;
+  instance_id : string;
+  application_keys : signed_application_key_attestation list;
+  application_key_revocations : application_key_revocation list;
+  home_domain_keys : domain_public_key list;
+  home_domain_key_revocations : revocation_certificate list;
+  fetched_at : string;
+  revocations_checked_at : string;
+  cache_status : string;
+}

@@ -37,6 +37,12 @@ rand = "0.8"
 # audited choice for timing-safe byte comparison, and WASM-clean.
 subtle = "2"
 
+# Zero decrypted private-key material on drop (security review). Already in
+# the tree transitively via ed25519-dalek/x25519-dalek; promoted to a direct
+# dependency so `crypto::decrypt_private_key` et al. can return `Zeroizing`.
+# no_std-compatible (default-features = false), so this stays WASM-clean.
+zeroize = { version = "1.8", default-features = false, features = ["zeroize_derive"] }
+
 # Encoding
 base64ct = { version = "1", features = ["alloc"] }
 

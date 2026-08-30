@@ -8,6 +8,7 @@
 use liblinkkeys::claims::{sign_claim, ClaimSigner, ClaimSpec};
 use liblinkkeys::crypto::{decrypt_private_key, CryptoError, SigningAlgorithm};
 use liblinkkeys::generated::types::Claim;
+use zeroize::Zeroizing;
 
 use crate::conversions::get_domain_name;
 use crate::db::models::DomainKey;
@@ -16,7 +17,7 @@ use crate::db::models::DomainKey;
 pub struct ActiveSigner {
     pub key_id: String,
     pub algorithm: SigningAlgorithm,
-    pub private_key: Vec<u8>,
+    pub private_key: Zeroizing<Vec<u8>>,
 }
 
 #[derive(Debug)]

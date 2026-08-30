@@ -28,6 +28,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroizing;
 
 use crate::db::DbPool;
 
@@ -229,6 +230,25 @@ const SNAPSHOT_TABLES: &[&str] = &[
     "audit_log",
     "domain_key_pins",
     "issued_revocations",
+    "application_instances",
+    "application_keys",
+    "application_key_attestations",
+    "application_key_revocations",
+    "application_key_challenges",
+    // RP cache (signing-things-request.md, step 6): the RP's own cache of
+    // OTHER domains' public material. Included deliberately, not by default
+    // — see the module doc on `services::rp_cache` for the reasoning, and
+    // the precedent already set by `peer_keys` / `domain_key_pins` /
+    // `issued_revocations` just above: this is re-fetchable public data, but
+    // preserving it means a restore comes back with a warm cache instead of
+    // a cold-cache storm of home-domain requests, and keeps the "stale"
+    // fallback usable immediately if a home domain happens to be unreachable
+    // right after a restore. None of it is a bearer credential, so it does
+    // not belong in `excluded_ephemeral_table_names()` either.
+    "rp_domain_key_cache",
+    "rp_application_key_cache_entries",
+    "rp_application_key_attestations",
+    "rp_application_key_revocations",
     "verified_contact_methods",
     "user_release_prefs",
     "local_rp_domain_policy",
@@ -351,6 +371,48 @@ mod sqlite_backend {
         id: String, target_key_id: String, target_fingerprint: String, revoked_at: String,
         cert: Vec<u8>, created_at: String,
     });
+    backup_row!(ApplicationInstanceBackupRow => application_instances {
+        id: String, subject_user_id: String, application_id: String, instance_id: String,
+        enrolled_at: String, trust_reset_count: i64, last_trust_reset_at: Option<String>,
+        created_at: String, updated_at: String,
+    });
+    backup_row!(ApplicationKeyBackupRow => application_keys {
+        id: String, instance_row_id: String, key_id: String, key_usage: String, algorithm: String,
+        public_key: Vec<u8>, fingerprint: String, created_at: String, expires_at: String,
+        revoked_at: Option<String>,
+    });
+    backup_row!(ApplicationKeyAttestationBackupRow => application_key_attestations {
+        id: String, application_key_row_id: String, signed_attestation: Vec<u8>,
+        attested_at: String, expires_at: String, created_at: String, updated_at: String,
+    });
+    backup_row!(ApplicationKeyRevocationBackupRow => application_key_revocations {
+        id: String, instance_row_id: String, target_key_id: String, target_fingerprint: String,
+        revoked_at: String, record: Vec<u8>, created_at: String,
+    });
+    backup_row!(ApplicationKeyChallengeBackupRow => application_key_challenges {
+        id: String, challenge_id: String, subject_user_id: String, application_id: String,
+        instance_id: String, purpose: String, key_usage: String, algorithm: String,
+        public_key: Vec<u8>, nonce: Vec<u8>, expires_at: String, consumed_at: Option<String>,
+        created_at: String,
+    });
+    backup_row!(RpDomainKeyCacheBackupRow => rp_domain_key_cache {
+        domain: String, fetched_at: String, revocations_checked_at: String, last_used_at: String,
+        created_at: String, updated_at: String,
+    });
+    backup_row!(RpApplicationKeyCacheEntryBackupRow => rp_application_key_cache_entries {
+        id: String, subject_user_id: String, subject_domain: String, application_id: String,
+        instance_id: String, fetched_at: String, revocations_checked_at: String,
+        last_used_at: String, created_at: String, updated_at: String,
+    });
+    backup_row!(RpApplicationKeyAttestationBackupRow => rp_application_key_attestations {
+        id: String, cache_entry_id: String, key_id: String, signed_attestation: Vec<u8>,
+        attestation_expires_at: String, verified_by_key_ids: String, created_at: String,
+        updated_at: String,
+    });
+    backup_row!(RpApplicationKeyRevocationBackupRow => rp_application_key_revocations {
+        id: String, cache_entry_id: String, target_key_id: String, revocation: Vec<u8>,
+        revoked_at: String, created_at: String,
+    });
     backup_row!(VerifiedContactMethodBackupRow => verified_contact_methods {
         id: String, user_id: String, channel: String, destination: String, purposes: String,
         verified_at: String, revoked_at: Option<String>, created_at: String, updated_at: String,
@@ -398,6 +460,15 @@ mod sqlite_backend {
             $op!("audit_log", audit_log, AuditLogBackupRow, $($arg)*);
             $op!("domain_key_pins", domain_key_pins, DomainKeyPinBackupRow, $($arg)*);
             $op!("issued_revocations", issued_revocations, IssuedRevocationBackupRow, $($arg)*);
+            $op!("application_instances", application_instances, ApplicationInstanceBackupRow, $($arg)*);
+            $op!("application_keys", application_keys, ApplicationKeyBackupRow, $($arg)*);
+            $op!("application_key_attestations", application_key_attestations, ApplicationKeyAttestationBackupRow, $($arg)*);
+            $op!("application_key_revocations", application_key_revocations, ApplicationKeyRevocationBackupRow, $($arg)*);
+            $op!("application_key_challenges", application_key_challenges, ApplicationKeyChallengeBackupRow, $($arg)*);
+            $op!("rp_domain_key_cache", rp_domain_key_cache, RpDomainKeyCacheBackupRow, $($arg)*);
+            $op!("rp_application_key_cache_entries", rp_application_key_cache_entries, RpApplicationKeyCacheEntryBackupRow, $($arg)*);
+            $op!("rp_application_key_attestations", rp_application_key_attestations, RpApplicationKeyAttestationBackupRow, $($arg)*);
+            $op!("rp_application_key_revocations", rp_application_key_revocations, RpApplicationKeyRevocationBackupRow, $($arg)*);
             $op!("verified_contact_methods", verified_contact_methods, VerifiedContactMethodBackupRow, $($arg)*);
             $op!("user_release_prefs", user_release_prefs, UserReleasePrefRow, $($arg)*);
             $op!("local_rp_domain_policy", local_rp_domain_policy, LocalRpDomainPolicyBackupRow, $($arg)*);
@@ -472,7 +543,7 @@ mod sqlite_backend {
     fn active_backup_key(
         conn: &mut SqliteConnection,
         passphrase: &str,
-    ) -> Result<Option<[u8; 32]>, BackupError> {
+    ) -> Result<Option<Zeroizing<[u8; 32]>>, BackupError> {
         use crate::schema::sqlite::backup_keys::dsl as bk;
         let row: Option<BackupKeyRow> = bk::backup_keys
             .filter(bk::rotated_at.is_null())
@@ -487,10 +558,10 @@ mod sqlite_backend {
                     passphrase.as_bytes(),
                 )
                 .map_err(|e| BackupError::Crypto(format!("cannot decrypt backup key: {e}")))?;
-                let key: [u8; 32] = raw.try_into().map_err(|_| {
+                let key: [u8; 32] = raw.as_slice().try_into().map_err(|_| {
                     BackupError::Format("stored backup key is not 32 bytes".to_string())
                 })?;
-                Ok(Some(key))
+                Ok(Some(Zeroizing::new(key)))
             }
         }
     }
@@ -534,13 +605,19 @@ mod sqlite_backend {
         let domain = crate::conversions::get_domain_name();
         conn.transaction::<_, BackupError, _>(|conn| {
             // Acquire the backup key (inside the txn so a freshly-generated key
-            // row is part of this same consistent snapshot).
-            let (key, new_key) = if opts.rotate {
-                (rotate_backup_key(conn, passphrase)?, true)
+            // row is part of this same consistent snapshot). Held as
+            // `Zeroizing` for its whole lifetime here regardless of whether it
+            // was just decrypted or freshly generated, so both branches share
+            // one type and the key is cleared on drop either way.
+            let (key, new_key): (Zeroizing<[u8; 32]>, bool) = if opts.rotate {
+                (Zeroizing::new(rotate_backup_key(conn, passphrase)?), true)
             } else {
                 match active_backup_key(conn, passphrase)? {
                     Some(k) => (k, false),
-                    None => (store_new_backup_key(conn, passphrase)?, true),
+                    None => (
+                        Zeroizing::new(store_new_backup_key(conn, passphrase)?),
+                        true,
+                    ),
                 }
             };
 
@@ -564,7 +641,10 @@ mod sqlite_backend {
             Ok(BackupResult {
                 ciphertext,
                 domain: domain.clone(),
-                new_key: if new_key { Some(key) } else { None },
+                // Deliberately copied out of the `Zeroizing` wrapper: this is
+                // the one value in this function that MUST outlive it — it is
+                // returned so the admin can be shown it exactly once.
+                new_key: if new_key { Some(*key) } else { None },
             })
         })
     }

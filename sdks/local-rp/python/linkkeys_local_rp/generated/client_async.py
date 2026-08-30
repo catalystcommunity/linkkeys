@@ -91,6 +91,31 @@ class UserKeysAsyncClient:
         """get-user-keys"""
         return GetUserKeysResponse.from_cbor(await self._transport.call("UserKeys", "get-user-keys", req.to_cbor()))
 
+class ApplicationKeysAsyncClient:
+    """Typed client for the ApplicationKeys service."""
+    def __init__(self, transport: AsyncTransport):
+        self._transport = transport
+
+    async def get_application_keys(self, req: GetApplicationKeysRequest) -> GetApplicationKeysResponse:
+        """get-application-keys"""
+        return GetApplicationKeysResponse.from_cbor(await self._transport.call("ApplicationKeys", "get-application-keys", req.to_cbor()))
+
+    async def start_key_challenge(self, req: StartApplicationKeyChallengeRequest) -> StartApplicationKeyChallengeResponse:
+        """start-key-challenge"""
+        return StartApplicationKeyChallengeResponse.from_cbor(await self._transport.call("ApplicationKeys", "start-key-challenge", req.to_cbor()))
+
+    async def add_key(self, req: AddApplicationKeyRequest) -> AddApplicationKeyResponse:
+        """add-key"""
+        return AddApplicationKeyResponse.from_cbor(await self._transport.call("ApplicationKeys", "add-key", req.to_cbor()))
+
+    async def renew_attestation(self, req: RenewApplicationKeyAttestationRequest) -> RenewApplicationKeyAttestationResponse:
+        """renew-attestation"""
+        return RenewApplicationKeyAttestationResponse.from_cbor(await self._transport.call("ApplicationKeys", "renew-attestation", req.to_cbor()))
+
+    async def revoke_key(self, req: RevokeApplicationKeyRequest) -> RevokeApplicationKeyResponse:
+        """revoke-key"""
+        return RevokeApplicationKeyResponse.from_cbor(await self._transport.call("ApplicationKeys", "revoke-key", req.to_cbor()))
+
 class IdentityAsyncClient:
     """Typed client for the Identity service."""
     def __init__(self, transport: AsyncTransport):
@@ -122,6 +147,75 @@ class I18NAsyncClient:
         """list-locales"""
         return ListLocalesResponse.from_cbor(await self._transport.call("I18n", "list-locales", req.to_cbor()))
 
+class UiAsyncClient:
+    """Typed client for the Ui service."""
+    def __init__(self, transport: AsyncTransport):
+        self._transport = transport
+
+    async def get_configuration(self, req: EmptyRequest) -> GetUiConfigurationResponse:
+        """get-configuration"""
+        return GetUiConfigurationResponse.from_cbor(await self._transport.call("Ui", "get-configuration", req.to_cbor()))
+
+class NotificationAsyncClient:
+    """Typed client for the Notification service."""
+    def __init__(self, transport: AsyncTransport):
+        self._transport = transport
+
+    async def get_capabilities(self, req: EmptyRequest) -> GetNotificationCapabilitiesResponse:
+        """get-capabilities"""
+        return GetNotificationCapabilitiesResponse.from_cbor(await self._transport.call("Notification", "get-capabilities", req.to_cbor()))
+
+class SessionAsyncClient:
+    """Typed client for the Session service."""
+    def __init__(self, transport: AsyncTransport):
+        self._transport = transport
+
+    async def login_password(self, req: SessionPasswordLoginRequest) -> SessionPasswordLoginResponse:
+        """login-password"""
+        return SessionPasswordLoginResponse.from_cbor(await self._transport.call("Session", "login-password", req.to_cbor()))
+
+    async def get_current(self, req: EmptyRequest) -> SessionCurrentResponse:
+        """get-current"""
+        return SessionCurrentResponse.from_cbor(await self._transport.call("Session", "get-current", req.to_cbor()))
+
+    async def logout(self, req: EmptyRequest) -> SessionLogoutResponse:
+        """logout"""
+        return SessionLogoutResponse.from_cbor(await self._transport.call("Session", "logout", req.to_cbor()))
+
+    async def introspect(self, req: IntrospectBrowserSessionRequest) -> IntrospectBrowserSessionResponse:
+        """introspect"""
+        return IntrospectBrowserSessionResponse.from_cbor(await self._transport.call("Session", "introspect", req.to_cbor()))
+
+class RecoveryAsyncClient:
+    """Typed client for the Recovery service."""
+    def __init__(self, transport: AsyncTransport):
+        self._transport = transport
+
+    async def request_password_recovery(self, req: RequestPasswordRecoveryRequest) -> RequestPasswordRecoveryResponse:
+        """request-password-recovery"""
+        return RequestPasswordRecoveryResponse.from_cbor(await self._transport.call("Recovery", "request-password-recovery", req.to_cbor()))
+
+    async def validate_password_recovery(self, req: ValidatePasswordRecoveryRequest) -> ValidatePasswordRecoveryResponse:
+        """validate-password-recovery"""
+        return ValidatePasswordRecoveryResponse.from_cbor(await self._transport.call("Recovery", "validate-password-recovery", req.to_cbor()))
+
+    async def complete_password_recovery(self, req: CompletePasswordRecoveryRequest) -> CompletePasswordRecoveryResponse:
+        """complete-password-recovery"""
+        return CompletePasswordRecoveryResponse.from_cbor(await self._transport.call("Recovery", "complete-password-recovery", req.to_cbor()))
+
+class BrowserAuthorizationAsyncClient:
+    """Typed client for the BrowserAuthorization service."""
+    def __init__(self, transport: AsyncTransport):
+        self._transport = transport
+
+    async def inspect(self, req: BrowserAuthorizationInspectRequest) -> BrowserAuthorizationInspectResponse:
+        """inspect"""
+        return BrowserAuthorizationInspectResponse.from_cbor(await self._transport.call("BrowserAuthorization", "inspect", req.to_cbor()))
+
+    async def complete(self, req: BrowserAuthorizationCompleteRequest) -> BrowserAuthorizationCompleteResponse:
+        """complete"""
+        return BrowserAuthorizationCompleteResponse.from_cbor(await self._transport.call("BrowserAuthorization", "complete", req.to_cbor()))
+
 class AdminAsyncClient:
     """Typed client for the Admin service."""
     def __init__(self, transport: AsyncTransport):
@@ -147,6 +241,18 @@ class AdminAsyncClient:
         """deactivate-user"""
         return DeactivateUserResponse.from_cbor(await self._transport.call("Admin", "deactivate-user", req.to_cbor()))
 
+    async def activate_user(self, req: ActivateUserRequest) -> ActivateUserResponse:
+        """activate-user"""
+        return ActivateUserResponse.from_cbor(await self._transport.call("Admin", "activate-user", req.to_cbor()))
+
+    async def purge_user(self, req: PurgeUserRequest) -> PurgeUserResponse:
+        """purge-user"""
+        return PurgeUserResponse.from_cbor(await self._transport.call("Admin", "purge-user", req.to_cbor()))
+
+    async def revoke_domain_key(self, req: RevokeDomainKeyRequest) -> RevokeDomainKeyResponse:
+        """revoke-domain-key"""
+        return RevokeDomainKeyResponse.from_cbor(await self._transport.call("Admin", "revoke-domain-key", req.to_cbor()))
+
     async def reset_password(self, req: ResetPasswordRequest) -> ResetPasswordResponse:
         """reset-password"""
         return ResetPasswordResponse.from_cbor(await self._transport.call("Admin", "reset-password", req.to_cbor()))
@@ -171,6 +277,10 @@ class AdminAsyncClient:
         """list-user-claims"""
         return ListUserClaimsResponse.from_cbor(await self._transport.call("Admin", "list-user-claims", req.to_cbor()))
 
+    async def get_user_claims(self, req: AdminUserClaimsRequest) -> AdminUserClaimsResponse:
+        """get-user-claims"""
+        return AdminUserClaimsResponse.from_cbor(await self._transport.call("Admin", "get-user-claims", req.to_cbor()))
+
     async def set_user_claim(self, req: SetUserClaimRequest) -> SetUserClaimResponse:
         """set-user-claim"""
         return SetUserClaimResponse.from_cbor(await self._transport.call("Admin", "set-user-claim", req.to_cbor()))
@@ -178,6 +288,66 @@ class AdminAsyncClient:
     async def list_settable_policies(self, req: EmptyRequest) -> ListSettablePoliciesResponse:
         """list-settable-policies"""
         return ListSettablePoliciesResponse.from_cbor(await self._transport.call("Admin", "list-settable-policies", req.to_cbor()))
+
+    async def list_claim_types(self, req: EmptyRequest) -> ListClaimTypesResponse:
+        """list-claim-types"""
+        return ListClaimTypesResponse.from_cbor(await self._transport.call("Admin", "list-claim-types", req.to_cbor()))
+
+    async def set_claim_type(self, req: SetClaimTypeRequest) -> SetClaimTypeResponse:
+        """set-claim-type"""
+        return SetClaimTypeResponse.from_cbor(await self._transport.call("Admin", "set-claim-type", req.to_cbor()))
+
+    async def remove_claim_type(self, req: RemoveClaimTypeRequest) -> RemoveClaimTypeResponse:
+        """remove-claim-type"""
+        return RemoveClaimTypeResponse.from_cbor(await self._transport.call("Admin", "remove-claim-type", req.to_cbor()))
+
+    async def set_claim_type_label(self, req: SetClaimTypeLabelRequest) -> SetClaimTypeLabelResponse:
+        """set-claim-type-label"""
+        return SetClaimTypeLabelResponse.from_cbor(await self._transport.call("Admin", "set-claim-type-label", req.to_cbor()))
+
+    async def remove_claim_type_label(self, req: RemoveClaimTypeLabelRequest) -> RemoveClaimTypeLabelResponse:
+        """remove-claim-type-label"""
+        return RemoveClaimTypeLabelResponse.from_cbor(await self._transport.call("Admin", "remove-claim-type-label", req.to_cbor()))
+
+    async def list_trusted_issuers(self, req: EmptyRequest) -> ListTrustedIssuersResponse:
+        """list-trusted-issuers"""
+        return ListTrustedIssuersResponse.from_cbor(await self._transport.call("Admin", "list-trusted-issuers", req.to_cbor()))
+
+    async def add_trusted_issuer(self, req: AddTrustedIssuerRequest) -> AddTrustedIssuerResponse:
+        """add-trusted-issuer"""
+        return AddTrustedIssuerResponse.from_cbor(await self._transport.call("Admin", "add-trusted-issuer", req.to_cbor()))
+
+    async def remove_trusted_issuer(self, req: RemoveTrustedIssuerRequest) -> RemoveTrustedIssuerResponse:
+        """remove-trusted-issuer"""
+        return RemoveTrustedIssuerResponse.from_cbor(await self._transport.call("Admin", "remove-trusted-issuer", req.to_cbor()))
+
+    async def list_release_rules(self, req: EmptyRequest) -> ListReleaseRulesResponse:
+        """list-release-rules"""
+        return ListReleaseRulesResponse.from_cbor(await self._transport.call("Admin", "list-release-rules", req.to_cbor()))
+
+    async def set_release_rule(self, req: SetReleaseRuleRequest) -> SetReleaseRuleResponse:
+        """set-release-rule"""
+        return SetReleaseRuleResponse.from_cbor(await self._transport.call("Admin", "set-release-rule", req.to_cbor()))
+
+    async def remove_release_rule(self, req: RemoveReleaseRuleRequest) -> RemoveReleaseRuleResponse:
+        """remove-release-rule"""
+        return RemoveReleaseRuleResponse.from_cbor(await self._transport.call("Admin", "remove-release-rule", req.to_cbor()))
+
+    async def list_pending_claim_approvals(self, req: EmptyRequest) -> ListPendingClaimApprovalsResponse:
+        """list-pending-claim-approvals"""
+        return ListPendingClaimApprovalsResponse.from_cbor(await self._transport.call("Admin", "list-pending-claim-approvals", req.to_cbor()))
+
+    async def approve_claim(self, req: ApproveClaimRequest) -> ApproveClaimResponse:
+        """approve-claim"""
+        return ApproveClaimResponse.from_cbor(await self._transport.call("Admin", "approve-claim", req.to_cbor()))
+
+    async def reject_claim(self, req: RejectClaimRequest) -> RejectClaimResponse:
+        """reject-claim"""
+        return RejectClaimResponse.from_cbor(await self._transport.call("Admin", "reject-claim", req.to_cbor()))
+
+    async def admin_issue_attestation(self, req: AdminIssueAttestationRequest) -> AdminIssueAttestationResponse:
+        """admin-issue-attestation"""
+        return AdminIssueAttestationResponse.from_cbor(await self._transport.call("Admin", "admin-issue-attestation", req.to_cbor()))
 
     async def grant_relation(self, req: GrantRelationRequest) -> GrantRelationResponse:
         """grant-relation"""
@@ -227,6 +397,10 @@ class AdminAsyncClient:
         """set-local-rp-policy"""
         return SetLocalRpPolicyResponse.from_cbor(await self._transport.call("Admin", "set-local-rp-policy", req.to_cbor()))
 
+    async def purge_local_rp_tickets(self, req: PurgeLocalRpTicketsRequest) -> PurgeLocalRpTicketsResponse:
+        """purge-local-rp-tickets"""
+        return PurgeLocalRpTicketsResponse.from_cbor(await self._transport.call("Admin", "purge-local-rp-tickets", req.to_cbor()))
+
 class AccountAsyncClient:
     """Typed client for the Account service."""
     def __init__(self, transport: AsyncTransport):
@@ -239,6 +413,50 @@ class AccountAsyncClient:
     async def get_my_info(self, req: EmptyRequest) -> GetMyInfoResponse:
         """get-my-info"""
         return GetMyInfoResponse.from_cbor(await self._transport.call("Account", "get-my-info", req.to_cbor()))
+
+    async def list_settable_policies(self, req: EmptyRequest) -> ListSettablePoliciesResponse:
+        """list-settable-policies"""
+        return ListSettablePoliciesResponse.from_cbor(await self._transport.call("Account", "list-settable-policies", req.to_cbor()))
+
+    async def set_my_claim(self, req: SetMyClaimRequest) -> SetMyClaimResponse:
+        """set-my-claim"""
+        return SetMyClaimResponse.from_cbor(await self._transport.call("Account", "set-my-claim", req.to_cbor()))
+
+    async def remove_my_claim(self, req: RemoveMyClaimRequest) -> RemoveMyClaimResponse:
+        """remove-my-claim"""
+        return RemoveMyClaimResponse.from_cbor(await self._transport.call("Account", "remove-my-claim", req.to_cbor()))
+
+    async def set_my_claim_sharing(self, req: SetMyClaimSharingRequest) -> SetMyClaimSharingResponse:
+        """set-my-claim-sharing"""
+        return SetMyClaimSharingResponse.from_cbor(await self._transport.call("Account", "set-my-claim-sharing", req.to_cbor()))
+
+    async def create_profile(self, req: CreateProfileRequest) -> CreateProfileResponse:
+        """create-profile"""
+        return CreateProfileResponse.from_cbor(await self._transport.call("Account", "create-profile", req.to_cbor()))
+
+    async def request_verification(self, req: RequestVerificationRequest) -> RequestVerificationResponse:
+        """request-verification"""
+        return RequestVerificationResponse.from_cbor(await self._transport.call("Account", "request-verification", req.to_cbor()))
+
+    async def list_verified_contact_methods(self, req: EmptyRequest) -> ListVerifiedContactMethodsResponse:
+        """list-verified-contact-methods"""
+        return ListVerifiedContactMethodsResponse.from_cbor(await self._transport.call("Account", "list-verified-contact-methods", req.to_cbor()))
+
+    async def revoke_verified_contact_method(self, req: RevokeVerifiedContactMethodRequest) -> RevokeVerifiedContactMethodResponse:
+        """revoke-verified-contact-method"""
+        return RevokeVerifiedContactMethodResponse.from_cbor(await self._transport.call("Account", "revoke-verified-contact-method", req.to_cbor()))
+
+    async def request_contact_verification(self, req: RequestContactVerificationRequest) -> RequestContactVerificationResponse:
+        """request-contact-verification"""
+        return RequestContactVerificationResponse.from_cbor(await self._transport.call("Account", "request-contact-verification", req.to_cbor()))
+
+    async def confirm_contact_verification(self, req: ConfirmContactVerificationRequest) -> ConfirmContactVerificationResponse:
+        """confirm-contact-verification"""
+        return ConfirmContactVerificationResponse.from_cbor(await self._transport.call("Account", "confirm-contact-verification", req.to_cbor()))
+
+    async def enroll_application_instance(self, req: EnrollApplicationInstanceRequest) -> EnrollApplicationInstanceResponse:
+        """enroll-application-instance"""
+        return EnrollApplicationInstanceResponse.from_cbor(await self._transport.call("Account", "enroll-application-instance", req.to_cbor()))
 
 class AttestationAsyncClient:
     """Typed client for the Attestation service."""
@@ -273,6 +491,14 @@ class RpAsyncClient:
     async def issue_attestation(self, req: RpIssueAttestationRequest) -> RpIssueAttestationResponse:
         """issue-attestation"""
         return RpIssueAttestationResponse.from_cbor(await self._transport.call("Rp", "issue-attestation", req.to_cbor()))
+
+    async def resolve_domain_keys(self, req: RpResolveDomainKeysRequest) -> RpResolveDomainKeysResponse:
+        """resolve-domain-keys"""
+        return RpResolveDomainKeysResponse.from_cbor(await self._transport.call("Rp", "resolve-domain-keys", req.to_cbor()))
+
+    async def resolve_application_keys(self, req: RpResolveApplicationKeysRequest) -> RpResolveApplicationKeysResponse:
+        """resolve-application-keys"""
+        return RpResolveApplicationKeysResponse.from_cbor(await self._transport.call("Rp", "resolve-application-keys", req.to_cbor()))
 
 class LocalRpAsyncClient:
     """Typed client for the LocalRp service."""

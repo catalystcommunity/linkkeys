@@ -6,6 +6,7 @@ package api
 import (
 	"fmt"
 	"math"
+	"unicode/utf8"
 )
 
 // cborValue is a minimal canonical-CBOR value tree: a closed set of variants the
@@ -167,7 +168,7 @@ func cborEnc(v cborValue, out *[]byte) {
 // is not exactly one value is an error rather than a silently-truncated read.
 func cborDecode(b []byte) (cborValue, error) {
 	pos := 0
-	v, err := cborDec(b, &pos)
+	v, err := cborDec(b, &pos, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -184,21 +185,21 @@ func cborReadArg(b []byte, pos *int, low byte) (uint64, error) {
 	}
 	switch low {
 	case 24:
-		if *pos+2 > len(b) {
+		if len(b)-*pos < 2 {
 			return 0, fmt.Errorf("csil cbor: truncated argument")
 		}
 		v := uint64(b[*pos+1])
 		*pos += 2
 		return v, nil
 	case 25:
-		if *pos+3 > len(b) {
+		if len(b)-*pos < 3 {
 			return 0, fmt.Errorf("csil cbor: truncated argument")
 		}
 		v := uint64(b[*pos+1])<<8 | uint64(b[*pos+2])
 		*pos += 3
 		return v, nil
 	case 26:
-		if *pos+5 > len(b) {
+		if len(b)-*pos < 5 {
 			return 0, fmt.Errorf("csil cbor: truncated argument")
 		}
 		var v uint64
@@ -208,7 +209,7 @@ func cborReadArg(b []byte, pos *int, low byte) (uint64, error) {
 		*pos += 5
 		return v, nil
 	case 27:
-		if *pos+9 > len(b) {
+		if len(b)-*pos < 9 {
 			return 0, fmt.Errorf("csil cbor: truncated argument")
 		}
 		var v uint64
@@ -222,7 +223,10 @@ func cborReadArg(b []byte, pos *int, low byte) (uint64, error) {
 	}
 }
 
-func cborDec(b []byte, pos *int) (cborValue, error) {
+func cborDec(b []byte, pos *int, depth int) (cborValue, error) {
+	if depth > 64 {
+		return nil, fmt.Errorf("csil cbor: nesting limit exceeded")
+	}
 	if *pos >= len(b) {
 		return nil, fmt.Errorf("csil cbor: unexpected end of input")
 	}
@@ -269,27 +273,33 @@ func cborDec(b []byte, pos *int) (cborValue, error) {
 		}
 		return cborInt(-1 - int64(arg)), nil
 	case 2:
-		n := int(arg)
-		if *pos+n > len(b) {
+		if arg > uint64(len(b)-*pos) {
 			return nil, fmt.Errorf("csil cbor: truncated byte string")
 		}
+		n := int(arg)
 		slice := make([]byte, n)
 		copy(slice, b[*pos:*pos+n])
 		*pos += n
 		return cborBytes(slice), nil
 	case 3:
-		n := int(arg)
-		if *pos+n > len(b) {
+		if arg > uint64(len(b)-*pos) {
 			return nil, fmt.Errorf("csil cbor: truncated text string")
+		}
+		n := int(arg)
+		if !utf8.Valid(b[*pos : *pos+n]) {
+			return nil, fmt.Errorf("csil cbor: invalid utf-8")
 		}
 		s := string(b[*pos : *pos+n])
 		*pos += n
 		return cborText(s), nil
 	case 4:
+		if arg > uint64(len(b)-*pos) {
+			return nil, fmt.Errorf("csil cbor: array length exceeds remaining input")
+		}
 		n := int(arg)
 		items := make(cborArray, 0, n)
 		for i := 0; i < n; i++ {
-			item, err := cborDec(b, pos)
+			item, err := cborDec(b, pos, depth+1)
 			if err != nil {
 				return nil, err
 			}
@@ -297,14 +307,17 @@ func cborDec(b []byte, pos *int) (cborValue, error) {
 		}
 		return items, nil
 	case 5:
+		if arg > uint64(len(b)-*pos) {
+			return nil, fmt.Errorf("csil cbor: map length exceeds remaining input")
+		}
 		n := int(arg)
 		entries := make(cborMap, 0, n)
 		for i := 0; i < n; i++ {
-			k, err := cborDec(b, pos)
+			k, err := cborDec(b, pos, depth+1)
 			if err != nil {
 				return nil, err
 			}
-			val, err := cborDec(b, pos)
+			val, err := cborDec(b, pos, depth+1)
 			if err != nil {
 				return nil, err
 			}
@@ -312,7 +325,7 @@ func cborDec(b []byte, pos *int) (cborValue, error) {
 		}
 		return entries, nil
 	case 6:
-		inner, err := cborDec(b, pos)
+		inner, err := cborDec(b, pos, depth+1)
 		if err != nil {
 			return nil, err
 		}
@@ -12886,6 +12899,2028 @@ func DecodeListLocalesResponse(csilData []byte) (ListLocalesResponse, error) {
 		return csilZero, csilErr
 	}
 	return csilDecListLocalesResponse(csilRoot)
+}
+
+// csilEncApplicationKeySignature builds the canonical CBOR value tree for a ApplicationKeySignature.
+func csilEncApplicationKeySignature(csilV ApplicationKeySignature) cborValue {
+	csilEntries := make(cborMap, 0, 2)
+	csilEntries = append(csilEntries, cborEntry{cborText("signature"), cborBytes(csilV.Signature)})
+	csilEntries = append(csilEntries, cborEntry{cborText("signed_by_key_id"), cborText(csilV.SignedByKeyId)})
+	return csilEntries
+}
+
+// csilDecApplicationKeySignature reconstructs a ApplicationKeySignature from a decoded CBOR value tree.
+func csilDecApplicationKeySignature(csilRoot cborValue) (ApplicationKeySignature, error) {
+	var csilOut ApplicationKeySignature
+	{
+		csilField, csilErr := cborRequire(csilRoot, "signed_by_key_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SignedByKeyId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "signature")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsBytes)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Signature = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeApplicationKeySignature encodes a ApplicationKeySignature to canonical CSIL CBOR bytes.
+func EncodeApplicationKeySignature(csilV ApplicationKeySignature) []byte {
+	return cborEncode(csilEncApplicationKeySignature(csilV))
+}
+
+// DecodeApplicationKeySignature decodes canonical CSIL CBOR bytes into a ApplicationKeySignature.
+func DecodeApplicationKeySignature(csilData []byte) (ApplicationKeySignature, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero ApplicationKeySignature
+		return csilZero, csilErr
+	}
+	return csilDecApplicationKeySignature(csilRoot)
+}
+
+// csilEncApplicationKeyAttestation builds the canonical CBOR value tree for a ApplicationKeyAttestation.
+func csilEncApplicationKeyAttestation(csilV ApplicationKeyAttestation) cborValue {
+	csilEntries := make(cborMap, 0, 13)
+	csilEntries = append(csilEntries, cborEntry{cborText("key_id"), cborText(csilV.KeyId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("algorithm"), cborText(csilV.Algorithm)})
+	csilEntries = append(csilEntries, cborEntry{cborText("key_usage"), cborText(csilV.KeyUsage)})
+	csilEntries = append(csilEntries, cborEntry{cborText("public_key"), cborBytes(csilV.PublicKey)})
+	csilEntries = append(csilEntries, cborEntry{cborText("attested_at"), cborText(csilV.AttestedAt)})
+	csilEntries = append(csilEntries, cborEntry{cborText("fingerprint"), cborText(csilV.Fingerprint)})
+	csilEntries = append(csilEntries, cborEntry{cborText("instance_id"), cborText(csilV.InstanceId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("application_id"), cborText(csilV.ApplicationId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("key_created_at"), cborText(csilV.KeyCreatedAt)})
+	csilEntries = append(csilEntries, cborEntry{cborText("key_expires_at"), cborText(csilV.KeyExpiresAt)})
+	csilEntries = append(csilEntries, cborEntry{cborText("subject_domain"), cborText(csilV.SubjectDomain)})
+	csilEntries = append(csilEntries, cborEntry{cborText("subject_user_id"), cborText(csilV.SubjectUserId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("attestation_expires_at"), cborText(csilV.AttestationExpiresAt)})
+	return csilEntries
+}
+
+// csilDecApplicationKeyAttestation reconstructs a ApplicationKeyAttestation from a decoded CBOR value tree.
+func csilDecApplicationKeyAttestation(csilRoot cborValue) (ApplicationKeyAttestation, error) {
+	var csilOut ApplicationKeyAttestation
+	{
+		csilField, csilErr := cborRequire(csilRoot, "subject_user_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SubjectUserId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "subject_domain")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SubjectDomain = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "application_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ApplicationId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "instance_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.InstanceId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "key_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.KeyId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "key_usage")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.KeyUsage = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "algorithm")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Algorithm = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "public_key")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsBytes)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.PublicKey = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "fingerprint")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Fingerprint = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "key_created_at")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.KeyCreatedAt = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "key_expires_at")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.KeyExpiresAt = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "attested_at")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.AttestedAt = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "attestation_expires_at")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.AttestationExpiresAt = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeApplicationKeyAttestation encodes a ApplicationKeyAttestation to canonical CSIL CBOR bytes.
+func EncodeApplicationKeyAttestation(csilV ApplicationKeyAttestation) []byte {
+	return cborEncode(csilEncApplicationKeyAttestation(csilV))
+}
+
+// DecodeApplicationKeyAttestation decodes canonical CSIL CBOR bytes into a ApplicationKeyAttestation.
+func DecodeApplicationKeyAttestation(csilData []byte) (ApplicationKeyAttestation, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero ApplicationKeyAttestation
+		return csilZero, csilErr
+	}
+	return csilDecApplicationKeyAttestation(csilRoot)
+}
+
+// csilEncSignedApplicationKeyAttestation builds the canonical CBOR value tree for a SignedApplicationKeyAttestation.
+func csilEncSignedApplicationKeyAttestation(csilV SignedApplicationKeyAttestation) cborValue {
+	csilEntries := make(cborMap, 0, 2)
+	csilEntries = append(csilEntries, cborEntry{cborText("signatures"), cborEncArray(csilV.Signatures, func(csilElem ClaimSignature) cborValue { return csilEncClaimSignature(csilElem) })})
+	csilEntries = append(csilEntries, cborEntry{cborText("attestation"), cborBytes(csilV.Attestation)})
+	return csilEntries
+}
+
+// csilDecSignedApplicationKeyAttestation reconstructs a SignedApplicationKeyAttestation from a decoded CBOR value tree.
+func csilDecSignedApplicationKeyAttestation(csilRoot cborValue) (SignedApplicationKeyAttestation, error) {
+	var csilOut SignedApplicationKeyAttestation
+	{
+		csilField, csilErr := cborRequire(csilRoot, "attestation")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsBytes)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Attestation = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "signatures")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]ClaimSignature, error) { return cborDecArray(csilV, csilDecClaimSignature) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Signatures = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeSignedApplicationKeyAttestation encodes a SignedApplicationKeyAttestation to canonical CSIL CBOR bytes.
+func EncodeSignedApplicationKeyAttestation(csilV SignedApplicationKeyAttestation) []byte {
+	return cborEncode(csilEncSignedApplicationKeyAttestation(csilV))
+}
+
+// DecodeSignedApplicationKeyAttestation decodes canonical CSIL CBOR bytes into a SignedApplicationKeyAttestation.
+func DecodeSignedApplicationKeyAttestation(csilData []byte) (SignedApplicationKeyAttestation, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero SignedApplicationKeyAttestation
+		return csilZero, csilErr
+	}
+	return csilDecSignedApplicationKeyAttestation(csilRoot)
+}
+
+// csilEncApplicationKeyAddition builds the canonical CBOR value tree for a ApplicationKeyAddition.
+func csilEncApplicationKeyAddition(csilV ApplicationKeyAddition) cborValue {
+	csilEntries := make(cborMap, 0, 14)
+	csilEntries = append(csilEntries, cborEntry{cborText("key_id"), cborText(csilV.KeyId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("algorithm"), cborText(csilV.Algorithm)})
+	csilEntries = append(csilEntries, cborEntry{cborText("challenge"), cborBytes(csilV.Challenge)})
+	csilEntries = append(csilEntries, cborEntry{cborText("key_usage"), cborText(csilV.KeyUsage)})
+	csilEntries = append(csilEntries, cborEntry{cborText("expires_at"), cborText(csilV.ExpiresAt)})
+	csilEntries = append(csilEntries, cborEntry{cborText("public_key"), cborBytes(csilV.PublicKey)})
+	csilEntries = append(csilEntries, cborEntry{cborText("fingerprint"), cborText(csilV.Fingerprint)})
+	csilEntries = append(csilEntries, cborEntry{cborText("instance_id"), cborText(csilV.InstanceId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("challenge_id"), cborText(csilV.ChallengeId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("requested_at"), cborText(csilV.RequestedAt)})
+	csilEntries = append(csilEntries, cborEntry{cborText("application_id"), cborText(csilV.ApplicationId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("subject_domain"), cborText(csilV.SubjectDomain)})
+	csilEntries = append(csilEntries, cborEntry{cborText("subject_user_id"), cborText(csilV.SubjectUserId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("requested_key_lifetime_seconds"), cborInt(csilV.RequestedKeyLifetimeSeconds)})
+	return csilEntries
+}
+
+// csilDecApplicationKeyAddition reconstructs a ApplicationKeyAddition from a decoded CBOR value tree.
+func csilDecApplicationKeyAddition(csilRoot cborValue) (ApplicationKeyAddition, error) {
+	var csilOut ApplicationKeyAddition
+	{
+		csilField, csilErr := cborRequire(csilRoot, "subject_user_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SubjectUserId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "subject_domain")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SubjectDomain = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "application_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ApplicationId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "instance_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.InstanceId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "key_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.KeyId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "key_usage")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.KeyUsage = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "algorithm")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Algorithm = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "public_key")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsBytes)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.PublicKey = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "fingerprint")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Fingerprint = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "requested_key_lifetime_seconds")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsI64)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.RequestedKeyLifetimeSeconds = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "challenge_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ChallengeId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "challenge")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsBytes)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Challenge = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "requested_at")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.RequestedAt = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "expires_at")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ExpiresAt = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeApplicationKeyAddition encodes a ApplicationKeyAddition to canonical CSIL CBOR bytes.
+func EncodeApplicationKeyAddition(csilV ApplicationKeyAddition) []byte {
+	return cborEncode(csilEncApplicationKeyAddition(csilV))
+}
+
+// DecodeApplicationKeyAddition decodes canonical CSIL CBOR bytes into a ApplicationKeyAddition.
+func DecodeApplicationKeyAddition(csilData []byte) (ApplicationKeyAddition, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero ApplicationKeyAddition
+		return csilZero, csilErr
+	}
+	return csilDecApplicationKeyAddition(csilRoot)
+}
+
+// csilEncSignedApplicationKeyAddition builds the canonical CBOR value tree for a SignedApplicationKeyAddition.
+func csilEncSignedApplicationKeyAddition(csilV SignedApplicationKeyAddition) cborValue {
+	csilEntries := make(cborMap, 0, 3)
+	csilEntries = append(csilEntries, cborEntry{cborText("addition"), cborBytes(csilV.Addition)})
+	csilEntries = append(csilEntries, cborEntry{cborText("signatures"), cborEncArray(csilV.Signatures, func(csilElem ApplicationKeySignature) cborValue { return csilEncApplicationKeySignature(csilElem) })})
+	if csilV.PossessionProof != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("possession_proof"), cborBytes((*csilV.PossessionProof))})
+	}
+	return csilEntries
+}
+
+// csilDecSignedApplicationKeyAddition reconstructs a SignedApplicationKeyAddition from a decoded CBOR value tree.
+func csilDecSignedApplicationKeyAddition(csilRoot cborValue) (SignedApplicationKeyAddition, error) {
+	var csilOut SignedApplicationKeyAddition
+	{
+		csilField, csilErr := cborRequire(csilRoot, "addition")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsBytes)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Addition = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "signatures")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]ApplicationKeySignature, error) {
+			return cborDecArray(csilV, csilDecApplicationKeySignature)
+		})(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Signatures = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "possession_proof"); csilOk {
+		csilVal, csilErr := (cborAsBytes)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.PossessionProof = &csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeSignedApplicationKeyAddition encodes a SignedApplicationKeyAddition to canonical CSIL CBOR bytes.
+func EncodeSignedApplicationKeyAddition(csilV SignedApplicationKeyAddition) []byte {
+	return cborEncode(csilEncSignedApplicationKeyAddition(csilV))
+}
+
+// DecodeSignedApplicationKeyAddition decodes canonical CSIL CBOR bytes into a SignedApplicationKeyAddition.
+func DecodeSignedApplicationKeyAddition(csilData []byte) (SignedApplicationKeyAddition, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero SignedApplicationKeyAddition
+		return csilZero, csilErr
+	}
+	return csilDecSignedApplicationKeyAddition(csilRoot)
+}
+
+// csilEncApplicationKeyRenewal builds the canonical CBOR value tree for a ApplicationKeyRenewal.
+func csilEncApplicationKeyRenewal(csilV ApplicationKeyRenewal) cborValue {
+	csilEntries := make(cborMap, 0, 9)
+	csilEntries = append(csilEntries, cborEntry{cborText("key_id"), cborText(csilV.KeyId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("challenge"), cborBytes(csilV.Challenge)})
+	csilEntries = append(csilEntries, cborEntry{cborText("expires_at"), cborText(csilV.ExpiresAt)})
+	csilEntries = append(csilEntries, cborEntry{cborText("instance_id"), cborText(csilV.InstanceId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("challenge_id"), cborText(csilV.ChallengeId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("requested_at"), cborText(csilV.RequestedAt)})
+	csilEntries = append(csilEntries, cborEntry{cborText("application_id"), cborText(csilV.ApplicationId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("subject_domain"), cborText(csilV.SubjectDomain)})
+	csilEntries = append(csilEntries, cborEntry{cborText("subject_user_id"), cborText(csilV.SubjectUserId)})
+	return csilEntries
+}
+
+// csilDecApplicationKeyRenewal reconstructs a ApplicationKeyRenewal from a decoded CBOR value tree.
+func csilDecApplicationKeyRenewal(csilRoot cborValue) (ApplicationKeyRenewal, error) {
+	var csilOut ApplicationKeyRenewal
+	{
+		csilField, csilErr := cborRequire(csilRoot, "subject_user_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SubjectUserId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "subject_domain")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SubjectDomain = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "application_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ApplicationId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "instance_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.InstanceId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "key_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.KeyId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "challenge_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ChallengeId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "challenge")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsBytes)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Challenge = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "requested_at")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.RequestedAt = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "expires_at")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ExpiresAt = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeApplicationKeyRenewal encodes a ApplicationKeyRenewal to canonical CSIL CBOR bytes.
+func EncodeApplicationKeyRenewal(csilV ApplicationKeyRenewal) []byte {
+	return cborEncode(csilEncApplicationKeyRenewal(csilV))
+}
+
+// DecodeApplicationKeyRenewal decodes canonical CSIL CBOR bytes into a ApplicationKeyRenewal.
+func DecodeApplicationKeyRenewal(csilData []byte) (ApplicationKeyRenewal, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero ApplicationKeyRenewal
+		return csilZero, csilErr
+	}
+	return csilDecApplicationKeyRenewal(csilRoot)
+}
+
+// csilEncSignedApplicationKeyRenewal builds the canonical CBOR value tree for a SignedApplicationKeyRenewal.
+func csilEncSignedApplicationKeyRenewal(csilV SignedApplicationKeyRenewal) cborValue {
+	csilEntries := make(cborMap, 0, 3)
+	csilEntries = append(csilEntries, cborEntry{cborText("renewal"), cborBytes(csilV.Renewal)})
+	csilEntries = append(csilEntries, cborEntry{cborText("signatures"), cborEncArray(csilV.Signatures, func(csilElem ApplicationKeySignature) cborValue { return csilEncApplicationKeySignature(csilElem) })})
+	if csilV.PossessionProof != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("possession_proof"), cborBytes((*csilV.PossessionProof))})
+	}
+	return csilEntries
+}
+
+// csilDecSignedApplicationKeyRenewal reconstructs a SignedApplicationKeyRenewal from a decoded CBOR value tree.
+func csilDecSignedApplicationKeyRenewal(csilRoot cborValue) (SignedApplicationKeyRenewal, error) {
+	var csilOut SignedApplicationKeyRenewal
+	{
+		csilField, csilErr := cborRequire(csilRoot, "renewal")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsBytes)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Renewal = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "signatures")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]ApplicationKeySignature, error) {
+			return cborDecArray(csilV, csilDecApplicationKeySignature)
+		})(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Signatures = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "possession_proof"); csilOk {
+		csilVal, csilErr := (cborAsBytes)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.PossessionProof = &csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeSignedApplicationKeyRenewal encodes a SignedApplicationKeyRenewal to canonical CSIL CBOR bytes.
+func EncodeSignedApplicationKeyRenewal(csilV SignedApplicationKeyRenewal) []byte {
+	return cborEncode(csilEncSignedApplicationKeyRenewal(csilV))
+}
+
+// DecodeSignedApplicationKeyRenewal decodes canonical CSIL CBOR bytes into a SignedApplicationKeyRenewal.
+func DecodeSignedApplicationKeyRenewal(csilData []byte) (SignedApplicationKeyRenewal, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero SignedApplicationKeyRenewal
+		return csilZero, csilErr
+	}
+	return csilDecSignedApplicationKeyRenewal(csilRoot)
+}
+
+// csilEncApplicationKeyRevocation builds the canonical CBOR value tree for a ApplicationKeyRevocation.
+func csilEncApplicationKeyRevocation(csilV ApplicationKeyRevocation) cborValue {
+	csilEntries := make(cborMap, 0, 8)
+	csilEntries = append(csilEntries, cborEntry{cborText("revoked_at"), cborText(csilV.RevokedAt)})
+	csilEntries = append(csilEntries, cborEntry{cborText("signatures"), cborEncArray(csilV.Signatures, func(csilElem ApplicationKeySignature) cborValue { return csilEncApplicationKeySignature(csilElem) })})
+	csilEntries = append(csilEntries, cborEntry{cborText("instance_id"), cborText(csilV.InstanceId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("target_key_id"), cborText(csilV.TargetKeyId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("application_id"), cborText(csilV.ApplicationId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("subject_domain"), cborText(csilV.SubjectDomain)})
+	csilEntries = append(csilEntries, cborEntry{cborText("subject_user_id"), cborText(csilV.SubjectUserId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("target_fingerprint"), cborText(csilV.TargetFingerprint)})
+	return csilEntries
+}
+
+// csilDecApplicationKeyRevocation reconstructs a ApplicationKeyRevocation from a decoded CBOR value tree.
+func csilDecApplicationKeyRevocation(csilRoot cborValue) (ApplicationKeyRevocation, error) {
+	var csilOut ApplicationKeyRevocation
+	{
+		csilField, csilErr := cborRequire(csilRoot, "subject_user_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SubjectUserId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "subject_domain")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SubjectDomain = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "application_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ApplicationId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "instance_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.InstanceId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "target_key_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.TargetKeyId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "target_fingerprint")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.TargetFingerprint = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "revoked_at")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.RevokedAt = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "signatures")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]ApplicationKeySignature, error) {
+			return cborDecArray(csilV, csilDecApplicationKeySignature)
+		})(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Signatures = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeApplicationKeyRevocation encodes a ApplicationKeyRevocation to canonical CSIL CBOR bytes.
+func EncodeApplicationKeyRevocation(csilV ApplicationKeyRevocation) []byte {
+	return cborEncode(csilEncApplicationKeyRevocation(csilV))
+}
+
+// DecodeApplicationKeyRevocation decodes canonical CSIL CBOR bytes into a ApplicationKeyRevocation.
+func DecodeApplicationKeyRevocation(csilData []byte) (ApplicationKeyRevocation, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero ApplicationKeyRevocation
+		return csilZero, csilErr
+	}
+	return csilDecApplicationKeyRevocation(csilRoot)
+}
+
+// csilEncStartApplicationKeyChallengeRequest builds the canonical CBOR value tree for a StartApplicationKeyChallengeRequest.
+func csilEncStartApplicationKeyChallengeRequest(csilV StartApplicationKeyChallengeRequest) cborValue {
+	csilEntries := make(cborMap, 0, 7)
+	csilEntries = append(csilEntries, cborEntry{cborText("purpose"), cborText(csilV.Purpose)})
+	csilEntries = append(csilEntries, cborEntry{cborText("algorithm"), cborText(csilV.Algorithm)})
+	csilEntries = append(csilEntries, cborEntry{cborText("key_usage"), cborText(csilV.KeyUsage)})
+	csilEntries = append(csilEntries, cborEntry{cborText("public_key"), cborBytes(csilV.PublicKey)})
+	csilEntries = append(csilEntries, cborEntry{cborText("instance_id"), cborText(csilV.InstanceId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("application_id"), cborText(csilV.ApplicationId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("subject_user_id"), cborText(csilV.SubjectUserId)})
+	return csilEntries
+}
+
+// csilDecStartApplicationKeyChallengeRequest reconstructs a StartApplicationKeyChallengeRequest from a decoded CBOR value tree.
+func csilDecStartApplicationKeyChallengeRequest(csilRoot cborValue) (StartApplicationKeyChallengeRequest, error) {
+	var csilOut StartApplicationKeyChallengeRequest
+	{
+		csilField, csilErr := cborRequire(csilRoot, "subject_user_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SubjectUserId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "application_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ApplicationId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "instance_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.InstanceId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "purpose")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Purpose = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "key_usage")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.KeyUsage = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "algorithm")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Algorithm = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "public_key")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsBytes)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.PublicKey = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeStartApplicationKeyChallengeRequest encodes a StartApplicationKeyChallengeRequest to canonical CSIL CBOR bytes.
+func EncodeStartApplicationKeyChallengeRequest(csilV StartApplicationKeyChallengeRequest) []byte {
+	return cborEncode(csilEncStartApplicationKeyChallengeRequest(csilV))
+}
+
+// DecodeStartApplicationKeyChallengeRequest decodes canonical CSIL CBOR bytes into a StartApplicationKeyChallengeRequest.
+func DecodeStartApplicationKeyChallengeRequest(csilData []byte) (StartApplicationKeyChallengeRequest, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero StartApplicationKeyChallengeRequest
+		return csilZero, csilErr
+	}
+	return csilDecStartApplicationKeyChallengeRequest(csilRoot)
+}
+
+// csilEncStartApplicationKeyChallengeResponse builds the canonical CBOR value tree for a StartApplicationKeyChallengeResponse.
+func csilEncStartApplicationKeyChallengeResponse(csilV StartApplicationKeyChallengeResponse) cborValue {
+	csilEntries := make(cborMap, 0, 4)
+	if csilV.Challenge != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("challenge"), cborBytes((*csilV.Challenge))})
+	}
+	csilEntries = append(csilEntries, cborEntry{cborText("expires_at"), cborText(csilV.ExpiresAt)})
+	csilEntries = append(csilEntries, cborEntry{cborText("challenge_id"), cborText(csilV.ChallengeId)})
+	if csilV.SealedChallenge != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("sealed_challenge"), cborBytes((*csilV.SealedChallenge))})
+	}
+	return csilEntries
+}
+
+// csilDecStartApplicationKeyChallengeResponse reconstructs a StartApplicationKeyChallengeResponse from a decoded CBOR value tree.
+func csilDecStartApplicationKeyChallengeResponse(csilRoot cborValue) (StartApplicationKeyChallengeResponse, error) {
+	var csilOut StartApplicationKeyChallengeResponse
+	{
+		csilField, csilErr := cborRequire(csilRoot, "challenge_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ChallengeId = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "challenge"); csilOk {
+		csilVal, csilErr := (cborAsBytes)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Challenge = &csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "sealed_challenge"); csilOk {
+		csilVal, csilErr := (cborAsBytes)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SealedChallenge = &csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "expires_at")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ExpiresAt = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeStartApplicationKeyChallengeResponse encodes a StartApplicationKeyChallengeResponse to canonical CSIL CBOR bytes.
+func EncodeStartApplicationKeyChallengeResponse(csilV StartApplicationKeyChallengeResponse) []byte {
+	return cborEncode(csilEncStartApplicationKeyChallengeResponse(csilV))
+}
+
+// DecodeStartApplicationKeyChallengeResponse decodes canonical CSIL CBOR bytes into a StartApplicationKeyChallengeResponse.
+func DecodeStartApplicationKeyChallengeResponse(csilData []byte) (StartApplicationKeyChallengeResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero StartApplicationKeyChallengeResponse
+		return csilZero, csilErr
+	}
+	return csilDecStartApplicationKeyChallengeResponse(csilRoot)
+}
+
+// csilEncAddApplicationKeyRequest builds the canonical CBOR value tree for a AddApplicationKeyRequest.
+func csilEncAddApplicationKeyRequest(csilV AddApplicationKeyRequest) cborValue {
+	csilEntries := make(cborMap, 0, 1)
+	csilEntries = append(csilEntries, cborEntry{cborText("request"), csilEncSignedApplicationKeyAddition(csilV.Request)})
+	return csilEntries
+}
+
+// csilDecAddApplicationKeyRequest reconstructs a AddApplicationKeyRequest from a decoded CBOR value tree.
+func csilDecAddApplicationKeyRequest(csilRoot cborValue) (AddApplicationKeyRequest, error) {
+	var csilOut AddApplicationKeyRequest
+	{
+		csilField, csilErr := cborRequire(csilRoot, "request")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (csilDecSignedApplicationKeyAddition)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Request = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeAddApplicationKeyRequest encodes a AddApplicationKeyRequest to canonical CSIL CBOR bytes.
+func EncodeAddApplicationKeyRequest(csilV AddApplicationKeyRequest) []byte {
+	return cborEncode(csilEncAddApplicationKeyRequest(csilV))
+}
+
+// DecodeAddApplicationKeyRequest decodes canonical CSIL CBOR bytes into a AddApplicationKeyRequest.
+func DecodeAddApplicationKeyRequest(csilData []byte) (AddApplicationKeyRequest, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero AddApplicationKeyRequest
+		return csilZero, csilErr
+	}
+	return csilDecAddApplicationKeyRequest(csilRoot)
+}
+
+// csilEncAddApplicationKeyResponse builds the canonical CBOR value tree for a AddApplicationKeyResponse.
+func csilEncAddApplicationKeyResponse(csilV AddApplicationKeyResponse) cborValue {
+	csilEntries := make(cborMap, 0, 1)
+	csilEntries = append(csilEntries, cborEntry{cborText("attestation"), csilEncSignedApplicationKeyAttestation(csilV.Attestation)})
+	return csilEntries
+}
+
+// csilDecAddApplicationKeyResponse reconstructs a AddApplicationKeyResponse from a decoded CBOR value tree.
+func csilDecAddApplicationKeyResponse(csilRoot cborValue) (AddApplicationKeyResponse, error) {
+	var csilOut AddApplicationKeyResponse
+	{
+		csilField, csilErr := cborRequire(csilRoot, "attestation")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (csilDecSignedApplicationKeyAttestation)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Attestation = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeAddApplicationKeyResponse encodes a AddApplicationKeyResponse to canonical CSIL CBOR bytes.
+func EncodeAddApplicationKeyResponse(csilV AddApplicationKeyResponse) []byte {
+	return cborEncode(csilEncAddApplicationKeyResponse(csilV))
+}
+
+// DecodeAddApplicationKeyResponse decodes canonical CSIL CBOR bytes into a AddApplicationKeyResponse.
+func DecodeAddApplicationKeyResponse(csilData []byte) (AddApplicationKeyResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero AddApplicationKeyResponse
+		return csilZero, csilErr
+	}
+	return csilDecAddApplicationKeyResponse(csilRoot)
+}
+
+// csilEncRenewApplicationKeyAttestationRequest builds the canonical CBOR value tree for a RenewApplicationKeyAttestationRequest.
+func csilEncRenewApplicationKeyAttestationRequest(csilV RenewApplicationKeyAttestationRequest) cborValue {
+	csilEntries := make(cborMap, 0, 1)
+	csilEntries = append(csilEntries, cborEntry{cborText("request"), csilEncSignedApplicationKeyRenewal(csilV.Request)})
+	return csilEntries
+}
+
+// csilDecRenewApplicationKeyAttestationRequest reconstructs a RenewApplicationKeyAttestationRequest from a decoded CBOR value tree.
+func csilDecRenewApplicationKeyAttestationRequest(csilRoot cborValue) (RenewApplicationKeyAttestationRequest, error) {
+	var csilOut RenewApplicationKeyAttestationRequest
+	{
+		csilField, csilErr := cborRequire(csilRoot, "request")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (csilDecSignedApplicationKeyRenewal)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Request = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeRenewApplicationKeyAttestationRequest encodes a RenewApplicationKeyAttestationRequest to canonical CSIL CBOR bytes.
+func EncodeRenewApplicationKeyAttestationRequest(csilV RenewApplicationKeyAttestationRequest) []byte {
+	return cborEncode(csilEncRenewApplicationKeyAttestationRequest(csilV))
+}
+
+// DecodeRenewApplicationKeyAttestationRequest decodes canonical CSIL CBOR bytes into a RenewApplicationKeyAttestationRequest.
+func DecodeRenewApplicationKeyAttestationRequest(csilData []byte) (RenewApplicationKeyAttestationRequest, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero RenewApplicationKeyAttestationRequest
+		return csilZero, csilErr
+	}
+	return csilDecRenewApplicationKeyAttestationRequest(csilRoot)
+}
+
+// csilEncRenewApplicationKeyAttestationResponse builds the canonical CBOR value tree for a RenewApplicationKeyAttestationResponse.
+func csilEncRenewApplicationKeyAttestationResponse(csilV RenewApplicationKeyAttestationResponse) cborValue {
+	csilEntries := make(cborMap, 0, 2)
+	csilEntries = append(csilEntries, cborEntry{cborText("signed"), cborBool(csilV.Signed)})
+	csilEntries = append(csilEntries, cborEntry{cborText("attestation"), csilEncSignedApplicationKeyAttestation(csilV.Attestation)})
+	return csilEntries
+}
+
+// csilDecRenewApplicationKeyAttestationResponse reconstructs a RenewApplicationKeyAttestationResponse from a decoded CBOR value tree.
+func csilDecRenewApplicationKeyAttestationResponse(csilRoot cborValue) (RenewApplicationKeyAttestationResponse, error) {
+	var csilOut RenewApplicationKeyAttestationResponse
+	{
+		csilField, csilErr := cborRequire(csilRoot, "attestation")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (csilDecSignedApplicationKeyAttestation)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Attestation = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "signed")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsBool)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Signed = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeRenewApplicationKeyAttestationResponse encodes a RenewApplicationKeyAttestationResponse to canonical CSIL CBOR bytes.
+func EncodeRenewApplicationKeyAttestationResponse(csilV RenewApplicationKeyAttestationResponse) []byte {
+	return cborEncode(csilEncRenewApplicationKeyAttestationResponse(csilV))
+}
+
+// DecodeRenewApplicationKeyAttestationResponse decodes canonical CSIL CBOR bytes into a RenewApplicationKeyAttestationResponse.
+func DecodeRenewApplicationKeyAttestationResponse(csilData []byte) (RenewApplicationKeyAttestationResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero RenewApplicationKeyAttestationResponse
+		return csilZero, csilErr
+	}
+	return csilDecRenewApplicationKeyAttestationResponse(csilRoot)
+}
+
+// csilEncRevokeApplicationKeyRequest builds the canonical CBOR value tree for a RevokeApplicationKeyRequest.
+func csilEncRevokeApplicationKeyRequest(csilV RevokeApplicationKeyRequest) cborValue {
+	csilEntries := make(cborMap, 0, 1)
+	csilEntries = append(csilEntries, cborEntry{cborText("revocation"), csilEncApplicationKeyRevocation(csilV.Revocation)})
+	return csilEntries
+}
+
+// csilDecRevokeApplicationKeyRequest reconstructs a RevokeApplicationKeyRequest from a decoded CBOR value tree.
+func csilDecRevokeApplicationKeyRequest(csilRoot cborValue) (RevokeApplicationKeyRequest, error) {
+	var csilOut RevokeApplicationKeyRequest
+	{
+		csilField, csilErr := cborRequire(csilRoot, "revocation")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (csilDecApplicationKeyRevocation)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Revocation = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeRevokeApplicationKeyRequest encodes a RevokeApplicationKeyRequest to canonical CSIL CBOR bytes.
+func EncodeRevokeApplicationKeyRequest(csilV RevokeApplicationKeyRequest) []byte {
+	return cborEncode(csilEncRevokeApplicationKeyRequest(csilV))
+}
+
+// DecodeRevokeApplicationKeyRequest decodes canonical CSIL CBOR bytes into a RevokeApplicationKeyRequest.
+func DecodeRevokeApplicationKeyRequest(csilData []byte) (RevokeApplicationKeyRequest, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero RevokeApplicationKeyRequest
+		return csilZero, csilErr
+	}
+	return csilDecRevokeApplicationKeyRequest(csilRoot)
+}
+
+// csilEncRevokeApplicationKeyResponse builds the canonical CBOR value tree for a RevokeApplicationKeyResponse.
+func csilEncRevokeApplicationKeyResponse(csilV RevokeApplicationKeyResponse) cborValue {
+	csilEntries := make(cborMap, 0, 1)
+	csilEntries = append(csilEntries, cborEntry{cborText("revoked_at"), cborText(csilV.RevokedAt)})
+	return csilEntries
+}
+
+// csilDecRevokeApplicationKeyResponse reconstructs a RevokeApplicationKeyResponse from a decoded CBOR value tree.
+func csilDecRevokeApplicationKeyResponse(csilRoot cborValue) (RevokeApplicationKeyResponse, error) {
+	var csilOut RevokeApplicationKeyResponse
+	{
+		csilField, csilErr := cborRequire(csilRoot, "revoked_at")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.RevokedAt = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeRevokeApplicationKeyResponse encodes a RevokeApplicationKeyResponse to canonical CSIL CBOR bytes.
+func EncodeRevokeApplicationKeyResponse(csilV RevokeApplicationKeyResponse) []byte {
+	return cborEncode(csilEncRevokeApplicationKeyResponse(csilV))
+}
+
+// DecodeRevokeApplicationKeyResponse decodes canonical CSIL CBOR bytes into a RevokeApplicationKeyResponse.
+func DecodeRevokeApplicationKeyResponse(csilData []byte) (RevokeApplicationKeyResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero RevokeApplicationKeyResponse
+		return csilZero, csilErr
+	}
+	return csilDecRevokeApplicationKeyResponse(csilRoot)
+}
+
+// csilEncEnrollApplicationInstanceRequest builds the canonical CBOR value tree for a EnrollApplicationInstanceRequest.
+func csilEncEnrollApplicationInstanceRequest(csilV EnrollApplicationInstanceRequest) cborValue {
+	csilEntries := make(cborMap, 0, 3)
+	csilEntries = append(csilEntries, cborEntry{cborText("keys"), cborEncArray(csilV.Keys, func(csilElem SignedApplicationKeyAddition) cborValue {
+		return csilEncSignedApplicationKeyAddition(csilElem)
+	})})
+	csilEntries = append(csilEntries, cborEntry{cborText("instance_id"), cborText(csilV.InstanceId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("application_id"), cborText(csilV.ApplicationId)})
+	return csilEntries
+}
+
+// csilDecEnrollApplicationInstanceRequest reconstructs a EnrollApplicationInstanceRequest from a decoded CBOR value tree.
+func csilDecEnrollApplicationInstanceRequest(csilRoot cborValue) (EnrollApplicationInstanceRequest, error) {
+	var csilOut EnrollApplicationInstanceRequest
+	{
+		csilField, csilErr := cborRequire(csilRoot, "application_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ApplicationId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "instance_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.InstanceId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "keys")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]SignedApplicationKeyAddition, error) {
+			return cborDecArray(csilV, csilDecSignedApplicationKeyAddition)
+		})(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Keys = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeEnrollApplicationInstanceRequest encodes a EnrollApplicationInstanceRequest to canonical CSIL CBOR bytes.
+func EncodeEnrollApplicationInstanceRequest(csilV EnrollApplicationInstanceRequest) []byte {
+	return cborEncode(csilEncEnrollApplicationInstanceRequest(csilV))
+}
+
+// DecodeEnrollApplicationInstanceRequest decodes canonical CSIL CBOR bytes into a EnrollApplicationInstanceRequest.
+func DecodeEnrollApplicationInstanceRequest(csilData []byte) (EnrollApplicationInstanceRequest, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero EnrollApplicationInstanceRequest
+		return csilZero, csilErr
+	}
+	return csilDecEnrollApplicationInstanceRequest(csilRoot)
+}
+
+// csilEncEnrollApplicationInstanceResponse builds the canonical CBOR value tree for a EnrollApplicationInstanceResponse.
+func csilEncEnrollApplicationInstanceResponse(csilV EnrollApplicationInstanceResponse) cborValue {
+	csilEntries := make(cborMap, 0, 5)
+	csilEntries = append(csilEntries, cborEntry{cborText("instance_id"), cborText(csilV.InstanceId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("attestations"), cborEncArray(csilV.Attestations, func(csilElem SignedApplicationKeyAttestation) cborValue {
+		return csilEncSignedApplicationKeyAttestation(csilElem)
+	})})
+	csilEntries = append(csilEntries, cborEntry{cborText("application_id"), cborText(csilV.ApplicationId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("subject_domain"), cborText(csilV.SubjectDomain)})
+	csilEntries = append(csilEntries, cborEntry{cborText("subject_user_id"), cborText(csilV.SubjectUserId)})
+	return csilEntries
+}
+
+// csilDecEnrollApplicationInstanceResponse reconstructs a EnrollApplicationInstanceResponse from a decoded CBOR value tree.
+func csilDecEnrollApplicationInstanceResponse(csilRoot cborValue) (EnrollApplicationInstanceResponse, error) {
+	var csilOut EnrollApplicationInstanceResponse
+	{
+		csilField, csilErr := cborRequire(csilRoot, "subject_user_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SubjectUserId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "subject_domain")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SubjectDomain = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "application_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ApplicationId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "instance_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.InstanceId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "attestations")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]SignedApplicationKeyAttestation, error) {
+			return cborDecArray(csilV, csilDecSignedApplicationKeyAttestation)
+		})(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Attestations = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeEnrollApplicationInstanceResponse encodes a EnrollApplicationInstanceResponse to canonical CSIL CBOR bytes.
+func EncodeEnrollApplicationInstanceResponse(csilV EnrollApplicationInstanceResponse) []byte {
+	return cborEncode(csilEncEnrollApplicationInstanceResponse(csilV))
+}
+
+// DecodeEnrollApplicationInstanceResponse decodes canonical CSIL CBOR bytes into a EnrollApplicationInstanceResponse.
+func DecodeEnrollApplicationInstanceResponse(csilData []byte) (EnrollApplicationInstanceResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero EnrollApplicationInstanceResponse
+		return csilZero, csilErr
+	}
+	return csilDecEnrollApplicationInstanceResponse(csilRoot)
+}
+
+// csilEncGetApplicationKeysRequest builds the canonical CBOR value tree for a GetApplicationKeysRequest.
+func csilEncGetApplicationKeysRequest(csilV GetApplicationKeysRequest) cborValue {
+	csilEntries := make(cborMap, 0, 3)
+	csilEntries = append(csilEntries, cborEntry{cborText("instance_id"), cborText(csilV.InstanceId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("application_id"), cborText(csilV.ApplicationId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("subject_user_id"), cborText(csilV.SubjectUserId)})
+	return csilEntries
+}
+
+// csilDecGetApplicationKeysRequest reconstructs a GetApplicationKeysRequest from a decoded CBOR value tree.
+func csilDecGetApplicationKeysRequest(csilRoot cborValue) (GetApplicationKeysRequest, error) {
+	var csilOut GetApplicationKeysRequest
+	{
+		csilField, csilErr := cborRequire(csilRoot, "subject_user_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SubjectUserId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "application_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ApplicationId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "instance_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.InstanceId = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeGetApplicationKeysRequest encodes a GetApplicationKeysRequest to canonical CSIL CBOR bytes.
+func EncodeGetApplicationKeysRequest(csilV GetApplicationKeysRequest) []byte {
+	return cborEncode(csilEncGetApplicationKeysRequest(csilV))
+}
+
+// DecodeGetApplicationKeysRequest decodes canonical CSIL CBOR bytes into a GetApplicationKeysRequest.
+func DecodeGetApplicationKeysRequest(csilData []byte) (GetApplicationKeysRequest, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero GetApplicationKeysRequest
+		return csilZero, csilErr
+	}
+	return csilDecGetApplicationKeysRequest(csilRoot)
+}
+
+// csilEncGetApplicationKeysResponse builds the canonical CBOR value tree for a GetApplicationKeysResponse.
+func csilEncGetApplicationKeysResponse(csilV GetApplicationKeysResponse) cborValue {
+	csilEntries := make(cborMap, 0, 6)
+	csilEntries = append(csilEntries, cborEntry{cborText("keys"), cborEncArray(csilV.Keys, func(csilElem SignedApplicationKeyAttestation) cborValue {
+		return csilEncSignedApplicationKeyAttestation(csilElem)
+	})})
+	csilEntries = append(csilEntries, cborEntry{cborText("instance_id"), cborText(csilV.InstanceId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("revocations"), cborEncArray(csilV.Revocations, func(csilElem ApplicationKeyRevocation) cborValue { return csilEncApplicationKeyRevocation(csilElem) })})
+	csilEntries = append(csilEntries, cborEntry{cborText("application_id"), cborText(csilV.ApplicationId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("subject_domain"), cborText(csilV.SubjectDomain)})
+	csilEntries = append(csilEntries, cborEntry{cborText("subject_user_id"), cborText(csilV.SubjectUserId)})
+	return csilEntries
+}
+
+// csilDecGetApplicationKeysResponse reconstructs a GetApplicationKeysResponse from a decoded CBOR value tree.
+func csilDecGetApplicationKeysResponse(csilRoot cborValue) (GetApplicationKeysResponse, error) {
+	var csilOut GetApplicationKeysResponse
+	{
+		csilField, csilErr := cborRequire(csilRoot, "subject_user_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SubjectUserId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "subject_domain")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SubjectDomain = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "application_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ApplicationId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "instance_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.InstanceId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "keys")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]SignedApplicationKeyAttestation, error) {
+			return cborDecArray(csilV, csilDecSignedApplicationKeyAttestation)
+		})(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Keys = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "revocations")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]ApplicationKeyRevocation, error) {
+			return cborDecArray(csilV, csilDecApplicationKeyRevocation)
+		})(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Revocations = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeGetApplicationKeysResponse encodes a GetApplicationKeysResponse to canonical CSIL CBOR bytes.
+func EncodeGetApplicationKeysResponse(csilV GetApplicationKeysResponse) []byte {
+	return cborEncode(csilEncGetApplicationKeysResponse(csilV))
+}
+
+// DecodeGetApplicationKeysResponse decodes canonical CSIL CBOR bytes into a GetApplicationKeysResponse.
+func DecodeGetApplicationKeysResponse(csilData []byte) (GetApplicationKeysResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero GetApplicationKeysResponse
+		return csilZero, csilErr
+	}
+	return csilDecGetApplicationKeysResponse(csilRoot)
+}
+
+// csilEncRpResolveDomainKeysRequest builds the canonical CBOR value tree for a RpResolveDomainKeysRequest.
+func csilEncRpResolveDomainKeysRequest(csilV RpResolveDomainKeysRequest) cborValue {
+	csilEntries := make(cborMap, 0, 2)
+	csilEntries = append(csilEntries, cborEntry{cborText("domain"), cborText(csilV.Domain)})
+	if csilV.MaxCacheAgeSeconds != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("max_cache_age_seconds"), cborInt((*csilV.MaxCacheAgeSeconds))})
+	}
+	return csilEntries
+}
+
+// csilDecRpResolveDomainKeysRequest reconstructs a RpResolveDomainKeysRequest from a decoded CBOR value tree.
+func csilDecRpResolveDomainKeysRequest(csilRoot cborValue) (RpResolveDomainKeysRequest, error) {
+	var csilOut RpResolveDomainKeysRequest
+	{
+		csilField, csilErr := cborRequire(csilRoot, "domain")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Domain = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "max_cache_age_seconds"); csilOk {
+		csilVal, csilErr := (cborAsI64)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.MaxCacheAgeSeconds = &csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeRpResolveDomainKeysRequest encodes a RpResolveDomainKeysRequest to canonical CSIL CBOR bytes.
+func EncodeRpResolveDomainKeysRequest(csilV RpResolveDomainKeysRequest) []byte {
+	return cborEncode(csilEncRpResolveDomainKeysRequest(csilV))
+}
+
+// DecodeRpResolveDomainKeysRequest decodes canonical CSIL CBOR bytes into a RpResolveDomainKeysRequest.
+func DecodeRpResolveDomainKeysRequest(csilData []byte) (RpResolveDomainKeysRequest, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero RpResolveDomainKeysRequest
+		return csilZero, csilErr
+	}
+	return csilDecRpResolveDomainKeysRequest(csilRoot)
+}
+
+// csilEncRpResolveDomainKeysResponse builds the canonical CBOR value tree for a RpResolveDomainKeysResponse.
+func csilEncRpResolveDomainKeysResponse(csilV RpResolveDomainKeysResponse) cborValue {
+	csilEntries := make(cborMap, 0, 6)
+	csilEntries = append(csilEntries, cborEntry{cborText("keys"), cborEncArray(csilV.Keys, func(csilElem DomainPublicKey) cborValue { return csilEncDomainPublicKey(csilElem) })})
+	csilEntries = append(csilEntries, cborEntry{cborText("domain"), cborText(csilV.Domain)})
+	csilEntries = append(csilEntries, cborEntry{cborText("fetched_at"), cborText(csilV.FetchedAt)})
+	csilEntries = append(csilEntries, cborEntry{cborText("revocations"), cborEncArray(csilV.Revocations, func(csilElem RevocationCertificate) cborValue { return csilEncRevocationCertificate(csilElem) })})
+	csilEntries = append(csilEntries, cborEntry{cborText("cache_status"), cborText(csilV.CacheStatus)})
+	csilEntries = append(csilEntries, cborEntry{cborText("revocations_checked_at"), cborText(csilV.RevocationsCheckedAt)})
+	return csilEntries
+}
+
+// csilDecRpResolveDomainKeysResponse reconstructs a RpResolveDomainKeysResponse from a decoded CBOR value tree.
+func csilDecRpResolveDomainKeysResponse(csilRoot cborValue) (RpResolveDomainKeysResponse, error) {
+	var csilOut RpResolveDomainKeysResponse
+	{
+		csilField, csilErr := cborRequire(csilRoot, "domain")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Domain = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "keys")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]DomainPublicKey, error) { return cborDecArray(csilV, csilDecDomainPublicKey) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Keys = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "revocations")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]RevocationCertificate, error) {
+			return cborDecArray(csilV, csilDecRevocationCertificate)
+		})(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Revocations = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "fetched_at")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.FetchedAt = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "revocations_checked_at")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.RevocationsCheckedAt = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "cache_status")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.CacheStatus = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeRpResolveDomainKeysResponse encodes a RpResolveDomainKeysResponse to canonical CSIL CBOR bytes.
+func EncodeRpResolveDomainKeysResponse(csilV RpResolveDomainKeysResponse) []byte {
+	return cborEncode(csilEncRpResolveDomainKeysResponse(csilV))
+}
+
+// DecodeRpResolveDomainKeysResponse decodes canonical CSIL CBOR bytes into a RpResolveDomainKeysResponse.
+func DecodeRpResolveDomainKeysResponse(csilData []byte) (RpResolveDomainKeysResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero RpResolveDomainKeysResponse
+		return csilZero, csilErr
+	}
+	return csilDecRpResolveDomainKeysResponse(csilRoot)
+}
+
+// csilEncRpResolveApplicationKeysRequest builds the canonical CBOR value tree for a RpResolveApplicationKeysRequest.
+func csilEncRpResolveApplicationKeysRequest(csilV RpResolveApplicationKeysRequest) cborValue {
+	csilEntries := make(cborMap, 0, 5)
+	csilEntries = append(csilEntries, cborEntry{cborText("instance_id"), cborText(csilV.InstanceId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("application_id"), cborText(csilV.ApplicationId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("subject_domain"), cborText(csilV.SubjectDomain)})
+	csilEntries = append(csilEntries, cborEntry{cborText("subject_user_id"), cborText(csilV.SubjectUserId)})
+	if csilV.MaxCacheAgeSeconds != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("max_cache_age_seconds"), cborInt((*csilV.MaxCacheAgeSeconds))})
+	}
+	return csilEntries
+}
+
+// csilDecRpResolveApplicationKeysRequest reconstructs a RpResolveApplicationKeysRequest from a decoded CBOR value tree.
+func csilDecRpResolveApplicationKeysRequest(csilRoot cborValue) (RpResolveApplicationKeysRequest, error) {
+	var csilOut RpResolveApplicationKeysRequest
+	{
+		csilField, csilErr := cborRequire(csilRoot, "subject_user_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SubjectUserId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "subject_domain")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SubjectDomain = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "application_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ApplicationId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "instance_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.InstanceId = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "max_cache_age_seconds"); csilOk {
+		csilVal, csilErr := (cborAsI64)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.MaxCacheAgeSeconds = &csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeRpResolveApplicationKeysRequest encodes a RpResolveApplicationKeysRequest to canonical CSIL CBOR bytes.
+func EncodeRpResolveApplicationKeysRequest(csilV RpResolveApplicationKeysRequest) []byte {
+	return cborEncode(csilEncRpResolveApplicationKeysRequest(csilV))
+}
+
+// DecodeRpResolveApplicationKeysRequest decodes canonical CSIL CBOR bytes into a RpResolveApplicationKeysRequest.
+func DecodeRpResolveApplicationKeysRequest(csilData []byte) (RpResolveApplicationKeysRequest, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero RpResolveApplicationKeysRequest
+		return csilZero, csilErr
+	}
+	return csilDecRpResolveApplicationKeysRequest(csilRoot)
+}
+
+// csilEncRpResolveApplicationKeysResponse builds the canonical CBOR value tree for a RpResolveApplicationKeysResponse.
+func csilEncRpResolveApplicationKeysResponse(csilV RpResolveApplicationKeysResponse) cborValue {
+	csilEntries := make(cborMap, 0, 11)
+	csilEntries = append(csilEntries, cborEntry{cborText("fetched_at"), cborText(csilV.FetchedAt)})
+	csilEntries = append(csilEntries, cborEntry{cborText("instance_id"), cborText(csilV.InstanceId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("cache_status"), cborText(csilV.CacheStatus)})
+	csilEntries = append(csilEntries, cborEntry{cborText("application_id"), cborText(csilV.ApplicationId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("subject_domain"), cborText(csilV.SubjectDomain)})
+	csilEntries = append(csilEntries, cborEntry{cborText("subject_user_id"), cborText(csilV.SubjectUserId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("application_keys"), cborEncArray(csilV.ApplicationKeys, func(csilElem SignedApplicationKeyAttestation) cborValue {
+		return csilEncSignedApplicationKeyAttestation(csilElem)
+	})})
+	csilEntries = append(csilEntries, cborEntry{cborText("home_domain_keys"), cborEncArray(csilV.HomeDomainKeys, func(csilElem DomainPublicKey) cborValue { return csilEncDomainPublicKey(csilElem) })})
+	csilEntries = append(csilEntries, cborEntry{cborText("revocations_checked_at"), cborText(csilV.RevocationsCheckedAt)})
+	csilEntries = append(csilEntries, cborEntry{cborText("application_key_revocations"), cborEncArray(csilV.ApplicationKeyRevocations, func(csilElem ApplicationKeyRevocation) cborValue { return csilEncApplicationKeyRevocation(csilElem) })})
+	csilEntries = append(csilEntries, cborEntry{cborText("home_domain_key_revocations"), cborEncArray(csilV.HomeDomainKeyRevocations, func(csilElem RevocationCertificate) cborValue { return csilEncRevocationCertificate(csilElem) })})
+	return csilEntries
+}
+
+// csilDecRpResolveApplicationKeysResponse reconstructs a RpResolveApplicationKeysResponse from a decoded CBOR value tree.
+func csilDecRpResolveApplicationKeysResponse(csilRoot cborValue) (RpResolveApplicationKeysResponse, error) {
+	var csilOut RpResolveApplicationKeysResponse
+	{
+		csilField, csilErr := cborRequire(csilRoot, "subject_user_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SubjectUserId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "subject_domain")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SubjectDomain = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "application_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ApplicationId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "instance_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.InstanceId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "application_keys")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]SignedApplicationKeyAttestation, error) {
+			return cborDecArray(csilV, csilDecSignedApplicationKeyAttestation)
+		})(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ApplicationKeys = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "application_key_revocations")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]ApplicationKeyRevocation, error) {
+			return cborDecArray(csilV, csilDecApplicationKeyRevocation)
+		})(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ApplicationKeyRevocations = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "home_domain_keys")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]DomainPublicKey, error) { return cborDecArray(csilV, csilDecDomainPublicKey) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.HomeDomainKeys = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "home_domain_key_revocations")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]RevocationCertificate, error) {
+			return cborDecArray(csilV, csilDecRevocationCertificate)
+		})(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.HomeDomainKeyRevocations = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "fetched_at")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.FetchedAt = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "revocations_checked_at")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.RevocationsCheckedAt = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "cache_status")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.CacheStatus = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeRpResolveApplicationKeysResponse encodes a RpResolveApplicationKeysResponse to canonical CSIL CBOR bytes.
+func EncodeRpResolveApplicationKeysResponse(csilV RpResolveApplicationKeysResponse) []byte {
+	return cborEncode(csilEncRpResolveApplicationKeysResponse(csilV))
+}
+
+// DecodeRpResolveApplicationKeysResponse decodes canonical CSIL CBOR bytes into a RpResolveApplicationKeysResponse.
+func DecodeRpResolveApplicationKeysResponse(csilData []byte) (RpResolveApplicationKeysResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero RpResolveApplicationKeysResponse
+		return csilZero, csilErr
+	}
+	return csilDecRpResolveApplicationKeysResponse(csilRoot)
 }
 
 // csilEncCheckValue encodes a CheckValue union as a tagged sum [variant_index, value].

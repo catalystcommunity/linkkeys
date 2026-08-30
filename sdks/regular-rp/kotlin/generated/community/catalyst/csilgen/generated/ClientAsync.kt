@@ -68,6 +68,26 @@ class UserKeysAsyncClient(private val transport: AsyncTransport) {
     }
 }
 
+/** Typed client for the ApplicationKeys service. The client owns (de)serialization;
+ * the carrier only moves bytes. */
+class ApplicationKeysAsyncClient(private val transport: AsyncTransport) {
+    suspend fun getApplicationKeys(request: GetApplicationKeysRequest): GetApplicationKeysResponse {
+        return decode<GetApplicationKeysResponse>(transport.call("ApplicationKeys", "get-application-keys", encode(request)))
+    }
+    suspend fun startKeyChallenge(request: StartApplicationKeyChallengeRequest): StartApplicationKeyChallengeResponse {
+        return decode<StartApplicationKeyChallengeResponse>(transport.call("ApplicationKeys", "start-key-challenge", encode(request)))
+    }
+    suspend fun addKey(request: AddApplicationKeyRequest): AddApplicationKeyResponse {
+        return decode<AddApplicationKeyResponse>(transport.call("ApplicationKeys", "add-key", encode(request)))
+    }
+    suspend fun renewAttestation(request: RenewApplicationKeyAttestationRequest): RenewApplicationKeyAttestationResponse {
+        return decode<RenewApplicationKeyAttestationResponse>(transport.call("ApplicationKeys", "renew-attestation", encode(request)))
+    }
+    suspend fun revokeKey(request: RevokeApplicationKeyRequest): RevokeApplicationKeyResponse {
+        return decode<RevokeApplicationKeyResponse>(transport.call("ApplicationKeys", "revoke-key", encode(request)))
+    }
+}
+
 /** Typed client for the Identity service. The client owns (de)serialization;
  * the carrier only moves bytes. */
 class IdentityAsyncClient(private val transport: AsyncTransport) {
@@ -332,6 +352,9 @@ class AccountAsyncClient(private val transport: AsyncTransport) {
     suspend fun confirmContactVerification(request: ConfirmContactVerificationRequest): ConfirmContactVerificationResponse {
         return decode<ConfirmContactVerificationResponse>(transport.call("Account", "confirm-contact-verification", encode(request)))
     }
+    suspend fun enrollApplicationInstance(request: EnrollApplicationInstanceRequest): EnrollApplicationInstanceResponse {
+        return decode<EnrollApplicationInstanceResponse>(transport.call("Account", "enroll-application-instance", encode(request)))
+    }
 }
 
 /** Typed client for the Attestation service. The client owns (de)serialization;
@@ -359,6 +382,12 @@ class RpAsyncClient(private val transport: AsyncTransport) {
     }
     suspend fun issueAttestation(request: RpIssueAttestationRequest): RpIssueAttestationResponse {
         return decode<RpIssueAttestationResponse>(transport.call("Rp", "issue-attestation", encode(request)))
+    }
+    suspend fun resolveDomainKeys(request: RpResolveDomainKeysRequest): RpResolveDomainKeysResponse {
+        return decode<RpResolveDomainKeysResponse>(transport.call("Rp", "resolve-domain-keys", encode(request)))
+    }
+    suspend fun resolveApplicationKeys(request: RpResolveApplicationKeysRequest): RpResolveApplicationKeysResponse {
+        return decode<RpResolveApplicationKeysResponse>(transport.call("Rp", "resolve-application-keys", encode(request)))
     }
 }
 

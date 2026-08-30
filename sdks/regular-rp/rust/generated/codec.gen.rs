@@ -133,7 +133,7 @@ fn cbor_enc(v: &CsilCborValue, out: &mut Vec<u8>) {
 /// exactly one value is an error rather than a silently-truncated read.
 fn cbor_decode(b: &[u8]) -> Result<CsilCborValue, CsilCborError> {
     let mut pos = 0usize;
-    let v = cbor_dec(b, &mut pos)?;
+    let v = cbor_dec(b, &mut pos, 0)?;
     if pos != b.len() {
         return Err(CsilCborError(format!(
             "csil cbor: {} trailing bytes",
@@ -159,7 +159,7 @@ fn cbor_read_arg(b: &[u8], pos: &mut usize, low: u8) -> Result<u64, CsilCborErro
             )))
         }
     };
-    if *pos + 1 + width > b.len() {
+    if *pos >= b.len() || width > b.len() - *pos - 1 {
         return Err(CsilCborError("csil cbor: truncated argument".to_string()));
     }
     let mut v = 0u64;
@@ -170,7 +170,12 @@ fn cbor_read_arg(b: &[u8], pos: &mut usize, low: u8) -> Result<u64, CsilCborErro
     Ok(v)
 }
 
-fn cbor_dec(b: &[u8], pos: &mut usize) -> Result<CsilCborValue, CsilCborError> {
+fn cbor_dec(b: &[u8], pos: &mut usize, depth: usize) -> Result<CsilCborValue, CsilCborError> {
+    if depth > 64 {
+        return Err(CsilCborError(
+            "csil cbor: nesting limit exceeded".to_string(),
+        ));
+    }
     if *pos >= b.len() {
         return Err(CsilCborError(
             "csil cbor: unexpected end of input".to_string(),
@@ -218,23 +223,23 @@ fn cbor_dec(b: &[u8], pos: &mut usize) -> Result<CsilCborValue, CsilCborError> {
             Ok(CsilCborValue::Int(-1 - arg as i64))
         }
         2 => {
-            let n = arg as usize;
-            if *pos + n > b.len() {
+            if arg > (b.len() - *pos) as u64 {
                 return Err(CsilCborError(
                     "csil cbor: truncated byte string".to_string(),
                 ));
             }
+            let n = arg as usize;
             let slice = b[*pos..*pos + n].to_vec();
             *pos += n;
             Ok(CsilCborValue::Bytes(slice))
         }
         3 => {
-            let n = arg as usize;
-            if *pos + n > b.len() {
+            if arg > (b.len() - *pos) as u64 {
                 return Err(CsilCborError(
                     "csil cbor: truncated text string".to_string(),
                 ));
             }
+            let n = arg as usize;
             let s = std::str::from_utf8(&b[*pos..*pos + n])
                 .map_err(|e| CsilCborError(format!("csil cbor: invalid utf-8: {e}")))?
                 .to_string();
@@ -242,25 +247,35 @@ fn cbor_dec(b: &[u8], pos: &mut usize) -> Result<CsilCborValue, CsilCborError> {
             Ok(CsilCborValue::Text(s))
         }
         4 => {
+            if arg > (b.len() - *pos) as u64 {
+                return Err(CsilCborError(
+                    "csil cbor: array length exceeds remaining input".to_string(),
+                ));
+            }
             let n = arg as usize;
             let mut items = Vec::with_capacity(n);
             for _ in 0..n {
-                items.push(cbor_dec(b, pos)?);
+                items.push(cbor_dec(b, pos, depth + 1)?);
             }
             Ok(CsilCborValue::Array(items))
         }
         5 => {
+            if arg > (b.len() - *pos) as u64 {
+                return Err(CsilCborError(
+                    "csil cbor: map length exceeds remaining input".to_string(),
+                ));
+            }
             let n = arg as usize;
             let mut entries = Vec::with_capacity(n);
             for _ in 0..n {
-                let k = cbor_dec(b, pos)?;
-                let val = cbor_dec(b, pos)?;
+                let k = cbor_dec(b, pos, depth + 1)?;
+                let val = cbor_dec(b, pos, depth + 1)?;
                 entries.push((k, val));
             }
             Ok(CsilCborValue::Map(entries))
         }
         6 => {
-            let inner = cbor_dec(b, pos)?;
+            let inner = cbor_dec(b, pos, depth + 1)?;
             Ok(CsilCborValue::Tag(arg, Box::new(inner)))
         }
         _ => Err(CsilCborError(format!(
@@ -10527,6 +10542,1682 @@ pub fn decode_list_locales_response(
 ) -> Result<ListLocalesResponse, CsilCborError> {
     let csil_root = cbor_decode(csil_data)?;
     csil_dec_list_locales_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ApplicationKeySignature.
+fn csil_enc_application_key_signature(csil_v: &ApplicationKeySignature) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("signature"), cbor_bytes(&csil_v.signature)));
+    csil_entries.push((
+        cbor_text("signed_by_key_id"),
+        cbor_text(&csil_v.signed_by_key_id),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ApplicationKeySignature from a decoded CBOR value tree.
+fn csil_dec_application_key_signature(
+    csil_root: &CsilCborValue,
+) -> Result<ApplicationKeySignature, CsilCborError> {
+    let signed_by_key_id = {
+        let csil_field = cbor_require(csil_root, "signed_by_key_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let signature = {
+        let csil_field = cbor_require(csil_root, "signature")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    Ok(ApplicationKeySignature {
+        signed_by_key_id,
+        signature,
+    })
+}
+
+/// Encode a ApplicationKeySignature to canonical CSIL CBOR bytes.
+pub fn encode_application_key_signature(csil_v: &ApplicationKeySignature) -> Vec<u8> {
+    cbor_encode(&csil_enc_application_key_signature(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ApplicationKeySignature.
+pub fn decode_application_key_signature(
+    csil_data: &[u8],
+) -> Result<ApplicationKeySignature, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_application_key_signature(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ApplicationKeyAttestation.
+fn csil_enc_application_key_attestation(csil_v: &ApplicationKeyAttestation) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(13);
+    csil_entries.push((cbor_text("key_id"), cbor_text(&csil_v.key_id)));
+    csil_entries.push((cbor_text("algorithm"), cbor_text(&csil_v.algorithm)));
+    csil_entries.push((cbor_text("key_usage"), cbor_text(&csil_v.key_usage)));
+    csil_entries.push((cbor_text("public_key"), cbor_bytes(&csil_v.public_key)));
+    csil_entries.push((cbor_text("attested_at"), cbor_text(&csil_v.attested_at)));
+    csil_entries.push((cbor_text("fingerprint"), cbor_text(&csil_v.fingerprint)));
+    csil_entries.push((cbor_text("instance_id"), cbor_text(&csil_v.instance_id)));
+    csil_entries.push((
+        cbor_text("application_id"),
+        cbor_text(&csil_v.application_id),
+    ));
+    csil_entries.push((
+        cbor_text("key_created_at"),
+        cbor_text(&csil_v.key_created_at),
+    ));
+    csil_entries.push((
+        cbor_text("key_expires_at"),
+        cbor_text(&csil_v.key_expires_at),
+    ));
+    csil_entries.push((
+        cbor_text("subject_domain"),
+        cbor_text(&csil_v.subject_domain),
+    ));
+    csil_entries.push((
+        cbor_text("subject_user_id"),
+        cbor_text(&csil_v.subject_user_id),
+    ));
+    csil_entries.push((
+        cbor_text("attestation_expires_at"),
+        cbor_text(&csil_v.attestation_expires_at),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ApplicationKeyAttestation from a decoded CBOR value tree.
+fn csil_dec_application_key_attestation(
+    csil_root: &CsilCborValue,
+) -> Result<ApplicationKeyAttestation, CsilCborError> {
+    let subject_user_id = {
+        let csil_field = cbor_require(csil_root, "subject_user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let subject_domain = {
+        let csil_field = cbor_require(csil_root, "subject_domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let application_id = {
+        let csil_field = cbor_require(csil_root, "application_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let instance_id = {
+        let csil_field = cbor_require(csil_root, "instance_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let key_id = {
+        let csil_field = cbor_require(csil_root, "key_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let key_usage = {
+        let csil_field = cbor_require(csil_root, "key_usage")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let algorithm = {
+        let csil_field = cbor_require(csil_root, "algorithm")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let public_key = {
+        let csil_field = cbor_require(csil_root, "public_key")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let fingerprint = {
+        let csil_field = cbor_require(csil_root, "fingerprint")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let key_created_at = {
+        let csil_field = cbor_require(csil_root, "key_created_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let key_expires_at = {
+        let csil_field = cbor_require(csil_root, "key_expires_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let attested_at = {
+        let csil_field = cbor_require(csil_root, "attested_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let attestation_expires_at = {
+        let csil_field = cbor_require(csil_root, "attestation_expires_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(ApplicationKeyAttestation {
+        subject_user_id,
+        subject_domain,
+        application_id,
+        instance_id,
+        key_id,
+        key_usage,
+        algorithm,
+        public_key,
+        fingerprint,
+        key_created_at,
+        key_expires_at,
+        attested_at,
+        attestation_expires_at,
+    })
+}
+
+/// Encode a ApplicationKeyAttestation to canonical CSIL CBOR bytes.
+pub fn encode_application_key_attestation(csil_v: &ApplicationKeyAttestation) -> Vec<u8> {
+    cbor_encode(&csil_enc_application_key_attestation(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ApplicationKeyAttestation.
+pub fn decode_application_key_attestation(
+    csil_data: &[u8],
+) -> Result<ApplicationKeyAttestation, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_application_key_attestation(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SignedApplicationKeyAttestation.
+fn csil_enc_signed_application_key_attestation(
+    csil_v: &SignedApplicationKeyAttestation,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((
+        cbor_text("signatures"),
+        cbor_enc_array(&csil_v.signatures, csil_enc_claim_signature),
+    ));
+    csil_entries.push((cbor_text("attestation"), cbor_bytes(&csil_v.attestation)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SignedApplicationKeyAttestation from a decoded CBOR value tree.
+fn csil_dec_signed_application_key_attestation(
+    csil_root: &CsilCborValue,
+) -> Result<SignedApplicationKeyAttestation, CsilCborError> {
+    let attestation = {
+        let csil_field = cbor_require(csil_root, "attestation")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let signatures = {
+        let csil_field = cbor_require(csil_root, "signatures")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_claim_signature);
+        csil_decode(csil_field)?
+    };
+    Ok(SignedApplicationKeyAttestation {
+        attestation,
+        signatures,
+    })
+}
+
+/// Encode a SignedApplicationKeyAttestation to canonical CSIL CBOR bytes.
+pub fn encode_signed_application_key_attestation(
+    csil_v: &SignedApplicationKeyAttestation,
+) -> Vec<u8> {
+    cbor_encode(&csil_enc_signed_application_key_attestation(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SignedApplicationKeyAttestation.
+pub fn decode_signed_application_key_attestation(
+    csil_data: &[u8],
+) -> Result<SignedApplicationKeyAttestation, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_signed_application_key_attestation(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ApplicationKeyAddition.
+fn csil_enc_application_key_addition(csil_v: &ApplicationKeyAddition) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(14);
+    csil_entries.push((cbor_text("key_id"), cbor_text(&csil_v.key_id)));
+    csil_entries.push((cbor_text("algorithm"), cbor_text(&csil_v.algorithm)));
+    csil_entries.push((cbor_text("challenge"), cbor_bytes(&csil_v.challenge)));
+    csil_entries.push((cbor_text("key_usage"), cbor_text(&csil_v.key_usage)));
+    csil_entries.push((cbor_text("expires_at"), cbor_text(&csil_v.expires_at)));
+    csil_entries.push((cbor_text("public_key"), cbor_bytes(&csil_v.public_key)));
+    csil_entries.push((cbor_text("fingerprint"), cbor_text(&csil_v.fingerprint)));
+    csil_entries.push((cbor_text("instance_id"), cbor_text(&csil_v.instance_id)));
+    csil_entries.push((cbor_text("challenge_id"), cbor_text(&csil_v.challenge_id)));
+    csil_entries.push((cbor_text("requested_at"), cbor_text(&csil_v.requested_at)));
+    csil_entries.push((
+        cbor_text("application_id"),
+        cbor_text(&csil_v.application_id),
+    ));
+    csil_entries.push((
+        cbor_text("subject_domain"),
+        cbor_text(&csil_v.subject_domain),
+    ));
+    csil_entries.push((
+        cbor_text("subject_user_id"),
+        cbor_text(&csil_v.subject_user_id),
+    ));
+    csil_entries.push((
+        cbor_text("requested_key_lifetime_seconds"),
+        cbor_int(csil_v.requested_key_lifetime_seconds),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ApplicationKeyAddition from a decoded CBOR value tree.
+fn csil_dec_application_key_addition(
+    csil_root: &CsilCborValue,
+) -> Result<ApplicationKeyAddition, CsilCborError> {
+    let subject_user_id = {
+        let csil_field = cbor_require(csil_root, "subject_user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let subject_domain = {
+        let csil_field = cbor_require(csil_root, "subject_domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let application_id = {
+        let csil_field = cbor_require(csil_root, "application_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let instance_id = {
+        let csil_field = cbor_require(csil_root, "instance_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let key_id = {
+        let csil_field = cbor_require(csil_root, "key_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let key_usage = {
+        let csil_field = cbor_require(csil_root, "key_usage")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let algorithm = {
+        let csil_field = cbor_require(csil_root, "algorithm")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let public_key = {
+        let csil_field = cbor_require(csil_root, "public_key")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let fingerprint = {
+        let csil_field = cbor_require(csil_root, "fingerprint")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let requested_key_lifetime_seconds = {
+        let csil_field = cbor_require(csil_root, "requested_key_lifetime_seconds")?;
+        let csil_decode = cbor_as_i64;
+        csil_decode(csil_field)?
+    };
+    let challenge_id = {
+        let csil_field = cbor_require(csil_root, "challenge_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let challenge = {
+        let csil_field = cbor_require(csil_root, "challenge")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let requested_at = {
+        let csil_field = cbor_require(csil_root, "requested_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let expires_at = {
+        let csil_field = cbor_require(csil_root, "expires_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(ApplicationKeyAddition {
+        subject_user_id,
+        subject_domain,
+        application_id,
+        instance_id,
+        key_id,
+        key_usage,
+        algorithm,
+        public_key,
+        fingerprint,
+        requested_key_lifetime_seconds,
+        challenge_id,
+        challenge,
+        requested_at,
+        expires_at,
+    })
+}
+
+/// Encode a ApplicationKeyAddition to canonical CSIL CBOR bytes.
+pub fn encode_application_key_addition(csil_v: &ApplicationKeyAddition) -> Vec<u8> {
+    cbor_encode(&csil_enc_application_key_addition(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ApplicationKeyAddition.
+pub fn decode_application_key_addition(
+    csil_data: &[u8],
+) -> Result<ApplicationKeyAddition, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_application_key_addition(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SignedApplicationKeyAddition.
+fn csil_enc_signed_application_key_addition(
+    csil_v: &SignedApplicationKeyAddition,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
+    csil_entries.push((cbor_text("addition"), cbor_bytes(&csil_v.addition)));
+    csil_entries.push((
+        cbor_text("signatures"),
+        cbor_enc_array(&csil_v.signatures, csil_enc_application_key_signature),
+    ));
+    if let Some(csil_inner) = &csil_v.possession_proof {
+        csil_entries.push((cbor_text("possession_proof"), cbor_bytes(csil_inner)));
+    }
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SignedApplicationKeyAddition from a decoded CBOR value tree.
+fn csil_dec_signed_application_key_addition(
+    csil_root: &CsilCborValue,
+) -> Result<SignedApplicationKeyAddition, CsilCborError> {
+    let addition = {
+        let csil_field = cbor_require(csil_root, "addition")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let signatures = {
+        let csil_field = cbor_require(csil_root, "signatures")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_application_key_signature);
+        csil_decode(csil_field)?
+    };
+    let possession_proof = match cbor_map_get(csil_root, "possession_proof") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_bytes;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(SignedApplicationKeyAddition {
+        addition,
+        signatures,
+        possession_proof,
+    })
+}
+
+/// Encode a SignedApplicationKeyAddition to canonical CSIL CBOR bytes.
+pub fn encode_signed_application_key_addition(csil_v: &SignedApplicationKeyAddition) -> Vec<u8> {
+    cbor_encode(&csil_enc_signed_application_key_addition(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SignedApplicationKeyAddition.
+pub fn decode_signed_application_key_addition(
+    csil_data: &[u8],
+) -> Result<SignedApplicationKeyAddition, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_signed_application_key_addition(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ApplicationKeyRenewal.
+fn csil_enc_application_key_renewal(csil_v: &ApplicationKeyRenewal) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(9);
+    csil_entries.push((cbor_text("key_id"), cbor_text(&csil_v.key_id)));
+    csil_entries.push((cbor_text("challenge"), cbor_bytes(&csil_v.challenge)));
+    csil_entries.push((cbor_text("expires_at"), cbor_text(&csil_v.expires_at)));
+    csil_entries.push((cbor_text("instance_id"), cbor_text(&csil_v.instance_id)));
+    csil_entries.push((cbor_text("challenge_id"), cbor_text(&csil_v.challenge_id)));
+    csil_entries.push((cbor_text("requested_at"), cbor_text(&csil_v.requested_at)));
+    csil_entries.push((
+        cbor_text("application_id"),
+        cbor_text(&csil_v.application_id),
+    ));
+    csil_entries.push((
+        cbor_text("subject_domain"),
+        cbor_text(&csil_v.subject_domain),
+    ));
+    csil_entries.push((
+        cbor_text("subject_user_id"),
+        cbor_text(&csil_v.subject_user_id),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ApplicationKeyRenewal from a decoded CBOR value tree.
+fn csil_dec_application_key_renewal(
+    csil_root: &CsilCborValue,
+) -> Result<ApplicationKeyRenewal, CsilCborError> {
+    let subject_user_id = {
+        let csil_field = cbor_require(csil_root, "subject_user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let subject_domain = {
+        let csil_field = cbor_require(csil_root, "subject_domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let application_id = {
+        let csil_field = cbor_require(csil_root, "application_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let instance_id = {
+        let csil_field = cbor_require(csil_root, "instance_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let key_id = {
+        let csil_field = cbor_require(csil_root, "key_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let challenge_id = {
+        let csil_field = cbor_require(csil_root, "challenge_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let challenge = {
+        let csil_field = cbor_require(csil_root, "challenge")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let requested_at = {
+        let csil_field = cbor_require(csil_root, "requested_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let expires_at = {
+        let csil_field = cbor_require(csil_root, "expires_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(ApplicationKeyRenewal {
+        subject_user_id,
+        subject_domain,
+        application_id,
+        instance_id,
+        key_id,
+        challenge_id,
+        challenge,
+        requested_at,
+        expires_at,
+    })
+}
+
+/// Encode a ApplicationKeyRenewal to canonical CSIL CBOR bytes.
+pub fn encode_application_key_renewal(csil_v: &ApplicationKeyRenewal) -> Vec<u8> {
+    cbor_encode(&csil_enc_application_key_renewal(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ApplicationKeyRenewal.
+pub fn decode_application_key_renewal(
+    csil_data: &[u8],
+) -> Result<ApplicationKeyRenewal, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_application_key_renewal(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SignedApplicationKeyRenewal.
+fn csil_enc_signed_application_key_renewal(csil_v: &SignedApplicationKeyRenewal) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
+    csil_entries.push((cbor_text("renewal"), cbor_bytes(&csil_v.renewal)));
+    csil_entries.push((
+        cbor_text("signatures"),
+        cbor_enc_array(&csil_v.signatures, csil_enc_application_key_signature),
+    ));
+    if let Some(csil_inner) = &csil_v.possession_proof {
+        csil_entries.push((cbor_text("possession_proof"), cbor_bytes(csil_inner)));
+    }
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SignedApplicationKeyRenewal from a decoded CBOR value tree.
+fn csil_dec_signed_application_key_renewal(
+    csil_root: &CsilCborValue,
+) -> Result<SignedApplicationKeyRenewal, CsilCborError> {
+    let renewal = {
+        let csil_field = cbor_require(csil_root, "renewal")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let signatures = {
+        let csil_field = cbor_require(csil_root, "signatures")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_application_key_signature);
+        csil_decode(csil_field)?
+    };
+    let possession_proof = match cbor_map_get(csil_root, "possession_proof") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_bytes;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(SignedApplicationKeyRenewal {
+        renewal,
+        signatures,
+        possession_proof,
+    })
+}
+
+/// Encode a SignedApplicationKeyRenewal to canonical CSIL CBOR bytes.
+pub fn encode_signed_application_key_renewal(csil_v: &SignedApplicationKeyRenewal) -> Vec<u8> {
+    cbor_encode(&csil_enc_signed_application_key_renewal(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SignedApplicationKeyRenewal.
+pub fn decode_signed_application_key_renewal(
+    csil_data: &[u8],
+) -> Result<SignedApplicationKeyRenewal, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_signed_application_key_renewal(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ApplicationKeyRevocation.
+fn csil_enc_application_key_revocation(csil_v: &ApplicationKeyRevocation) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(8);
+    csil_entries.push((cbor_text("revoked_at"), cbor_text(&csil_v.revoked_at)));
+    csil_entries.push((
+        cbor_text("signatures"),
+        cbor_enc_array(&csil_v.signatures, csil_enc_application_key_signature),
+    ));
+    csil_entries.push((cbor_text("instance_id"), cbor_text(&csil_v.instance_id)));
+    csil_entries.push((cbor_text("target_key_id"), cbor_text(&csil_v.target_key_id)));
+    csil_entries.push((
+        cbor_text("application_id"),
+        cbor_text(&csil_v.application_id),
+    ));
+    csil_entries.push((
+        cbor_text("subject_domain"),
+        cbor_text(&csil_v.subject_domain),
+    ));
+    csil_entries.push((
+        cbor_text("subject_user_id"),
+        cbor_text(&csil_v.subject_user_id),
+    ));
+    csil_entries.push((
+        cbor_text("target_fingerprint"),
+        cbor_text(&csil_v.target_fingerprint),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ApplicationKeyRevocation from a decoded CBOR value tree.
+fn csil_dec_application_key_revocation(
+    csil_root: &CsilCborValue,
+) -> Result<ApplicationKeyRevocation, CsilCborError> {
+    let subject_user_id = {
+        let csil_field = cbor_require(csil_root, "subject_user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let subject_domain = {
+        let csil_field = cbor_require(csil_root, "subject_domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let application_id = {
+        let csil_field = cbor_require(csil_root, "application_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let instance_id = {
+        let csil_field = cbor_require(csil_root, "instance_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let target_key_id = {
+        let csil_field = cbor_require(csil_root, "target_key_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let target_fingerprint = {
+        let csil_field = cbor_require(csil_root, "target_fingerprint")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let revoked_at = {
+        let csil_field = cbor_require(csil_root, "revoked_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let signatures = {
+        let csil_field = cbor_require(csil_root, "signatures")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_application_key_signature);
+        csil_decode(csil_field)?
+    };
+    Ok(ApplicationKeyRevocation {
+        subject_user_id,
+        subject_domain,
+        application_id,
+        instance_id,
+        target_key_id,
+        target_fingerprint,
+        revoked_at,
+        signatures,
+    })
+}
+
+/// Encode a ApplicationKeyRevocation to canonical CSIL CBOR bytes.
+pub fn encode_application_key_revocation(csil_v: &ApplicationKeyRevocation) -> Vec<u8> {
+    cbor_encode(&csil_enc_application_key_revocation(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ApplicationKeyRevocation.
+pub fn decode_application_key_revocation(
+    csil_data: &[u8],
+) -> Result<ApplicationKeyRevocation, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_application_key_revocation(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a StartApplicationKeyChallengeRequest.
+fn csil_enc_start_application_key_challenge_request(
+    csil_v: &StartApplicationKeyChallengeRequest,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(7);
+    csil_entries.push((cbor_text("purpose"), cbor_text(&csil_v.purpose)));
+    csil_entries.push((cbor_text("algorithm"), cbor_text(&csil_v.algorithm)));
+    csil_entries.push((cbor_text("key_usage"), cbor_text(&csil_v.key_usage)));
+    csil_entries.push((cbor_text("public_key"), cbor_bytes(&csil_v.public_key)));
+    csil_entries.push((cbor_text("instance_id"), cbor_text(&csil_v.instance_id)));
+    csil_entries.push((
+        cbor_text("application_id"),
+        cbor_text(&csil_v.application_id),
+    ));
+    csil_entries.push((
+        cbor_text("subject_user_id"),
+        cbor_text(&csil_v.subject_user_id),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a StartApplicationKeyChallengeRequest from a decoded CBOR value tree.
+fn csil_dec_start_application_key_challenge_request(
+    csil_root: &CsilCborValue,
+) -> Result<StartApplicationKeyChallengeRequest, CsilCborError> {
+    let subject_user_id = {
+        let csil_field = cbor_require(csil_root, "subject_user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let application_id = {
+        let csil_field = cbor_require(csil_root, "application_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let instance_id = {
+        let csil_field = cbor_require(csil_root, "instance_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let purpose = {
+        let csil_field = cbor_require(csil_root, "purpose")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let key_usage = {
+        let csil_field = cbor_require(csil_root, "key_usage")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let algorithm = {
+        let csil_field = cbor_require(csil_root, "algorithm")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let public_key = {
+        let csil_field = cbor_require(csil_root, "public_key")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    Ok(StartApplicationKeyChallengeRequest {
+        subject_user_id,
+        application_id,
+        instance_id,
+        purpose,
+        key_usage,
+        algorithm,
+        public_key,
+    })
+}
+
+/// Encode a StartApplicationKeyChallengeRequest to canonical CSIL CBOR bytes.
+pub fn encode_start_application_key_challenge_request(
+    csil_v: &StartApplicationKeyChallengeRequest,
+) -> Vec<u8> {
+    cbor_encode(&csil_enc_start_application_key_challenge_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a StartApplicationKeyChallengeRequest.
+pub fn decode_start_application_key_challenge_request(
+    csil_data: &[u8],
+) -> Result<StartApplicationKeyChallengeRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_start_application_key_challenge_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a StartApplicationKeyChallengeResponse.
+fn csil_enc_start_application_key_challenge_response(
+    csil_v: &StartApplicationKeyChallengeResponse,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(4);
+    if let Some(csil_inner) = &csil_v.challenge {
+        csil_entries.push((cbor_text("challenge"), cbor_bytes(csil_inner)));
+    }
+    csil_entries.push((cbor_text("expires_at"), cbor_text(&csil_v.expires_at)));
+    csil_entries.push((cbor_text("challenge_id"), cbor_text(&csil_v.challenge_id)));
+    if let Some(csil_inner) = &csil_v.sealed_challenge {
+        csil_entries.push((cbor_text("sealed_challenge"), cbor_bytes(csil_inner)));
+    }
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a StartApplicationKeyChallengeResponse from a decoded CBOR value tree.
+fn csil_dec_start_application_key_challenge_response(
+    csil_root: &CsilCborValue,
+) -> Result<StartApplicationKeyChallengeResponse, CsilCborError> {
+    let challenge_id = {
+        let csil_field = cbor_require(csil_root, "challenge_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let challenge = match cbor_map_get(csil_root, "challenge") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_bytes;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let sealed_challenge = match cbor_map_get(csil_root, "sealed_challenge") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_bytes;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let expires_at = {
+        let csil_field = cbor_require(csil_root, "expires_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(StartApplicationKeyChallengeResponse {
+        challenge_id,
+        challenge,
+        sealed_challenge,
+        expires_at,
+    })
+}
+
+/// Encode a StartApplicationKeyChallengeResponse to canonical CSIL CBOR bytes.
+pub fn encode_start_application_key_challenge_response(
+    csil_v: &StartApplicationKeyChallengeResponse,
+) -> Vec<u8> {
+    cbor_encode(&csil_enc_start_application_key_challenge_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a StartApplicationKeyChallengeResponse.
+pub fn decode_start_application_key_challenge_response(
+    csil_data: &[u8],
+) -> Result<StartApplicationKeyChallengeResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_start_application_key_challenge_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a AddApplicationKeyRequest.
+fn csil_enc_add_application_key_request(csil_v: &AddApplicationKeyRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("request"),
+        csil_enc_signed_application_key_addition(&csil_v.request),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a AddApplicationKeyRequest from a decoded CBOR value tree.
+fn csil_dec_add_application_key_request(
+    csil_root: &CsilCborValue,
+) -> Result<AddApplicationKeyRequest, CsilCborError> {
+    let request = {
+        let csil_field = cbor_require(csil_root, "request")?;
+        let csil_decode = csil_dec_signed_application_key_addition;
+        csil_decode(csil_field)?
+    };
+    Ok(AddApplicationKeyRequest { request })
+}
+
+/// Encode a AddApplicationKeyRequest to canonical CSIL CBOR bytes.
+pub fn encode_add_application_key_request(csil_v: &AddApplicationKeyRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_add_application_key_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a AddApplicationKeyRequest.
+pub fn decode_add_application_key_request(
+    csil_data: &[u8],
+) -> Result<AddApplicationKeyRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_add_application_key_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a AddApplicationKeyResponse.
+fn csil_enc_add_application_key_response(csil_v: &AddApplicationKeyResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("attestation"),
+        csil_enc_signed_application_key_attestation(&csil_v.attestation),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a AddApplicationKeyResponse from a decoded CBOR value tree.
+fn csil_dec_add_application_key_response(
+    csil_root: &CsilCborValue,
+) -> Result<AddApplicationKeyResponse, CsilCborError> {
+    let attestation = {
+        let csil_field = cbor_require(csil_root, "attestation")?;
+        let csil_decode = csil_dec_signed_application_key_attestation;
+        csil_decode(csil_field)?
+    };
+    Ok(AddApplicationKeyResponse { attestation })
+}
+
+/// Encode a AddApplicationKeyResponse to canonical CSIL CBOR bytes.
+pub fn encode_add_application_key_response(csil_v: &AddApplicationKeyResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_add_application_key_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a AddApplicationKeyResponse.
+pub fn decode_add_application_key_response(
+    csil_data: &[u8],
+) -> Result<AddApplicationKeyResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_add_application_key_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RenewApplicationKeyAttestationRequest.
+fn csil_enc_renew_application_key_attestation_request(
+    csil_v: &RenewApplicationKeyAttestationRequest,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("request"),
+        csil_enc_signed_application_key_renewal(&csil_v.request),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RenewApplicationKeyAttestationRequest from a decoded CBOR value tree.
+fn csil_dec_renew_application_key_attestation_request(
+    csil_root: &CsilCborValue,
+) -> Result<RenewApplicationKeyAttestationRequest, CsilCborError> {
+    let request = {
+        let csil_field = cbor_require(csil_root, "request")?;
+        let csil_decode = csil_dec_signed_application_key_renewal;
+        csil_decode(csil_field)?
+    };
+    Ok(RenewApplicationKeyAttestationRequest { request })
+}
+
+/// Encode a RenewApplicationKeyAttestationRequest to canonical CSIL CBOR bytes.
+pub fn encode_renew_application_key_attestation_request(
+    csil_v: &RenewApplicationKeyAttestationRequest,
+) -> Vec<u8> {
+    cbor_encode(&csil_enc_renew_application_key_attestation_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RenewApplicationKeyAttestationRequest.
+pub fn decode_renew_application_key_attestation_request(
+    csil_data: &[u8],
+) -> Result<RenewApplicationKeyAttestationRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_renew_application_key_attestation_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RenewApplicationKeyAttestationResponse.
+fn csil_enc_renew_application_key_attestation_response(
+    csil_v: &RenewApplicationKeyAttestationResponse,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("signed"), cbor_bool(csil_v.signed)));
+    csil_entries.push((
+        cbor_text("attestation"),
+        csil_enc_signed_application_key_attestation(&csil_v.attestation),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RenewApplicationKeyAttestationResponse from a decoded CBOR value tree.
+fn csil_dec_renew_application_key_attestation_response(
+    csil_root: &CsilCborValue,
+) -> Result<RenewApplicationKeyAttestationResponse, CsilCborError> {
+    let attestation = {
+        let csil_field = cbor_require(csil_root, "attestation")?;
+        let csil_decode = csil_dec_signed_application_key_attestation;
+        csil_decode(csil_field)?
+    };
+    let signed = {
+        let csil_field = cbor_require(csil_root, "signed")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    Ok(RenewApplicationKeyAttestationResponse {
+        attestation,
+        signed,
+    })
+}
+
+/// Encode a RenewApplicationKeyAttestationResponse to canonical CSIL CBOR bytes.
+pub fn encode_renew_application_key_attestation_response(
+    csil_v: &RenewApplicationKeyAttestationResponse,
+) -> Vec<u8> {
+    cbor_encode(&csil_enc_renew_application_key_attestation_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RenewApplicationKeyAttestationResponse.
+pub fn decode_renew_application_key_attestation_response(
+    csil_data: &[u8],
+) -> Result<RenewApplicationKeyAttestationResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_renew_application_key_attestation_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RevokeApplicationKeyRequest.
+fn csil_enc_revoke_application_key_request(csil_v: &RevokeApplicationKeyRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("revocation"),
+        csil_enc_application_key_revocation(&csil_v.revocation),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RevokeApplicationKeyRequest from a decoded CBOR value tree.
+fn csil_dec_revoke_application_key_request(
+    csil_root: &CsilCborValue,
+) -> Result<RevokeApplicationKeyRequest, CsilCborError> {
+    let revocation = {
+        let csil_field = cbor_require(csil_root, "revocation")?;
+        let csil_decode = csil_dec_application_key_revocation;
+        csil_decode(csil_field)?
+    };
+    Ok(RevokeApplicationKeyRequest { revocation })
+}
+
+/// Encode a RevokeApplicationKeyRequest to canonical CSIL CBOR bytes.
+pub fn encode_revoke_application_key_request(csil_v: &RevokeApplicationKeyRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_revoke_application_key_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RevokeApplicationKeyRequest.
+pub fn decode_revoke_application_key_request(
+    csil_data: &[u8],
+) -> Result<RevokeApplicationKeyRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_revoke_application_key_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RevokeApplicationKeyResponse.
+fn csil_enc_revoke_application_key_response(
+    csil_v: &RevokeApplicationKeyResponse,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("revoked_at"), cbor_text(&csil_v.revoked_at)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RevokeApplicationKeyResponse from a decoded CBOR value tree.
+fn csil_dec_revoke_application_key_response(
+    csil_root: &CsilCborValue,
+) -> Result<RevokeApplicationKeyResponse, CsilCborError> {
+    let revoked_at = {
+        let csil_field = cbor_require(csil_root, "revoked_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(RevokeApplicationKeyResponse { revoked_at })
+}
+
+/// Encode a RevokeApplicationKeyResponse to canonical CSIL CBOR bytes.
+pub fn encode_revoke_application_key_response(csil_v: &RevokeApplicationKeyResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_revoke_application_key_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RevokeApplicationKeyResponse.
+pub fn decode_revoke_application_key_response(
+    csil_data: &[u8],
+) -> Result<RevokeApplicationKeyResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_revoke_application_key_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a EnrollApplicationInstanceRequest.
+fn csil_enc_enroll_application_instance_request(
+    csil_v: &EnrollApplicationInstanceRequest,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
+    csil_entries.push((
+        cbor_text("keys"),
+        cbor_enc_array(&csil_v.keys, csil_enc_signed_application_key_addition),
+    ));
+    csil_entries.push((cbor_text("instance_id"), cbor_text(&csil_v.instance_id)));
+    csil_entries.push((
+        cbor_text("application_id"),
+        cbor_text(&csil_v.application_id),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a EnrollApplicationInstanceRequest from a decoded CBOR value tree.
+fn csil_dec_enroll_application_instance_request(
+    csil_root: &CsilCborValue,
+) -> Result<EnrollApplicationInstanceRequest, CsilCborError> {
+    let application_id = {
+        let csil_field = cbor_require(csil_root, "application_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let instance_id = {
+        let csil_field = cbor_require(csil_root, "instance_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let keys = {
+        let csil_field = cbor_require(csil_root, "keys")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_signed_application_key_addition);
+        csil_decode(csil_field)?
+    };
+    Ok(EnrollApplicationInstanceRequest {
+        application_id,
+        instance_id,
+        keys,
+    })
+}
+
+/// Encode a EnrollApplicationInstanceRequest to canonical CSIL CBOR bytes.
+pub fn encode_enroll_application_instance_request(
+    csil_v: &EnrollApplicationInstanceRequest,
+) -> Vec<u8> {
+    cbor_encode(&csil_enc_enroll_application_instance_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a EnrollApplicationInstanceRequest.
+pub fn decode_enroll_application_instance_request(
+    csil_data: &[u8],
+) -> Result<EnrollApplicationInstanceRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_enroll_application_instance_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a EnrollApplicationInstanceResponse.
+fn csil_enc_enroll_application_instance_response(
+    csil_v: &EnrollApplicationInstanceResponse,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(5);
+    csil_entries.push((cbor_text("instance_id"), cbor_text(&csil_v.instance_id)));
+    csil_entries.push((
+        cbor_text("attestations"),
+        cbor_enc_array(
+            &csil_v.attestations,
+            csil_enc_signed_application_key_attestation,
+        ),
+    ));
+    csil_entries.push((
+        cbor_text("application_id"),
+        cbor_text(&csil_v.application_id),
+    ));
+    csil_entries.push((
+        cbor_text("subject_domain"),
+        cbor_text(&csil_v.subject_domain),
+    ));
+    csil_entries.push((
+        cbor_text("subject_user_id"),
+        cbor_text(&csil_v.subject_user_id),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a EnrollApplicationInstanceResponse from a decoded CBOR value tree.
+fn csil_dec_enroll_application_instance_response(
+    csil_root: &CsilCborValue,
+) -> Result<EnrollApplicationInstanceResponse, CsilCborError> {
+    let subject_user_id = {
+        let csil_field = cbor_require(csil_root, "subject_user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let subject_domain = {
+        let csil_field = cbor_require(csil_root, "subject_domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let application_id = {
+        let csil_field = cbor_require(csil_root, "application_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let instance_id = {
+        let csil_field = cbor_require(csil_root, "instance_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let attestations = {
+        let csil_field = cbor_require(csil_root, "attestations")?;
+        let csil_decode =
+            |csil_v| cbor_dec_array(csil_v, csil_dec_signed_application_key_attestation);
+        csil_decode(csil_field)?
+    };
+    Ok(EnrollApplicationInstanceResponse {
+        subject_user_id,
+        subject_domain,
+        application_id,
+        instance_id,
+        attestations,
+    })
+}
+
+/// Encode a EnrollApplicationInstanceResponse to canonical CSIL CBOR bytes.
+pub fn encode_enroll_application_instance_response(
+    csil_v: &EnrollApplicationInstanceResponse,
+) -> Vec<u8> {
+    cbor_encode(&csil_enc_enroll_application_instance_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a EnrollApplicationInstanceResponse.
+pub fn decode_enroll_application_instance_response(
+    csil_data: &[u8],
+) -> Result<EnrollApplicationInstanceResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_enroll_application_instance_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a GetApplicationKeysRequest.
+fn csil_enc_get_application_keys_request(csil_v: &GetApplicationKeysRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
+    csil_entries.push((cbor_text("instance_id"), cbor_text(&csil_v.instance_id)));
+    csil_entries.push((
+        cbor_text("application_id"),
+        cbor_text(&csil_v.application_id),
+    ));
+    csil_entries.push((
+        cbor_text("subject_user_id"),
+        cbor_text(&csil_v.subject_user_id),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a GetApplicationKeysRequest from a decoded CBOR value tree.
+fn csil_dec_get_application_keys_request(
+    csil_root: &CsilCborValue,
+) -> Result<GetApplicationKeysRequest, CsilCborError> {
+    let subject_user_id = {
+        let csil_field = cbor_require(csil_root, "subject_user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let application_id = {
+        let csil_field = cbor_require(csil_root, "application_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let instance_id = {
+        let csil_field = cbor_require(csil_root, "instance_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(GetApplicationKeysRequest {
+        subject_user_id,
+        application_id,
+        instance_id,
+    })
+}
+
+/// Encode a GetApplicationKeysRequest to canonical CSIL CBOR bytes.
+pub fn encode_get_application_keys_request(csil_v: &GetApplicationKeysRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_get_application_keys_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a GetApplicationKeysRequest.
+pub fn decode_get_application_keys_request(
+    csil_data: &[u8],
+) -> Result<GetApplicationKeysRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_get_application_keys_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a GetApplicationKeysResponse.
+fn csil_enc_get_application_keys_response(csil_v: &GetApplicationKeysResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(6);
+    csil_entries.push((
+        cbor_text("keys"),
+        cbor_enc_array(&csil_v.keys, csil_enc_signed_application_key_attestation),
+    ));
+    csil_entries.push((cbor_text("instance_id"), cbor_text(&csil_v.instance_id)));
+    csil_entries.push((
+        cbor_text("revocations"),
+        cbor_enc_array(&csil_v.revocations, csil_enc_application_key_revocation),
+    ));
+    csil_entries.push((
+        cbor_text("application_id"),
+        cbor_text(&csil_v.application_id),
+    ));
+    csil_entries.push((
+        cbor_text("subject_domain"),
+        cbor_text(&csil_v.subject_domain),
+    ));
+    csil_entries.push((
+        cbor_text("subject_user_id"),
+        cbor_text(&csil_v.subject_user_id),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a GetApplicationKeysResponse from a decoded CBOR value tree.
+fn csil_dec_get_application_keys_response(
+    csil_root: &CsilCborValue,
+) -> Result<GetApplicationKeysResponse, CsilCborError> {
+    let subject_user_id = {
+        let csil_field = cbor_require(csil_root, "subject_user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let subject_domain = {
+        let csil_field = cbor_require(csil_root, "subject_domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let application_id = {
+        let csil_field = cbor_require(csil_root, "application_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let instance_id = {
+        let csil_field = cbor_require(csil_root, "instance_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let keys = {
+        let csil_field = cbor_require(csil_root, "keys")?;
+        let csil_decode =
+            |csil_v| cbor_dec_array(csil_v, csil_dec_signed_application_key_attestation);
+        csil_decode(csil_field)?
+    };
+    let revocations = {
+        let csil_field = cbor_require(csil_root, "revocations")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_application_key_revocation);
+        csil_decode(csil_field)?
+    };
+    Ok(GetApplicationKeysResponse {
+        subject_user_id,
+        subject_domain,
+        application_id,
+        instance_id,
+        keys,
+        revocations,
+    })
+}
+
+/// Encode a GetApplicationKeysResponse to canonical CSIL CBOR bytes.
+pub fn encode_get_application_keys_response(csil_v: &GetApplicationKeysResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_get_application_keys_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a GetApplicationKeysResponse.
+pub fn decode_get_application_keys_response(
+    csil_data: &[u8],
+) -> Result<GetApplicationKeysResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_get_application_keys_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RpResolveDomainKeysRequest.
+fn csil_enc_rp_resolve_domain_keys_request(csil_v: &RpResolveDomainKeysRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("domain"), cbor_text(&csil_v.domain)));
+    if let Some(csil_inner) = &csil_v.max_cache_age_seconds {
+        csil_entries.push((cbor_text("max_cache_age_seconds"), cbor_int(*csil_inner)));
+    }
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RpResolveDomainKeysRequest from a decoded CBOR value tree.
+fn csil_dec_rp_resolve_domain_keys_request(
+    csil_root: &CsilCborValue,
+) -> Result<RpResolveDomainKeysRequest, CsilCborError> {
+    let domain = {
+        let csil_field = cbor_require(csil_root, "domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let max_cache_age_seconds = match cbor_map_get(csil_root, "max_cache_age_seconds") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_i64;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(RpResolveDomainKeysRequest {
+        domain,
+        max_cache_age_seconds,
+    })
+}
+
+/// Encode a RpResolveDomainKeysRequest to canonical CSIL CBOR bytes.
+pub fn encode_rp_resolve_domain_keys_request(csil_v: &RpResolveDomainKeysRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_rp_resolve_domain_keys_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RpResolveDomainKeysRequest.
+pub fn decode_rp_resolve_domain_keys_request(
+    csil_data: &[u8],
+) -> Result<RpResolveDomainKeysRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_rp_resolve_domain_keys_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RpResolveDomainKeysResponse.
+fn csil_enc_rp_resolve_domain_keys_response(csil_v: &RpResolveDomainKeysResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(6);
+    csil_entries.push((
+        cbor_text("keys"),
+        cbor_enc_array(&csil_v.keys, csil_enc_domain_public_key),
+    ));
+    csil_entries.push((cbor_text("domain"), cbor_text(&csil_v.domain)));
+    csil_entries.push((cbor_text("fetched_at"), cbor_text(&csil_v.fetched_at)));
+    csil_entries.push((
+        cbor_text("revocations"),
+        cbor_enc_array(&csil_v.revocations, csil_enc_revocation_certificate),
+    ));
+    csil_entries.push((cbor_text("cache_status"), cbor_text(&csil_v.cache_status)));
+    csil_entries.push((
+        cbor_text("revocations_checked_at"),
+        cbor_text(&csil_v.revocations_checked_at),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RpResolveDomainKeysResponse from a decoded CBOR value tree.
+fn csil_dec_rp_resolve_domain_keys_response(
+    csil_root: &CsilCborValue,
+) -> Result<RpResolveDomainKeysResponse, CsilCborError> {
+    let domain = {
+        let csil_field = cbor_require(csil_root, "domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let keys = {
+        let csil_field = cbor_require(csil_root, "keys")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_domain_public_key);
+        csil_decode(csil_field)?
+    };
+    let revocations = {
+        let csil_field = cbor_require(csil_root, "revocations")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_revocation_certificate);
+        csil_decode(csil_field)?
+    };
+    let fetched_at = {
+        let csil_field = cbor_require(csil_root, "fetched_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let revocations_checked_at = {
+        let csil_field = cbor_require(csil_root, "revocations_checked_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let cache_status = {
+        let csil_field = cbor_require(csil_root, "cache_status")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(RpResolveDomainKeysResponse {
+        domain,
+        keys,
+        revocations,
+        fetched_at,
+        revocations_checked_at,
+        cache_status,
+    })
+}
+
+/// Encode a RpResolveDomainKeysResponse to canonical CSIL CBOR bytes.
+pub fn encode_rp_resolve_domain_keys_response(csil_v: &RpResolveDomainKeysResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_rp_resolve_domain_keys_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RpResolveDomainKeysResponse.
+pub fn decode_rp_resolve_domain_keys_response(
+    csil_data: &[u8],
+) -> Result<RpResolveDomainKeysResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_rp_resolve_domain_keys_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RpResolveApplicationKeysRequest.
+fn csil_enc_rp_resolve_application_keys_request(
+    csil_v: &RpResolveApplicationKeysRequest,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(5);
+    csil_entries.push((cbor_text("instance_id"), cbor_text(&csil_v.instance_id)));
+    csil_entries.push((
+        cbor_text("application_id"),
+        cbor_text(&csil_v.application_id),
+    ));
+    csil_entries.push((
+        cbor_text("subject_domain"),
+        cbor_text(&csil_v.subject_domain),
+    ));
+    csil_entries.push((
+        cbor_text("subject_user_id"),
+        cbor_text(&csil_v.subject_user_id),
+    ));
+    if let Some(csil_inner) = &csil_v.max_cache_age_seconds {
+        csil_entries.push((cbor_text("max_cache_age_seconds"), cbor_int(*csil_inner)));
+    }
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RpResolveApplicationKeysRequest from a decoded CBOR value tree.
+fn csil_dec_rp_resolve_application_keys_request(
+    csil_root: &CsilCborValue,
+) -> Result<RpResolveApplicationKeysRequest, CsilCborError> {
+    let subject_user_id = {
+        let csil_field = cbor_require(csil_root, "subject_user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let subject_domain = {
+        let csil_field = cbor_require(csil_root, "subject_domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let application_id = {
+        let csil_field = cbor_require(csil_root, "application_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let instance_id = {
+        let csil_field = cbor_require(csil_root, "instance_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let max_cache_age_seconds = match cbor_map_get(csil_root, "max_cache_age_seconds") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_i64;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(RpResolveApplicationKeysRequest {
+        subject_user_id,
+        subject_domain,
+        application_id,
+        instance_id,
+        max_cache_age_seconds,
+    })
+}
+
+/// Encode a RpResolveApplicationKeysRequest to canonical CSIL CBOR bytes.
+pub fn encode_rp_resolve_application_keys_request(
+    csil_v: &RpResolveApplicationKeysRequest,
+) -> Vec<u8> {
+    cbor_encode(&csil_enc_rp_resolve_application_keys_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RpResolveApplicationKeysRequest.
+pub fn decode_rp_resolve_application_keys_request(
+    csil_data: &[u8],
+) -> Result<RpResolveApplicationKeysRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_rp_resolve_application_keys_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RpResolveApplicationKeysResponse.
+fn csil_enc_rp_resolve_application_keys_response(
+    csil_v: &RpResolveApplicationKeysResponse,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(11);
+    csil_entries.push((cbor_text("fetched_at"), cbor_text(&csil_v.fetched_at)));
+    csil_entries.push((cbor_text("instance_id"), cbor_text(&csil_v.instance_id)));
+    csil_entries.push((cbor_text("cache_status"), cbor_text(&csil_v.cache_status)));
+    csil_entries.push((
+        cbor_text("application_id"),
+        cbor_text(&csil_v.application_id),
+    ));
+    csil_entries.push((
+        cbor_text("subject_domain"),
+        cbor_text(&csil_v.subject_domain),
+    ));
+    csil_entries.push((
+        cbor_text("subject_user_id"),
+        cbor_text(&csil_v.subject_user_id),
+    ));
+    csil_entries.push((
+        cbor_text("application_keys"),
+        cbor_enc_array(
+            &csil_v.application_keys,
+            csil_enc_signed_application_key_attestation,
+        ),
+    ));
+    csil_entries.push((
+        cbor_text("home_domain_keys"),
+        cbor_enc_array(&csil_v.home_domain_keys, csil_enc_domain_public_key),
+    ));
+    csil_entries.push((
+        cbor_text("revocations_checked_at"),
+        cbor_text(&csil_v.revocations_checked_at),
+    ));
+    csil_entries.push((
+        cbor_text("application_key_revocations"),
+        cbor_enc_array(
+            &csil_v.application_key_revocations,
+            csil_enc_application_key_revocation,
+        ),
+    ));
+    csil_entries.push((
+        cbor_text("home_domain_key_revocations"),
+        cbor_enc_array(
+            &csil_v.home_domain_key_revocations,
+            csil_enc_revocation_certificate,
+        ),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RpResolveApplicationKeysResponse from a decoded CBOR value tree.
+fn csil_dec_rp_resolve_application_keys_response(
+    csil_root: &CsilCborValue,
+) -> Result<RpResolveApplicationKeysResponse, CsilCborError> {
+    let subject_user_id = {
+        let csil_field = cbor_require(csil_root, "subject_user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let subject_domain = {
+        let csil_field = cbor_require(csil_root, "subject_domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let application_id = {
+        let csil_field = cbor_require(csil_root, "application_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let instance_id = {
+        let csil_field = cbor_require(csil_root, "instance_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let application_keys = {
+        let csil_field = cbor_require(csil_root, "application_keys")?;
+        let csil_decode =
+            |csil_v| cbor_dec_array(csil_v, csil_dec_signed_application_key_attestation);
+        csil_decode(csil_field)?
+    };
+    let application_key_revocations = {
+        let csil_field = cbor_require(csil_root, "application_key_revocations")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_application_key_revocation);
+        csil_decode(csil_field)?
+    };
+    let home_domain_keys = {
+        let csil_field = cbor_require(csil_root, "home_domain_keys")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_domain_public_key);
+        csil_decode(csil_field)?
+    };
+    let home_domain_key_revocations = {
+        let csil_field = cbor_require(csil_root, "home_domain_key_revocations")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_revocation_certificate);
+        csil_decode(csil_field)?
+    };
+    let fetched_at = {
+        let csil_field = cbor_require(csil_root, "fetched_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let revocations_checked_at = {
+        let csil_field = cbor_require(csil_root, "revocations_checked_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let cache_status = {
+        let csil_field = cbor_require(csil_root, "cache_status")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(RpResolveApplicationKeysResponse {
+        subject_user_id,
+        subject_domain,
+        application_id,
+        instance_id,
+        application_keys,
+        application_key_revocations,
+        home_domain_keys,
+        home_domain_key_revocations,
+        fetched_at,
+        revocations_checked_at,
+        cache_status,
+    })
+}
+
+/// Encode a RpResolveApplicationKeysResponse to canonical CSIL CBOR bytes.
+pub fn encode_rp_resolve_application_keys_response(
+    csil_v: &RpResolveApplicationKeysResponse,
+) -> Vec<u8> {
+    cbor_encode(&csil_enc_rp_resolve_application_keys_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RpResolveApplicationKeysResponse.
+pub fn decode_rp_resolve_application_keys_response(
+    csil_data: &[u8],
+) -> Result<RpResolveApplicationKeysResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_rp_resolve_application_keys_response(&csil_root)
 }
 
 /// Encode a CheckValue union as a tagged sum `[variant_index, value]`.

@@ -48,6 +48,15 @@ rcgen = "0.13"
 rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std"] }
 rustls-pki-types = "1"
 x509-parser = "0.16"
+# Async rustls I/O for the event-driven TCP server (signing-things-request.md,
+# "Connection scalability"): wraps our own `rustls::ServerConfig` in a
+# `TlsAcceptor` that drives the handshake and ongoing read/write on a Tokio
+# task instead of a blocking OS thread. `default-features = false` to match
+# how `rustls` itself is pinned above (ring provider, no TLS 1.2) — we only
+# use `TlsAcceptor`/`TlsStream` over our own already-built `ServerConfig`, not
+# tokio-rustls's own convenience config builders, so no extra feature is
+# needed beyond that.
+tokio-rustls = { version = "0.26", default-features = false }
 
 # Threading
 threadpool = "1.8"
@@ -59,6 +68,18 @@ chrono = { version = "0.4", features = ["serde"] }
 # Cryptography (re-export for CLI key handling)
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 
+# Zero decrypted private-key material on drop (security review). Already in
+# the tree transitively via ed25519-dalek/x25519-dalek/rustls/chacha20poly1305;
+# promoted to a direct dependency so this crate can wrap decrypted domain/backup
+# keys in `Zeroizing`.
+zeroize = { version = "1.8", features = ["zeroize_derive"] }
+
+# `mlock`/`munlock` for the warm domain-signing-key cache (services::warm_signer),
+# so decrypted key pages are kept out of swap/hibernation. Already in the tree
+# transitively (e.g. via rustls' platform bits); pinned to the resolved
+# Cargo.lock version and promoted to a direct dependency for that unsafe call.
+libc = "=0.2.182"
+
 # Password hashing
 bcrypt = "0.17"
 
@@ -67,7 +88,14 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 
 # DNS resolution
 hickory-resolver = "0.26"
-tokio = { version = "1", features = ["rt-multi-thread"] }
+# `net`/`io-util`/`time`/`sync`/`macros` are already pulled in transitively
+# (Rocket's own runtime needs the same features, and Cargo unifies features
+# per resolved crate version), but the TCP server now uses them directly
+# (`tokio::net::TcpListener`, async read/write, `tokio::time::timeout`,
+# `Semaphore`/`mpsc`, `#[tokio::test]`) — declared explicitly rather than
+# relying on that transitive union, which is not guaranteed by Rocket's own
+# feature choices.
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "sync", "macros"] }
 
 # Outbound email. Rustls is in the normal build. Native TLS is opt-in through
 # the `smtp-native-tls` LinkKeys feature because it can add an OpenSSL system

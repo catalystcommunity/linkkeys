@@ -9,7 +9,6 @@ use cli::{
 };
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::thread;
 
 #[rocket::main]
 async fn main() {
@@ -20,6 +19,16 @@ async fn main() {
     match cli.command {
         Commands::Serve => {
             log::info!("Starting linkkeys server...");
+
+            // Refuse an unusable configuration before anything opens a
+            // socket. The application-key check is the one that matters most:
+            // a revocation look-back shorter than a key can live would let a
+            // revoked, unexpired key verify clean, and that is not something
+            // to discover from a security incident.
+            if let Err(error) = linkkeys::services::application_keys::validate_configuration() {
+                eprintln!("Application key configuration is unusable: {error}");
+                std::process::exit(1);
+            }
 
             let db_pool = linkkeys::db::create_pool();
             let ready_flag = Arc::new(AtomicBool::new(false));
@@ -46,7 +55,14 @@ async fn main() {
                         eprintln!("Outbound notification startup failed: {error}");
                         std::process::exit(1);
                     });
-            thread::spawn(move || tcp_server.run());
+            // The TCP server is now an async event loop (one Tokio task per
+            // connection, not one OS thread — see
+            // crates/linkkeys/src/tcp/mod.rs), so it runs as a task on the
+            // SAME runtime `#[rocket::main]` already provides, rather than a
+            // dedicated OS thread. Fire-and-forget, matching the previous
+            // `thread::spawn` behavior exactly: no shutdown hook existed for
+            // this component before, and none is added now.
+            tokio::spawn(tcp_server.run());
 
             linkkeys::web::launch_rocket(db_pool, ready_flag, ui_configuration).await;
         }

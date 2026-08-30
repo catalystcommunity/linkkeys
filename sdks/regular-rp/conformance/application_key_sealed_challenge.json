@@ -1,0 +1,43 @@
+{
+  "aead_nonce_hex": "0b0b0b0b0b0b0b0b0b0b0b0b",
+  "cases": [
+    {
+      "expected_plaintext_hex": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "expected_valid": true,
+      "name": "opens_with_correct_key",
+      "recipient_private_key_hex": "0808080808080808080808080808080808080808080808080808080808080808"
+    }
+  ],
+  "ephemeral_private_key_hex": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+  "negative_cases": [
+    {
+      "description": "The same sealed challenge opened with a DIFFERENT, real X25519 private key than the one it was sealed to.",
+      "expected_valid": false,
+      "name": "refused_by_wrong_key",
+      "recipient_private_key_hex": "0909090909090909090909090909090909090909090909090909090909090909"
+    },
+    {
+      "description": "The sealed challenge bytes with the last byte flipped (part of the AEAD ciphertext/tag), opened with the CORRECT key.",
+      "expected_valid": false,
+      "name": "refused_when_corrupted",
+      "recipient_private_key_hex": "0808080808080808080808080808080808080808080808080808080808080808",
+      "sealed_cbor_hex": "847163686163686132302d706f6c79313330355820f77ff4b10788bfdca62ca0bb160d427cf5762d85f2b5cad6807ec9c3febbde094c0b0b0b0b0b0b0b0b0b0b0b0b5830e0f3f5a6ffb2ab70a36989c9edcdd52e9693d7348e887567597644715cbc585ee5288e953841a95eae93fb43f9d90793"
+    }
+  ],
+  "nonce_hex": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+  "note": "seal_challenge: the home domain's proof-of-possession exchange for an X25519 (key-agreement) key, which cannot sign for itself. `sealed_cbor_hex` is CBOR([suite: tstr, ephemeral_public_key: bstr, aead_nonce: bstr, ciphertext: bstr]) -- a FOUR-element array. Production code draws the ephemeral X25519 key and AEAD nonce from the OS RNG (seal_challenge); this vector was produced with the deterministic seam seal_challenge_with_randomness so the ciphertext is byte-stable across regeneration. ALL KEYS IN THIS FILE ARE FIXED, PUBLICLY-KNOWN TEST-ONLY MATERIAL. Never reuse any key here for anything real.",
+  "recipient": {
+    "key_id": "challenge-recipient",
+    "private_key_hex": "0808080808080808080808080808080808080808080808080808080808080808",
+    "public_key_hex": "31d4ab6aceec961137917037936e60716fac573afe94d9da84a8020448dfc112",
+    "seed_hex": "0808080808080808080808080808080808080808080808080808080808080808"
+  },
+  "sealed_cbor_hex": "847163686163686132302d706f6c79313330355820f77ff4b10788bfdca62ca0bb160d427cf5762d85f2b5cad6807ec9c3febbde094c0b0b0b0b0b0b0b0b0b0b0b0b5830e0f3f5a6ffb2ab70a36989c9edcdd52e9693d7348e887567597644715cbc585ee5288e953841a95eae93fb43f9d9076c",
+  "suite": "chacha20-poly1305",
+  "wrong_recipient": {
+    "key_id": "challenge-wrong-recipient",
+    "private_key_hex": "0909090909090909090909090909090909090909090909090909090909090909",
+    "public_key_hex": "57db4b359f23ae5e146e4e2512056704722506348c150c14753d0c933d04d421",
+    "seed_hex": "0909090909090909090909090909090909090909090909090909090909090909"
+  }
+}

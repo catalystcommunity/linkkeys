@@ -1,4 +1,5 @@
 pub mod account_security;
+pub mod application_keys;
 pub mod auth_credentials;
 pub mod claim_policy;
 pub mod claims;
@@ -13,6 +14,7 @@ pub mod nonces;
 pub mod peer_keys;
 pub mod profiles;
 pub mod relations;
+pub mod rp_cache;
 pub mod user_keys;
 pub mod user_release_prefs;
 pub mod users;
@@ -2344,6 +2346,399 @@ impl DbPool {
         }
     }
 
+    // -- Application keys (signing-things-request.md, step 2) --
+
+    pub fn upsert_application_instance(
+        &self,
+        subject_user_id: &str,
+        application_id: &str,
+        instance_id: &str,
+        enrolled_at: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<models::ApplicationInstance> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => application_keys::pg::upsert_instance(
+                &mut *pg_conn(p)?,
+                subject_user_id,
+                application_id,
+                instance_id,
+                enrolled_at,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => application_keys::sqlite::upsert_instance(
+                &mut *sqlite_conn(p)?,
+                subject_user_id,
+                application_id,
+                instance_id,
+                enrolled_at,
+            ),
+        }
+    }
+
+    pub fn find_application_instance(
+        &self,
+        subject_user_id: &str,
+        application_id: &str,
+        instance_id: &str,
+    ) -> QueryResult<Option<models::ApplicationInstance>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => application_keys::pg::find_instance(
+                &mut *pg_conn(p)?,
+                subject_user_id,
+                application_id,
+                instance_id,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => application_keys::sqlite::find_instance(
+                &mut *sqlite_conn(p)?,
+                subject_user_id,
+                application_id,
+                instance_id,
+            ),
+        }
+    }
+
+    pub fn record_application_trust_reset(
+        &self,
+        instance_row_id: &str,
+        at: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                application_keys::pg::record_trust_reset(&mut *pg_conn(p)?, instance_row_id, at)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => application_keys::sqlite::record_trust_reset(
+                &mut *sqlite_conn(p)?,
+                instance_row_id,
+                at,
+            ),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_application_key(
+        &self,
+        instance_row_id: &str,
+        key_id: &str,
+        key_usage: &str,
+        algorithm: &str,
+        public_key: &[u8],
+        fingerprint: &str,
+        created_at: chrono::DateTime<chrono::Utc>,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<models::ApplicationKey> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => application_keys::pg::insert_key(
+                &mut *pg_conn(p)?,
+                instance_row_id,
+                key_id,
+                key_usage,
+                algorithm,
+                public_key,
+                fingerprint,
+                created_at,
+                expires_at,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => application_keys::sqlite::insert_key(
+                &mut *sqlite_conn(p)?,
+                instance_row_id,
+                key_id,
+                key_usage,
+                algorithm,
+                public_key,
+                fingerprint,
+                created_at,
+                expires_at,
+            ),
+        }
+    }
+
+    pub fn find_application_key(
+        &self,
+        instance_row_id: &str,
+        key_id: &str,
+    ) -> QueryResult<Option<models::ApplicationKey>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                application_keys::pg::find_key(&mut *pg_conn(p)?, instance_row_id, key_id)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                application_keys::sqlite::find_key(&mut *sqlite_conn(p)?, instance_row_id, key_id)
+            }
+        }
+    }
+
+    pub fn list_application_keys(
+        &self,
+        instance_row_id: &str,
+    ) -> QueryResult<Vec<models::ApplicationKey>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                application_keys::pg::list_keys(&mut *pg_conn(p)?, instance_row_id)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                application_keys::sqlite::list_keys(&mut *sqlite_conn(p)?, instance_row_id)
+            }
+        }
+    }
+
+    /// Counts only non-revoked keys.
+    pub fn count_application_keys(&self, instance_row_id: &str) -> QueryResult<i64> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                application_keys::pg::count_keys(&mut *pg_conn(p)?, instance_row_id)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                application_keys::sqlite::count_keys(&mut *sqlite_conn(p)?, instance_row_id)
+            }
+        }
+    }
+
+    pub fn revoke_application_key(
+        &self,
+        instance_row_id: &str,
+        key_id: &str,
+        revoked_at: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => application_keys::pg::revoke_key(
+                &mut *pg_conn(p)?,
+                instance_row_id,
+                key_id,
+                revoked_at,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => application_keys::sqlite::revoke_key(
+                &mut *sqlite_conn(p)?,
+                instance_row_id,
+                key_id,
+                revoked_at,
+            ),
+        }
+    }
+
+    /// On conflict on `application_key_row_id`, replaces the stored
+    /// attestation bytes (renewal).
+    pub fn upsert_application_key_attestation(
+        &self,
+        application_key_row_id: &str,
+        signed_attestation: &[u8],
+        attested_at: chrono::DateTime<chrono::Utc>,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => application_keys::pg::upsert_attestation(
+                &mut *pg_conn(p)?,
+                application_key_row_id,
+                signed_attestation,
+                attested_at,
+                expires_at,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => application_keys::sqlite::upsert_attestation(
+                &mut *sqlite_conn(p)?,
+                application_key_row_id,
+                signed_attestation,
+                attested_at,
+                expires_at,
+            ),
+        }
+    }
+
+    pub fn get_application_key_attestation(
+        &self,
+        application_key_row_id: &str,
+    ) -> QueryResult<Option<models::ApplicationKeyAttestationRecord>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                application_keys::pg::get_attestation(&mut *pg_conn(p)?, application_key_row_id)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => application_keys::sqlite::get_attestation(
+                &mut *sqlite_conn(p)?,
+                application_key_row_id,
+            ),
+        }
+    }
+
+    /// Permanent and idempotent (a repeat is a no-op).
+    pub fn insert_application_key_revocation(
+        &self,
+        instance_row_id: &str,
+        target_key_id: &str,
+        target_fingerprint: &str,
+        revoked_at: chrono::DateTime<chrono::Utc>,
+        record: &[u8],
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => application_keys::pg::insert_revocation(
+                &mut *pg_conn(p)?,
+                instance_row_id,
+                target_key_id,
+                target_fingerprint,
+                revoked_at,
+                record,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => application_keys::sqlite::insert_revocation(
+                &mut *sqlite_conn(p)?,
+                instance_row_id,
+                target_key_id,
+                target_fingerprint,
+                revoked_at,
+                record,
+            ),
+        }
+    }
+
+    pub fn list_application_key_revocations_since(
+        &self,
+        instance_row_id: &str,
+        since: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> QueryResult<Vec<models::ApplicationKeyRevocationRecord>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => application_keys::pg::list_revocations_since(
+                &mut *pg_conn(p)?,
+                instance_row_id,
+                since,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => application_keys::sqlite::list_revocations_since(
+                &mut *sqlite_conn(p)?,
+                instance_row_id,
+                since,
+            ),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_application_key_challenge(
+        &self,
+        challenge_id: &str,
+        subject_user_id: &str,
+        application_id: &str,
+        instance_id: &str,
+        purpose: &str,
+        key_usage: &str,
+        algorithm: &str,
+        public_key: &[u8],
+        nonce: &[u8],
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => application_keys::pg::insert_challenge(
+                &mut *pg_conn(p)?,
+                challenge_id,
+                subject_user_id,
+                application_id,
+                instance_id,
+                purpose,
+                key_usage,
+                algorithm,
+                public_key,
+                nonce,
+                expires_at,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => application_keys::sqlite::insert_challenge(
+                &mut *sqlite_conn(p)?,
+                challenge_id,
+                subject_user_id,
+                application_id,
+                instance_id,
+                purpose,
+                key_usage,
+                algorithm,
+                public_key,
+                nonce,
+                expires_at,
+            ),
+        }
+    }
+
+    /// Atomic single-use consumption; see `application_keys::{pg,sqlite}::consume_challenge`.
+    pub fn consume_application_key_challenge(
+        &self,
+        challenge_id: &str,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<Option<models::ApplicationKeyChallenge>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                application_keys::pg::consume_challenge(&mut *pg_conn(p)?, challenge_id, now)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => application_keys::sqlite::consume_challenge(
+                &mut *sqlite_conn(p)?,
+                challenge_id,
+                now,
+            ),
+        }
+    }
+
+    pub fn delete_expired_application_key_challenges(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                application_keys::pg::delete_expired_challenges(&mut *pg_conn(p)?, now)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                application_keys::sqlite::delete_expired_challenges(&mut *sqlite_conn(p)?, now)
+            }
+        }
+    }
+
+    /// THE public-read projection: instance identifiers, non-revoked/
+    /// non-expired keys' attestation bytes, and revocation record bytes at/
+    /// after `revocation_since`. `Ok(None)` when the instance does not exist.
+    pub fn load_application_public_records(
+        &self,
+        subject_user_id: &str,
+        application_id: &str,
+        instance_id: &str,
+        revocation_since: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> QueryResult<Option<models::ApplicationPublicRecords>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => application_keys::pg::load_public_records(
+                &mut *pg_conn(p)?,
+                subject_user_id,
+                application_id,
+                instance_id,
+                revocation_since,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => application_keys::sqlite::load_public_records(
+                &mut *sqlite_conn(p)?,
+                subject_user_id,
+                application_id,
+                instance_id,
+                revocation_since,
+            ),
+        }
+    }
+
     /// Revoke a cached peer key by fingerprint (pin recheck retiring an old key).
     pub fn revoke_peer_key_by_fingerprint(
         &self,
@@ -4122,6 +4517,273 @@ impl DbPool {
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
                 local_rp::sqlite::delete_tickets_by_user_id(&mut *sqlite_conn(p)?, user_id)
+            }
+        }
+    }
+
+    // -- RP cache (signing-things-request.md, step 6) --
+
+    /// Freshness record for our cache of `domain`'s signing keys. The key
+    /// material itself lives in `peer_keys` / `list_active_domain_keys`.
+    pub fn get_rp_domain_key_cache_meta(
+        &self,
+        domain: &str,
+    ) -> QueryResult<Option<models::RpDomainKeyCacheMeta>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => rp_cache::pg::get_domain_meta(&mut *pg_conn(p)?, domain),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => rp_cache::sqlite::get_domain_meta(&mut *sqlite_conn(p)?, domain),
+        }
+    }
+
+    pub fn upsert_rp_domain_key_cache_meta(
+        &self,
+        domain: &str,
+        fetched_at: chrono::DateTime<chrono::Utc>,
+        revocations_checked_at: chrono::DateTime<chrono::Utc>,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => rp_cache::pg::upsert_domain_meta(
+                &mut *pg_conn(p)?,
+                domain,
+                fetched_at,
+                revocations_checked_at,
+                now,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => rp_cache::sqlite::upsert_domain_meta(
+                &mut *sqlite_conn(p)?,
+                domain,
+                fetched_at,
+                revocations_checked_at,
+                now,
+            ),
+        }
+    }
+
+    pub fn touch_rp_domain_key_cache_meta(
+        &self,
+        domain: &str,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => rp_cache::pg::touch_domain_meta(&mut *pg_conn(p)?, domain, now),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                rp_cache::sqlite::touch_domain_meta(&mut *sqlite_conn(p)?, domain, now)
+            }
+        }
+    }
+
+    /// Bounded eviction: drop the least-recently-used domain freshness
+    /// records beyond `max_entries` (`RP_CACHE_MAX_ENTRIES`).
+    pub fn evict_oldest_rp_domain_key_cache(&self, max_entries: i64) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                rp_cache::pg::evict_oldest_domain_meta(&mut *pg_conn(p)?, max_entries)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                rp_cache::sqlite::evict_oldest_domain_meta(&mut *sqlite_conn(p)?, max_entries)
+            }
+        }
+    }
+
+    /// Find the RP's cache entry for one remote application instance, keyed
+    /// on the canonical (subject_user_id, subject_domain, application_id,
+    /// instance_id) tuple — never a handle.
+    pub fn find_rp_application_key_cache_entry(
+        &self,
+        subject_user_id: &str,
+        subject_domain: &str,
+        application_id: &str,
+        instance_id: &str,
+    ) -> QueryResult<Option<models::RpApplicationKeyCacheEntry>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => rp_cache::pg::find_entry(
+                &mut *pg_conn(p)?,
+                subject_user_id,
+                subject_domain,
+                application_id,
+                instance_id,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => rp_cache::sqlite::find_entry(
+                &mut *sqlite_conn(p)?,
+                subject_user_id,
+                subject_domain,
+                application_id,
+                instance_id,
+            ),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn upsert_rp_application_key_cache_entry(
+        &self,
+        subject_user_id: &str,
+        subject_domain: &str,
+        application_id: &str,
+        instance_id: &str,
+        fetched_at: chrono::DateTime<chrono::Utc>,
+        revocations_checked_at: chrono::DateTime<chrono::Utc>,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<models::RpApplicationKeyCacheEntry> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => rp_cache::pg::upsert_entry(
+                &mut *pg_conn(p)?,
+                subject_user_id,
+                subject_domain,
+                application_id,
+                instance_id,
+                fetched_at,
+                revocations_checked_at,
+                now,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => rp_cache::sqlite::upsert_entry(
+                &mut *sqlite_conn(p)?,
+                subject_user_id,
+                subject_domain,
+                application_id,
+                instance_id,
+                fetched_at,
+                revocations_checked_at,
+                now,
+            ),
+        }
+    }
+
+    pub fn touch_rp_application_key_cache_entry(
+        &self,
+        entry_id: &str,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => rp_cache::pg::touch_entry(&mut *pg_conn(p)?, entry_id, now),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                rp_cache::sqlite::touch_entry(&mut *sqlite_conn(p)?, entry_id, now)
+            }
+        }
+    }
+
+    /// Bounded eviction: drop the least-recently-used application-key cache
+    /// entries (and their attestation/revocation rows) beyond `max_entries`
+    /// (`RP_CACHE_MAX_ENTRIES`).
+    pub fn evict_oldest_rp_application_key_cache_entries(
+        &self,
+        max_entries: i64,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                rp_cache::pg::evict_oldest_entries(&mut *pg_conn(p)?, max_entries)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                rp_cache::sqlite::evict_oldest_entries(&mut *sqlite_conn(p)?, max_entries)
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn upsert_rp_application_key_attestation(
+        &self,
+        cache_entry_id: &str,
+        key_id: &str,
+        signed_attestation: &[u8],
+        attestation_expires_at: chrono::DateTime<chrono::Utc>,
+        verified_by_key_ids: &str,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => rp_cache::pg::upsert_attestation(
+                &mut *pg_conn(p)?,
+                cache_entry_id,
+                key_id,
+                signed_attestation,
+                attestation_expires_at,
+                verified_by_key_ids,
+                now,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => rp_cache::sqlite::upsert_attestation(
+                &mut *sqlite_conn(p)?,
+                cache_entry_id,
+                key_id,
+                signed_attestation,
+                attestation_expires_at,
+                verified_by_key_ids,
+                now,
+            ),
+        }
+    }
+
+    pub fn list_rp_application_key_attestations(
+        &self,
+        cache_entry_id: &str,
+    ) -> QueryResult<Vec<models::RpApplicationKeyAttestationCache>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                rp_cache::pg::list_attestations(&mut *pg_conn(p)?, cache_entry_id)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                rp_cache::sqlite::list_attestations(&mut *sqlite_conn(p)?, cache_entry_id)
+            }
+        }
+    }
+
+    pub fn upsert_rp_application_key_revocation(
+        &self,
+        cache_entry_id: &str,
+        target_key_id: &str,
+        revocation: &[u8],
+        revoked_at: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => rp_cache::pg::upsert_revocation(
+                &mut *pg_conn(p)?,
+                cache_entry_id,
+                target_key_id,
+                revocation,
+                revoked_at,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => rp_cache::sqlite::upsert_revocation(
+                &mut *sqlite_conn(p)?,
+                cache_entry_id,
+                target_key_id,
+                revocation,
+                revoked_at,
+            ),
+        }
+    }
+
+    pub fn list_rp_application_key_revocations(
+        &self,
+        cache_entry_id: &str,
+    ) -> QueryResult<Vec<models::RpApplicationKeyRevocationCache>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                rp_cache::pg::list_revocations(&mut *pg_conn(p)?, cache_entry_id)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                rp_cache::sqlite::list_revocations(&mut *sqlite_conn(p)?, cache_entry_id)
             }
         }
     }

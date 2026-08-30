@@ -138,6 +138,74 @@ final class UserKeysAsyncClient {
   }
 }
 
+/// A typed, transport-agnostic client for the ApplicationKeys service. The client owns
+/// (de)serialization; the carrier only moves bytes.
+final class ApplicationKeysAsyncClient {
+  final AsyncCsilTransport transport;
+  const ApplicationKeysAsyncClient(this.transport);
+
+  Future<GetApplicationKeysResponse> getApplicationKeys(
+    GetApplicationKeysRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'ApplicationKeys',
+      'get-application-keys',
+      request.toCbor(),
+    );
+    return GetApplicationKeysResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
+  Future<StartApplicationKeyChallengeResponse> startKeyChallenge(
+    StartApplicationKeyChallengeRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'ApplicationKeys',
+      'start-key-challenge',
+      request.toCbor(),
+    );
+    return StartApplicationKeyChallengeResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
+
+  Future<AddApplicationKeyResponse> addKey(
+    AddApplicationKeyRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'ApplicationKeys',
+      'add-key',
+      request.toCbor(),
+    );
+    return AddApplicationKeyResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
+  Future<RenewApplicationKeyAttestationResponse> renewAttestation(
+    RenewApplicationKeyAttestationRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'ApplicationKeys',
+      'renew-attestation',
+      request.toCbor(),
+    );
+    return RenewApplicationKeyAttestationResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
+
+  Future<RevokeApplicationKeyResponse> revokeKey(
+    RevokeApplicationKeyRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'ApplicationKeys',
+      'revoke-key',
+      request.toCbor(),
+    );
+    return RevokeApplicationKeyResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
+}
+
 /// A typed, transport-agnostic client for the Identity service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 final class IdentityAsyncClient {
@@ -982,6 +1050,19 @@ final class AccountAsyncClient {
       CsilCbor.decode(csilResp),
     );
   }
+
+  Future<EnrollApplicationInstanceResponse> enrollApplicationInstance(
+    EnrollApplicationInstanceRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'Account',
+      'enroll-application-instance',
+      request.toCbor(),
+    );
+    return EnrollApplicationInstanceResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
 }
 
 /// A typed, transport-agnostic client for the Attestation service. The client owns
@@ -1051,6 +1132,30 @@ final class RpAsyncClient {
       request.toCbor(),
     );
     return RpIssueAttestationResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
+  Future<RpResolveDomainKeysResponse> resolveDomainKeys(
+    RpResolveDomainKeysRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'Rp',
+      'resolve-domain-keys',
+      request.toCbor(),
+    );
+    return RpResolveDomainKeysResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
+  Future<RpResolveApplicationKeysResponse> resolveApplicationKeys(
+    RpResolveApplicationKeysRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'Rp',
+      'resolve-application-keys',
+      request.toCbor(),
+    );
+    return RpResolveApplicationKeysResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
   }
 }
 

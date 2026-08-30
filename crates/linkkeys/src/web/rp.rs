@@ -183,8 +183,8 @@ pub(crate) fn decrypt_token_core(
             Ok(b) => b,
             Err(_) => continue,
         };
-        let x25519_private: [u8; 32] = match sk_bytes.as_slice().try_into() {
-            Ok(k) => k,
+        let x25519_private: zeroize::Zeroizing<[u8; 32]> = match sk_bytes.as_slice().try_into() {
+            Ok(k) => zeroize::Zeroizing::new(k),
             Err(_) => continue,
         };
         if let Ok(plaintext) = liblinkkeys::crypto::sealed_box_decrypt(
@@ -499,7 +499,8 @@ fn own_client_cert(pool: &DbPool) -> Option<(Vec<u8>, Vec<u8>)> {
     let sk_bytes =
         liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, passphrase.as_bytes())
             .ok()?;
-    let seed: [u8; 32] = sk_bytes.try_into().ok()?;
+    let seed: zeroize::Zeroizing<[u8; 32]> =
+        zeroize::Zeroizing::new(sk_bytes.as_slice().try_into().ok()?);
     crate::tcp::tls::generate_domain_tls_cert(&get_domain_name(), &seed).ok()
 }
 

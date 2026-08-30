@@ -1430,6 +1430,215 @@ pub const ListLocalesResponse = struct {
     available_locales: [][]const u8,
 };
 
+/// ApplicationKeySignature is a structured data type.
+pub const ApplicationKeySignature = struct {
+    signed_by_key_id: []const u8,
+    signature: []const u8,
+};
+
+/// ApplicationKeyAttestation is a structured data type.
+pub const ApplicationKeyAttestation = struct {
+    subject_user_id: []const u8,
+    subject_domain: []const u8,
+    application_id: []const u8,
+    instance_id: []const u8,
+    key_id: []const u8,
+    key_usage: []const u8,
+    algorithm: []const u8,
+    public_key: []const u8,
+    fingerprint: []const u8,
+    key_created_at: []const u8,
+    key_expires_at: []const u8,
+    attested_at: []const u8,
+    attestation_expires_at: []const u8,
+};
+
+/// SignedApplicationKeyAttestation is a structured data type.
+pub const SignedApplicationKeyAttestation = struct {
+    attestation: []const u8,
+    signatures: []ClaimSignature,
+};
+
+/// ApplicationKeyAddition is a structured data type.
+pub const ApplicationKeyAddition = struct {
+    subject_user_id: []const u8,
+    subject_domain: []const u8,
+    application_id: []const u8,
+    instance_id: []const u8,
+    key_id: []const u8,
+    key_usage: []const u8,
+    algorithm: []const u8,
+    public_key: []const u8,
+    fingerprint: []const u8,
+    requested_key_lifetime_seconds: i64,
+    challenge_id: []const u8,
+    challenge: []const u8,
+    requested_at: []const u8,
+    expires_at: []const u8,
+};
+
+/// SignedApplicationKeyAddition is a structured data type.
+pub const SignedApplicationKeyAddition = struct {
+    addition: []const u8,
+    signatures: []ApplicationKeySignature,
+    possession_proof: ?[]const u8 = null,
+};
+
+/// ApplicationKeyRenewal is a structured data type.
+pub const ApplicationKeyRenewal = struct {
+    subject_user_id: []const u8,
+    subject_domain: []const u8,
+    application_id: []const u8,
+    instance_id: []const u8,
+    key_id: []const u8,
+    challenge_id: []const u8,
+    challenge: []const u8,
+    requested_at: []const u8,
+    expires_at: []const u8,
+};
+
+/// SignedApplicationKeyRenewal is a structured data type.
+pub const SignedApplicationKeyRenewal = struct {
+    renewal: []const u8,
+    signatures: []ApplicationKeySignature,
+    possession_proof: ?[]const u8 = null,
+};
+
+/// ApplicationKeyRevocation is a structured data type.
+pub const ApplicationKeyRevocation = struct {
+    subject_user_id: []const u8,
+    subject_domain: []const u8,
+    application_id: []const u8,
+    instance_id: []const u8,
+    target_key_id: []const u8,
+    target_fingerprint: []const u8,
+    revoked_at: []const u8,
+    signatures: []ApplicationKeySignature,
+};
+
+/// StartApplicationKeyChallengeRequest is a structured data type.
+pub const StartApplicationKeyChallengeRequest = struct {
+    subject_user_id: []const u8,
+    application_id: []const u8,
+    instance_id: []const u8,
+    purpose: []const u8,
+    key_usage: []const u8,
+    algorithm: []const u8,
+    public_key: []const u8,
+};
+
+/// StartApplicationKeyChallengeResponse is a structured data type.
+pub const StartApplicationKeyChallengeResponse = struct {
+    challenge_id: []const u8,
+    challenge: ?[]const u8 = null,
+    sealed_challenge: ?[]const u8 = null,
+    expires_at: []const u8,
+};
+
+/// AddApplicationKeyRequest is a structured data type.
+pub const AddApplicationKeyRequest = struct {
+    request: SignedApplicationKeyAddition,
+};
+
+/// AddApplicationKeyResponse is a structured data type.
+pub const AddApplicationKeyResponse = struct {
+    attestation: SignedApplicationKeyAttestation,
+};
+
+/// RenewApplicationKeyAttestationRequest is a structured data type.
+pub const RenewApplicationKeyAttestationRequest = struct {
+    request: SignedApplicationKeyRenewal,
+};
+
+/// RenewApplicationKeyAttestationResponse is a structured data type.
+pub const RenewApplicationKeyAttestationResponse = struct {
+    attestation: SignedApplicationKeyAttestation,
+    signed: bool,
+};
+
+/// RevokeApplicationKeyRequest is a structured data type.
+pub const RevokeApplicationKeyRequest = struct {
+    revocation: ApplicationKeyRevocation,
+};
+
+/// RevokeApplicationKeyResponse is a structured data type.
+pub const RevokeApplicationKeyResponse = struct {
+    revoked_at: []const u8,
+};
+
+/// EnrollApplicationInstanceRequest is a structured data type.
+pub const EnrollApplicationInstanceRequest = struct {
+    application_id: []const u8,
+    instance_id: []const u8,
+    keys: []SignedApplicationKeyAddition,
+};
+
+/// EnrollApplicationInstanceResponse is a structured data type.
+pub const EnrollApplicationInstanceResponse = struct {
+    subject_user_id: []const u8,
+    subject_domain: []const u8,
+    application_id: []const u8,
+    instance_id: []const u8,
+    attestations: []SignedApplicationKeyAttestation,
+};
+
+/// GetApplicationKeysRequest is a structured data type.
+pub const GetApplicationKeysRequest = struct {
+    subject_user_id: []const u8,
+    application_id: []const u8,
+    instance_id: []const u8,
+};
+
+/// GetApplicationKeysResponse is a structured data type.
+pub const GetApplicationKeysResponse = struct {
+    subject_user_id: []const u8,
+    subject_domain: []const u8,
+    application_id: []const u8,
+    instance_id: []const u8,
+    keys: []SignedApplicationKeyAttestation,
+    revocations: []ApplicationKeyRevocation,
+};
+
+/// RpResolveDomainKeysRequest is a structured data type.
+pub const RpResolveDomainKeysRequest = struct {
+    domain: []const u8,
+    max_cache_age_seconds: ?i64 = null,
+};
+
+/// RpResolveDomainKeysResponse is a structured data type.
+pub const RpResolveDomainKeysResponse = struct {
+    domain: []const u8,
+    keys: []DomainPublicKey,
+    revocations: []RevocationCertificate,
+    fetched_at: []const u8,
+    revocations_checked_at: []const u8,
+    cache_status: []const u8,
+};
+
+/// RpResolveApplicationKeysRequest is a structured data type.
+pub const RpResolveApplicationKeysRequest = struct {
+    subject_user_id: []const u8,
+    subject_domain: []const u8,
+    application_id: []const u8,
+    instance_id: []const u8,
+    max_cache_age_seconds: ?i64 = null,
+};
+
+/// RpResolveApplicationKeysResponse is a structured data type.
+pub const RpResolveApplicationKeysResponse = struct {
+    subject_user_id: []const u8,
+    subject_domain: []const u8,
+    application_id: []const u8,
+    instance_id: []const u8,
+    application_keys: []SignedApplicationKeyAttestation,
+    application_key_revocations: []ApplicationKeyRevocation,
+    home_domain_keys: []DomainPublicKey,
+    home_domain_key_revocations: []RevocationCertificate,
+    fetched_at: []const u8,
+    revocations_checked_at: []const u8,
+    cache_status: []const u8,
+};
+
 /// CheckResult is a structured data type.
 pub const CheckResult = struct {
     result: bool,

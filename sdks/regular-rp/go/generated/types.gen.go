@@ -1442,3 +1442,212 @@ type TranslationsResponse struct {
 type ListLocalesResponse struct {
 	AvailableLocales []string `json:"available_locales" yaml:"available_locales"`
 }
+
+// ApplicationKeySignature represents a structured data type
+type ApplicationKeySignature struct {
+	SignedByKeyId string `json:"signed_by_key_id" yaml:"signed_by_key_id"`
+	Signature     []byte `json:"signature" yaml:"signature"`
+}
+
+// ApplicationKeyAttestation represents a structured data type
+type ApplicationKeyAttestation struct {
+	SubjectUserId        string `json:"subject_user_id" yaml:"subject_user_id"`
+	SubjectDomain        string `json:"subject_domain" yaml:"subject_domain"`
+	ApplicationId        string `json:"application_id" yaml:"application_id"`
+	InstanceId           string `json:"instance_id" yaml:"instance_id"`
+	KeyId                string `json:"key_id" yaml:"key_id"`
+	KeyUsage             string `json:"key_usage" yaml:"key_usage"`
+	Algorithm            string `json:"algorithm" yaml:"algorithm"`
+	PublicKey            []byte `json:"public_key" yaml:"public_key"`
+	Fingerprint          string `json:"fingerprint" yaml:"fingerprint"`
+	KeyCreatedAt         string `json:"key_created_at" yaml:"key_created_at"`
+	KeyExpiresAt         string `json:"key_expires_at" yaml:"key_expires_at"`
+	AttestedAt           string `json:"attested_at" yaml:"attested_at"`
+	AttestationExpiresAt string `json:"attestation_expires_at" yaml:"attestation_expires_at"`
+}
+
+// SignedApplicationKeyAttestation represents a structured data type
+type SignedApplicationKeyAttestation struct {
+	Attestation []byte           `json:"attestation" yaml:"attestation"`
+	Signatures  []ClaimSignature `json:"signatures" yaml:"signatures"`
+}
+
+// ApplicationKeyAddition represents a structured data type
+type ApplicationKeyAddition struct {
+	SubjectUserId               string `json:"subject_user_id" yaml:"subject_user_id"`
+	SubjectDomain               string `json:"subject_domain" yaml:"subject_domain"`
+	ApplicationId               string `json:"application_id" yaml:"application_id"`
+	InstanceId                  string `json:"instance_id" yaml:"instance_id"`
+	KeyId                       string `json:"key_id" yaml:"key_id"`
+	KeyUsage                    string `json:"key_usage" yaml:"key_usage"`
+	Algorithm                   string `json:"algorithm" yaml:"algorithm"`
+	PublicKey                   []byte `json:"public_key" yaml:"public_key"`
+	Fingerprint                 string `json:"fingerprint" yaml:"fingerprint"`
+	RequestedKeyLifetimeSeconds int64  `json:"requested_key_lifetime_seconds" yaml:"requested_key_lifetime_seconds"`
+	ChallengeId                 string `json:"challenge_id" yaml:"challenge_id"`
+	Challenge                   []byte `json:"challenge" yaml:"challenge"`
+	RequestedAt                 string `json:"requested_at" yaml:"requested_at"`
+	ExpiresAt                   string `json:"expires_at" yaml:"expires_at"`
+}
+
+// SignedApplicationKeyAddition represents a structured data type
+type SignedApplicationKeyAddition struct {
+	Addition        []byte                    `json:"addition" yaml:"addition"`
+	Signatures      []ApplicationKeySignature `json:"signatures" yaml:"signatures"`
+	PossessionProof *[]byte                   `json:"possession_proof,omitempty" yaml:"possession_proof,omitempty"`
+}
+
+// ApplicationKeyRenewal represents a structured data type
+type ApplicationKeyRenewal struct {
+	SubjectUserId string `json:"subject_user_id" yaml:"subject_user_id"`
+	SubjectDomain string `json:"subject_domain" yaml:"subject_domain"`
+	ApplicationId string `json:"application_id" yaml:"application_id"`
+	InstanceId    string `json:"instance_id" yaml:"instance_id"`
+	KeyId         string `json:"key_id" yaml:"key_id"`
+	ChallengeId   string `json:"challenge_id" yaml:"challenge_id"`
+	Challenge     []byte `json:"challenge" yaml:"challenge"`
+	RequestedAt   string `json:"requested_at" yaml:"requested_at"`
+	ExpiresAt     string `json:"expires_at" yaml:"expires_at"`
+}
+
+// SignedApplicationKeyRenewal represents a structured data type
+type SignedApplicationKeyRenewal struct {
+	Renewal         []byte                    `json:"renewal" yaml:"renewal"`
+	Signatures      []ApplicationKeySignature `json:"signatures" yaml:"signatures"`
+	PossessionProof *[]byte                   `json:"possession_proof,omitempty" yaml:"possession_proof,omitempty"`
+}
+
+// ApplicationKeyRevocation represents a structured data type
+type ApplicationKeyRevocation struct {
+	SubjectUserId     string                    `json:"subject_user_id" yaml:"subject_user_id"`
+	SubjectDomain     string                    `json:"subject_domain" yaml:"subject_domain"`
+	ApplicationId     string                    `json:"application_id" yaml:"application_id"`
+	InstanceId        string                    `json:"instance_id" yaml:"instance_id"`
+	TargetKeyId       string                    `json:"target_key_id" yaml:"target_key_id"`
+	TargetFingerprint string                    `json:"target_fingerprint" yaml:"target_fingerprint"`
+	RevokedAt         string                    `json:"revoked_at" yaml:"revoked_at"`
+	Signatures        []ApplicationKeySignature `json:"signatures" yaml:"signatures"`
+}
+
+// StartApplicationKeyChallengeRequest represents a structured data type
+type StartApplicationKeyChallengeRequest struct {
+	SubjectUserId string `json:"subject_user_id" yaml:"subject_user_id"`
+	ApplicationId string `json:"application_id" yaml:"application_id"`
+	InstanceId    string `json:"instance_id" yaml:"instance_id"`
+	Purpose       string `json:"purpose" yaml:"purpose"`
+	KeyUsage      string `json:"key_usage" yaml:"key_usage"`
+	Algorithm     string `json:"algorithm" yaml:"algorithm"`
+	PublicKey     []byte `json:"public_key" yaml:"public_key"`
+}
+
+// StartApplicationKeyChallengeResponse represents a structured data type
+type StartApplicationKeyChallengeResponse struct {
+	ChallengeId     string  `json:"challenge_id" yaml:"challenge_id"`
+	Challenge       *[]byte `json:"challenge,omitempty" yaml:"challenge,omitempty"`
+	SealedChallenge *[]byte `json:"sealed_challenge,omitempty" yaml:"sealed_challenge,omitempty"`
+	ExpiresAt       string  `json:"expires_at" yaml:"expires_at"`
+}
+
+// AddApplicationKeyRequest represents a structured data type
+type AddApplicationKeyRequest struct {
+	Request SignedApplicationKeyAddition `json:"request" yaml:"request"`
+}
+
+// AddApplicationKeyResponse represents a structured data type
+type AddApplicationKeyResponse struct {
+	Attestation SignedApplicationKeyAttestation `json:"attestation" yaml:"attestation"`
+}
+
+// RenewApplicationKeyAttestationRequest represents a structured data type
+type RenewApplicationKeyAttestationRequest struct {
+	Request SignedApplicationKeyRenewal `json:"request" yaml:"request"`
+}
+
+// RenewApplicationKeyAttestationResponse represents a structured data type
+type RenewApplicationKeyAttestationResponse struct {
+	Attestation SignedApplicationKeyAttestation `json:"attestation" yaml:"attestation"`
+	Signed      bool                            `json:"signed" yaml:"signed"`
+}
+
+// RevokeApplicationKeyRequest represents a structured data type
+type RevokeApplicationKeyRequest struct {
+	Revocation ApplicationKeyRevocation `json:"revocation" yaml:"revocation"`
+}
+
+// RevokeApplicationKeyResponse represents a structured data type
+type RevokeApplicationKeyResponse struct {
+	RevokedAt string `json:"revoked_at" yaml:"revoked_at"`
+}
+
+// EnrollApplicationInstanceRequest represents a structured data type
+type EnrollApplicationInstanceRequest struct {
+	ApplicationId string                         `json:"application_id" yaml:"application_id"`
+	InstanceId    string                         `json:"instance_id" yaml:"instance_id"`
+	Keys          []SignedApplicationKeyAddition `json:"keys" yaml:"keys"`
+}
+
+// EnrollApplicationInstanceResponse represents a structured data type
+type EnrollApplicationInstanceResponse struct {
+	SubjectUserId string                            `json:"subject_user_id" yaml:"subject_user_id"`
+	SubjectDomain string                            `json:"subject_domain" yaml:"subject_domain"`
+	ApplicationId string                            `json:"application_id" yaml:"application_id"`
+	InstanceId    string                            `json:"instance_id" yaml:"instance_id"`
+	Attestations  []SignedApplicationKeyAttestation `json:"attestations" yaml:"attestations"`
+}
+
+// GetApplicationKeysRequest represents a structured data type
+type GetApplicationKeysRequest struct {
+	SubjectUserId string `json:"subject_user_id" yaml:"subject_user_id"`
+	ApplicationId string `json:"application_id" yaml:"application_id"`
+	InstanceId    string `json:"instance_id" yaml:"instance_id"`
+}
+
+// GetApplicationKeysResponse represents a structured data type
+type GetApplicationKeysResponse struct {
+	SubjectUserId string                            `json:"subject_user_id" yaml:"subject_user_id"`
+	SubjectDomain string                            `json:"subject_domain" yaml:"subject_domain"`
+	ApplicationId string                            `json:"application_id" yaml:"application_id"`
+	InstanceId    string                            `json:"instance_id" yaml:"instance_id"`
+	Keys          []SignedApplicationKeyAttestation `json:"keys" yaml:"keys"`
+	Revocations   []ApplicationKeyRevocation        `json:"revocations" yaml:"revocations"`
+}
+
+// RpResolveDomainKeysRequest represents a structured data type
+type RpResolveDomainKeysRequest struct {
+	Domain             string `json:"domain" yaml:"domain"`
+	MaxCacheAgeSeconds *int64 `json:"max_cache_age_seconds,omitempty" yaml:"max_cache_age_seconds,omitempty"`
+}
+
+// RpResolveDomainKeysResponse represents a structured data type
+type RpResolveDomainKeysResponse struct {
+	Domain               string                  `json:"domain" yaml:"domain"`
+	Keys                 []DomainPublicKey       `json:"keys" yaml:"keys"`
+	Revocations          []RevocationCertificate `json:"revocations" yaml:"revocations"`
+	FetchedAt            string                  `json:"fetched_at" yaml:"fetched_at"`
+	RevocationsCheckedAt string                  `json:"revocations_checked_at" yaml:"revocations_checked_at"`
+	CacheStatus          string                  `json:"cache_status" yaml:"cache_status"`
+}
+
+// RpResolveApplicationKeysRequest represents a structured data type
+type RpResolveApplicationKeysRequest struct {
+	SubjectUserId      string `json:"subject_user_id" yaml:"subject_user_id"`
+	SubjectDomain      string `json:"subject_domain" yaml:"subject_domain"`
+	ApplicationId      string `json:"application_id" yaml:"application_id"`
+	InstanceId         string `json:"instance_id" yaml:"instance_id"`
+	MaxCacheAgeSeconds *int64 `json:"max_cache_age_seconds,omitempty" yaml:"max_cache_age_seconds,omitempty"`
+}
+
+// RpResolveApplicationKeysResponse represents a structured data type
+type RpResolveApplicationKeysResponse struct {
+	SubjectUserId             string                            `json:"subject_user_id" yaml:"subject_user_id"`
+	SubjectDomain             string                            `json:"subject_domain" yaml:"subject_domain"`
+	ApplicationId             string                            `json:"application_id" yaml:"application_id"`
+	InstanceId                string                            `json:"instance_id" yaml:"instance_id"`
+	ApplicationKeys           []SignedApplicationKeyAttestation `json:"application_keys" yaml:"application_keys"`
+	ApplicationKeyRevocations []ApplicationKeyRevocation        `json:"application_key_revocations" yaml:"application_key_revocations"`
+	HomeDomainKeys            []DomainPublicKey                 `json:"home_domain_keys" yaml:"home_domain_keys"`
+	HomeDomainKeyRevocations  []RevocationCertificate           `json:"home_domain_key_revocations" yaml:"home_domain_key_revocations"`
+	FetchedAt                 string                            `json:"fetched_at" yaml:"fetched_at"`
+	RevocationsCheckedAt      string                            `json:"revocations_checked_at" yaml:"revocations_checked_at"`
+	CacheStatus               string                            `json:"cache_status" yaml:"cache_status"`
+}

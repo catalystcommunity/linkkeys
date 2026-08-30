@@ -199,6 +199,88 @@ impl<T: Transport> UserKeysClient<T> {
     }
 }
 
+/// Typed client for the ApplicationKeys service.
+pub struct ApplicationKeysClient<T: Transport> {
+    #[allow(dead_code)]
+    transport: T,
+}
+
+impl<T: Transport> ApplicationKeysClient<T> {
+    pub fn new(transport: T) -> Self {
+        Self { transport }
+    }
+
+    /// get-application-keys (request/response).
+    pub fn get_application_keys(
+        &self,
+        req: GetApplicationKeysRequest,
+    ) -> Result<GetApplicationKeysResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "ApplicationKeys",
+            "get-application-keys",
+            &encode_get_application_keys_request(&req),
+        )?;
+        decode_get_application_keys_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
+    /// start-key-challenge (request/response).
+    pub fn start_key_challenge(
+        &self,
+        req: StartApplicationKeyChallengeRequest,
+    ) -> Result<StartApplicationKeyChallengeResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "ApplicationKeys",
+            "start-key-challenge",
+            &encode_start_application_key_challenge_request(&req),
+        )?;
+        decode_start_application_key_challenge_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
+    /// add-key (request/response).
+    pub fn add_key(
+        &self,
+        req: AddApplicationKeyRequest,
+    ) -> Result<AddApplicationKeyResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "ApplicationKeys",
+            "add-key",
+            &encode_add_application_key_request(&req),
+        )?;
+        decode_add_application_key_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
+    /// renew-attestation (request/response).
+    pub fn renew_attestation(
+        &self,
+        req: RenewApplicationKeyAttestationRequest,
+    ) -> Result<RenewApplicationKeyAttestationResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "ApplicationKeys",
+            "renew-attestation",
+            &encode_renew_application_key_attestation_request(&req),
+        )?;
+        decode_renew_application_key_attestation_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
+    /// revoke-key (request/response).
+    pub fn revoke_key(
+        &self,
+        req: RevokeApplicationKeyRequest,
+    ) -> Result<RevokeApplicationKeyResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "ApplicationKeys",
+            "revoke-key",
+            &encode_revoke_application_key_request(&req),
+        )?;
+        decode_revoke_application_key_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+}
+
 /// Typed client for the Identity service.
 pub struct IdentityClient<T: Transport> {
     #[allow(dead_code)]
@@ -1223,6 +1305,20 @@ impl<T: Transport> AccountClient<T> {
         decode_confirm_contact_verification_response(&csil_resp)
             .map_err(|e| ClientError::Transport(e.to_string()))
     }
+
+    /// enroll-application-instance (request/response).
+    pub fn enroll_application_instance(
+        &self,
+        req: EnrollApplicationInstanceRequest,
+    ) -> Result<EnrollApplicationInstanceResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "Account",
+            "enroll-application-instance",
+            &encode_enroll_application_instance_request(&req),
+        )?;
+        decode_enroll_application_instance_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
 }
 
 /// Typed client for the Attestation service.
@@ -1304,6 +1400,34 @@ impl<T: Transport> RpClient<T> {
             &encode_rp_issue_attestation_request(&req),
         )?;
         decode_rp_issue_attestation_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
+    /// resolve-domain-keys (request/response).
+    pub fn resolve_domain_keys(
+        &self,
+        req: RpResolveDomainKeysRequest,
+    ) -> Result<RpResolveDomainKeysResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "Rp",
+            "resolve-domain-keys",
+            &encode_rp_resolve_domain_keys_request(&req),
+        )?;
+        decode_rp_resolve_domain_keys_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
+    /// resolve-application-keys (request/response).
+    pub fn resolve_application_keys(
+        &self,
+        req: RpResolveApplicationKeysRequest,
+    ) -> Result<RpResolveApplicationKeysResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "Rp",
+            "resolve-application-keys",
+            &encode_rp_resolve_application_keys_request(&req),
+        )?;
+        decode_rp_resolve_application_keys_response(&csil_resp)
             .map_err(|e| ClientError::Transport(e.to_string()))
     }
 }

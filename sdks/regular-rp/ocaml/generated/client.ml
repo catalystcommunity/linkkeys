@@ -72,6 +72,33 @@ module User_keys = struct
     | Error _ as e -> e
 end
 
+module Application_keys = struct
+  let get_application_keys (c : client) (req : get_application_keys_request) : (get_application_keys_response, string) result =
+    match c.call ~service:"ApplicationKeys" ~op:"get-application-keys" ~payload:(Codec.encode_get_application_keys_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_get_application_keys_response_bytes payload)
+    | Error _ as e -> e
+
+  let start_key_challenge (c : client) (req : start_application_key_challenge_request) : (start_application_key_challenge_response, string) result =
+    match c.call ~service:"ApplicationKeys" ~op:"start-key-challenge" ~payload:(Codec.encode_start_application_key_challenge_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_start_application_key_challenge_response_bytes payload)
+    | Error _ as e -> e
+
+  let add_key (c : client) (req : add_application_key_request) : (add_application_key_response, string) result =
+    match c.call ~service:"ApplicationKeys" ~op:"add-key" ~payload:(Codec.encode_add_application_key_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_add_application_key_response_bytes payload)
+    | Error _ as e -> e
+
+  let renew_attestation (c : client) (req : renew_application_key_attestation_request) : (renew_application_key_attestation_response, string) result =
+    match c.call ~service:"ApplicationKeys" ~op:"renew-attestation" ~payload:(Codec.encode_renew_application_key_attestation_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_renew_application_key_attestation_response_bytes payload)
+    | Error _ as e -> e
+
+  let revoke_key (c : client) (req : revoke_application_key_request) : (revoke_application_key_response, string) result =
+    match c.call ~service:"ApplicationKeys" ~op:"revoke-key" ~payload:(Codec.encode_revoke_application_key_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_revoke_application_key_response_bytes payload)
+    | Error _ as e -> e
+end
+
 module Identity = struct
   let get_user_info (c : client) (req : signed_user_info_request) : (user_info, string) result =
     match c.call ~service:"Identity" ~op:"get-user-info" ~payload:(Codec.encode_signed_user_info_request_bytes req) with
@@ -450,6 +477,11 @@ module Account = struct
     match c.call ~service:"Account" ~op:"confirm-contact-verification" ~payload:(Codec.encode_confirm_contact_verification_request_bytes req) with
     | Ok payload -> Ok (Codec.decode_confirm_contact_verification_response_bytes payload)
     | Error _ as e -> e
+
+  let enroll_application_instance (c : client) (req : enroll_application_instance_request) : (enroll_application_instance_response, string) result =
+    match c.call ~service:"Account" ~op:"enroll-application-instance" ~payload:(Codec.encode_enroll_application_instance_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_enroll_application_instance_response_bytes payload)
+    | Error _ as e -> e
 end
 
 module Attestation = struct
@@ -483,6 +515,16 @@ module Rp = struct
   let issue_attestation (c : client) (req : rp_issue_attestation_request) : (rp_issue_attestation_response, string) result =
     match c.call ~service:"Rp" ~op:"issue-attestation" ~payload:(Codec.encode_rp_issue_attestation_request_bytes req) with
     | Ok payload -> Ok (Codec.decode_rp_issue_attestation_response_bytes payload)
+    | Error _ as e -> e
+
+  let resolve_domain_keys (c : client) (req : rp_resolve_domain_keys_request) : (rp_resolve_domain_keys_response, string) result =
+    match c.call ~service:"Rp" ~op:"resolve-domain-keys" ~payload:(Codec.encode_rp_resolve_domain_keys_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_rp_resolve_domain_keys_response_bytes payload)
+    | Error _ as e -> e
+
+  let resolve_application_keys (c : client) (req : rp_resolve_application_keys_request) : (rp_resolve_application_keys_response, string) result =
+    match c.call ~service:"Rp" ~op:"resolve-application-keys" ~payload:(Codec.encode_rp_resolve_application_keys_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_rp_resolve_application_keys_response_bytes payload)
     | Error _ as e -> e
 end
 

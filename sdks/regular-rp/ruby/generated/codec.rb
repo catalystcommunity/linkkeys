@@ -79,13 +79,17 @@ module CsilCbor
   # Decode a binary String to a Ruby value tree.
   def decode(bytes)
     bin = bytes.b
-    value, pos = take(bin, 0)
+    value, pos = take(bin, 0, 0)
     raise ArgumentError, "csilgen: trailing bytes" unless pos == bin.bytesize
 
     value
   end
 
   def read_arg(bin, pos, low)
+    width = { 24 => 1, 25 => 2, 26 => 4, 27 => 8 }[low]
+    if low >= 24 && (width.nil? || bin.bytesize - pos - 1 < width)
+      raise ArgumentError, "csilgen: truncated argument"
+    end
     if low < 24
       [low, pos + 1]
     elsif low == 24
@@ -102,7 +106,9 @@ module CsilCbor
     end
   end
 
-  def take(bin, pos)
+  def take(bin, pos, depth)
+    raise ArgumentError, "csilgen: nesting limit exceeded" if depth > 64
+    raise ArgumentError, "csilgen: unexpected end of input" if pos >= bin.bytesize
     ib = bin.getbyte(pos)
     major = ib >> 5
     low = ib & 0x1f
@@ -123,26 +129,32 @@ module CsilCbor
       when 1
         [-1 - arg, p]
       when 2
+        raise ArgumentError, "csilgen: truncated byte string" if arg > bin.bytesize - p
         [bin[p, arg].b, p + arg]
       when 3
-        [bin[p, arg].dup.force_encoding(Encoding::UTF_8), p + arg]
+        raise ArgumentError, "csilgen: truncated text string" if arg > bin.bytesize - p
+        text = bin[p, arg].dup.force_encoding(Encoding::UTF_8)
+        raise ArgumentError, "csilgen: invalid utf-8" unless text.valid_encoding?
+        [text, p + arg]
       when 4
+        raise ArgumentError, "csilgen: array length exceeds remaining input" if arg > bin.bytesize - p
         items = []
         arg.times do
-          item, p = take(bin, p)
+          item, p = take(bin, p, depth + 1)
           items << item
         end
         [items, p]
       when 5
+        raise ArgumentError, "csilgen: map length exceeds remaining input" if arg > bin.bytesize - p
         hash = {}
         arg.times do
-          k, p = take(bin, p)
-          v, p = take(bin, p)
+          k, p = take(bin, p, depth + 1)
+          v, p = take(bin, p, depth + 1)
           hash[k] = v
         end
         [hash, p]
       when 6
-        inner, p = take(bin, p)
+        inner, p = take(bin, p, depth + 1)
         [Tag.new(arg, inner), p]
       else
         raise ArgumentError, "csilgen: bad major"
@@ -6057,6 +6069,760 @@ class ListLocalesResponse
   def self.csil_from_tree(node)
     new(
       available_locales: (node["available_locales"]).map { |csil_e| csil_e }
+    )
+  end
+end
+
+# CBOR codec for ApplicationKeySignature: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class ApplicationKeySignature
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["signature"] = (signature).b
+    csil_map["signed_by_key_id"] = signed_by_key_id
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      signed_by_key_id: node["signed_by_key_id"],
+      signature: node["signature"]
+    )
+  end
+end
+
+# CBOR codec for ApplicationKeyAttestation: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class ApplicationKeyAttestation
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["key_id"] = key_id
+    csil_map["algorithm"] = algorithm
+    csil_map["key_usage"] = key_usage
+    csil_map["public_key"] = (public_key).b
+    csil_map["attested_at"] = attested_at
+    csil_map["fingerprint"] = fingerprint
+    csil_map["instance_id"] = instance_id
+    csil_map["application_id"] = application_id
+    csil_map["key_created_at"] = key_created_at
+    csil_map["key_expires_at"] = key_expires_at
+    csil_map["subject_domain"] = subject_domain
+    csil_map["subject_user_id"] = subject_user_id
+    csil_map["attestation_expires_at"] = attestation_expires_at
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      subject_user_id: node["subject_user_id"],
+      subject_domain: node["subject_domain"],
+      application_id: node["application_id"],
+      instance_id: node["instance_id"],
+      key_id: node["key_id"],
+      key_usage: node["key_usage"],
+      algorithm: node["algorithm"],
+      public_key: node["public_key"],
+      fingerprint: node["fingerprint"],
+      key_created_at: node["key_created_at"],
+      key_expires_at: node["key_expires_at"],
+      attested_at: node["attested_at"],
+      attestation_expires_at: node["attestation_expires_at"]
+    )
+  end
+end
+
+# CBOR codec for SignedApplicationKeyAttestation: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class SignedApplicationKeyAttestation
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["signatures"] = (signatures).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["attestation"] = (attestation).b
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      attestation: node["attestation"],
+      signatures: (node["signatures"]).map { |csil_e| ClaimSignature.csil_from_tree(csil_e) }
+    )
+  end
+end
+
+# CBOR codec for ApplicationKeyAddition: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class ApplicationKeyAddition
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["key_id"] = key_id
+    csil_map["algorithm"] = algorithm
+    csil_map["challenge"] = (challenge).b
+    csil_map["key_usage"] = key_usage
+    csil_map["expires_at"] = expires_at
+    csil_map["public_key"] = (public_key).b
+    csil_map["fingerprint"] = fingerprint
+    csil_map["instance_id"] = instance_id
+    csil_map["challenge_id"] = challenge_id
+    csil_map["requested_at"] = requested_at
+    csil_map["application_id"] = application_id
+    csil_map["subject_domain"] = subject_domain
+    csil_map["subject_user_id"] = subject_user_id
+    csil_map["requested_key_lifetime_seconds"] = requested_key_lifetime_seconds
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      subject_user_id: node["subject_user_id"],
+      subject_domain: node["subject_domain"],
+      application_id: node["application_id"],
+      instance_id: node["instance_id"],
+      key_id: node["key_id"],
+      key_usage: node["key_usage"],
+      algorithm: node["algorithm"],
+      public_key: node["public_key"],
+      fingerprint: node["fingerprint"],
+      requested_key_lifetime_seconds: node["requested_key_lifetime_seconds"],
+      challenge_id: node["challenge_id"],
+      challenge: node["challenge"],
+      requested_at: node["requested_at"],
+      expires_at: node["expires_at"]
+    )
+  end
+end
+
+# CBOR codec for SignedApplicationKeyAddition: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class SignedApplicationKeyAddition
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["addition"] = (addition).b
+    csil_map["signatures"] = (signatures).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["possession_proof"] = (possession_proof).b unless possession_proof.nil?
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      addition: node["addition"],
+      signatures: (node["signatures"]).map { |csil_e| ApplicationKeySignature.csil_from_tree(csil_e) },
+      possession_proof: (node.key?("possession_proof") ? node["possession_proof"] : nil)
+    )
+  end
+end
+
+# CBOR codec for ApplicationKeyRenewal: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class ApplicationKeyRenewal
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["key_id"] = key_id
+    csil_map["challenge"] = (challenge).b
+    csil_map["expires_at"] = expires_at
+    csil_map["instance_id"] = instance_id
+    csil_map["challenge_id"] = challenge_id
+    csil_map["requested_at"] = requested_at
+    csil_map["application_id"] = application_id
+    csil_map["subject_domain"] = subject_domain
+    csil_map["subject_user_id"] = subject_user_id
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      subject_user_id: node["subject_user_id"],
+      subject_domain: node["subject_domain"],
+      application_id: node["application_id"],
+      instance_id: node["instance_id"],
+      key_id: node["key_id"],
+      challenge_id: node["challenge_id"],
+      challenge: node["challenge"],
+      requested_at: node["requested_at"],
+      expires_at: node["expires_at"]
+    )
+  end
+end
+
+# CBOR codec for SignedApplicationKeyRenewal: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class SignedApplicationKeyRenewal
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["renewal"] = (renewal).b
+    csil_map["signatures"] = (signatures).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["possession_proof"] = (possession_proof).b unless possession_proof.nil?
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      renewal: node["renewal"],
+      signatures: (node["signatures"]).map { |csil_e| ApplicationKeySignature.csil_from_tree(csil_e) },
+      possession_proof: (node.key?("possession_proof") ? node["possession_proof"] : nil)
+    )
+  end
+end
+
+# CBOR codec for ApplicationKeyRevocation: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class ApplicationKeyRevocation
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["revoked_at"] = revoked_at
+    csil_map["signatures"] = (signatures).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["instance_id"] = instance_id
+    csil_map["target_key_id"] = target_key_id
+    csil_map["application_id"] = application_id
+    csil_map["subject_domain"] = subject_domain
+    csil_map["subject_user_id"] = subject_user_id
+    csil_map["target_fingerprint"] = target_fingerprint
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      subject_user_id: node["subject_user_id"],
+      subject_domain: node["subject_domain"],
+      application_id: node["application_id"],
+      instance_id: node["instance_id"],
+      target_key_id: node["target_key_id"],
+      target_fingerprint: node["target_fingerprint"],
+      revoked_at: node["revoked_at"],
+      signatures: (node["signatures"]).map { |csil_e| ApplicationKeySignature.csil_from_tree(csil_e) }
+    )
+  end
+end
+
+# CBOR codec for StartApplicationKeyChallengeRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class StartApplicationKeyChallengeRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["purpose"] = purpose
+    csil_map["algorithm"] = algorithm
+    csil_map["key_usage"] = key_usage
+    csil_map["public_key"] = (public_key).b
+    csil_map["instance_id"] = instance_id
+    csil_map["application_id"] = application_id
+    csil_map["subject_user_id"] = subject_user_id
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      subject_user_id: node["subject_user_id"],
+      application_id: node["application_id"],
+      instance_id: node["instance_id"],
+      purpose: node["purpose"],
+      key_usage: node["key_usage"],
+      algorithm: node["algorithm"],
+      public_key: node["public_key"]
+    )
+  end
+end
+
+# CBOR codec for StartApplicationKeyChallengeResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class StartApplicationKeyChallengeResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["challenge"] = (challenge).b unless challenge.nil?
+    csil_map["expires_at"] = expires_at
+    csil_map["challenge_id"] = challenge_id
+    csil_map["sealed_challenge"] = (sealed_challenge).b unless sealed_challenge.nil?
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      challenge_id: node["challenge_id"],
+      challenge: (node.key?("challenge") ? node["challenge"] : nil),
+      sealed_challenge: (node.key?("sealed_challenge") ? node["sealed_challenge"] : nil),
+      expires_at: node["expires_at"]
+    )
+  end
+end
+
+# CBOR codec for AddApplicationKeyRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class AddApplicationKeyRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["request"] = (request).csil_to_tree
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      request: SignedApplicationKeyAddition.csil_from_tree(node["request"])
+    )
+  end
+end
+
+# CBOR codec for AddApplicationKeyResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class AddApplicationKeyResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["attestation"] = (attestation).csil_to_tree
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      attestation: SignedApplicationKeyAttestation.csil_from_tree(node["attestation"])
+    )
+  end
+end
+
+# CBOR codec for RenewApplicationKeyAttestationRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class RenewApplicationKeyAttestationRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["request"] = (request).csil_to_tree
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      request: SignedApplicationKeyRenewal.csil_from_tree(node["request"])
+    )
+  end
+end
+
+# CBOR codec for RenewApplicationKeyAttestationResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class RenewApplicationKeyAttestationResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["signed"] = signed
+    csil_map["attestation"] = (attestation).csil_to_tree
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      attestation: SignedApplicationKeyAttestation.csil_from_tree(node["attestation"]),
+      signed: node["signed"]
+    )
+  end
+end
+
+# CBOR codec for RevokeApplicationKeyRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class RevokeApplicationKeyRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["revocation"] = (revocation).csil_to_tree
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      revocation: ApplicationKeyRevocation.csil_from_tree(node["revocation"])
+    )
+  end
+end
+
+# CBOR codec for RevokeApplicationKeyResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class RevokeApplicationKeyResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["revoked_at"] = revoked_at
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      revoked_at: node["revoked_at"]
+    )
+  end
+end
+
+# CBOR codec for EnrollApplicationInstanceRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class EnrollApplicationInstanceRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["keys"] = (keys).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["instance_id"] = instance_id
+    csil_map["application_id"] = application_id
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      application_id: node["application_id"],
+      instance_id: node["instance_id"],
+      keys: (node["keys"]).map { |csil_e| SignedApplicationKeyAddition.csil_from_tree(csil_e) }
+    )
+  end
+end
+
+# CBOR codec for EnrollApplicationInstanceResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class EnrollApplicationInstanceResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["instance_id"] = instance_id
+    csil_map["attestations"] = (attestations).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["application_id"] = application_id
+    csil_map["subject_domain"] = subject_domain
+    csil_map["subject_user_id"] = subject_user_id
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      subject_user_id: node["subject_user_id"],
+      subject_domain: node["subject_domain"],
+      application_id: node["application_id"],
+      instance_id: node["instance_id"],
+      attestations: (node["attestations"]).map { |csil_e| SignedApplicationKeyAttestation.csil_from_tree(csil_e) }
+    )
+  end
+end
+
+# CBOR codec for GetApplicationKeysRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class GetApplicationKeysRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["instance_id"] = instance_id
+    csil_map["application_id"] = application_id
+    csil_map["subject_user_id"] = subject_user_id
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      subject_user_id: node["subject_user_id"],
+      application_id: node["application_id"],
+      instance_id: node["instance_id"]
+    )
+  end
+end
+
+# CBOR codec for GetApplicationKeysResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class GetApplicationKeysResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["keys"] = (keys).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["instance_id"] = instance_id
+    csil_map["revocations"] = (revocations).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["application_id"] = application_id
+    csil_map["subject_domain"] = subject_domain
+    csil_map["subject_user_id"] = subject_user_id
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      subject_user_id: node["subject_user_id"],
+      subject_domain: node["subject_domain"],
+      application_id: node["application_id"],
+      instance_id: node["instance_id"],
+      keys: (node["keys"]).map { |csil_e| SignedApplicationKeyAttestation.csil_from_tree(csil_e) },
+      revocations: (node["revocations"]).map { |csil_e| ApplicationKeyRevocation.csil_from_tree(csil_e) }
+    )
+  end
+end
+
+# CBOR codec for RpResolveDomainKeysRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class RpResolveDomainKeysRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["domain"] = domain
+    csil_map["max_cache_age_seconds"] = max_cache_age_seconds unless max_cache_age_seconds.nil?
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      domain: node["domain"],
+      max_cache_age_seconds: (node.key?("max_cache_age_seconds") ? node["max_cache_age_seconds"] : nil)
+    )
+  end
+end
+
+# CBOR codec for RpResolveDomainKeysResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class RpResolveDomainKeysResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["keys"] = (keys).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["domain"] = domain
+    csil_map["fetched_at"] = fetched_at
+    csil_map["revocations"] = (revocations).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["cache_status"] = cache_status
+    csil_map["revocations_checked_at"] = revocations_checked_at
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      domain: node["domain"],
+      keys: (node["keys"]).map { |csil_e| DomainPublicKey.csil_from_tree(csil_e) },
+      revocations: (node["revocations"]).map { |csil_e| RevocationCertificate.csil_from_tree(csil_e) },
+      fetched_at: node["fetched_at"],
+      revocations_checked_at: node["revocations_checked_at"],
+      cache_status: node["cache_status"]
+    )
+  end
+end
+
+# CBOR codec for RpResolveApplicationKeysRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class RpResolveApplicationKeysRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["instance_id"] = instance_id
+    csil_map["application_id"] = application_id
+    csil_map["subject_domain"] = subject_domain
+    csil_map["subject_user_id"] = subject_user_id
+    csil_map["max_cache_age_seconds"] = max_cache_age_seconds unless max_cache_age_seconds.nil?
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      subject_user_id: node["subject_user_id"],
+      subject_domain: node["subject_domain"],
+      application_id: node["application_id"],
+      instance_id: node["instance_id"],
+      max_cache_age_seconds: (node.key?("max_cache_age_seconds") ? node["max_cache_age_seconds"] : nil)
+    )
+  end
+end
+
+# CBOR codec for RpResolveApplicationKeysResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class RpResolveApplicationKeysResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["fetched_at"] = fetched_at
+    csil_map["instance_id"] = instance_id
+    csil_map["cache_status"] = cache_status
+    csil_map["application_id"] = application_id
+    csil_map["subject_domain"] = subject_domain
+    csil_map["subject_user_id"] = subject_user_id
+    csil_map["application_keys"] = (application_keys).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["home_domain_keys"] = (home_domain_keys).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["revocations_checked_at"] = revocations_checked_at
+    csil_map["application_key_revocations"] = (application_key_revocations).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["home_domain_key_revocations"] = (home_domain_key_revocations).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      subject_user_id: node["subject_user_id"],
+      subject_domain: node["subject_domain"],
+      application_id: node["application_id"],
+      instance_id: node["instance_id"],
+      application_keys: (node["application_keys"]).map { |csil_e| SignedApplicationKeyAttestation.csil_from_tree(csil_e) },
+      application_key_revocations: (node["application_key_revocations"]).map { |csil_e| ApplicationKeyRevocation.csil_from_tree(csil_e) },
+      home_domain_keys: (node["home_domain_keys"]).map { |csil_e| DomainPublicKey.csil_from_tree(csil_e) },
+      home_domain_key_revocations: (node["home_domain_key_revocations"]).map { |csil_e| RevocationCertificate.csil_from_tree(csil_e) },
+      fetched_at: node["fetched_at"],
+      revocations_checked_at: node["revocations_checked_at"],
+      cache_status: node["cache_status"]
     )
   end
 end

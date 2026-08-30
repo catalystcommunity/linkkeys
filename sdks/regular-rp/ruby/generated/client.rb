@@ -94,6 +94,38 @@ class UserKeysClient
   end
 end
 
+# Typed client for the ApplicationKeys service.
+class ApplicationKeysClient
+  def initialize(transport)
+    @transport = transport
+  end
+
+  # get-application-keys: -> GetApplicationKeysResponse
+  def get_application_keys(req)
+    GetApplicationKeysResponse.from_cbor(@transport.call("ApplicationKeys", "get-application-keys", req.to_cbor))
+  end
+
+  # start-key-challenge: -> StartApplicationKeyChallengeResponse
+  def start_key_challenge(req)
+    StartApplicationKeyChallengeResponse.from_cbor(@transport.call("ApplicationKeys", "start-key-challenge", req.to_cbor))
+  end
+
+  # add-key: -> AddApplicationKeyResponse
+  def add_key(req)
+    AddApplicationKeyResponse.from_cbor(@transport.call("ApplicationKeys", "add-key", req.to_cbor))
+  end
+
+  # renew-attestation: -> RenewApplicationKeyAttestationResponse
+  def renew_attestation(req)
+    RenewApplicationKeyAttestationResponse.from_cbor(@transport.call("ApplicationKeys", "renew-attestation", req.to_cbor))
+  end
+
+  # revoke-key: -> RevokeApplicationKeyResponse
+  def revoke_key(req)
+    RevokeApplicationKeyResponse.from_cbor(@transport.call("ApplicationKeys", "revoke-key", req.to_cbor))
+  end
+end
+
 # Typed client for the Identity service.
 class IdentityClient
   def initialize(transport)
@@ -522,6 +554,11 @@ class AccountClient
   def confirm_contact_verification(req)
     ConfirmContactVerificationResponse.from_cbor(@transport.call("Account", "confirm-contact-verification", req.to_cbor))
   end
+
+  # enroll-application-instance: -> EnrollApplicationInstanceResponse
+  def enroll_application_instance(req)
+    EnrollApplicationInstanceResponse.from_cbor(@transport.call("Account", "enroll-application-instance", req.to_cbor))
+  end
 end
 
 # Typed client for the Attestation service.
@@ -565,6 +602,16 @@ class RpClient
   # issue-attestation: -> RpIssueAttestationResponse
   def issue_attestation(req)
     RpIssueAttestationResponse.from_cbor(@transport.call("Rp", "issue-attestation", req.to_cbor))
+  end
+
+  # resolve-domain-keys: -> RpResolveDomainKeysResponse
+  def resolve_domain_keys(req)
+    RpResolveDomainKeysResponse.from_cbor(@transport.call("Rp", "resolve-domain-keys", req.to_cbor))
+  end
+
+  # resolve-application-keys: -> RpResolveApplicationKeysResponse
+  def resolve_application_keys(req)
+    RpResolveApplicationKeysResponse.from_cbor(@transport.call("Rp", "resolve-application-keys", req.to_cbor))
   end
 end
 

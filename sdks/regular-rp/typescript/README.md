@@ -132,6 +132,67 @@ await startLinkKeysLogin({
 The helper sends the identity to your backend and follows the returned HTTPS
 URL. It does not sign a request and it does not hold a LinkKeys secret.
 
+## Resolve peer application keys
+
+An application (for example, Tinku) can ask its RP for another instance's
+application keys. See `docs/application-keys.md` for the protocol. This
+section covers only this SDK's surface.
+
+The application does not call the peer's home domain. It calls its own RP.
+The RP does the discovery, the fetch, and the first verification. This SDK
+verifies the signed records again before it trusts them.
+
+```ts
+import {
+  ApplicationKeyClientCache,
+  PinnedApplicationKeyOperations,
+  PinnedRpcTransport,
+  resolveApplicationKeys,
+  usableKeys,
+} from "@linkkeys/regular-rp";
+
+const rp = new PinnedApplicationKeyOperations(
+  new PinnedRpcTransport({ tcpAddress, fingerprints, apiKey }),
+);
+const cache = new ApplicationKeyClientCache();
+
+const resolved = await resolveApplicationKeys(rp, cache, {
+  subjectUserId: "peer-user-id",
+  subjectDomain: "peer.example.com",
+  applicationId: "tinku",
+  instanceId: "peer-instance-1",
+});
+
+if (resolved.freshness === "stale") {
+  // The RP could not reach the home domain. These are the last verified
+  // records. Apply your own policy. Do not treat this result as current.
+}
+
+const key = usableKeys(resolved.keys, "sign")[0];
+```
+
+Key points:
+
+- `resolveApplicationKeys` returns `freshness` in the same object as `keys`.
+  There is no bare key list. You cannot read the keys without also seeing
+  whether they are `"fresh"`, `"refreshed"`, or `"stale"`.
+- This SDK never upgrades a `"stale"` result from the RP to `"fresh"`.
+- The cache key is the subject user ID, the subject domain, the application
+  ID, and the instance ID. It is never a handle.
+- `ApplicationKeyClientCache` is small and bounded (`DEFAULT_MAX_ENTRIES`,
+  128 entries, least-recently-used eviction). It exists only to avoid
+  repeated calls to your own RP within a short window
+  (`DEFAULT_LOCAL_CACHE_AGE_MS`, 30 seconds). It is not a replacement for the
+  RP's own, much longer, cache.
+- This SDK re-verifies every cached entry against the current time on every
+  call, even a cache hit. A key that expired since the last RP call is never
+  presented as usable.
+- This SDK implements only the READ side of the application-key protocol:
+  it verifies a peer's already-attested keys. It does not add a key, renew
+  an attestation, or prove possession of an X25519 key. Those are enrollment
+  operations for an application's OWN keys, and are out of scope for this
+  package.
+
 ## Production checklist
 
 - Use HTTPS for the application and callback.
@@ -157,6 +218,14 @@ npm run build
 The tests include the complete application flow, official conformance vectors,
 and a loopback TLS server. The transport tests prove the RP key pin, the
 CSIL-RPC API-key field, the full RPC deadline, and request cancellation.
+
+`test/applicationKeys.test.ts` replays every case in
+`sdks/regular-rp/conformance/application_key_attestation.json` and
+`application_key_revocation.json` — positive and negative — against this
+SDK's own verification code. `test/applicationKeyCache.test.ts` proves the
+client cache's bound, its RP-failure fallback to a stale result, and that a
+cached entry is re-verified against the current time on every call, not just
+at fetch time.
 
 You can also test `RegularRpClient` against a deployed RP server. Set these
 variables before you run `npm test`:

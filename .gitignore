@@ -42,26 +42,48 @@ go.work.sum
 # Security audit working notes / triage (never commit)
 /sec-explore/
 
-# Added by cargo
+# --- Build artifacts and fetched dependencies, every language ---
+#
+# NOTE: a comment must be on its OWN line. Git only treats a line as a comment
+# when it STARTS with '#', so `target/   # Rust` is a pattern that literally
+# contains spaces and the word Rust, and it matches nothing. Ten patterns in
+# this block were written that way and were silently dead, which is how
+# crates/linkkeys/loadtest/target/ (1.2 GiB, 9871 files) reached a commit.
+# Verify any change here with `git check-ignore -v <path>`, not by eye.
 
-/target
+# Rust. Unanchored, so it covers every crate with its own target dir, not just
+# the workspace root: crates/linkkeys/loadtest/ and sdks/local-rp/rust/ are
+# both outside the root workspace and build into their own.
+target/
 
-# --- SDK build artifacts (sdks/local-rp/*, every language) ---
-# These are compiler/build outputs and fetched deps — never source.
-target/            # Rust
-_build/            # OCaml (dune) / Elixir (mix)
-_opam/             # OCaml local switch
+# OCaml (dune) and Elixir (mix)
+_build/
+# OCaml local switch
+_opam/
+
 # Node and TypeScript fetched dependencies
 node_modules/
-__pycache__/       # Python
+
+# Python
+__pycache__/
 *.pyc
-.venv/             # Python venv
+.venv/
 venv/
-.dart_tool/        # Dart
-zig-out/           # Zig
+
+# Dart
+.dart_tool/
+
+# Zig
+zig-out/
 zig-cache/
 .zig-cache/
-.gradle/           # Gradle (Java/Kotlin)
-*.beam             # Erlang/Elixir
-*.o                # C objects
-*.a                # C static libs
+
+# Gradle (Java/Kotlin)
+.gradle/
+
+# Erlang/Elixir
+*.beam
+
+# C
+*.o
+*.a
