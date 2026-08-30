@@ -1,0 +1,1 @@
+# Reactorcide plugins directory
