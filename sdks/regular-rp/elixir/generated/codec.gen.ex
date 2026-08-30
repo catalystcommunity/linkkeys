@@ -55,18 +55,25 @@ defmodule Csilgen.Generated.Cbor do
   @doc "Decodes canonical CBOR bytes into a value tree."
   @spec decode(binary()) :: value()
   def decode(bin) do
-    {value, rest} = dec(bin)
+    {value, rest} = dec(bin, 0)
     if rest != <<>>, do: raise("csilgen: trailing bytes after CBOR value")
     value
   end
 
-  defp dec(<<7::size(3), 20::size(5), rest::binary>>), do: {{:bool, false}, rest}
-  defp dec(<<7::size(3), 21::size(5), rest::binary>>), do: {{:bool, true}, rest}
-  defp dec(<<7::size(3), low::size(5), rest::binary>>) when low in [22, 23], do: {:null, rest}
-  defp dec(<<7::size(3), 26::size(5), f::float-size(32), rest::binary>>), do: {{:float, f}, rest}
-  defp dec(<<7::size(3), 27::size(5), f::float-size(64), rest::binary>>), do: {{:float, f}, rest}
+  defp dec(_, depth) when depth > 64, do: raise("csilgen: nesting limit exceeded")
+  defp dec(<<7::size(3), 20::size(5), rest::binary>>, _depth), do: {{:bool, false}, rest}
+  defp dec(<<7::size(3), 21::size(5), rest::binary>>, _depth), do: {{:bool, true}, rest}
 
-  defp dec(<<major::size(3), low::size(5), rest::binary>>) do
+  defp dec(<<7::size(3), low::size(5), rest::binary>>, _depth) when low in [22, 23],
+    do: {:null, rest}
+
+  defp dec(<<7::size(3), 26::size(5), f::float-size(32), rest::binary>>, _depth),
+    do: {{:float, f}, rest}
+
+  defp dec(<<7::size(3), 27::size(5), f::float-size(64), rest::binary>>, _depth),
+    do: {{:float, f}, rest}
+
+  defp dec(<<major::size(3), low::size(5), rest::binary>>, depth) do
     {arg, rest} = read_arg(low, rest)
 
     case major do
@@ -82,16 +89,19 @@ defmodule Csilgen.Generated.Cbor do
 
       3 ->
         <<s::binary-size(^arg), r::binary>> = rest
+        if not String.valid?(s), do: raise("csilgen: invalid UTF-8 text string")
         {{:text, s}, r}
 
       4 ->
-        dec_array(arg, rest, [])
+        if arg > byte_size(rest), do: raise("csilgen: array length exceeds remaining input")
+        dec_array(arg, rest, [], depth + 1)
 
       5 ->
-        dec_map(arg, rest, [])
+        if arg > byte_size(rest), do: raise("csilgen: map length exceeds remaining input")
+        dec_map(arg, rest, [], depth + 1)
 
       6 ->
-        {inner, r} = dec(rest)
+        {inner, r} = dec(rest, depth + 1)
         {{:tag, arg, inner}, r}
     end
   end
@@ -102,19 +112,19 @@ defmodule Csilgen.Generated.Cbor do
   defp read_arg(26, <<a::size(32), rest::binary>>), do: {a, rest}
   defp read_arg(27, <<a::size(64), rest::binary>>), do: {a, rest}
 
-  defp dec_array(0, rest, acc), do: {{:array, Enum.reverse(acc)}, rest}
+  defp dec_array(0, rest, acc, _depth), do: {{:array, Enum.reverse(acc)}, rest}
 
-  defp dec_array(n, rest, acc) do
-    {v, r} = dec(rest)
-    dec_array(n - 1, r, [v | acc])
+  defp dec_array(n, rest, acc, depth) do
+    {v, r} = dec(rest, depth)
+    dec_array(n - 1, r, [v | acc], depth)
   end
 
-  defp dec_map(0, rest, acc), do: {{:map, Enum.reverse(acc)}, rest}
+  defp dec_map(0, rest, acc, _depth), do: {{:map, Enum.reverse(acc)}, rest}
 
-  defp dec_map(n, rest, acc) do
-    {k, r1} = dec(rest)
-    {v, r2} = dec(r1)
-    dec_map(n - 1, r2, [{k, v} | acc])
+  defp dec_map(n, rest, acc, depth) do
+    {k, r1} = dec(rest, depth)
+    {v, r2} = dec(r1, depth)
+    dec_map(n - 1, r2, [{k, v} | acc], depth)
   end
 
   @doc "Unwraps a CBOR integer item."

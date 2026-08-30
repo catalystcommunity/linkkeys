@@ -123,7 +123,7 @@ public final class CsilCbor {
 
     public static CborValue decode(byte[] b) {
         int[] pos = {0};
-        CborValue v = dec(b, pos);
+        CborValue v = dec(b, pos, 0);
         if (pos[0] != b.length) {
             throw new CsilCborException("csil cbor: trailing bytes");
         }
@@ -136,6 +136,12 @@ public final class CsilCbor {
         }
     }
 
+    private static void requireRemaining(byte[] b, int pos, int need) {
+        if (pos < 0 || pos > b.length || need > b.length - pos) {
+            throw new CsilCborException("csil cbor: truncated input");
+        }
+    }
+
     private static long readArg(byte[] b, int[] pos, int low) {
         if (low < 24) {
             pos[0] += 1;
@@ -143,17 +149,17 @@ public final class CsilCbor {
         }
         switch (low) {
             case 24:
-                requireLen(b, pos[0] + 2);
+                requireRemaining(b, pos[0], 2);
                 long v24 = b[pos[0] + 1] & 0xffL;
                 pos[0] += 2;
                 return v24;
             case 25:
-                requireLen(b, pos[0] + 3);
+                requireRemaining(b, pos[0], 3);
                 long v25 = ((b[pos[0] + 1] & 0xffL) << 8) | (b[pos[0] + 2] & 0xffL);
                 pos[0] += 3;
                 return v25;
             case 26: {
-                requireLen(b, pos[0] + 5);
+                requireRemaining(b, pos[0], 5);
                 long v = 0;
                 for (int i = 1; i <= 4; i++) {
                     v = (v << 8) | (b[pos[0] + i] & 0xffL);
@@ -162,7 +168,7 @@ public final class CsilCbor {
                 return v;
             }
             case 27: {
-                requireLen(b, pos[0] + 9);
+                requireRemaining(b, pos[0], 9);
                 long v = 0;
                 for (int i = 1; i <= 8; i++) {
                     v = (v << 8) | (b[pos[0] + i] & 0xffL);
@@ -175,7 +181,21 @@ public final class CsilCbor {
         }
     }
 
-    private static CborValue dec(byte[] b, int[] pos) {
+    private static String decodeUtf8(byte[] b, int off, int len) {
+        try {
+            return StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                    .decode(java.nio.ByteBuffer.wrap(b, off, len)).toString();
+        } catch (java.nio.charset.CharacterCodingException e) {
+            throw new CsilCborException("csil cbor: invalid utf-8");
+        }
+    }
+
+    private static CborValue dec(byte[] b, int[] pos, int depth) {
+        if (depth > 64) {
+            throw new CsilCborException("csil cbor: nesting limit exceeded");
+        }
         if (pos[0] >= b.length) {
             throw new CsilCborException("csil cbor: unexpected end of input");
         }
@@ -216,6 +236,9 @@ public final class CsilCbor {
                 }
                 return new CborInt(-1 - arg);
             case 2: {
+                if (Long.compareUnsigned(arg, b.length - pos[0]) > 0) {
+                    throw new CsilCborException("csil cbor: truncated byte string");
+                }
                 int n = (int) arg;
                 requireLen(b, pos[0] + n);
                 byte[] slice = Arrays.copyOfRange(b, pos[0], pos[0] + n);
@@ -223,32 +246,41 @@ public final class CsilCbor {
                 return new CborBytes(slice);
             }
             case 3: {
+                if (Long.compareUnsigned(arg, b.length - pos[0]) > 0) {
+                    throw new CsilCborException("csil cbor: truncated text string");
+                }
                 int n = (int) arg;
                 requireLen(b, pos[0] + n);
-                String s = new String(b, pos[0], n, StandardCharsets.UTF_8);
+                String s = decodeUtf8(b, pos[0], n);
                 pos[0] += n;
                 return new CborText(s);
             }
             case 4: {
+                if (Long.compareUnsigned(arg, b.length - pos[0]) > 0) {
+                    throw new CsilCborException("csil cbor: array length exceeds remaining input");
+                }
                 int n = (int) arg;
                 List<CborValue> items = new ArrayList<>(n);
                 for (int i = 0; i < n; i++) {
-                    items.add(dec(b, pos));
+                    items.add(dec(b, pos, depth + 1));
                 }
                 return new CborArray(items);
             }
             case 5: {
+                if (Long.compareUnsigned(arg, b.length - pos[0]) > 0) {
+                    throw new CsilCborException("csil cbor: map length exceeds remaining input");
+                }
                 int n = (int) arg;
                 List<CborEntry> entries = new ArrayList<>(n);
                 for (int i = 0; i < n; i++) {
-                    CborValue k = dec(b, pos);
-                    CborValue val = dec(b, pos);
+                    CborValue k = dec(b, pos, depth + 1);
+                    CborValue val = dec(b, pos, depth + 1);
                     entries.add(new CborEntry(k, val));
                 }
                 return new CborMap(entries);
             }
             case 6:
-                return new CborTag(arg, dec(b, pos));
+                return new CborTag(arg, dec(b, pos, depth + 1));
             default:
                 throw new CsilCborException("csil cbor: unexpected major type");
         }
@@ -5679,6 +5711,676 @@ public final class CsilCbor {
 
     public static ListLocalesResponse decodeListLocalesResponse(byte[] data) {
         return decListLocalesResponse(decode(data));
+    }
+
+    static CborValue encApplicationKeySignature(ApplicationKeySignature v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("signature"), new CborBytes(v.signature())));
+        csilEntries.add(new CborEntry(new CborText("signed_by_key_id"), new CborText(v.signedByKeyId())));
+        return new CborMap(csilEntries);
+    }
+
+    static ApplicationKeySignature decApplicationKeySignature(CborValue csilRoot) {
+        String signedByKeyId = asText(require(csilRoot, "signed_by_key_id"));
+        byte[] signature = asBytes(require(csilRoot, "signature"));
+        return new ApplicationKeySignature(signedByKeyId, signature);
+    }
+
+    public static byte[] encodeApplicationKeySignature(ApplicationKeySignature v) {
+        return encode(encApplicationKeySignature(v));
+    }
+
+    public static ApplicationKeySignature decodeApplicationKeySignature(byte[] data) {
+        return decApplicationKeySignature(decode(data));
+    }
+
+    static CborValue encApplicationKeyAttestation(ApplicationKeyAttestation v) {
+        List<CborEntry> csilEntries = new ArrayList<>(13);
+        csilEntries.add(new CborEntry(new CborText("key_id"), new CborText(v.keyId())));
+        csilEntries.add(new CborEntry(new CborText("algorithm"), new CborText(v.algorithm())));
+        csilEntries.add(new CborEntry(new CborText("key_usage"), new CborText(v.keyUsage())));
+        csilEntries.add(new CborEntry(new CborText("public_key"), new CborBytes(v.publicKey())));
+        csilEntries.add(new CborEntry(new CborText("attested_at"), new CborText(v.attestedAt())));
+        csilEntries.add(new CborEntry(new CborText("fingerprint"), new CborText(v.fingerprint())));
+        csilEntries.add(new CborEntry(new CborText("instance_id"), new CborText(v.instanceId())));
+        csilEntries.add(new CborEntry(new CborText("application_id"), new CborText(v.applicationId())));
+        csilEntries.add(new CborEntry(new CborText("key_created_at"), new CborText(v.keyCreatedAt())));
+        csilEntries.add(new CborEntry(new CborText("key_expires_at"), new CborText(v.keyExpiresAt())));
+        csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
+        csilEntries.add(new CborEntry(new CborText("subject_user_id"), new CborText(v.subjectUserId())));
+        csilEntries.add(new CborEntry(new CborText("attestation_expires_at"), new CborText(v.attestationExpiresAt())));
+        return new CborMap(csilEntries);
+    }
+
+    static ApplicationKeyAttestation decApplicationKeyAttestation(CborValue csilRoot) {
+        String subjectUserId = asText(require(csilRoot, "subject_user_id"));
+        String subjectDomain = asText(require(csilRoot, "subject_domain"));
+        String applicationId = asText(require(csilRoot, "application_id"));
+        String instanceId = asText(require(csilRoot, "instance_id"));
+        String keyId = asText(require(csilRoot, "key_id"));
+        String keyUsage = asText(require(csilRoot, "key_usage"));
+        String algorithm = asText(require(csilRoot, "algorithm"));
+        byte[] publicKey = asBytes(require(csilRoot, "public_key"));
+        String fingerprint = asText(require(csilRoot, "fingerprint"));
+        String keyCreatedAt = asText(require(csilRoot, "key_created_at"));
+        String keyExpiresAt = asText(require(csilRoot, "key_expires_at"));
+        String attestedAt = asText(require(csilRoot, "attested_at"));
+        String attestationExpiresAt = asText(require(csilRoot, "attestation_expires_at"));
+        return new ApplicationKeyAttestation(subjectUserId, subjectDomain, applicationId, instanceId, keyId, keyUsage, algorithm, publicKey, fingerprint, keyCreatedAt, keyExpiresAt, attestedAt, attestationExpiresAt);
+    }
+
+    public static byte[] encodeApplicationKeyAttestation(ApplicationKeyAttestation v) {
+        return encode(encApplicationKeyAttestation(v));
+    }
+
+    public static ApplicationKeyAttestation decodeApplicationKeyAttestation(byte[] data) {
+        return decApplicationKeyAttestation(decode(data));
+    }
+
+    static CborValue encSignedApplicationKeyAttestation(SignedApplicationKeyAttestation v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("signatures"), encArray(v.signatures(), csilElem0 -> encClaimSignature(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("attestation"), new CborBytes(v.attestation())));
+        return new CborMap(csilEntries);
+    }
+
+    static SignedApplicationKeyAttestation decSignedApplicationKeyAttestation(CborValue csilRoot) {
+        byte[] attestation = asBytes(require(csilRoot, "attestation"));
+        List<ClaimSignature> signatures = decArray(require(csilRoot, "signatures"), csilE0 -> decClaimSignature(csilE0));
+        return new SignedApplicationKeyAttestation(attestation, signatures);
+    }
+
+    public static byte[] encodeSignedApplicationKeyAttestation(SignedApplicationKeyAttestation v) {
+        return encode(encSignedApplicationKeyAttestation(v));
+    }
+
+    public static SignedApplicationKeyAttestation decodeSignedApplicationKeyAttestation(byte[] data) {
+        return decSignedApplicationKeyAttestation(decode(data));
+    }
+
+    static CborValue encApplicationKeyAddition(ApplicationKeyAddition v) {
+        List<CborEntry> csilEntries = new ArrayList<>(14);
+        csilEntries.add(new CborEntry(new CborText("key_id"), new CborText(v.keyId())));
+        csilEntries.add(new CborEntry(new CborText("algorithm"), new CborText(v.algorithm())));
+        csilEntries.add(new CborEntry(new CborText("challenge"), new CborBytes(v.challenge())));
+        csilEntries.add(new CborEntry(new CborText("key_usage"), new CborText(v.keyUsage())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("public_key"), new CborBytes(v.publicKey())));
+        csilEntries.add(new CborEntry(new CborText("fingerprint"), new CborText(v.fingerprint())));
+        csilEntries.add(new CborEntry(new CborText("instance_id"), new CborText(v.instanceId())));
+        csilEntries.add(new CborEntry(new CborText("challenge_id"), new CborText(v.challengeId())));
+        csilEntries.add(new CborEntry(new CborText("requested_at"), new CborText(v.requestedAt())));
+        csilEntries.add(new CborEntry(new CborText("application_id"), new CborText(v.applicationId())));
+        csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
+        csilEntries.add(new CborEntry(new CborText("subject_user_id"), new CborText(v.subjectUserId())));
+        csilEntries.add(new CborEntry(new CborText("requested_key_lifetime_seconds"), new CborInt(v.requestedKeyLifetimeSeconds())));
+        return new CborMap(csilEntries);
+    }
+
+    static ApplicationKeyAddition decApplicationKeyAddition(CborValue csilRoot) {
+        String subjectUserId = asText(require(csilRoot, "subject_user_id"));
+        String subjectDomain = asText(require(csilRoot, "subject_domain"));
+        String applicationId = asText(require(csilRoot, "application_id"));
+        String instanceId = asText(require(csilRoot, "instance_id"));
+        String keyId = asText(require(csilRoot, "key_id"));
+        String keyUsage = asText(require(csilRoot, "key_usage"));
+        String algorithm = asText(require(csilRoot, "algorithm"));
+        byte[] publicKey = asBytes(require(csilRoot, "public_key"));
+        String fingerprint = asText(require(csilRoot, "fingerprint"));
+        long requestedKeyLifetimeSeconds = asI64(require(csilRoot, "requested_key_lifetime_seconds"));
+        String challengeId = asText(require(csilRoot, "challenge_id"));
+        byte[] challenge = asBytes(require(csilRoot, "challenge"));
+        String requestedAt = asText(require(csilRoot, "requested_at"));
+        String expiresAt = asText(require(csilRoot, "expires_at"));
+        return new ApplicationKeyAddition(subjectUserId, subjectDomain, applicationId, instanceId, keyId, keyUsage, algorithm, publicKey, fingerprint, requestedKeyLifetimeSeconds, challengeId, challenge, requestedAt, expiresAt);
+    }
+
+    public static byte[] encodeApplicationKeyAddition(ApplicationKeyAddition v) {
+        return encode(encApplicationKeyAddition(v));
+    }
+
+    public static ApplicationKeyAddition decodeApplicationKeyAddition(byte[] data) {
+        return decApplicationKeyAddition(decode(data));
+    }
+
+    static CborValue encSignedApplicationKeyAddition(SignedApplicationKeyAddition v) {
+        List<CborEntry> csilEntries = new ArrayList<>(3);
+        csilEntries.add(new CborEntry(new CborText("addition"), new CborBytes(v.addition())));
+        csilEntries.add(new CborEntry(new CborText("signatures"), encArray(v.signatures(), csilElem0 -> encApplicationKeySignature(csilElem0))));
+        if (v.possessionProof() != null) {
+            csilEntries.add(new CborEntry(new CborText("possession_proof"), new CborBytes(v.possessionProof())));
+        }
+        return new CborMap(csilEntries);
+    }
+
+    static SignedApplicationKeyAddition decSignedApplicationKeyAddition(CborValue csilRoot) {
+        byte[] addition = asBytes(require(csilRoot, "addition"));
+        List<ApplicationKeySignature> signatures = decArray(require(csilRoot, "signatures"), csilE0 -> decApplicationKeySignature(csilE0));
+        byte[] possessionProof;
+        {
+            CborValue csilField = mapGet(csilRoot, "possession_proof");
+            possessionProof = csilField != null ? asBytes(csilField) : null;
+        }
+        return new SignedApplicationKeyAddition(addition, signatures, possessionProof);
+    }
+
+    public static byte[] encodeSignedApplicationKeyAddition(SignedApplicationKeyAddition v) {
+        return encode(encSignedApplicationKeyAddition(v));
+    }
+
+    public static SignedApplicationKeyAddition decodeSignedApplicationKeyAddition(byte[] data) {
+        return decSignedApplicationKeyAddition(decode(data));
+    }
+
+    static CborValue encApplicationKeyRenewal(ApplicationKeyRenewal v) {
+        List<CborEntry> csilEntries = new ArrayList<>(9);
+        csilEntries.add(new CborEntry(new CborText("key_id"), new CborText(v.keyId())));
+        csilEntries.add(new CborEntry(new CborText("challenge"), new CborBytes(v.challenge())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("instance_id"), new CborText(v.instanceId())));
+        csilEntries.add(new CborEntry(new CborText("challenge_id"), new CborText(v.challengeId())));
+        csilEntries.add(new CborEntry(new CborText("requested_at"), new CborText(v.requestedAt())));
+        csilEntries.add(new CborEntry(new CborText("application_id"), new CborText(v.applicationId())));
+        csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
+        csilEntries.add(new CborEntry(new CborText("subject_user_id"), new CborText(v.subjectUserId())));
+        return new CborMap(csilEntries);
+    }
+
+    static ApplicationKeyRenewal decApplicationKeyRenewal(CborValue csilRoot) {
+        String subjectUserId = asText(require(csilRoot, "subject_user_id"));
+        String subjectDomain = asText(require(csilRoot, "subject_domain"));
+        String applicationId = asText(require(csilRoot, "application_id"));
+        String instanceId = asText(require(csilRoot, "instance_id"));
+        String keyId = asText(require(csilRoot, "key_id"));
+        String challengeId = asText(require(csilRoot, "challenge_id"));
+        byte[] challenge = asBytes(require(csilRoot, "challenge"));
+        String requestedAt = asText(require(csilRoot, "requested_at"));
+        String expiresAt = asText(require(csilRoot, "expires_at"));
+        return new ApplicationKeyRenewal(subjectUserId, subjectDomain, applicationId, instanceId, keyId, challengeId, challenge, requestedAt, expiresAt);
+    }
+
+    public static byte[] encodeApplicationKeyRenewal(ApplicationKeyRenewal v) {
+        return encode(encApplicationKeyRenewal(v));
+    }
+
+    public static ApplicationKeyRenewal decodeApplicationKeyRenewal(byte[] data) {
+        return decApplicationKeyRenewal(decode(data));
+    }
+
+    static CborValue encSignedApplicationKeyRenewal(SignedApplicationKeyRenewal v) {
+        List<CborEntry> csilEntries = new ArrayList<>(3);
+        csilEntries.add(new CborEntry(new CborText("renewal"), new CborBytes(v.renewal())));
+        csilEntries.add(new CborEntry(new CborText("signatures"), encArray(v.signatures(), csilElem0 -> encApplicationKeySignature(csilElem0))));
+        if (v.possessionProof() != null) {
+            csilEntries.add(new CborEntry(new CborText("possession_proof"), new CborBytes(v.possessionProof())));
+        }
+        return new CborMap(csilEntries);
+    }
+
+    static SignedApplicationKeyRenewal decSignedApplicationKeyRenewal(CborValue csilRoot) {
+        byte[] renewal = asBytes(require(csilRoot, "renewal"));
+        List<ApplicationKeySignature> signatures = decArray(require(csilRoot, "signatures"), csilE0 -> decApplicationKeySignature(csilE0));
+        byte[] possessionProof;
+        {
+            CborValue csilField = mapGet(csilRoot, "possession_proof");
+            possessionProof = csilField != null ? asBytes(csilField) : null;
+        }
+        return new SignedApplicationKeyRenewal(renewal, signatures, possessionProof);
+    }
+
+    public static byte[] encodeSignedApplicationKeyRenewal(SignedApplicationKeyRenewal v) {
+        return encode(encSignedApplicationKeyRenewal(v));
+    }
+
+    public static SignedApplicationKeyRenewal decodeSignedApplicationKeyRenewal(byte[] data) {
+        return decSignedApplicationKeyRenewal(decode(data));
+    }
+
+    static CborValue encApplicationKeyRevocation(ApplicationKeyRevocation v) {
+        List<CborEntry> csilEntries = new ArrayList<>(8);
+        csilEntries.add(new CborEntry(new CborText("revoked_at"), new CborText(v.revokedAt())));
+        csilEntries.add(new CborEntry(new CborText("signatures"), encArray(v.signatures(), csilElem0 -> encApplicationKeySignature(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("instance_id"), new CborText(v.instanceId())));
+        csilEntries.add(new CborEntry(new CborText("target_key_id"), new CborText(v.targetKeyId())));
+        csilEntries.add(new CborEntry(new CborText("application_id"), new CborText(v.applicationId())));
+        csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
+        csilEntries.add(new CborEntry(new CborText("subject_user_id"), new CborText(v.subjectUserId())));
+        csilEntries.add(new CborEntry(new CborText("target_fingerprint"), new CborText(v.targetFingerprint())));
+        return new CborMap(csilEntries);
+    }
+
+    static ApplicationKeyRevocation decApplicationKeyRevocation(CborValue csilRoot) {
+        String subjectUserId = asText(require(csilRoot, "subject_user_id"));
+        String subjectDomain = asText(require(csilRoot, "subject_domain"));
+        String applicationId = asText(require(csilRoot, "application_id"));
+        String instanceId = asText(require(csilRoot, "instance_id"));
+        String targetKeyId = asText(require(csilRoot, "target_key_id"));
+        String targetFingerprint = asText(require(csilRoot, "target_fingerprint"));
+        String revokedAt = asText(require(csilRoot, "revoked_at"));
+        List<ApplicationKeySignature> signatures = decArray(require(csilRoot, "signatures"), csilE0 -> decApplicationKeySignature(csilE0));
+        return new ApplicationKeyRevocation(subjectUserId, subjectDomain, applicationId, instanceId, targetKeyId, targetFingerprint, revokedAt, signatures);
+    }
+
+    public static byte[] encodeApplicationKeyRevocation(ApplicationKeyRevocation v) {
+        return encode(encApplicationKeyRevocation(v));
+    }
+
+    public static ApplicationKeyRevocation decodeApplicationKeyRevocation(byte[] data) {
+        return decApplicationKeyRevocation(decode(data));
+    }
+
+    static CborValue encStartApplicationKeyChallengeRequest(StartApplicationKeyChallengeRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(7);
+        csilEntries.add(new CborEntry(new CborText("purpose"), new CborText(v.purpose())));
+        csilEntries.add(new CborEntry(new CborText("algorithm"), new CborText(v.algorithm())));
+        csilEntries.add(new CborEntry(new CborText("key_usage"), new CborText(v.keyUsage())));
+        csilEntries.add(new CborEntry(new CborText("public_key"), new CborBytes(v.publicKey())));
+        csilEntries.add(new CborEntry(new CborText("instance_id"), new CborText(v.instanceId())));
+        csilEntries.add(new CborEntry(new CborText("application_id"), new CborText(v.applicationId())));
+        csilEntries.add(new CborEntry(new CborText("subject_user_id"), new CborText(v.subjectUserId())));
+        return new CborMap(csilEntries);
+    }
+
+    static StartApplicationKeyChallengeRequest decStartApplicationKeyChallengeRequest(CborValue csilRoot) {
+        String subjectUserId = asText(require(csilRoot, "subject_user_id"));
+        String applicationId = asText(require(csilRoot, "application_id"));
+        String instanceId = asText(require(csilRoot, "instance_id"));
+        String purpose = asText(require(csilRoot, "purpose"));
+        String keyUsage = asText(require(csilRoot, "key_usage"));
+        String algorithm = asText(require(csilRoot, "algorithm"));
+        byte[] publicKey = asBytes(require(csilRoot, "public_key"));
+        return new StartApplicationKeyChallengeRequest(subjectUserId, applicationId, instanceId, purpose, keyUsage, algorithm, publicKey);
+    }
+
+    public static byte[] encodeStartApplicationKeyChallengeRequest(StartApplicationKeyChallengeRequest v) {
+        return encode(encStartApplicationKeyChallengeRequest(v));
+    }
+
+    public static StartApplicationKeyChallengeRequest decodeStartApplicationKeyChallengeRequest(byte[] data) {
+        return decStartApplicationKeyChallengeRequest(decode(data));
+    }
+
+    static CborValue encStartApplicationKeyChallengeResponse(StartApplicationKeyChallengeResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(4);
+        if (v.challenge() != null) {
+            csilEntries.add(new CborEntry(new CborText("challenge"), new CborBytes(v.challenge())));
+        }
+        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("challenge_id"), new CborText(v.challengeId())));
+        if (v.sealedChallenge() != null) {
+            csilEntries.add(new CborEntry(new CborText("sealed_challenge"), new CborBytes(v.sealedChallenge())));
+        }
+        return new CborMap(csilEntries);
+    }
+
+    static StartApplicationKeyChallengeResponse decStartApplicationKeyChallengeResponse(CborValue csilRoot) {
+        String challengeId = asText(require(csilRoot, "challenge_id"));
+        byte[] challenge;
+        {
+            CborValue csilField = mapGet(csilRoot, "challenge");
+            challenge = csilField != null ? asBytes(csilField) : null;
+        }
+        byte[] sealedChallenge;
+        {
+            CborValue csilField = mapGet(csilRoot, "sealed_challenge");
+            sealedChallenge = csilField != null ? asBytes(csilField) : null;
+        }
+        String expiresAt = asText(require(csilRoot, "expires_at"));
+        return new StartApplicationKeyChallengeResponse(challengeId, challenge, sealedChallenge, expiresAt);
+    }
+
+    public static byte[] encodeStartApplicationKeyChallengeResponse(StartApplicationKeyChallengeResponse v) {
+        return encode(encStartApplicationKeyChallengeResponse(v));
+    }
+
+    public static StartApplicationKeyChallengeResponse decodeStartApplicationKeyChallengeResponse(byte[] data) {
+        return decStartApplicationKeyChallengeResponse(decode(data));
+    }
+
+    static CborValue encAddApplicationKeyRequest(AddApplicationKeyRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("request"), encSignedApplicationKeyAddition(v.request())));
+        return new CborMap(csilEntries);
+    }
+
+    static AddApplicationKeyRequest decAddApplicationKeyRequest(CborValue csilRoot) {
+        SignedApplicationKeyAddition request = decSignedApplicationKeyAddition(require(csilRoot, "request"));
+        return new AddApplicationKeyRequest(request);
+    }
+
+    public static byte[] encodeAddApplicationKeyRequest(AddApplicationKeyRequest v) {
+        return encode(encAddApplicationKeyRequest(v));
+    }
+
+    public static AddApplicationKeyRequest decodeAddApplicationKeyRequest(byte[] data) {
+        return decAddApplicationKeyRequest(decode(data));
+    }
+
+    static CborValue encAddApplicationKeyResponse(AddApplicationKeyResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("attestation"), encSignedApplicationKeyAttestation(v.attestation())));
+        return new CborMap(csilEntries);
+    }
+
+    static AddApplicationKeyResponse decAddApplicationKeyResponse(CborValue csilRoot) {
+        SignedApplicationKeyAttestation attestation = decSignedApplicationKeyAttestation(require(csilRoot, "attestation"));
+        return new AddApplicationKeyResponse(attestation);
+    }
+
+    public static byte[] encodeAddApplicationKeyResponse(AddApplicationKeyResponse v) {
+        return encode(encAddApplicationKeyResponse(v));
+    }
+
+    public static AddApplicationKeyResponse decodeAddApplicationKeyResponse(byte[] data) {
+        return decAddApplicationKeyResponse(decode(data));
+    }
+
+    static CborValue encRenewApplicationKeyAttestationRequest(RenewApplicationKeyAttestationRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("request"), encSignedApplicationKeyRenewal(v.request())));
+        return new CborMap(csilEntries);
+    }
+
+    static RenewApplicationKeyAttestationRequest decRenewApplicationKeyAttestationRequest(CborValue csilRoot) {
+        SignedApplicationKeyRenewal request = decSignedApplicationKeyRenewal(require(csilRoot, "request"));
+        return new RenewApplicationKeyAttestationRequest(request);
+    }
+
+    public static byte[] encodeRenewApplicationKeyAttestationRequest(RenewApplicationKeyAttestationRequest v) {
+        return encode(encRenewApplicationKeyAttestationRequest(v));
+    }
+
+    public static RenewApplicationKeyAttestationRequest decodeRenewApplicationKeyAttestationRequest(byte[] data) {
+        return decRenewApplicationKeyAttestationRequest(decode(data));
+    }
+
+    static CborValue encRenewApplicationKeyAttestationResponse(RenewApplicationKeyAttestationResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("signed"), new CborBool(v.signed())));
+        csilEntries.add(new CborEntry(new CborText("attestation"), encSignedApplicationKeyAttestation(v.attestation())));
+        return new CborMap(csilEntries);
+    }
+
+    static RenewApplicationKeyAttestationResponse decRenewApplicationKeyAttestationResponse(CborValue csilRoot) {
+        SignedApplicationKeyAttestation attestation = decSignedApplicationKeyAttestation(require(csilRoot, "attestation"));
+        boolean signed = asBool(require(csilRoot, "signed"));
+        return new RenewApplicationKeyAttestationResponse(attestation, signed);
+    }
+
+    public static byte[] encodeRenewApplicationKeyAttestationResponse(RenewApplicationKeyAttestationResponse v) {
+        return encode(encRenewApplicationKeyAttestationResponse(v));
+    }
+
+    public static RenewApplicationKeyAttestationResponse decodeRenewApplicationKeyAttestationResponse(byte[] data) {
+        return decRenewApplicationKeyAttestationResponse(decode(data));
+    }
+
+    static CborValue encRevokeApplicationKeyRequest(RevokeApplicationKeyRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("revocation"), encApplicationKeyRevocation(v.revocation())));
+        return new CborMap(csilEntries);
+    }
+
+    static RevokeApplicationKeyRequest decRevokeApplicationKeyRequest(CborValue csilRoot) {
+        ApplicationKeyRevocation revocation = decApplicationKeyRevocation(require(csilRoot, "revocation"));
+        return new RevokeApplicationKeyRequest(revocation);
+    }
+
+    public static byte[] encodeRevokeApplicationKeyRequest(RevokeApplicationKeyRequest v) {
+        return encode(encRevokeApplicationKeyRequest(v));
+    }
+
+    public static RevokeApplicationKeyRequest decodeRevokeApplicationKeyRequest(byte[] data) {
+        return decRevokeApplicationKeyRequest(decode(data));
+    }
+
+    static CborValue encRevokeApplicationKeyResponse(RevokeApplicationKeyResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("revoked_at"), new CborText(v.revokedAt())));
+        return new CborMap(csilEntries);
+    }
+
+    static RevokeApplicationKeyResponse decRevokeApplicationKeyResponse(CborValue csilRoot) {
+        String revokedAt = asText(require(csilRoot, "revoked_at"));
+        return new RevokeApplicationKeyResponse(revokedAt);
+    }
+
+    public static byte[] encodeRevokeApplicationKeyResponse(RevokeApplicationKeyResponse v) {
+        return encode(encRevokeApplicationKeyResponse(v));
+    }
+
+    public static RevokeApplicationKeyResponse decodeRevokeApplicationKeyResponse(byte[] data) {
+        return decRevokeApplicationKeyResponse(decode(data));
+    }
+
+    static CborValue encEnrollApplicationInstanceRequest(EnrollApplicationInstanceRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(3);
+        csilEntries.add(new CborEntry(new CborText("keys"), encArray(v.keys(), csilElem0 -> encSignedApplicationKeyAddition(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("instance_id"), new CborText(v.instanceId())));
+        csilEntries.add(new CborEntry(new CborText("application_id"), new CborText(v.applicationId())));
+        return new CborMap(csilEntries);
+    }
+
+    static EnrollApplicationInstanceRequest decEnrollApplicationInstanceRequest(CborValue csilRoot) {
+        String applicationId = asText(require(csilRoot, "application_id"));
+        String instanceId = asText(require(csilRoot, "instance_id"));
+        List<SignedApplicationKeyAddition> keys = decArray(require(csilRoot, "keys"), csilE0 -> decSignedApplicationKeyAddition(csilE0));
+        return new EnrollApplicationInstanceRequest(applicationId, instanceId, keys);
+    }
+
+    public static byte[] encodeEnrollApplicationInstanceRequest(EnrollApplicationInstanceRequest v) {
+        return encode(encEnrollApplicationInstanceRequest(v));
+    }
+
+    public static EnrollApplicationInstanceRequest decodeEnrollApplicationInstanceRequest(byte[] data) {
+        return decEnrollApplicationInstanceRequest(decode(data));
+    }
+
+    static CborValue encEnrollApplicationInstanceResponse(EnrollApplicationInstanceResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(5);
+        csilEntries.add(new CborEntry(new CborText("instance_id"), new CborText(v.instanceId())));
+        csilEntries.add(new CborEntry(new CborText("attestations"), encArray(v.attestations(), csilElem0 -> encSignedApplicationKeyAttestation(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("application_id"), new CborText(v.applicationId())));
+        csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
+        csilEntries.add(new CborEntry(new CborText("subject_user_id"), new CborText(v.subjectUserId())));
+        return new CborMap(csilEntries);
+    }
+
+    static EnrollApplicationInstanceResponse decEnrollApplicationInstanceResponse(CborValue csilRoot) {
+        String subjectUserId = asText(require(csilRoot, "subject_user_id"));
+        String subjectDomain = asText(require(csilRoot, "subject_domain"));
+        String applicationId = asText(require(csilRoot, "application_id"));
+        String instanceId = asText(require(csilRoot, "instance_id"));
+        List<SignedApplicationKeyAttestation> attestations = decArray(require(csilRoot, "attestations"), csilE0 -> decSignedApplicationKeyAttestation(csilE0));
+        return new EnrollApplicationInstanceResponse(subjectUserId, subjectDomain, applicationId, instanceId, attestations);
+    }
+
+    public static byte[] encodeEnrollApplicationInstanceResponse(EnrollApplicationInstanceResponse v) {
+        return encode(encEnrollApplicationInstanceResponse(v));
+    }
+
+    public static EnrollApplicationInstanceResponse decodeEnrollApplicationInstanceResponse(byte[] data) {
+        return decEnrollApplicationInstanceResponse(decode(data));
+    }
+
+    static CborValue encGetApplicationKeysRequest(GetApplicationKeysRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(3);
+        csilEntries.add(new CborEntry(new CborText("instance_id"), new CborText(v.instanceId())));
+        csilEntries.add(new CborEntry(new CborText("application_id"), new CborText(v.applicationId())));
+        csilEntries.add(new CborEntry(new CborText("subject_user_id"), new CborText(v.subjectUserId())));
+        return new CborMap(csilEntries);
+    }
+
+    static GetApplicationKeysRequest decGetApplicationKeysRequest(CborValue csilRoot) {
+        String subjectUserId = asText(require(csilRoot, "subject_user_id"));
+        String applicationId = asText(require(csilRoot, "application_id"));
+        String instanceId = asText(require(csilRoot, "instance_id"));
+        return new GetApplicationKeysRequest(subjectUserId, applicationId, instanceId);
+    }
+
+    public static byte[] encodeGetApplicationKeysRequest(GetApplicationKeysRequest v) {
+        return encode(encGetApplicationKeysRequest(v));
+    }
+
+    public static GetApplicationKeysRequest decodeGetApplicationKeysRequest(byte[] data) {
+        return decGetApplicationKeysRequest(decode(data));
+    }
+
+    static CborValue encGetApplicationKeysResponse(GetApplicationKeysResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(6);
+        csilEntries.add(new CborEntry(new CborText("keys"), encArray(v.keys(), csilElem0 -> encSignedApplicationKeyAttestation(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("instance_id"), new CborText(v.instanceId())));
+        csilEntries.add(new CborEntry(new CborText("revocations"), encArray(v.revocations(), csilElem0 -> encApplicationKeyRevocation(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("application_id"), new CborText(v.applicationId())));
+        csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
+        csilEntries.add(new CborEntry(new CborText("subject_user_id"), new CborText(v.subjectUserId())));
+        return new CborMap(csilEntries);
+    }
+
+    static GetApplicationKeysResponse decGetApplicationKeysResponse(CborValue csilRoot) {
+        String subjectUserId = asText(require(csilRoot, "subject_user_id"));
+        String subjectDomain = asText(require(csilRoot, "subject_domain"));
+        String applicationId = asText(require(csilRoot, "application_id"));
+        String instanceId = asText(require(csilRoot, "instance_id"));
+        List<SignedApplicationKeyAttestation> keys = decArray(require(csilRoot, "keys"), csilE0 -> decSignedApplicationKeyAttestation(csilE0));
+        List<ApplicationKeyRevocation> revocations = decArray(require(csilRoot, "revocations"), csilE0 -> decApplicationKeyRevocation(csilE0));
+        return new GetApplicationKeysResponse(subjectUserId, subjectDomain, applicationId, instanceId, keys, revocations);
+    }
+
+    public static byte[] encodeGetApplicationKeysResponse(GetApplicationKeysResponse v) {
+        return encode(encGetApplicationKeysResponse(v));
+    }
+
+    public static GetApplicationKeysResponse decodeGetApplicationKeysResponse(byte[] data) {
+        return decGetApplicationKeysResponse(decode(data));
+    }
+
+    static CborValue encRpResolveDomainKeysRequest(RpResolveDomainKeysRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("domain"), new CborText(v.domain())));
+        if (v.maxCacheAgeSeconds() != null) {
+            csilEntries.add(new CborEntry(new CborText("max_cache_age_seconds"), new CborInt(v.maxCacheAgeSeconds())));
+        }
+        return new CborMap(csilEntries);
+    }
+
+    static RpResolveDomainKeysRequest decRpResolveDomainKeysRequest(CborValue csilRoot) {
+        String domain = asText(require(csilRoot, "domain"));
+        Long maxCacheAgeSeconds;
+        {
+            CborValue csilField = mapGet(csilRoot, "max_cache_age_seconds");
+            maxCacheAgeSeconds = csilField != null ? asI64(csilField) : null;
+        }
+        return new RpResolveDomainKeysRequest(domain, maxCacheAgeSeconds);
+    }
+
+    public static byte[] encodeRpResolveDomainKeysRequest(RpResolveDomainKeysRequest v) {
+        return encode(encRpResolveDomainKeysRequest(v));
+    }
+
+    public static RpResolveDomainKeysRequest decodeRpResolveDomainKeysRequest(byte[] data) {
+        return decRpResolveDomainKeysRequest(decode(data));
+    }
+
+    static CborValue encRpResolveDomainKeysResponse(RpResolveDomainKeysResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(6);
+        csilEntries.add(new CborEntry(new CborText("keys"), encArray(v.keys(), csilElem0 -> encDomainPublicKey(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("domain"), new CborText(v.domain())));
+        csilEntries.add(new CborEntry(new CborText("fetched_at"), new CborText(v.fetchedAt())));
+        csilEntries.add(new CborEntry(new CborText("revocations"), encArray(v.revocations(), csilElem0 -> encRevocationCertificate(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("cache_status"), new CborText(v.cacheStatus())));
+        csilEntries.add(new CborEntry(new CborText("revocations_checked_at"), new CborText(v.revocationsCheckedAt())));
+        return new CborMap(csilEntries);
+    }
+
+    static RpResolveDomainKeysResponse decRpResolveDomainKeysResponse(CborValue csilRoot) {
+        String domain = asText(require(csilRoot, "domain"));
+        List<DomainPublicKey> keys = decArray(require(csilRoot, "keys"), csilE0 -> decDomainPublicKey(csilE0));
+        List<RevocationCertificate> revocations = decArray(require(csilRoot, "revocations"), csilE0 -> decRevocationCertificate(csilE0));
+        String fetchedAt = asText(require(csilRoot, "fetched_at"));
+        String revocationsCheckedAt = asText(require(csilRoot, "revocations_checked_at"));
+        String cacheStatus = asText(require(csilRoot, "cache_status"));
+        return new RpResolveDomainKeysResponse(domain, keys, revocations, fetchedAt, revocationsCheckedAt, cacheStatus);
+    }
+
+    public static byte[] encodeRpResolveDomainKeysResponse(RpResolveDomainKeysResponse v) {
+        return encode(encRpResolveDomainKeysResponse(v));
+    }
+
+    public static RpResolveDomainKeysResponse decodeRpResolveDomainKeysResponse(byte[] data) {
+        return decRpResolveDomainKeysResponse(decode(data));
+    }
+
+    static CborValue encRpResolveApplicationKeysRequest(RpResolveApplicationKeysRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(5);
+        csilEntries.add(new CborEntry(new CborText("instance_id"), new CborText(v.instanceId())));
+        csilEntries.add(new CborEntry(new CborText("application_id"), new CborText(v.applicationId())));
+        csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
+        csilEntries.add(new CborEntry(new CborText("subject_user_id"), new CborText(v.subjectUserId())));
+        if (v.maxCacheAgeSeconds() != null) {
+            csilEntries.add(new CborEntry(new CborText("max_cache_age_seconds"), new CborInt(v.maxCacheAgeSeconds())));
+        }
+        return new CborMap(csilEntries);
+    }
+
+    static RpResolveApplicationKeysRequest decRpResolveApplicationKeysRequest(CborValue csilRoot) {
+        String subjectUserId = asText(require(csilRoot, "subject_user_id"));
+        String subjectDomain = asText(require(csilRoot, "subject_domain"));
+        String applicationId = asText(require(csilRoot, "application_id"));
+        String instanceId = asText(require(csilRoot, "instance_id"));
+        Long maxCacheAgeSeconds;
+        {
+            CborValue csilField = mapGet(csilRoot, "max_cache_age_seconds");
+            maxCacheAgeSeconds = csilField != null ? asI64(csilField) : null;
+        }
+        return new RpResolveApplicationKeysRequest(subjectUserId, subjectDomain, applicationId, instanceId, maxCacheAgeSeconds);
+    }
+
+    public static byte[] encodeRpResolveApplicationKeysRequest(RpResolveApplicationKeysRequest v) {
+        return encode(encRpResolveApplicationKeysRequest(v));
+    }
+
+    public static RpResolveApplicationKeysRequest decodeRpResolveApplicationKeysRequest(byte[] data) {
+        return decRpResolveApplicationKeysRequest(decode(data));
+    }
+
+    static CborValue encRpResolveApplicationKeysResponse(RpResolveApplicationKeysResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(11);
+        csilEntries.add(new CborEntry(new CborText("fetched_at"), new CborText(v.fetchedAt())));
+        csilEntries.add(new CborEntry(new CborText("instance_id"), new CborText(v.instanceId())));
+        csilEntries.add(new CborEntry(new CborText("cache_status"), new CborText(v.cacheStatus())));
+        csilEntries.add(new CborEntry(new CborText("application_id"), new CborText(v.applicationId())));
+        csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
+        csilEntries.add(new CborEntry(new CborText("subject_user_id"), new CborText(v.subjectUserId())));
+        csilEntries.add(new CborEntry(new CborText("application_keys"), encArray(v.applicationKeys(), csilElem0 -> encSignedApplicationKeyAttestation(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("home_domain_keys"), encArray(v.homeDomainKeys(), csilElem0 -> encDomainPublicKey(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("revocations_checked_at"), new CborText(v.revocationsCheckedAt())));
+        csilEntries.add(new CborEntry(new CborText("application_key_revocations"), encArray(v.applicationKeyRevocations(), csilElem0 -> encApplicationKeyRevocation(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("home_domain_key_revocations"), encArray(v.homeDomainKeyRevocations(), csilElem0 -> encRevocationCertificate(csilElem0))));
+        return new CborMap(csilEntries);
+    }
+
+    static RpResolveApplicationKeysResponse decRpResolveApplicationKeysResponse(CborValue csilRoot) {
+        String subjectUserId = asText(require(csilRoot, "subject_user_id"));
+        String subjectDomain = asText(require(csilRoot, "subject_domain"));
+        String applicationId = asText(require(csilRoot, "application_id"));
+        String instanceId = asText(require(csilRoot, "instance_id"));
+        List<SignedApplicationKeyAttestation> applicationKeys = decArray(require(csilRoot, "application_keys"), csilE0 -> decSignedApplicationKeyAttestation(csilE0));
+        List<ApplicationKeyRevocation> applicationKeyRevocations = decArray(require(csilRoot, "application_key_revocations"), csilE0 -> decApplicationKeyRevocation(csilE0));
+        List<DomainPublicKey> homeDomainKeys = decArray(require(csilRoot, "home_domain_keys"), csilE0 -> decDomainPublicKey(csilE0));
+        List<RevocationCertificate> homeDomainKeyRevocations = decArray(require(csilRoot, "home_domain_key_revocations"), csilE0 -> decRevocationCertificate(csilE0));
+        String fetchedAt = asText(require(csilRoot, "fetched_at"));
+        String revocationsCheckedAt = asText(require(csilRoot, "revocations_checked_at"));
+        String cacheStatus = asText(require(csilRoot, "cache_status"));
+        return new RpResolveApplicationKeysResponse(subjectUserId, subjectDomain, applicationId, instanceId, applicationKeys, applicationKeyRevocations, homeDomainKeys, homeDomainKeyRevocations, fetchedAt, revocationsCheckedAt, cacheStatus);
+    }
+
+    public static byte[] encodeRpResolveApplicationKeysResponse(RpResolveApplicationKeysResponse v) {
+        return encode(encRpResolveApplicationKeysResponse(v));
+    }
+
+    public static RpResolveApplicationKeysResponse decodeRpResolveApplicationKeysResponse(byte[] data) {
+        return decRpResolveApplicationKeysResponse(decode(data));
     }
 
     static CborValue encCheckValue(CheckValue v) {

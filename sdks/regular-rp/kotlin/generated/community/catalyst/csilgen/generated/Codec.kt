@@ -116,7 +116,7 @@ object CsilCbor {
 
     fun decode(b: ByteArray): CborValue {
         val cur = Cursor(b)
-        val v = dec(cur)
+        val v = dec(cur, 0)
         if (cur.pos != b.size) throw CborError("trailing bytes after CBOR value")
         return v
     }
@@ -125,6 +125,10 @@ object CsilCbor {
         if (low < 24) {
             cur.pos += 1
             return low.toULong()
+        }
+        val width = when (low) { 24 -> 1; 25 -> 2; 26 -> 4; 27 -> 8; else -> 0 }
+        if (width == 0 || cur.pos >= cur.b.size || cur.b.size - cur.pos - 1 < width) {
+            throw CborError("truncated CBOR argument")
         }
         return when (low) {
             24 -> {
@@ -153,7 +157,18 @@ object CsilCbor {
         }
     }
 
-    private fun dec(cur: Cursor): CborValue {
+    private fun decodeUtf8(b: ByteArray, off: Int, len: Int): String = try {
+        Charsets.UTF_8.newDecoder()
+            .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+            .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+            .decode(java.nio.ByteBuffer.wrap(b, off, len)).toString()
+    } catch (_: java.nio.charset.CharacterCodingException) {
+        throw CborError("invalid UTF-8 text string")
+    }
+
+    private fun dec(cur: Cursor, depth: Int): CborValue {
+        if (depth > 64) throw CborError("CBOR nesting limit exceeded")
+        if (cur.pos >= cur.b.size) throw CborError("unexpected end of CBOR input")
         val ib = cur.b[cur.pos].toUByte().toInt()
         val major = ib shr 5
         val low = ib and 0x1f
@@ -190,34 +205,38 @@ object CsilCbor {
                 CborValue.CInt(-1L - arg.toLong())
             }
             2 -> {
+                if (arg > (cur.b.size - cur.pos).toULong()) throw CborError("truncated byte string")
                 val n = arg.toInt()
                 val slice = cur.b.copyOfRange(cur.pos, cur.pos + n)
                 cur.pos += n
                 CborValue.CBytes(slice)
             }
             3 -> {
+                if (arg > (cur.b.size - cur.pos).toULong()) throw CborError("truncated text string")
                 val n = arg.toInt()
-                val s = String(cur.b, cur.pos, n, Charsets.UTF_8)
+                val s = decodeUtf8(cur.b, cur.pos, n)
                 cur.pos += n
                 CborValue.CText(s)
             }
             4 -> {
+                if (arg > (cur.b.size - cur.pos).toULong()) throw CborError("array length exceeds remaining input")
                 val n = arg.toInt()
                 val items = ArrayList<CborValue>(n)
-                repeat(n) { items.add(dec(cur)) }
+                repeat(n) { items.add(dec(cur, depth + 1)) }
                 CborValue.CArray(items)
             }
             5 -> {
+                if (arg > (cur.b.size - cur.pos).toULong()) throw CborError("map length exceeds remaining input")
                 val n = arg.toInt()
                 val entries = ArrayList<Pair<CborValue, CborValue>>(n)
                 repeat(n) {
-                    val k = dec(cur)
-                    val value = dec(cur)
+                    val k = dec(cur, depth + 1)
+                    val value = dec(cur, depth + 1)
                     entries.add(k to value)
                 }
                 CborValue.CMap(entries)
             }
-            6 -> CborValue.CTag(arg, dec(cur))
+            6 -> CborValue.CTag(arg, dec(cur, depth + 1))
             else -> throw CborError("malformed CBOR major type")
         }
     }
@@ -5135,6 +5154,640 @@ fun listLocalesResponseFromCborValue(cbor: CborValue): ListLocalesResponse {
 /** Decode CSIL CBOR bytes into a ListLocalesResponse. */
 fun listLocalesResponseFromCbor(bytes: ByteArray): ListLocalesResponse = listLocalesResponseFromCborValue(CsilCbor.decode(bytes))
 
+/** The CBOR value tree for a ApplicationKeySignature (deep, canonical key order). */
+fun ApplicationKeySignature.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("signature") to CborValue.CBytes(this.signature))
+    csilEntries.add(CborValue.CText("signed_by_key_id") to CborValue.CText(this.signedByKeyId))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a ApplicationKeySignature to canonical CSIL CBOR bytes. */
+fun ApplicationKeySignature.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a ApplicationKeySignature from a decoded CBOR value tree. */
+fun applicationKeySignatureFromCborValue(cbor: CborValue): ApplicationKeySignature {
+    val signedByKeyId = CsilCbor.asText(CsilCbor.require(cbor, "signed_by_key_id"))
+    val signature = CsilCbor.asBytes(CsilCbor.require(cbor, "signature"))
+    return ApplicationKeySignature(signedByKeyId = signedByKeyId, signature = signature)
+}
+
+/** Decode CSIL CBOR bytes into a ApplicationKeySignature. */
+fun applicationKeySignatureFromCbor(bytes: ByteArray): ApplicationKeySignature = applicationKeySignatureFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a ApplicationKeyAttestation (deep, canonical key order). */
+fun ApplicationKeyAttestation.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("key_id") to CborValue.CText(this.keyId))
+    csilEntries.add(CborValue.CText("algorithm") to CborValue.CText(this.algorithm))
+    csilEntries.add(CborValue.CText("key_usage") to CborValue.CText(this.keyUsage))
+    csilEntries.add(CborValue.CText("public_key") to CborValue.CBytes(this.publicKey))
+    csilEntries.add(CborValue.CText("attested_at") to CborValue.CText(this.attestedAt))
+    csilEntries.add(CborValue.CText("fingerprint") to CborValue.CText(this.fingerprint))
+    csilEntries.add(CborValue.CText("instance_id") to CborValue.CText(this.instanceId))
+    csilEntries.add(CborValue.CText("application_id") to CborValue.CText(this.applicationId))
+    csilEntries.add(CborValue.CText("key_created_at") to CborValue.CText(this.keyCreatedAt))
+    csilEntries.add(CborValue.CText("key_expires_at") to CborValue.CText(this.keyExpiresAt))
+    csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
+    csilEntries.add(CborValue.CText("subject_user_id") to CborValue.CText(this.subjectUserId))
+    csilEntries.add(CborValue.CText("attestation_expires_at") to CborValue.CText(this.attestationExpiresAt))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a ApplicationKeyAttestation to canonical CSIL CBOR bytes. */
+fun ApplicationKeyAttestation.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a ApplicationKeyAttestation from a decoded CBOR value tree. */
+fun applicationKeyAttestationFromCborValue(cbor: CborValue): ApplicationKeyAttestation {
+    val subjectUserId = CsilCbor.asText(CsilCbor.require(cbor, "subject_user_id"))
+    val subjectDomain = CsilCbor.asText(CsilCbor.require(cbor, "subject_domain"))
+    val applicationId = CsilCbor.asText(CsilCbor.require(cbor, "application_id"))
+    val instanceId = CsilCbor.asText(CsilCbor.require(cbor, "instance_id"))
+    val keyId = CsilCbor.asText(CsilCbor.require(cbor, "key_id"))
+    val keyUsage = CsilCbor.asText(CsilCbor.require(cbor, "key_usage"))
+    val algorithm = CsilCbor.asText(CsilCbor.require(cbor, "algorithm"))
+    val publicKey = CsilCbor.asBytes(CsilCbor.require(cbor, "public_key"))
+    val fingerprint = CsilCbor.asText(CsilCbor.require(cbor, "fingerprint"))
+    val keyCreatedAt = CsilCbor.asText(CsilCbor.require(cbor, "key_created_at"))
+    val keyExpiresAt = CsilCbor.asText(CsilCbor.require(cbor, "key_expires_at"))
+    val attestedAt = CsilCbor.asText(CsilCbor.require(cbor, "attested_at"))
+    val attestationExpiresAt = CsilCbor.asText(CsilCbor.require(cbor, "attestation_expires_at"))
+    return ApplicationKeyAttestation(subjectUserId = subjectUserId, subjectDomain = subjectDomain, applicationId = applicationId, instanceId = instanceId, keyId = keyId, keyUsage = keyUsage, algorithm = algorithm, publicKey = publicKey, fingerprint = fingerprint, keyCreatedAt = keyCreatedAt, keyExpiresAt = keyExpiresAt, attestedAt = attestedAt, attestationExpiresAt = attestationExpiresAt)
+}
+
+/** Decode CSIL CBOR bytes into a ApplicationKeyAttestation. */
+fun applicationKeyAttestationFromCbor(bytes: ByteArray): ApplicationKeyAttestation = applicationKeyAttestationFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a SignedApplicationKeyAttestation (deep, canonical key order). */
+fun SignedApplicationKeyAttestation.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("signatures") to CborValue.CArray((this.signatures).map { csilE -> csilE.toCborValue() }))
+    csilEntries.add(CborValue.CText("attestation") to CborValue.CBytes(this.attestation))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a SignedApplicationKeyAttestation to canonical CSIL CBOR bytes. */
+fun SignedApplicationKeyAttestation.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a SignedApplicationKeyAttestation from a decoded CBOR value tree. */
+fun signedApplicationKeyAttestationFromCborValue(cbor: CborValue): SignedApplicationKeyAttestation {
+    val attestation = CsilCbor.asBytes(CsilCbor.require(cbor, "attestation"))
+    val signatures = CsilCbor.asArray(CsilCbor.require(cbor, "signatures")).map { csilE -> claimSignatureFromCborValue(csilE) }
+    return SignedApplicationKeyAttestation(attestation = attestation, signatures = signatures)
+}
+
+/** Decode CSIL CBOR bytes into a SignedApplicationKeyAttestation. */
+fun signedApplicationKeyAttestationFromCbor(bytes: ByteArray): SignedApplicationKeyAttestation = signedApplicationKeyAttestationFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a ApplicationKeyAddition (deep, canonical key order). */
+fun ApplicationKeyAddition.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("key_id") to CborValue.CText(this.keyId))
+    csilEntries.add(CborValue.CText("algorithm") to CborValue.CText(this.algorithm))
+    csilEntries.add(CborValue.CText("challenge") to CborValue.CBytes(this.challenge))
+    csilEntries.add(CborValue.CText("key_usage") to CborValue.CText(this.keyUsage))
+    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("public_key") to CborValue.CBytes(this.publicKey))
+    csilEntries.add(CborValue.CText("fingerprint") to CborValue.CText(this.fingerprint))
+    csilEntries.add(CborValue.CText("instance_id") to CborValue.CText(this.instanceId))
+    csilEntries.add(CborValue.CText("challenge_id") to CborValue.CText(this.challengeId))
+    csilEntries.add(CborValue.CText("requested_at") to CborValue.CText(this.requestedAt))
+    csilEntries.add(CborValue.CText("application_id") to CborValue.CText(this.applicationId))
+    csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
+    csilEntries.add(CborValue.CText("subject_user_id") to CborValue.CText(this.subjectUserId))
+    csilEntries.add(CborValue.CText("requested_key_lifetime_seconds") to CborValue.CInt(this.requestedKeyLifetimeSeconds))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a ApplicationKeyAddition to canonical CSIL CBOR bytes. */
+fun ApplicationKeyAddition.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a ApplicationKeyAddition from a decoded CBOR value tree. */
+fun applicationKeyAdditionFromCborValue(cbor: CborValue): ApplicationKeyAddition {
+    val subjectUserId = CsilCbor.asText(CsilCbor.require(cbor, "subject_user_id"))
+    val subjectDomain = CsilCbor.asText(CsilCbor.require(cbor, "subject_domain"))
+    val applicationId = CsilCbor.asText(CsilCbor.require(cbor, "application_id"))
+    val instanceId = CsilCbor.asText(CsilCbor.require(cbor, "instance_id"))
+    val keyId = CsilCbor.asText(CsilCbor.require(cbor, "key_id"))
+    val keyUsage = CsilCbor.asText(CsilCbor.require(cbor, "key_usage"))
+    val algorithm = CsilCbor.asText(CsilCbor.require(cbor, "algorithm"))
+    val publicKey = CsilCbor.asBytes(CsilCbor.require(cbor, "public_key"))
+    val fingerprint = CsilCbor.asText(CsilCbor.require(cbor, "fingerprint"))
+    val requestedKeyLifetimeSeconds = CsilCbor.asLong(CsilCbor.require(cbor, "requested_key_lifetime_seconds"))
+    val challengeId = CsilCbor.asText(CsilCbor.require(cbor, "challenge_id"))
+    val challenge = CsilCbor.asBytes(CsilCbor.require(cbor, "challenge"))
+    val requestedAt = CsilCbor.asText(CsilCbor.require(cbor, "requested_at"))
+    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    return ApplicationKeyAddition(subjectUserId = subjectUserId, subjectDomain = subjectDomain, applicationId = applicationId, instanceId = instanceId, keyId = keyId, keyUsage = keyUsage, algorithm = algorithm, publicKey = publicKey, fingerprint = fingerprint, requestedKeyLifetimeSeconds = requestedKeyLifetimeSeconds, challengeId = challengeId, challenge = challenge, requestedAt = requestedAt, expiresAt = expiresAt)
+}
+
+/** Decode CSIL CBOR bytes into a ApplicationKeyAddition. */
+fun applicationKeyAdditionFromCbor(bytes: ByteArray): ApplicationKeyAddition = applicationKeyAdditionFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a SignedApplicationKeyAddition (deep, canonical key order). */
+fun SignedApplicationKeyAddition.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("addition") to CborValue.CBytes(this.addition))
+    csilEntries.add(CborValue.CText("signatures") to CborValue.CArray((this.signatures).map { csilE -> csilE.toCborValue() }))
+    this.possessionProof?.let { csilV -> csilEntries.add(CborValue.CText("possession_proof") to CborValue.CBytes(csilV)) }
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a SignedApplicationKeyAddition to canonical CSIL CBOR bytes. */
+fun SignedApplicationKeyAddition.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a SignedApplicationKeyAddition from a decoded CBOR value tree. */
+fun signedApplicationKeyAdditionFromCborValue(cbor: CborValue): SignedApplicationKeyAddition {
+    val addition = CsilCbor.asBytes(CsilCbor.require(cbor, "addition"))
+    val signatures = CsilCbor.asArray(CsilCbor.require(cbor, "signatures")).map { csilE -> applicationKeySignatureFromCborValue(csilE) }
+    val possessionProof = CsilCbor.mapGet(cbor, "possession_proof")?.let { csilV -> CsilCbor.asBytes(csilV) }
+    return SignedApplicationKeyAddition(addition = addition, signatures = signatures, possessionProof = possessionProof)
+}
+
+/** Decode CSIL CBOR bytes into a SignedApplicationKeyAddition. */
+fun signedApplicationKeyAdditionFromCbor(bytes: ByteArray): SignedApplicationKeyAddition = signedApplicationKeyAdditionFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a ApplicationKeyRenewal (deep, canonical key order). */
+fun ApplicationKeyRenewal.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("key_id") to CborValue.CText(this.keyId))
+    csilEntries.add(CborValue.CText("challenge") to CborValue.CBytes(this.challenge))
+    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("instance_id") to CborValue.CText(this.instanceId))
+    csilEntries.add(CborValue.CText("challenge_id") to CborValue.CText(this.challengeId))
+    csilEntries.add(CborValue.CText("requested_at") to CborValue.CText(this.requestedAt))
+    csilEntries.add(CborValue.CText("application_id") to CborValue.CText(this.applicationId))
+    csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
+    csilEntries.add(CborValue.CText("subject_user_id") to CborValue.CText(this.subjectUserId))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a ApplicationKeyRenewal to canonical CSIL CBOR bytes. */
+fun ApplicationKeyRenewal.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a ApplicationKeyRenewal from a decoded CBOR value tree. */
+fun applicationKeyRenewalFromCborValue(cbor: CborValue): ApplicationKeyRenewal {
+    val subjectUserId = CsilCbor.asText(CsilCbor.require(cbor, "subject_user_id"))
+    val subjectDomain = CsilCbor.asText(CsilCbor.require(cbor, "subject_domain"))
+    val applicationId = CsilCbor.asText(CsilCbor.require(cbor, "application_id"))
+    val instanceId = CsilCbor.asText(CsilCbor.require(cbor, "instance_id"))
+    val keyId = CsilCbor.asText(CsilCbor.require(cbor, "key_id"))
+    val challengeId = CsilCbor.asText(CsilCbor.require(cbor, "challenge_id"))
+    val challenge = CsilCbor.asBytes(CsilCbor.require(cbor, "challenge"))
+    val requestedAt = CsilCbor.asText(CsilCbor.require(cbor, "requested_at"))
+    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    return ApplicationKeyRenewal(subjectUserId = subjectUserId, subjectDomain = subjectDomain, applicationId = applicationId, instanceId = instanceId, keyId = keyId, challengeId = challengeId, challenge = challenge, requestedAt = requestedAt, expiresAt = expiresAt)
+}
+
+/** Decode CSIL CBOR bytes into a ApplicationKeyRenewal. */
+fun applicationKeyRenewalFromCbor(bytes: ByteArray): ApplicationKeyRenewal = applicationKeyRenewalFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a SignedApplicationKeyRenewal (deep, canonical key order). */
+fun SignedApplicationKeyRenewal.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("renewal") to CborValue.CBytes(this.renewal))
+    csilEntries.add(CborValue.CText("signatures") to CborValue.CArray((this.signatures).map { csilE -> csilE.toCborValue() }))
+    this.possessionProof?.let { csilV -> csilEntries.add(CborValue.CText("possession_proof") to CborValue.CBytes(csilV)) }
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a SignedApplicationKeyRenewal to canonical CSIL CBOR bytes. */
+fun SignedApplicationKeyRenewal.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a SignedApplicationKeyRenewal from a decoded CBOR value tree. */
+fun signedApplicationKeyRenewalFromCborValue(cbor: CborValue): SignedApplicationKeyRenewal {
+    val renewal = CsilCbor.asBytes(CsilCbor.require(cbor, "renewal"))
+    val signatures = CsilCbor.asArray(CsilCbor.require(cbor, "signatures")).map { csilE -> applicationKeySignatureFromCborValue(csilE) }
+    val possessionProof = CsilCbor.mapGet(cbor, "possession_proof")?.let { csilV -> CsilCbor.asBytes(csilV) }
+    return SignedApplicationKeyRenewal(renewal = renewal, signatures = signatures, possessionProof = possessionProof)
+}
+
+/** Decode CSIL CBOR bytes into a SignedApplicationKeyRenewal. */
+fun signedApplicationKeyRenewalFromCbor(bytes: ByteArray): SignedApplicationKeyRenewal = signedApplicationKeyRenewalFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a ApplicationKeyRevocation (deep, canonical key order). */
+fun ApplicationKeyRevocation.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("revoked_at") to CborValue.CText(this.revokedAt))
+    csilEntries.add(CborValue.CText("signatures") to CborValue.CArray((this.signatures).map { csilE -> csilE.toCborValue() }))
+    csilEntries.add(CborValue.CText("instance_id") to CborValue.CText(this.instanceId))
+    csilEntries.add(CborValue.CText("target_key_id") to CborValue.CText(this.targetKeyId))
+    csilEntries.add(CborValue.CText("application_id") to CborValue.CText(this.applicationId))
+    csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
+    csilEntries.add(CborValue.CText("subject_user_id") to CborValue.CText(this.subjectUserId))
+    csilEntries.add(CborValue.CText("target_fingerprint") to CborValue.CText(this.targetFingerprint))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a ApplicationKeyRevocation to canonical CSIL CBOR bytes. */
+fun ApplicationKeyRevocation.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a ApplicationKeyRevocation from a decoded CBOR value tree. */
+fun applicationKeyRevocationFromCborValue(cbor: CborValue): ApplicationKeyRevocation {
+    val subjectUserId = CsilCbor.asText(CsilCbor.require(cbor, "subject_user_id"))
+    val subjectDomain = CsilCbor.asText(CsilCbor.require(cbor, "subject_domain"))
+    val applicationId = CsilCbor.asText(CsilCbor.require(cbor, "application_id"))
+    val instanceId = CsilCbor.asText(CsilCbor.require(cbor, "instance_id"))
+    val targetKeyId = CsilCbor.asText(CsilCbor.require(cbor, "target_key_id"))
+    val targetFingerprint = CsilCbor.asText(CsilCbor.require(cbor, "target_fingerprint"))
+    val revokedAt = CsilCbor.asText(CsilCbor.require(cbor, "revoked_at"))
+    val signatures = CsilCbor.asArray(CsilCbor.require(cbor, "signatures")).map { csilE -> applicationKeySignatureFromCborValue(csilE) }
+    return ApplicationKeyRevocation(subjectUserId = subjectUserId, subjectDomain = subjectDomain, applicationId = applicationId, instanceId = instanceId, targetKeyId = targetKeyId, targetFingerprint = targetFingerprint, revokedAt = revokedAt, signatures = signatures)
+}
+
+/** Decode CSIL CBOR bytes into a ApplicationKeyRevocation. */
+fun applicationKeyRevocationFromCbor(bytes: ByteArray): ApplicationKeyRevocation = applicationKeyRevocationFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a StartApplicationKeyChallengeRequest (deep, canonical key order). */
+fun StartApplicationKeyChallengeRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("purpose") to CborValue.CText(this.purpose))
+    csilEntries.add(CborValue.CText("algorithm") to CborValue.CText(this.algorithm))
+    csilEntries.add(CborValue.CText("key_usage") to CborValue.CText(this.keyUsage))
+    csilEntries.add(CborValue.CText("public_key") to CborValue.CBytes(this.publicKey))
+    csilEntries.add(CborValue.CText("instance_id") to CborValue.CText(this.instanceId))
+    csilEntries.add(CborValue.CText("application_id") to CborValue.CText(this.applicationId))
+    csilEntries.add(CborValue.CText("subject_user_id") to CborValue.CText(this.subjectUserId))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a StartApplicationKeyChallengeRequest to canonical CSIL CBOR bytes. */
+fun StartApplicationKeyChallengeRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a StartApplicationKeyChallengeRequest from a decoded CBOR value tree. */
+fun startApplicationKeyChallengeRequestFromCborValue(cbor: CborValue): StartApplicationKeyChallengeRequest {
+    val subjectUserId = CsilCbor.asText(CsilCbor.require(cbor, "subject_user_id"))
+    val applicationId = CsilCbor.asText(CsilCbor.require(cbor, "application_id"))
+    val instanceId = CsilCbor.asText(CsilCbor.require(cbor, "instance_id"))
+    val purpose = CsilCbor.asText(CsilCbor.require(cbor, "purpose"))
+    val keyUsage = CsilCbor.asText(CsilCbor.require(cbor, "key_usage"))
+    val algorithm = CsilCbor.asText(CsilCbor.require(cbor, "algorithm"))
+    val publicKey = CsilCbor.asBytes(CsilCbor.require(cbor, "public_key"))
+    return StartApplicationKeyChallengeRequest(subjectUserId = subjectUserId, applicationId = applicationId, instanceId = instanceId, purpose = purpose, keyUsage = keyUsage, algorithm = algorithm, publicKey = publicKey)
+}
+
+/** Decode CSIL CBOR bytes into a StartApplicationKeyChallengeRequest. */
+fun startApplicationKeyChallengeRequestFromCbor(bytes: ByteArray): StartApplicationKeyChallengeRequest = startApplicationKeyChallengeRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a StartApplicationKeyChallengeResponse (deep, canonical key order). */
+fun StartApplicationKeyChallengeResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    this.challenge?.let { csilV -> csilEntries.add(CborValue.CText("challenge") to CborValue.CBytes(csilV)) }
+    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("challenge_id") to CborValue.CText(this.challengeId))
+    this.sealedChallenge?.let { csilV -> csilEntries.add(CborValue.CText("sealed_challenge") to CborValue.CBytes(csilV)) }
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a StartApplicationKeyChallengeResponse to canonical CSIL CBOR bytes. */
+fun StartApplicationKeyChallengeResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a StartApplicationKeyChallengeResponse from a decoded CBOR value tree. */
+fun startApplicationKeyChallengeResponseFromCborValue(cbor: CborValue): StartApplicationKeyChallengeResponse {
+    val challengeId = CsilCbor.asText(CsilCbor.require(cbor, "challenge_id"))
+    val challenge = CsilCbor.mapGet(cbor, "challenge")?.let { csilV -> CsilCbor.asBytes(csilV) }
+    val sealedChallenge = CsilCbor.mapGet(cbor, "sealed_challenge")?.let { csilV -> CsilCbor.asBytes(csilV) }
+    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    return StartApplicationKeyChallengeResponse(challengeId = challengeId, challenge = challenge, sealedChallenge = sealedChallenge, expiresAt = expiresAt)
+}
+
+/** Decode CSIL CBOR bytes into a StartApplicationKeyChallengeResponse. */
+fun startApplicationKeyChallengeResponseFromCbor(bytes: ByteArray): StartApplicationKeyChallengeResponse = startApplicationKeyChallengeResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a AddApplicationKeyRequest (deep, canonical key order). */
+fun AddApplicationKeyRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("request") to this.request.toCborValue())
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a AddApplicationKeyRequest to canonical CSIL CBOR bytes. */
+fun AddApplicationKeyRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a AddApplicationKeyRequest from a decoded CBOR value tree. */
+fun addApplicationKeyRequestFromCborValue(cbor: CborValue): AddApplicationKeyRequest {
+    val request = signedApplicationKeyAdditionFromCborValue(CsilCbor.require(cbor, "request"))
+    return AddApplicationKeyRequest(request = request)
+}
+
+/** Decode CSIL CBOR bytes into a AddApplicationKeyRequest. */
+fun addApplicationKeyRequestFromCbor(bytes: ByteArray): AddApplicationKeyRequest = addApplicationKeyRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a AddApplicationKeyResponse (deep, canonical key order). */
+fun AddApplicationKeyResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("attestation") to this.attestation.toCborValue())
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a AddApplicationKeyResponse to canonical CSIL CBOR bytes. */
+fun AddApplicationKeyResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a AddApplicationKeyResponse from a decoded CBOR value tree. */
+fun addApplicationKeyResponseFromCborValue(cbor: CborValue): AddApplicationKeyResponse {
+    val attestation = signedApplicationKeyAttestationFromCborValue(CsilCbor.require(cbor, "attestation"))
+    return AddApplicationKeyResponse(attestation = attestation)
+}
+
+/** Decode CSIL CBOR bytes into a AddApplicationKeyResponse. */
+fun addApplicationKeyResponseFromCbor(bytes: ByteArray): AddApplicationKeyResponse = addApplicationKeyResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a RenewApplicationKeyAttestationRequest (deep, canonical key order). */
+fun RenewApplicationKeyAttestationRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("request") to this.request.toCborValue())
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a RenewApplicationKeyAttestationRequest to canonical CSIL CBOR bytes. */
+fun RenewApplicationKeyAttestationRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a RenewApplicationKeyAttestationRequest from a decoded CBOR value tree. */
+fun renewApplicationKeyAttestationRequestFromCborValue(cbor: CborValue): RenewApplicationKeyAttestationRequest {
+    val request = signedApplicationKeyRenewalFromCborValue(CsilCbor.require(cbor, "request"))
+    return RenewApplicationKeyAttestationRequest(request = request)
+}
+
+/** Decode CSIL CBOR bytes into a RenewApplicationKeyAttestationRequest. */
+fun renewApplicationKeyAttestationRequestFromCbor(bytes: ByteArray): RenewApplicationKeyAttestationRequest = renewApplicationKeyAttestationRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a RenewApplicationKeyAttestationResponse (deep, canonical key order). */
+fun RenewApplicationKeyAttestationResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("signed") to CborValue.CBool(this.signed))
+    csilEntries.add(CborValue.CText("attestation") to this.attestation.toCborValue())
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a RenewApplicationKeyAttestationResponse to canonical CSIL CBOR bytes. */
+fun RenewApplicationKeyAttestationResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a RenewApplicationKeyAttestationResponse from a decoded CBOR value tree. */
+fun renewApplicationKeyAttestationResponseFromCborValue(cbor: CborValue): RenewApplicationKeyAttestationResponse {
+    val attestation = signedApplicationKeyAttestationFromCborValue(CsilCbor.require(cbor, "attestation"))
+    val signed = CsilCbor.asBoolean(CsilCbor.require(cbor, "signed"))
+    return RenewApplicationKeyAttestationResponse(attestation = attestation, signed = signed)
+}
+
+/** Decode CSIL CBOR bytes into a RenewApplicationKeyAttestationResponse. */
+fun renewApplicationKeyAttestationResponseFromCbor(bytes: ByteArray): RenewApplicationKeyAttestationResponse = renewApplicationKeyAttestationResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a RevokeApplicationKeyRequest (deep, canonical key order). */
+fun RevokeApplicationKeyRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("revocation") to this.revocation.toCborValue())
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a RevokeApplicationKeyRequest to canonical CSIL CBOR bytes. */
+fun RevokeApplicationKeyRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a RevokeApplicationKeyRequest from a decoded CBOR value tree. */
+fun revokeApplicationKeyRequestFromCborValue(cbor: CborValue): RevokeApplicationKeyRequest {
+    val revocation = applicationKeyRevocationFromCborValue(CsilCbor.require(cbor, "revocation"))
+    return RevokeApplicationKeyRequest(revocation = revocation)
+}
+
+/** Decode CSIL CBOR bytes into a RevokeApplicationKeyRequest. */
+fun revokeApplicationKeyRequestFromCbor(bytes: ByteArray): RevokeApplicationKeyRequest = revokeApplicationKeyRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a RevokeApplicationKeyResponse (deep, canonical key order). */
+fun RevokeApplicationKeyResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("revoked_at") to CborValue.CText(this.revokedAt))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a RevokeApplicationKeyResponse to canonical CSIL CBOR bytes. */
+fun RevokeApplicationKeyResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a RevokeApplicationKeyResponse from a decoded CBOR value tree. */
+fun revokeApplicationKeyResponseFromCborValue(cbor: CborValue): RevokeApplicationKeyResponse {
+    val revokedAt = CsilCbor.asText(CsilCbor.require(cbor, "revoked_at"))
+    return RevokeApplicationKeyResponse(revokedAt = revokedAt)
+}
+
+/** Decode CSIL CBOR bytes into a RevokeApplicationKeyResponse. */
+fun revokeApplicationKeyResponseFromCbor(bytes: ByteArray): RevokeApplicationKeyResponse = revokeApplicationKeyResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a EnrollApplicationInstanceRequest (deep, canonical key order). */
+fun EnrollApplicationInstanceRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("keys") to CborValue.CArray((this.keys).map { csilE -> csilE.toCborValue() }))
+    csilEntries.add(CborValue.CText("instance_id") to CborValue.CText(this.instanceId))
+    csilEntries.add(CborValue.CText("application_id") to CborValue.CText(this.applicationId))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a EnrollApplicationInstanceRequest to canonical CSIL CBOR bytes. */
+fun EnrollApplicationInstanceRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a EnrollApplicationInstanceRequest from a decoded CBOR value tree. */
+fun enrollApplicationInstanceRequestFromCborValue(cbor: CborValue): EnrollApplicationInstanceRequest {
+    val applicationId = CsilCbor.asText(CsilCbor.require(cbor, "application_id"))
+    val instanceId = CsilCbor.asText(CsilCbor.require(cbor, "instance_id"))
+    val keys = CsilCbor.asArray(CsilCbor.require(cbor, "keys")).map { csilE -> signedApplicationKeyAdditionFromCborValue(csilE) }
+    return EnrollApplicationInstanceRequest(applicationId = applicationId, instanceId = instanceId, keys = keys)
+}
+
+/** Decode CSIL CBOR bytes into a EnrollApplicationInstanceRequest. */
+fun enrollApplicationInstanceRequestFromCbor(bytes: ByteArray): EnrollApplicationInstanceRequest = enrollApplicationInstanceRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a EnrollApplicationInstanceResponse (deep, canonical key order). */
+fun EnrollApplicationInstanceResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("instance_id") to CborValue.CText(this.instanceId))
+    csilEntries.add(CborValue.CText("attestations") to CborValue.CArray((this.attestations).map { csilE -> csilE.toCborValue() }))
+    csilEntries.add(CborValue.CText("application_id") to CborValue.CText(this.applicationId))
+    csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
+    csilEntries.add(CborValue.CText("subject_user_id") to CborValue.CText(this.subjectUserId))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a EnrollApplicationInstanceResponse to canonical CSIL CBOR bytes. */
+fun EnrollApplicationInstanceResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a EnrollApplicationInstanceResponse from a decoded CBOR value tree. */
+fun enrollApplicationInstanceResponseFromCborValue(cbor: CborValue): EnrollApplicationInstanceResponse {
+    val subjectUserId = CsilCbor.asText(CsilCbor.require(cbor, "subject_user_id"))
+    val subjectDomain = CsilCbor.asText(CsilCbor.require(cbor, "subject_domain"))
+    val applicationId = CsilCbor.asText(CsilCbor.require(cbor, "application_id"))
+    val instanceId = CsilCbor.asText(CsilCbor.require(cbor, "instance_id"))
+    val attestations = CsilCbor.asArray(CsilCbor.require(cbor, "attestations")).map { csilE -> signedApplicationKeyAttestationFromCborValue(csilE) }
+    return EnrollApplicationInstanceResponse(subjectUserId = subjectUserId, subjectDomain = subjectDomain, applicationId = applicationId, instanceId = instanceId, attestations = attestations)
+}
+
+/** Decode CSIL CBOR bytes into a EnrollApplicationInstanceResponse. */
+fun enrollApplicationInstanceResponseFromCbor(bytes: ByteArray): EnrollApplicationInstanceResponse = enrollApplicationInstanceResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a GetApplicationKeysRequest (deep, canonical key order). */
+fun GetApplicationKeysRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("instance_id") to CborValue.CText(this.instanceId))
+    csilEntries.add(CborValue.CText("application_id") to CborValue.CText(this.applicationId))
+    csilEntries.add(CborValue.CText("subject_user_id") to CborValue.CText(this.subjectUserId))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a GetApplicationKeysRequest to canonical CSIL CBOR bytes. */
+fun GetApplicationKeysRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a GetApplicationKeysRequest from a decoded CBOR value tree. */
+fun getApplicationKeysRequestFromCborValue(cbor: CborValue): GetApplicationKeysRequest {
+    val subjectUserId = CsilCbor.asText(CsilCbor.require(cbor, "subject_user_id"))
+    val applicationId = CsilCbor.asText(CsilCbor.require(cbor, "application_id"))
+    val instanceId = CsilCbor.asText(CsilCbor.require(cbor, "instance_id"))
+    return GetApplicationKeysRequest(subjectUserId = subjectUserId, applicationId = applicationId, instanceId = instanceId)
+}
+
+/** Decode CSIL CBOR bytes into a GetApplicationKeysRequest. */
+fun getApplicationKeysRequestFromCbor(bytes: ByteArray): GetApplicationKeysRequest = getApplicationKeysRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a GetApplicationKeysResponse (deep, canonical key order). */
+fun GetApplicationKeysResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("keys") to CborValue.CArray((this.keys).map { csilE -> csilE.toCborValue() }))
+    csilEntries.add(CborValue.CText("instance_id") to CborValue.CText(this.instanceId))
+    csilEntries.add(CborValue.CText("revocations") to CborValue.CArray((this.revocations).map { csilE -> csilE.toCborValue() }))
+    csilEntries.add(CborValue.CText("application_id") to CborValue.CText(this.applicationId))
+    csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
+    csilEntries.add(CborValue.CText("subject_user_id") to CborValue.CText(this.subjectUserId))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a GetApplicationKeysResponse to canonical CSIL CBOR bytes. */
+fun GetApplicationKeysResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a GetApplicationKeysResponse from a decoded CBOR value tree. */
+fun getApplicationKeysResponseFromCborValue(cbor: CborValue): GetApplicationKeysResponse {
+    val subjectUserId = CsilCbor.asText(CsilCbor.require(cbor, "subject_user_id"))
+    val subjectDomain = CsilCbor.asText(CsilCbor.require(cbor, "subject_domain"))
+    val applicationId = CsilCbor.asText(CsilCbor.require(cbor, "application_id"))
+    val instanceId = CsilCbor.asText(CsilCbor.require(cbor, "instance_id"))
+    val keys = CsilCbor.asArray(CsilCbor.require(cbor, "keys")).map { csilE -> signedApplicationKeyAttestationFromCborValue(csilE) }
+    val revocations = CsilCbor.asArray(CsilCbor.require(cbor, "revocations")).map { csilE -> applicationKeyRevocationFromCborValue(csilE) }
+    return GetApplicationKeysResponse(subjectUserId = subjectUserId, subjectDomain = subjectDomain, applicationId = applicationId, instanceId = instanceId, keys = keys, revocations = revocations)
+}
+
+/** Decode CSIL CBOR bytes into a GetApplicationKeysResponse. */
+fun getApplicationKeysResponseFromCbor(bytes: ByteArray): GetApplicationKeysResponse = getApplicationKeysResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a RpResolveDomainKeysRequest (deep, canonical key order). */
+fun RpResolveDomainKeysRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("domain") to CborValue.CText(this.domain))
+    this.maxCacheAgeSeconds?.let { csilV -> csilEntries.add(CborValue.CText("max_cache_age_seconds") to CborValue.CInt(csilV)) }
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a RpResolveDomainKeysRequest to canonical CSIL CBOR bytes. */
+fun RpResolveDomainKeysRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a RpResolveDomainKeysRequest from a decoded CBOR value tree. */
+fun rpResolveDomainKeysRequestFromCborValue(cbor: CborValue): RpResolveDomainKeysRequest {
+    val domain = CsilCbor.asText(CsilCbor.require(cbor, "domain"))
+    val maxCacheAgeSeconds = CsilCbor.mapGet(cbor, "max_cache_age_seconds")?.let { csilV -> CsilCbor.asLong(csilV) }
+    return RpResolveDomainKeysRequest(domain = domain, maxCacheAgeSeconds = maxCacheAgeSeconds)
+}
+
+/** Decode CSIL CBOR bytes into a RpResolveDomainKeysRequest. */
+fun rpResolveDomainKeysRequestFromCbor(bytes: ByteArray): RpResolveDomainKeysRequest = rpResolveDomainKeysRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a RpResolveDomainKeysResponse (deep, canonical key order). */
+fun RpResolveDomainKeysResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("keys") to CborValue.CArray((this.keys).map { csilE -> csilE.toCborValue() }))
+    csilEntries.add(CborValue.CText("domain") to CborValue.CText(this.domain))
+    csilEntries.add(CborValue.CText("fetched_at") to CborValue.CText(this.fetchedAt))
+    csilEntries.add(CborValue.CText("revocations") to CborValue.CArray((this.revocations).map { csilE -> csilE.toCborValue() }))
+    csilEntries.add(CborValue.CText("cache_status") to CborValue.CText(this.cacheStatus))
+    csilEntries.add(CborValue.CText("revocations_checked_at") to CborValue.CText(this.revocationsCheckedAt))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a RpResolveDomainKeysResponse to canonical CSIL CBOR bytes. */
+fun RpResolveDomainKeysResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a RpResolveDomainKeysResponse from a decoded CBOR value tree. */
+fun rpResolveDomainKeysResponseFromCborValue(cbor: CborValue): RpResolveDomainKeysResponse {
+    val domain = CsilCbor.asText(CsilCbor.require(cbor, "domain"))
+    val keys = CsilCbor.asArray(CsilCbor.require(cbor, "keys")).map { csilE -> domainPublicKeyFromCborValue(csilE) }
+    val revocations = CsilCbor.asArray(CsilCbor.require(cbor, "revocations")).map { csilE -> revocationCertificateFromCborValue(csilE) }
+    val fetchedAt = CsilCbor.asText(CsilCbor.require(cbor, "fetched_at"))
+    val revocationsCheckedAt = CsilCbor.asText(CsilCbor.require(cbor, "revocations_checked_at"))
+    val cacheStatus = CsilCbor.asText(CsilCbor.require(cbor, "cache_status"))
+    return RpResolveDomainKeysResponse(domain = domain, keys = keys, revocations = revocations, fetchedAt = fetchedAt, revocationsCheckedAt = revocationsCheckedAt, cacheStatus = cacheStatus)
+}
+
+/** Decode CSIL CBOR bytes into a RpResolveDomainKeysResponse. */
+fun rpResolveDomainKeysResponseFromCbor(bytes: ByteArray): RpResolveDomainKeysResponse = rpResolveDomainKeysResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a RpResolveApplicationKeysRequest (deep, canonical key order). */
+fun RpResolveApplicationKeysRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("instance_id") to CborValue.CText(this.instanceId))
+    csilEntries.add(CborValue.CText("application_id") to CborValue.CText(this.applicationId))
+    csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
+    csilEntries.add(CborValue.CText("subject_user_id") to CborValue.CText(this.subjectUserId))
+    this.maxCacheAgeSeconds?.let { csilV -> csilEntries.add(CborValue.CText("max_cache_age_seconds") to CborValue.CInt(csilV)) }
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a RpResolveApplicationKeysRequest to canonical CSIL CBOR bytes. */
+fun RpResolveApplicationKeysRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a RpResolveApplicationKeysRequest from a decoded CBOR value tree. */
+fun rpResolveApplicationKeysRequestFromCborValue(cbor: CborValue): RpResolveApplicationKeysRequest {
+    val subjectUserId = CsilCbor.asText(CsilCbor.require(cbor, "subject_user_id"))
+    val subjectDomain = CsilCbor.asText(CsilCbor.require(cbor, "subject_domain"))
+    val applicationId = CsilCbor.asText(CsilCbor.require(cbor, "application_id"))
+    val instanceId = CsilCbor.asText(CsilCbor.require(cbor, "instance_id"))
+    val maxCacheAgeSeconds = CsilCbor.mapGet(cbor, "max_cache_age_seconds")?.let { csilV -> CsilCbor.asLong(csilV) }
+    return RpResolveApplicationKeysRequest(subjectUserId = subjectUserId, subjectDomain = subjectDomain, applicationId = applicationId, instanceId = instanceId, maxCacheAgeSeconds = maxCacheAgeSeconds)
+}
+
+/** Decode CSIL CBOR bytes into a RpResolveApplicationKeysRequest. */
+fun rpResolveApplicationKeysRequestFromCbor(bytes: ByteArray): RpResolveApplicationKeysRequest = rpResolveApplicationKeysRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a RpResolveApplicationKeysResponse (deep, canonical key order). */
+fun RpResolveApplicationKeysResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("fetched_at") to CborValue.CText(this.fetchedAt))
+    csilEntries.add(CborValue.CText("instance_id") to CborValue.CText(this.instanceId))
+    csilEntries.add(CborValue.CText("cache_status") to CborValue.CText(this.cacheStatus))
+    csilEntries.add(CborValue.CText("application_id") to CborValue.CText(this.applicationId))
+    csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
+    csilEntries.add(CborValue.CText("subject_user_id") to CborValue.CText(this.subjectUserId))
+    csilEntries.add(CborValue.CText("application_keys") to CborValue.CArray((this.applicationKeys).map { csilE -> csilE.toCborValue() }))
+    csilEntries.add(CborValue.CText("home_domain_keys") to CborValue.CArray((this.homeDomainKeys).map { csilE -> csilE.toCborValue() }))
+    csilEntries.add(CborValue.CText("revocations_checked_at") to CborValue.CText(this.revocationsCheckedAt))
+    csilEntries.add(CborValue.CText("application_key_revocations") to CborValue.CArray((this.applicationKeyRevocations).map { csilE -> csilE.toCborValue() }))
+    csilEntries.add(CborValue.CText("home_domain_key_revocations") to CborValue.CArray((this.homeDomainKeyRevocations).map { csilE -> csilE.toCborValue() }))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a RpResolveApplicationKeysResponse to canonical CSIL CBOR bytes. */
+fun RpResolveApplicationKeysResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a RpResolveApplicationKeysResponse from a decoded CBOR value tree. */
+fun rpResolveApplicationKeysResponseFromCborValue(cbor: CborValue): RpResolveApplicationKeysResponse {
+    val subjectUserId = CsilCbor.asText(CsilCbor.require(cbor, "subject_user_id"))
+    val subjectDomain = CsilCbor.asText(CsilCbor.require(cbor, "subject_domain"))
+    val applicationId = CsilCbor.asText(CsilCbor.require(cbor, "application_id"))
+    val instanceId = CsilCbor.asText(CsilCbor.require(cbor, "instance_id"))
+    val applicationKeys = CsilCbor.asArray(CsilCbor.require(cbor, "application_keys")).map { csilE -> signedApplicationKeyAttestationFromCborValue(csilE) }
+    val applicationKeyRevocations = CsilCbor.asArray(CsilCbor.require(cbor, "application_key_revocations")).map { csilE -> applicationKeyRevocationFromCborValue(csilE) }
+    val homeDomainKeys = CsilCbor.asArray(CsilCbor.require(cbor, "home_domain_keys")).map { csilE -> domainPublicKeyFromCborValue(csilE) }
+    val homeDomainKeyRevocations = CsilCbor.asArray(CsilCbor.require(cbor, "home_domain_key_revocations")).map { csilE -> revocationCertificateFromCborValue(csilE) }
+    val fetchedAt = CsilCbor.asText(CsilCbor.require(cbor, "fetched_at"))
+    val revocationsCheckedAt = CsilCbor.asText(CsilCbor.require(cbor, "revocations_checked_at"))
+    val cacheStatus = CsilCbor.asText(CsilCbor.require(cbor, "cache_status"))
+    return RpResolveApplicationKeysResponse(subjectUserId = subjectUserId, subjectDomain = subjectDomain, applicationId = applicationId, instanceId = instanceId, applicationKeys = applicationKeys, applicationKeyRevocations = applicationKeyRevocations, homeDomainKeys = homeDomainKeys, homeDomainKeyRevocations = homeDomainKeyRevocations, fetchedAt = fetchedAt, revocationsCheckedAt = revocationsCheckedAt, cacheStatus = cacheStatus)
+}
+
+/** Decode CSIL CBOR bytes into a RpResolveApplicationKeysResponse. */
+fun rpResolveApplicationKeysResponseFromCbor(bytes: ByteArray): RpResolveApplicationKeysResponse = rpResolveApplicationKeysResponseFromCborValue(CsilCbor.decode(bytes))
+
 /** Encode a generated CSIL record to canonical CBOR bytes. */
 fun <T> encode(value: T): ByteArray = CsilCbor.encode(csilToCborValue(value))
 
@@ -5356,6 +6009,30 @@ private fun csilToCborValue(value: Any?): CborValue = when (value) {
     is TranslationsRequest -> value.toCborValue()
     is TranslationsResponse -> value.toCborValue()
     is ListLocalesResponse -> value.toCborValue()
+    is ApplicationKeySignature -> value.toCborValue()
+    is ApplicationKeyAttestation -> value.toCborValue()
+    is SignedApplicationKeyAttestation -> value.toCborValue()
+    is ApplicationKeyAddition -> value.toCborValue()
+    is SignedApplicationKeyAddition -> value.toCborValue()
+    is ApplicationKeyRenewal -> value.toCborValue()
+    is SignedApplicationKeyRenewal -> value.toCborValue()
+    is ApplicationKeyRevocation -> value.toCborValue()
+    is StartApplicationKeyChallengeRequest -> value.toCborValue()
+    is StartApplicationKeyChallengeResponse -> value.toCborValue()
+    is AddApplicationKeyRequest -> value.toCborValue()
+    is AddApplicationKeyResponse -> value.toCborValue()
+    is RenewApplicationKeyAttestationRequest -> value.toCborValue()
+    is RenewApplicationKeyAttestationResponse -> value.toCborValue()
+    is RevokeApplicationKeyRequest -> value.toCborValue()
+    is RevokeApplicationKeyResponse -> value.toCborValue()
+    is EnrollApplicationInstanceRequest -> value.toCborValue()
+    is EnrollApplicationInstanceResponse -> value.toCborValue()
+    is GetApplicationKeysRequest -> value.toCborValue()
+    is GetApplicationKeysResponse -> value.toCborValue()
+    is RpResolveDomainKeysRequest -> value.toCborValue()
+    is RpResolveDomainKeysResponse -> value.toCborValue()
+    is RpResolveApplicationKeysRequest -> value.toCborValue()
+    is RpResolveApplicationKeysResponse -> value.toCborValue()
     else -> throw CborError("no CSIL CBOR codec for ${value::class}")
 }
 
@@ -5580,5 +6257,29 @@ fun csilFromCborValue(type: kotlin.reflect.KClass<*>, cbor: CborValue): Any = wh
     TranslationsRequest::class -> translationsRequestFromCborValue(cbor)
     TranslationsResponse::class -> translationsResponseFromCborValue(cbor)
     ListLocalesResponse::class -> listLocalesResponseFromCborValue(cbor)
+    ApplicationKeySignature::class -> applicationKeySignatureFromCborValue(cbor)
+    ApplicationKeyAttestation::class -> applicationKeyAttestationFromCborValue(cbor)
+    SignedApplicationKeyAttestation::class -> signedApplicationKeyAttestationFromCborValue(cbor)
+    ApplicationKeyAddition::class -> applicationKeyAdditionFromCborValue(cbor)
+    SignedApplicationKeyAddition::class -> signedApplicationKeyAdditionFromCborValue(cbor)
+    ApplicationKeyRenewal::class -> applicationKeyRenewalFromCborValue(cbor)
+    SignedApplicationKeyRenewal::class -> signedApplicationKeyRenewalFromCborValue(cbor)
+    ApplicationKeyRevocation::class -> applicationKeyRevocationFromCborValue(cbor)
+    StartApplicationKeyChallengeRequest::class -> startApplicationKeyChallengeRequestFromCborValue(cbor)
+    StartApplicationKeyChallengeResponse::class -> startApplicationKeyChallengeResponseFromCborValue(cbor)
+    AddApplicationKeyRequest::class -> addApplicationKeyRequestFromCborValue(cbor)
+    AddApplicationKeyResponse::class -> addApplicationKeyResponseFromCborValue(cbor)
+    RenewApplicationKeyAttestationRequest::class -> renewApplicationKeyAttestationRequestFromCborValue(cbor)
+    RenewApplicationKeyAttestationResponse::class -> renewApplicationKeyAttestationResponseFromCborValue(cbor)
+    RevokeApplicationKeyRequest::class -> revokeApplicationKeyRequestFromCborValue(cbor)
+    RevokeApplicationKeyResponse::class -> revokeApplicationKeyResponseFromCborValue(cbor)
+    EnrollApplicationInstanceRequest::class -> enrollApplicationInstanceRequestFromCborValue(cbor)
+    EnrollApplicationInstanceResponse::class -> enrollApplicationInstanceResponseFromCborValue(cbor)
+    GetApplicationKeysRequest::class -> getApplicationKeysRequestFromCborValue(cbor)
+    GetApplicationKeysResponse::class -> getApplicationKeysResponseFromCborValue(cbor)
+    RpResolveDomainKeysRequest::class -> rpResolveDomainKeysRequestFromCborValue(cbor)
+    RpResolveDomainKeysResponse::class -> rpResolveDomainKeysResponseFromCborValue(cbor)
+    RpResolveApplicationKeysRequest::class -> rpResolveApplicationKeysRequestFromCborValue(cbor)
+    RpResolveApplicationKeysResponse::class -> rpResolveApplicationKeysResponseFromCborValue(cbor)
     else -> throw CborError("no CSIL CBOR codec for $type")
 }

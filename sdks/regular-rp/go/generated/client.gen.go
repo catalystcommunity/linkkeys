@@ -173,6 +173,61 @@ func (c *UserKeysClient) GetUserKeys(ctx context.Context, req GetUserKeysRequest
 	return DecodeGetUserKeysResponse(csilResp)
 }
 
+// ApplicationKeysClient is a typed client for the ApplicationKeys service. The client owns
+// (de)serialization via the generated codec; the transport only moves bytes.
+type ApplicationKeysClient struct {
+	transport Transport
+}
+
+func NewApplicationKeysClient(transport Transport) *ApplicationKeysClient {
+	return &ApplicationKeysClient{transport: transport}
+}
+
+func (c *ApplicationKeysClient) GetApplicationKeys(ctx context.Context, req GetApplicationKeysRequest) (GetApplicationKeysResponse, error) {
+	var csilZero GetApplicationKeysResponse
+	csilResp, csilErr := c.transport.Call(ctx, "ApplicationKeys", "get-application-keys", EncodeGetApplicationKeysRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeGetApplicationKeysResponse(csilResp)
+}
+
+func (c *ApplicationKeysClient) StartKeyChallenge(ctx context.Context, req StartApplicationKeyChallengeRequest) (StartApplicationKeyChallengeResponse, error) {
+	var csilZero StartApplicationKeyChallengeResponse
+	csilResp, csilErr := c.transport.Call(ctx, "ApplicationKeys", "start-key-challenge", EncodeStartApplicationKeyChallengeRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeStartApplicationKeyChallengeResponse(csilResp)
+}
+
+func (c *ApplicationKeysClient) AddKey(ctx context.Context, req AddApplicationKeyRequest) (AddApplicationKeyResponse, error) {
+	var csilZero AddApplicationKeyResponse
+	csilResp, csilErr := c.transport.Call(ctx, "ApplicationKeys", "add-key", EncodeAddApplicationKeyRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeAddApplicationKeyResponse(csilResp)
+}
+
+func (c *ApplicationKeysClient) RenewAttestation(ctx context.Context, req RenewApplicationKeyAttestationRequest) (RenewApplicationKeyAttestationResponse, error) {
+	var csilZero RenewApplicationKeyAttestationResponse
+	csilResp, csilErr := c.transport.Call(ctx, "ApplicationKeys", "renew-attestation", EncodeRenewApplicationKeyAttestationRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeRenewApplicationKeyAttestationResponse(csilResp)
+}
+
+func (c *ApplicationKeysClient) RevokeKey(ctx context.Context, req RevokeApplicationKeyRequest) (RevokeApplicationKeyResponse, error) {
+	var csilZero RevokeApplicationKeyResponse
+	csilResp, csilErr := c.transport.Call(ctx, "ApplicationKeys", "revoke-key", EncodeRevokeApplicationKeyRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeRevokeApplicationKeyResponse(csilResp)
+}
+
 // IdentityClient is a typed client for the Identity service. The client owns
 // (de)serialization via the generated codec; the transport only moves bytes.
 type IdentityClient struct {
@@ -921,6 +976,15 @@ func (c *AccountClient) ConfirmContactVerification(ctx context.Context, req Conf
 	return DecodeConfirmContactVerificationResponse(csilResp)
 }
 
+func (c *AccountClient) EnrollApplicationInstance(ctx context.Context, req EnrollApplicationInstanceRequest) (EnrollApplicationInstanceResponse, error) {
+	var csilZero EnrollApplicationInstanceResponse
+	csilResp, csilErr := c.transport.Call(ctx, "Account", "enroll-application-instance", EncodeEnrollApplicationInstanceRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeEnrollApplicationInstanceResponse(csilResp)
+}
+
 // AttestationClient is a typed client for the Attestation service. The client owns
 // (de)serialization via the generated codec; the transport only moves bytes.
 type AttestationClient struct {
@@ -993,6 +1057,24 @@ func (c *RpClient) IssueAttestation(ctx context.Context, req RpIssueAttestationR
 		return csilZero, csilErr
 	}
 	return DecodeRpIssueAttestationResponse(csilResp)
+}
+
+func (c *RpClient) ResolveDomainKeys(ctx context.Context, req RpResolveDomainKeysRequest) (RpResolveDomainKeysResponse, error) {
+	var csilZero RpResolveDomainKeysResponse
+	csilResp, csilErr := c.transport.Call(ctx, "Rp", "resolve-domain-keys", EncodeRpResolveDomainKeysRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeRpResolveDomainKeysResponse(csilResp)
+}
+
+func (c *RpClient) ResolveApplicationKeys(ctx context.Context, req RpResolveApplicationKeysRequest) (RpResolveApplicationKeysResponse, error) {
+	var csilZero RpResolveApplicationKeysResponse
+	csilResp, csilErr := c.transport.Call(ctx, "Rp", "resolve-application-keys", EncodeRpResolveApplicationKeysRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeRpResolveApplicationKeysResponse(csilResp)
 }
 
 // LocalRpClient is a typed client for the LocalRp service. The client owns

@@ -1,0 +1,4 @@
+DROP TABLE rp_application_key_revocations;
+DROP TABLE rp_application_key_attestations;
+DROP TABLE rp_application_key_cache_entries;
+DROP TABLE rp_domain_key_cache;

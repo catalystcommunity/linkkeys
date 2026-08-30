@@ -1,0 +1,45 @@
+[workspace]
+# Empty table: this crate is nested inside the `crates/linkkeys` workspace
+# member's directory tree, so Cargo requires an explicit statement that it is
+# its own workspace root (excluded from the parent, see the root Cargo.toml's
+# `exclude` list) rather than accidentally part of it.
+
+[package]
+name = "linkkeys-loadtest"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+# Connection/handshake/cache/DDoS load-test harness for the async TCP server
+# (signing-things-request.md, "Connection scalability" + step 9 of the
+# implementation order). Deliberately a STANDALONE crate, excluded from the
+# workspace (see the root Cargo.toml's `exclude` list, same treatment as
+# `sdks/`) — it must never be part of `cargo build --workspace` or
+# `cargo test --workspace`, so it cannot slow down or destabilize CI. Build
+# and run it explicitly:
+#
+#   cargo run --manifest-path crates/linkkeys/loadtest/Cargo.toml --release -- <subcommand>
+#
+# or via `./tools.sh load-test`. See docs/load-testing.md.
+
+[dependencies]
+linkkeys = { path = "..", default-features = false, features = ["sqlite"] }
+liblinkkeys = { path = "../../liblinkkeys" }
+linkkeys-rpc-client = { path = "../../linkkeys-rpc-client" }
+csilgen-transport = { path = "../../csilgen-transport" }
+
+clap = { version = "4.5", features = ["derive"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "sync", "macros", "signal"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std"] }
+rustls-pki-types = "1"
+tokio-rustls = { version = "0.26", default-features = false }
+ciborium = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+log = "0.4"
+env_logger = "0.11"
+
+[[bin]]
+name = "linkkeys-loadtest"
+path = "src/main.rs"

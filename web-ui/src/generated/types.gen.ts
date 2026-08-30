@@ -1225,6 +1225,191 @@ export interface ListLocalesResponse {
   availableLocales: string[];
 }
 
+export interface ApplicationKeySignature {
+  signedByKeyId: string;
+  signature: Uint8Array;
+}
+
+export interface ApplicationKeyAttestation {
+  subjectUserId: string;
+  subjectDomain: string;
+  applicationId: string;
+  instanceId: string;
+  keyId: string;
+  keyUsage: string;
+  algorithm: string;
+  publicKey: Uint8Array;
+  fingerprint: string;
+  keyCreatedAt: string;
+  keyExpiresAt: string;
+  attestedAt: string;
+  attestationExpiresAt: string;
+}
+
+export interface SignedApplicationKeyAttestation {
+  attestation: Uint8Array;
+  signatures: ClaimSignature[];
+}
+
+export interface ApplicationKeyAddition {
+  subjectUserId: string;
+  subjectDomain: string;
+  applicationId: string;
+  instanceId: string;
+  keyId: string;
+  keyUsage: string;
+  algorithm: string;
+  publicKey: Uint8Array;
+  fingerprint: string;
+  requestedKeyLifetimeSeconds: number;
+  challengeId: string;
+  challenge: Uint8Array;
+  requestedAt: string;
+  expiresAt: string;
+}
+
+export interface SignedApplicationKeyAddition {
+  addition: Uint8Array;
+  signatures: ApplicationKeySignature[];
+  possessionProof?: Uint8Array;
+}
+
+export interface ApplicationKeyRenewal {
+  subjectUserId: string;
+  subjectDomain: string;
+  applicationId: string;
+  instanceId: string;
+  keyId: string;
+  challengeId: string;
+  challenge: Uint8Array;
+  requestedAt: string;
+  expiresAt: string;
+}
+
+export interface SignedApplicationKeyRenewal {
+  renewal: Uint8Array;
+  signatures: ApplicationKeySignature[];
+  possessionProof?: Uint8Array;
+}
+
+export interface ApplicationKeyRevocation {
+  subjectUserId: string;
+  subjectDomain: string;
+  applicationId: string;
+  instanceId: string;
+  targetKeyId: string;
+  targetFingerprint: string;
+  revokedAt: string;
+  signatures: ApplicationKeySignature[];
+}
+
+export interface StartApplicationKeyChallengeRequest {
+  subjectUserId: string;
+  applicationId: string;
+  instanceId: string;
+  purpose: string;
+  keyUsage: string;
+  algorithm: string;
+  publicKey: Uint8Array;
+}
+
+export interface StartApplicationKeyChallengeResponse {
+  challengeId: string;
+  challenge?: Uint8Array;
+  sealedChallenge?: Uint8Array;
+  expiresAt: string;
+}
+
+export interface AddApplicationKeyRequest {
+  request: SignedApplicationKeyAddition;
+}
+
+export interface AddApplicationKeyResponse {
+  attestation: SignedApplicationKeyAttestation;
+}
+
+export interface RenewApplicationKeyAttestationRequest {
+  request: SignedApplicationKeyRenewal;
+}
+
+export interface RenewApplicationKeyAttestationResponse {
+  attestation: SignedApplicationKeyAttestation;
+  signed: boolean;
+}
+
+export interface RevokeApplicationKeyRequest {
+  revocation: ApplicationKeyRevocation;
+}
+
+export interface RevokeApplicationKeyResponse {
+  revokedAt: string;
+}
+
+export interface EnrollApplicationInstanceRequest {
+  applicationId: string;
+  instanceId: string;
+  keys: SignedApplicationKeyAddition[];
+}
+
+export interface EnrollApplicationInstanceResponse {
+  subjectUserId: string;
+  subjectDomain: string;
+  applicationId: string;
+  instanceId: string;
+  attestations: SignedApplicationKeyAttestation[];
+}
+
+export interface GetApplicationKeysRequest {
+  subjectUserId: string;
+  applicationId: string;
+  instanceId: string;
+}
+
+export interface GetApplicationKeysResponse {
+  subjectUserId: string;
+  subjectDomain: string;
+  applicationId: string;
+  instanceId: string;
+  keys: SignedApplicationKeyAttestation[];
+  revocations: ApplicationKeyRevocation[];
+}
+
+export interface RpResolveDomainKeysRequest {
+  domain: string;
+  maxCacheAgeSeconds?: number;
+}
+
+export interface RpResolveDomainKeysResponse {
+  domain: string;
+  keys: DomainPublicKey[];
+  revocations: RevocationCertificate[];
+  fetchedAt: string;
+  revocationsCheckedAt: string;
+  cacheStatus: string;
+}
+
+export interface RpResolveApplicationKeysRequest {
+  subjectUserId: string;
+  subjectDomain: string;
+  applicationId: string;
+  instanceId: string;
+  maxCacheAgeSeconds?: number;
+}
+
+export interface RpResolveApplicationKeysResponse {
+  subjectUserId: string;
+  subjectDomain: string;
+  applicationId: string;
+  instanceId: string;
+  applicationKeys: SignedApplicationKeyAttestation[];
+  applicationKeyRevocations: ApplicationKeyRevocation[];
+  homeDomainKeys: DomainPublicKey[];
+  homeDomainKeyRevocations: RevocationCertificate[];
+  fetchedAt: string;
+  revocationsCheckedAt: string;
+  cacheStatus: string;
+}
+
 export function validateLocalRpDescriptor(value: LocalRpDescriptor): string[] {
   const errors: string[] = [];
   if (value.signingPublicKey.length !== 32) errors.push("signingPublicKey: length must equal 32");

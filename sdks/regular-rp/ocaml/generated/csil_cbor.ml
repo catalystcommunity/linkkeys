@@ -72,23 +72,60 @@ let encode (v : t) : bytes =
 let decode (b : bytes) : (t, string) result =
   let len = Bytes.length b in
   let byte i = Char.code (Bytes.get b i) in
+  let need pos count =
+    if pos < 0 || count < 0 || pos > len || len - pos < count then
+      failwith "csilgen: truncated input"
+  in
+  let valid_utf8 s =
+    let n = String.length s in
+    let code i = Char.code s.[i] in
+    let cont i = i < n && let c = code i in c >= 0x80 && c <= 0xbf in
+    let rec loop i =
+      if i = n then true else
+      let c = code i in
+      if c < 0x80 then loop (i + 1)
+      else if c >= 0xc2 && c <= 0xdf && cont (i + 1) then loop (i + 2)
+      else if c >= 0xe0 && c <= 0xef && i + 2 < n then
+        let d = code (i + 1) in
+        let second =
+          if c = 0xe0 then d >= 0xa0 && d <= 0xbf
+          else if c = 0xed then d >= 0x80 && d <= 0x9f
+          else d >= 0x80 && d <= 0xbf
+        in
+        second && cont (i + 2) && loop (i + 3)
+      else if c >= 0xf0 && c <= 0xf4 && i + 3 < n then
+        let d = code (i + 1) in
+        let second =
+          if c = 0xf0 then d >= 0x90 && d <= 0xbf
+          else if c = 0xf4 then d >= 0x80 && d <= 0x8f
+          else d >= 0x80 && d <= 0xbf
+        in
+        second && cont (i + 2) && cont (i + 3) && loop (i + 4)
+      else false
+    in
+    loop 0
+  in
   let read_arg pos low =
     if low < 24 then (Int64.of_int low, pos + 1)
-    else if low = 24 then (Int64.of_int (byte (pos + 1)), pos + 2)
-    else if low = 25 then (Int64.of_int ((byte (pos + 1) lsl 8) lor byte (pos + 2)), pos + 3)
+    else if low = 24 then (need pos 2; Int64.of_int (byte (pos + 1)), pos + 2)
+    else if low = 25 then (need pos 3; Int64.of_int ((byte (pos + 1) lsl 8) lor byte (pos + 2)), pos + 3)
     else if low = 26 then begin
+      need pos 5;
       let v = ref 0L in
       for i = 1 to 4 do v := Int64.logor (Int64.shift_left !v 8) (Int64.of_int (byte (pos + i))) done;
       (!v, pos + 5)
     end
     else if low = 27 then begin
+      need pos 9;
       let v = ref 0L in
       for i = 1 to 8 do v := Int64.logor (Int64.shift_left !v 8) (Int64.of_int (byte (pos + i))) done;
       (!v, pos + 9)
     end
     else failwith "csilgen: bad head"
   in
-  let rec dec pos =
+  let rec dec depth pos =
+    if depth > 64 then failwith "csilgen: nesting limit exceeded";
+    need pos 1;
     let ib = byte pos in
     let major = ib lsr 5 and low = ib land 0x1f in
     if major = 7 then
@@ -108,33 +145,42 @@ let decode (b : bytes) : (t, string) result =
       match major with
       | 0 -> (Uint arg, p)
       | 1 -> (Nint (Int64.sub (Int64.neg arg) 1L), p)
-      | 2 -> let n = Int64.to_int arg in (Bytes (Bytes.sub b p n), p + n)
-      | 3 -> let n = Int64.to_int arg in (Text (Bytes.sub_string b p n), p + n)
+      | 2 ->
+        if arg < 0L || arg > Int64.of_int (len - p) then failwith "csilgen: truncated byte string";
+        let n = Int64.to_int arg in (Bytes (Bytes.sub b p n), p + n)
+      | 3 ->
+        if arg < 0L || arg > Int64.of_int (len - p) then failwith "csilgen: truncated text string";
+        let n = Int64.to_int arg in
+        let s = Bytes.sub_string b p n in
+        if not (valid_utf8 s) then failwith "csilgen: invalid utf-8";
+        (Text s, p + n)
       | 4 ->
+        if arg < 0L || arg > Int64.of_int (len - p) then failwith "csilgen: array length exceeds remaining input";
         let n = Int64.to_int arg in
         let rec loop i pos acc =
           if i = 0 then (List.rev acc, pos)
-          else let v, np = dec pos in loop (i - 1) np (v :: acc)
+          else let v, np = dec (depth + 1) pos in loop (i - 1) np (v :: acc)
         in
         let items, np = loop n p [] in
         (Array items, np)
       | 5 ->
+        if arg < 0L || arg > Int64.of_int (len - p) then failwith "csilgen: map length exceeds remaining input";
         let n = Int64.to_int arg in
         let rec loop i pos acc =
           if i = 0 then (List.rev acc, pos)
           else
-            let k, p1 = dec pos in
-            let v, p2 = dec p1 in
+            let k, p1 = dec (depth + 1) pos in
+            let v, p2 = dec (depth + 1) p1 in
             loop (i - 1) p2 ((k, v) :: acc)
         in
         let kvs, np = loop n p [] in
         (Map kvs, np)
-      | 6 -> let inner, np = dec p in (Tag (Int64.to_int arg, inner), np)
+      | 6 -> let inner, np = dec (depth + 1) p in (Tag (Int64.to_int arg, inner), np)
       | _ -> failwith "csilgen: bad major"
     end
   in
   try
-    let v, np = dec 0 in
+    let v, np = dec 0 0 in
     if np <> len then Error "csilgen: trailing bytes" else Ok v
   with
   | Failure m -> Error m

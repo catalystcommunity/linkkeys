@@ -6033,3 +6033,928 @@ class ListLocalesResponse
     }
 }
 
+class ApplicationKeySignature
+{
+    /** @var mixed */
+    public $signedByKeyId;
+
+    /** @var mixed */
+    public $signature;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->signedByKeyId = array_key_exists('signed_by_key_id', $values) ? $values['signed_by_key_id'] : null;
+        $this->signature = array_key_exists('signature', $values) ? $values['signature'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'signed_by_key_id' => $this->signedByKeyId,
+            'signature' => $this->signature,
+        );
+    }
+}
+
+class ApplicationKeyAttestation
+{
+    /** @var mixed */
+    public $subjectUserId;
+
+    /** @var mixed */
+    public $subjectDomain;
+
+    /** @var mixed */
+    public $applicationId;
+
+    /** @var mixed */
+    public $instanceId;
+
+    /** @var mixed */
+    public $keyId;
+
+    /** @var mixed */
+    public $keyUsage;
+
+    /** @var mixed */
+    public $algorithm;
+
+    /** @var mixed */
+    public $publicKey;
+
+    /** @var mixed */
+    public $fingerprint;
+
+    /** @var mixed */
+    public $keyCreatedAt;
+
+    /** @var mixed */
+    public $keyExpiresAt;
+
+    /** @var mixed */
+    public $attestedAt;
+
+    /** @var mixed */
+    public $attestationExpiresAt;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->subjectUserId = array_key_exists('subject_user_id', $values) ? $values['subject_user_id'] : null;
+        $this->subjectDomain = array_key_exists('subject_domain', $values) ? $values['subject_domain'] : null;
+        $this->applicationId = array_key_exists('application_id', $values) ? $values['application_id'] : null;
+        $this->instanceId = array_key_exists('instance_id', $values) ? $values['instance_id'] : null;
+        $this->keyId = array_key_exists('key_id', $values) ? $values['key_id'] : null;
+        $this->keyUsage = array_key_exists('key_usage', $values) ? $values['key_usage'] : null;
+        $this->algorithm = array_key_exists('algorithm', $values) ? $values['algorithm'] : null;
+        $this->publicKey = array_key_exists('public_key', $values) ? $values['public_key'] : null;
+        $this->fingerprint = array_key_exists('fingerprint', $values) ? $values['fingerprint'] : null;
+        $this->keyCreatedAt = array_key_exists('key_created_at', $values) ? $values['key_created_at'] : null;
+        $this->keyExpiresAt = array_key_exists('key_expires_at', $values) ? $values['key_expires_at'] : null;
+        $this->attestedAt = array_key_exists('attested_at', $values) ? $values['attested_at'] : null;
+        $this->attestationExpiresAt = array_key_exists('attestation_expires_at', $values) ? $values['attestation_expires_at'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'subject_user_id' => $this->subjectUserId,
+            'subject_domain' => $this->subjectDomain,
+            'application_id' => $this->applicationId,
+            'instance_id' => $this->instanceId,
+            'key_id' => $this->keyId,
+            'key_usage' => $this->keyUsage,
+            'algorithm' => $this->algorithm,
+            'public_key' => $this->publicKey,
+            'fingerprint' => $this->fingerprint,
+            'key_created_at' => $this->keyCreatedAt,
+            'key_expires_at' => $this->keyExpiresAt,
+            'attested_at' => $this->attestedAt,
+            'attestation_expires_at' => $this->attestationExpiresAt,
+        );
+    }
+}
+
+class SignedApplicationKeyAttestation
+{
+    /** @var mixed */
+    public $attestation;
+
+    /** @var mixed */
+    public $signatures;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->attestation = array_key_exists('attestation', $values) ? $values['attestation'] : null;
+        $this->signatures = array_key_exists('signatures', $values) ? $values['signatures'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'attestation' => $this->attestation,
+            'signatures' => $this->signatures,
+        );
+    }
+}
+
+class ApplicationKeyAddition
+{
+    /** @var mixed */
+    public $subjectUserId;
+
+    /** @var mixed */
+    public $subjectDomain;
+
+    /** @var mixed */
+    public $applicationId;
+
+    /** @var mixed */
+    public $instanceId;
+
+    /** @var mixed */
+    public $keyId;
+
+    /** @var mixed */
+    public $keyUsage;
+
+    /** @var mixed */
+    public $algorithm;
+
+    /** @var mixed */
+    public $publicKey;
+
+    /** @var mixed */
+    public $fingerprint;
+
+    /** @var mixed */
+    public $requestedKeyLifetimeSeconds;
+
+    /** @var mixed */
+    public $challengeId;
+
+    /** @var mixed */
+    public $challenge;
+
+    /** @var mixed */
+    public $requestedAt;
+
+    /** @var mixed */
+    public $expiresAt;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->subjectUserId = array_key_exists('subject_user_id', $values) ? $values['subject_user_id'] : null;
+        $this->subjectDomain = array_key_exists('subject_domain', $values) ? $values['subject_domain'] : null;
+        $this->applicationId = array_key_exists('application_id', $values) ? $values['application_id'] : null;
+        $this->instanceId = array_key_exists('instance_id', $values) ? $values['instance_id'] : null;
+        $this->keyId = array_key_exists('key_id', $values) ? $values['key_id'] : null;
+        $this->keyUsage = array_key_exists('key_usage', $values) ? $values['key_usage'] : null;
+        $this->algorithm = array_key_exists('algorithm', $values) ? $values['algorithm'] : null;
+        $this->publicKey = array_key_exists('public_key', $values) ? $values['public_key'] : null;
+        $this->fingerprint = array_key_exists('fingerprint', $values) ? $values['fingerprint'] : null;
+        $this->requestedKeyLifetimeSeconds = array_key_exists('requested_key_lifetime_seconds', $values) ? $values['requested_key_lifetime_seconds'] : null;
+        $this->challengeId = array_key_exists('challenge_id', $values) ? $values['challenge_id'] : null;
+        $this->challenge = array_key_exists('challenge', $values) ? $values['challenge'] : null;
+        $this->requestedAt = array_key_exists('requested_at', $values) ? $values['requested_at'] : null;
+        $this->expiresAt = array_key_exists('expires_at', $values) ? $values['expires_at'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'subject_user_id' => $this->subjectUserId,
+            'subject_domain' => $this->subjectDomain,
+            'application_id' => $this->applicationId,
+            'instance_id' => $this->instanceId,
+            'key_id' => $this->keyId,
+            'key_usage' => $this->keyUsage,
+            'algorithm' => $this->algorithm,
+            'public_key' => $this->publicKey,
+            'fingerprint' => $this->fingerprint,
+            'requested_key_lifetime_seconds' => $this->requestedKeyLifetimeSeconds,
+            'challenge_id' => $this->challengeId,
+            'challenge' => $this->challenge,
+            'requested_at' => $this->requestedAt,
+            'expires_at' => $this->expiresAt,
+        );
+    }
+}
+
+class SignedApplicationKeyAddition
+{
+    /** @var mixed */
+    public $addition;
+
+    /** @var mixed */
+    public $signatures;
+
+    /** @var mixed */
+    public $possessionProof;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->addition = array_key_exists('addition', $values) ? $values['addition'] : null;
+        $this->signatures = array_key_exists('signatures', $values) ? $values['signatures'] : null;
+        $this->possessionProof = array_key_exists('possession_proof', $values) ? $values['possession_proof'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'addition' => $this->addition,
+            'signatures' => $this->signatures,
+            'possession_proof' => $this->possessionProof,
+        );
+    }
+}
+
+class ApplicationKeyRenewal
+{
+    /** @var mixed */
+    public $subjectUserId;
+
+    /** @var mixed */
+    public $subjectDomain;
+
+    /** @var mixed */
+    public $applicationId;
+
+    /** @var mixed */
+    public $instanceId;
+
+    /** @var mixed */
+    public $keyId;
+
+    /** @var mixed */
+    public $challengeId;
+
+    /** @var mixed */
+    public $challenge;
+
+    /** @var mixed */
+    public $requestedAt;
+
+    /** @var mixed */
+    public $expiresAt;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->subjectUserId = array_key_exists('subject_user_id', $values) ? $values['subject_user_id'] : null;
+        $this->subjectDomain = array_key_exists('subject_domain', $values) ? $values['subject_domain'] : null;
+        $this->applicationId = array_key_exists('application_id', $values) ? $values['application_id'] : null;
+        $this->instanceId = array_key_exists('instance_id', $values) ? $values['instance_id'] : null;
+        $this->keyId = array_key_exists('key_id', $values) ? $values['key_id'] : null;
+        $this->challengeId = array_key_exists('challenge_id', $values) ? $values['challenge_id'] : null;
+        $this->challenge = array_key_exists('challenge', $values) ? $values['challenge'] : null;
+        $this->requestedAt = array_key_exists('requested_at', $values) ? $values['requested_at'] : null;
+        $this->expiresAt = array_key_exists('expires_at', $values) ? $values['expires_at'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'subject_user_id' => $this->subjectUserId,
+            'subject_domain' => $this->subjectDomain,
+            'application_id' => $this->applicationId,
+            'instance_id' => $this->instanceId,
+            'key_id' => $this->keyId,
+            'challenge_id' => $this->challengeId,
+            'challenge' => $this->challenge,
+            'requested_at' => $this->requestedAt,
+            'expires_at' => $this->expiresAt,
+        );
+    }
+}
+
+class SignedApplicationKeyRenewal
+{
+    /** @var mixed */
+    public $renewal;
+
+    /** @var mixed */
+    public $signatures;
+
+    /** @var mixed */
+    public $possessionProof;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->renewal = array_key_exists('renewal', $values) ? $values['renewal'] : null;
+        $this->signatures = array_key_exists('signatures', $values) ? $values['signatures'] : null;
+        $this->possessionProof = array_key_exists('possession_proof', $values) ? $values['possession_proof'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'renewal' => $this->renewal,
+            'signatures' => $this->signatures,
+            'possession_proof' => $this->possessionProof,
+        );
+    }
+}
+
+class ApplicationKeyRevocation
+{
+    /** @var mixed */
+    public $subjectUserId;
+
+    /** @var mixed */
+    public $subjectDomain;
+
+    /** @var mixed */
+    public $applicationId;
+
+    /** @var mixed */
+    public $instanceId;
+
+    /** @var mixed */
+    public $targetKeyId;
+
+    /** @var mixed */
+    public $targetFingerprint;
+
+    /** @var mixed */
+    public $revokedAt;
+
+    /** @var mixed */
+    public $signatures;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->subjectUserId = array_key_exists('subject_user_id', $values) ? $values['subject_user_id'] : null;
+        $this->subjectDomain = array_key_exists('subject_domain', $values) ? $values['subject_domain'] : null;
+        $this->applicationId = array_key_exists('application_id', $values) ? $values['application_id'] : null;
+        $this->instanceId = array_key_exists('instance_id', $values) ? $values['instance_id'] : null;
+        $this->targetKeyId = array_key_exists('target_key_id', $values) ? $values['target_key_id'] : null;
+        $this->targetFingerprint = array_key_exists('target_fingerprint', $values) ? $values['target_fingerprint'] : null;
+        $this->revokedAt = array_key_exists('revoked_at', $values) ? $values['revoked_at'] : null;
+        $this->signatures = array_key_exists('signatures', $values) ? $values['signatures'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'subject_user_id' => $this->subjectUserId,
+            'subject_domain' => $this->subjectDomain,
+            'application_id' => $this->applicationId,
+            'instance_id' => $this->instanceId,
+            'target_key_id' => $this->targetKeyId,
+            'target_fingerprint' => $this->targetFingerprint,
+            'revoked_at' => $this->revokedAt,
+            'signatures' => $this->signatures,
+        );
+    }
+}
+
+class StartApplicationKeyChallengeRequest
+{
+    /** @var mixed */
+    public $subjectUserId;
+
+    /** @var mixed */
+    public $applicationId;
+
+    /** @var mixed */
+    public $instanceId;
+
+    /** @var mixed */
+    public $purpose;
+
+    /** @var mixed */
+    public $keyUsage;
+
+    /** @var mixed */
+    public $algorithm;
+
+    /** @var mixed */
+    public $publicKey;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->subjectUserId = array_key_exists('subject_user_id', $values) ? $values['subject_user_id'] : null;
+        $this->applicationId = array_key_exists('application_id', $values) ? $values['application_id'] : null;
+        $this->instanceId = array_key_exists('instance_id', $values) ? $values['instance_id'] : null;
+        $this->purpose = array_key_exists('purpose', $values) ? $values['purpose'] : null;
+        $this->keyUsage = array_key_exists('key_usage', $values) ? $values['key_usage'] : null;
+        $this->algorithm = array_key_exists('algorithm', $values) ? $values['algorithm'] : null;
+        $this->publicKey = array_key_exists('public_key', $values) ? $values['public_key'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'subject_user_id' => $this->subjectUserId,
+            'application_id' => $this->applicationId,
+            'instance_id' => $this->instanceId,
+            'purpose' => $this->purpose,
+            'key_usage' => $this->keyUsage,
+            'algorithm' => $this->algorithm,
+            'public_key' => $this->publicKey,
+        );
+    }
+}
+
+class StartApplicationKeyChallengeResponse
+{
+    /** @var mixed */
+    public $challengeId;
+
+    /** @var mixed */
+    public $challenge;
+
+    /** @var mixed */
+    public $sealedChallenge;
+
+    /** @var mixed */
+    public $expiresAt;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->challengeId = array_key_exists('challenge_id', $values) ? $values['challenge_id'] : null;
+        $this->challenge = array_key_exists('challenge', $values) ? $values['challenge'] : null;
+        $this->sealedChallenge = array_key_exists('sealed_challenge', $values) ? $values['sealed_challenge'] : null;
+        $this->expiresAt = array_key_exists('expires_at', $values) ? $values['expires_at'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'challenge_id' => $this->challengeId,
+            'challenge' => $this->challenge,
+            'sealed_challenge' => $this->sealedChallenge,
+            'expires_at' => $this->expiresAt,
+        );
+    }
+}
+
+class AddApplicationKeyRequest
+{
+    /** @var mixed */
+    public $request;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->request = array_key_exists('request', $values) ? $values['request'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'request' => $this->request,
+        );
+    }
+}
+
+class AddApplicationKeyResponse
+{
+    /** @var mixed */
+    public $attestation;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->attestation = array_key_exists('attestation', $values) ? $values['attestation'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'attestation' => $this->attestation,
+        );
+    }
+}
+
+class RenewApplicationKeyAttestationRequest
+{
+    /** @var mixed */
+    public $request;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->request = array_key_exists('request', $values) ? $values['request'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'request' => $this->request,
+        );
+    }
+}
+
+class RenewApplicationKeyAttestationResponse
+{
+    /** @var mixed */
+    public $attestation;
+
+    /** @var mixed */
+    public $signed;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->attestation = array_key_exists('attestation', $values) ? $values['attestation'] : null;
+        $this->signed = array_key_exists('signed', $values) ? $values['signed'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'attestation' => $this->attestation,
+            'signed' => $this->signed,
+        );
+    }
+}
+
+class RevokeApplicationKeyRequest
+{
+    /** @var mixed */
+    public $revocation;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->revocation = array_key_exists('revocation', $values) ? $values['revocation'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'revocation' => $this->revocation,
+        );
+    }
+}
+
+class RevokeApplicationKeyResponse
+{
+    /** @var mixed */
+    public $revokedAt;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->revokedAt = array_key_exists('revoked_at', $values) ? $values['revoked_at'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'revoked_at' => $this->revokedAt,
+        );
+    }
+}
+
+class EnrollApplicationInstanceRequest
+{
+    /** @var mixed */
+    public $applicationId;
+
+    /** @var mixed */
+    public $instanceId;
+
+    /** @var mixed */
+    public $keys;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->applicationId = array_key_exists('application_id', $values) ? $values['application_id'] : null;
+        $this->instanceId = array_key_exists('instance_id', $values) ? $values['instance_id'] : null;
+        $this->keys = array_key_exists('keys', $values) ? $values['keys'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'application_id' => $this->applicationId,
+            'instance_id' => $this->instanceId,
+            'keys' => $this->keys,
+        );
+    }
+}
+
+class EnrollApplicationInstanceResponse
+{
+    /** @var mixed */
+    public $subjectUserId;
+
+    /** @var mixed */
+    public $subjectDomain;
+
+    /** @var mixed */
+    public $applicationId;
+
+    /** @var mixed */
+    public $instanceId;
+
+    /** @var mixed */
+    public $attestations;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->subjectUserId = array_key_exists('subject_user_id', $values) ? $values['subject_user_id'] : null;
+        $this->subjectDomain = array_key_exists('subject_domain', $values) ? $values['subject_domain'] : null;
+        $this->applicationId = array_key_exists('application_id', $values) ? $values['application_id'] : null;
+        $this->instanceId = array_key_exists('instance_id', $values) ? $values['instance_id'] : null;
+        $this->attestations = array_key_exists('attestations', $values) ? $values['attestations'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'subject_user_id' => $this->subjectUserId,
+            'subject_domain' => $this->subjectDomain,
+            'application_id' => $this->applicationId,
+            'instance_id' => $this->instanceId,
+            'attestations' => $this->attestations,
+        );
+    }
+}
+
+class GetApplicationKeysRequest
+{
+    /** @var mixed */
+    public $subjectUserId;
+
+    /** @var mixed */
+    public $applicationId;
+
+    /** @var mixed */
+    public $instanceId;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->subjectUserId = array_key_exists('subject_user_id', $values) ? $values['subject_user_id'] : null;
+        $this->applicationId = array_key_exists('application_id', $values) ? $values['application_id'] : null;
+        $this->instanceId = array_key_exists('instance_id', $values) ? $values['instance_id'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'subject_user_id' => $this->subjectUserId,
+            'application_id' => $this->applicationId,
+            'instance_id' => $this->instanceId,
+        );
+    }
+}
+
+class GetApplicationKeysResponse
+{
+    /** @var mixed */
+    public $subjectUserId;
+
+    /** @var mixed */
+    public $subjectDomain;
+
+    /** @var mixed */
+    public $applicationId;
+
+    /** @var mixed */
+    public $instanceId;
+
+    /** @var mixed */
+    public $keys;
+
+    /** @var mixed */
+    public $revocations;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->subjectUserId = array_key_exists('subject_user_id', $values) ? $values['subject_user_id'] : null;
+        $this->subjectDomain = array_key_exists('subject_domain', $values) ? $values['subject_domain'] : null;
+        $this->applicationId = array_key_exists('application_id', $values) ? $values['application_id'] : null;
+        $this->instanceId = array_key_exists('instance_id', $values) ? $values['instance_id'] : null;
+        $this->keys = array_key_exists('keys', $values) ? $values['keys'] : null;
+        $this->revocations = array_key_exists('revocations', $values) ? $values['revocations'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'subject_user_id' => $this->subjectUserId,
+            'subject_domain' => $this->subjectDomain,
+            'application_id' => $this->applicationId,
+            'instance_id' => $this->instanceId,
+            'keys' => $this->keys,
+            'revocations' => $this->revocations,
+        );
+    }
+}
+
+class RpResolveDomainKeysRequest
+{
+    /** @var mixed */
+    public $domain;
+
+    /** @var mixed */
+    public $maxCacheAgeSeconds;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->domain = array_key_exists('domain', $values) ? $values['domain'] : null;
+        $this->maxCacheAgeSeconds = array_key_exists('max_cache_age_seconds', $values) ? $values['max_cache_age_seconds'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'domain' => $this->domain,
+            'max_cache_age_seconds' => $this->maxCacheAgeSeconds,
+        );
+    }
+}
+
+class RpResolveDomainKeysResponse
+{
+    /** @var mixed */
+    public $domain;
+
+    /** @var mixed */
+    public $keys;
+
+    /** @var mixed */
+    public $revocations;
+
+    /** @var mixed */
+    public $fetchedAt;
+
+    /** @var mixed */
+    public $revocationsCheckedAt;
+
+    /** @var mixed */
+    public $cacheStatus;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->domain = array_key_exists('domain', $values) ? $values['domain'] : null;
+        $this->keys = array_key_exists('keys', $values) ? $values['keys'] : null;
+        $this->revocations = array_key_exists('revocations', $values) ? $values['revocations'] : null;
+        $this->fetchedAt = array_key_exists('fetched_at', $values) ? $values['fetched_at'] : null;
+        $this->revocationsCheckedAt = array_key_exists('revocations_checked_at', $values) ? $values['revocations_checked_at'] : null;
+        $this->cacheStatus = array_key_exists('cache_status', $values) ? $values['cache_status'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'domain' => $this->domain,
+            'keys' => $this->keys,
+            'revocations' => $this->revocations,
+            'fetched_at' => $this->fetchedAt,
+            'revocations_checked_at' => $this->revocationsCheckedAt,
+            'cache_status' => $this->cacheStatus,
+        );
+    }
+}
+
+class RpResolveApplicationKeysRequest
+{
+    /** @var mixed */
+    public $subjectUserId;
+
+    /** @var mixed */
+    public $subjectDomain;
+
+    /** @var mixed */
+    public $applicationId;
+
+    /** @var mixed */
+    public $instanceId;
+
+    /** @var mixed */
+    public $maxCacheAgeSeconds;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->subjectUserId = array_key_exists('subject_user_id', $values) ? $values['subject_user_id'] : null;
+        $this->subjectDomain = array_key_exists('subject_domain', $values) ? $values['subject_domain'] : null;
+        $this->applicationId = array_key_exists('application_id', $values) ? $values['application_id'] : null;
+        $this->instanceId = array_key_exists('instance_id', $values) ? $values['instance_id'] : null;
+        $this->maxCacheAgeSeconds = array_key_exists('max_cache_age_seconds', $values) ? $values['max_cache_age_seconds'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'subject_user_id' => $this->subjectUserId,
+            'subject_domain' => $this->subjectDomain,
+            'application_id' => $this->applicationId,
+            'instance_id' => $this->instanceId,
+            'max_cache_age_seconds' => $this->maxCacheAgeSeconds,
+        );
+    }
+}
+
+class RpResolveApplicationKeysResponse
+{
+    /** @var mixed */
+    public $subjectUserId;
+
+    /** @var mixed */
+    public $subjectDomain;
+
+    /** @var mixed */
+    public $applicationId;
+
+    /** @var mixed */
+    public $instanceId;
+
+    /** @var mixed */
+    public $applicationKeys;
+
+    /** @var mixed */
+    public $applicationKeyRevocations;
+
+    /** @var mixed */
+    public $homeDomainKeys;
+
+    /** @var mixed */
+    public $homeDomainKeyRevocations;
+
+    /** @var mixed */
+    public $fetchedAt;
+
+    /** @var mixed */
+    public $revocationsCheckedAt;
+
+    /** @var mixed */
+    public $cacheStatus;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->subjectUserId = array_key_exists('subject_user_id', $values) ? $values['subject_user_id'] : null;
+        $this->subjectDomain = array_key_exists('subject_domain', $values) ? $values['subject_domain'] : null;
+        $this->applicationId = array_key_exists('application_id', $values) ? $values['application_id'] : null;
+        $this->instanceId = array_key_exists('instance_id', $values) ? $values['instance_id'] : null;
+        $this->applicationKeys = array_key_exists('application_keys', $values) ? $values['application_keys'] : null;
+        $this->applicationKeyRevocations = array_key_exists('application_key_revocations', $values) ? $values['application_key_revocations'] : null;
+        $this->homeDomainKeys = array_key_exists('home_domain_keys', $values) ? $values['home_domain_keys'] : null;
+        $this->homeDomainKeyRevocations = array_key_exists('home_domain_key_revocations', $values) ? $values['home_domain_key_revocations'] : null;
+        $this->fetchedAt = array_key_exists('fetched_at', $values) ? $values['fetched_at'] : null;
+        $this->revocationsCheckedAt = array_key_exists('revocations_checked_at', $values) ? $values['revocations_checked_at'] : null;
+        $this->cacheStatus = array_key_exists('cache_status', $values) ? $values['cache_status'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'subject_user_id' => $this->subjectUserId,
+            'subject_domain' => $this->subjectDomain,
+            'application_id' => $this->applicationId,
+            'instance_id' => $this->instanceId,
+            'application_keys' => $this->applicationKeys,
+            'application_key_revocations' => $this->applicationKeyRevocations,
+            'home_domain_keys' => $this->homeDomainKeys,
+            'home_domain_key_revocations' => $this->homeDomainKeyRevocations,
+            'fetched_at' => $this->fetchedAt,
+            'revocations_checked_at' => $this->revocationsCheckedAt,
+            'cache_status' => $this->cacheStatus,
+        );
+    }
+}
+

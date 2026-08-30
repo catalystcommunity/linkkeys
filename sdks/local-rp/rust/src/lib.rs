@@ -88,6 +88,8 @@
 //!   (matching the design doc's "Decided" section). Inject a hardened
 //!   [`DnsResolver`] if your deployment needs more.
 
+pub mod application_key_cache;
+pub mod application_key_resolver;
 pub mod begin;
 pub mod complete;
 pub mod dns;
@@ -96,6 +98,15 @@ pub mod identity;
 pub mod rpc;
 pub mod transport;
 
+pub use application_key_cache::{
+    ApplicationKeyCacheStore, BoundedInMemoryApplicationKeyCache, CachedApplicationKeys,
+    InstanceKey, DEFAULT_MAX_ENTRIES,
+};
+pub use application_key_resolver::{
+    default_application_key_cache, resolve_application_keys, CacheFreshness,
+    ResolveApplicationKeysConfig, ResolvedApplicationKeys, DEFAULT_CLOCK_SKEW_SECONDS,
+    DEFAULT_MAX_CACHE_AGE_SECONDS,
+};
 pub use begin::{
     begin_local_login, BeginLocalLoginConfig, LocalLoginRedirect, PendingLogin,
     DEFAULT_LOGIN_REQUEST_LIFETIME, DEFAULT_REQUESTED_CLAIMS, DEFAULT_REQUIRED_CLAIMS,
@@ -113,7 +124,14 @@ pub use transport::{AddressPolicy, StdTransport, Transport};
 
 // Re-exported so app code doesn't need a direct `liblinkkeys` dependency just
 // to name these types.
-pub use liblinkkeys::generated::types::{Claim, ClaimSignature, DomainPublicKey};
+pub use liblinkkeys::application_keys::{
+    ApplicationKeyError, InstanceRef, KeyStatus, RejectedRecord, VerifiedApplicationKey,
+    VerifiedApplicationKeySet,
+};
+pub use liblinkkeys::generated::types::{
+    ApplicationKeyAttestation, ApplicationKeyRevocation, Claim, ClaimSignature, DomainPublicKey,
+    SignedApplicationKeyAttestation,
+};
 pub use liblinkkeys::local_rp::{ExpirationLevel, ExpirationStatus};
 
 use std::sync::OnceLock;

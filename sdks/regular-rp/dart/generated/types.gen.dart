@@ -13770,3 +13770,2119 @@ final class ListLocalesResponse {
   factory ListLocalesResponse.fromCbor(List<int> bytes) =>
       ListLocalesResponse.fromCborValue(CsilCbor.decode(bytes));
 }
+
+final class ApplicationKeySignature {
+  final String signedByKeyId;
+  final Uint8List signature;
+
+  const ApplicationKeySignature({
+    required this.signedByKeyId,
+    required this.signature,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['signed_by_key_id'] = signedByKeyId;
+    map['signature'] = signature;
+    return map;
+  }
+
+  factory ApplicationKeySignature.fromMap(Map<String, Object?> map) {
+    return ApplicationKeySignature(
+      signedByKeyId: map['signed_by_key_id'] as String,
+      signature: map['signature'] as Uint8List,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! ApplicationKeySignature) return false;
+    return signedByKeyId == other.signedByKeyId &&
+        _bytesEqual(signature, other.signature);
+  }
+
+  @override
+  int get hashCode =>
+      Object.hashAll([signedByKeyId, Object.hashAll(signature)]);
+
+  static bool _bytesEqual(Uint8List? a, Uint8List? b) {
+    if (a == null || b == null) return a == b;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['signed_by_key_id'] = signedByKeyId;
+    map['signature'] = signature;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory ApplicationKeySignature.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return ApplicationKeySignature(
+      signedByKeyId: map['signed_by_key_id'] as String,
+      signature: map['signature'] as Uint8List,
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory ApplicationKeySignature.fromCbor(List<int> bytes) =>
+      ApplicationKeySignature.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class ApplicationKeyAttestation {
+  final String subjectUserId;
+  final String subjectDomain;
+  final String applicationId;
+  final String instanceId;
+  final String keyId;
+  final String keyUsage;
+  final String algorithm;
+  final Uint8List publicKey;
+  final String fingerprint;
+  final String keyCreatedAt;
+  final String keyExpiresAt;
+  final String attestedAt;
+  final String attestationExpiresAt;
+
+  const ApplicationKeyAttestation({
+    required this.subjectUserId,
+    required this.subjectDomain,
+    required this.applicationId,
+    required this.instanceId,
+    required this.keyId,
+    required this.keyUsage,
+    required this.algorithm,
+    required this.publicKey,
+    required this.fingerprint,
+    required this.keyCreatedAt,
+    required this.keyExpiresAt,
+    required this.attestedAt,
+    required this.attestationExpiresAt,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['subject_user_id'] = subjectUserId;
+    map['subject_domain'] = subjectDomain;
+    map['application_id'] = applicationId;
+    map['instance_id'] = instanceId;
+    map['key_id'] = keyId;
+    map['key_usage'] = keyUsage;
+    map['algorithm'] = algorithm;
+    map['public_key'] = publicKey;
+    map['fingerprint'] = fingerprint;
+    map['key_created_at'] = keyCreatedAt;
+    map['key_expires_at'] = keyExpiresAt;
+    map['attested_at'] = attestedAt;
+    map['attestation_expires_at'] = attestationExpiresAt;
+    return map;
+  }
+
+  factory ApplicationKeyAttestation.fromMap(Map<String, Object?> map) {
+    return ApplicationKeyAttestation(
+      subjectUserId: map['subject_user_id'] as String,
+      subjectDomain: map['subject_domain'] as String,
+      applicationId: map['application_id'] as String,
+      instanceId: map['instance_id'] as String,
+      keyId: map['key_id'] as String,
+      keyUsage: map['key_usage'] as String,
+      algorithm: map['algorithm'] as String,
+      publicKey: map['public_key'] as Uint8List,
+      fingerprint: map['fingerprint'] as String,
+      keyCreatedAt: map['key_created_at'] as String,
+      keyExpiresAt: map['key_expires_at'] as String,
+      attestedAt: map['attested_at'] as String,
+      attestationExpiresAt: map['attestation_expires_at'] as String,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! ApplicationKeyAttestation) return false;
+    return subjectUserId == other.subjectUserId &&
+        subjectDomain == other.subjectDomain &&
+        applicationId == other.applicationId &&
+        instanceId == other.instanceId &&
+        keyId == other.keyId &&
+        keyUsage == other.keyUsage &&
+        algorithm == other.algorithm &&
+        _bytesEqual(publicKey, other.publicKey) &&
+        fingerprint == other.fingerprint &&
+        keyCreatedAt == other.keyCreatedAt &&
+        keyExpiresAt == other.keyExpiresAt &&
+        attestedAt == other.attestedAt &&
+        attestationExpiresAt == other.attestationExpiresAt;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+    subjectUserId,
+    subjectDomain,
+    applicationId,
+    instanceId,
+    keyId,
+    keyUsage,
+    algorithm,
+    Object.hashAll(publicKey),
+    fingerprint,
+    keyCreatedAt,
+    keyExpiresAt,
+    attestedAt,
+    attestationExpiresAt,
+  ]);
+
+  static bool _bytesEqual(Uint8List? a, Uint8List? b) {
+    if (a == null || b == null) return a == b;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['subject_user_id'] = subjectUserId;
+    map['subject_domain'] = subjectDomain;
+    map['application_id'] = applicationId;
+    map['instance_id'] = instanceId;
+    map['key_id'] = keyId;
+    map['key_usage'] = keyUsage;
+    map['algorithm'] = algorithm;
+    map['public_key'] = publicKey;
+    map['fingerprint'] = fingerprint;
+    map['key_created_at'] = keyCreatedAt;
+    map['key_expires_at'] = keyExpiresAt;
+    map['attested_at'] = attestedAt;
+    map['attestation_expires_at'] = attestationExpiresAt;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory ApplicationKeyAttestation.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return ApplicationKeyAttestation(
+      subjectUserId: map['subject_user_id'] as String,
+      subjectDomain: map['subject_domain'] as String,
+      applicationId: map['application_id'] as String,
+      instanceId: map['instance_id'] as String,
+      keyId: map['key_id'] as String,
+      keyUsage: map['key_usage'] as String,
+      algorithm: map['algorithm'] as String,
+      publicKey: map['public_key'] as Uint8List,
+      fingerprint: map['fingerprint'] as String,
+      keyCreatedAt: map['key_created_at'] as String,
+      keyExpiresAt: map['key_expires_at'] as String,
+      attestedAt: map['attested_at'] as String,
+      attestationExpiresAt: map['attestation_expires_at'] as String,
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory ApplicationKeyAttestation.fromCbor(List<int> bytes) =>
+      ApplicationKeyAttestation.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class SignedApplicationKeyAttestation {
+  final Uint8List attestation;
+  final List<ClaimSignature> signatures;
+
+  const SignedApplicationKeyAttestation({
+    required this.attestation,
+    required this.signatures,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['attestation'] = attestation;
+    map['signatures'] = signatures;
+    return map;
+  }
+
+  factory SignedApplicationKeyAttestation.fromMap(Map<String, Object?> map) {
+    return SignedApplicationKeyAttestation(
+      attestation: map['attestation'] as Uint8List,
+      signatures: map['signatures'] as List<ClaimSignature>,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! SignedApplicationKeyAttestation) return false;
+    return _bytesEqual(attestation, other.attestation) &&
+        signatures == other.signatures;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([Object.hashAll(attestation), signatures]);
+
+  static bool _bytesEqual(Uint8List? a, Uint8List? b) {
+    if (a == null || b == null) return a == b;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['attestation'] = attestation;
+    map['signatures'] = signatures.map((csilE) => csilE.toCborValue()).toList();
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory SignedApplicationKeyAttestation.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return SignedApplicationKeyAttestation(
+      attestation: map['attestation'] as Uint8List,
+      signatures: (map['signatures'] as List)
+          .map((csilE) => ClaimSignature.fromCborValue(csilE))
+          .cast<ClaimSignature>()
+          .toList(),
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory SignedApplicationKeyAttestation.fromCbor(List<int> bytes) =>
+      SignedApplicationKeyAttestation.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class ApplicationKeyAddition {
+  final String subjectUserId;
+  final String subjectDomain;
+  final String applicationId;
+  final String instanceId;
+  final String keyId;
+  final String keyUsage;
+  final String algorithm;
+  final Uint8List publicKey;
+  final String fingerprint;
+  final int requestedKeyLifetimeSeconds;
+  final String challengeId;
+  final Uint8List challenge;
+  final String requestedAt;
+  final String expiresAt;
+
+  const ApplicationKeyAddition({
+    required this.subjectUserId,
+    required this.subjectDomain,
+    required this.applicationId,
+    required this.instanceId,
+    required this.keyId,
+    required this.keyUsage,
+    required this.algorithm,
+    required this.publicKey,
+    required this.fingerprint,
+    required this.requestedKeyLifetimeSeconds,
+    required this.challengeId,
+    required this.challenge,
+    required this.requestedAt,
+    required this.expiresAt,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['subject_user_id'] = subjectUserId;
+    map['subject_domain'] = subjectDomain;
+    map['application_id'] = applicationId;
+    map['instance_id'] = instanceId;
+    map['key_id'] = keyId;
+    map['key_usage'] = keyUsage;
+    map['algorithm'] = algorithm;
+    map['public_key'] = publicKey;
+    map['fingerprint'] = fingerprint;
+    map['requested_key_lifetime_seconds'] = requestedKeyLifetimeSeconds;
+    map['challenge_id'] = challengeId;
+    map['challenge'] = challenge;
+    map['requested_at'] = requestedAt;
+    map['expires_at'] = expiresAt;
+    return map;
+  }
+
+  factory ApplicationKeyAddition.fromMap(Map<String, Object?> map) {
+    return ApplicationKeyAddition(
+      subjectUserId: map['subject_user_id'] as String,
+      subjectDomain: map['subject_domain'] as String,
+      applicationId: map['application_id'] as String,
+      instanceId: map['instance_id'] as String,
+      keyId: map['key_id'] as String,
+      keyUsage: map['key_usage'] as String,
+      algorithm: map['algorithm'] as String,
+      publicKey: map['public_key'] as Uint8List,
+      fingerprint: map['fingerprint'] as String,
+      requestedKeyLifetimeSeconds: map['requested_key_lifetime_seconds'] as int,
+      challengeId: map['challenge_id'] as String,
+      challenge: map['challenge'] as Uint8List,
+      requestedAt: map['requested_at'] as String,
+      expiresAt: map['expires_at'] as String,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! ApplicationKeyAddition) return false;
+    return subjectUserId == other.subjectUserId &&
+        subjectDomain == other.subjectDomain &&
+        applicationId == other.applicationId &&
+        instanceId == other.instanceId &&
+        keyId == other.keyId &&
+        keyUsage == other.keyUsage &&
+        algorithm == other.algorithm &&
+        _bytesEqual(publicKey, other.publicKey) &&
+        fingerprint == other.fingerprint &&
+        requestedKeyLifetimeSeconds == other.requestedKeyLifetimeSeconds &&
+        challengeId == other.challengeId &&
+        _bytesEqual(challenge, other.challenge) &&
+        requestedAt == other.requestedAt &&
+        expiresAt == other.expiresAt;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+    subjectUserId,
+    subjectDomain,
+    applicationId,
+    instanceId,
+    keyId,
+    keyUsage,
+    algorithm,
+    Object.hashAll(publicKey),
+    fingerprint,
+    requestedKeyLifetimeSeconds,
+    challengeId,
+    Object.hashAll(challenge),
+    requestedAt,
+    expiresAt,
+  ]);
+
+  static bool _bytesEqual(Uint8List? a, Uint8List? b) {
+    if (a == null || b == null) return a == b;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['subject_user_id'] = subjectUserId;
+    map['subject_domain'] = subjectDomain;
+    map['application_id'] = applicationId;
+    map['instance_id'] = instanceId;
+    map['key_id'] = keyId;
+    map['key_usage'] = keyUsage;
+    map['algorithm'] = algorithm;
+    map['public_key'] = publicKey;
+    map['fingerprint'] = fingerprint;
+    map['requested_key_lifetime_seconds'] = requestedKeyLifetimeSeconds;
+    map['challenge_id'] = challengeId;
+    map['challenge'] = challenge;
+    map['requested_at'] = requestedAt;
+    map['expires_at'] = expiresAt;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory ApplicationKeyAddition.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return ApplicationKeyAddition(
+      subjectUserId: map['subject_user_id'] as String,
+      subjectDomain: map['subject_domain'] as String,
+      applicationId: map['application_id'] as String,
+      instanceId: map['instance_id'] as String,
+      keyId: map['key_id'] as String,
+      keyUsage: map['key_usage'] as String,
+      algorithm: map['algorithm'] as String,
+      publicKey: map['public_key'] as Uint8List,
+      fingerprint: map['fingerprint'] as String,
+      requestedKeyLifetimeSeconds: map['requested_key_lifetime_seconds'] as int,
+      challengeId: map['challenge_id'] as String,
+      challenge: map['challenge'] as Uint8List,
+      requestedAt: map['requested_at'] as String,
+      expiresAt: map['expires_at'] as String,
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory ApplicationKeyAddition.fromCbor(List<int> bytes) =>
+      ApplicationKeyAddition.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class SignedApplicationKeyAddition {
+  final Uint8List addition;
+  final List<ApplicationKeySignature> signatures;
+  final Uint8List? possessionProof;
+
+  const SignedApplicationKeyAddition({
+    required this.addition,
+    required this.signatures,
+    this.possessionProof,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['addition'] = addition;
+    map['signatures'] = signatures;
+    if (possessionProof != null) map['possession_proof'] = possessionProof;
+    return map;
+  }
+
+  factory SignedApplicationKeyAddition.fromMap(Map<String, Object?> map) {
+    return SignedApplicationKeyAddition(
+      addition: map['addition'] as Uint8List,
+      signatures: map['signatures'] as List<ApplicationKeySignature>,
+      possessionProof: map['possession_proof'] as Uint8List?,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! SignedApplicationKeyAddition) return false;
+    return _bytesEqual(addition, other.addition) &&
+        signatures == other.signatures &&
+        _bytesEqual(possessionProof, other.possessionProof);
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+    Object.hashAll(addition),
+    signatures,
+    possessionProof == null ? null : Object.hashAll(possessionProof!),
+  ]);
+
+  static bool _bytesEqual(Uint8List? a, Uint8List? b) {
+    if (a == null || b == null) return a == b;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['addition'] = addition;
+    map['signatures'] = signatures.map((csilE) => csilE.toCborValue()).toList();
+    if (possessionProof != null) map['possession_proof'] = possessionProof!;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory SignedApplicationKeyAddition.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return SignedApplicationKeyAddition(
+      addition: map['addition'] as Uint8List,
+      signatures: (map['signatures'] as List)
+          .map((csilE) => ApplicationKeySignature.fromCborValue(csilE))
+          .cast<ApplicationKeySignature>()
+          .toList(),
+      possessionProof: map['possession_proof'] == null
+          ? null
+          : map['possession_proof'] as Uint8List,
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory SignedApplicationKeyAddition.fromCbor(List<int> bytes) =>
+      SignedApplicationKeyAddition.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class ApplicationKeyRenewal {
+  final String subjectUserId;
+  final String subjectDomain;
+  final String applicationId;
+  final String instanceId;
+  final String keyId;
+  final String challengeId;
+  final Uint8List challenge;
+  final String requestedAt;
+  final String expiresAt;
+
+  const ApplicationKeyRenewal({
+    required this.subjectUserId,
+    required this.subjectDomain,
+    required this.applicationId,
+    required this.instanceId,
+    required this.keyId,
+    required this.challengeId,
+    required this.challenge,
+    required this.requestedAt,
+    required this.expiresAt,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['subject_user_id'] = subjectUserId;
+    map['subject_domain'] = subjectDomain;
+    map['application_id'] = applicationId;
+    map['instance_id'] = instanceId;
+    map['key_id'] = keyId;
+    map['challenge_id'] = challengeId;
+    map['challenge'] = challenge;
+    map['requested_at'] = requestedAt;
+    map['expires_at'] = expiresAt;
+    return map;
+  }
+
+  factory ApplicationKeyRenewal.fromMap(Map<String, Object?> map) {
+    return ApplicationKeyRenewal(
+      subjectUserId: map['subject_user_id'] as String,
+      subjectDomain: map['subject_domain'] as String,
+      applicationId: map['application_id'] as String,
+      instanceId: map['instance_id'] as String,
+      keyId: map['key_id'] as String,
+      challengeId: map['challenge_id'] as String,
+      challenge: map['challenge'] as Uint8List,
+      requestedAt: map['requested_at'] as String,
+      expiresAt: map['expires_at'] as String,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! ApplicationKeyRenewal) return false;
+    return subjectUserId == other.subjectUserId &&
+        subjectDomain == other.subjectDomain &&
+        applicationId == other.applicationId &&
+        instanceId == other.instanceId &&
+        keyId == other.keyId &&
+        challengeId == other.challengeId &&
+        _bytesEqual(challenge, other.challenge) &&
+        requestedAt == other.requestedAt &&
+        expiresAt == other.expiresAt;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+    subjectUserId,
+    subjectDomain,
+    applicationId,
+    instanceId,
+    keyId,
+    challengeId,
+    Object.hashAll(challenge),
+    requestedAt,
+    expiresAt,
+  ]);
+
+  static bool _bytesEqual(Uint8List? a, Uint8List? b) {
+    if (a == null || b == null) return a == b;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['subject_user_id'] = subjectUserId;
+    map['subject_domain'] = subjectDomain;
+    map['application_id'] = applicationId;
+    map['instance_id'] = instanceId;
+    map['key_id'] = keyId;
+    map['challenge_id'] = challengeId;
+    map['challenge'] = challenge;
+    map['requested_at'] = requestedAt;
+    map['expires_at'] = expiresAt;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory ApplicationKeyRenewal.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return ApplicationKeyRenewal(
+      subjectUserId: map['subject_user_id'] as String,
+      subjectDomain: map['subject_domain'] as String,
+      applicationId: map['application_id'] as String,
+      instanceId: map['instance_id'] as String,
+      keyId: map['key_id'] as String,
+      challengeId: map['challenge_id'] as String,
+      challenge: map['challenge'] as Uint8List,
+      requestedAt: map['requested_at'] as String,
+      expiresAt: map['expires_at'] as String,
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory ApplicationKeyRenewal.fromCbor(List<int> bytes) =>
+      ApplicationKeyRenewal.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class SignedApplicationKeyRenewal {
+  final Uint8List renewal;
+  final List<ApplicationKeySignature> signatures;
+  final Uint8List? possessionProof;
+
+  const SignedApplicationKeyRenewal({
+    required this.renewal,
+    required this.signatures,
+    this.possessionProof,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['renewal'] = renewal;
+    map['signatures'] = signatures;
+    if (possessionProof != null) map['possession_proof'] = possessionProof;
+    return map;
+  }
+
+  factory SignedApplicationKeyRenewal.fromMap(Map<String, Object?> map) {
+    return SignedApplicationKeyRenewal(
+      renewal: map['renewal'] as Uint8List,
+      signatures: map['signatures'] as List<ApplicationKeySignature>,
+      possessionProof: map['possession_proof'] as Uint8List?,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! SignedApplicationKeyRenewal) return false;
+    return _bytesEqual(renewal, other.renewal) &&
+        signatures == other.signatures &&
+        _bytesEqual(possessionProof, other.possessionProof);
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+    Object.hashAll(renewal),
+    signatures,
+    possessionProof == null ? null : Object.hashAll(possessionProof!),
+  ]);
+
+  static bool _bytesEqual(Uint8List? a, Uint8List? b) {
+    if (a == null || b == null) return a == b;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['renewal'] = renewal;
+    map['signatures'] = signatures.map((csilE) => csilE.toCborValue()).toList();
+    if (possessionProof != null) map['possession_proof'] = possessionProof!;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory SignedApplicationKeyRenewal.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return SignedApplicationKeyRenewal(
+      renewal: map['renewal'] as Uint8List,
+      signatures: (map['signatures'] as List)
+          .map((csilE) => ApplicationKeySignature.fromCborValue(csilE))
+          .cast<ApplicationKeySignature>()
+          .toList(),
+      possessionProof: map['possession_proof'] == null
+          ? null
+          : map['possession_proof'] as Uint8List,
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory SignedApplicationKeyRenewal.fromCbor(List<int> bytes) =>
+      SignedApplicationKeyRenewal.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class ApplicationKeyRevocation {
+  final String subjectUserId;
+  final String subjectDomain;
+  final String applicationId;
+  final String instanceId;
+  final String targetKeyId;
+  final String targetFingerprint;
+  final String revokedAt;
+  final List<ApplicationKeySignature> signatures;
+
+  const ApplicationKeyRevocation({
+    required this.subjectUserId,
+    required this.subjectDomain,
+    required this.applicationId,
+    required this.instanceId,
+    required this.targetKeyId,
+    required this.targetFingerprint,
+    required this.revokedAt,
+    required this.signatures,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['subject_user_id'] = subjectUserId;
+    map['subject_domain'] = subjectDomain;
+    map['application_id'] = applicationId;
+    map['instance_id'] = instanceId;
+    map['target_key_id'] = targetKeyId;
+    map['target_fingerprint'] = targetFingerprint;
+    map['revoked_at'] = revokedAt;
+    map['signatures'] = signatures;
+    return map;
+  }
+
+  factory ApplicationKeyRevocation.fromMap(Map<String, Object?> map) {
+    return ApplicationKeyRevocation(
+      subjectUserId: map['subject_user_id'] as String,
+      subjectDomain: map['subject_domain'] as String,
+      applicationId: map['application_id'] as String,
+      instanceId: map['instance_id'] as String,
+      targetKeyId: map['target_key_id'] as String,
+      targetFingerprint: map['target_fingerprint'] as String,
+      revokedAt: map['revoked_at'] as String,
+      signatures: map['signatures'] as List<ApplicationKeySignature>,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! ApplicationKeyRevocation) return false;
+    return subjectUserId == other.subjectUserId &&
+        subjectDomain == other.subjectDomain &&
+        applicationId == other.applicationId &&
+        instanceId == other.instanceId &&
+        targetKeyId == other.targetKeyId &&
+        targetFingerprint == other.targetFingerprint &&
+        revokedAt == other.revokedAt &&
+        signatures == other.signatures;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+    subjectUserId,
+    subjectDomain,
+    applicationId,
+    instanceId,
+    targetKeyId,
+    targetFingerprint,
+    revokedAt,
+    signatures,
+  ]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['subject_user_id'] = subjectUserId;
+    map['subject_domain'] = subjectDomain;
+    map['application_id'] = applicationId;
+    map['instance_id'] = instanceId;
+    map['target_key_id'] = targetKeyId;
+    map['target_fingerprint'] = targetFingerprint;
+    map['revoked_at'] = revokedAt;
+    map['signatures'] = signatures.map((csilE) => csilE.toCborValue()).toList();
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory ApplicationKeyRevocation.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return ApplicationKeyRevocation(
+      subjectUserId: map['subject_user_id'] as String,
+      subjectDomain: map['subject_domain'] as String,
+      applicationId: map['application_id'] as String,
+      instanceId: map['instance_id'] as String,
+      targetKeyId: map['target_key_id'] as String,
+      targetFingerprint: map['target_fingerprint'] as String,
+      revokedAt: map['revoked_at'] as String,
+      signatures: (map['signatures'] as List)
+          .map((csilE) => ApplicationKeySignature.fromCborValue(csilE))
+          .cast<ApplicationKeySignature>()
+          .toList(),
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory ApplicationKeyRevocation.fromCbor(List<int> bytes) =>
+      ApplicationKeyRevocation.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class StartApplicationKeyChallengeRequest {
+  final String subjectUserId;
+  final String applicationId;
+  final String instanceId;
+  final String purpose;
+  final String keyUsage;
+  final String algorithm;
+  final Uint8List publicKey;
+
+  const StartApplicationKeyChallengeRequest({
+    required this.subjectUserId,
+    required this.applicationId,
+    required this.instanceId,
+    required this.purpose,
+    required this.keyUsage,
+    required this.algorithm,
+    required this.publicKey,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['subject_user_id'] = subjectUserId;
+    map['application_id'] = applicationId;
+    map['instance_id'] = instanceId;
+    map['purpose'] = purpose;
+    map['key_usage'] = keyUsage;
+    map['algorithm'] = algorithm;
+    map['public_key'] = publicKey;
+    return map;
+  }
+
+  factory StartApplicationKeyChallengeRequest.fromMap(
+    Map<String, Object?> map,
+  ) {
+    return StartApplicationKeyChallengeRequest(
+      subjectUserId: map['subject_user_id'] as String,
+      applicationId: map['application_id'] as String,
+      instanceId: map['instance_id'] as String,
+      purpose: map['purpose'] as String,
+      keyUsage: map['key_usage'] as String,
+      algorithm: map['algorithm'] as String,
+      publicKey: map['public_key'] as Uint8List,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! StartApplicationKeyChallengeRequest) return false;
+    return subjectUserId == other.subjectUserId &&
+        applicationId == other.applicationId &&
+        instanceId == other.instanceId &&
+        purpose == other.purpose &&
+        keyUsage == other.keyUsage &&
+        algorithm == other.algorithm &&
+        _bytesEqual(publicKey, other.publicKey);
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+    subjectUserId,
+    applicationId,
+    instanceId,
+    purpose,
+    keyUsage,
+    algorithm,
+    Object.hashAll(publicKey),
+  ]);
+
+  static bool _bytesEqual(Uint8List? a, Uint8List? b) {
+    if (a == null || b == null) return a == b;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['subject_user_id'] = subjectUserId;
+    map['application_id'] = applicationId;
+    map['instance_id'] = instanceId;
+    map['purpose'] = purpose;
+    map['key_usage'] = keyUsage;
+    map['algorithm'] = algorithm;
+    map['public_key'] = publicKey;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory StartApplicationKeyChallengeRequest.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return StartApplicationKeyChallengeRequest(
+      subjectUserId: map['subject_user_id'] as String,
+      applicationId: map['application_id'] as String,
+      instanceId: map['instance_id'] as String,
+      purpose: map['purpose'] as String,
+      keyUsage: map['key_usage'] as String,
+      algorithm: map['algorithm'] as String,
+      publicKey: map['public_key'] as Uint8List,
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory StartApplicationKeyChallengeRequest.fromCbor(List<int> bytes) =>
+      StartApplicationKeyChallengeRequest.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class StartApplicationKeyChallengeResponse {
+  final String challengeId;
+  final Uint8List? challenge;
+  final Uint8List? sealedChallenge;
+  final String expiresAt;
+
+  const StartApplicationKeyChallengeResponse({
+    required this.challengeId,
+    this.challenge,
+    this.sealedChallenge,
+    required this.expiresAt,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['challenge_id'] = challengeId;
+    if (challenge != null) map['challenge'] = challenge;
+    if (sealedChallenge != null) map['sealed_challenge'] = sealedChallenge;
+    map['expires_at'] = expiresAt;
+    return map;
+  }
+
+  factory StartApplicationKeyChallengeResponse.fromMap(
+    Map<String, Object?> map,
+  ) {
+    return StartApplicationKeyChallengeResponse(
+      challengeId: map['challenge_id'] as String,
+      challenge: map['challenge'] as Uint8List?,
+      sealedChallenge: map['sealed_challenge'] as Uint8List?,
+      expiresAt: map['expires_at'] as String,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! StartApplicationKeyChallengeResponse) return false;
+    return challengeId == other.challengeId &&
+        _bytesEqual(challenge, other.challenge) &&
+        _bytesEqual(sealedChallenge, other.sealedChallenge) &&
+        expiresAt == other.expiresAt;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+    challengeId,
+    challenge == null ? null : Object.hashAll(challenge!),
+    sealedChallenge == null ? null : Object.hashAll(sealedChallenge!),
+    expiresAt,
+  ]);
+
+  static bool _bytesEqual(Uint8List? a, Uint8List? b) {
+    if (a == null || b == null) return a == b;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['challenge_id'] = challengeId;
+    if (challenge != null) map['challenge'] = challenge!;
+    if (sealedChallenge != null) map['sealed_challenge'] = sealedChallenge!;
+    map['expires_at'] = expiresAt;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory StartApplicationKeyChallengeResponse.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return StartApplicationKeyChallengeResponse(
+      challengeId: map['challenge_id'] as String,
+      challenge: map['challenge'] == null
+          ? null
+          : map['challenge'] as Uint8List,
+      sealedChallenge: map['sealed_challenge'] == null
+          ? null
+          : map['sealed_challenge'] as Uint8List,
+      expiresAt: map['expires_at'] as String,
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory StartApplicationKeyChallengeResponse.fromCbor(List<int> bytes) =>
+      StartApplicationKeyChallengeResponse.fromCborValue(
+        CsilCbor.decode(bytes),
+      );
+}
+
+final class AddApplicationKeyRequest {
+  final SignedApplicationKeyAddition request;
+
+  const AddApplicationKeyRequest({required this.request});
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['request'] = request;
+    return map;
+  }
+
+  factory AddApplicationKeyRequest.fromMap(Map<String, Object?> map) {
+    return AddApplicationKeyRequest(
+      request: map['request'] as SignedApplicationKeyAddition,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! AddApplicationKeyRequest) return false;
+    return request == other.request;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([request]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['request'] = request.toCborValue();
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory AddApplicationKeyRequest.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return AddApplicationKeyRequest(
+      request: SignedApplicationKeyAddition.fromCborValue(map['request']),
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory AddApplicationKeyRequest.fromCbor(List<int> bytes) =>
+      AddApplicationKeyRequest.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class AddApplicationKeyResponse {
+  final SignedApplicationKeyAttestation attestation;
+
+  const AddApplicationKeyResponse({required this.attestation});
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['attestation'] = attestation;
+    return map;
+  }
+
+  factory AddApplicationKeyResponse.fromMap(Map<String, Object?> map) {
+    return AddApplicationKeyResponse(
+      attestation: map['attestation'] as SignedApplicationKeyAttestation,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! AddApplicationKeyResponse) return false;
+    return attestation == other.attestation;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([attestation]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['attestation'] = attestation.toCborValue();
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory AddApplicationKeyResponse.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return AddApplicationKeyResponse(
+      attestation: SignedApplicationKeyAttestation.fromCborValue(
+        map['attestation'],
+      ),
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory AddApplicationKeyResponse.fromCbor(List<int> bytes) =>
+      AddApplicationKeyResponse.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class RenewApplicationKeyAttestationRequest {
+  final SignedApplicationKeyRenewal request;
+
+  const RenewApplicationKeyAttestationRequest({required this.request});
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['request'] = request;
+    return map;
+  }
+
+  factory RenewApplicationKeyAttestationRequest.fromMap(
+    Map<String, Object?> map,
+  ) {
+    return RenewApplicationKeyAttestationRequest(
+      request: map['request'] as SignedApplicationKeyRenewal,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! RenewApplicationKeyAttestationRequest) return false;
+    return request == other.request;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([request]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['request'] = request.toCborValue();
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory RenewApplicationKeyAttestationRequest.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return RenewApplicationKeyAttestationRequest(
+      request: SignedApplicationKeyRenewal.fromCborValue(map['request']),
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory RenewApplicationKeyAttestationRequest.fromCbor(List<int> bytes) =>
+      RenewApplicationKeyAttestationRequest.fromCborValue(
+        CsilCbor.decode(bytes),
+      );
+}
+
+final class RenewApplicationKeyAttestationResponse {
+  final SignedApplicationKeyAttestation attestation;
+  final bool signed;
+
+  const RenewApplicationKeyAttestationResponse({
+    required this.attestation,
+    required this.signed,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['attestation'] = attestation;
+    map['signed'] = signed;
+    return map;
+  }
+
+  factory RenewApplicationKeyAttestationResponse.fromMap(
+    Map<String, Object?> map,
+  ) {
+    return RenewApplicationKeyAttestationResponse(
+      attestation: map['attestation'] as SignedApplicationKeyAttestation,
+      signed: map['signed'] as bool,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! RenewApplicationKeyAttestationResponse) return false;
+    return attestation == other.attestation && signed == other.signed;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([attestation, signed]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['attestation'] = attestation.toCborValue();
+    map['signed'] = signed;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory RenewApplicationKeyAttestationResponse.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return RenewApplicationKeyAttestationResponse(
+      attestation: SignedApplicationKeyAttestation.fromCborValue(
+        map['attestation'],
+      ),
+      signed: map['signed'] as bool,
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory RenewApplicationKeyAttestationResponse.fromCbor(List<int> bytes) =>
+      RenewApplicationKeyAttestationResponse.fromCborValue(
+        CsilCbor.decode(bytes),
+      );
+}
+
+final class RevokeApplicationKeyRequest {
+  final ApplicationKeyRevocation revocation;
+
+  const RevokeApplicationKeyRequest({required this.revocation});
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['revocation'] = revocation;
+    return map;
+  }
+
+  factory RevokeApplicationKeyRequest.fromMap(Map<String, Object?> map) {
+    return RevokeApplicationKeyRequest(
+      revocation: map['revocation'] as ApplicationKeyRevocation,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! RevokeApplicationKeyRequest) return false;
+    return revocation == other.revocation;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([revocation]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['revocation'] = revocation.toCborValue();
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory RevokeApplicationKeyRequest.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return RevokeApplicationKeyRequest(
+      revocation: ApplicationKeyRevocation.fromCborValue(map['revocation']),
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory RevokeApplicationKeyRequest.fromCbor(List<int> bytes) =>
+      RevokeApplicationKeyRequest.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class RevokeApplicationKeyResponse {
+  final String revokedAt;
+
+  const RevokeApplicationKeyResponse({required this.revokedAt});
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['revoked_at'] = revokedAt;
+    return map;
+  }
+
+  factory RevokeApplicationKeyResponse.fromMap(Map<String, Object?> map) {
+    return RevokeApplicationKeyResponse(revokedAt: map['revoked_at'] as String);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! RevokeApplicationKeyResponse) return false;
+    return revokedAt == other.revokedAt;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([revokedAt]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['revoked_at'] = revokedAt;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory RevokeApplicationKeyResponse.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return RevokeApplicationKeyResponse(revokedAt: map['revoked_at'] as String);
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory RevokeApplicationKeyResponse.fromCbor(List<int> bytes) =>
+      RevokeApplicationKeyResponse.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class EnrollApplicationInstanceRequest {
+  final String applicationId;
+  final String instanceId;
+  final List<SignedApplicationKeyAddition> keys;
+
+  const EnrollApplicationInstanceRequest({
+    required this.applicationId,
+    required this.instanceId,
+    required this.keys,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['application_id'] = applicationId;
+    map['instance_id'] = instanceId;
+    map['keys'] = keys;
+    return map;
+  }
+
+  factory EnrollApplicationInstanceRequest.fromMap(Map<String, Object?> map) {
+    return EnrollApplicationInstanceRequest(
+      applicationId: map['application_id'] as String,
+      instanceId: map['instance_id'] as String,
+      keys: map['keys'] as List<SignedApplicationKeyAddition>,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! EnrollApplicationInstanceRequest) return false;
+    return applicationId == other.applicationId &&
+        instanceId == other.instanceId &&
+        keys == other.keys;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([applicationId, instanceId, keys]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['application_id'] = applicationId;
+    map['instance_id'] = instanceId;
+    map['keys'] = keys.map((csilE) => csilE.toCborValue()).toList();
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory EnrollApplicationInstanceRequest.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return EnrollApplicationInstanceRequest(
+      applicationId: map['application_id'] as String,
+      instanceId: map['instance_id'] as String,
+      keys: (map['keys'] as List)
+          .map((csilE) => SignedApplicationKeyAddition.fromCborValue(csilE))
+          .cast<SignedApplicationKeyAddition>()
+          .toList(),
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory EnrollApplicationInstanceRequest.fromCbor(List<int> bytes) =>
+      EnrollApplicationInstanceRequest.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class EnrollApplicationInstanceResponse {
+  final String subjectUserId;
+  final String subjectDomain;
+  final String applicationId;
+  final String instanceId;
+  final List<SignedApplicationKeyAttestation> attestations;
+
+  const EnrollApplicationInstanceResponse({
+    required this.subjectUserId,
+    required this.subjectDomain,
+    required this.applicationId,
+    required this.instanceId,
+    required this.attestations,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['subject_user_id'] = subjectUserId;
+    map['subject_domain'] = subjectDomain;
+    map['application_id'] = applicationId;
+    map['instance_id'] = instanceId;
+    map['attestations'] = attestations;
+    return map;
+  }
+
+  factory EnrollApplicationInstanceResponse.fromMap(Map<String, Object?> map) {
+    return EnrollApplicationInstanceResponse(
+      subjectUserId: map['subject_user_id'] as String,
+      subjectDomain: map['subject_domain'] as String,
+      applicationId: map['application_id'] as String,
+      instanceId: map['instance_id'] as String,
+      attestations:
+          map['attestations'] as List<SignedApplicationKeyAttestation>,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! EnrollApplicationInstanceResponse) return false;
+    return subjectUserId == other.subjectUserId &&
+        subjectDomain == other.subjectDomain &&
+        applicationId == other.applicationId &&
+        instanceId == other.instanceId &&
+        attestations == other.attestations;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+    subjectUserId,
+    subjectDomain,
+    applicationId,
+    instanceId,
+    attestations,
+  ]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['subject_user_id'] = subjectUserId;
+    map['subject_domain'] = subjectDomain;
+    map['application_id'] = applicationId;
+    map['instance_id'] = instanceId;
+    map['attestations'] = attestations
+        .map((csilE) => csilE.toCborValue())
+        .toList();
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory EnrollApplicationInstanceResponse.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return EnrollApplicationInstanceResponse(
+      subjectUserId: map['subject_user_id'] as String,
+      subjectDomain: map['subject_domain'] as String,
+      applicationId: map['application_id'] as String,
+      instanceId: map['instance_id'] as String,
+      attestations: (map['attestations'] as List)
+          .map((csilE) => SignedApplicationKeyAttestation.fromCborValue(csilE))
+          .cast<SignedApplicationKeyAttestation>()
+          .toList(),
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory EnrollApplicationInstanceResponse.fromCbor(List<int> bytes) =>
+      EnrollApplicationInstanceResponse.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class GetApplicationKeysRequest {
+  final String subjectUserId;
+  final String applicationId;
+  final String instanceId;
+
+  const GetApplicationKeysRequest({
+    required this.subjectUserId,
+    required this.applicationId,
+    required this.instanceId,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['subject_user_id'] = subjectUserId;
+    map['application_id'] = applicationId;
+    map['instance_id'] = instanceId;
+    return map;
+  }
+
+  factory GetApplicationKeysRequest.fromMap(Map<String, Object?> map) {
+    return GetApplicationKeysRequest(
+      subjectUserId: map['subject_user_id'] as String,
+      applicationId: map['application_id'] as String,
+      instanceId: map['instance_id'] as String,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! GetApplicationKeysRequest) return false;
+    return subjectUserId == other.subjectUserId &&
+        applicationId == other.applicationId &&
+        instanceId == other.instanceId;
+  }
+
+  @override
+  int get hashCode =>
+      Object.hashAll([subjectUserId, applicationId, instanceId]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['subject_user_id'] = subjectUserId;
+    map['application_id'] = applicationId;
+    map['instance_id'] = instanceId;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory GetApplicationKeysRequest.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return GetApplicationKeysRequest(
+      subjectUserId: map['subject_user_id'] as String,
+      applicationId: map['application_id'] as String,
+      instanceId: map['instance_id'] as String,
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory GetApplicationKeysRequest.fromCbor(List<int> bytes) =>
+      GetApplicationKeysRequest.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class GetApplicationKeysResponse {
+  final String subjectUserId;
+  final String subjectDomain;
+  final String applicationId;
+  final String instanceId;
+  final List<SignedApplicationKeyAttestation> keys;
+  final List<ApplicationKeyRevocation> revocations;
+
+  const GetApplicationKeysResponse({
+    required this.subjectUserId,
+    required this.subjectDomain,
+    required this.applicationId,
+    required this.instanceId,
+    required this.keys,
+    required this.revocations,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['subject_user_id'] = subjectUserId;
+    map['subject_domain'] = subjectDomain;
+    map['application_id'] = applicationId;
+    map['instance_id'] = instanceId;
+    map['keys'] = keys;
+    map['revocations'] = revocations;
+    return map;
+  }
+
+  factory GetApplicationKeysResponse.fromMap(Map<String, Object?> map) {
+    return GetApplicationKeysResponse(
+      subjectUserId: map['subject_user_id'] as String,
+      subjectDomain: map['subject_domain'] as String,
+      applicationId: map['application_id'] as String,
+      instanceId: map['instance_id'] as String,
+      keys: map['keys'] as List<SignedApplicationKeyAttestation>,
+      revocations: map['revocations'] as List<ApplicationKeyRevocation>,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! GetApplicationKeysResponse) return false;
+    return subjectUserId == other.subjectUserId &&
+        subjectDomain == other.subjectDomain &&
+        applicationId == other.applicationId &&
+        instanceId == other.instanceId &&
+        keys == other.keys &&
+        revocations == other.revocations;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+    subjectUserId,
+    subjectDomain,
+    applicationId,
+    instanceId,
+    keys,
+    revocations,
+  ]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['subject_user_id'] = subjectUserId;
+    map['subject_domain'] = subjectDomain;
+    map['application_id'] = applicationId;
+    map['instance_id'] = instanceId;
+    map['keys'] = keys.map((csilE) => csilE.toCborValue()).toList();
+    map['revocations'] = revocations
+        .map((csilE) => csilE.toCborValue())
+        .toList();
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory GetApplicationKeysResponse.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return GetApplicationKeysResponse(
+      subjectUserId: map['subject_user_id'] as String,
+      subjectDomain: map['subject_domain'] as String,
+      applicationId: map['application_id'] as String,
+      instanceId: map['instance_id'] as String,
+      keys: (map['keys'] as List)
+          .map((csilE) => SignedApplicationKeyAttestation.fromCborValue(csilE))
+          .cast<SignedApplicationKeyAttestation>()
+          .toList(),
+      revocations: (map['revocations'] as List)
+          .map((csilE) => ApplicationKeyRevocation.fromCborValue(csilE))
+          .cast<ApplicationKeyRevocation>()
+          .toList(),
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory GetApplicationKeysResponse.fromCbor(List<int> bytes) =>
+      GetApplicationKeysResponse.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class RpResolveDomainKeysRequest {
+  final String domain;
+  final int? maxCacheAgeSeconds;
+
+  const RpResolveDomainKeysRequest({
+    required this.domain,
+    this.maxCacheAgeSeconds,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['domain'] = domain;
+    if (maxCacheAgeSeconds != null)
+      map['max_cache_age_seconds'] = maxCacheAgeSeconds;
+    return map;
+  }
+
+  factory RpResolveDomainKeysRequest.fromMap(Map<String, Object?> map) {
+    return RpResolveDomainKeysRequest(
+      domain: map['domain'] as String,
+      maxCacheAgeSeconds: map['max_cache_age_seconds'] as int?,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! RpResolveDomainKeysRequest) return false;
+    return domain == other.domain &&
+        maxCacheAgeSeconds == other.maxCacheAgeSeconds;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([domain, maxCacheAgeSeconds]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['domain'] = domain;
+    if (maxCacheAgeSeconds != null)
+      map['max_cache_age_seconds'] = maxCacheAgeSeconds!;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory RpResolveDomainKeysRequest.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return RpResolveDomainKeysRequest(
+      domain: map['domain'] as String,
+      maxCacheAgeSeconds: map['max_cache_age_seconds'] == null
+          ? null
+          : map['max_cache_age_seconds'] as int,
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory RpResolveDomainKeysRequest.fromCbor(List<int> bytes) =>
+      RpResolveDomainKeysRequest.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class RpResolveDomainKeysResponse {
+  final String domain;
+  final List<DomainPublicKey> keys;
+  final List<RevocationCertificate> revocations;
+  final String fetchedAt;
+  final String revocationsCheckedAt;
+  final String cacheStatus;
+
+  const RpResolveDomainKeysResponse({
+    required this.domain,
+    required this.keys,
+    required this.revocations,
+    required this.fetchedAt,
+    required this.revocationsCheckedAt,
+    required this.cacheStatus,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['domain'] = domain;
+    map['keys'] = keys;
+    map['revocations'] = revocations;
+    map['fetched_at'] = fetchedAt;
+    map['revocations_checked_at'] = revocationsCheckedAt;
+    map['cache_status'] = cacheStatus;
+    return map;
+  }
+
+  factory RpResolveDomainKeysResponse.fromMap(Map<String, Object?> map) {
+    return RpResolveDomainKeysResponse(
+      domain: map['domain'] as String,
+      keys: map['keys'] as List<DomainPublicKey>,
+      revocations: map['revocations'] as List<RevocationCertificate>,
+      fetchedAt: map['fetched_at'] as String,
+      revocationsCheckedAt: map['revocations_checked_at'] as String,
+      cacheStatus: map['cache_status'] as String,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! RpResolveDomainKeysResponse) return false;
+    return domain == other.domain &&
+        keys == other.keys &&
+        revocations == other.revocations &&
+        fetchedAt == other.fetchedAt &&
+        revocationsCheckedAt == other.revocationsCheckedAt &&
+        cacheStatus == other.cacheStatus;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+    domain,
+    keys,
+    revocations,
+    fetchedAt,
+    revocationsCheckedAt,
+    cacheStatus,
+  ]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['domain'] = domain;
+    map['keys'] = keys.map((csilE) => csilE.toCborValue()).toList();
+    map['revocations'] = revocations
+        .map((csilE) => csilE.toCborValue())
+        .toList();
+    map['fetched_at'] = fetchedAt;
+    map['revocations_checked_at'] = revocationsCheckedAt;
+    map['cache_status'] = cacheStatus;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory RpResolveDomainKeysResponse.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return RpResolveDomainKeysResponse(
+      domain: map['domain'] as String,
+      keys: (map['keys'] as List)
+          .map((csilE) => DomainPublicKey.fromCborValue(csilE))
+          .cast<DomainPublicKey>()
+          .toList(),
+      revocations: (map['revocations'] as List)
+          .map((csilE) => RevocationCertificate.fromCborValue(csilE))
+          .cast<RevocationCertificate>()
+          .toList(),
+      fetchedAt: map['fetched_at'] as String,
+      revocationsCheckedAt: map['revocations_checked_at'] as String,
+      cacheStatus: map['cache_status'] as String,
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory RpResolveDomainKeysResponse.fromCbor(List<int> bytes) =>
+      RpResolveDomainKeysResponse.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class RpResolveApplicationKeysRequest {
+  final String subjectUserId;
+  final String subjectDomain;
+  final String applicationId;
+  final String instanceId;
+  final int? maxCacheAgeSeconds;
+
+  const RpResolveApplicationKeysRequest({
+    required this.subjectUserId,
+    required this.subjectDomain,
+    required this.applicationId,
+    required this.instanceId,
+    this.maxCacheAgeSeconds,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['subject_user_id'] = subjectUserId;
+    map['subject_domain'] = subjectDomain;
+    map['application_id'] = applicationId;
+    map['instance_id'] = instanceId;
+    if (maxCacheAgeSeconds != null)
+      map['max_cache_age_seconds'] = maxCacheAgeSeconds;
+    return map;
+  }
+
+  factory RpResolveApplicationKeysRequest.fromMap(Map<String, Object?> map) {
+    return RpResolveApplicationKeysRequest(
+      subjectUserId: map['subject_user_id'] as String,
+      subjectDomain: map['subject_domain'] as String,
+      applicationId: map['application_id'] as String,
+      instanceId: map['instance_id'] as String,
+      maxCacheAgeSeconds: map['max_cache_age_seconds'] as int?,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! RpResolveApplicationKeysRequest) return false;
+    return subjectUserId == other.subjectUserId &&
+        subjectDomain == other.subjectDomain &&
+        applicationId == other.applicationId &&
+        instanceId == other.instanceId &&
+        maxCacheAgeSeconds == other.maxCacheAgeSeconds;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+    subjectUserId,
+    subjectDomain,
+    applicationId,
+    instanceId,
+    maxCacheAgeSeconds,
+  ]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['subject_user_id'] = subjectUserId;
+    map['subject_domain'] = subjectDomain;
+    map['application_id'] = applicationId;
+    map['instance_id'] = instanceId;
+    if (maxCacheAgeSeconds != null)
+      map['max_cache_age_seconds'] = maxCacheAgeSeconds!;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory RpResolveApplicationKeysRequest.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return RpResolveApplicationKeysRequest(
+      subjectUserId: map['subject_user_id'] as String,
+      subjectDomain: map['subject_domain'] as String,
+      applicationId: map['application_id'] as String,
+      instanceId: map['instance_id'] as String,
+      maxCacheAgeSeconds: map['max_cache_age_seconds'] == null
+          ? null
+          : map['max_cache_age_seconds'] as int,
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory RpResolveApplicationKeysRequest.fromCbor(List<int> bytes) =>
+      RpResolveApplicationKeysRequest.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class RpResolveApplicationKeysResponse {
+  final String subjectUserId;
+  final String subjectDomain;
+  final String applicationId;
+  final String instanceId;
+  final List<SignedApplicationKeyAttestation> applicationKeys;
+  final List<ApplicationKeyRevocation> applicationKeyRevocations;
+  final List<DomainPublicKey> homeDomainKeys;
+  final List<RevocationCertificate> homeDomainKeyRevocations;
+  final String fetchedAt;
+  final String revocationsCheckedAt;
+  final String cacheStatus;
+
+  const RpResolveApplicationKeysResponse({
+    required this.subjectUserId,
+    required this.subjectDomain,
+    required this.applicationId,
+    required this.instanceId,
+    required this.applicationKeys,
+    required this.applicationKeyRevocations,
+    required this.homeDomainKeys,
+    required this.homeDomainKeyRevocations,
+    required this.fetchedAt,
+    required this.revocationsCheckedAt,
+    required this.cacheStatus,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['subject_user_id'] = subjectUserId;
+    map['subject_domain'] = subjectDomain;
+    map['application_id'] = applicationId;
+    map['instance_id'] = instanceId;
+    map['application_keys'] = applicationKeys;
+    map['application_key_revocations'] = applicationKeyRevocations;
+    map['home_domain_keys'] = homeDomainKeys;
+    map['home_domain_key_revocations'] = homeDomainKeyRevocations;
+    map['fetched_at'] = fetchedAt;
+    map['revocations_checked_at'] = revocationsCheckedAt;
+    map['cache_status'] = cacheStatus;
+    return map;
+  }
+
+  factory RpResolveApplicationKeysResponse.fromMap(Map<String, Object?> map) {
+    return RpResolveApplicationKeysResponse(
+      subjectUserId: map['subject_user_id'] as String,
+      subjectDomain: map['subject_domain'] as String,
+      applicationId: map['application_id'] as String,
+      instanceId: map['instance_id'] as String,
+      applicationKeys:
+          map['application_keys'] as List<SignedApplicationKeyAttestation>,
+      applicationKeyRevocations:
+          map['application_key_revocations'] as List<ApplicationKeyRevocation>,
+      homeDomainKeys: map['home_domain_keys'] as List<DomainPublicKey>,
+      homeDomainKeyRevocations:
+          map['home_domain_key_revocations'] as List<RevocationCertificate>,
+      fetchedAt: map['fetched_at'] as String,
+      revocationsCheckedAt: map['revocations_checked_at'] as String,
+      cacheStatus: map['cache_status'] as String,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! RpResolveApplicationKeysResponse) return false;
+    return subjectUserId == other.subjectUserId &&
+        subjectDomain == other.subjectDomain &&
+        applicationId == other.applicationId &&
+        instanceId == other.instanceId &&
+        applicationKeys == other.applicationKeys &&
+        applicationKeyRevocations == other.applicationKeyRevocations &&
+        homeDomainKeys == other.homeDomainKeys &&
+        homeDomainKeyRevocations == other.homeDomainKeyRevocations &&
+        fetchedAt == other.fetchedAt &&
+        revocationsCheckedAt == other.revocationsCheckedAt &&
+        cacheStatus == other.cacheStatus;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+    subjectUserId,
+    subjectDomain,
+    applicationId,
+    instanceId,
+    applicationKeys,
+    applicationKeyRevocations,
+    homeDomainKeys,
+    homeDomainKeyRevocations,
+    fetchedAt,
+    revocationsCheckedAt,
+    cacheStatus,
+  ]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['subject_user_id'] = subjectUserId;
+    map['subject_domain'] = subjectDomain;
+    map['application_id'] = applicationId;
+    map['instance_id'] = instanceId;
+    map['application_keys'] = applicationKeys
+        .map((csilE) => csilE.toCborValue())
+        .toList();
+    map['application_key_revocations'] = applicationKeyRevocations
+        .map((csilE) => csilE.toCborValue())
+        .toList();
+    map['home_domain_keys'] = homeDomainKeys
+        .map((csilE) => csilE.toCborValue())
+        .toList();
+    map['home_domain_key_revocations'] = homeDomainKeyRevocations
+        .map((csilE) => csilE.toCborValue())
+        .toList();
+    map['fetched_at'] = fetchedAt;
+    map['revocations_checked_at'] = revocationsCheckedAt;
+    map['cache_status'] = cacheStatus;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory RpResolveApplicationKeysResponse.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return RpResolveApplicationKeysResponse(
+      subjectUserId: map['subject_user_id'] as String,
+      subjectDomain: map['subject_domain'] as String,
+      applicationId: map['application_id'] as String,
+      instanceId: map['instance_id'] as String,
+      applicationKeys: (map['application_keys'] as List)
+          .map((csilE) => SignedApplicationKeyAttestation.fromCborValue(csilE))
+          .cast<SignedApplicationKeyAttestation>()
+          .toList(),
+      applicationKeyRevocations: (map['application_key_revocations'] as List)
+          .map((csilE) => ApplicationKeyRevocation.fromCborValue(csilE))
+          .cast<ApplicationKeyRevocation>()
+          .toList(),
+      homeDomainKeys: (map['home_domain_keys'] as List)
+          .map((csilE) => DomainPublicKey.fromCborValue(csilE))
+          .cast<DomainPublicKey>()
+          .toList(),
+      homeDomainKeyRevocations: (map['home_domain_key_revocations'] as List)
+          .map((csilE) => RevocationCertificate.fromCborValue(csilE))
+          .cast<RevocationCertificate>()
+          .toList(),
+      fetchedAt: map['fetched_at'] as String,
+      revocationsCheckedAt: map['revocations_checked_at'] as String,
+      cacheStatus: map['cache_status'] as String,
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory RpResolveApplicationKeysResponse.fromCbor(List<int> bytes) =>
+      RpResolveApplicationKeysResponse.fromCborValue(CsilCbor.decode(bytes));
+}

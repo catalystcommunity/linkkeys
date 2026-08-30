@@ -2058,6 +2058,287 @@ and encode_list_locales_response (v : list_locales_response) : Cbor.t =
          Some (Cbor.Text "available_locales", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.available_locales)));
        ])
 
+and encode_application_key_signature (v : application_key_signature) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "signature", (Cbor.Bytes v.signature));
+         Some (Cbor.Text "signed_by_key_id", (Cbor.Text v.signed_by_key_id));
+       ])
+
+and encode_application_key_attestation (v : application_key_attestation) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "key_id", (Cbor.Text v.key_id));
+         Some (Cbor.Text "algorithm", (Cbor.Text v.algorithm));
+         Some (Cbor.Text "key_usage", (Cbor.Text v.key_usage));
+         Some (Cbor.Text "public_key", (Cbor.Bytes v.public_key));
+         Some (Cbor.Text "attested_at", (Cbor.Text v.attested_at));
+         Some (Cbor.Text "fingerprint", (Cbor.Text v.fingerprint));
+         Some (Cbor.Text "instance_id", (Cbor.Text v.instance_id));
+         Some (Cbor.Text "application_id", (Cbor.Text v.application_id));
+         Some (Cbor.Text "key_created_at", (Cbor.Text v.key_created_at));
+         Some (Cbor.Text "key_expires_at", (Cbor.Text v.key_expires_at));
+         Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
+         Some (Cbor.Text "subject_user_id", (Cbor.Text v.subject_user_id));
+         Some (Cbor.Text "attestation_expires_at", (Cbor.Text v.attestation_expires_at));
+       ])
+
+and encode_signed_application_key_attestation (v : signed_application_key_attestation) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "signatures", (Cbor.Array (List.map (fun csil_e -> (encode_claim_signature csil_e)) v.signatures)));
+         Some (Cbor.Text "attestation", (Cbor.Bytes v.attestation));
+       ])
+
+and encode_application_key_addition (v : application_key_addition) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "key_id", (Cbor.Text v.key_id));
+         Some (Cbor.Text "algorithm", (Cbor.Text v.algorithm));
+         Some (Cbor.Text "challenge", (Cbor.Bytes v.challenge));
+         Some (Cbor.Text "key_usage", (Cbor.Text v.key_usage));
+         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "public_key", (Cbor.Bytes v.public_key));
+         Some (Cbor.Text "fingerprint", (Cbor.Text v.fingerprint));
+         Some (Cbor.Text "instance_id", (Cbor.Text v.instance_id));
+         Some (Cbor.Text "challenge_id", (Cbor.Text v.challenge_id));
+         Some (Cbor.Text "requested_at", (Cbor.Text v.requested_at));
+         Some (Cbor.Text "application_id", (Cbor.Text v.application_id));
+         Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
+         Some (Cbor.Text "subject_user_id", (Cbor.Text v.subject_user_id));
+         Some (Cbor.Text "requested_key_lifetime_seconds", (Cbor.int64 v.requested_key_lifetime_seconds));
+       ])
+
+and encode_signed_application_key_addition (v : signed_application_key_addition) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "addition", (Cbor.Bytes v.addition));
+         Some (Cbor.Text "signatures", (Cbor.Array (List.map (fun csil_e -> (encode_application_key_signature csil_e)) v.signatures)));
+         (match v.possession_proof with Some csil_x -> Some (Cbor.Text "possession_proof", (Cbor.Bytes csil_x)) | None -> None);
+       ])
+
+and encode_application_key_renewal (v : application_key_renewal) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "key_id", (Cbor.Text v.key_id));
+         Some (Cbor.Text "challenge", (Cbor.Bytes v.challenge));
+         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "instance_id", (Cbor.Text v.instance_id));
+         Some (Cbor.Text "challenge_id", (Cbor.Text v.challenge_id));
+         Some (Cbor.Text "requested_at", (Cbor.Text v.requested_at));
+         Some (Cbor.Text "application_id", (Cbor.Text v.application_id));
+         Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
+         Some (Cbor.Text "subject_user_id", (Cbor.Text v.subject_user_id));
+       ])
+
+and encode_signed_application_key_renewal (v : signed_application_key_renewal) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "renewal", (Cbor.Bytes v.renewal));
+         Some (Cbor.Text "signatures", (Cbor.Array (List.map (fun csil_e -> (encode_application_key_signature csil_e)) v.signatures)));
+         (match v.possession_proof with Some csil_x -> Some (Cbor.Text "possession_proof", (Cbor.Bytes csil_x)) | None -> None);
+       ])
+
+and encode_application_key_revocation (v : application_key_revocation) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "revoked_at", (Cbor.Text v.revoked_at));
+         Some (Cbor.Text "signatures", (Cbor.Array (List.map (fun csil_e -> (encode_application_key_signature csil_e)) v.signatures)));
+         Some (Cbor.Text "instance_id", (Cbor.Text v.instance_id));
+         Some (Cbor.Text "target_key_id", (Cbor.Text v.target_key_id));
+         Some (Cbor.Text "application_id", (Cbor.Text v.application_id));
+         Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
+         Some (Cbor.Text "subject_user_id", (Cbor.Text v.subject_user_id));
+         Some (Cbor.Text "target_fingerprint", (Cbor.Text v.target_fingerprint));
+       ])
+
+and encode_start_application_key_challenge_request (v : start_application_key_challenge_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "purpose", (Cbor.Text v.purpose));
+         Some (Cbor.Text "algorithm", (Cbor.Text v.algorithm));
+         Some (Cbor.Text "key_usage", (Cbor.Text v.key_usage));
+         Some (Cbor.Text "public_key", (Cbor.Bytes v.public_key));
+         Some (Cbor.Text "instance_id", (Cbor.Text v.instance_id));
+         Some (Cbor.Text "application_id", (Cbor.Text v.application_id));
+         Some (Cbor.Text "subject_user_id", (Cbor.Text v.subject_user_id));
+       ])
+
+and encode_start_application_key_challenge_response (v : start_application_key_challenge_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         (match v.challenge with Some csil_x -> Some (Cbor.Text "challenge", (Cbor.Bytes csil_x)) | None -> None);
+         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "challenge_id", (Cbor.Text v.challenge_id));
+         (match v.sealed_challenge with Some csil_x -> Some (Cbor.Text "sealed_challenge", (Cbor.Bytes csil_x)) | None -> None);
+       ])
+
+and encode_add_application_key_request (v : add_application_key_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "request", (encode_signed_application_key_addition v.request));
+       ])
+
+and encode_add_application_key_response (v : add_application_key_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "attestation", (encode_signed_application_key_attestation v.attestation));
+       ])
+
+and encode_renew_application_key_attestation_request (v : renew_application_key_attestation_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "request", (encode_signed_application_key_renewal v.request));
+       ])
+
+and encode_renew_application_key_attestation_response (v : renew_application_key_attestation_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "signed", (Cbor.Bool v.signed));
+         Some (Cbor.Text "attestation", (encode_signed_application_key_attestation v.attestation));
+       ])
+
+and encode_revoke_application_key_request (v : revoke_application_key_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "revocation", (encode_application_key_revocation v.revocation));
+       ])
+
+and encode_revoke_application_key_response (v : revoke_application_key_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "revoked_at", (Cbor.Text v.revoked_at));
+       ])
+
+and encode_enroll_application_instance_request (v : enroll_application_instance_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "keys", (Cbor.Array (List.map (fun csil_e -> (encode_signed_application_key_addition csil_e)) v.keys)));
+         Some (Cbor.Text "instance_id", (Cbor.Text v.instance_id));
+         Some (Cbor.Text "application_id", (Cbor.Text v.application_id));
+       ])
+
+and encode_enroll_application_instance_response (v : enroll_application_instance_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "instance_id", (Cbor.Text v.instance_id));
+         Some (Cbor.Text "attestations", (Cbor.Array (List.map (fun csil_e -> (encode_signed_application_key_attestation csil_e)) v.attestations)));
+         Some (Cbor.Text "application_id", (Cbor.Text v.application_id));
+         Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
+         Some (Cbor.Text "subject_user_id", (Cbor.Text v.subject_user_id));
+       ])
+
+and encode_get_application_keys_request (v : get_application_keys_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "instance_id", (Cbor.Text v.instance_id));
+         Some (Cbor.Text "application_id", (Cbor.Text v.application_id));
+         Some (Cbor.Text "subject_user_id", (Cbor.Text v.subject_user_id));
+       ])
+
+and encode_get_application_keys_response (v : get_application_keys_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "keys", (Cbor.Array (List.map (fun csil_e -> (encode_signed_application_key_attestation csil_e)) v.keys)));
+         Some (Cbor.Text "instance_id", (Cbor.Text v.instance_id));
+         Some (Cbor.Text "revocations", (Cbor.Array (List.map (fun csil_e -> (encode_application_key_revocation csil_e)) v.revocations)));
+         Some (Cbor.Text "application_id", (Cbor.Text v.application_id));
+         Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
+         Some (Cbor.Text "subject_user_id", (Cbor.Text v.subject_user_id));
+       ])
+
+and encode_rp_resolve_domain_keys_request (v : rp_resolve_domain_keys_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "domain", (Cbor.Text v.domain));
+         (match v.max_cache_age_seconds with Some csil_x -> Some (Cbor.Text "max_cache_age_seconds", (Cbor.int64 csil_x)) | None -> None);
+       ])
+
+and encode_rp_resolve_domain_keys_response (v : rp_resolve_domain_keys_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "keys", (Cbor.Array (List.map (fun csil_e -> (encode_domain_public_key csil_e)) v.keys)));
+         Some (Cbor.Text "domain", (Cbor.Text v.domain));
+         Some (Cbor.Text "fetched_at", (Cbor.Text v.fetched_at));
+         Some (Cbor.Text "revocations", (Cbor.Array (List.map (fun csil_e -> (encode_revocation_certificate csil_e)) v.revocations)));
+         Some (Cbor.Text "cache_status", (Cbor.Text v.cache_status));
+         Some (Cbor.Text "revocations_checked_at", (Cbor.Text v.revocations_checked_at));
+       ])
+
+and encode_rp_resolve_application_keys_request (v : rp_resolve_application_keys_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "instance_id", (Cbor.Text v.instance_id));
+         Some (Cbor.Text "application_id", (Cbor.Text v.application_id));
+         Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
+         Some (Cbor.Text "subject_user_id", (Cbor.Text v.subject_user_id));
+         (match v.max_cache_age_seconds with Some csil_x -> Some (Cbor.Text "max_cache_age_seconds", (Cbor.int64 csil_x)) | None -> None);
+       ])
+
+and encode_rp_resolve_application_keys_response (v : rp_resolve_application_keys_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "fetched_at", (Cbor.Text v.fetched_at));
+         Some (Cbor.Text "instance_id", (Cbor.Text v.instance_id));
+         Some (Cbor.Text "cache_status", (Cbor.Text v.cache_status));
+         Some (Cbor.Text "application_id", (Cbor.Text v.application_id));
+         Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
+         Some (Cbor.Text "subject_user_id", (Cbor.Text v.subject_user_id));
+         Some (Cbor.Text "application_keys", (Cbor.Array (List.map (fun csil_e -> (encode_signed_application_key_attestation csil_e)) v.application_keys)));
+         Some (Cbor.Text "home_domain_keys", (Cbor.Array (List.map (fun csil_e -> (encode_domain_public_key csil_e)) v.home_domain_keys)));
+         Some (Cbor.Text "revocations_checked_at", (Cbor.Text v.revocations_checked_at));
+         Some (Cbor.Text "application_key_revocations", (Cbor.Array (List.map (fun csil_e -> (encode_application_key_revocation csil_e)) v.application_key_revocations)));
+         Some (Cbor.Text "home_domain_key_revocations", (Cbor.Array (List.map (fun csil_e -> (encode_revocation_certificate csil_e)) v.home_domain_key_revocations)));
+       ])
+
 let rec decode_check_value (csil_c : Cbor.t) : check_value =
   match csil_c with
   | Cbor.Array [ csil_idx; csil_v ] -> (match Cbor.to_i64 csil_idx with 0L -> Text (Cbor.to_text csil_v) | 1L -> Int (Cbor.to_i64 csil_v) | 2L -> Float (Cbor.to_float csil_v) | csil_n -> failwith (Printf.sprintf "csilgen: unknown union variant %Ld" csil_n))
@@ -5171,6 +5452,407 @@ and decode_list_locales_response (csil_c : Cbor.t) : list_locales_response =
       }
   | _ -> failwith "csilgen: expected map for list_locales_response"
 
+and decode_application_key_signature (csil_c : Cbor.t) : application_key_signature =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        signature = (Cbor.to_bytes (csil_req "signature"));
+        signed_by_key_id = (Cbor.to_text (csil_req "signed_by_key_id"));
+      }
+  | _ -> failwith "csilgen: expected map for application_key_signature"
+
+and decode_application_key_attestation (csil_c : Cbor.t) : application_key_attestation =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        key_id = (Cbor.to_text (csil_req "key_id"));
+        algorithm = (Cbor.to_text (csil_req "algorithm"));
+        key_usage = (Cbor.to_text (csil_req "key_usage"));
+        public_key = (Cbor.to_bytes (csil_req "public_key"));
+        attested_at = (Cbor.to_text (csil_req "attested_at"));
+        fingerprint = (Cbor.to_text (csil_req "fingerprint"));
+        instance_id = (Cbor.to_text (csil_req "instance_id"));
+        application_id = (Cbor.to_text (csil_req "application_id"));
+        key_created_at = (Cbor.to_text (csil_req "key_created_at"));
+        key_expires_at = (Cbor.to_text (csil_req "key_expires_at"));
+        subject_domain = (Cbor.to_text (csil_req "subject_domain"));
+        subject_user_id = (Cbor.to_text (csil_req "subject_user_id"));
+        attestation_expires_at = (Cbor.to_text (csil_req "attestation_expires_at"));
+      }
+  | _ -> failwith "csilgen: expected map for application_key_attestation"
+
+and decode_signed_application_key_attestation (csil_c : Cbor.t) : signed_application_key_attestation =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        signatures = (match (csil_req "signatures") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_claim_signature csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        attestation = (Cbor.to_bytes (csil_req "attestation"));
+      }
+  | _ -> failwith "csilgen: expected map for signed_application_key_attestation"
+
+and decode_application_key_addition (csil_c : Cbor.t) : application_key_addition =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        key_id = (Cbor.to_text (csil_req "key_id"));
+        algorithm = (Cbor.to_text (csil_req "algorithm"));
+        challenge = (Cbor.to_bytes (csil_req "challenge"));
+        key_usage = (Cbor.to_text (csil_req "key_usage"));
+        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        public_key = (Cbor.to_bytes (csil_req "public_key"));
+        fingerprint = (Cbor.to_text (csil_req "fingerprint"));
+        instance_id = (Cbor.to_text (csil_req "instance_id"));
+        challenge_id = (Cbor.to_text (csil_req "challenge_id"));
+        requested_at = (Cbor.to_text (csil_req "requested_at"));
+        application_id = (Cbor.to_text (csil_req "application_id"));
+        subject_domain = (Cbor.to_text (csil_req "subject_domain"));
+        subject_user_id = (Cbor.to_text (csil_req "subject_user_id"));
+        requested_key_lifetime_seconds = (Cbor.to_i64 (csil_req "requested_key_lifetime_seconds"));
+      }
+  | _ -> failwith "csilgen: expected map for application_key_addition"
+
+and decode_signed_application_key_addition (csil_c : Cbor.t) : signed_application_key_addition =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        addition = (Cbor.to_bytes (csil_req "addition"));
+        signatures = (match (csil_req "signatures") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_application_key_signature csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        possession_proof = (match csil_field "possession_proof" with Some csil_v -> Some (Cbor.to_bytes csil_v) | None -> None);
+      }
+  | _ -> failwith "csilgen: expected map for signed_application_key_addition"
+
+and decode_application_key_renewal (csil_c : Cbor.t) : application_key_renewal =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        key_id = (Cbor.to_text (csil_req "key_id"));
+        challenge = (Cbor.to_bytes (csil_req "challenge"));
+        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        instance_id = (Cbor.to_text (csil_req "instance_id"));
+        challenge_id = (Cbor.to_text (csil_req "challenge_id"));
+        requested_at = (Cbor.to_text (csil_req "requested_at"));
+        application_id = (Cbor.to_text (csil_req "application_id"));
+        subject_domain = (Cbor.to_text (csil_req "subject_domain"));
+        subject_user_id = (Cbor.to_text (csil_req "subject_user_id"));
+      }
+  | _ -> failwith "csilgen: expected map for application_key_renewal"
+
+and decode_signed_application_key_renewal (csil_c : Cbor.t) : signed_application_key_renewal =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        renewal = (Cbor.to_bytes (csil_req "renewal"));
+        signatures = (match (csil_req "signatures") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_application_key_signature csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        possession_proof = (match csil_field "possession_proof" with Some csil_v -> Some (Cbor.to_bytes csil_v) | None -> None);
+      }
+  | _ -> failwith "csilgen: expected map for signed_application_key_renewal"
+
+and decode_application_key_revocation (csil_c : Cbor.t) : application_key_revocation =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        revoked_at = (Cbor.to_text (csil_req "revoked_at"));
+        signatures = (match (csil_req "signatures") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_application_key_signature csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        instance_id = (Cbor.to_text (csil_req "instance_id"));
+        target_key_id = (Cbor.to_text (csil_req "target_key_id"));
+        application_id = (Cbor.to_text (csil_req "application_id"));
+        subject_domain = (Cbor.to_text (csil_req "subject_domain"));
+        subject_user_id = (Cbor.to_text (csil_req "subject_user_id"));
+        target_fingerprint = (Cbor.to_text (csil_req "target_fingerprint"));
+      }
+  | _ -> failwith "csilgen: expected map for application_key_revocation"
+
+and decode_start_application_key_challenge_request (csil_c : Cbor.t) : start_application_key_challenge_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        purpose = (Cbor.to_text (csil_req "purpose"));
+        algorithm = (Cbor.to_text (csil_req "algorithm"));
+        key_usage = (Cbor.to_text (csil_req "key_usage"));
+        public_key = (Cbor.to_bytes (csil_req "public_key"));
+        instance_id = (Cbor.to_text (csil_req "instance_id"));
+        application_id = (Cbor.to_text (csil_req "application_id"));
+        subject_user_id = (Cbor.to_text (csil_req "subject_user_id"));
+      }
+  | _ -> failwith "csilgen: expected map for start_application_key_challenge_request"
+
+and decode_start_application_key_challenge_response (csil_c : Cbor.t) : start_application_key_challenge_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        challenge = (match csil_field "challenge" with Some csil_v -> Some (Cbor.to_bytes csil_v) | None -> None);
+        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        challenge_id = (Cbor.to_text (csil_req "challenge_id"));
+        sealed_challenge = (match csil_field "sealed_challenge" with Some csil_v -> Some (Cbor.to_bytes csil_v) | None -> None);
+      }
+  | _ -> failwith "csilgen: expected map for start_application_key_challenge_response"
+
+and decode_add_application_key_request (csil_c : Cbor.t) : add_application_key_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        request = (decode_signed_application_key_addition (csil_req "request"));
+      }
+  | _ -> failwith "csilgen: expected map for add_application_key_request"
+
+and decode_add_application_key_response (csil_c : Cbor.t) : add_application_key_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        attestation = (decode_signed_application_key_attestation (csil_req "attestation"));
+      }
+  | _ -> failwith "csilgen: expected map for add_application_key_response"
+
+and decode_renew_application_key_attestation_request (csil_c : Cbor.t) : renew_application_key_attestation_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        request = (decode_signed_application_key_renewal (csil_req "request"));
+      }
+  | _ -> failwith "csilgen: expected map for renew_application_key_attestation_request"
+
+and decode_renew_application_key_attestation_response (csil_c : Cbor.t) : renew_application_key_attestation_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        signed = (Cbor.to_bool (csil_req "signed"));
+        attestation = (decode_signed_application_key_attestation (csil_req "attestation"));
+      }
+  | _ -> failwith "csilgen: expected map for renew_application_key_attestation_response"
+
+and decode_revoke_application_key_request (csil_c : Cbor.t) : revoke_application_key_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        revocation = (decode_application_key_revocation (csil_req "revocation"));
+      }
+  | _ -> failwith "csilgen: expected map for revoke_application_key_request"
+
+and decode_revoke_application_key_response (csil_c : Cbor.t) : revoke_application_key_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        revoked_at = (Cbor.to_text (csil_req "revoked_at"));
+      }
+  | _ -> failwith "csilgen: expected map for revoke_application_key_response"
+
+and decode_enroll_application_instance_request (csil_c : Cbor.t) : enroll_application_instance_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        keys = (match (csil_req "keys") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_signed_application_key_addition csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        instance_id = (Cbor.to_text (csil_req "instance_id"));
+        application_id = (Cbor.to_text (csil_req "application_id"));
+      }
+  | _ -> failwith "csilgen: expected map for enroll_application_instance_request"
+
+and decode_enroll_application_instance_response (csil_c : Cbor.t) : enroll_application_instance_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        instance_id = (Cbor.to_text (csil_req "instance_id"));
+        attestations = (match (csil_req "attestations") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_signed_application_key_attestation csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        application_id = (Cbor.to_text (csil_req "application_id"));
+        subject_domain = (Cbor.to_text (csil_req "subject_domain"));
+        subject_user_id = (Cbor.to_text (csil_req "subject_user_id"));
+      }
+  | _ -> failwith "csilgen: expected map for enroll_application_instance_response"
+
+and decode_get_application_keys_request (csil_c : Cbor.t) : get_application_keys_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        instance_id = (Cbor.to_text (csil_req "instance_id"));
+        application_id = (Cbor.to_text (csil_req "application_id"));
+        subject_user_id = (Cbor.to_text (csil_req "subject_user_id"));
+      }
+  | _ -> failwith "csilgen: expected map for get_application_keys_request"
+
+and decode_get_application_keys_response (csil_c : Cbor.t) : get_application_keys_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        keys = (match (csil_req "keys") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_signed_application_key_attestation csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        instance_id = (Cbor.to_text (csil_req "instance_id"));
+        revocations = (match (csil_req "revocations") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_application_key_revocation csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        application_id = (Cbor.to_text (csil_req "application_id"));
+        subject_domain = (Cbor.to_text (csil_req "subject_domain"));
+        subject_user_id = (Cbor.to_text (csil_req "subject_user_id"));
+      }
+  | _ -> failwith "csilgen: expected map for get_application_keys_response"
+
+and decode_rp_resolve_domain_keys_request (csil_c : Cbor.t) : rp_resolve_domain_keys_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        domain = (Cbor.to_text (csil_req "domain"));
+        max_cache_age_seconds = (match csil_field "max_cache_age_seconds" with Some csil_v -> Some (Cbor.to_i64 csil_v) | None -> None);
+      }
+  | _ -> failwith "csilgen: expected map for rp_resolve_domain_keys_request"
+
+and decode_rp_resolve_domain_keys_response (csil_c : Cbor.t) : rp_resolve_domain_keys_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        keys = (match (csil_req "keys") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_domain_public_key csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        domain = (Cbor.to_text (csil_req "domain"));
+        fetched_at = (Cbor.to_text (csil_req "fetched_at"));
+        revocations = (match (csil_req "revocations") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_revocation_certificate csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        cache_status = (Cbor.to_text (csil_req "cache_status"));
+        revocations_checked_at = (Cbor.to_text (csil_req "revocations_checked_at"));
+      }
+  | _ -> failwith "csilgen: expected map for rp_resolve_domain_keys_response"
+
+and decode_rp_resolve_application_keys_request (csil_c : Cbor.t) : rp_resolve_application_keys_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        instance_id = (Cbor.to_text (csil_req "instance_id"));
+        application_id = (Cbor.to_text (csil_req "application_id"));
+        subject_domain = (Cbor.to_text (csil_req "subject_domain"));
+        subject_user_id = (Cbor.to_text (csil_req "subject_user_id"));
+        max_cache_age_seconds = (match csil_field "max_cache_age_seconds" with Some csil_v -> Some (Cbor.to_i64 csil_v) | None -> None);
+      }
+  | _ -> failwith "csilgen: expected map for rp_resolve_application_keys_request"
+
+and decode_rp_resolve_application_keys_response (csil_c : Cbor.t) : rp_resolve_application_keys_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        fetched_at = (Cbor.to_text (csil_req "fetched_at"));
+        instance_id = (Cbor.to_text (csil_req "instance_id"));
+        cache_status = (Cbor.to_text (csil_req "cache_status"));
+        application_id = (Cbor.to_text (csil_req "application_id"));
+        subject_domain = (Cbor.to_text (csil_req "subject_domain"));
+        subject_user_id = (Cbor.to_text (csil_req "subject_user_id"));
+        application_keys = (match (csil_req "application_keys") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_signed_application_key_attestation csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        home_domain_keys = (match (csil_req "home_domain_keys") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_domain_public_key csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        revocations_checked_at = (Cbor.to_text (csil_req "revocations_checked_at"));
+        application_key_revocations = (match (csil_req "application_key_revocations") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_application_key_revocation csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        home_domain_key_revocations = (match (csil_req "home_domain_key_revocations") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_revocation_certificate csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+      }
+  | _ -> failwith "csilgen: expected map for rp_resolve_application_keys_response"
+
 let encode_check_value_bytes (v : check_value) : bytes = Cbor.encode (encode_check_value v)
 let decode_check_value_bytes (b : bytes) : check_value =
   match Cbor.decode b with Ok c -> decode_check_value c | Error e -> failwith e
@@ -6042,3 +6724,99 @@ let decode_translations_response_bytes (b : bytes) : translations_response =
 let encode_list_locales_response_bytes (v : list_locales_response) : bytes = Cbor.encode (encode_list_locales_response v)
 let decode_list_locales_response_bytes (b : bytes) : list_locales_response =
   match Cbor.decode b with Ok c -> decode_list_locales_response c | Error e -> failwith e
+
+let encode_application_key_signature_bytes (v : application_key_signature) : bytes = Cbor.encode (encode_application_key_signature v)
+let decode_application_key_signature_bytes (b : bytes) : application_key_signature =
+  match Cbor.decode b with Ok c -> decode_application_key_signature c | Error e -> failwith e
+
+let encode_application_key_attestation_bytes (v : application_key_attestation) : bytes = Cbor.encode (encode_application_key_attestation v)
+let decode_application_key_attestation_bytes (b : bytes) : application_key_attestation =
+  match Cbor.decode b with Ok c -> decode_application_key_attestation c | Error e -> failwith e
+
+let encode_signed_application_key_attestation_bytes (v : signed_application_key_attestation) : bytes = Cbor.encode (encode_signed_application_key_attestation v)
+let decode_signed_application_key_attestation_bytes (b : bytes) : signed_application_key_attestation =
+  match Cbor.decode b with Ok c -> decode_signed_application_key_attestation c | Error e -> failwith e
+
+let encode_application_key_addition_bytes (v : application_key_addition) : bytes = Cbor.encode (encode_application_key_addition v)
+let decode_application_key_addition_bytes (b : bytes) : application_key_addition =
+  match Cbor.decode b with Ok c -> decode_application_key_addition c | Error e -> failwith e
+
+let encode_signed_application_key_addition_bytes (v : signed_application_key_addition) : bytes = Cbor.encode (encode_signed_application_key_addition v)
+let decode_signed_application_key_addition_bytes (b : bytes) : signed_application_key_addition =
+  match Cbor.decode b with Ok c -> decode_signed_application_key_addition c | Error e -> failwith e
+
+let encode_application_key_renewal_bytes (v : application_key_renewal) : bytes = Cbor.encode (encode_application_key_renewal v)
+let decode_application_key_renewal_bytes (b : bytes) : application_key_renewal =
+  match Cbor.decode b with Ok c -> decode_application_key_renewal c | Error e -> failwith e
+
+let encode_signed_application_key_renewal_bytes (v : signed_application_key_renewal) : bytes = Cbor.encode (encode_signed_application_key_renewal v)
+let decode_signed_application_key_renewal_bytes (b : bytes) : signed_application_key_renewal =
+  match Cbor.decode b with Ok c -> decode_signed_application_key_renewal c | Error e -> failwith e
+
+let encode_application_key_revocation_bytes (v : application_key_revocation) : bytes = Cbor.encode (encode_application_key_revocation v)
+let decode_application_key_revocation_bytes (b : bytes) : application_key_revocation =
+  match Cbor.decode b with Ok c -> decode_application_key_revocation c | Error e -> failwith e
+
+let encode_start_application_key_challenge_request_bytes (v : start_application_key_challenge_request) : bytes = Cbor.encode (encode_start_application_key_challenge_request v)
+let decode_start_application_key_challenge_request_bytes (b : bytes) : start_application_key_challenge_request =
+  match Cbor.decode b with Ok c -> decode_start_application_key_challenge_request c | Error e -> failwith e
+
+let encode_start_application_key_challenge_response_bytes (v : start_application_key_challenge_response) : bytes = Cbor.encode (encode_start_application_key_challenge_response v)
+let decode_start_application_key_challenge_response_bytes (b : bytes) : start_application_key_challenge_response =
+  match Cbor.decode b with Ok c -> decode_start_application_key_challenge_response c | Error e -> failwith e
+
+let encode_add_application_key_request_bytes (v : add_application_key_request) : bytes = Cbor.encode (encode_add_application_key_request v)
+let decode_add_application_key_request_bytes (b : bytes) : add_application_key_request =
+  match Cbor.decode b with Ok c -> decode_add_application_key_request c | Error e -> failwith e
+
+let encode_add_application_key_response_bytes (v : add_application_key_response) : bytes = Cbor.encode (encode_add_application_key_response v)
+let decode_add_application_key_response_bytes (b : bytes) : add_application_key_response =
+  match Cbor.decode b with Ok c -> decode_add_application_key_response c | Error e -> failwith e
+
+let encode_renew_application_key_attestation_request_bytes (v : renew_application_key_attestation_request) : bytes = Cbor.encode (encode_renew_application_key_attestation_request v)
+let decode_renew_application_key_attestation_request_bytes (b : bytes) : renew_application_key_attestation_request =
+  match Cbor.decode b with Ok c -> decode_renew_application_key_attestation_request c | Error e -> failwith e
+
+let encode_renew_application_key_attestation_response_bytes (v : renew_application_key_attestation_response) : bytes = Cbor.encode (encode_renew_application_key_attestation_response v)
+let decode_renew_application_key_attestation_response_bytes (b : bytes) : renew_application_key_attestation_response =
+  match Cbor.decode b with Ok c -> decode_renew_application_key_attestation_response c | Error e -> failwith e
+
+let encode_revoke_application_key_request_bytes (v : revoke_application_key_request) : bytes = Cbor.encode (encode_revoke_application_key_request v)
+let decode_revoke_application_key_request_bytes (b : bytes) : revoke_application_key_request =
+  match Cbor.decode b with Ok c -> decode_revoke_application_key_request c | Error e -> failwith e
+
+let encode_revoke_application_key_response_bytes (v : revoke_application_key_response) : bytes = Cbor.encode (encode_revoke_application_key_response v)
+let decode_revoke_application_key_response_bytes (b : bytes) : revoke_application_key_response =
+  match Cbor.decode b with Ok c -> decode_revoke_application_key_response c | Error e -> failwith e
+
+let encode_enroll_application_instance_request_bytes (v : enroll_application_instance_request) : bytes = Cbor.encode (encode_enroll_application_instance_request v)
+let decode_enroll_application_instance_request_bytes (b : bytes) : enroll_application_instance_request =
+  match Cbor.decode b with Ok c -> decode_enroll_application_instance_request c | Error e -> failwith e
+
+let encode_enroll_application_instance_response_bytes (v : enroll_application_instance_response) : bytes = Cbor.encode (encode_enroll_application_instance_response v)
+let decode_enroll_application_instance_response_bytes (b : bytes) : enroll_application_instance_response =
+  match Cbor.decode b with Ok c -> decode_enroll_application_instance_response c | Error e -> failwith e
+
+let encode_get_application_keys_request_bytes (v : get_application_keys_request) : bytes = Cbor.encode (encode_get_application_keys_request v)
+let decode_get_application_keys_request_bytes (b : bytes) : get_application_keys_request =
+  match Cbor.decode b with Ok c -> decode_get_application_keys_request c | Error e -> failwith e
+
+let encode_get_application_keys_response_bytes (v : get_application_keys_response) : bytes = Cbor.encode (encode_get_application_keys_response v)
+let decode_get_application_keys_response_bytes (b : bytes) : get_application_keys_response =
+  match Cbor.decode b with Ok c -> decode_get_application_keys_response c | Error e -> failwith e
+
+let encode_rp_resolve_domain_keys_request_bytes (v : rp_resolve_domain_keys_request) : bytes = Cbor.encode (encode_rp_resolve_domain_keys_request v)
+let decode_rp_resolve_domain_keys_request_bytes (b : bytes) : rp_resolve_domain_keys_request =
+  match Cbor.decode b with Ok c -> decode_rp_resolve_domain_keys_request c | Error e -> failwith e
+
+let encode_rp_resolve_domain_keys_response_bytes (v : rp_resolve_domain_keys_response) : bytes = Cbor.encode (encode_rp_resolve_domain_keys_response v)
+let decode_rp_resolve_domain_keys_response_bytes (b : bytes) : rp_resolve_domain_keys_response =
+  match Cbor.decode b with Ok c -> decode_rp_resolve_domain_keys_response c | Error e -> failwith e
+
+let encode_rp_resolve_application_keys_request_bytes (v : rp_resolve_application_keys_request) : bytes = Cbor.encode (encode_rp_resolve_application_keys_request v)
+let decode_rp_resolve_application_keys_request_bytes (b : bytes) : rp_resolve_application_keys_request =
+  match Cbor.decode b with Ok c -> decode_rp_resolve_application_keys_request c | Error e -> failwith e
+
+let encode_rp_resolve_application_keys_response_bytes (v : rp_resolve_application_keys_response) : bytes = Cbor.encode (encode_rp_resolve_application_keys_response v)
+let decode_rp_resolve_application_keys_response_bytes (b : bytes) : rp_resolve_application_keys_response =
+  match Cbor.decode b with Ok c -> decode_rp_resolve_application_keys_response c | Error e -> failwith e

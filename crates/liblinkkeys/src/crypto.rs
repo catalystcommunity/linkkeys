@@ -10,6 +10,7 @@ use hkdf::Hkdf;
 use sha2::{Digest, Sha256};
 use std::fmt;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519StaticSecret};
+use zeroize::Zeroizing;
 
 pub const ALGORITHM_ED25519: &str = "ed25519";
 
@@ -349,7 +350,10 @@ pub fn encrypt_private_key(key_bytes: &[u8], passphrase: &[u8]) -> Result<Vec<u8
 /// Detects the v2 (magic-prefixed, params-embedded) format and falls back to
 /// the legacy headerless format (`salt(16) || nonce(12) || ciphertext`, fixed
 /// legacy params) so keys stored before the format change still decrypt.
-pub fn decrypt_private_key(encrypted: &[u8], passphrase: &[u8]) -> Result<Vec<u8>, CryptoError> {
+pub fn decrypt_private_key(
+    encrypted: &[u8],
+    passphrase: &[u8],
+) -> Result<Zeroizing<Vec<u8>>, CryptoError> {
     if encrypted.len() >= 4 && encrypted[..4] == KEYENC_MAGIC_V2 {
         // v2: magic(4) || m(4) || t(4) || p(4) || salt(16) || nonce(12) || ct
         if encrypted.len() < 4 + 12 + 16 + 12 {
@@ -369,6 +373,7 @@ pub fn decrypt_private_key(encrypted: &[u8], passphrase: &[u8]) -> Result<Vec<u8
             .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))?;
         return cipher
             .decrypt(AesGcmNonce::from_slice(nonce_bytes), ciphertext)
+            .map(Zeroizing::new)
             .map_err(|e| CryptoError::DecryptionFailed(e.to_string()));
     }
 
@@ -394,6 +399,7 @@ pub fn decrypt_private_key(encrypted: &[u8], passphrase: &[u8]) -> Result<Vec<u8
 
     cipher
         .decrypt(nonce, ciphertext)
+        .map(Zeroizing::new)
         .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))
 }
 
@@ -425,7 +431,10 @@ pub fn encrypt_with_key(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, Cry
 
 /// Decrypt bytes produced by [`encrypt_with_key`]. Fails (AEAD auth error) on a
 /// wrong key or any tampering.
-pub fn decrypt_with_key(key: &[u8; 32], encrypted: &[u8]) -> Result<Vec<u8>, CryptoError> {
+pub fn decrypt_with_key(
+    key: &[u8; 32],
+    encrypted: &[u8],
+) -> Result<Zeroizing<Vec<u8>>, CryptoError> {
     if encrypted.len() < 4 + 12 || encrypted[..4] != BACKUP_MAGIC_V1 {
         return Err(CryptoError::DecryptionFailed(
             "not a recognized backup bundle (bad magic or too short)".to_string(),
@@ -437,6 +446,7 @@ pub fn decrypt_with_key(key: &[u8; 32], encrypted: &[u8]) -> Result<Vec<u8>, Cry
     let ciphertext = &encrypted[16..];
     cipher
         .decrypt(AesGcmNonce::from_slice(nonce_bytes), ciphertext)
+        .map(Zeroizing::new)
         .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))
 }
 
@@ -611,10 +621,32 @@ pub fn sealed_box_encrypt(
     recipient_x25519_public: &[u8; 32],
     suite: AeadSuite,
 ) -> Result<SealedBox, CryptoError> {
-    let recipient_pk = X25519PublicKey::from(*recipient_x25519_public);
-
-    // Generate ephemeral X25519 keypair
     let ephemeral_secret = X25519StaticSecret::random_from_rng(OsRng);
+    let nonce_bytes: [u8; 12] = rand::random();
+    sealed_box_encrypt_with_randomness(
+        plaintext,
+        recipient_x25519_public,
+        suite,
+        ephemeral_secret,
+        nonce_bytes,
+    )
+}
+
+/// [`sealed_box_encrypt`]'s seam for deterministic conformance-vector
+/// generation and tests: the ephemeral X25519 secret and the AEAD nonce are
+/// supplied explicitly instead of drawn from the OS RNG. Mirrors
+/// `local_rp::seal_local_rp_callback_with_randomness`, which solves the
+/// identical problem for the local-RP callback box. Not `pub`: every current
+/// caller (`application_keys::seal_challenge_with_randomness`) lives in this
+/// crate. Production code MUST use [`sealed_box_encrypt`].
+pub(crate) fn sealed_box_encrypt_with_randomness(
+    plaintext: &[u8],
+    recipient_x25519_public: &[u8; 32],
+    suite: AeadSuite,
+    ephemeral_secret: X25519StaticSecret,
+    nonce_bytes: [u8; 12],
+) -> Result<SealedBox, CryptoError> {
+    let recipient_pk = X25519PublicKey::from(*recipient_x25519_public);
     let ephemeral_public = X25519PublicKey::from(&ephemeral_secret);
 
     // ECDH key agreement
@@ -628,7 +660,6 @@ pub fn sealed_box_encrypt(
         shared_secret.as_bytes(),
     )?;
 
-    let nonce_bytes: [u8; 12] = rand::random();
     let ciphertext = aead_encrypt(suite, &aead_key, &nonce_bytes, &aad, plaintext)?;
 
     Ok(SealedBox {
@@ -664,7 +695,7 @@ pub fn sealed_box_decrypt(
     ciphertext: &[u8],
     recipient_x25519_private: &[u8; 32],
     suite: AeadSuite,
-) -> Result<Vec<u8>, CryptoError> {
+) -> Result<Zeroizing<Vec<u8>>, CryptoError> {
     let ephemeral_pk_bytes: [u8; 32] = ephemeral_public_key
         .try_into()
         .map_err(|_| CryptoError::DecryptionFailed("invalid ephemeral key length".to_string()))?;
@@ -694,7 +725,7 @@ pub fn sealed_box_decrypt(
     )
     .map_err(|_| CryptoError::DecryptionFailed("HKDF derivation failed".to_string()))?;
 
-    aead_decrypt(suite, &aead_key, &nonce_bytes, &aad, ciphertext)
+    aead_decrypt(suite, &aead_key, &nonce_bytes, &aad, ciphertext).map(Zeroizing::new)
 }
 
 /// Hash a password for storage using Argon2id, returning a PHC string

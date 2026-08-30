@@ -120,7 +120,7 @@ public static partial class Cbor
     public static CborValue Decode(byte[] b)
     {
         int csilPos = 0;
-        var v = Dec(b, ref csilPos);
+        var v = Dec(b, ref csilPos, 0);
         if (csilPos != b.Length) { throw new CborException("trailing bytes"); }
         return v;
     }
@@ -128,6 +128,11 @@ public static partial class Cbor
     static ulong ReadArg(byte[] b, ref int csilPos, byte low)
     {
         if (low < 24) { csilPos += 1; return low; }
+        int csilWidth = low == 24 ? 1 : low == 25 ? 2 : low == 26 ? 4 : low == 27 ? 8 : 0;
+        if (csilWidth == 0 || csilPos >= b.Length || b.Length - csilPos - 1 < csilWidth)
+        {
+            throw new CborException("truncated argument");
+        }
         switch (low)
         {
             case 24:
@@ -161,8 +166,10 @@ public static partial class Cbor
         }
     }
 
-    static CborValue Dec(byte[] b, ref int csilPos)
+    static CborValue Dec(byte[] b, ref int csilPos, int csilDepth)
     {
+        if (csilDepth > 64) { throw new CborException("nesting limit exceeded"); }
+        if (csilPos >= b.Length) { throw new CborException("unexpected end of input"); }
         var ib = b[csilPos];
         var major = (byte)(ib >> 5);
         var low = (byte)(ib & 0x1f);
@@ -198,6 +205,7 @@ public static partial class Cbor
                 return new CborValue.Int(-1 - (long)arg);
             case 2:
             {
+                if (arg > (ulong)(b.Length - csilPos)) { throw new CborException("truncated byte string"); }
                 var n = (int)arg;
                 var slice = new byte[n];
                 System.Array.Copy(b, csilPos, slice, 0, n);
@@ -206,33 +214,38 @@ public static partial class Cbor
             }
             case 3:
             {
+                if (arg > (ulong)(b.Length - csilPos)) { throw new CborException("truncated text string"); }
                 var n = (int)arg;
-                var s = System.Text.Encoding.UTF8.GetString(b, csilPos, n);
+                string s;
+                try { s = new System.Text.UTF8Encoding(false, true).GetString(b, csilPos, n); }
+                catch (System.Text.DecoderFallbackException) { throw new CborException("invalid utf-8"); }
                 csilPos += n;
                 return new CborValue.Text(s);
             }
             case 4:
             {
+                if (arg > (ulong)(b.Length - csilPos)) { throw new CborException("array length exceeds remaining input"); }
                 var n = (int)arg;
                 var items = new System.Collections.Generic.List<CborValue>(n);
-                for (int csilI = 0; csilI < n; csilI++) { items.Add(Dec(b, ref csilPos)); }
+                for (int csilI = 0; csilI < n; csilI++) { items.Add(Dec(b, ref csilPos, csilDepth + 1)); }
                 return new CborValue.Array(items);
             }
             case 5:
             {
+                if (arg > (ulong)(b.Length - csilPos)) { throw new CborException("map length exceeds remaining input"); }
                 var n = (int)arg;
                 var kvs = new System.Collections.Generic.List<(CborValue, CborValue)>(n);
                 for (int csilI = 0; csilI < n; csilI++)
                 {
-                    var k = Dec(b, ref csilPos);
-                    var val = Dec(b, ref csilPos);
+                    var k = Dec(b, ref csilPos, csilDepth + 1);
+                    var val = Dec(b, ref csilPos, csilDepth + 1);
                     kvs.Add((k, val));
                 }
                 return new CborValue.Map(kvs);
             }
             case 6:
             {
-                var inner = Dec(b, ref csilPos);
+                var inner = Dec(b, ref csilPos, csilDepth + 1);
                 return new CborValue.Tag(arg, inner);
             }
             default:
@@ -544,6 +557,30 @@ public static class Codec
         TranslationsRequest csilTyped => TranslationsRequestToCborValue(csilTyped),
         TranslationsResponse csilTyped => TranslationsResponseToCborValue(csilTyped),
         ListLocalesResponse csilTyped => ListLocalesResponseToCborValue(csilTyped),
+        ApplicationKeySignature csilTyped => ApplicationKeySignatureToCborValue(csilTyped),
+        ApplicationKeyAttestation csilTyped => ApplicationKeyAttestationToCborValue(csilTyped),
+        SignedApplicationKeyAttestation csilTyped => SignedApplicationKeyAttestationToCborValue(csilTyped),
+        ApplicationKeyAddition csilTyped => ApplicationKeyAdditionToCborValue(csilTyped),
+        SignedApplicationKeyAddition csilTyped => SignedApplicationKeyAdditionToCborValue(csilTyped),
+        ApplicationKeyRenewal csilTyped => ApplicationKeyRenewalToCborValue(csilTyped),
+        SignedApplicationKeyRenewal csilTyped => SignedApplicationKeyRenewalToCborValue(csilTyped),
+        ApplicationKeyRevocation csilTyped => ApplicationKeyRevocationToCborValue(csilTyped),
+        StartApplicationKeyChallengeRequest csilTyped => StartApplicationKeyChallengeRequestToCborValue(csilTyped),
+        StartApplicationKeyChallengeResponse csilTyped => StartApplicationKeyChallengeResponseToCborValue(csilTyped),
+        AddApplicationKeyRequest csilTyped => AddApplicationKeyRequestToCborValue(csilTyped),
+        AddApplicationKeyResponse csilTyped => AddApplicationKeyResponseToCborValue(csilTyped),
+        RenewApplicationKeyAttestationRequest csilTyped => RenewApplicationKeyAttestationRequestToCborValue(csilTyped),
+        RenewApplicationKeyAttestationResponse csilTyped => RenewApplicationKeyAttestationResponseToCborValue(csilTyped),
+        RevokeApplicationKeyRequest csilTyped => RevokeApplicationKeyRequestToCborValue(csilTyped),
+        RevokeApplicationKeyResponse csilTyped => RevokeApplicationKeyResponseToCborValue(csilTyped),
+        EnrollApplicationInstanceRequest csilTyped => EnrollApplicationInstanceRequestToCborValue(csilTyped),
+        EnrollApplicationInstanceResponse csilTyped => EnrollApplicationInstanceResponseToCborValue(csilTyped),
+        GetApplicationKeysRequest csilTyped => GetApplicationKeysRequestToCborValue(csilTyped),
+        GetApplicationKeysResponse csilTyped => GetApplicationKeysResponseToCborValue(csilTyped),
+        RpResolveDomainKeysRequest csilTyped => RpResolveDomainKeysRequestToCborValue(csilTyped),
+        RpResolveDomainKeysResponse csilTyped => RpResolveDomainKeysResponseToCborValue(csilTyped),
+        RpResolveApplicationKeysRequest csilTyped => RpResolveApplicationKeysRequestToCborValue(csilTyped),
+        RpResolveApplicationKeysResponse csilTyped => RpResolveApplicationKeysResponseToCborValue(csilTyped),
         _ => throw new System.ArgumentException("csilgen: no CSIL codec for the requested type"),
     };
 
@@ -767,6 +804,30 @@ public static class Codec
         if (csilType == typeof(TranslationsRequest)) return TranslationsRequestFromCborValue(value);
         if (csilType == typeof(TranslationsResponse)) return TranslationsResponseFromCborValue(value);
         if (csilType == typeof(ListLocalesResponse)) return ListLocalesResponseFromCborValue(value);
+        if (csilType == typeof(ApplicationKeySignature)) return ApplicationKeySignatureFromCborValue(value);
+        if (csilType == typeof(ApplicationKeyAttestation)) return ApplicationKeyAttestationFromCborValue(value);
+        if (csilType == typeof(SignedApplicationKeyAttestation)) return SignedApplicationKeyAttestationFromCborValue(value);
+        if (csilType == typeof(ApplicationKeyAddition)) return ApplicationKeyAdditionFromCborValue(value);
+        if (csilType == typeof(SignedApplicationKeyAddition)) return SignedApplicationKeyAdditionFromCborValue(value);
+        if (csilType == typeof(ApplicationKeyRenewal)) return ApplicationKeyRenewalFromCborValue(value);
+        if (csilType == typeof(SignedApplicationKeyRenewal)) return SignedApplicationKeyRenewalFromCborValue(value);
+        if (csilType == typeof(ApplicationKeyRevocation)) return ApplicationKeyRevocationFromCborValue(value);
+        if (csilType == typeof(StartApplicationKeyChallengeRequest)) return StartApplicationKeyChallengeRequestFromCborValue(value);
+        if (csilType == typeof(StartApplicationKeyChallengeResponse)) return StartApplicationKeyChallengeResponseFromCborValue(value);
+        if (csilType == typeof(AddApplicationKeyRequest)) return AddApplicationKeyRequestFromCborValue(value);
+        if (csilType == typeof(AddApplicationKeyResponse)) return AddApplicationKeyResponseFromCborValue(value);
+        if (csilType == typeof(RenewApplicationKeyAttestationRequest)) return RenewApplicationKeyAttestationRequestFromCborValue(value);
+        if (csilType == typeof(RenewApplicationKeyAttestationResponse)) return RenewApplicationKeyAttestationResponseFromCborValue(value);
+        if (csilType == typeof(RevokeApplicationKeyRequest)) return RevokeApplicationKeyRequestFromCborValue(value);
+        if (csilType == typeof(RevokeApplicationKeyResponse)) return RevokeApplicationKeyResponseFromCborValue(value);
+        if (csilType == typeof(EnrollApplicationInstanceRequest)) return EnrollApplicationInstanceRequestFromCborValue(value);
+        if (csilType == typeof(EnrollApplicationInstanceResponse)) return EnrollApplicationInstanceResponseFromCborValue(value);
+        if (csilType == typeof(GetApplicationKeysRequest)) return GetApplicationKeysRequestFromCborValue(value);
+        if (csilType == typeof(GetApplicationKeysResponse)) return GetApplicationKeysResponseFromCborValue(value);
+        if (csilType == typeof(RpResolveDomainKeysRequest)) return RpResolveDomainKeysRequestFromCborValue(value);
+        if (csilType == typeof(RpResolveDomainKeysResponse)) return RpResolveDomainKeysResponseFromCborValue(value);
+        if (csilType == typeof(RpResolveApplicationKeysRequest)) return RpResolveApplicationKeysRequestFromCborValue(value);
+        if (csilType == typeof(RpResolveApplicationKeysResponse)) return RpResolveApplicationKeysResponseFromCborValue(value);
         throw new System.ArgumentException("csilgen: no CSIL codec for the requested type");
     }
 
@@ -5981,6 +6042,723 @@ public static class Codec
         return new ListLocalesResponse
         {
             AvailableLocales = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a ApplicationKeySignature.</summary>
+    public static CborValue ApplicationKeySignatureToCborValue(ApplicationKeySignature value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("signature"), new CborValue.Bytes(value.Signature)));
+        csilEntries.Add((new CborValue.Text("signed_by_key_id"), new CborValue.Text(value.SignedByKeyId)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a ApplicationKeySignature from a decoded CBOR value tree.</summary>
+    public static ApplicationKeySignature ApplicationKeySignatureFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "signed_by_key_id"));
+        var csilField1 = Cbor.AsBytes(Cbor.Require(value, "signature"));
+        return new ApplicationKeySignature
+        {
+            SignedByKeyId = csilField0,
+            Signature = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a ApplicationKeyAttestation.</summary>
+    public static CborValue ApplicationKeyAttestationToCborValue(ApplicationKeyAttestation value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("key_id"), new CborValue.Text(value.KeyId)));
+        csilEntries.Add((new CborValue.Text("algorithm"), new CborValue.Text(value.Algorithm)));
+        csilEntries.Add((new CborValue.Text("key_usage"), new CborValue.Text(value.KeyUsage)));
+        csilEntries.Add((new CborValue.Text("public_key"), new CborValue.Bytes(value.PublicKey)));
+        csilEntries.Add((new CborValue.Text("attested_at"), new CborValue.Text(value.AttestedAt)));
+        csilEntries.Add((new CborValue.Text("fingerprint"), new CborValue.Text(value.Fingerprint)));
+        csilEntries.Add((new CborValue.Text("instance_id"), new CborValue.Text(value.InstanceId)));
+        csilEntries.Add((new CborValue.Text("application_id"), new CborValue.Text(value.ApplicationId)));
+        csilEntries.Add((new CborValue.Text("key_created_at"), new CborValue.Text(value.KeyCreatedAt)));
+        csilEntries.Add((new CborValue.Text("key_expires_at"), new CborValue.Text(value.KeyExpiresAt)));
+        csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
+        csilEntries.Add((new CborValue.Text("subject_user_id"), new CborValue.Text(value.SubjectUserId)));
+        csilEntries.Add((new CborValue.Text("attestation_expires_at"), new CborValue.Text(value.AttestationExpiresAt)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a ApplicationKeyAttestation from a decoded CBOR value tree.</summary>
+    public static ApplicationKeyAttestation ApplicationKeyAttestationFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "subject_user_id"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "subject_domain"));
+        var csilField2 = Cbor.AsText(Cbor.Require(value, "application_id"));
+        var csilField3 = Cbor.AsText(Cbor.Require(value, "instance_id"));
+        var csilField4 = Cbor.AsText(Cbor.Require(value, "key_id"));
+        var csilField5 = Cbor.AsText(Cbor.Require(value, "key_usage"));
+        var csilField6 = Cbor.AsText(Cbor.Require(value, "algorithm"));
+        var csilField7 = Cbor.AsBytes(Cbor.Require(value, "public_key"));
+        var csilField8 = Cbor.AsText(Cbor.Require(value, "fingerprint"));
+        var csilField9 = Cbor.AsText(Cbor.Require(value, "key_created_at"));
+        var csilField10 = Cbor.AsText(Cbor.Require(value, "key_expires_at"));
+        var csilField11 = Cbor.AsText(Cbor.Require(value, "attested_at"));
+        var csilField12 = Cbor.AsText(Cbor.Require(value, "attestation_expires_at"));
+        return new ApplicationKeyAttestation
+        {
+            SubjectUserId = csilField0,
+            SubjectDomain = csilField1,
+            ApplicationId = csilField2,
+            InstanceId = csilField3,
+            KeyId = csilField4,
+            KeyUsage = csilField5,
+            Algorithm = csilField6,
+            PublicKey = csilField7,
+            Fingerprint = csilField8,
+            KeyCreatedAt = csilField9,
+            KeyExpiresAt = csilField10,
+            AttestedAt = csilField11,
+            AttestationExpiresAt = csilField12,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a SignedApplicationKeyAttestation.</summary>
+    public static CborValue SignedApplicationKeyAttestationToCborValue(SignedApplicationKeyAttestation value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("signatures"), new CborValue.Array(value.Signatures.Select(csilElem => (CborValue)ClaimSignatureToCborValue(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("attestation"), new CborValue.Bytes(value.Attestation)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a SignedApplicationKeyAttestation from a decoded CBOR value tree.</summary>
+    public static SignedApplicationKeyAttestation SignedApplicationKeyAttestationFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsBytes(Cbor.Require(value, "attestation"));
+        var csilField1 = Cbor.AsArray(Cbor.Require(value, "signatures")).Select(csilElem => ClaimSignatureFromCborValue(csilElem)).ToList();
+        return new SignedApplicationKeyAttestation
+        {
+            Attestation = csilField0,
+            Signatures = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a ApplicationKeyAddition.</summary>
+    public static CborValue ApplicationKeyAdditionToCborValue(ApplicationKeyAddition value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("key_id"), new CborValue.Text(value.KeyId)));
+        csilEntries.Add((new CborValue.Text("algorithm"), new CborValue.Text(value.Algorithm)));
+        csilEntries.Add((new CborValue.Text("challenge"), new CborValue.Bytes(value.Challenge)));
+        csilEntries.Add((new CborValue.Text("key_usage"), new CborValue.Text(value.KeyUsage)));
+        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("public_key"), new CborValue.Bytes(value.PublicKey)));
+        csilEntries.Add((new CborValue.Text("fingerprint"), new CborValue.Text(value.Fingerprint)));
+        csilEntries.Add((new CborValue.Text("instance_id"), new CborValue.Text(value.InstanceId)));
+        csilEntries.Add((new CborValue.Text("challenge_id"), new CborValue.Text(value.ChallengeId)));
+        csilEntries.Add((new CborValue.Text("requested_at"), new CborValue.Text(value.RequestedAt)));
+        csilEntries.Add((new CborValue.Text("application_id"), new CborValue.Text(value.ApplicationId)));
+        csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
+        csilEntries.Add((new CborValue.Text("subject_user_id"), new CborValue.Text(value.SubjectUserId)));
+        csilEntries.Add((new CborValue.Text("requested_key_lifetime_seconds"), new CborValue.Int(value.RequestedKeyLifetimeSeconds)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a ApplicationKeyAddition from a decoded CBOR value tree.</summary>
+    public static ApplicationKeyAddition ApplicationKeyAdditionFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "subject_user_id"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "subject_domain"));
+        var csilField2 = Cbor.AsText(Cbor.Require(value, "application_id"));
+        var csilField3 = Cbor.AsText(Cbor.Require(value, "instance_id"));
+        var csilField4 = Cbor.AsText(Cbor.Require(value, "key_id"));
+        var csilField5 = Cbor.AsText(Cbor.Require(value, "key_usage"));
+        var csilField6 = Cbor.AsText(Cbor.Require(value, "algorithm"));
+        var csilField7 = Cbor.AsBytes(Cbor.Require(value, "public_key"));
+        var csilField8 = Cbor.AsText(Cbor.Require(value, "fingerprint"));
+        var csilField9 = Cbor.AsI64(Cbor.Require(value, "requested_key_lifetime_seconds"));
+        var csilField10 = Cbor.AsText(Cbor.Require(value, "challenge_id"));
+        var csilField11 = Cbor.AsBytes(Cbor.Require(value, "challenge"));
+        var csilField12 = Cbor.AsText(Cbor.Require(value, "requested_at"));
+        var csilField13 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        return new ApplicationKeyAddition
+        {
+            SubjectUserId = csilField0,
+            SubjectDomain = csilField1,
+            ApplicationId = csilField2,
+            InstanceId = csilField3,
+            KeyId = csilField4,
+            KeyUsage = csilField5,
+            Algorithm = csilField6,
+            PublicKey = csilField7,
+            Fingerprint = csilField8,
+            RequestedKeyLifetimeSeconds = csilField9,
+            ChallengeId = csilField10,
+            Challenge = csilField11,
+            RequestedAt = csilField12,
+            ExpiresAt = csilField13,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a SignedApplicationKeyAddition.</summary>
+    public static CborValue SignedApplicationKeyAdditionToCborValue(SignedApplicationKeyAddition value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("addition"), new CborValue.Bytes(value.Addition)));
+        csilEntries.Add((new CborValue.Text("signatures"), new CborValue.Array(value.Signatures.Select(csilElem => (CborValue)ApplicationKeySignatureToCborValue(csilElem)).ToList())));
+        if (value.PossessionProof is { } csilV2)
+        {
+            csilEntries.Add((new CborValue.Text("possession_proof"), new CborValue.Bytes(csilV2)));
+        }
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a SignedApplicationKeyAddition from a decoded CBOR value tree.</summary>
+    public static SignedApplicationKeyAddition SignedApplicationKeyAdditionFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsBytes(Cbor.Require(value, "addition"));
+        var csilField1 = Cbor.AsArray(Cbor.Require(value, "signatures")).Select(csilElem => ApplicationKeySignatureFromCborValue(csilElem)).ToList();
+        byte[]? csilField2 = Cbor.MapGet(value, "possession_proof") is { } csilRaw2 ? Cbor.AsBytes(csilRaw2) : null;
+        return new SignedApplicationKeyAddition
+        {
+            Addition = csilField0,
+            Signatures = csilField1,
+            PossessionProof = csilField2,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a ApplicationKeyRenewal.</summary>
+    public static CborValue ApplicationKeyRenewalToCborValue(ApplicationKeyRenewal value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("key_id"), new CborValue.Text(value.KeyId)));
+        csilEntries.Add((new CborValue.Text("challenge"), new CborValue.Bytes(value.Challenge)));
+        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("instance_id"), new CborValue.Text(value.InstanceId)));
+        csilEntries.Add((new CborValue.Text("challenge_id"), new CborValue.Text(value.ChallengeId)));
+        csilEntries.Add((new CborValue.Text("requested_at"), new CborValue.Text(value.RequestedAt)));
+        csilEntries.Add((new CborValue.Text("application_id"), new CborValue.Text(value.ApplicationId)));
+        csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
+        csilEntries.Add((new CborValue.Text("subject_user_id"), new CborValue.Text(value.SubjectUserId)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a ApplicationKeyRenewal from a decoded CBOR value tree.</summary>
+    public static ApplicationKeyRenewal ApplicationKeyRenewalFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "subject_user_id"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "subject_domain"));
+        var csilField2 = Cbor.AsText(Cbor.Require(value, "application_id"));
+        var csilField3 = Cbor.AsText(Cbor.Require(value, "instance_id"));
+        var csilField4 = Cbor.AsText(Cbor.Require(value, "key_id"));
+        var csilField5 = Cbor.AsText(Cbor.Require(value, "challenge_id"));
+        var csilField6 = Cbor.AsBytes(Cbor.Require(value, "challenge"));
+        var csilField7 = Cbor.AsText(Cbor.Require(value, "requested_at"));
+        var csilField8 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        return new ApplicationKeyRenewal
+        {
+            SubjectUserId = csilField0,
+            SubjectDomain = csilField1,
+            ApplicationId = csilField2,
+            InstanceId = csilField3,
+            KeyId = csilField4,
+            ChallengeId = csilField5,
+            Challenge = csilField6,
+            RequestedAt = csilField7,
+            ExpiresAt = csilField8,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a SignedApplicationKeyRenewal.</summary>
+    public static CborValue SignedApplicationKeyRenewalToCborValue(SignedApplicationKeyRenewal value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("renewal"), new CborValue.Bytes(value.Renewal)));
+        csilEntries.Add((new CborValue.Text("signatures"), new CborValue.Array(value.Signatures.Select(csilElem => (CborValue)ApplicationKeySignatureToCborValue(csilElem)).ToList())));
+        if (value.PossessionProof is { } csilV2)
+        {
+            csilEntries.Add((new CborValue.Text("possession_proof"), new CborValue.Bytes(csilV2)));
+        }
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a SignedApplicationKeyRenewal from a decoded CBOR value tree.</summary>
+    public static SignedApplicationKeyRenewal SignedApplicationKeyRenewalFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsBytes(Cbor.Require(value, "renewal"));
+        var csilField1 = Cbor.AsArray(Cbor.Require(value, "signatures")).Select(csilElem => ApplicationKeySignatureFromCborValue(csilElem)).ToList();
+        byte[]? csilField2 = Cbor.MapGet(value, "possession_proof") is { } csilRaw2 ? Cbor.AsBytes(csilRaw2) : null;
+        return new SignedApplicationKeyRenewal
+        {
+            Renewal = csilField0,
+            Signatures = csilField1,
+            PossessionProof = csilField2,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a ApplicationKeyRevocation.</summary>
+    public static CborValue ApplicationKeyRevocationToCborValue(ApplicationKeyRevocation value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("revoked_at"), new CborValue.Text(value.RevokedAt)));
+        csilEntries.Add((new CborValue.Text("signatures"), new CborValue.Array(value.Signatures.Select(csilElem => (CborValue)ApplicationKeySignatureToCborValue(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("instance_id"), new CborValue.Text(value.InstanceId)));
+        csilEntries.Add((new CborValue.Text("target_key_id"), new CborValue.Text(value.TargetKeyId)));
+        csilEntries.Add((new CborValue.Text("application_id"), new CborValue.Text(value.ApplicationId)));
+        csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
+        csilEntries.Add((new CborValue.Text("subject_user_id"), new CborValue.Text(value.SubjectUserId)));
+        csilEntries.Add((new CborValue.Text("target_fingerprint"), new CborValue.Text(value.TargetFingerprint)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a ApplicationKeyRevocation from a decoded CBOR value tree.</summary>
+    public static ApplicationKeyRevocation ApplicationKeyRevocationFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "subject_user_id"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "subject_domain"));
+        var csilField2 = Cbor.AsText(Cbor.Require(value, "application_id"));
+        var csilField3 = Cbor.AsText(Cbor.Require(value, "instance_id"));
+        var csilField4 = Cbor.AsText(Cbor.Require(value, "target_key_id"));
+        var csilField5 = Cbor.AsText(Cbor.Require(value, "target_fingerprint"));
+        var csilField6 = Cbor.AsText(Cbor.Require(value, "revoked_at"));
+        var csilField7 = Cbor.AsArray(Cbor.Require(value, "signatures")).Select(csilElem => ApplicationKeySignatureFromCborValue(csilElem)).ToList();
+        return new ApplicationKeyRevocation
+        {
+            SubjectUserId = csilField0,
+            SubjectDomain = csilField1,
+            ApplicationId = csilField2,
+            InstanceId = csilField3,
+            TargetKeyId = csilField4,
+            TargetFingerprint = csilField5,
+            RevokedAt = csilField6,
+            Signatures = csilField7,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a StartApplicationKeyChallengeRequest.</summary>
+    public static CborValue StartApplicationKeyChallengeRequestToCborValue(StartApplicationKeyChallengeRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("purpose"), new CborValue.Text(value.Purpose)));
+        csilEntries.Add((new CborValue.Text("algorithm"), new CborValue.Text(value.Algorithm)));
+        csilEntries.Add((new CborValue.Text("key_usage"), new CborValue.Text(value.KeyUsage)));
+        csilEntries.Add((new CborValue.Text("public_key"), new CborValue.Bytes(value.PublicKey)));
+        csilEntries.Add((new CborValue.Text("instance_id"), new CborValue.Text(value.InstanceId)));
+        csilEntries.Add((new CborValue.Text("application_id"), new CborValue.Text(value.ApplicationId)));
+        csilEntries.Add((new CborValue.Text("subject_user_id"), new CborValue.Text(value.SubjectUserId)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a StartApplicationKeyChallengeRequest from a decoded CBOR value tree.</summary>
+    public static StartApplicationKeyChallengeRequest StartApplicationKeyChallengeRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "subject_user_id"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "application_id"));
+        var csilField2 = Cbor.AsText(Cbor.Require(value, "instance_id"));
+        var csilField3 = Cbor.AsText(Cbor.Require(value, "purpose"));
+        var csilField4 = Cbor.AsText(Cbor.Require(value, "key_usage"));
+        var csilField5 = Cbor.AsText(Cbor.Require(value, "algorithm"));
+        var csilField6 = Cbor.AsBytes(Cbor.Require(value, "public_key"));
+        return new StartApplicationKeyChallengeRequest
+        {
+            SubjectUserId = csilField0,
+            ApplicationId = csilField1,
+            InstanceId = csilField2,
+            Purpose = csilField3,
+            KeyUsage = csilField4,
+            Algorithm = csilField5,
+            PublicKey = csilField6,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a StartApplicationKeyChallengeResponse.</summary>
+    public static CborValue StartApplicationKeyChallengeResponseToCborValue(StartApplicationKeyChallengeResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        if (value.Challenge is { } csilV0)
+        {
+            csilEntries.Add((new CborValue.Text("challenge"), new CborValue.Bytes(csilV0)));
+        }
+        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("challenge_id"), new CborValue.Text(value.ChallengeId)));
+        if (value.SealedChallenge is { } csilV3)
+        {
+            csilEntries.Add((new CborValue.Text("sealed_challenge"), new CborValue.Bytes(csilV3)));
+        }
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a StartApplicationKeyChallengeResponse from a decoded CBOR value tree.</summary>
+    public static StartApplicationKeyChallengeResponse StartApplicationKeyChallengeResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "challenge_id"));
+        byte[]? csilField1 = Cbor.MapGet(value, "challenge") is { } csilRaw1 ? Cbor.AsBytes(csilRaw1) : null;
+        byte[]? csilField2 = Cbor.MapGet(value, "sealed_challenge") is { } csilRaw2 ? Cbor.AsBytes(csilRaw2) : null;
+        var csilField3 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        return new StartApplicationKeyChallengeResponse
+        {
+            ChallengeId = csilField0,
+            Challenge = csilField1,
+            SealedChallenge = csilField2,
+            ExpiresAt = csilField3,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a AddApplicationKeyRequest.</summary>
+    public static CborValue AddApplicationKeyRequestToCborValue(AddApplicationKeyRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("request"), SignedApplicationKeyAdditionToCborValue(value.Request)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a AddApplicationKeyRequest from a decoded CBOR value tree.</summary>
+    public static AddApplicationKeyRequest AddApplicationKeyRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = SignedApplicationKeyAdditionFromCborValue(Cbor.Require(value, "request"));
+        return new AddApplicationKeyRequest
+        {
+            Request = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a AddApplicationKeyResponse.</summary>
+    public static CborValue AddApplicationKeyResponseToCborValue(AddApplicationKeyResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("attestation"), SignedApplicationKeyAttestationToCborValue(value.Attestation)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a AddApplicationKeyResponse from a decoded CBOR value tree.</summary>
+    public static AddApplicationKeyResponse AddApplicationKeyResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = SignedApplicationKeyAttestationFromCborValue(Cbor.Require(value, "attestation"));
+        return new AddApplicationKeyResponse
+        {
+            Attestation = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RenewApplicationKeyAttestationRequest.</summary>
+    public static CborValue RenewApplicationKeyAttestationRequestToCborValue(RenewApplicationKeyAttestationRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("request"), SignedApplicationKeyRenewalToCborValue(value.Request)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RenewApplicationKeyAttestationRequest from a decoded CBOR value tree.</summary>
+    public static RenewApplicationKeyAttestationRequest RenewApplicationKeyAttestationRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = SignedApplicationKeyRenewalFromCborValue(Cbor.Require(value, "request"));
+        return new RenewApplicationKeyAttestationRequest
+        {
+            Request = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RenewApplicationKeyAttestationResponse.</summary>
+    public static CborValue RenewApplicationKeyAttestationResponseToCborValue(RenewApplicationKeyAttestationResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("signed"), new CborValue.Bool(value.Signed)));
+        csilEntries.Add((new CborValue.Text("attestation"), SignedApplicationKeyAttestationToCborValue(value.Attestation)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RenewApplicationKeyAttestationResponse from a decoded CBOR value tree.</summary>
+    public static RenewApplicationKeyAttestationResponse RenewApplicationKeyAttestationResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = SignedApplicationKeyAttestationFromCborValue(Cbor.Require(value, "attestation"));
+        var csilField1 = Cbor.AsBool(Cbor.Require(value, "signed"));
+        return new RenewApplicationKeyAttestationResponse
+        {
+            Attestation = csilField0,
+            Signed = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RevokeApplicationKeyRequest.</summary>
+    public static CborValue RevokeApplicationKeyRequestToCborValue(RevokeApplicationKeyRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("revocation"), ApplicationKeyRevocationToCborValue(value.Revocation)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RevokeApplicationKeyRequest from a decoded CBOR value tree.</summary>
+    public static RevokeApplicationKeyRequest RevokeApplicationKeyRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = ApplicationKeyRevocationFromCborValue(Cbor.Require(value, "revocation"));
+        return new RevokeApplicationKeyRequest
+        {
+            Revocation = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RevokeApplicationKeyResponse.</summary>
+    public static CborValue RevokeApplicationKeyResponseToCborValue(RevokeApplicationKeyResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("revoked_at"), new CborValue.Text(value.RevokedAt)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RevokeApplicationKeyResponse from a decoded CBOR value tree.</summary>
+    public static RevokeApplicationKeyResponse RevokeApplicationKeyResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "revoked_at"));
+        return new RevokeApplicationKeyResponse
+        {
+            RevokedAt = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a EnrollApplicationInstanceRequest.</summary>
+    public static CborValue EnrollApplicationInstanceRequestToCborValue(EnrollApplicationInstanceRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("keys"), new CborValue.Array(value.Keys.Select(csilElem => (CborValue)SignedApplicationKeyAdditionToCborValue(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("instance_id"), new CborValue.Text(value.InstanceId)));
+        csilEntries.Add((new CborValue.Text("application_id"), new CborValue.Text(value.ApplicationId)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a EnrollApplicationInstanceRequest from a decoded CBOR value tree.</summary>
+    public static EnrollApplicationInstanceRequest EnrollApplicationInstanceRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "application_id"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "instance_id"));
+        var csilField2 = Cbor.AsArray(Cbor.Require(value, "keys")).Select(csilElem => SignedApplicationKeyAdditionFromCborValue(csilElem)).ToList();
+        return new EnrollApplicationInstanceRequest
+        {
+            ApplicationId = csilField0,
+            InstanceId = csilField1,
+            Keys = csilField2,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a EnrollApplicationInstanceResponse.</summary>
+    public static CborValue EnrollApplicationInstanceResponseToCborValue(EnrollApplicationInstanceResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("instance_id"), new CborValue.Text(value.InstanceId)));
+        csilEntries.Add((new CborValue.Text("attestations"), new CborValue.Array(value.Attestations.Select(csilElem => (CborValue)SignedApplicationKeyAttestationToCborValue(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("application_id"), new CborValue.Text(value.ApplicationId)));
+        csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
+        csilEntries.Add((new CborValue.Text("subject_user_id"), new CborValue.Text(value.SubjectUserId)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a EnrollApplicationInstanceResponse from a decoded CBOR value tree.</summary>
+    public static EnrollApplicationInstanceResponse EnrollApplicationInstanceResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "subject_user_id"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "subject_domain"));
+        var csilField2 = Cbor.AsText(Cbor.Require(value, "application_id"));
+        var csilField3 = Cbor.AsText(Cbor.Require(value, "instance_id"));
+        var csilField4 = Cbor.AsArray(Cbor.Require(value, "attestations")).Select(csilElem => SignedApplicationKeyAttestationFromCborValue(csilElem)).ToList();
+        return new EnrollApplicationInstanceResponse
+        {
+            SubjectUserId = csilField0,
+            SubjectDomain = csilField1,
+            ApplicationId = csilField2,
+            InstanceId = csilField3,
+            Attestations = csilField4,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a GetApplicationKeysRequest.</summary>
+    public static CborValue GetApplicationKeysRequestToCborValue(GetApplicationKeysRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("instance_id"), new CborValue.Text(value.InstanceId)));
+        csilEntries.Add((new CborValue.Text("application_id"), new CborValue.Text(value.ApplicationId)));
+        csilEntries.Add((new CborValue.Text("subject_user_id"), new CborValue.Text(value.SubjectUserId)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a GetApplicationKeysRequest from a decoded CBOR value tree.</summary>
+    public static GetApplicationKeysRequest GetApplicationKeysRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "subject_user_id"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "application_id"));
+        var csilField2 = Cbor.AsText(Cbor.Require(value, "instance_id"));
+        return new GetApplicationKeysRequest
+        {
+            SubjectUserId = csilField0,
+            ApplicationId = csilField1,
+            InstanceId = csilField2,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a GetApplicationKeysResponse.</summary>
+    public static CborValue GetApplicationKeysResponseToCborValue(GetApplicationKeysResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("keys"), new CborValue.Array(value.Keys.Select(csilElem => (CborValue)SignedApplicationKeyAttestationToCborValue(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("instance_id"), new CborValue.Text(value.InstanceId)));
+        csilEntries.Add((new CborValue.Text("revocations"), new CborValue.Array(value.Revocations.Select(csilElem => (CborValue)ApplicationKeyRevocationToCborValue(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("application_id"), new CborValue.Text(value.ApplicationId)));
+        csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
+        csilEntries.Add((new CborValue.Text("subject_user_id"), new CborValue.Text(value.SubjectUserId)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a GetApplicationKeysResponse from a decoded CBOR value tree.</summary>
+    public static GetApplicationKeysResponse GetApplicationKeysResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "subject_user_id"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "subject_domain"));
+        var csilField2 = Cbor.AsText(Cbor.Require(value, "application_id"));
+        var csilField3 = Cbor.AsText(Cbor.Require(value, "instance_id"));
+        var csilField4 = Cbor.AsArray(Cbor.Require(value, "keys")).Select(csilElem => SignedApplicationKeyAttestationFromCborValue(csilElem)).ToList();
+        var csilField5 = Cbor.AsArray(Cbor.Require(value, "revocations")).Select(csilElem => ApplicationKeyRevocationFromCborValue(csilElem)).ToList();
+        return new GetApplicationKeysResponse
+        {
+            SubjectUserId = csilField0,
+            SubjectDomain = csilField1,
+            ApplicationId = csilField2,
+            InstanceId = csilField3,
+            Keys = csilField4,
+            Revocations = csilField5,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RpResolveDomainKeysRequest.</summary>
+    public static CborValue RpResolveDomainKeysRequestToCborValue(RpResolveDomainKeysRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("domain"), new CborValue.Text(value.Domain)));
+        if (value.MaxCacheAgeSeconds is { } csilV1)
+        {
+            csilEntries.Add((new CborValue.Text("max_cache_age_seconds"), new CborValue.Int(csilV1)));
+        }
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RpResolveDomainKeysRequest from a decoded CBOR value tree.</summary>
+    public static RpResolveDomainKeysRequest RpResolveDomainKeysRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "domain"));
+        long? csilField1 = Cbor.MapGet(value, "max_cache_age_seconds") is { } csilRaw1 ? Cbor.AsI64(csilRaw1) : null;
+        return new RpResolveDomainKeysRequest
+        {
+            Domain = csilField0,
+            MaxCacheAgeSeconds = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RpResolveDomainKeysResponse.</summary>
+    public static CborValue RpResolveDomainKeysResponseToCborValue(RpResolveDomainKeysResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("keys"), new CborValue.Array(value.Keys.Select(csilElem => (CborValue)DomainPublicKeyToCborValue(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("domain"), new CborValue.Text(value.Domain)));
+        csilEntries.Add((new CborValue.Text("fetched_at"), new CborValue.Text(value.FetchedAt)));
+        csilEntries.Add((new CborValue.Text("revocations"), new CborValue.Array(value.Revocations.Select(csilElem => (CborValue)RevocationCertificateToCborValue(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("cache_status"), new CborValue.Text(value.CacheStatus)));
+        csilEntries.Add((new CborValue.Text("revocations_checked_at"), new CborValue.Text(value.RevocationsCheckedAt)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RpResolveDomainKeysResponse from a decoded CBOR value tree.</summary>
+    public static RpResolveDomainKeysResponse RpResolveDomainKeysResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "domain"));
+        var csilField1 = Cbor.AsArray(Cbor.Require(value, "keys")).Select(csilElem => DomainPublicKeyFromCborValue(csilElem)).ToList();
+        var csilField2 = Cbor.AsArray(Cbor.Require(value, "revocations")).Select(csilElem => RevocationCertificateFromCborValue(csilElem)).ToList();
+        var csilField3 = Cbor.AsText(Cbor.Require(value, "fetched_at"));
+        var csilField4 = Cbor.AsText(Cbor.Require(value, "revocations_checked_at"));
+        var csilField5 = Cbor.AsText(Cbor.Require(value, "cache_status"));
+        return new RpResolveDomainKeysResponse
+        {
+            Domain = csilField0,
+            Keys = csilField1,
+            Revocations = csilField2,
+            FetchedAt = csilField3,
+            RevocationsCheckedAt = csilField4,
+            CacheStatus = csilField5,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RpResolveApplicationKeysRequest.</summary>
+    public static CborValue RpResolveApplicationKeysRequestToCborValue(RpResolveApplicationKeysRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("instance_id"), new CborValue.Text(value.InstanceId)));
+        csilEntries.Add((new CborValue.Text("application_id"), new CborValue.Text(value.ApplicationId)));
+        csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
+        csilEntries.Add((new CborValue.Text("subject_user_id"), new CborValue.Text(value.SubjectUserId)));
+        if (value.MaxCacheAgeSeconds is { } csilV4)
+        {
+            csilEntries.Add((new CborValue.Text("max_cache_age_seconds"), new CborValue.Int(csilV4)));
+        }
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RpResolveApplicationKeysRequest from a decoded CBOR value tree.</summary>
+    public static RpResolveApplicationKeysRequest RpResolveApplicationKeysRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "subject_user_id"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "subject_domain"));
+        var csilField2 = Cbor.AsText(Cbor.Require(value, "application_id"));
+        var csilField3 = Cbor.AsText(Cbor.Require(value, "instance_id"));
+        long? csilField4 = Cbor.MapGet(value, "max_cache_age_seconds") is { } csilRaw4 ? Cbor.AsI64(csilRaw4) : null;
+        return new RpResolveApplicationKeysRequest
+        {
+            SubjectUserId = csilField0,
+            SubjectDomain = csilField1,
+            ApplicationId = csilField2,
+            InstanceId = csilField3,
+            MaxCacheAgeSeconds = csilField4,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RpResolveApplicationKeysResponse.</summary>
+    public static CborValue RpResolveApplicationKeysResponseToCborValue(RpResolveApplicationKeysResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("fetched_at"), new CborValue.Text(value.FetchedAt)));
+        csilEntries.Add((new CborValue.Text("instance_id"), new CborValue.Text(value.InstanceId)));
+        csilEntries.Add((new CborValue.Text("cache_status"), new CborValue.Text(value.CacheStatus)));
+        csilEntries.Add((new CborValue.Text("application_id"), new CborValue.Text(value.ApplicationId)));
+        csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
+        csilEntries.Add((new CborValue.Text("subject_user_id"), new CborValue.Text(value.SubjectUserId)));
+        csilEntries.Add((new CborValue.Text("application_keys"), new CborValue.Array(value.ApplicationKeys.Select(csilElem => (CborValue)SignedApplicationKeyAttestationToCborValue(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("home_domain_keys"), new CborValue.Array(value.HomeDomainKeys.Select(csilElem => (CborValue)DomainPublicKeyToCborValue(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("revocations_checked_at"), new CborValue.Text(value.RevocationsCheckedAt)));
+        csilEntries.Add((new CborValue.Text("application_key_revocations"), new CborValue.Array(value.ApplicationKeyRevocations.Select(csilElem => (CborValue)ApplicationKeyRevocationToCborValue(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("home_domain_key_revocations"), new CborValue.Array(value.HomeDomainKeyRevocations.Select(csilElem => (CborValue)RevocationCertificateToCborValue(csilElem)).ToList())));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RpResolveApplicationKeysResponse from a decoded CBOR value tree.</summary>
+    public static RpResolveApplicationKeysResponse RpResolveApplicationKeysResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "subject_user_id"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "subject_domain"));
+        var csilField2 = Cbor.AsText(Cbor.Require(value, "application_id"));
+        var csilField3 = Cbor.AsText(Cbor.Require(value, "instance_id"));
+        var csilField4 = Cbor.AsArray(Cbor.Require(value, "application_keys")).Select(csilElem => SignedApplicationKeyAttestationFromCborValue(csilElem)).ToList();
+        var csilField5 = Cbor.AsArray(Cbor.Require(value, "application_key_revocations")).Select(csilElem => ApplicationKeyRevocationFromCborValue(csilElem)).ToList();
+        var csilField6 = Cbor.AsArray(Cbor.Require(value, "home_domain_keys")).Select(csilElem => DomainPublicKeyFromCborValue(csilElem)).ToList();
+        var csilField7 = Cbor.AsArray(Cbor.Require(value, "home_domain_key_revocations")).Select(csilElem => RevocationCertificateFromCborValue(csilElem)).ToList();
+        var csilField8 = Cbor.AsText(Cbor.Require(value, "fetched_at"));
+        var csilField9 = Cbor.AsText(Cbor.Require(value, "revocations_checked_at"));
+        var csilField10 = Cbor.AsText(Cbor.Require(value, "cache_status"));
+        return new RpResolveApplicationKeysResponse
+        {
+            SubjectUserId = csilField0,
+            SubjectDomain = csilField1,
+            ApplicationId = csilField2,
+            InstanceId = csilField3,
+            ApplicationKeys = csilField4,
+            ApplicationKeyRevocations = csilField5,
+            HomeDomainKeys = csilField6,
+            HomeDomainKeyRevocations = csilField7,
+            FetchedAt = csilField8,
+            RevocationsCheckedAt = csilField9,
+            CacheStatus = csilField10,
         };
     }
 }

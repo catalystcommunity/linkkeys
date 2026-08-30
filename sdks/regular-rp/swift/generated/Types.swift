@@ -4421,3 +4421,688 @@ public struct ListLocalesResponse: Equatable, Sendable {
     ]
 }
 
+/// ApplicationKeySignature is a generated CSIL record type.
+public struct ApplicationKeySignature: Equatable, Sendable {
+    /// wire key: signed_by_key_id
+    public let signedByKeyId: String
+    public let signature: [UInt8]
+
+    public init(signedByKeyId: String, signature: [UInt8]) {
+        self.signedByKeyId = signedByKeyId
+        self.signature = signature
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "signedByKeyId": "signed_by_key_id",
+        "signature": "signature"
+    ]
+}
+
+/// ApplicationKeyAttestation is a generated CSIL record type.
+public struct ApplicationKeyAttestation: Equatable, Sendable {
+    /// wire key: subject_user_id
+    public let subjectUserId: String
+    /// wire key: subject_domain
+    public let subjectDomain: String
+    /// wire key: application_id
+    public let applicationId: String
+    /// wire key: instance_id
+    public let instanceId: String
+    /// wire key: key_id
+    public let keyId: String
+    /// wire key: key_usage
+    public let keyUsage: String
+    public let algorithm: String
+    /// wire key: public_key
+    public let publicKey: [UInt8]
+    public let fingerprint: String
+    /// wire key: key_created_at
+    public let keyCreatedAt: String
+    /// wire key: key_expires_at
+    public let keyExpiresAt: String
+    /// wire key: attested_at
+    public let attestedAt: String
+    /// wire key: attestation_expires_at
+    public let attestationExpiresAt: String
+
+    public init(subjectUserId: String, subjectDomain: String, applicationId: String, instanceId: String, keyId: String, keyUsage: String, algorithm: String, publicKey: [UInt8], fingerprint: String, keyCreatedAt: String, keyExpiresAt: String, attestedAt: String, attestationExpiresAt: String) {
+        self.subjectUserId = subjectUserId
+        self.subjectDomain = subjectDomain
+        self.applicationId = applicationId
+        self.instanceId = instanceId
+        self.keyId = keyId
+        self.keyUsage = keyUsage
+        self.algorithm = algorithm
+        self.publicKey = publicKey
+        self.fingerprint = fingerprint
+        self.keyCreatedAt = keyCreatedAt
+        self.keyExpiresAt = keyExpiresAt
+        self.attestedAt = attestedAt
+        self.attestationExpiresAt = attestationExpiresAt
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "subjectUserId": "subject_user_id",
+        "subjectDomain": "subject_domain",
+        "applicationId": "application_id",
+        "instanceId": "instance_id",
+        "keyId": "key_id",
+        "keyUsage": "key_usage",
+        "algorithm": "algorithm",
+        "publicKey": "public_key",
+        "fingerprint": "fingerprint",
+        "keyCreatedAt": "key_created_at",
+        "keyExpiresAt": "key_expires_at",
+        "attestedAt": "attested_at",
+        "attestationExpiresAt": "attestation_expires_at"
+    ]
+}
+
+/// SignedApplicationKeyAttestation is a generated CSIL record type.
+public struct SignedApplicationKeyAttestation: Equatable, Sendable {
+    public let attestation: [UInt8]
+    public let signatures: [ClaimSignature]
+
+    public init(attestation: [UInt8], signatures: [ClaimSignature]) {
+        self.attestation = attestation
+        self.signatures = signatures
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "attestation": "attestation",
+        "signatures": "signatures"
+    ]
+}
+
+/// ApplicationKeyAddition is a generated CSIL record type.
+public struct ApplicationKeyAddition: Equatable, Sendable {
+    /// wire key: subject_user_id
+    public let subjectUserId: String
+    /// wire key: subject_domain
+    public let subjectDomain: String
+    /// wire key: application_id
+    public let applicationId: String
+    /// wire key: instance_id
+    public let instanceId: String
+    /// wire key: key_id
+    public let keyId: String
+    /// wire key: key_usage
+    public let keyUsage: String
+    public let algorithm: String
+    /// wire key: public_key
+    public let publicKey: [UInt8]
+    public let fingerprint: String
+    /// wire key: requested_key_lifetime_seconds
+    public let requestedKeyLifetimeSeconds: Int64
+    /// wire key: challenge_id
+    public let challengeId: String
+    public let challenge: [UInt8]
+    /// wire key: requested_at
+    public let requestedAt: String
+    /// wire key: expires_at
+    public let expiresAt: String
+
+    public init(subjectUserId: String, subjectDomain: String, applicationId: String, instanceId: String, keyId: String, keyUsage: String, algorithm: String, publicKey: [UInt8], fingerprint: String, requestedKeyLifetimeSeconds: Int64, challengeId: String, challenge: [UInt8], requestedAt: String, expiresAt: String) {
+        self.subjectUserId = subjectUserId
+        self.subjectDomain = subjectDomain
+        self.applicationId = applicationId
+        self.instanceId = instanceId
+        self.keyId = keyId
+        self.keyUsage = keyUsage
+        self.algorithm = algorithm
+        self.publicKey = publicKey
+        self.fingerprint = fingerprint
+        self.requestedKeyLifetimeSeconds = requestedKeyLifetimeSeconds
+        self.challengeId = challengeId
+        self.challenge = challenge
+        self.requestedAt = requestedAt
+        self.expiresAt = expiresAt
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "subjectUserId": "subject_user_id",
+        "subjectDomain": "subject_domain",
+        "applicationId": "application_id",
+        "instanceId": "instance_id",
+        "keyId": "key_id",
+        "keyUsage": "key_usage",
+        "algorithm": "algorithm",
+        "publicKey": "public_key",
+        "fingerprint": "fingerprint",
+        "requestedKeyLifetimeSeconds": "requested_key_lifetime_seconds",
+        "challengeId": "challenge_id",
+        "challenge": "challenge",
+        "requestedAt": "requested_at",
+        "expiresAt": "expires_at"
+    ]
+}
+
+/// SignedApplicationKeyAddition is a generated CSIL record type.
+public struct SignedApplicationKeyAddition: Equatable, Sendable {
+    public let addition: [UInt8]
+    public let signatures: [ApplicationKeySignature]
+    /// wire key: possession_proof
+    public let possessionProof: [UInt8]?
+
+    public init(addition: [UInt8], signatures: [ApplicationKeySignature], possessionProof: [UInt8]? = nil) {
+        self.addition = addition
+        self.signatures = signatures
+        self.possessionProof = possessionProof
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "addition": "addition",
+        "signatures": "signatures",
+        "possessionProof": "possession_proof"
+    ]
+}
+
+/// ApplicationKeyRenewal is a generated CSIL record type.
+public struct ApplicationKeyRenewal: Equatable, Sendable {
+    /// wire key: subject_user_id
+    public let subjectUserId: String
+    /// wire key: subject_domain
+    public let subjectDomain: String
+    /// wire key: application_id
+    public let applicationId: String
+    /// wire key: instance_id
+    public let instanceId: String
+    /// wire key: key_id
+    public let keyId: String
+    /// wire key: challenge_id
+    public let challengeId: String
+    public let challenge: [UInt8]
+    /// wire key: requested_at
+    public let requestedAt: String
+    /// wire key: expires_at
+    public let expiresAt: String
+
+    public init(subjectUserId: String, subjectDomain: String, applicationId: String, instanceId: String, keyId: String, challengeId: String, challenge: [UInt8], requestedAt: String, expiresAt: String) {
+        self.subjectUserId = subjectUserId
+        self.subjectDomain = subjectDomain
+        self.applicationId = applicationId
+        self.instanceId = instanceId
+        self.keyId = keyId
+        self.challengeId = challengeId
+        self.challenge = challenge
+        self.requestedAt = requestedAt
+        self.expiresAt = expiresAt
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "subjectUserId": "subject_user_id",
+        "subjectDomain": "subject_domain",
+        "applicationId": "application_id",
+        "instanceId": "instance_id",
+        "keyId": "key_id",
+        "challengeId": "challenge_id",
+        "challenge": "challenge",
+        "requestedAt": "requested_at",
+        "expiresAt": "expires_at"
+    ]
+}
+
+/// SignedApplicationKeyRenewal is a generated CSIL record type.
+public struct SignedApplicationKeyRenewal: Equatable, Sendable {
+    public let renewal: [UInt8]
+    public let signatures: [ApplicationKeySignature]
+    /// wire key: possession_proof
+    public let possessionProof: [UInt8]?
+
+    public init(renewal: [UInt8], signatures: [ApplicationKeySignature], possessionProof: [UInt8]? = nil) {
+        self.renewal = renewal
+        self.signatures = signatures
+        self.possessionProof = possessionProof
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "renewal": "renewal",
+        "signatures": "signatures",
+        "possessionProof": "possession_proof"
+    ]
+}
+
+/// ApplicationKeyRevocation is a generated CSIL record type.
+public struct ApplicationKeyRevocation: Equatable, Sendable {
+    /// wire key: subject_user_id
+    public let subjectUserId: String
+    /// wire key: subject_domain
+    public let subjectDomain: String
+    /// wire key: application_id
+    public let applicationId: String
+    /// wire key: instance_id
+    public let instanceId: String
+    /// wire key: target_key_id
+    public let targetKeyId: String
+    /// wire key: target_fingerprint
+    public let targetFingerprint: String
+    /// wire key: revoked_at
+    public let revokedAt: String
+    public let signatures: [ApplicationKeySignature]
+
+    public init(subjectUserId: String, subjectDomain: String, applicationId: String, instanceId: String, targetKeyId: String, targetFingerprint: String, revokedAt: String, signatures: [ApplicationKeySignature]) {
+        self.subjectUserId = subjectUserId
+        self.subjectDomain = subjectDomain
+        self.applicationId = applicationId
+        self.instanceId = instanceId
+        self.targetKeyId = targetKeyId
+        self.targetFingerprint = targetFingerprint
+        self.revokedAt = revokedAt
+        self.signatures = signatures
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "subjectUserId": "subject_user_id",
+        "subjectDomain": "subject_domain",
+        "applicationId": "application_id",
+        "instanceId": "instance_id",
+        "targetKeyId": "target_key_id",
+        "targetFingerprint": "target_fingerprint",
+        "revokedAt": "revoked_at",
+        "signatures": "signatures"
+    ]
+}
+
+/// StartApplicationKeyChallengeRequest is a generated CSIL record type.
+public struct StartApplicationKeyChallengeRequest: Equatable, Sendable {
+    /// wire key: subject_user_id
+    public let subjectUserId: String
+    /// wire key: application_id
+    public let applicationId: String
+    /// wire key: instance_id
+    public let instanceId: String
+    public let purpose: String
+    /// wire key: key_usage
+    public let keyUsage: String
+    public let algorithm: String
+    /// wire key: public_key
+    public let publicKey: [UInt8]
+
+    public init(subjectUserId: String, applicationId: String, instanceId: String, purpose: String, keyUsage: String, algorithm: String, publicKey: [UInt8]) {
+        self.subjectUserId = subjectUserId
+        self.applicationId = applicationId
+        self.instanceId = instanceId
+        self.purpose = purpose
+        self.keyUsage = keyUsage
+        self.algorithm = algorithm
+        self.publicKey = publicKey
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "subjectUserId": "subject_user_id",
+        "applicationId": "application_id",
+        "instanceId": "instance_id",
+        "purpose": "purpose",
+        "keyUsage": "key_usage",
+        "algorithm": "algorithm",
+        "publicKey": "public_key"
+    ]
+}
+
+/// StartApplicationKeyChallengeResponse is a generated CSIL record type.
+public struct StartApplicationKeyChallengeResponse: Equatable, Sendable {
+    /// wire key: challenge_id
+    public let challengeId: String
+    public let challenge: [UInt8]?
+    /// wire key: sealed_challenge
+    public let sealedChallenge: [UInt8]?
+    /// wire key: expires_at
+    public let expiresAt: String
+
+    public init(challengeId: String, challenge: [UInt8]? = nil, sealedChallenge: [UInt8]? = nil, expiresAt: String) {
+        self.challengeId = challengeId
+        self.challenge = challenge
+        self.sealedChallenge = sealedChallenge
+        self.expiresAt = expiresAt
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "challengeId": "challenge_id",
+        "challenge": "challenge",
+        "sealedChallenge": "sealed_challenge",
+        "expiresAt": "expires_at"
+    ]
+}
+
+/// AddApplicationKeyRequest is a generated CSIL record type.
+public struct AddApplicationKeyRequest: Equatable, Sendable {
+    public let request: SignedApplicationKeyAddition
+
+    public init(request: SignedApplicationKeyAddition) {
+        self.request = request
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "request": "request"
+    ]
+}
+
+/// AddApplicationKeyResponse is a generated CSIL record type.
+public struct AddApplicationKeyResponse: Equatable, Sendable {
+    public let attestation: SignedApplicationKeyAttestation
+
+    public init(attestation: SignedApplicationKeyAttestation) {
+        self.attestation = attestation
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "attestation": "attestation"
+    ]
+}
+
+/// RenewApplicationKeyAttestationRequest is a generated CSIL record type.
+public struct RenewApplicationKeyAttestationRequest: Equatable, Sendable {
+    public let request: SignedApplicationKeyRenewal
+
+    public init(request: SignedApplicationKeyRenewal) {
+        self.request = request
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "request": "request"
+    ]
+}
+
+/// RenewApplicationKeyAttestationResponse is a generated CSIL record type.
+public struct RenewApplicationKeyAttestationResponse: Equatable, Sendable {
+    public let attestation: SignedApplicationKeyAttestation
+    public let signed: Bool
+
+    public init(attestation: SignedApplicationKeyAttestation, signed: Bool) {
+        self.attestation = attestation
+        self.signed = signed
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "attestation": "attestation",
+        "signed": "signed"
+    ]
+}
+
+/// RevokeApplicationKeyRequest is a generated CSIL record type.
+public struct RevokeApplicationKeyRequest: Equatable, Sendable {
+    public let revocation: ApplicationKeyRevocation
+
+    public init(revocation: ApplicationKeyRevocation) {
+        self.revocation = revocation
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "revocation": "revocation"
+    ]
+}
+
+/// RevokeApplicationKeyResponse is a generated CSIL record type.
+public struct RevokeApplicationKeyResponse: Equatable, Sendable {
+    /// wire key: revoked_at
+    public let revokedAt: String
+
+    public init(revokedAt: String) {
+        self.revokedAt = revokedAt
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "revokedAt": "revoked_at"
+    ]
+}
+
+/// EnrollApplicationInstanceRequest is a generated CSIL record type.
+public struct EnrollApplicationInstanceRequest: Equatable, Sendable {
+    /// wire key: application_id
+    public let applicationId: String
+    /// wire key: instance_id
+    public let instanceId: String
+    public let keys: [SignedApplicationKeyAddition]
+
+    public init(applicationId: String, instanceId: String, keys: [SignedApplicationKeyAddition]) {
+        self.applicationId = applicationId
+        self.instanceId = instanceId
+        self.keys = keys
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "applicationId": "application_id",
+        "instanceId": "instance_id",
+        "keys": "keys"
+    ]
+}
+
+/// EnrollApplicationInstanceResponse is a generated CSIL record type.
+public struct EnrollApplicationInstanceResponse: Equatable, Sendable {
+    /// wire key: subject_user_id
+    public let subjectUserId: String
+    /// wire key: subject_domain
+    public let subjectDomain: String
+    /// wire key: application_id
+    public let applicationId: String
+    /// wire key: instance_id
+    public let instanceId: String
+    public let attestations: [SignedApplicationKeyAttestation]
+
+    public init(subjectUserId: String, subjectDomain: String, applicationId: String, instanceId: String, attestations: [SignedApplicationKeyAttestation]) {
+        self.subjectUserId = subjectUserId
+        self.subjectDomain = subjectDomain
+        self.applicationId = applicationId
+        self.instanceId = instanceId
+        self.attestations = attestations
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "subjectUserId": "subject_user_id",
+        "subjectDomain": "subject_domain",
+        "applicationId": "application_id",
+        "instanceId": "instance_id",
+        "attestations": "attestations"
+    ]
+}
+
+/// GetApplicationKeysRequest is a generated CSIL record type.
+public struct GetApplicationKeysRequest: Equatable, Sendable {
+    /// wire key: subject_user_id
+    public let subjectUserId: String
+    /// wire key: application_id
+    public let applicationId: String
+    /// wire key: instance_id
+    public let instanceId: String
+
+    public init(subjectUserId: String, applicationId: String, instanceId: String) {
+        self.subjectUserId = subjectUserId
+        self.applicationId = applicationId
+        self.instanceId = instanceId
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "subjectUserId": "subject_user_id",
+        "applicationId": "application_id",
+        "instanceId": "instance_id"
+    ]
+}
+
+/// GetApplicationKeysResponse is a generated CSIL record type.
+public struct GetApplicationKeysResponse: Equatable, Sendable {
+    /// wire key: subject_user_id
+    public let subjectUserId: String
+    /// wire key: subject_domain
+    public let subjectDomain: String
+    /// wire key: application_id
+    public let applicationId: String
+    /// wire key: instance_id
+    public let instanceId: String
+    public let keys: [SignedApplicationKeyAttestation]
+    public let revocations: [ApplicationKeyRevocation]
+
+    public init(subjectUserId: String, subjectDomain: String, applicationId: String, instanceId: String, keys: [SignedApplicationKeyAttestation], revocations: [ApplicationKeyRevocation]) {
+        self.subjectUserId = subjectUserId
+        self.subjectDomain = subjectDomain
+        self.applicationId = applicationId
+        self.instanceId = instanceId
+        self.keys = keys
+        self.revocations = revocations
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "subjectUserId": "subject_user_id",
+        "subjectDomain": "subject_domain",
+        "applicationId": "application_id",
+        "instanceId": "instance_id",
+        "keys": "keys",
+        "revocations": "revocations"
+    ]
+}
+
+/// RpResolveDomainKeysRequest is a generated CSIL record type.
+public struct RpResolveDomainKeysRequest: Equatable, Sendable {
+    public let domain: String
+    /// wire key: max_cache_age_seconds
+    public let maxCacheAgeSeconds: Int64?
+
+    public init(domain: String, maxCacheAgeSeconds: Int64? = nil) {
+        self.domain = domain
+        self.maxCacheAgeSeconds = maxCacheAgeSeconds
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "domain": "domain",
+        "maxCacheAgeSeconds": "max_cache_age_seconds"
+    ]
+}
+
+/// RpResolveDomainKeysResponse is a generated CSIL record type.
+public struct RpResolveDomainKeysResponse: Equatable, Sendable {
+    public let domain: String
+    public let keys: [DomainPublicKey]
+    public let revocations: [RevocationCertificate]
+    /// wire key: fetched_at
+    public let fetchedAt: String
+    /// wire key: revocations_checked_at
+    public let revocationsCheckedAt: String
+    /// wire key: cache_status
+    public let cacheStatus: String
+
+    public init(domain: String, keys: [DomainPublicKey], revocations: [RevocationCertificate], fetchedAt: String, revocationsCheckedAt: String, cacheStatus: String) {
+        self.domain = domain
+        self.keys = keys
+        self.revocations = revocations
+        self.fetchedAt = fetchedAt
+        self.revocationsCheckedAt = revocationsCheckedAt
+        self.cacheStatus = cacheStatus
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "domain": "domain",
+        "keys": "keys",
+        "revocations": "revocations",
+        "fetchedAt": "fetched_at",
+        "revocationsCheckedAt": "revocations_checked_at",
+        "cacheStatus": "cache_status"
+    ]
+}
+
+/// RpResolveApplicationKeysRequest is a generated CSIL record type.
+public struct RpResolveApplicationKeysRequest: Equatable, Sendable {
+    /// wire key: subject_user_id
+    public let subjectUserId: String
+    /// wire key: subject_domain
+    public let subjectDomain: String
+    /// wire key: application_id
+    public let applicationId: String
+    /// wire key: instance_id
+    public let instanceId: String
+    /// wire key: max_cache_age_seconds
+    public let maxCacheAgeSeconds: Int64?
+
+    public init(subjectUserId: String, subjectDomain: String, applicationId: String, instanceId: String, maxCacheAgeSeconds: Int64? = nil) {
+        self.subjectUserId = subjectUserId
+        self.subjectDomain = subjectDomain
+        self.applicationId = applicationId
+        self.instanceId = instanceId
+        self.maxCacheAgeSeconds = maxCacheAgeSeconds
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "subjectUserId": "subject_user_id",
+        "subjectDomain": "subject_domain",
+        "applicationId": "application_id",
+        "instanceId": "instance_id",
+        "maxCacheAgeSeconds": "max_cache_age_seconds"
+    ]
+}
+
+/// RpResolveApplicationKeysResponse is a generated CSIL record type.
+public struct RpResolveApplicationKeysResponse: Equatable, Sendable {
+    /// wire key: subject_user_id
+    public let subjectUserId: String
+    /// wire key: subject_domain
+    public let subjectDomain: String
+    /// wire key: application_id
+    public let applicationId: String
+    /// wire key: instance_id
+    public let instanceId: String
+    /// wire key: application_keys
+    public let applicationKeys: [SignedApplicationKeyAttestation]
+    /// wire key: application_key_revocations
+    public let applicationKeyRevocations: [ApplicationKeyRevocation]
+    /// wire key: home_domain_keys
+    public let homeDomainKeys: [DomainPublicKey]
+    /// wire key: home_domain_key_revocations
+    public let homeDomainKeyRevocations: [RevocationCertificate]
+    /// wire key: fetched_at
+    public let fetchedAt: String
+    /// wire key: revocations_checked_at
+    public let revocationsCheckedAt: String
+    /// wire key: cache_status
+    public let cacheStatus: String
+
+    public init(subjectUserId: String, subjectDomain: String, applicationId: String, instanceId: String, applicationKeys: [SignedApplicationKeyAttestation], applicationKeyRevocations: [ApplicationKeyRevocation], homeDomainKeys: [DomainPublicKey], homeDomainKeyRevocations: [RevocationCertificate], fetchedAt: String, revocationsCheckedAt: String, cacheStatus: String) {
+        self.subjectUserId = subjectUserId
+        self.subjectDomain = subjectDomain
+        self.applicationId = applicationId
+        self.instanceId = instanceId
+        self.applicationKeys = applicationKeys
+        self.applicationKeyRevocations = applicationKeyRevocations
+        self.homeDomainKeys = homeDomainKeys
+        self.homeDomainKeyRevocations = homeDomainKeyRevocations
+        self.fetchedAt = fetchedAt
+        self.revocationsCheckedAt = revocationsCheckedAt
+        self.cacheStatus = cacheStatus
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "subjectUserId": "subject_user_id",
+        "subjectDomain": "subject_domain",
+        "applicationId": "application_id",
+        "instanceId": "instance_id",
+        "applicationKeys": "application_keys",
+        "applicationKeyRevocations": "application_key_revocations",
+        "homeDomainKeys": "home_domain_keys",
+        "homeDomainKeyRevocations": "home_domain_key_revocations",
+        "fetchedAt": "fetched_at",
+        "revocationsCheckedAt": "revocations_checked_at",
+        "cacheStatus": "cache_status"
+    ]
+}
+

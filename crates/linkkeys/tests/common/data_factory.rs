@@ -7,8 +7,9 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use linkkeys::db::models::{
-    AuthCredential, ClaimTypePolicy, DomainKey, GuestbookEntry, LocalRp, LocalRpClaimTicket,
-    Relation, ReleasePolicy, TrustedIssuer, User,
+    ApplicationInstance, ApplicationKey, ApplicationKeyAttestationRecord,
+    ApplicationKeyRevocationRecord, AuthCredential, ClaimTypePolicy, DomainKey, GuestbookEntry,
+    LocalRp, LocalRpClaimTicket, Relation, ReleasePolicy, TrustedIssuer, User,
 };
 use linkkeys::db::DbPool;
 
@@ -318,6 +319,149 @@ pub fn create_local_rp_claim_ticket(pool: &DbPool, overrides: &DataMap) -> Local
     .expect("Failed to create test local RP claim ticket")
 }
 
+/// Create an application instance directly via
+/// `DbPool::upsert_application_instance` (idempotent insert-or-get, same call
+/// application-key enrollment makes). Overrides: `subject_user_id` (default: a
+/// fresh test user), `application_id` (default `test-app-<rand>`),
+/// `instance_id` (default `test-instance-<rand>`), `enrolled_at` (RFC3339,
+/// default now).
+#[allow(dead_code)]
+pub fn create_application_instance(pool: &DbPool, overrides: &DataMap) -> ApplicationInstance {
+    let subject_user_id = match overrides.get("subject_user_id").and_then(|v| v.as_str()) {
+        Some(uid) => uid.to_string(),
+        None => create_user(pool, &DataMap::new()).id,
+    };
+    let application_id = extract_str(overrides, "application_id", || {
+        format!("test-app-{}", rand_suffix())
+    });
+    let instance_id = extract_str(overrides, "instance_id", || {
+        format!("test-instance-{}", rand_suffix())
+    });
+    let enrolled_at = extract_datetime(overrides, "enrolled_at", chrono::Utc::now);
+
+    pool.upsert_application_instance(&subject_user_id, &application_id, &instance_id, enrolled_at)
+        .expect("Failed to create test application instance")
+}
+
+/// Create an application public key directly via `DbPool::insert_application_key`.
+/// Overrides: `key_id` (default `test-appkey-<rand>`), `key_usage` (default
+/// `"sign"`; use `"agree"` for an X25519 key), `algorithm` (default
+/// `"ed25519"`), `created_at` (RFC3339, default now), `expires_at` (RFC3339,
+/// default now + 90 days). The public key bytes and fingerprint are always
+/// freshly generated (never overridable — a test that needs a specific key
+/// pair should generate it and call `DbPool::insert_application_key` directly).
+#[allow(dead_code)]
+pub fn create_application_key(
+    pool: &DbPool,
+    instance_row_id: &str,
+    overrides: &DataMap,
+) -> ApplicationKey {
+    let key_usage = extract_str(overrides, "key_usage", || "sign".to_string());
+    let algorithm = extract_str(overrides, "algorithm", || "ed25519".to_string());
+    let public_key = if key_usage == "agree" {
+        let (pk, _sk) = liblinkkeys::crypto::generate_x25519_keypair();
+        pk
+    } else {
+        let (vk, _sk) = liblinkkeys::crypto::generate_ed25519_keypair();
+        vk.as_bytes().to_vec()
+    };
+    let fingerprint = liblinkkeys::crypto::fingerprint(&public_key);
+    let key_id = extract_str(overrides, "key_id", || {
+        format!("test-appkey-{}", rand_suffix())
+    });
+    let created_at = extract_datetime(overrides, "created_at", chrono::Utc::now);
+    let expires_at = extract_datetime(overrides, "expires_at", || {
+        chrono::Utc::now() + chrono::Duration::days(90)
+    });
+
+    pool.insert_application_key(
+        instance_row_id,
+        &key_id,
+        &key_usage,
+        &algorithm,
+        &public_key,
+        &fingerprint,
+        created_at,
+        expires_at,
+    )
+    .expect("Failed to create test application key")
+}
+
+/// Create (or renew) an application key's attestation directly via
+/// `DbPool::upsert_application_key_attestation`. Overrides:
+/// `signed_attestation` (UTF-8 test payload, default a random test string —
+/// storage tests never need real CBOR, just distinguishable opaque bytes),
+/// `attested_at` (RFC3339, default now), `expires_at` (RFC3339, default now +
+/// 24h, matching the design's default attestation lifetime).
+#[allow(dead_code)]
+pub fn create_application_key_attestation(
+    pool: &DbPool,
+    application_key_row_id: &str,
+    overrides: &DataMap,
+) -> ApplicationKeyAttestationRecord {
+    let signed_attestation = overrides
+        .get("signed_attestation")
+        .and_then(|v| v.as_str())
+        .map(|s| s.as_bytes().to_vec())
+        .unwrap_or_else(|| format!("test-attestation-{}", rand_suffix()).into_bytes());
+    let attested_at = extract_datetime(overrides, "attested_at", chrono::Utc::now);
+    let expires_at = extract_datetime(overrides, "expires_at", || {
+        chrono::Utc::now() + chrono::Duration::hours(24)
+    });
+
+    pool.upsert_application_key_attestation(
+        application_key_row_id,
+        &signed_attestation,
+        attested_at,
+        expires_at,
+    )
+    .expect("Failed to create test application key attestation");
+
+    pool.get_application_key_attestation(application_key_row_id)
+        .expect("Failed to load test application key attestation")
+        .expect("Application key attestation missing after upsert")
+}
+
+/// Record an application-key revocation directly via
+/// `DbPool::insert_application_key_revocation`. Overrides: `target_key_id`
+/// (default `test-appkey-<rand>`), `target_fingerprint` (default a fresh test
+/// fingerprint), `revoked_at` (RFC3339, default now), `record` (UTF-8 test
+/// payload, default a random test string).
+#[allow(dead_code)]
+pub fn create_application_key_revocation(
+    pool: &DbPool,
+    instance_row_id: &str,
+    overrides: &DataMap,
+) -> ApplicationKeyRevocationRecord {
+    let target_key_id = extract_str(overrides, "target_key_id", || {
+        format!("test-appkey-{}", rand_suffix())
+    });
+    let target_fingerprint = extract_str(overrides, "target_fingerprint", || {
+        liblinkkeys::crypto::fingerprint(format!("test-fp-{}", rand_suffix()).as_bytes())
+    });
+    let revoked_at = extract_datetime(overrides, "revoked_at", chrono::Utc::now);
+    let record = overrides
+        .get("record")
+        .and_then(|v| v.as_str())
+        .map(|s| s.as_bytes().to_vec())
+        .unwrap_or_else(|| format!("test-revocation-{}", rand_suffix()).into_bytes());
+
+    pool.insert_application_key_revocation(
+        instance_row_id,
+        &target_key_id,
+        &target_fingerprint,
+        revoked_at,
+        &record,
+    )
+    .expect("Failed to create test application key revocation");
+
+    pool.list_application_key_revocations_since(instance_row_id, None)
+        .expect("Failed to load test application key revocations")
+        .into_iter()
+        .find(|r| r.target_key_id == target_key_id)
+        .expect("Application key revocation missing after insert")
+}
+
 #[allow(dead_code)]
 fn extract_str(overrides: &DataMap, key: &str, default: impl Fn() -> String) -> String {
     overrides
@@ -333,6 +477,20 @@ fn extract_bool(overrides: &DataMap, key: &str, default: bool) -> bool {
         .get(key)
         .and_then(|v| v.as_bool())
         .unwrap_or(default)
+}
+
+#[allow(dead_code)]
+fn extract_datetime(
+    overrides: &DataMap,
+    key: &str,
+    default: impl Fn() -> chrono::DateTime<chrono::Utc>,
+) -> chrono::DateTime<chrono::Utc> {
+    overrides
+        .get(key)
+        .and_then(|v| v.as_str())
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.with_timezone(&chrono::Utc))
+        .unwrap_or_else(default)
 }
 
 #[allow(dead_code)]

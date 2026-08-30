@@ -190,7 +190,8 @@ fn half_to_f64(h: u16) f64 {
     return @as(f64, @as(f32, @bitCast(bits)));
 }
 
-fn decode_value(alloc: std.mem.Allocator, b: []const u8) CodecError!Decoded {
+fn decode_value(alloc: std.mem.Allocator, b: []const u8, depth: usize) CodecError!Decoded {
+    if (depth > 64) return error.Malformed;
     if (b.len == 0) return error.UnexpectedEof;
     const ib = b[0];
     const major: u8 = ib >> 5;
@@ -207,38 +208,41 @@ fn decode_value(alloc: std.mem.Allocator, b: []const u8) CodecError!Decoded {
         2, 3 => {
             if (arg > b.len - n) return error.UnexpectedEof;
             const end = n + @as(usize, @intCast(arg));
+            if (major == 3 and !std.unicode.utf8ValidateSlice(b[n..end])) return error.Malformed;
             const slice = try alloc.dupe(u8, b[n..end]);
             const value: Value = if (major == 2) .{ .bytes = slice } else .{ .text = slice };
             return .{ .value = value, .consumed = end };
         },
         4 => {
+            if (arg > b.len - n) return error.UnexpectedEof;
             const count: usize = @intCast(arg);
             const items = try alloc.alloc(Value, count);
             var off = n;
             var i: usize = 0;
             while (i < count) : (i += 1) {
-                const d = try decode_value(alloc, b[off..]);
+                const d = try decode_value(alloc, b[off..], depth + 1);
                 items[i] = d.value;
                 off += d.consumed;
             }
             return .{ .value = .{ .array = items }, .consumed = off };
         },
         5 => {
+            if (arg > b.len - n) return error.UnexpectedEof;
             const count: usize = @intCast(arg);
             const pairs = try alloc.alloc(Pair, count);
             var off = n;
             var i: usize = 0;
             while (i < count) : (i += 1) {
-                const k = try decode_value(alloc, b[off..]);
+                const k = try decode_value(alloc, b[off..], depth + 1);
                 off += k.consumed;
-                const v = try decode_value(alloc, b[off..]);
+                const v = try decode_value(alloc, b[off..], depth + 1);
                 off += v.consumed;
                 pairs[i] = .{ .key = k.value, .val = v.value };
             }
             return .{ .value = .{ .map = pairs }, .consumed = off };
         },
         6 => {
-            const inner = try decode_value(alloc, b[n..]);
+            const inner = try decode_value(alloc, b[n..], depth + 1);
             const content = try alloc.create(Value);
             content.* = inner.value;
             return .{ .value = .{ .tag = .{ .num = arg, .content = content } }, .consumed = n + inner.consumed };
@@ -257,7 +261,7 @@ fn decode_value(alloc: std.mem.Allocator, b: []const u8) CodecError!Decoded {
 }
 
 fn decode(alloc: std.mem.Allocator, b: []const u8) CodecError!Value {
-    const d = try decode_value(alloc, b);
+    const d = try decode_value(alloc, b, 0);
     if (d.consumed != b.len) return error.TrailingBytes;
     return d.value;
 }
@@ -6633,6 +6637,1025 @@ fn dec_ListLocalesResponse(alloc: std.mem.Allocator, m: Value, out: *types.ListL
     }
 }
 
+fn enc_ApplicationKeySignature(out: *std.ArrayList(u8), v: *const types.ApplicationKeySignature) CodecError!void {
+    try w_map_head(out, 2);
+    try w_text(out, "signature");
+    try w_bytes(out, v.signature);
+    try w_text(out, "signed_by_key_id");
+    try w_text(out, v.signed_by_key_id);
+}
+
+fn dec_ApplicationKeySignature(alloc: std.mem.Allocator, m: Value, out: *types.ApplicationKeySignature) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "signature");
+        out.signature = try as_bytes(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "signed_by_key_id");
+        out.signed_by_key_id = try as_text(csil_fv);
+    }
+}
+
+fn enc_ApplicationKeyAttestation(out: *std.ArrayList(u8), v: *const types.ApplicationKeyAttestation) CodecError!void {
+    try w_map_head(out, 13);
+    try w_text(out, "key_id");
+    try w_text(out, v.key_id);
+    try w_text(out, "algorithm");
+    try w_text(out, v.algorithm);
+    try w_text(out, "key_usage");
+    try w_text(out, v.key_usage);
+    try w_text(out, "public_key");
+    try w_bytes(out, v.public_key);
+    try w_text(out, "attested_at");
+    try w_text(out, v.attested_at);
+    try w_text(out, "fingerprint");
+    try w_text(out, v.fingerprint);
+    try w_text(out, "instance_id");
+    try w_text(out, v.instance_id);
+    try w_text(out, "application_id");
+    try w_text(out, v.application_id);
+    try w_text(out, "key_created_at");
+    try w_text(out, v.key_created_at);
+    try w_text(out, "key_expires_at");
+    try w_text(out, v.key_expires_at);
+    try w_text(out, "subject_domain");
+    try w_text(out, v.subject_domain);
+    try w_text(out, "subject_user_id");
+    try w_text(out, v.subject_user_id);
+    try w_text(out, "attestation_expires_at");
+    try w_text(out, v.attestation_expires_at);
+}
+
+fn dec_ApplicationKeyAttestation(alloc: std.mem.Allocator, m: Value, out: *types.ApplicationKeyAttestation) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "key_id");
+        out.key_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "algorithm");
+        out.algorithm = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "key_usage");
+        out.key_usage = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "public_key");
+        out.public_key = try as_bytes(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "attested_at");
+        out.attested_at = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "fingerprint");
+        out.fingerprint = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "instance_id");
+        out.instance_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "application_id");
+        out.application_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "key_created_at");
+        out.key_created_at = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "key_expires_at");
+        out.key_expires_at = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "subject_domain");
+        out.subject_domain = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "subject_user_id");
+        out.subject_user_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "attestation_expires_at");
+        out.attestation_expires_at = try as_text(csil_fv);
+    }
+}
+
+fn enc_SignedApplicationKeyAttestation(out: *std.ArrayList(u8), v: *const types.SignedApplicationKeyAttestation) CodecError!void {
+    try w_map_head(out, 2);
+    try w_text(out, "signatures");
+    try w_array_head(out, v.signatures.len);
+    for (v.signatures) |csil_it| {
+        try enc_ClaimSignature(out, &(csil_it));
+    }
+    try w_text(out, "attestation");
+    try w_bytes(out, v.attestation);
+}
+
+fn dec_SignedApplicationKeyAttestation(alloc: std.mem.Allocator, m: Value, out: *types.SignedApplicationKeyAttestation) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "signatures");
+        if (csil_fv != .array) return error.WrongType;
+        out.signatures = try alloc.alloc(types.ClaimSignature, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_ClaimSignature(alloc, csil_it, &(out.signatures[csil_i]));
+        }
+    }
+    {
+        const csil_fv = try req(m, "attestation");
+        out.attestation = try as_bytes(csil_fv);
+    }
+}
+
+fn enc_ApplicationKeyAddition(out: *std.ArrayList(u8), v: *const types.ApplicationKeyAddition) CodecError!void {
+    try w_map_head(out, 14);
+    try w_text(out, "key_id");
+    try w_text(out, v.key_id);
+    try w_text(out, "algorithm");
+    try w_text(out, v.algorithm);
+    try w_text(out, "challenge");
+    try w_bytes(out, v.challenge);
+    try w_text(out, "key_usage");
+    try w_text(out, v.key_usage);
+    try w_text(out, "expires_at");
+    try w_text(out, v.expires_at);
+    try w_text(out, "public_key");
+    try w_bytes(out, v.public_key);
+    try w_text(out, "fingerprint");
+    try w_text(out, v.fingerprint);
+    try w_text(out, "instance_id");
+    try w_text(out, v.instance_id);
+    try w_text(out, "challenge_id");
+    try w_text(out, v.challenge_id);
+    try w_text(out, "requested_at");
+    try w_text(out, v.requested_at);
+    try w_text(out, "application_id");
+    try w_text(out, v.application_id);
+    try w_text(out, "subject_domain");
+    try w_text(out, v.subject_domain);
+    try w_text(out, "subject_user_id");
+    try w_text(out, v.subject_user_id);
+    try w_text(out, "requested_key_lifetime_seconds");
+    try w_int(out, v.requested_key_lifetime_seconds);
+}
+
+fn dec_ApplicationKeyAddition(alloc: std.mem.Allocator, m: Value, out: *types.ApplicationKeyAddition) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "key_id");
+        out.key_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "algorithm");
+        out.algorithm = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "challenge");
+        out.challenge = try as_bytes(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "key_usage");
+        out.key_usage = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "expires_at");
+        out.expires_at = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "public_key");
+        out.public_key = try as_bytes(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "fingerprint");
+        out.fingerprint = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "instance_id");
+        out.instance_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "challenge_id");
+        out.challenge_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "requested_at");
+        out.requested_at = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "application_id");
+        out.application_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "subject_domain");
+        out.subject_domain = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "subject_user_id");
+        out.subject_user_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "requested_key_lifetime_seconds");
+        out.requested_key_lifetime_seconds = try as_i64(csil_fv);
+    }
+}
+
+fn enc_SignedApplicationKeyAddition(out: *std.ArrayList(u8), v: *const types.SignedApplicationKeyAddition) CodecError!void {
+    var csil_n: usize = 2;
+    if (v.possession_proof != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    try w_text(out, "addition");
+    try w_bytes(out, v.addition);
+    try w_text(out, "signatures");
+    try w_array_head(out, v.signatures.len);
+    for (v.signatures) |csil_it| {
+        try enc_ApplicationKeySignature(out, &(csil_it));
+    }
+    if (v.possession_proof) |csil_x| {
+        try w_text(out, "possession_proof");
+        try w_bytes(out, csil_x);
+    }
+}
+
+fn dec_SignedApplicationKeyAddition(alloc: std.mem.Allocator, m: Value, out: *types.SignedApplicationKeyAddition) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "addition");
+        out.addition = try as_bytes(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "signatures");
+        if (csil_fv != .array) return error.WrongType;
+        out.signatures = try alloc.alloc(types.ApplicationKeySignature, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_ApplicationKeySignature(alloc, csil_it, &(out.signatures[csil_i]));
+        }
+    }
+    {
+        if (mget(m, "possession_proof")) |csil_fv| {
+            out.possession_proof = try as_bytes(csil_fv);
+        } else {
+            out.possession_proof = null;
+        }
+    }
+}
+
+fn enc_ApplicationKeyRenewal(out: *std.ArrayList(u8), v: *const types.ApplicationKeyRenewal) CodecError!void {
+    try w_map_head(out, 9);
+    try w_text(out, "key_id");
+    try w_text(out, v.key_id);
+    try w_text(out, "challenge");
+    try w_bytes(out, v.challenge);
+    try w_text(out, "expires_at");
+    try w_text(out, v.expires_at);
+    try w_text(out, "instance_id");
+    try w_text(out, v.instance_id);
+    try w_text(out, "challenge_id");
+    try w_text(out, v.challenge_id);
+    try w_text(out, "requested_at");
+    try w_text(out, v.requested_at);
+    try w_text(out, "application_id");
+    try w_text(out, v.application_id);
+    try w_text(out, "subject_domain");
+    try w_text(out, v.subject_domain);
+    try w_text(out, "subject_user_id");
+    try w_text(out, v.subject_user_id);
+}
+
+fn dec_ApplicationKeyRenewal(alloc: std.mem.Allocator, m: Value, out: *types.ApplicationKeyRenewal) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "key_id");
+        out.key_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "challenge");
+        out.challenge = try as_bytes(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "expires_at");
+        out.expires_at = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "instance_id");
+        out.instance_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "challenge_id");
+        out.challenge_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "requested_at");
+        out.requested_at = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "application_id");
+        out.application_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "subject_domain");
+        out.subject_domain = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "subject_user_id");
+        out.subject_user_id = try as_text(csil_fv);
+    }
+}
+
+fn enc_SignedApplicationKeyRenewal(out: *std.ArrayList(u8), v: *const types.SignedApplicationKeyRenewal) CodecError!void {
+    var csil_n: usize = 2;
+    if (v.possession_proof != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    try w_text(out, "renewal");
+    try w_bytes(out, v.renewal);
+    try w_text(out, "signatures");
+    try w_array_head(out, v.signatures.len);
+    for (v.signatures) |csil_it| {
+        try enc_ApplicationKeySignature(out, &(csil_it));
+    }
+    if (v.possession_proof) |csil_x| {
+        try w_text(out, "possession_proof");
+        try w_bytes(out, csil_x);
+    }
+}
+
+fn dec_SignedApplicationKeyRenewal(alloc: std.mem.Allocator, m: Value, out: *types.SignedApplicationKeyRenewal) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "renewal");
+        out.renewal = try as_bytes(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "signatures");
+        if (csil_fv != .array) return error.WrongType;
+        out.signatures = try alloc.alloc(types.ApplicationKeySignature, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_ApplicationKeySignature(alloc, csil_it, &(out.signatures[csil_i]));
+        }
+    }
+    {
+        if (mget(m, "possession_proof")) |csil_fv| {
+            out.possession_proof = try as_bytes(csil_fv);
+        } else {
+            out.possession_proof = null;
+        }
+    }
+}
+
+fn enc_ApplicationKeyRevocation(out: *std.ArrayList(u8), v: *const types.ApplicationKeyRevocation) CodecError!void {
+    try w_map_head(out, 8);
+    try w_text(out, "revoked_at");
+    try w_text(out, v.revoked_at);
+    try w_text(out, "signatures");
+    try w_array_head(out, v.signatures.len);
+    for (v.signatures) |csil_it| {
+        try enc_ApplicationKeySignature(out, &(csil_it));
+    }
+    try w_text(out, "instance_id");
+    try w_text(out, v.instance_id);
+    try w_text(out, "target_key_id");
+    try w_text(out, v.target_key_id);
+    try w_text(out, "application_id");
+    try w_text(out, v.application_id);
+    try w_text(out, "subject_domain");
+    try w_text(out, v.subject_domain);
+    try w_text(out, "subject_user_id");
+    try w_text(out, v.subject_user_id);
+    try w_text(out, "target_fingerprint");
+    try w_text(out, v.target_fingerprint);
+}
+
+fn dec_ApplicationKeyRevocation(alloc: std.mem.Allocator, m: Value, out: *types.ApplicationKeyRevocation) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "revoked_at");
+        out.revoked_at = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "signatures");
+        if (csil_fv != .array) return error.WrongType;
+        out.signatures = try alloc.alloc(types.ApplicationKeySignature, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_ApplicationKeySignature(alloc, csil_it, &(out.signatures[csil_i]));
+        }
+    }
+    {
+        const csil_fv = try req(m, "instance_id");
+        out.instance_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "target_key_id");
+        out.target_key_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "application_id");
+        out.application_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "subject_domain");
+        out.subject_domain = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "subject_user_id");
+        out.subject_user_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "target_fingerprint");
+        out.target_fingerprint = try as_text(csil_fv);
+    }
+}
+
+fn enc_StartApplicationKeyChallengeRequest(out: *std.ArrayList(u8), v: *const types.StartApplicationKeyChallengeRequest) CodecError!void {
+    try w_map_head(out, 7);
+    try w_text(out, "purpose");
+    try w_text(out, v.purpose);
+    try w_text(out, "algorithm");
+    try w_text(out, v.algorithm);
+    try w_text(out, "key_usage");
+    try w_text(out, v.key_usage);
+    try w_text(out, "public_key");
+    try w_bytes(out, v.public_key);
+    try w_text(out, "instance_id");
+    try w_text(out, v.instance_id);
+    try w_text(out, "application_id");
+    try w_text(out, v.application_id);
+    try w_text(out, "subject_user_id");
+    try w_text(out, v.subject_user_id);
+}
+
+fn dec_StartApplicationKeyChallengeRequest(alloc: std.mem.Allocator, m: Value, out: *types.StartApplicationKeyChallengeRequest) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "purpose");
+        out.purpose = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "algorithm");
+        out.algorithm = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "key_usage");
+        out.key_usage = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "public_key");
+        out.public_key = try as_bytes(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "instance_id");
+        out.instance_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "application_id");
+        out.application_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "subject_user_id");
+        out.subject_user_id = try as_text(csil_fv);
+    }
+}
+
+fn enc_StartApplicationKeyChallengeResponse(out: *std.ArrayList(u8), v: *const types.StartApplicationKeyChallengeResponse) CodecError!void {
+    var csil_n: usize = 2;
+    if (v.challenge != null) csil_n += 1;
+    if (v.sealed_challenge != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    if (v.challenge) |csil_x| {
+        try w_text(out, "challenge");
+        try w_bytes(out, csil_x);
+    }
+    try w_text(out, "expires_at");
+    try w_text(out, v.expires_at);
+    try w_text(out, "challenge_id");
+    try w_text(out, v.challenge_id);
+    if (v.sealed_challenge) |csil_x| {
+        try w_text(out, "sealed_challenge");
+        try w_bytes(out, csil_x);
+    }
+}
+
+fn dec_StartApplicationKeyChallengeResponse(alloc: std.mem.Allocator, m: Value, out: *types.StartApplicationKeyChallengeResponse) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        if (mget(m, "challenge")) |csil_fv| {
+            out.challenge = try as_bytes(csil_fv);
+        } else {
+            out.challenge = null;
+        }
+    }
+    {
+        const csil_fv = try req(m, "expires_at");
+        out.expires_at = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "challenge_id");
+        out.challenge_id = try as_text(csil_fv);
+    }
+    {
+        if (mget(m, "sealed_challenge")) |csil_fv| {
+            out.sealed_challenge = try as_bytes(csil_fv);
+        } else {
+            out.sealed_challenge = null;
+        }
+    }
+}
+
+fn enc_AddApplicationKeyRequest(out: *std.ArrayList(u8), v: *const types.AddApplicationKeyRequest) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "request");
+    try enc_SignedApplicationKeyAddition(out, &(v.request));
+}
+
+fn dec_AddApplicationKeyRequest(alloc: std.mem.Allocator, m: Value, out: *types.AddApplicationKeyRequest) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "request");
+        try dec_SignedApplicationKeyAddition(alloc, csil_fv, &(out.request));
+    }
+}
+
+fn enc_AddApplicationKeyResponse(out: *std.ArrayList(u8), v: *const types.AddApplicationKeyResponse) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "attestation");
+    try enc_SignedApplicationKeyAttestation(out, &(v.attestation));
+}
+
+fn dec_AddApplicationKeyResponse(alloc: std.mem.Allocator, m: Value, out: *types.AddApplicationKeyResponse) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "attestation");
+        try dec_SignedApplicationKeyAttestation(alloc, csil_fv, &(out.attestation));
+    }
+}
+
+fn enc_RenewApplicationKeyAttestationRequest(out: *std.ArrayList(u8), v: *const types.RenewApplicationKeyAttestationRequest) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "request");
+    try enc_SignedApplicationKeyRenewal(out, &(v.request));
+}
+
+fn dec_RenewApplicationKeyAttestationRequest(alloc: std.mem.Allocator, m: Value, out: *types.RenewApplicationKeyAttestationRequest) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "request");
+        try dec_SignedApplicationKeyRenewal(alloc, csil_fv, &(out.request));
+    }
+}
+
+fn enc_RenewApplicationKeyAttestationResponse(out: *std.ArrayList(u8), v: *const types.RenewApplicationKeyAttestationResponse) CodecError!void {
+    try w_map_head(out, 2);
+    try w_text(out, "signed");
+    try w_bool(out, v.signed);
+    try w_text(out, "attestation");
+    try enc_SignedApplicationKeyAttestation(out, &(v.attestation));
+}
+
+fn dec_RenewApplicationKeyAttestationResponse(alloc: std.mem.Allocator, m: Value, out: *types.RenewApplicationKeyAttestationResponse) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "signed");
+        out.signed = try as_bool(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "attestation");
+        try dec_SignedApplicationKeyAttestation(alloc, csil_fv, &(out.attestation));
+    }
+}
+
+fn enc_RevokeApplicationKeyRequest(out: *std.ArrayList(u8), v: *const types.RevokeApplicationKeyRequest) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "revocation");
+    try enc_ApplicationKeyRevocation(out, &(v.revocation));
+}
+
+fn dec_RevokeApplicationKeyRequest(alloc: std.mem.Allocator, m: Value, out: *types.RevokeApplicationKeyRequest) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "revocation");
+        try dec_ApplicationKeyRevocation(alloc, csil_fv, &(out.revocation));
+    }
+}
+
+fn enc_RevokeApplicationKeyResponse(out: *std.ArrayList(u8), v: *const types.RevokeApplicationKeyResponse) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "revoked_at");
+    try w_text(out, v.revoked_at);
+}
+
+fn dec_RevokeApplicationKeyResponse(alloc: std.mem.Allocator, m: Value, out: *types.RevokeApplicationKeyResponse) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "revoked_at");
+        out.revoked_at = try as_text(csil_fv);
+    }
+}
+
+fn enc_EnrollApplicationInstanceRequest(out: *std.ArrayList(u8), v: *const types.EnrollApplicationInstanceRequest) CodecError!void {
+    try w_map_head(out, 3);
+    try w_text(out, "keys");
+    try w_array_head(out, v.keys.len);
+    for (v.keys) |csil_it| {
+        try enc_SignedApplicationKeyAddition(out, &(csil_it));
+    }
+    try w_text(out, "instance_id");
+    try w_text(out, v.instance_id);
+    try w_text(out, "application_id");
+    try w_text(out, v.application_id);
+}
+
+fn dec_EnrollApplicationInstanceRequest(alloc: std.mem.Allocator, m: Value, out: *types.EnrollApplicationInstanceRequest) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "keys");
+        if (csil_fv != .array) return error.WrongType;
+        out.keys = try alloc.alloc(types.SignedApplicationKeyAddition, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_SignedApplicationKeyAddition(alloc, csil_it, &(out.keys[csil_i]));
+        }
+    }
+    {
+        const csil_fv = try req(m, "instance_id");
+        out.instance_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "application_id");
+        out.application_id = try as_text(csil_fv);
+    }
+}
+
+fn enc_EnrollApplicationInstanceResponse(out: *std.ArrayList(u8), v: *const types.EnrollApplicationInstanceResponse) CodecError!void {
+    try w_map_head(out, 5);
+    try w_text(out, "instance_id");
+    try w_text(out, v.instance_id);
+    try w_text(out, "attestations");
+    try w_array_head(out, v.attestations.len);
+    for (v.attestations) |csil_it| {
+        try enc_SignedApplicationKeyAttestation(out, &(csil_it));
+    }
+    try w_text(out, "application_id");
+    try w_text(out, v.application_id);
+    try w_text(out, "subject_domain");
+    try w_text(out, v.subject_domain);
+    try w_text(out, "subject_user_id");
+    try w_text(out, v.subject_user_id);
+}
+
+fn dec_EnrollApplicationInstanceResponse(alloc: std.mem.Allocator, m: Value, out: *types.EnrollApplicationInstanceResponse) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "instance_id");
+        out.instance_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "attestations");
+        if (csil_fv != .array) return error.WrongType;
+        out.attestations = try alloc.alloc(types.SignedApplicationKeyAttestation, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_SignedApplicationKeyAttestation(alloc, csil_it, &(out.attestations[csil_i]));
+        }
+    }
+    {
+        const csil_fv = try req(m, "application_id");
+        out.application_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "subject_domain");
+        out.subject_domain = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "subject_user_id");
+        out.subject_user_id = try as_text(csil_fv);
+    }
+}
+
+fn enc_GetApplicationKeysRequest(out: *std.ArrayList(u8), v: *const types.GetApplicationKeysRequest) CodecError!void {
+    try w_map_head(out, 3);
+    try w_text(out, "instance_id");
+    try w_text(out, v.instance_id);
+    try w_text(out, "application_id");
+    try w_text(out, v.application_id);
+    try w_text(out, "subject_user_id");
+    try w_text(out, v.subject_user_id);
+}
+
+fn dec_GetApplicationKeysRequest(alloc: std.mem.Allocator, m: Value, out: *types.GetApplicationKeysRequest) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "instance_id");
+        out.instance_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "application_id");
+        out.application_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "subject_user_id");
+        out.subject_user_id = try as_text(csil_fv);
+    }
+}
+
+fn enc_GetApplicationKeysResponse(out: *std.ArrayList(u8), v: *const types.GetApplicationKeysResponse) CodecError!void {
+    try w_map_head(out, 6);
+    try w_text(out, "keys");
+    try w_array_head(out, v.keys.len);
+    for (v.keys) |csil_it| {
+        try enc_SignedApplicationKeyAttestation(out, &(csil_it));
+    }
+    try w_text(out, "instance_id");
+    try w_text(out, v.instance_id);
+    try w_text(out, "revocations");
+    try w_array_head(out, v.revocations.len);
+    for (v.revocations) |csil_it| {
+        try enc_ApplicationKeyRevocation(out, &(csil_it));
+    }
+    try w_text(out, "application_id");
+    try w_text(out, v.application_id);
+    try w_text(out, "subject_domain");
+    try w_text(out, v.subject_domain);
+    try w_text(out, "subject_user_id");
+    try w_text(out, v.subject_user_id);
+}
+
+fn dec_GetApplicationKeysResponse(alloc: std.mem.Allocator, m: Value, out: *types.GetApplicationKeysResponse) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "keys");
+        if (csil_fv != .array) return error.WrongType;
+        out.keys = try alloc.alloc(types.SignedApplicationKeyAttestation, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_SignedApplicationKeyAttestation(alloc, csil_it, &(out.keys[csil_i]));
+        }
+    }
+    {
+        const csil_fv = try req(m, "instance_id");
+        out.instance_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "revocations");
+        if (csil_fv != .array) return error.WrongType;
+        out.revocations = try alloc.alloc(types.ApplicationKeyRevocation, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_ApplicationKeyRevocation(alloc, csil_it, &(out.revocations[csil_i]));
+        }
+    }
+    {
+        const csil_fv = try req(m, "application_id");
+        out.application_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "subject_domain");
+        out.subject_domain = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "subject_user_id");
+        out.subject_user_id = try as_text(csil_fv);
+    }
+}
+
+fn enc_RpResolveDomainKeysRequest(out: *std.ArrayList(u8), v: *const types.RpResolveDomainKeysRequest) CodecError!void {
+    var csil_n: usize = 1;
+    if (v.max_cache_age_seconds != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    try w_text(out, "domain");
+    try w_text(out, v.domain);
+    if (v.max_cache_age_seconds) |csil_x| {
+        try w_text(out, "max_cache_age_seconds");
+        try w_int(out, csil_x);
+    }
+}
+
+fn dec_RpResolveDomainKeysRequest(alloc: std.mem.Allocator, m: Value, out: *types.RpResolveDomainKeysRequest) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "domain");
+        out.domain = try as_text(csil_fv);
+    }
+    {
+        if (mget(m, "max_cache_age_seconds")) |csil_fv| {
+            out.max_cache_age_seconds = try as_i64(csil_fv);
+        } else {
+            out.max_cache_age_seconds = null;
+        }
+    }
+}
+
+fn enc_RpResolveDomainKeysResponse(out: *std.ArrayList(u8), v: *const types.RpResolveDomainKeysResponse) CodecError!void {
+    try w_map_head(out, 6);
+    try w_text(out, "keys");
+    try w_array_head(out, v.keys.len);
+    for (v.keys) |csil_it| {
+        try enc_DomainPublicKey(out, &(csil_it));
+    }
+    try w_text(out, "domain");
+    try w_text(out, v.domain);
+    try w_text(out, "fetched_at");
+    try w_text(out, v.fetched_at);
+    try w_text(out, "revocations");
+    try w_array_head(out, v.revocations.len);
+    for (v.revocations) |csil_it| {
+        try enc_RevocationCertificate(out, &(csil_it));
+    }
+    try w_text(out, "cache_status");
+    try w_text(out, v.cache_status);
+    try w_text(out, "revocations_checked_at");
+    try w_text(out, v.revocations_checked_at);
+}
+
+fn dec_RpResolveDomainKeysResponse(alloc: std.mem.Allocator, m: Value, out: *types.RpResolveDomainKeysResponse) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "keys");
+        if (csil_fv != .array) return error.WrongType;
+        out.keys = try alloc.alloc(types.DomainPublicKey, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_DomainPublicKey(alloc, csil_it, &(out.keys[csil_i]));
+        }
+    }
+    {
+        const csil_fv = try req(m, "domain");
+        out.domain = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "fetched_at");
+        out.fetched_at = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "revocations");
+        if (csil_fv != .array) return error.WrongType;
+        out.revocations = try alloc.alloc(types.RevocationCertificate, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_RevocationCertificate(alloc, csil_it, &(out.revocations[csil_i]));
+        }
+    }
+    {
+        const csil_fv = try req(m, "cache_status");
+        out.cache_status = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "revocations_checked_at");
+        out.revocations_checked_at = try as_text(csil_fv);
+    }
+}
+
+fn enc_RpResolveApplicationKeysRequest(out: *std.ArrayList(u8), v: *const types.RpResolveApplicationKeysRequest) CodecError!void {
+    var csil_n: usize = 4;
+    if (v.max_cache_age_seconds != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    try w_text(out, "instance_id");
+    try w_text(out, v.instance_id);
+    try w_text(out, "application_id");
+    try w_text(out, v.application_id);
+    try w_text(out, "subject_domain");
+    try w_text(out, v.subject_domain);
+    try w_text(out, "subject_user_id");
+    try w_text(out, v.subject_user_id);
+    if (v.max_cache_age_seconds) |csil_x| {
+        try w_text(out, "max_cache_age_seconds");
+        try w_int(out, csil_x);
+    }
+}
+
+fn dec_RpResolveApplicationKeysRequest(alloc: std.mem.Allocator, m: Value, out: *types.RpResolveApplicationKeysRequest) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "instance_id");
+        out.instance_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "application_id");
+        out.application_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "subject_domain");
+        out.subject_domain = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "subject_user_id");
+        out.subject_user_id = try as_text(csil_fv);
+    }
+    {
+        if (mget(m, "max_cache_age_seconds")) |csil_fv| {
+            out.max_cache_age_seconds = try as_i64(csil_fv);
+        } else {
+            out.max_cache_age_seconds = null;
+        }
+    }
+}
+
+fn enc_RpResolveApplicationKeysResponse(out: *std.ArrayList(u8), v: *const types.RpResolveApplicationKeysResponse) CodecError!void {
+    try w_map_head(out, 11);
+    try w_text(out, "fetched_at");
+    try w_text(out, v.fetched_at);
+    try w_text(out, "instance_id");
+    try w_text(out, v.instance_id);
+    try w_text(out, "cache_status");
+    try w_text(out, v.cache_status);
+    try w_text(out, "application_id");
+    try w_text(out, v.application_id);
+    try w_text(out, "subject_domain");
+    try w_text(out, v.subject_domain);
+    try w_text(out, "subject_user_id");
+    try w_text(out, v.subject_user_id);
+    try w_text(out, "application_keys");
+    try w_array_head(out, v.application_keys.len);
+    for (v.application_keys) |csil_it| {
+        try enc_SignedApplicationKeyAttestation(out, &(csil_it));
+    }
+    try w_text(out, "home_domain_keys");
+    try w_array_head(out, v.home_domain_keys.len);
+    for (v.home_domain_keys) |csil_it| {
+        try enc_DomainPublicKey(out, &(csil_it));
+    }
+    try w_text(out, "revocations_checked_at");
+    try w_text(out, v.revocations_checked_at);
+    try w_text(out, "application_key_revocations");
+    try w_array_head(out, v.application_key_revocations.len);
+    for (v.application_key_revocations) |csil_it| {
+        try enc_ApplicationKeyRevocation(out, &(csil_it));
+    }
+    try w_text(out, "home_domain_key_revocations");
+    try w_array_head(out, v.home_domain_key_revocations.len);
+    for (v.home_domain_key_revocations) |csil_it| {
+        try enc_RevocationCertificate(out, &(csil_it));
+    }
+}
+
+fn dec_RpResolveApplicationKeysResponse(alloc: std.mem.Allocator, m: Value, out: *types.RpResolveApplicationKeysResponse) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "fetched_at");
+        out.fetched_at = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "instance_id");
+        out.instance_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "cache_status");
+        out.cache_status = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "application_id");
+        out.application_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "subject_domain");
+        out.subject_domain = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "subject_user_id");
+        out.subject_user_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "application_keys");
+        if (csil_fv != .array) return error.WrongType;
+        out.application_keys = try alloc.alloc(types.SignedApplicationKeyAttestation, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_SignedApplicationKeyAttestation(alloc, csil_it, &(out.application_keys[csil_i]));
+        }
+    }
+    {
+        const csil_fv = try req(m, "home_domain_keys");
+        if (csil_fv != .array) return error.WrongType;
+        out.home_domain_keys = try alloc.alloc(types.DomainPublicKey, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_DomainPublicKey(alloc, csil_it, &(out.home_domain_keys[csil_i]));
+        }
+    }
+    {
+        const csil_fv = try req(m, "revocations_checked_at");
+        out.revocations_checked_at = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "application_key_revocations");
+        if (csil_fv != .array) return error.WrongType;
+        out.application_key_revocations = try alloc.alloc(types.ApplicationKeyRevocation, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_ApplicationKeyRevocation(alloc, csil_it, &(out.application_key_revocations[csil_i]));
+        }
+    }
+    {
+        const csil_fv = try req(m, "home_domain_key_revocations");
+        if (csil_fv != .array) return error.WrongType;
+        out.home_domain_key_revocations = try alloc.alloc(types.RevocationCertificate, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_RevocationCertificate(alloc, csil_it, &(out.home_domain_key_revocations[csil_i]));
+        }
+    }
+}
+
 /// Encode a CheckValue to CBOR. The returned slice is owned by the caller
 /// (free it with alloc.free).
 pub fn encode_CheckValue(alloc: std.mem.Allocator, v: *const types.CheckValue) CodecError![]u8 {
@@ -10119,4 +11142,388 @@ pub fn encode_ListLocalesResponse(alloc: std.mem.Allocator, v: *const types.List
 pub fn decode_ListLocalesResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ListLocalesResponse) CodecError!void {
     const root = try decode(alloc, bytes);
     try dec_ListLocalesResponse(alloc, root, out);
+}
+
+/// Encode a ApplicationKeySignature to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ApplicationKeySignature(alloc: std.mem.Allocator, v: *const types.ApplicationKeySignature) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ApplicationKeySignature(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ApplicationKeySignature. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ApplicationKeySignature(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ApplicationKeySignature) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ApplicationKeySignature(alloc, root, out);
+}
+
+/// Encode a ApplicationKeyAttestation to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ApplicationKeyAttestation(alloc: std.mem.Allocator, v: *const types.ApplicationKeyAttestation) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ApplicationKeyAttestation(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ApplicationKeyAttestation. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ApplicationKeyAttestation(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ApplicationKeyAttestation) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ApplicationKeyAttestation(alloc, root, out);
+}
+
+/// Encode a SignedApplicationKeyAttestation to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_SignedApplicationKeyAttestation(alloc: std.mem.Allocator, v: *const types.SignedApplicationKeyAttestation) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_SignedApplicationKeyAttestation(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a SignedApplicationKeyAttestation. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_SignedApplicationKeyAttestation(alloc: std.mem.Allocator, bytes: []const u8, out: *types.SignedApplicationKeyAttestation) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_SignedApplicationKeyAttestation(alloc, root, out);
+}
+
+/// Encode a ApplicationKeyAddition to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ApplicationKeyAddition(alloc: std.mem.Allocator, v: *const types.ApplicationKeyAddition) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ApplicationKeyAddition(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ApplicationKeyAddition. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ApplicationKeyAddition(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ApplicationKeyAddition) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ApplicationKeyAddition(alloc, root, out);
+}
+
+/// Encode a SignedApplicationKeyAddition to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_SignedApplicationKeyAddition(alloc: std.mem.Allocator, v: *const types.SignedApplicationKeyAddition) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_SignedApplicationKeyAddition(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a SignedApplicationKeyAddition. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_SignedApplicationKeyAddition(alloc: std.mem.Allocator, bytes: []const u8, out: *types.SignedApplicationKeyAddition) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_SignedApplicationKeyAddition(alloc, root, out);
+}
+
+/// Encode a ApplicationKeyRenewal to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ApplicationKeyRenewal(alloc: std.mem.Allocator, v: *const types.ApplicationKeyRenewal) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ApplicationKeyRenewal(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ApplicationKeyRenewal. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ApplicationKeyRenewal(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ApplicationKeyRenewal) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ApplicationKeyRenewal(alloc, root, out);
+}
+
+/// Encode a SignedApplicationKeyRenewal to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_SignedApplicationKeyRenewal(alloc: std.mem.Allocator, v: *const types.SignedApplicationKeyRenewal) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_SignedApplicationKeyRenewal(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a SignedApplicationKeyRenewal. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_SignedApplicationKeyRenewal(alloc: std.mem.Allocator, bytes: []const u8, out: *types.SignedApplicationKeyRenewal) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_SignedApplicationKeyRenewal(alloc, root, out);
+}
+
+/// Encode a ApplicationKeyRevocation to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ApplicationKeyRevocation(alloc: std.mem.Allocator, v: *const types.ApplicationKeyRevocation) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ApplicationKeyRevocation(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ApplicationKeyRevocation. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ApplicationKeyRevocation(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ApplicationKeyRevocation) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ApplicationKeyRevocation(alloc, root, out);
+}
+
+/// Encode a StartApplicationKeyChallengeRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_StartApplicationKeyChallengeRequest(alloc: std.mem.Allocator, v: *const types.StartApplicationKeyChallengeRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_StartApplicationKeyChallengeRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a StartApplicationKeyChallengeRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_StartApplicationKeyChallengeRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.StartApplicationKeyChallengeRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_StartApplicationKeyChallengeRequest(alloc, root, out);
+}
+
+/// Encode a StartApplicationKeyChallengeResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_StartApplicationKeyChallengeResponse(alloc: std.mem.Allocator, v: *const types.StartApplicationKeyChallengeResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_StartApplicationKeyChallengeResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a StartApplicationKeyChallengeResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_StartApplicationKeyChallengeResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.StartApplicationKeyChallengeResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_StartApplicationKeyChallengeResponse(alloc, root, out);
+}
+
+/// Encode a AddApplicationKeyRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_AddApplicationKeyRequest(alloc: std.mem.Allocator, v: *const types.AddApplicationKeyRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_AddApplicationKeyRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a AddApplicationKeyRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_AddApplicationKeyRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.AddApplicationKeyRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_AddApplicationKeyRequest(alloc, root, out);
+}
+
+/// Encode a AddApplicationKeyResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_AddApplicationKeyResponse(alloc: std.mem.Allocator, v: *const types.AddApplicationKeyResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_AddApplicationKeyResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a AddApplicationKeyResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_AddApplicationKeyResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.AddApplicationKeyResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_AddApplicationKeyResponse(alloc, root, out);
+}
+
+/// Encode a RenewApplicationKeyAttestationRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RenewApplicationKeyAttestationRequest(alloc: std.mem.Allocator, v: *const types.RenewApplicationKeyAttestationRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RenewApplicationKeyAttestationRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RenewApplicationKeyAttestationRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RenewApplicationKeyAttestationRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RenewApplicationKeyAttestationRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RenewApplicationKeyAttestationRequest(alloc, root, out);
+}
+
+/// Encode a RenewApplicationKeyAttestationResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RenewApplicationKeyAttestationResponse(alloc: std.mem.Allocator, v: *const types.RenewApplicationKeyAttestationResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RenewApplicationKeyAttestationResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RenewApplicationKeyAttestationResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RenewApplicationKeyAttestationResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RenewApplicationKeyAttestationResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RenewApplicationKeyAttestationResponse(alloc, root, out);
+}
+
+/// Encode a RevokeApplicationKeyRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RevokeApplicationKeyRequest(alloc: std.mem.Allocator, v: *const types.RevokeApplicationKeyRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RevokeApplicationKeyRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RevokeApplicationKeyRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RevokeApplicationKeyRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RevokeApplicationKeyRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RevokeApplicationKeyRequest(alloc, root, out);
+}
+
+/// Encode a RevokeApplicationKeyResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RevokeApplicationKeyResponse(alloc: std.mem.Allocator, v: *const types.RevokeApplicationKeyResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RevokeApplicationKeyResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RevokeApplicationKeyResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RevokeApplicationKeyResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RevokeApplicationKeyResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RevokeApplicationKeyResponse(alloc, root, out);
+}
+
+/// Encode a EnrollApplicationInstanceRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_EnrollApplicationInstanceRequest(alloc: std.mem.Allocator, v: *const types.EnrollApplicationInstanceRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_EnrollApplicationInstanceRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a EnrollApplicationInstanceRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_EnrollApplicationInstanceRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.EnrollApplicationInstanceRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_EnrollApplicationInstanceRequest(alloc, root, out);
+}
+
+/// Encode a EnrollApplicationInstanceResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_EnrollApplicationInstanceResponse(alloc: std.mem.Allocator, v: *const types.EnrollApplicationInstanceResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_EnrollApplicationInstanceResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a EnrollApplicationInstanceResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_EnrollApplicationInstanceResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.EnrollApplicationInstanceResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_EnrollApplicationInstanceResponse(alloc, root, out);
+}
+
+/// Encode a GetApplicationKeysRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_GetApplicationKeysRequest(alloc: std.mem.Allocator, v: *const types.GetApplicationKeysRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_GetApplicationKeysRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a GetApplicationKeysRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_GetApplicationKeysRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.GetApplicationKeysRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_GetApplicationKeysRequest(alloc, root, out);
+}
+
+/// Encode a GetApplicationKeysResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_GetApplicationKeysResponse(alloc: std.mem.Allocator, v: *const types.GetApplicationKeysResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_GetApplicationKeysResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a GetApplicationKeysResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_GetApplicationKeysResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.GetApplicationKeysResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_GetApplicationKeysResponse(alloc, root, out);
+}
+
+/// Encode a RpResolveDomainKeysRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RpResolveDomainKeysRequest(alloc: std.mem.Allocator, v: *const types.RpResolveDomainKeysRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RpResolveDomainKeysRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RpResolveDomainKeysRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RpResolveDomainKeysRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RpResolveDomainKeysRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RpResolveDomainKeysRequest(alloc, root, out);
+}
+
+/// Encode a RpResolveDomainKeysResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RpResolveDomainKeysResponse(alloc: std.mem.Allocator, v: *const types.RpResolveDomainKeysResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RpResolveDomainKeysResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RpResolveDomainKeysResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RpResolveDomainKeysResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RpResolveDomainKeysResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RpResolveDomainKeysResponse(alloc, root, out);
+}
+
+/// Encode a RpResolveApplicationKeysRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RpResolveApplicationKeysRequest(alloc: std.mem.Allocator, v: *const types.RpResolveApplicationKeysRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RpResolveApplicationKeysRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RpResolveApplicationKeysRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RpResolveApplicationKeysRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RpResolveApplicationKeysRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RpResolveApplicationKeysRequest(alloc, root, out);
+}
+
+/// Encode a RpResolveApplicationKeysResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RpResolveApplicationKeysResponse(alloc: std.mem.Allocator, v: *const types.RpResolveApplicationKeysResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RpResolveApplicationKeysResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RpResolveApplicationKeysResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RpResolveApplicationKeysResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RpResolveApplicationKeysResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RpResolveApplicationKeysResponse(alloc, root, out);
 }

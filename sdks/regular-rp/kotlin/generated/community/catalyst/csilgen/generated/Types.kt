@@ -2320,3 +2320,498 @@ data class ListLocalesResponse(
     val availableLocales: List<String>
 )
 
+/** ApplicationKeySignature record. */
+data class ApplicationKeySignature(
+    // wire key: signed_by_key_id
+    val signedByKeyId: String,
+    val signature: ByteArray
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is ApplicationKeySignature) return false
+        if (signedByKeyId != other.signedByKeyId) return false
+        if (!signature.contentEquals(other.signature)) return false
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = signedByKeyId.hashCode()
+        result = 31 * result + signature.contentHashCode()
+        return result
+    }
+}
+
+/** ApplicationKeyAttestation record. */
+data class ApplicationKeyAttestation(
+    // wire key: subject_user_id
+    val subjectUserId: String,
+    // wire key: subject_domain
+    val subjectDomain: String,
+    // wire key: application_id
+    val applicationId: String,
+    // wire key: instance_id
+    val instanceId: String,
+    // wire key: key_id
+    val keyId: String,
+    // wire key: key_usage
+    val keyUsage: String,
+    val algorithm: String,
+    // wire key: public_key
+    val publicKey: ByteArray,
+    val fingerprint: String,
+    // wire key: key_created_at
+    val keyCreatedAt: String,
+    // wire key: key_expires_at
+    val keyExpiresAt: String,
+    // wire key: attested_at
+    val attestedAt: String,
+    // wire key: attestation_expires_at
+    val attestationExpiresAt: String
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is ApplicationKeyAttestation) return false
+        if (subjectUserId != other.subjectUserId) return false
+        if (subjectDomain != other.subjectDomain) return false
+        if (applicationId != other.applicationId) return false
+        if (instanceId != other.instanceId) return false
+        if (keyId != other.keyId) return false
+        if (keyUsage != other.keyUsage) return false
+        if (algorithm != other.algorithm) return false
+        if (!publicKey.contentEquals(other.publicKey)) return false
+        if (fingerprint != other.fingerprint) return false
+        if (keyCreatedAt != other.keyCreatedAt) return false
+        if (keyExpiresAt != other.keyExpiresAt) return false
+        if (attestedAt != other.attestedAt) return false
+        if (attestationExpiresAt != other.attestationExpiresAt) return false
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = subjectUserId.hashCode()
+        result = 31 * result + subjectDomain.hashCode()
+        result = 31 * result + applicationId.hashCode()
+        result = 31 * result + instanceId.hashCode()
+        result = 31 * result + keyId.hashCode()
+        result = 31 * result + keyUsage.hashCode()
+        result = 31 * result + algorithm.hashCode()
+        result = 31 * result + publicKey.contentHashCode()
+        result = 31 * result + fingerprint.hashCode()
+        result = 31 * result + keyCreatedAt.hashCode()
+        result = 31 * result + keyExpiresAt.hashCode()
+        result = 31 * result + attestedAt.hashCode()
+        result = 31 * result + attestationExpiresAt.hashCode()
+        return result
+    }
+}
+
+/** SignedApplicationKeyAttestation record. */
+data class SignedApplicationKeyAttestation(
+    val attestation: ByteArray,
+    val signatures: List<ClaimSignature>
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is SignedApplicationKeyAttestation) return false
+        if (!attestation.contentEquals(other.attestation)) return false
+        if (signatures != other.signatures) return false
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = attestation.contentHashCode()
+        result = 31 * result + signatures.hashCode()
+        return result
+    }
+}
+
+/** ApplicationKeyAddition record. */
+data class ApplicationKeyAddition(
+    // wire key: subject_user_id
+    val subjectUserId: String,
+    // wire key: subject_domain
+    val subjectDomain: String,
+    // wire key: application_id
+    val applicationId: String,
+    // wire key: instance_id
+    val instanceId: String,
+    // wire key: key_id
+    val keyId: String,
+    // wire key: key_usage
+    val keyUsage: String,
+    val algorithm: String,
+    // wire key: public_key
+    val publicKey: ByteArray,
+    val fingerprint: String,
+    // wire key: requested_key_lifetime_seconds
+    val requestedKeyLifetimeSeconds: Long,
+    // wire key: challenge_id
+    val challengeId: String,
+    val challenge: ByteArray,
+    // wire key: requested_at
+    val requestedAt: String,
+    // wire key: expires_at
+    val expiresAt: String
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is ApplicationKeyAddition) return false
+        if (subjectUserId != other.subjectUserId) return false
+        if (subjectDomain != other.subjectDomain) return false
+        if (applicationId != other.applicationId) return false
+        if (instanceId != other.instanceId) return false
+        if (keyId != other.keyId) return false
+        if (keyUsage != other.keyUsage) return false
+        if (algorithm != other.algorithm) return false
+        if (!publicKey.contentEquals(other.publicKey)) return false
+        if (fingerprint != other.fingerprint) return false
+        if (requestedKeyLifetimeSeconds != other.requestedKeyLifetimeSeconds) return false
+        if (challengeId != other.challengeId) return false
+        if (!challenge.contentEquals(other.challenge)) return false
+        if (requestedAt != other.requestedAt) return false
+        if (expiresAt != other.expiresAt) return false
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = subjectUserId.hashCode()
+        result = 31 * result + subjectDomain.hashCode()
+        result = 31 * result + applicationId.hashCode()
+        result = 31 * result + instanceId.hashCode()
+        result = 31 * result + keyId.hashCode()
+        result = 31 * result + keyUsage.hashCode()
+        result = 31 * result + algorithm.hashCode()
+        result = 31 * result + publicKey.contentHashCode()
+        result = 31 * result + fingerprint.hashCode()
+        result = 31 * result + requestedKeyLifetimeSeconds.hashCode()
+        result = 31 * result + challengeId.hashCode()
+        result = 31 * result + challenge.contentHashCode()
+        result = 31 * result + requestedAt.hashCode()
+        result = 31 * result + expiresAt.hashCode()
+        return result
+    }
+}
+
+/** SignedApplicationKeyAddition record. */
+data class SignedApplicationKeyAddition(
+    val addition: ByteArray,
+    val signatures: List<ApplicationKeySignature>,
+    // wire key: possession_proof
+    val possessionProof: ByteArray? = null
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is SignedApplicationKeyAddition) return false
+        if (!addition.contentEquals(other.addition)) return false
+        if (signatures != other.signatures) return false
+        if (!(possessionProof?.contentEquals(other.possessionProof) ?: (other.possessionProof == null))) return false
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = addition.contentHashCode()
+        result = 31 * result + signatures.hashCode()
+        result = 31 * result + (possessionProof?.contentHashCode() ?: 0)
+        return result
+    }
+}
+
+/** ApplicationKeyRenewal record. */
+data class ApplicationKeyRenewal(
+    // wire key: subject_user_id
+    val subjectUserId: String,
+    // wire key: subject_domain
+    val subjectDomain: String,
+    // wire key: application_id
+    val applicationId: String,
+    // wire key: instance_id
+    val instanceId: String,
+    // wire key: key_id
+    val keyId: String,
+    // wire key: challenge_id
+    val challengeId: String,
+    val challenge: ByteArray,
+    // wire key: requested_at
+    val requestedAt: String,
+    // wire key: expires_at
+    val expiresAt: String
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is ApplicationKeyRenewal) return false
+        if (subjectUserId != other.subjectUserId) return false
+        if (subjectDomain != other.subjectDomain) return false
+        if (applicationId != other.applicationId) return false
+        if (instanceId != other.instanceId) return false
+        if (keyId != other.keyId) return false
+        if (challengeId != other.challengeId) return false
+        if (!challenge.contentEquals(other.challenge)) return false
+        if (requestedAt != other.requestedAt) return false
+        if (expiresAt != other.expiresAt) return false
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = subjectUserId.hashCode()
+        result = 31 * result + subjectDomain.hashCode()
+        result = 31 * result + applicationId.hashCode()
+        result = 31 * result + instanceId.hashCode()
+        result = 31 * result + keyId.hashCode()
+        result = 31 * result + challengeId.hashCode()
+        result = 31 * result + challenge.contentHashCode()
+        result = 31 * result + requestedAt.hashCode()
+        result = 31 * result + expiresAt.hashCode()
+        return result
+    }
+}
+
+/** SignedApplicationKeyRenewal record. */
+data class SignedApplicationKeyRenewal(
+    val renewal: ByteArray,
+    val signatures: List<ApplicationKeySignature>,
+    // wire key: possession_proof
+    val possessionProof: ByteArray? = null
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is SignedApplicationKeyRenewal) return false
+        if (!renewal.contentEquals(other.renewal)) return false
+        if (signatures != other.signatures) return false
+        if (!(possessionProof?.contentEquals(other.possessionProof) ?: (other.possessionProof == null))) return false
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = renewal.contentHashCode()
+        result = 31 * result + signatures.hashCode()
+        result = 31 * result + (possessionProof?.contentHashCode() ?: 0)
+        return result
+    }
+}
+
+/** ApplicationKeyRevocation record. */
+data class ApplicationKeyRevocation(
+    // wire key: subject_user_id
+    val subjectUserId: String,
+    // wire key: subject_domain
+    val subjectDomain: String,
+    // wire key: application_id
+    val applicationId: String,
+    // wire key: instance_id
+    val instanceId: String,
+    // wire key: target_key_id
+    val targetKeyId: String,
+    // wire key: target_fingerprint
+    val targetFingerprint: String,
+    // wire key: revoked_at
+    val revokedAt: String,
+    val signatures: List<ApplicationKeySignature>
+)
+
+/** StartApplicationKeyChallengeRequest record. */
+data class StartApplicationKeyChallengeRequest(
+    // wire key: subject_user_id
+    val subjectUserId: String,
+    // wire key: application_id
+    val applicationId: String,
+    // wire key: instance_id
+    val instanceId: String,
+    val purpose: String,
+    // wire key: key_usage
+    val keyUsage: String,
+    val algorithm: String,
+    // wire key: public_key
+    val publicKey: ByteArray
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is StartApplicationKeyChallengeRequest) return false
+        if (subjectUserId != other.subjectUserId) return false
+        if (applicationId != other.applicationId) return false
+        if (instanceId != other.instanceId) return false
+        if (purpose != other.purpose) return false
+        if (keyUsage != other.keyUsage) return false
+        if (algorithm != other.algorithm) return false
+        if (!publicKey.contentEquals(other.publicKey)) return false
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = subjectUserId.hashCode()
+        result = 31 * result + applicationId.hashCode()
+        result = 31 * result + instanceId.hashCode()
+        result = 31 * result + purpose.hashCode()
+        result = 31 * result + keyUsage.hashCode()
+        result = 31 * result + algorithm.hashCode()
+        result = 31 * result + publicKey.contentHashCode()
+        return result
+    }
+}
+
+/** StartApplicationKeyChallengeResponse record. */
+data class StartApplicationKeyChallengeResponse(
+    // wire key: challenge_id
+    val challengeId: String,
+    val challenge: ByteArray? = null,
+    // wire key: sealed_challenge
+    val sealedChallenge: ByteArray? = null,
+    // wire key: expires_at
+    val expiresAt: String
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is StartApplicationKeyChallengeResponse) return false
+        if (challengeId != other.challengeId) return false
+        if (!(challenge?.contentEquals(other.challenge) ?: (other.challenge == null))) return false
+        if (!(sealedChallenge?.contentEquals(other.sealedChallenge) ?: (other.sealedChallenge == null))) return false
+        if (expiresAt != other.expiresAt) return false
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = challengeId.hashCode()
+        result = 31 * result + (challenge?.contentHashCode() ?: 0)
+        result = 31 * result + (sealedChallenge?.contentHashCode() ?: 0)
+        result = 31 * result + expiresAt.hashCode()
+        return result
+    }
+}
+
+/** AddApplicationKeyRequest record. */
+data class AddApplicationKeyRequest(
+    val request: SignedApplicationKeyAddition
+)
+
+/** AddApplicationKeyResponse record. */
+data class AddApplicationKeyResponse(
+    val attestation: SignedApplicationKeyAttestation
+)
+
+/** RenewApplicationKeyAttestationRequest record. */
+data class RenewApplicationKeyAttestationRequest(
+    val request: SignedApplicationKeyRenewal
+)
+
+/** RenewApplicationKeyAttestationResponse record. */
+data class RenewApplicationKeyAttestationResponse(
+    val attestation: SignedApplicationKeyAttestation,
+    val signed: Boolean
+)
+
+/** RevokeApplicationKeyRequest record. */
+data class RevokeApplicationKeyRequest(
+    val revocation: ApplicationKeyRevocation
+)
+
+/** RevokeApplicationKeyResponse record. */
+data class RevokeApplicationKeyResponse(
+    // wire key: revoked_at
+    val revokedAt: String
+)
+
+/** EnrollApplicationInstanceRequest record. */
+data class EnrollApplicationInstanceRequest(
+    // wire key: application_id
+    val applicationId: String,
+    // wire key: instance_id
+    val instanceId: String,
+    val keys: List<SignedApplicationKeyAddition>
+)
+
+/** EnrollApplicationInstanceResponse record. */
+data class EnrollApplicationInstanceResponse(
+    // wire key: subject_user_id
+    val subjectUserId: String,
+    // wire key: subject_domain
+    val subjectDomain: String,
+    // wire key: application_id
+    val applicationId: String,
+    // wire key: instance_id
+    val instanceId: String,
+    val attestations: List<SignedApplicationKeyAttestation>
+)
+
+/** GetApplicationKeysRequest record. */
+data class GetApplicationKeysRequest(
+    // wire key: subject_user_id
+    val subjectUserId: String,
+    // wire key: application_id
+    val applicationId: String,
+    // wire key: instance_id
+    val instanceId: String
+)
+
+/** GetApplicationKeysResponse record. */
+data class GetApplicationKeysResponse(
+    // wire key: subject_user_id
+    val subjectUserId: String,
+    // wire key: subject_domain
+    val subjectDomain: String,
+    // wire key: application_id
+    val applicationId: String,
+    // wire key: instance_id
+    val instanceId: String,
+    val keys: List<SignedApplicationKeyAttestation>,
+    val revocations: List<ApplicationKeyRevocation>
+)
+
+/** RpResolveDomainKeysRequest record. */
+data class RpResolveDomainKeysRequest(
+    val domain: String,
+    // wire key: max_cache_age_seconds
+    val maxCacheAgeSeconds: Long? = null
+)
+
+/** RpResolveDomainKeysResponse record. */
+data class RpResolveDomainKeysResponse(
+    val domain: String,
+    val keys: List<DomainPublicKey>,
+    val revocations: List<RevocationCertificate>,
+    // wire key: fetched_at
+    val fetchedAt: String,
+    // wire key: revocations_checked_at
+    val revocationsCheckedAt: String,
+    // wire key: cache_status
+    val cacheStatus: String
+)
+
+/** RpResolveApplicationKeysRequest record. */
+data class RpResolveApplicationKeysRequest(
+    // wire key: subject_user_id
+    val subjectUserId: String,
+    // wire key: subject_domain
+    val subjectDomain: String,
+    // wire key: application_id
+    val applicationId: String,
+    // wire key: instance_id
+    val instanceId: String,
+    // wire key: max_cache_age_seconds
+    val maxCacheAgeSeconds: Long? = null
+)
+
+/** RpResolveApplicationKeysResponse record. */
+data class RpResolveApplicationKeysResponse(
+    // wire key: subject_user_id
+    val subjectUserId: String,
+    // wire key: subject_domain
+    val subjectDomain: String,
+    // wire key: application_id
+    val applicationId: String,
+    // wire key: instance_id
+    val instanceId: String,
+    // wire key: application_keys
+    val applicationKeys: List<SignedApplicationKeyAttestation>,
+    // wire key: application_key_revocations
+    val applicationKeyRevocations: List<ApplicationKeyRevocation>,
+    // wire key: home_domain_keys
+    val homeDomainKeys: List<DomainPublicKey>,
+    // wire key: home_domain_key_revocations
+    val homeDomainKeyRevocations: List<RevocationCertificate>,
+    // wire key: fetched_at
+    val fetchedAt: String,
+    // wire key: revocations_checked_at
+    val revocationsCheckedAt: String,
+    // wire key: cache_status
+    val cacheStatus: String
+)
+

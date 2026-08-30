@@ -12,5 +12,11 @@ members = [
 # to SDK code the server doesn't ship — a live deploy failed on the missing
 # member. Excluded so the server build never resolves it; test it standalone
 # via `(cd sdks/local-rp/rust && cargo test)` (see tools.sh).
-exclude = ["sdks"]
+#
+# crates/linkkeys/loadtest is excluded for the same reason: it is a
+# connection/handshake/cache/DDoS load-test harness (signing-things-request.md
+# step 9), not part of the shipped server, and must never slow down or
+# destabilize `cargo build --workspace` / `cargo test --workspace`. Run it
+# standalone via `./tools.sh load-test` (see docs/load-testing.md).
+exclude = ["sdks", "crates/linkkeys/loadtest"]
 resolver = "2"

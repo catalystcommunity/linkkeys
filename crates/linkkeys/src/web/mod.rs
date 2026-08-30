@@ -695,7 +695,11 @@ pub(super) fn sign_consent_grant_for_user(
         .map_err(|_| internal_error("consent grant signing", "DOMAIN_KEY_PASSPHRASE not set"))?;
 
     // Own the decrypted private keys so the borrowed signers can reference them.
-    let mut materials: Vec<(String, liblinkkeys::crypto::SigningAlgorithm, Vec<u8>)> = Vec::new();
+    let mut materials: Vec<(
+        String,
+        liblinkkeys::crypto::SigningAlgorithm,
+        zeroize::Zeroizing<Vec<u8>>,
+    )> = Vec::new();
     for dk in domain_keys.iter().filter(|k| k.key_usage == "sign") {
         let Some(algorithm) = liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm)
         else {

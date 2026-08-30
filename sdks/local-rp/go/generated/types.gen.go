@@ -196,6 +196,11 @@ type ClaimRequest struct {
 	Optional []RequestedClaim `json:"optional" yaml:"optional"`
 }
 
+// AuthenticationRequirements represents a structured data type
+type AuthenticationRequirements struct {
+	MinimumFactorCount int64 `json:"minimum_factor_count" yaml:"minimum_factor_count"`
+}
+
 // AuthFlowContext represents a structured data type
 type AuthFlowContext struct {
 	Flow          string  `json:"flow" yaml:"flow"`
@@ -226,6 +231,7 @@ type DomainClaim struct {
 	ClaimType  string           `json:"claim_type" yaml:"claim_type"`
 	ClaimValue []byte           `json:"claim_value" yaml:"claim_value"`
 	Signatures []ClaimSignature `json:"signatures" yaml:"signatures"`
+	AttestedAt string           `json:"attested_at" yaml:"attested_at"`
 	ExpiresAt  *string          `json:"expires_at,omitempty" yaml:"expires_at,omitempty"`
 }
 
@@ -308,14 +314,15 @@ type UserInfo struct {
 
 // AuthRequest represents a structured data type
 type AuthRequest struct {
-	RelyingParty       string           `json:"relying_party" yaml:"relying_party"`
-	CallbackUrl        string           `json:"callback_url" yaml:"callback_url"`
-	Nonce              string           `json:"nonce" yaml:"nonce"`
-	Timestamp          string           `json:"timestamp" yaml:"timestamp"`
-	SigningKeyId       string           `json:"signing_key_id" yaml:"signing_key_id"`
-	RequestedClaims    *ClaimRequest    `json:"requested_claims,omitempty" yaml:"requested_claims,omitempty"`
-	FlowContext        *AuthFlowContext `json:"flow_context,omitempty" yaml:"flow_context,omitempty"`
-	RelyingPartyClaims []DomainClaim    `json:"relying_party_claims,omitempty" yaml:"relying_party_claims,omitempty"`
+	RelyingParty               string                      `json:"relying_party" yaml:"relying_party"`
+	CallbackUrl                string                      `json:"callback_url" yaml:"callback_url"`
+	Nonce                      string                      `json:"nonce" yaml:"nonce"`
+	Timestamp                  string                      `json:"timestamp" yaml:"timestamp"`
+	SigningKeyId               string                      `json:"signing_key_id" yaml:"signing_key_id"`
+	RequestedClaims            *ClaimRequest               `json:"requested_claims,omitempty" yaml:"requested_claims,omitempty"`
+	AuthenticationRequirements *AuthenticationRequirements `json:"authentication_requirements,omitempty" yaml:"authentication_requirements,omitempty"`
+	FlowContext                *AuthFlowContext            `json:"flow_context,omitempty" yaml:"flow_context,omitempty"`
+	RelyingPartyClaims         []DomainClaim               `json:"relying_party_claims,omitempty" yaml:"relying_party_claims,omitempty"`
 }
 
 // SignedAuthRequest represents a structured data type
@@ -365,18 +372,21 @@ type Relation struct {
 
 // AdminUser represents a structured data type
 type AdminUser struct {
-	Id          string `json:"id" yaml:"id"`
-	Username    string `json:"username" yaml:"username"`
-	DisplayName string `json:"display_name" yaml:"display_name"`
-	IsActive    bool   `json:"is_active" yaml:"is_active"`
-	CreatedAt   string `json:"created_at" yaml:"created_at"`
-	UpdatedAt   string `json:"updated_at" yaml:"updated_at"`
+	Id          string  `json:"id" yaml:"id"`
+	Username    string  `json:"username" yaml:"username"`
+	DisplayName string  `json:"display_name" yaml:"display_name"`
+	IsActive    bool    `json:"is_active" yaml:"is_active"`
+	CreatedAt   string  `json:"created_at" yaml:"created_at"`
+	UpdatedAt   string  `json:"updated_at" yaml:"updated_at"`
+	PurgedAt    *string `json:"purged_at,omitempty" yaml:"purged_at,omitempty"`
+	PurgeReason *string `json:"purge_reason,omitempty" yaml:"purge_reason,omitempty"`
 }
 
 // ListUsersRequest represents a structured data type
 type ListUsersRequest struct {
-	Offset *int64 `json:"offset,omitempty" yaml:"offset,omitempty"`
-	Limit  *int64 `json:"limit,omitempty" yaml:"limit,omitempty"`
+	Offset        *int64 `json:"offset,omitempty" yaml:"offset,omitempty"`
+	Limit         *int64 `json:"limit,omitempty" yaml:"limit,omitempty"`
+	IncludePurged *bool  `json:"include_purged,omitempty" yaml:"include_purged,omitempty"`
 }
 
 // ListUsersResponse represents a structured data type
@@ -426,6 +436,49 @@ type DeactivateUserRequest struct {
 // DeactivateUserResponse represents a structured data type
 type DeactivateUserResponse struct {
 	User AdminUser `json:"user" yaml:"user"`
+}
+
+// ActivateUserRequest represents a structured data type
+type ActivateUserRequest struct {
+	UserId string `json:"user_id" yaml:"user_id"`
+}
+
+// ActivateUserResponse represents a structured data type
+type ActivateUserResponse struct {
+	User AdminUser `json:"user" yaml:"user"`
+}
+
+// PurgeUserRequest represents a structured data type
+type PurgeUserRequest struct {
+	UserId string  `json:"user_id" yaml:"user_id"`
+	Reason *string `json:"reason,omitempty" yaml:"reason,omitempty"`
+}
+
+// PurgeUserResponse represents a structured data type
+type PurgeUserResponse struct {
+	User                       AdminUser `json:"user" yaml:"user"`
+	CredentialsRevoked         int64     `json:"credentials_revoked" yaml:"credentials_revoked"`
+	KeysRevoked                int64     `json:"keys_revoked" yaml:"keys_revoked"`
+	ClaimsRevoked              int64     `json:"claims_revoked" yaml:"claims_revoked"`
+	RelationsRemoved           int64     `json:"relations_removed" yaml:"relations_removed"`
+	ProfilesDeleted            int64     `json:"profiles_deleted" yaml:"profiles_deleted"`
+	ConsentGrantsDeleted       int64     `json:"consent_grants_deleted" yaml:"consent_grants_deleted"`
+	ReleasePrefsDeleted        int64     `json:"release_prefs_deleted" yaml:"release_prefs_deleted"`
+	EmailVerificationsDeleted  int64     `json:"email_verifications_deleted" yaml:"email_verifications_deleted"`
+	ReviewsResolved            int64     `json:"reviews_resolved" yaml:"reviews_resolved"`
+	LocalRpClaimTicketsDeleted int64     `json:"local_rp_claim_tickets_deleted" yaml:"local_rp_claim_tickets_deleted"`
+}
+
+// RevokeDomainKeyRequest represents a structured data type
+type RevokeDomainKeyRequest struct {
+	KeyId string `json:"key_id" yaml:"key_id"`
+}
+
+// RevokeDomainKeyResponse represents a structured data type
+type RevokeDomainKeyResponse struct {
+	RevokedKey         DomainPublicKey `json:"revoked_key" yaml:"revoked_key"`
+	CertificateIssued  bool            `json:"certificate_issued" yaml:"certificate_issued"`
+	DnsRemovalReminder string          `json:"dns_removal_reminder" yaml:"dns_removal_reminder"`
 }
 
 // ResetPasswordRequest represents a structured data type
@@ -493,6 +546,16 @@ type ListUserClaimsResponse struct {
 	ClaimTypes []string `json:"claim_types" yaml:"claim_types"`
 }
 
+// AdminUserClaimsRequest represents a structured data type
+type AdminUserClaimsRequest struct {
+	UserId string `json:"user_id" yaml:"user_id"`
+}
+
+// AdminUserClaimsResponse represents a structured data type
+type AdminUserClaimsResponse struct {
+	Claims []Claim `json:"claims" yaml:"claims"`
+}
+
 // SetUserClaimRequest represents a structured data type
 type SetUserClaimRequest struct {
 	UserId     string `json:"user_id" yaml:"user_id"`
@@ -509,7 +572,10 @@ type SetUserClaimResponse struct {
 // SettableClaimPolicy represents a structured data type
 type SettableClaimPolicy struct {
 	ClaimType        string `json:"claim_type" yaml:"claim_type"`
+	Label            string `json:"label" yaml:"label"`
+	Description      string `json:"description" yaml:"description"`
 	Datatype         string `json:"datatype" yaml:"datatype"`
+	MaxBytes         int64  `json:"max_bytes" yaml:"max_bytes"`
 	SetRule          string `json:"set_rule" yaml:"set_rule"`
 	RequiresApproval bool   `json:"requires_approval" yaml:"requires_approval"`
 	SigningRule      string `json:"signing_rule" yaml:"signing_rule"`
@@ -518,6 +584,205 @@ type SettableClaimPolicy struct {
 // ListSettablePoliciesResponse represents a structured data type
 type ListSettablePoliciesResponse struct {
 	Policies []SettableClaimPolicy `json:"policies" yaml:"policies"`
+}
+
+// ClaimTypePolicy represents a structured data type
+type ClaimTypePolicy struct {
+	ClaimType        string `json:"claim_type" yaml:"claim_type"`
+	Label            string `json:"label" yaml:"label"`
+	Description      string `json:"description" yaml:"description"`
+	ValueType        string `json:"value_type" yaml:"value_type"`
+	MaxBytes         int64  `json:"max_bytes" yaml:"max_bytes"`
+	SetRule          string `json:"set_rule" yaml:"set_rule"`
+	SigningRule      string `json:"signing_rule" yaml:"signing_rule"`
+	RequiresApproval bool   `json:"requires_approval" yaml:"requires_approval"`
+	UserSettable     bool   `json:"user_settable" yaml:"user_settable"`
+	DefaultAutoSign  bool   `json:"default_auto_sign" yaml:"default_auto_sign"`
+	Suggested        bool   `json:"suggested" yaml:"suggested"`
+}
+
+// ListClaimTypesResponse represents a structured data type
+type ListClaimTypesResponse struct {
+	ClaimTypes []ClaimTypePolicy `json:"claim_types" yaml:"claim_types"`
+}
+
+// SetClaimTypeRequest represents a structured data type
+type SetClaimTypeRequest struct {
+	ClaimType        string  `json:"claim_type" yaml:"claim_type"`
+	Label            string  `json:"label" yaml:"label"`
+	Description      *string `json:"description,omitempty" yaml:"description,omitempty"`
+	ValueType        string  `json:"value_type" yaml:"value_type"`
+	MaxBytes         int64   `json:"max_bytes" yaml:"max_bytes"`
+	SetRule          string  `json:"set_rule" yaml:"set_rule"`
+	SigningRule      string  `json:"signing_rule" yaml:"signing_rule"`
+	UserSettable     bool    `json:"user_settable" yaml:"user_settable"`
+	DefaultAutoSign  bool    `json:"default_auto_sign" yaml:"default_auto_sign"`
+	RequiresApproval bool    `json:"requires_approval" yaml:"requires_approval"`
+	Suggested        bool    `json:"suggested" yaml:"suggested"`
+}
+
+// SetClaimTypeResponse represents a structured data type
+type SetClaimTypeResponse struct {
+	ClaimType ClaimTypePolicy `json:"claim_type" yaml:"claim_type"`
+}
+
+// RemoveClaimTypeRequest represents a structured data type
+type RemoveClaimTypeRequest struct {
+	ClaimType string `json:"claim_type" yaml:"claim_type"`
+}
+
+// RemoveClaimTypeResponse represents a structured data type
+type RemoveClaimTypeResponse struct {
+	Success bool `json:"success" yaml:"success"`
+}
+
+// ClaimTypeLabel represents a structured data type
+type ClaimTypeLabel struct {
+	ClaimType   string  `json:"claim_type" yaml:"claim_type"`
+	Locale      string  `json:"locale" yaml:"locale"`
+	Label       string  `json:"label" yaml:"label"`
+	Description *string `json:"description,omitempty" yaml:"description,omitempty"`
+}
+
+// SetClaimTypeLabelRequest represents a structured data type
+type SetClaimTypeLabelRequest struct {
+	ClaimType   string  `json:"claim_type" yaml:"claim_type"`
+	Locale      string  `json:"locale" yaml:"locale"`
+	Label       string  `json:"label" yaml:"label"`
+	Description *string `json:"description,omitempty" yaml:"description,omitempty"`
+}
+
+// SetClaimTypeLabelResponse represents a structured data type
+type SetClaimTypeLabelResponse struct {
+	Label ClaimTypeLabel `json:"label" yaml:"label"`
+}
+
+// RemoveClaimTypeLabelRequest represents a structured data type
+type RemoveClaimTypeLabelRequest struct {
+	ClaimType string `json:"claim_type" yaml:"claim_type"`
+	Locale    string `json:"locale" yaml:"locale"`
+}
+
+// RemoveClaimTypeLabelResponse represents a structured data type
+type RemoveClaimTypeLabelResponse struct {
+	Success bool `json:"success" yaml:"success"`
+}
+
+// TrustedIssuer represents a structured data type
+type TrustedIssuer struct {
+	ClaimType    string `json:"claim_type" yaml:"claim_type"`
+	IssuerDomain string `json:"issuer_domain" yaml:"issuer_domain"`
+}
+
+// ListTrustedIssuersResponse represents a structured data type
+type ListTrustedIssuersResponse struct {
+	TrustedIssuers []TrustedIssuer `json:"trusted_issuers" yaml:"trusted_issuers"`
+}
+
+// AddTrustedIssuerRequest represents a structured data type
+type AddTrustedIssuerRequest struct {
+	ClaimType    string `json:"claim_type" yaml:"claim_type"`
+	IssuerDomain string `json:"issuer_domain" yaml:"issuer_domain"`
+}
+
+// AddTrustedIssuerResponse represents a structured data type
+type AddTrustedIssuerResponse struct {
+	TrustedIssuer TrustedIssuer `json:"trusted_issuer" yaml:"trusted_issuer"`
+}
+
+// RemoveTrustedIssuerRequest represents a structured data type
+type RemoveTrustedIssuerRequest struct {
+	ClaimType    string `json:"claim_type" yaml:"claim_type"`
+	IssuerDomain string `json:"issuer_domain" yaml:"issuer_domain"`
+}
+
+// RemoveTrustedIssuerResponse represents a structured data type
+type RemoveTrustedIssuerResponse struct {
+	Success bool `json:"success" yaml:"success"`
+}
+
+// ReleaseRule represents a structured data type
+type ReleaseRule struct {
+	Audience    string `json:"audience" yaml:"audience"`
+	ClaimType   string `json:"claim_type" yaml:"claim_type"`
+	Disposition string `json:"disposition" yaml:"disposition"`
+}
+
+// ListReleaseRulesResponse represents a structured data type
+type ListReleaseRulesResponse struct {
+	ReleaseRules []ReleaseRule `json:"release_rules" yaml:"release_rules"`
+}
+
+// SetReleaseRuleRequest represents a structured data type
+type SetReleaseRuleRequest struct {
+	Audience    string `json:"audience" yaml:"audience"`
+	ClaimType   string `json:"claim_type" yaml:"claim_type"`
+	Disposition string `json:"disposition" yaml:"disposition"`
+}
+
+// SetReleaseRuleResponse represents a structured data type
+type SetReleaseRuleResponse struct {
+	ReleaseRule ReleaseRule `json:"release_rule" yaml:"release_rule"`
+}
+
+// RemoveReleaseRuleRequest represents a structured data type
+type RemoveReleaseRuleRequest struct {
+	Audience  string `json:"audience" yaml:"audience"`
+	ClaimType string `json:"claim_type" yaml:"claim_type"`
+}
+
+// RemoveReleaseRuleResponse represents a structured data type
+type RemoveReleaseRuleResponse struct {
+	Success bool `json:"success" yaml:"success"`
+}
+
+// ClaimApproval represents a structured data type
+type ClaimApproval struct {
+	Id         string  `json:"id" yaml:"id"`
+	UserId     string  `json:"user_id" yaml:"user_id"`
+	ClaimType  string  `json:"claim_type" yaml:"claim_type"`
+	ClaimValue []byte  `json:"claim_value" yaml:"claim_value"`
+	Status     string  `json:"status" yaml:"status"`
+	ResolvedBy *string `json:"resolved_by,omitempty" yaml:"resolved_by,omitempty"`
+	ResolvedAt *string `json:"resolved_at,omitempty" yaml:"resolved_at,omitempty"`
+	CreatedAt  string  `json:"created_at" yaml:"created_at"`
+}
+
+// ListPendingClaimApprovalsResponse represents a structured data type
+type ListPendingClaimApprovalsResponse struct {
+	Approvals []ClaimApproval `json:"approvals" yaml:"approvals"`
+}
+
+// ApproveClaimRequest represents a structured data type
+type ApproveClaimRequest struct {
+	ApprovalId string `json:"approval_id" yaml:"approval_id"`
+}
+
+// ApproveClaimResponse represents a structured data type
+type ApproveClaimResponse struct {
+	Success bool `json:"success" yaml:"success"`
+}
+
+// RejectClaimRequest represents a structured data type
+type RejectClaimRequest struct {
+	ApprovalId string `json:"approval_id" yaml:"approval_id"`
+}
+
+// RejectClaimResponse represents a structured data type
+type RejectClaimResponse struct {
+	Success bool `json:"success" yaml:"success"`
+}
+
+// AdminIssueAttestationRequest represents a structured data type
+type AdminIssueAttestationRequest struct {
+	UserId     string `json:"user_id" yaml:"user_id"`
+	ClaimType  string `json:"claim_type" yaml:"claim_type"`
+	ClaimValue []byte `json:"claim_value" yaml:"claim_value"`
+}
+
+// AdminIssueAttestationResponse represents a structured data type
+type AdminIssueAttestationResponse struct {
+	Claim Claim `json:"claim" yaml:"claim"`
 }
 
 // GrantRelationRequest represents a structured data type
@@ -572,7 +837,8 @@ type CheckPermissionResponse struct {
 
 // ChangePasswordRequest represents a structured data type
 type ChangePasswordRequest struct {
-	NewPassword string `json:"new_password" yaml:"new_password"`
+	CurrentPassword string `json:"current_password" yaml:"current_password"`
+	NewPassword     string `json:"new_password" yaml:"new_password"`
 }
 
 // ChangePasswordResponse represents a structured data type
@@ -587,12 +853,289 @@ type GetMyInfoResponse struct {
 	Claims    []Claim    `json:"claims" yaml:"claims"`
 }
 
+// SetMyClaimRequest represents a structured data type
+type SetMyClaimRequest struct {
+	ClaimType  string `json:"claim_type" yaml:"claim_type"`
+	ClaimValue string `json:"claim_value" yaml:"claim_value"`
+}
+
+// SetMyClaimResponse represents a structured data type
+type SetMyClaimResponse struct {
+	Outcome string `json:"outcome" yaml:"outcome"`
+	Claim   *Claim `json:"claim,omitempty" yaml:"claim,omitempty"`
+}
+
+// RemoveMyClaimRequest represents a structured data type
+type RemoveMyClaimRequest struct {
+	ClaimId string `json:"claim_id" yaml:"claim_id"`
+}
+
+// RemoveMyClaimResponse represents a structured data type
+type RemoveMyClaimResponse struct {
+	Success bool `json:"success" yaml:"success"`
+}
+
+// SetMyClaimSharingRequest represents a structured data type
+type SetMyClaimSharingRequest struct {
+	ClaimType string `json:"claim_type" yaml:"claim_type"`
+	Share     bool   `json:"share" yaml:"share"`
+}
+
+// SetMyClaimSharingResponse represents a structured data type
+type SetMyClaimSharingResponse struct {
+}
+
+// Profile represents a structured data type
+type Profile struct {
+	Id        string  `json:"id" yaml:"id"`
+	AccountId string  `json:"account_id" yaml:"account_id"`
+	Domain    string  `json:"domain" yaml:"domain"`
+	IsRoot    bool    `json:"is_root" yaml:"is_root"`
+	Label     *string `json:"label,omitempty" yaml:"label,omitempty"`
+}
+
+// CreateProfileRequest represents a structured data type
+type CreateProfileRequest struct {
+	Label *string `json:"label,omitempty" yaml:"label,omitempty"`
+}
+
+// CreateProfileResponse represents a structured data type
+type CreateProfileResponse struct {
+	Profile Profile `json:"profile" yaml:"profile"`
+}
+
+// RequestVerificationRequest represents a structured data type
+type RequestVerificationRequest struct {
+	IssuerDomain        string   `json:"issuer_domain" yaml:"issuer_domain"`
+	RequestedClaimTypes []string `json:"requested_claim_types" yaml:"requested_claim_types"`
+}
+
+// RequestVerificationResponse represents a structured data type
+type RequestVerificationResponse struct {
+	SignedRequest SignedSigningRequest `json:"signed_request" yaml:"signed_request"`
+}
+
+// PasswordPolicy represents a structured data type
+type PasswordPolicy struct {
+	MinLength int64 `json:"min_length" yaml:"min_length"`
+	MaxLength int64 `json:"max_length" yaml:"max_length"`
+}
+
+// BrowserSessionInfo represents a structured data type
+type BrowserSessionInfo struct {
+	User                  AdminUser `json:"user" yaml:"user"`
+	IssuedAt              string    `json:"issued_at" yaml:"issued_at"`
+	AuthenticatedAt       string    `json:"authenticated_at" yaml:"authenticated_at"`
+	ExpiresAt             string    `json:"expires_at" yaml:"expires_at"`
+	AuthenticationMethods []string  `json:"authentication_methods" yaml:"authentication_methods"`
+}
+
+// SessionPasswordLoginRequest represents a structured data type
+type SessionPasswordLoginRequest struct {
+	Username string `json:"username" yaml:"username"`
+	Password string `json:"password" yaml:"password"`
+}
+
+// SessionPasswordLoginResponse represents a structured data type
+type SessionPasswordLoginResponse struct {
+	Session BrowserSessionInfo `json:"session" yaml:"session"`
+}
+
+// SessionCurrentResponse represents a structured data type
+type SessionCurrentResponse struct {
+	Session BrowserSessionInfo `json:"session" yaml:"session"`
+}
+
+// SessionLogoutResponse represents a structured data type
+type SessionLogoutResponse struct {
+	Success bool `json:"success" yaml:"success"`
+}
+
+// IntrospectBrowserSessionRequest represents a structured data type
+type IntrospectBrowserSessionRequest struct {
+	SessionCookie string `json:"session_cookie" yaml:"session_cookie"`
+}
+
+// IntrospectBrowserSessionResponse represents a structured data type
+type IntrospectBrowserSessionResponse struct {
+	UserId                string   `json:"user_id" yaml:"user_id"`
+	UserDomain            string   `json:"user_domain" yaml:"user_domain"`
+	AuthenticatedAt       string   `json:"authenticated_at" yaml:"authenticated_at"`
+	ExpiresAt             string   `json:"expires_at" yaml:"expires_at"`
+	AuthenticationMethods []string `json:"authentication_methods" yaml:"authentication_methods"`
+}
+
+// NotificationCapability represents a structured data type
+type NotificationCapability struct {
+	Purpose         string `json:"purpose" yaml:"purpose"`
+	Channel         string `json:"channel" yaml:"channel"`
+	DestinationKind string `json:"destination_kind" yaml:"destination_kind"`
+}
+
+// GetNotificationCapabilitiesResponse represents a structured data type
+type GetNotificationCapabilitiesResponse struct {
+	Capabilities []NotificationCapability `json:"capabilities" yaml:"capabilities"`
+}
+
+// VerifiedContactMethod represents a structured data type
+type VerifiedContactMethod struct {
+	Id          string   `json:"id" yaml:"id"`
+	Channel     string   `json:"channel" yaml:"channel"`
+	Destination string   `json:"destination" yaml:"destination"`
+	VerifiedAt  string   `json:"verified_at" yaml:"verified_at"`
+	Purposes    []string `json:"purposes" yaml:"purposes"`
+	RevokedAt   *string  `json:"revoked_at,omitempty" yaml:"revoked_at,omitempty"`
+}
+
+// ListVerifiedContactMethodsResponse represents a structured data type
+type ListVerifiedContactMethodsResponse struct {
+	ContactMethods []VerifiedContactMethod `json:"contact_methods" yaml:"contact_methods"`
+}
+
+// RevokeVerifiedContactMethodRequest represents a structured data type
+type RevokeVerifiedContactMethodRequest struct {
+	ContactMethodId string `json:"contact_method_id" yaml:"contact_method_id"`
+	CurrentPassword string `json:"current_password" yaml:"current_password"`
+}
+
+// RevokeVerifiedContactMethodResponse represents a structured data type
+type RevokeVerifiedContactMethodResponse struct {
+	Success bool `json:"success" yaml:"success"`
+}
+
+// RequestContactVerificationRequest represents a structured data type
+type RequestContactVerificationRequest struct {
+	Channel         string `json:"channel" yaml:"channel"`
+	Destination     string `json:"destination" yaml:"destination"`
+	CurrentPassword string `json:"current_password" yaml:"current_password"`
+}
+
+// RequestContactVerificationResponse represents a structured data type
+type RequestContactVerificationResponse struct {
+	ExpiresAt string `json:"expires_at" yaml:"expires_at"`
+}
+
+// ConfirmContactVerificationRequest represents a structured data type
+type ConfirmContactVerificationRequest struct {
+	Token string `json:"token" yaml:"token"`
+}
+
+// ConfirmContactVerificationResponse represents a structured data type
+type ConfirmContactVerificationResponse struct {
+	ContactMethod VerifiedContactMethod `json:"contact_method" yaml:"contact_method"`
+	Claims        []Claim               `json:"claims" yaml:"claims"`
+}
+
+// RequestPasswordRecoveryRequest represents a structured data type
+type RequestPasswordRecoveryRequest struct {
+	Identifier string `json:"identifier" yaml:"identifier"`
+}
+
+// RequestPasswordRecoveryResponse represents a structured data type
+type RequestPasswordRecoveryResponse struct {
+}
+
+// ValidatePasswordRecoveryRequest represents a structured data type
+type ValidatePasswordRecoveryRequest struct {
+	Token string `json:"token" yaml:"token"`
+}
+
+// ValidatePasswordRecoveryResponse represents a structured data type
+type ValidatePasswordRecoveryResponse struct {
+	ExpiresAt      string         `json:"expires_at" yaml:"expires_at"`
+	PasswordPolicy PasswordPolicy `json:"password_policy" yaml:"password_policy"`
+}
+
+// CompletePasswordRecoveryRequest represents a structured data type
+type CompletePasswordRecoveryRequest struct {
+	Token       string `json:"token" yaml:"token"`
+	NewPassword string `json:"new_password" yaml:"new_password"`
+}
+
+// CompletePasswordRecoveryResponse represents a structured data type
+type CompletePasswordRecoveryResponse struct {
+	Success bool `json:"success" yaml:"success"`
+}
+
+// BrowserAuthorizationInspectRequest represents a structured data type
+type BrowserAuthorizationInspectRequest struct {
+	SignedRequest string `json:"signed_request" yaml:"signed_request"`
+}
+
+// BrowserConsentClaim represents a structured data type
+type BrowserConsentClaim struct {
+	ClaimType        string `json:"claim_type" yaml:"claim_type"`
+	Label            string `json:"label" yaml:"label"`
+	Datatype         string `json:"datatype" yaml:"datatype"`
+	Required         bool   `json:"required" yaml:"required"`
+	Available        bool   `json:"available" yaml:"available"`
+	DefaultGranted   bool   `json:"default_granted" yaml:"default_granted"`
+	Policy           string `json:"policy" yaml:"policy"`
+	UserSettable     bool   `json:"user_settable" yaml:"user_settable"`
+	MaxBytes         int64  `json:"max_bytes" yaml:"max_bytes"`
+	RequiresApproval bool   `json:"requires_approval" yaml:"requires_approval"`
+}
+
+// BrowserAuthorizationInspectResponse represents a structured data type
+type BrowserAuthorizationInspectResponse struct {
+	RelyingParty  string                `json:"relying_party" yaml:"relying_party"`
+	Claims        []BrowserConsentClaim `json:"claims" yaml:"claims"`
+	RequestReason *string               `json:"request_reason,omitempty" yaml:"request_reason,omitempty"`
+}
+
+// BrowserAuthorizationCompleteRequest represents a structured data type
+type BrowserAuthorizationCompleteRequest struct {
+	SignedRequest    string   `json:"signed_request" yaml:"signed_request"`
+	AuthorizedClaims []string `json:"authorized_claims" yaml:"authorized_claims"`
+	ClaimTypesToSet  []string `json:"claim_types_to_set" yaml:"claim_types_to_set"`
+	ClaimValuesToSet []string `json:"claim_values_to_set" yaml:"claim_values_to_set"`
+}
+
+// BrowserAuthorizationCompleteResponse represents a structured data type
+type BrowserAuthorizationCompleteResponse struct {
+	RedirectUrl string `json:"redirect_url" yaml:"redirect_url"`
+}
+
+// UiTheme represents a structured data type
+type UiTheme struct {
+	StylesheetUrl *string `json:"stylesheet_url,omitempty" yaml:"stylesheet_url,omitempty"`
+	LogoUrl       *string `json:"logo_url,omitempty" yaml:"logo_url,omitempty"`
+	FaviconUrl    *string `json:"favicon_url,omitempty" yaml:"favicon_url,omitempty"`
+}
+
+// UiExtension represents a structured data type
+type UiExtension struct {
+	Id            string  `json:"id" yaml:"id"`
+	ModuleUrl     string  `json:"module_url" yaml:"module_url"`
+	ApiVersion    int64   `json:"api_version" yaml:"api_version"`
+	StylesheetUrl *string `json:"stylesheet_url,omitempty" yaml:"stylesheet_url,omitempty"`
+}
+
+// UiDisplaySettings represents a structured data type
+type UiDisplaySettings struct {
+	SiteName   string  `json:"site_name" yaml:"site_name"`
+	SupportUrl *string `json:"support_url,omitempty" yaml:"support_url,omitempty"`
+}
+
+// GetUiConfigurationResponse represents a structured data type
+type GetUiConfigurationResponse struct {
+	HostApiVersion int64             `json:"host_api_version" yaml:"host_api_version"`
+	Domain         string            `json:"domain" yaml:"domain"`
+	PublicOrigin   *string           `json:"public_origin,omitempty" yaml:"public_origin,omitempty"`
+	Capabilities   []string          `json:"capabilities" yaml:"capabilities"`
+	Display        UiDisplaySettings `json:"display" yaml:"display"`
+	Theme          *UiTheme          `json:"theme,omitempty" yaml:"theme,omitempty"`
+	Extensions     []UiExtension     `json:"extensions" yaml:"extensions"`
+	PasswordPolicy *PasswordPolicy   `json:"password_policy,omitempty" yaml:"password_policy,omitempty"`
+}
+
 // RpSignRequest represents a structured data type
 type RpSignRequest struct {
-	CallbackUrl     string           `json:"callback_url" yaml:"callback_url"`
-	Nonce           string           `json:"nonce" yaml:"nonce"`
-	RequestedClaims *ClaimRequest    `json:"requested_claims,omitempty" yaml:"requested_claims,omitempty"`
-	FlowContext     *AuthFlowContext `json:"flow_context,omitempty" yaml:"flow_context,omitempty"`
+	CallbackUrl                string                      `json:"callback_url" yaml:"callback_url"`
+	Nonce                      string                      `json:"nonce" yaml:"nonce"`
+	RequestedClaims            *ClaimRequest               `json:"requested_claims,omitempty" yaml:"requested_claims,omitempty"`
+	AuthenticationRequirements *AuthenticationRequirements `json:"authentication_requirements,omitempty" yaml:"authentication_requirements,omitempty"`
+	FlowContext                *AuthFlowContext            `json:"flow_context,omitempty" yaml:"flow_context,omitempty"`
 }
 
 // RpSignResponse represents a structured data type
@@ -642,6 +1185,42 @@ type RpIssueAttestationResponse struct {
 	Deposited bool  `json:"deposited" yaml:"deposited"`
 }
 
+// AuthorizeValidateRequest represents a structured data type
+type AuthorizeValidateRequest struct {
+	SignedRequest string  `json:"signed_request" yaml:"signed_request"`
+	UserId        *string `json:"user_id,omitempty" yaml:"user_id,omitempty"`
+}
+
+// AuthorizeValidateResponse represents a structured data type
+type AuthorizeValidateResponse struct {
+	RelyingParty     string   `json:"relying_party" yaml:"relying_party"`
+	CallbackUrl      string   `json:"callback_url" yaml:"callback_url"`
+	RequestedClaims  []string `json:"requested_claims" yaml:"requested_claims"`
+	AlreadyConsented *bool    `json:"already_consented,omitempty" yaml:"already_consented,omitempty"`
+	AuthorizedClaims []string `json:"authorized_claims,omitempty" yaml:"authorized_claims,omitempty"`
+}
+
+// AuthorizeFinalizeRequest represents a structured data type
+type AuthorizeFinalizeRequest struct {
+	UserId           string   `json:"user_id" yaml:"user_id"`
+	SignedRequest    string   `json:"signed_request" yaml:"signed_request"`
+	AuthorizedClaims []string `json:"authorized_claims" yaml:"authorized_claims"`
+}
+
+// AuthorizeFinalizeResponse represents a structured data type
+type AuthorizeFinalizeResponse struct {
+	RedirectUrl string `json:"redirect_url" yaml:"redirect_url"`
+}
+
+// ApiErrorCode is a type alias
+type ApiErrorCode string
+
+// ApiError represents a structured data type
+type ApiError struct {
+	Code    ApiErrorCode `json:"code" yaml:"code"`
+	Message string       `json:"message" yaml:"message"`
+}
+
 // AeadSuite is a type alias
 type AeadSuite string
 
@@ -668,14 +1247,16 @@ type SignedLocalRpDescriptor struct {
 
 // LocalRpLoginRequest represents a structured data type
 type LocalRpLoginRequest struct {
-	Descriptor      SignedLocalRpDescriptor `json:"descriptor" yaml:"descriptor"`
-	CallbackUrl     string                  `json:"callback_url" yaml:"callback_url"`
-	Nonce           []byte                  `json:"nonce" yaml:"nonce"`
-	State           []byte                  `json:"state" yaml:"state"`
-	RequestedClaims []string                `json:"requested_claims" yaml:"requested_claims"`
-	RequiredClaims  []string                `json:"required_claims" yaml:"required_claims"`
-	IssuedAt        string                  `json:"issued_at" yaml:"issued_at"`
-	ExpiresAt       string                  `json:"expires_at" yaml:"expires_at"`
+	Descriptor                 SignedLocalRpDescriptor     `json:"descriptor" yaml:"descriptor"`
+	CallbackUrl                string                      `json:"callback_url" yaml:"callback_url"`
+	Nonce                      []byte                      `json:"nonce" yaml:"nonce"`
+	State                      []byte                      `json:"state" yaml:"state"`
+	RequestedClaims            []string                    `json:"requested_claims" yaml:"requested_claims"`
+	RequiredClaims             []string                    `json:"required_claims" yaml:"required_claims"`
+	AuthenticationRequirements *AuthenticationRequirements `json:"authentication_requirements,omitempty" yaml:"authentication_requirements,omitempty"`
+	FlowContext                *AuthFlowContext            `json:"flow_context,omitempty" yaml:"flow_context,omitempty"`
+	IssuedAt                   string                      `json:"issued_at" yaml:"issued_at"`
+	ExpiresAt                  string                      `json:"expires_at" yaml:"expires_at"`
 }
 
 // SignedLocalRpLoginRequest represents a structured data type
@@ -832,6 +1413,15 @@ type SetLocalRpPolicyResponse struct {
 	Policy LocalRpPolicy `json:"policy" yaml:"policy"`
 }
 
+// PurgeLocalRpTicketsRequest represents a structured data type
+type PurgeLocalRpTicketsRequest struct {
+}
+
+// PurgeLocalRpTicketsResponse represents a structured data type
+type PurgeLocalRpTicketsResponse struct {
+	PurgedCount int64 `json:"purged_count" yaml:"purged_count"`
+}
+
 // LocaleMessages is a type alias
 type LocaleMessages map[string]string
 
@@ -851,4 +1441,213 @@ type TranslationsResponse struct {
 // ListLocalesResponse represents a structured data type
 type ListLocalesResponse struct {
 	AvailableLocales []string `json:"available_locales" yaml:"available_locales"`
+}
+
+// ApplicationKeySignature represents a structured data type
+type ApplicationKeySignature struct {
+	SignedByKeyId string `json:"signed_by_key_id" yaml:"signed_by_key_id"`
+	Signature     []byte `json:"signature" yaml:"signature"`
+}
+
+// ApplicationKeyAttestation represents a structured data type
+type ApplicationKeyAttestation struct {
+	SubjectUserId        string `json:"subject_user_id" yaml:"subject_user_id"`
+	SubjectDomain        string `json:"subject_domain" yaml:"subject_domain"`
+	ApplicationId        string `json:"application_id" yaml:"application_id"`
+	InstanceId           string `json:"instance_id" yaml:"instance_id"`
+	KeyId                string `json:"key_id" yaml:"key_id"`
+	KeyUsage             string `json:"key_usage" yaml:"key_usage"`
+	Algorithm            string `json:"algorithm" yaml:"algorithm"`
+	PublicKey            []byte `json:"public_key" yaml:"public_key"`
+	Fingerprint          string `json:"fingerprint" yaml:"fingerprint"`
+	KeyCreatedAt         string `json:"key_created_at" yaml:"key_created_at"`
+	KeyExpiresAt         string `json:"key_expires_at" yaml:"key_expires_at"`
+	AttestedAt           string `json:"attested_at" yaml:"attested_at"`
+	AttestationExpiresAt string `json:"attestation_expires_at" yaml:"attestation_expires_at"`
+}
+
+// SignedApplicationKeyAttestation represents a structured data type
+type SignedApplicationKeyAttestation struct {
+	Attestation []byte           `json:"attestation" yaml:"attestation"`
+	Signatures  []ClaimSignature `json:"signatures" yaml:"signatures"`
+}
+
+// ApplicationKeyAddition represents a structured data type
+type ApplicationKeyAddition struct {
+	SubjectUserId               string `json:"subject_user_id" yaml:"subject_user_id"`
+	SubjectDomain               string `json:"subject_domain" yaml:"subject_domain"`
+	ApplicationId               string `json:"application_id" yaml:"application_id"`
+	InstanceId                  string `json:"instance_id" yaml:"instance_id"`
+	KeyId                       string `json:"key_id" yaml:"key_id"`
+	KeyUsage                    string `json:"key_usage" yaml:"key_usage"`
+	Algorithm                   string `json:"algorithm" yaml:"algorithm"`
+	PublicKey                   []byte `json:"public_key" yaml:"public_key"`
+	Fingerprint                 string `json:"fingerprint" yaml:"fingerprint"`
+	RequestedKeyLifetimeSeconds int64  `json:"requested_key_lifetime_seconds" yaml:"requested_key_lifetime_seconds"`
+	ChallengeId                 string `json:"challenge_id" yaml:"challenge_id"`
+	Challenge                   []byte `json:"challenge" yaml:"challenge"`
+	RequestedAt                 string `json:"requested_at" yaml:"requested_at"`
+	ExpiresAt                   string `json:"expires_at" yaml:"expires_at"`
+}
+
+// SignedApplicationKeyAddition represents a structured data type
+type SignedApplicationKeyAddition struct {
+	Addition        []byte                    `json:"addition" yaml:"addition"`
+	Signatures      []ApplicationKeySignature `json:"signatures" yaml:"signatures"`
+	PossessionProof *[]byte                   `json:"possession_proof,omitempty" yaml:"possession_proof,omitempty"`
+}
+
+// ApplicationKeyRenewal represents a structured data type
+type ApplicationKeyRenewal struct {
+	SubjectUserId string `json:"subject_user_id" yaml:"subject_user_id"`
+	SubjectDomain string `json:"subject_domain" yaml:"subject_domain"`
+	ApplicationId string `json:"application_id" yaml:"application_id"`
+	InstanceId    string `json:"instance_id" yaml:"instance_id"`
+	KeyId         string `json:"key_id" yaml:"key_id"`
+	ChallengeId   string `json:"challenge_id" yaml:"challenge_id"`
+	Challenge     []byte `json:"challenge" yaml:"challenge"`
+	RequestedAt   string `json:"requested_at" yaml:"requested_at"`
+	ExpiresAt     string `json:"expires_at" yaml:"expires_at"`
+}
+
+// SignedApplicationKeyRenewal represents a structured data type
+type SignedApplicationKeyRenewal struct {
+	Renewal         []byte                    `json:"renewal" yaml:"renewal"`
+	Signatures      []ApplicationKeySignature `json:"signatures" yaml:"signatures"`
+	PossessionProof *[]byte                   `json:"possession_proof,omitempty" yaml:"possession_proof,omitempty"`
+}
+
+// ApplicationKeyRevocation represents a structured data type
+type ApplicationKeyRevocation struct {
+	SubjectUserId     string                    `json:"subject_user_id" yaml:"subject_user_id"`
+	SubjectDomain     string                    `json:"subject_domain" yaml:"subject_domain"`
+	ApplicationId     string                    `json:"application_id" yaml:"application_id"`
+	InstanceId        string                    `json:"instance_id" yaml:"instance_id"`
+	TargetKeyId       string                    `json:"target_key_id" yaml:"target_key_id"`
+	TargetFingerprint string                    `json:"target_fingerprint" yaml:"target_fingerprint"`
+	RevokedAt         string                    `json:"revoked_at" yaml:"revoked_at"`
+	Signatures        []ApplicationKeySignature `json:"signatures" yaml:"signatures"`
+}
+
+// StartApplicationKeyChallengeRequest represents a structured data type
+type StartApplicationKeyChallengeRequest struct {
+	SubjectUserId string `json:"subject_user_id" yaml:"subject_user_id"`
+	ApplicationId string `json:"application_id" yaml:"application_id"`
+	InstanceId    string `json:"instance_id" yaml:"instance_id"`
+	Purpose       string `json:"purpose" yaml:"purpose"`
+	KeyUsage      string `json:"key_usage" yaml:"key_usage"`
+	Algorithm     string `json:"algorithm" yaml:"algorithm"`
+	PublicKey     []byte `json:"public_key" yaml:"public_key"`
+}
+
+// StartApplicationKeyChallengeResponse represents a structured data type
+type StartApplicationKeyChallengeResponse struct {
+	ChallengeId     string  `json:"challenge_id" yaml:"challenge_id"`
+	Challenge       *[]byte `json:"challenge,omitempty" yaml:"challenge,omitempty"`
+	SealedChallenge *[]byte `json:"sealed_challenge,omitempty" yaml:"sealed_challenge,omitempty"`
+	ExpiresAt       string  `json:"expires_at" yaml:"expires_at"`
+}
+
+// AddApplicationKeyRequest represents a structured data type
+type AddApplicationKeyRequest struct {
+	Request SignedApplicationKeyAddition `json:"request" yaml:"request"`
+}
+
+// AddApplicationKeyResponse represents a structured data type
+type AddApplicationKeyResponse struct {
+	Attestation SignedApplicationKeyAttestation `json:"attestation" yaml:"attestation"`
+}
+
+// RenewApplicationKeyAttestationRequest represents a structured data type
+type RenewApplicationKeyAttestationRequest struct {
+	Request SignedApplicationKeyRenewal `json:"request" yaml:"request"`
+}
+
+// RenewApplicationKeyAttestationResponse represents a structured data type
+type RenewApplicationKeyAttestationResponse struct {
+	Attestation SignedApplicationKeyAttestation `json:"attestation" yaml:"attestation"`
+	Signed      bool                            `json:"signed" yaml:"signed"`
+}
+
+// RevokeApplicationKeyRequest represents a structured data type
+type RevokeApplicationKeyRequest struct {
+	Revocation ApplicationKeyRevocation `json:"revocation" yaml:"revocation"`
+}
+
+// RevokeApplicationKeyResponse represents a structured data type
+type RevokeApplicationKeyResponse struct {
+	RevokedAt string `json:"revoked_at" yaml:"revoked_at"`
+}
+
+// EnrollApplicationInstanceRequest represents a structured data type
+type EnrollApplicationInstanceRequest struct {
+	ApplicationId string                         `json:"application_id" yaml:"application_id"`
+	InstanceId    string                         `json:"instance_id" yaml:"instance_id"`
+	Keys          []SignedApplicationKeyAddition `json:"keys" yaml:"keys"`
+}
+
+// EnrollApplicationInstanceResponse represents a structured data type
+type EnrollApplicationInstanceResponse struct {
+	SubjectUserId string                            `json:"subject_user_id" yaml:"subject_user_id"`
+	SubjectDomain string                            `json:"subject_domain" yaml:"subject_domain"`
+	ApplicationId string                            `json:"application_id" yaml:"application_id"`
+	InstanceId    string                            `json:"instance_id" yaml:"instance_id"`
+	Attestations  []SignedApplicationKeyAttestation `json:"attestations" yaml:"attestations"`
+}
+
+// GetApplicationKeysRequest represents a structured data type
+type GetApplicationKeysRequest struct {
+	SubjectUserId string `json:"subject_user_id" yaml:"subject_user_id"`
+	ApplicationId string `json:"application_id" yaml:"application_id"`
+	InstanceId    string `json:"instance_id" yaml:"instance_id"`
+}
+
+// GetApplicationKeysResponse represents a structured data type
+type GetApplicationKeysResponse struct {
+	SubjectUserId string                            `json:"subject_user_id" yaml:"subject_user_id"`
+	SubjectDomain string                            `json:"subject_domain" yaml:"subject_domain"`
+	ApplicationId string                            `json:"application_id" yaml:"application_id"`
+	InstanceId    string                            `json:"instance_id" yaml:"instance_id"`
+	Keys          []SignedApplicationKeyAttestation `json:"keys" yaml:"keys"`
+	Revocations   []ApplicationKeyRevocation        `json:"revocations" yaml:"revocations"`
+}
+
+// RpResolveDomainKeysRequest represents a structured data type
+type RpResolveDomainKeysRequest struct {
+	Domain             string `json:"domain" yaml:"domain"`
+	MaxCacheAgeSeconds *int64 `json:"max_cache_age_seconds,omitempty" yaml:"max_cache_age_seconds,omitempty"`
+}
+
+// RpResolveDomainKeysResponse represents a structured data type
+type RpResolveDomainKeysResponse struct {
+	Domain               string                  `json:"domain" yaml:"domain"`
+	Keys                 []DomainPublicKey       `json:"keys" yaml:"keys"`
+	Revocations          []RevocationCertificate `json:"revocations" yaml:"revocations"`
+	FetchedAt            string                  `json:"fetched_at" yaml:"fetched_at"`
+	RevocationsCheckedAt string                  `json:"revocations_checked_at" yaml:"revocations_checked_at"`
+	CacheStatus          string                  `json:"cache_status" yaml:"cache_status"`
+}
+
+// RpResolveApplicationKeysRequest represents a structured data type
+type RpResolveApplicationKeysRequest struct {
+	SubjectUserId      string `json:"subject_user_id" yaml:"subject_user_id"`
+	SubjectDomain      string `json:"subject_domain" yaml:"subject_domain"`
+	ApplicationId      string `json:"application_id" yaml:"application_id"`
+	InstanceId         string `json:"instance_id" yaml:"instance_id"`
+	MaxCacheAgeSeconds *int64 `json:"max_cache_age_seconds,omitempty" yaml:"max_cache_age_seconds,omitempty"`
+}
+
+// RpResolveApplicationKeysResponse represents a structured data type
+type RpResolveApplicationKeysResponse struct {
+	SubjectUserId             string                            `json:"subject_user_id" yaml:"subject_user_id"`
+	SubjectDomain             string                            `json:"subject_domain" yaml:"subject_domain"`
+	ApplicationId             string                            `json:"application_id" yaml:"application_id"`
+	InstanceId                string                            `json:"instance_id" yaml:"instance_id"`
+	ApplicationKeys           []SignedApplicationKeyAttestation `json:"application_keys" yaml:"application_keys"`
+	ApplicationKeyRevocations []ApplicationKeyRevocation        `json:"application_key_revocations" yaml:"application_key_revocations"`
+	HomeDomainKeys            []DomainPublicKey                 `json:"home_domain_keys" yaml:"home_domain_keys"`
+	HomeDomainKeyRevocations  []RevocationCertificate           `json:"home_domain_key_revocations" yaml:"home_domain_key_revocations"`
+	FetchedAt                 string                            `json:"fetched_at" yaml:"fetched_at"`
+	RevocationsCheckedAt      string                            `json:"revocations_checked_at" yaml:"revocations_checked_at"`
+	CacheStatus               string                            `json:"cache_status" yaml:"cache_status"`
 }

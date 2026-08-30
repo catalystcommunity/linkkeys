@@ -32,4 +32,12 @@ public final class RpClient {
     public RpIssueAttestationResponse issueAttestation(RpIssueAttestationRequest req) throws ClientException {
         return CsilCbor.decodeRpIssueAttestationResponse(transport.call("Rp", "issue-attestation", CsilCbor.encodeRpIssueAttestationRequest(req)));
     }
+
+    public RpResolveDomainKeysResponse resolveDomainKeys(RpResolveDomainKeysRequest req) throws ClientException {
+        return CsilCbor.decodeRpResolveDomainKeysResponse(transport.call("Rp", "resolve-domain-keys", CsilCbor.encodeRpResolveDomainKeysRequest(req)));
+    }
+
+    public RpResolveApplicationKeysResponse resolveApplicationKeys(RpResolveApplicationKeysRequest req) throws ClientException {
+        return CsilCbor.decodeRpResolveApplicationKeysResponse(transport.call("Rp", "resolve-application-keys", CsilCbor.encodeRpResolveApplicationKeysRequest(req)));
+    }
 }

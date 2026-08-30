@@ -212,6 +212,87 @@ defmodule Csilgen.Generated.UserKeysClient do
   end
 end
 
+defmodule Csilgen.Generated.ApplicationKeysClient do
+  @moduledoc "Typed client for the ApplicationKeys service. The client owns (de)serialization via the codec; the transport only moves bytes."
+
+  @enforce_keys [:transport]
+  defstruct [:transport]
+  @type t :: %__MODULE__{transport: Csilgen.Generated.Transport.t()}
+
+  @spec new(Csilgen.Generated.Transport.t()) :: t()
+  def new(transport), do: %__MODULE__{transport: transport}
+
+  @spec get_application_keys(t(), Csilgen.Generated.GetApplicationKeysRequest.t()) ::
+          Csilgen.Generated.GetApplicationKeysResponse.t()
+  def get_application_keys(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "ApplicationKeys",
+        "get-application-keys",
+        Csilgen.Generated.GetApplicationKeysRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.GetApplicationKeysResponse.from_cbor(resp)
+  end
+
+  @spec start_key_challenge(t(), Csilgen.Generated.StartApplicationKeyChallengeRequest.t()) ::
+          Csilgen.Generated.StartApplicationKeyChallengeResponse.t()
+  def start_key_challenge(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "ApplicationKeys",
+        "start-key-challenge",
+        Csilgen.Generated.StartApplicationKeyChallengeRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.StartApplicationKeyChallengeResponse.from_cbor(resp)
+  end
+
+  @spec add_key(t(), Csilgen.Generated.AddApplicationKeyRequest.t()) ::
+          Csilgen.Generated.AddApplicationKeyResponse.t()
+  def add_key(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "ApplicationKeys",
+        "add-key",
+        Csilgen.Generated.AddApplicationKeyRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.AddApplicationKeyResponse.from_cbor(resp)
+  end
+
+  @spec renew_attestation(t(), Csilgen.Generated.RenewApplicationKeyAttestationRequest.t()) ::
+          Csilgen.Generated.RenewApplicationKeyAttestationResponse.t()
+  def renew_attestation(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "ApplicationKeys",
+        "renew-attestation",
+        Csilgen.Generated.RenewApplicationKeyAttestationRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.RenewApplicationKeyAttestationResponse.from_cbor(resp)
+  end
+
+  @spec revoke_key(t(), Csilgen.Generated.RevokeApplicationKeyRequest.t()) ::
+          Csilgen.Generated.RevokeApplicationKeyResponse.t()
+  def revoke_key(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "ApplicationKeys",
+        "revoke-key",
+        Csilgen.Generated.RevokeApplicationKeyRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.RevokeApplicationKeyResponse.from_cbor(resp)
+  end
+end
+
 defmodule Csilgen.Generated.IdentityClient do
   @moduledoc "Typed client for the Identity service. The client owns (de)serialization via the codec; the transport only moves bytes."
 
@@ -1331,6 +1412,20 @@ defmodule Csilgen.Generated.AccountClient do
 
     Csilgen.Generated.ConfirmContactVerificationResponse.from_cbor(resp)
   end
+
+  @spec enroll_application_instance(t(), Csilgen.Generated.EnrollApplicationInstanceRequest.t()) ::
+          Csilgen.Generated.EnrollApplicationInstanceResponse.t()
+  def enroll_application_instance(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Account",
+        "enroll-application-instance",
+        Csilgen.Generated.EnrollApplicationInstanceRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.EnrollApplicationInstanceResponse.from_cbor(resp)
+  end
 end
 
 defmodule Csilgen.Generated.AttestationClient do
@@ -1436,6 +1531,34 @@ defmodule Csilgen.Generated.RpClient do
       )
 
     Csilgen.Generated.RpIssueAttestationResponse.from_cbor(resp)
+  end
+
+  @spec resolve_domain_keys(t(), Csilgen.Generated.RpResolveDomainKeysRequest.t()) ::
+          Csilgen.Generated.RpResolveDomainKeysResponse.t()
+  def resolve_domain_keys(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Rp",
+        "resolve-domain-keys",
+        Csilgen.Generated.RpResolveDomainKeysRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.RpResolveDomainKeysResponse.from_cbor(resp)
+  end
+
+  @spec resolve_application_keys(t(), Csilgen.Generated.RpResolveApplicationKeysRequest.t()) ::
+          Csilgen.Generated.RpResolveApplicationKeysResponse.t()
+  def resolve_application_keys(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Rp",
+        "resolve-application-keys",
+        Csilgen.Generated.RpResolveApplicationKeysRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.RpResolveApplicationKeysResponse.from_cbor(resp)
   end
 end
 

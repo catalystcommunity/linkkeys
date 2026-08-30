@@ -12,8 +12,18 @@
 //!   to the new set, retire the old cached key, audit it, and trust.
 //! - More than one pinned fingerprint gone -> refuse (fail closed), enqueue an
 //!   admin review item, and audit it. A human decides.
+//!
+//! This is the OUTBOUND pin table (this server resolving a peer's DNS). It is
+//! kept in step with `tcp::dns_pin_cache::MTLS_DNS_PIN_CACHE` — the INBOUND
+//! mTLS client-certificate verifier's in-memory cache — at every write below,
+//! so a rotated or disputed fingerprint cannot keep authenticating an inbound
+//! connection from a stale cache entry for up to its TTL, and so an accepted
+//! rotation is immediately reflected for inbound verification too (not just
+//! outbound calls). This runs for both the periodic/CLI recheck path and the
+//! `Admin/recheck-pins` RPC, since both call this function.
 
 use crate::db::DbPool;
+use crate::tcp::dns_pin_cache::MTLS_DNS_PIN_CACHE;
 
 /// Outcome of a pin check. `is_trusted()` tells the caller whether it may go on
 /// to trust the freshly-fetched keys.
@@ -57,6 +67,9 @@ pub fn check_and_update_pin(pool: &DbPool, domain: &str, fresh: &[String]) -> Pi
         Ok(p) => p,
         Err(e) => {
             log::error!("pin lookup for {domain} failed: {e}");
+            // Fail-closed: don't leave a possibly-stale mTLS cache entry
+            // standing in for an answer we could not actually verify.
+            MTLS_DNS_PIN_CACHE.invalidate(domain);
             return PinOutcome::Mismatch; // fail closed
         }
     };
@@ -65,6 +78,7 @@ pub fn check_and_update_pin(pool: &DbPool, domain: &str, fresh: &[String]) -> Pi
         // First contact: trust-on-first-use.
         if let Err(e) = pool.create_domain_pin(domain, &fresh_joined) {
             log::error!("pinning {domain} failed: {e}");
+            MTLS_DNS_PIN_CACHE.invalidate(domain);
             return PinOutcome::Mismatch;
         }
         let _ = pool.write_audit(
@@ -73,6 +87,10 @@ pub fn check_and_update_pin(pool: &DbPool, domain: &str, fresh: &[String]) -> Pi
             Some("system"),
             Some(&fresh_joined),
         );
+        // Warm the inbound mTLS verifier's cache with the same set we just
+        // pinned outbound — a peer we resolve outbound is very often one
+        // that also connects to us inbound.
+        MTLS_DNS_PIN_CACHE.insert_positive(domain, fresh_set);
         return PinOutcome::FirstSeen;
     };
 
@@ -85,6 +103,10 @@ pub fn check_and_update_pin(pool: &DbPool, domain: &str, fresh: &[String]) -> Pi
 
     if pinned_set == fresh_set {
         let _ = pool.touch_domain_pin(domain);
+        // Keep the inbound cache entry warm too (extends its TTL) rather
+        // than letting it expire and force a fallback lookup we already
+        // just did the outbound equivalent of.
+        MTLS_DNS_PIN_CACHE.insert_positive(domain, fresh_set);
         return PinOutcome::Unchanged;
     }
 
@@ -99,6 +121,7 @@ pub fn check_and_update_pin(pool: &DbPool, domain: &str, fresh: &[String]) -> Pi
         // Single-key rotation (or pure addition): accept and re-pin.
         if let Err(e) = pool.rotate_domain_pin(domain, &fresh_joined) {
             log::error!("re-pinning {domain} failed: {e}");
+            MTLS_DNS_PIN_CACHE.invalidate(domain);
             return PinOutcome::Mismatch;
         }
         for fp in &removed {
@@ -108,6 +131,10 @@ pub fn check_and_update_pin(pool: &DbPool, domain: &str, fresh: &[String]) -> Pi
         }
         let detail = format!("pinned=[{}] observed=[{}]", pin.fingerprints, fresh_joined);
         let _ = pool.write_audit("pin.rotated", Some(domain), Some("system"), Some(&detail));
+        // Replace the inbound cache entry with the NEW accepted set — a
+        // retired fingerprint must not keep authenticating inbound
+        // connections from a stale cache entry for up to its TTL.
+        MTLS_DNS_PIN_CACHE.insert_positive(domain, fresh_set);
         return PinOutcome::Rotated;
     }
 
@@ -115,6 +142,11 @@ pub fn check_and_update_pin(pool: &DbPool, domain: &str, fresh: &[String]) -> Pi
     let detail = format!("pinned=[{}] observed=[{}]", pin.fingerprints, fresh_joined);
     let _ = pool.enqueue_review("key_mismatch", Some(domain), Some(&detail));
     let _ = pool.write_audit("pin.mismatch", Some(domain), Some("system"), Some(&detail));
+    // Ambiguous: neither the old pinned set nor the newly-observed one is
+    // trusted right now. Drop any cached entry rather than serve either —
+    // the next inbound attempt fails closed and re-derives via the bounded
+    // fallback/background refresh once a human resolves the review item.
+    MTLS_DNS_PIN_CACHE.invalidate(domain);
     log::warn!(
         "pin MISMATCH for {domain}: {} pinned fingerprints changed; refusing and queuing review",
         removed.len()

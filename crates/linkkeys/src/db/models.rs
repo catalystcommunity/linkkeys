@@ -159,9 +159,19 @@ pub struct ConsentGrantRow {
     pub revoked_at: Option<String>,
 }
 
-/// A pseudonymous identity (UUID@domain) belonging to a human account. One
-/// profile per account is the never-leaked `is_root` anchor; the rest are the
-/// presentable personas.
+/// A presentation persona for a human account.
+///
+/// A profile is not a second identity and not an anonymity mechanism. The
+/// account keeps one canonical `UUID@domain` identity; a profile only changes
+/// how that account presents itself in a context (a different handle for a
+/// professional forum than for a family chat). The domain decides which fields
+/// a profile may override and which claims it signs per profile — see
+/// [`ProfileClaimPref`].
+///
+/// One profile per account is the `is_root` anchor, which self-service listing
+/// and creation never return; the rest are the presentable personas. A user who
+/// wants two unlinked public identities makes two accounts: the protocol does
+/// not link them and does not manage that relation.
 #[derive(Debug, Clone)]
 pub struct Profile {
     pub id: String,
@@ -289,6 +299,97 @@ pub struct IssuedRevocation {
     pub revoked_at: String,
     pub cert: Vec<u8>,
     pub created_at: String,
+}
+
+/// One enrolled application instance of one canonical account
+/// (signing-things-request.md). Looked up by the composite
+/// (subject_user_id, application_id, instance_id) key.
+#[derive(Debug, Clone)]
+pub struct ApplicationInstance {
+    pub id: String,
+    pub subject_user_id: String,
+    pub application_id: String,
+    pub instance_id: String,
+    pub enrolled_at: String,
+    pub trust_reset_count: i64,
+    pub last_trust_reset_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// One application public key. Never a private key: the application holds
+/// its own private keys and only ever gives its home domain public material.
+#[derive(Debug, Clone)]
+pub struct ApplicationKey {
+    pub id: String,
+    pub instance_row_id: String,
+    pub key_id: String,
+    pub key_usage: String,
+    pub algorithm: String,
+    pub public_key: Vec<u8>,
+    pub fingerprint: String,
+    pub created_at: String,
+    pub expires_at: String,
+    pub revoked_at: Option<String>,
+}
+
+/// The home domain's signed attestation for one application key, stored and
+/// served verbatim. Exactly one current row per key; renewal replaces it.
+#[derive(Debug, Clone)]
+pub struct ApplicationKeyAttestationRecord {
+    pub id: String,
+    pub application_key_row_id: String,
+    pub signed_attestation: Vec<u8>,
+    pub attested_at: String,
+    pub expires_at: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Permanent, sibling-signed evidence that an application key was revoked.
+#[derive(Debug, Clone)]
+pub struct ApplicationKeyRevocationRecord {
+    pub id: String,
+    pub instance_row_id: String,
+    pub target_key_id: String,
+    pub target_fingerprint: String,
+    pub revoked_at: String,
+    pub record: Vec<u8>,
+    pub created_at: String,
+}
+
+/// A single-use nonce for application-key enrollment/renewal proof of
+/// possession. Deliberately not tied to any FK: the challenge operation is
+/// anonymous and must answer identically for known and unknown instances.
+#[derive(Debug, Clone)]
+pub struct ApplicationKeyChallenge {
+    pub id: String,
+    pub challenge_id: String,
+    pub subject_user_id: String,
+    pub application_id: String,
+    pub instance_id: String,
+    pub purpose: String,
+    pub key_usage: String,
+    pub algorithm: String,
+    pub public_key: Vec<u8>,
+    pub nonce: Vec<u8>,
+    pub expires_at: String,
+    pub consumed_at: Option<String>,
+    pub created_at: String,
+}
+
+/// The public-read projection for one application instance
+/// (`load_application_public_records`): identifiers plus only the bytes a
+/// caller may see — non-revoked/non-expired attestations and revocation
+/// records at/after the requested look-back. Never touches any encrypted
+/// private-key column.
+#[derive(Debug, Clone)]
+pub struct ApplicationPublicRecords {
+    pub subject_user_id: String,
+    pub application_id: String,
+    pub instance_id: String,
+    pub signed_attestations: Vec<Vec<u8>>,
+    pub revocation_records: Vec<Vec<u8>>,
 }
 
 /// A private destination that an account has proved it controls.
@@ -445,6 +546,59 @@ fn parse_json_types(field: &str, raw: &str) -> Vec<String> {
         );
         Vec::new()
     })
+}
+
+/// Freshness record for the RP's cache of one remote domain's signing keys
+/// (signing-things-request.md, "RP cache"). The key material itself keeps
+/// using `peer_keys`; this is only the "when did we last check" clock, kept
+/// separate per the design's requirement to record fetch and revocation-check
+/// times independently.
+#[derive(Debug, Clone)]
+pub struct RpDomainKeyCacheMeta {
+    pub domain: String,
+    pub fetched_at: String,
+    pub revocations_checked_at: String,
+    pub last_used_at: String,
+}
+
+/// One RP-cache entry for a remote application instance's key material. The
+/// identity is the canonical (subject_user_id, subject_domain, application_id,
+/// instance_id) tuple — never a handle. `id` is this row's own key, used only
+/// to relate attestation/revocation child rows.
+#[derive(Debug, Clone)]
+pub struct RpApplicationKeyCacheEntry {
+    pub id: String,
+    pub subject_user_id: String,
+    pub subject_domain: String,
+    pub application_id: String,
+    pub instance_id: String,
+    pub fetched_at: String,
+    pub revocations_checked_at: String,
+    pub last_used_at: String,
+}
+
+/// One cached SIGNED application-key attestation, stored and served verbatim.
+/// `verified_by_key_ids` is a comma-joined list of the home-domain signing key
+/// ids whose signature verified `signed_attestation` at fetch time.
+#[derive(Debug, Clone)]
+pub struct RpApplicationKeyAttestationCache {
+    pub id: String,
+    pub cache_entry_id: String,
+    pub key_id: String,
+    pub signed_attestation: Vec<u8>,
+    pub attestation_expires_at: String,
+    pub verified_by_key_ids: String,
+}
+
+/// One cached SIGNED application-key revocation record, stored and served
+/// verbatim.
+#[derive(Debug, Clone)]
+pub struct RpApplicationKeyRevocationCache {
+    pub id: String,
+    pub cache_entry_id: String,
+    pub target_key_id: String,
+    pub revocation: Vec<u8>,
+    pub revoked_at: String,
 }
 
 #[cfg(feature = "postgres")]
@@ -1179,6 +1333,209 @@ pub mod pg {
         pub cert: Vec<u8>,
     }
 
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::pg::application_instances)]
+    pub struct ApplicationInstanceRow {
+        pub id: uuid::Uuid,
+        pub subject_user_id: uuid::Uuid,
+        pub application_id: String,
+        pub instance_id: String,
+        pub enrolled_at: chrono::DateTime<chrono::Utc>,
+        pub trust_reset_count: i64,
+        pub last_trust_reset_at: Option<chrono::DateTime<chrono::Utc>>,
+        pub created_at: chrono::DateTime<chrono::Utc>,
+        pub updated_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    impl From<ApplicationInstanceRow> for super::ApplicationInstance {
+        fn from(r: ApplicationInstanceRow) -> Self {
+            Self {
+                id: r.id.to_string(),
+                subject_user_id: r.subject_user_id.to_string(),
+                application_id: r.application_id,
+                instance_id: r.instance_id,
+                enrolled_at: r.enrolled_at.to_rfc3339(),
+                trust_reset_count: r.trust_reset_count,
+                last_trust_reset_at: r.last_trust_reset_at.map(|t| t.to_rfc3339()),
+                created_at: r.created_at.to_rfc3339(),
+                updated_at: r.updated_at.to_rfc3339(),
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::pg::application_instances)]
+    pub struct NewApplicationInstanceRow {
+        pub id: uuid::Uuid,
+        pub subject_user_id: uuid::Uuid,
+        pub application_id: String,
+        pub instance_id: String,
+        pub enrolled_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::pg::application_keys)]
+    pub struct ApplicationKeyRow {
+        pub id: uuid::Uuid,
+        pub instance_row_id: uuid::Uuid,
+        pub key_id: String,
+        pub key_usage: String,
+        pub algorithm: String,
+        pub public_key: Vec<u8>,
+        pub fingerprint: String,
+        pub created_at: chrono::DateTime<chrono::Utc>,
+        pub expires_at: chrono::DateTime<chrono::Utc>,
+        pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+    }
+
+    impl From<ApplicationKeyRow> for super::ApplicationKey {
+        fn from(r: ApplicationKeyRow) -> Self {
+            Self {
+                id: r.id.to_string(),
+                instance_row_id: r.instance_row_id.to_string(),
+                key_id: r.key_id,
+                key_usage: r.key_usage,
+                algorithm: r.algorithm,
+                public_key: r.public_key,
+                fingerprint: r.fingerprint,
+                created_at: r.created_at.to_rfc3339(),
+                expires_at: r.expires_at.to_rfc3339(),
+                revoked_at: r.revoked_at.map(|t| t.to_rfc3339()),
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::pg::application_keys)]
+    pub struct NewApplicationKeyRow {
+        pub id: uuid::Uuid,
+        pub instance_row_id: uuid::Uuid,
+        pub key_id: String,
+        pub key_usage: String,
+        pub algorithm: String,
+        pub public_key: Vec<u8>,
+        pub fingerprint: String,
+        pub created_at: chrono::DateTime<chrono::Utc>,
+        pub expires_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::pg::application_key_attestations)]
+    pub struct ApplicationKeyAttestationRow {
+        pub id: uuid::Uuid,
+        pub application_key_row_id: uuid::Uuid,
+        pub signed_attestation: Vec<u8>,
+        pub attested_at: chrono::DateTime<chrono::Utc>,
+        pub expires_at: chrono::DateTime<chrono::Utc>,
+        pub created_at: chrono::DateTime<chrono::Utc>,
+        pub updated_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    impl From<ApplicationKeyAttestationRow> for super::ApplicationKeyAttestationRecord {
+        fn from(r: ApplicationKeyAttestationRow) -> Self {
+            Self {
+                id: r.id.to_string(),
+                application_key_row_id: r.application_key_row_id.to_string(),
+                signed_attestation: r.signed_attestation,
+                attested_at: r.attested_at.to_rfc3339(),
+                expires_at: r.expires_at.to_rfc3339(),
+                created_at: r.created_at.to_rfc3339(),
+                updated_at: r.updated_at.to_rfc3339(),
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::pg::application_key_revocations)]
+    pub struct ApplicationKeyRevocationRow {
+        pub id: uuid::Uuid,
+        pub instance_row_id: uuid::Uuid,
+        pub target_key_id: String,
+        pub target_fingerprint: String,
+        pub revoked_at: chrono::DateTime<chrono::Utc>,
+        pub record: Vec<u8>,
+        pub created_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    impl From<ApplicationKeyRevocationRow> for super::ApplicationKeyRevocationRecord {
+        fn from(r: ApplicationKeyRevocationRow) -> Self {
+            Self {
+                id: r.id.to_string(),
+                instance_row_id: r.instance_row_id.to_string(),
+                target_key_id: r.target_key_id,
+                target_fingerprint: r.target_fingerprint,
+                revoked_at: r.revoked_at.to_rfc3339(),
+                record: r.record,
+                created_at: r.created_at.to_rfc3339(),
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::pg::application_key_revocations)]
+    pub struct NewApplicationKeyRevocationRow {
+        pub id: uuid::Uuid,
+        pub instance_row_id: uuid::Uuid,
+        pub target_key_id: String,
+        pub target_fingerprint: String,
+        pub revoked_at: chrono::DateTime<chrono::Utc>,
+        pub record: Vec<u8>,
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::pg::application_key_challenges)]
+    pub struct ApplicationKeyChallengeRow {
+        pub id: uuid::Uuid,
+        pub challenge_id: String,
+        pub subject_user_id: String,
+        pub application_id: String,
+        pub instance_id: String,
+        pub purpose: String,
+        pub key_usage: String,
+        pub algorithm: String,
+        pub public_key: Vec<u8>,
+        pub nonce: Vec<u8>,
+        pub expires_at: chrono::DateTime<chrono::Utc>,
+        pub consumed_at: Option<chrono::DateTime<chrono::Utc>>,
+        pub created_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    impl From<ApplicationKeyChallengeRow> for super::ApplicationKeyChallenge {
+        fn from(r: ApplicationKeyChallengeRow) -> Self {
+            Self {
+                id: r.id.to_string(),
+                challenge_id: r.challenge_id,
+                subject_user_id: r.subject_user_id,
+                application_id: r.application_id,
+                instance_id: r.instance_id,
+                purpose: r.purpose,
+                key_usage: r.key_usage,
+                algorithm: r.algorithm,
+                public_key: r.public_key,
+                nonce: r.nonce,
+                expires_at: r.expires_at.to_rfc3339(),
+                consumed_at: r.consumed_at.map(|t| t.to_rfc3339()),
+                created_at: r.created_at.to_rfc3339(),
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::pg::application_key_challenges)]
+    pub struct NewApplicationKeyChallengeRow {
+        pub id: uuid::Uuid,
+        pub challenge_id: String,
+        pub subject_user_id: String,
+        pub application_id: String,
+        pub instance_id: String,
+        pub purpose: String,
+        pub key_usage: String,
+        pub algorithm: String,
+        pub public_key: Vec<u8>,
+        pub nonce: Vec<u8>,
+        pub expires_at: chrono::DateTime<chrono::Utc>,
+    }
+
     #[derive(Queryable, Selectable, Insertable)]
     #[diesel(table_name = crate::schema::pg::verified_contact_methods)]
     pub struct VerifiedContactMethodRow {
@@ -1441,6 +1798,115 @@ pub mod pg {
         pub user_domain: String,
         pub granted_claims: String,
         pub expires_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    // -- RP cache (signing-things-request.md, step 6) --
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::pg::rp_domain_key_cache)]
+    pub struct RpDomainKeyCacheRow {
+        pub domain: String,
+        pub fetched_at: chrono::DateTime<chrono::Utc>,
+        pub revocations_checked_at: chrono::DateTime<chrono::Utc>,
+        pub last_used_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    impl From<RpDomainKeyCacheRow> for super::RpDomainKeyCacheMeta {
+        fn from(r: RpDomainKeyCacheRow) -> Self {
+            Self {
+                domain: r.domain,
+                fetched_at: r.fetched_at.to_rfc3339(),
+                revocations_checked_at: r.revocations_checked_at.to_rfc3339(),
+                last_used_at: r.last_used_at.to_rfc3339(),
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::pg::rp_application_key_cache_entries)]
+    pub struct RpApplicationKeyCacheEntryRow {
+        pub id: uuid::Uuid,
+        pub subject_user_id: String,
+        pub subject_domain: String,
+        pub application_id: String,
+        pub instance_id: String,
+        pub fetched_at: chrono::DateTime<chrono::Utc>,
+        pub revocations_checked_at: chrono::DateTime<chrono::Utc>,
+        pub last_used_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    impl From<RpApplicationKeyCacheEntryRow> for super::RpApplicationKeyCacheEntry {
+        fn from(r: RpApplicationKeyCacheEntryRow) -> Self {
+            Self {
+                id: r.id.to_string(),
+                subject_user_id: r.subject_user_id,
+                subject_domain: r.subject_domain,
+                application_id: r.application_id,
+                instance_id: r.instance_id,
+                fetched_at: r.fetched_at.to_rfc3339(),
+                revocations_checked_at: r.revocations_checked_at.to_rfc3339(),
+                last_used_at: r.last_used_at.to_rfc3339(),
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::pg::rp_application_key_cache_entries)]
+    pub struct NewRpApplicationKeyCacheEntryRow {
+        pub id: uuid::Uuid,
+        pub subject_user_id: String,
+        pub subject_domain: String,
+        pub application_id: String,
+        pub instance_id: String,
+        pub fetched_at: chrono::DateTime<chrono::Utc>,
+        pub revocations_checked_at: chrono::DateTime<chrono::Utc>,
+        pub last_used_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::pg::rp_application_key_attestations)]
+    pub struct RpApplicationKeyAttestationRow {
+        pub id: uuid::Uuid,
+        pub cache_entry_id: uuid::Uuid,
+        pub key_id: String,
+        pub signed_attestation: Vec<u8>,
+        pub attestation_expires_at: chrono::DateTime<chrono::Utc>,
+        pub verified_by_key_ids: String,
+    }
+
+    impl From<RpApplicationKeyAttestationRow> for super::RpApplicationKeyAttestationCache {
+        fn from(r: RpApplicationKeyAttestationRow) -> Self {
+            Self {
+                id: r.id.to_string(),
+                cache_entry_id: r.cache_entry_id.to_string(),
+                key_id: r.key_id,
+                signed_attestation: r.signed_attestation,
+                attestation_expires_at: r.attestation_expires_at.to_rfc3339(),
+                verified_by_key_ids: r.verified_by_key_ids,
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::pg::rp_application_key_revocations)]
+    pub struct RpApplicationKeyRevocationRow {
+        pub id: uuid::Uuid,
+        pub cache_entry_id: uuid::Uuid,
+        pub target_key_id: String,
+        pub revocation: Vec<u8>,
+        pub revoked_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    impl From<RpApplicationKeyRevocationRow> for super::RpApplicationKeyRevocationCache {
+        fn from(r: RpApplicationKeyRevocationRow) -> Self {
+            Self {
+                id: r.id.to_string(),
+                cache_entry_id: r.cache_entry_id.to_string(),
+                target_key_id: r.target_key_id,
+                revocation: r.revocation,
+                revoked_at: r.revoked_at.to_rfc3339(),
+            }
+        }
     }
 }
 
@@ -2173,6 +2639,209 @@ pub mod sqlite {
         pub cert: Vec<u8>,
     }
 
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::sqlite::application_instances)]
+    pub struct ApplicationInstanceRow {
+        pub id: String,
+        pub subject_user_id: String,
+        pub application_id: String,
+        pub instance_id: String,
+        pub enrolled_at: String,
+        pub trust_reset_count: i64,
+        pub last_trust_reset_at: Option<String>,
+        pub created_at: String,
+        pub updated_at: String,
+    }
+
+    impl From<ApplicationInstanceRow> for super::ApplicationInstance {
+        fn from(r: ApplicationInstanceRow) -> Self {
+            Self {
+                id: r.id,
+                subject_user_id: r.subject_user_id,
+                application_id: r.application_id,
+                instance_id: r.instance_id,
+                enrolled_at: r.enrolled_at,
+                trust_reset_count: r.trust_reset_count,
+                last_trust_reset_at: r.last_trust_reset_at,
+                created_at: r.created_at,
+                updated_at: r.updated_at,
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::application_instances)]
+    pub struct NewApplicationInstanceRow {
+        pub id: String,
+        pub subject_user_id: String,
+        pub application_id: String,
+        pub instance_id: String,
+        pub enrolled_at: String,
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::sqlite::application_keys)]
+    pub struct ApplicationKeyRow {
+        pub id: String,
+        pub instance_row_id: String,
+        pub key_id: String,
+        pub key_usage: String,
+        pub algorithm: String,
+        pub public_key: Vec<u8>,
+        pub fingerprint: String,
+        pub created_at: String,
+        pub expires_at: String,
+        pub revoked_at: Option<String>,
+    }
+
+    impl From<ApplicationKeyRow> for super::ApplicationKey {
+        fn from(r: ApplicationKeyRow) -> Self {
+            Self {
+                id: r.id,
+                instance_row_id: r.instance_row_id,
+                key_id: r.key_id,
+                key_usage: r.key_usage,
+                algorithm: r.algorithm,
+                public_key: r.public_key,
+                fingerprint: r.fingerprint,
+                created_at: r.created_at,
+                expires_at: r.expires_at,
+                revoked_at: r.revoked_at,
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::application_keys)]
+    pub struct NewApplicationKeyRow {
+        pub id: String,
+        pub instance_row_id: String,
+        pub key_id: String,
+        pub key_usage: String,
+        pub algorithm: String,
+        pub public_key: Vec<u8>,
+        pub fingerprint: String,
+        pub created_at: String,
+        pub expires_at: String,
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::sqlite::application_key_attestations)]
+    pub struct ApplicationKeyAttestationRow {
+        pub id: String,
+        pub application_key_row_id: String,
+        pub signed_attestation: Vec<u8>,
+        pub attested_at: String,
+        pub expires_at: String,
+        pub created_at: String,
+        pub updated_at: String,
+    }
+
+    impl From<ApplicationKeyAttestationRow> for super::ApplicationKeyAttestationRecord {
+        fn from(r: ApplicationKeyAttestationRow) -> Self {
+            Self {
+                id: r.id,
+                application_key_row_id: r.application_key_row_id,
+                signed_attestation: r.signed_attestation,
+                attested_at: r.attested_at,
+                expires_at: r.expires_at,
+                created_at: r.created_at,
+                updated_at: r.updated_at,
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::sqlite::application_key_revocations)]
+    pub struct ApplicationKeyRevocationRow {
+        pub id: String,
+        pub instance_row_id: String,
+        pub target_key_id: String,
+        pub target_fingerprint: String,
+        pub revoked_at: String,
+        pub record: Vec<u8>,
+        pub created_at: String,
+    }
+
+    impl From<ApplicationKeyRevocationRow> for super::ApplicationKeyRevocationRecord {
+        fn from(r: ApplicationKeyRevocationRow) -> Self {
+            Self {
+                id: r.id,
+                instance_row_id: r.instance_row_id,
+                target_key_id: r.target_key_id,
+                target_fingerprint: r.target_fingerprint,
+                revoked_at: r.revoked_at,
+                record: r.record,
+                created_at: r.created_at,
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::application_key_revocations)]
+    pub struct NewApplicationKeyRevocationRow {
+        pub id: String,
+        pub instance_row_id: String,
+        pub target_key_id: String,
+        pub target_fingerprint: String,
+        pub revoked_at: String,
+        pub record: Vec<u8>,
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::sqlite::application_key_challenges)]
+    pub struct ApplicationKeyChallengeRow {
+        pub id: String,
+        pub challenge_id: String,
+        pub subject_user_id: String,
+        pub application_id: String,
+        pub instance_id: String,
+        pub purpose: String,
+        pub key_usage: String,
+        pub algorithm: String,
+        pub public_key: Vec<u8>,
+        pub nonce: Vec<u8>,
+        pub expires_at: String,
+        pub consumed_at: Option<String>,
+        pub created_at: String,
+    }
+
+    impl From<ApplicationKeyChallengeRow> for super::ApplicationKeyChallenge {
+        fn from(r: ApplicationKeyChallengeRow) -> Self {
+            Self {
+                id: r.id,
+                challenge_id: r.challenge_id,
+                subject_user_id: r.subject_user_id,
+                application_id: r.application_id,
+                instance_id: r.instance_id,
+                purpose: r.purpose,
+                key_usage: r.key_usage,
+                algorithm: r.algorithm,
+                public_key: r.public_key,
+                nonce: r.nonce,
+                expires_at: r.expires_at,
+                consumed_at: r.consumed_at,
+                created_at: r.created_at,
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::application_key_challenges)]
+    pub struct NewApplicationKeyChallengeRow {
+        pub id: String,
+        pub challenge_id: String,
+        pub subject_user_id: String,
+        pub application_id: String,
+        pub instance_id: String,
+        pub purpose: String,
+        pub key_usage: String,
+        pub algorithm: String,
+        pub public_key: Vec<u8>,
+        pub nonce: Vec<u8>,
+        pub expires_at: String,
+    }
+
     #[derive(Queryable, Selectable, Insertable)]
     #[diesel(table_name = crate::schema::sqlite::verified_contact_methods)]
     pub struct VerifiedContactMethodRow {
@@ -2435,5 +3104,114 @@ pub mod sqlite {
         pub user_domain: String,
         pub granted_claims: String,
         pub expires_at: String,
+    }
+
+    // -- RP cache (signing-things-request.md, step 6) --
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::sqlite::rp_domain_key_cache)]
+    pub struct RpDomainKeyCacheRow {
+        pub domain: String,
+        pub fetched_at: String,
+        pub revocations_checked_at: String,
+        pub last_used_at: String,
+    }
+
+    impl From<RpDomainKeyCacheRow> for super::RpDomainKeyCacheMeta {
+        fn from(r: RpDomainKeyCacheRow) -> Self {
+            Self {
+                domain: r.domain,
+                fetched_at: r.fetched_at,
+                revocations_checked_at: r.revocations_checked_at,
+                last_used_at: r.last_used_at,
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::sqlite::rp_application_key_cache_entries)]
+    pub struct RpApplicationKeyCacheEntryRow {
+        pub id: String,
+        pub subject_user_id: String,
+        pub subject_domain: String,
+        pub application_id: String,
+        pub instance_id: String,
+        pub fetched_at: String,
+        pub revocations_checked_at: String,
+        pub last_used_at: String,
+    }
+
+    impl From<RpApplicationKeyCacheEntryRow> for super::RpApplicationKeyCacheEntry {
+        fn from(r: RpApplicationKeyCacheEntryRow) -> Self {
+            Self {
+                id: r.id,
+                subject_user_id: r.subject_user_id,
+                subject_domain: r.subject_domain,
+                application_id: r.application_id,
+                instance_id: r.instance_id,
+                fetched_at: r.fetched_at,
+                revocations_checked_at: r.revocations_checked_at,
+                last_used_at: r.last_used_at,
+            }
+        }
+    }
+
+    #[derive(Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::rp_application_key_cache_entries)]
+    pub struct NewRpApplicationKeyCacheEntryRow {
+        pub id: String,
+        pub subject_user_id: String,
+        pub subject_domain: String,
+        pub application_id: String,
+        pub instance_id: String,
+        pub fetched_at: String,
+        pub revocations_checked_at: String,
+        pub last_used_at: String,
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::sqlite::rp_application_key_attestations)]
+    pub struct RpApplicationKeyAttestationRow {
+        pub id: String,
+        pub cache_entry_id: String,
+        pub key_id: String,
+        pub signed_attestation: Vec<u8>,
+        pub attestation_expires_at: String,
+        pub verified_by_key_ids: String,
+    }
+
+    impl From<RpApplicationKeyAttestationRow> for super::RpApplicationKeyAttestationCache {
+        fn from(r: RpApplicationKeyAttestationRow) -> Self {
+            Self {
+                id: r.id,
+                cache_entry_id: r.cache_entry_id,
+                key_id: r.key_id,
+                signed_attestation: r.signed_attestation,
+                attestation_expires_at: r.attestation_expires_at,
+                verified_by_key_ids: r.verified_by_key_ids,
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::sqlite::rp_application_key_revocations)]
+    pub struct RpApplicationKeyRevocationRow {
+        pub id: String,
+        pub cache_entry_id: String,
+        pub target_key_id: String,
+        pub revocation: Vec<u8>,
+        pub revoked_at: String,
+    }
+
+    impl From<RpApplicationKeyRevocationRow> for super::RpApplicationKeyRevocationCache {
+        fn from(r: RpApplicationKeyRevocationRow) -> Self {
+            Self {
+                id: r.id,
+                cache_entry_id: r.cache_entry_id,
+                target_key_id: r.target_key_id,
+                revocation: r.revocation,
+                revoked_at: r.revoked_at,
+            }
+        }
     }
 }

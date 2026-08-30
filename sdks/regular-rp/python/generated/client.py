@@ -91,6 +91,31 @@ class UserKeysClient:
         """get-user-keys"""
         return GetUserKeysResponse.from_cbor(self._transport.call("UserKeys", "get-user-keys", req.to_cbor()))
 
+class ApplicationKeysClient:
+    """Typed client for the ApplicationKeys service."""
+    def __init__(self, transport: Transport):
+        self._transport = transport
+
+    def get_application_keys(self, req: GetApplicationKeysRequest) -> GetApplicationKeysResponse:
+        """get-application-keys"""
+        return GetApplicationKeysResponse.from_cbor(self._transport.call("ApplicationKeys", "get-application-keys", req.to_cbor()))
+
+    def start_key_challenge(self, req: StartApplicationKeyChallengeRequest) -> StartApplicationKeyChallengeResponse:
+        """start-key-challenge"""
+        return StartApplicationKeyChallengeResponse.from_cbor(self._transport.call("ApplicationKeys", "start-key-challenge", req.to_cbor()))
+
+    def add_key(self, req: AddApplicationKeyRequest) -> AddApplicationKeyResponse:
+        """add-key"""
+        return AddApplicationKeyResponse.from_cbor(self._transport.call("ApplicationKeys", "add-key", req.to_cbor()))
+
+    def renew_attestation(self, req: RenewApplicationKeyAttestationRequest) -> RenewApplicationKeyAttestationResponse:
+        """renew-attestation"""
+        return RenewApplicationKeyAttestationResponse.from_cbor(self._transport.call("ApplicationKeys", "renew-attestation", req.to_cbor()))
+
+    def revoke_key(self, req: RevokeApplicationKeyRequest) -> RevokeApplicationKeyResponse:
+        """revoke-key"""
+        return RevokeApplicationKeyResponse.from_cbor(self._transport.call("ApplicationKeys", "revoke-key", req.to_cbor()))
+
 class IdentityClient:
     """Typed client for the Identity service."""
     def __init__(self, transport: Transport):
@@ -429,6 +454,10 @@ class AccountClient:
         """confirm-contact-verification"""
         return ConfirmContactVerificationResponse.from_cbor(self._transport.call("Account", "confirm-contact-verification", req.to_cbor()))
 
+    def enroll_application_instance(self, req: EnrollApplicationInstanceRequest) -> EnrollApplicationInstanceResponse:
+        """enroll-application-instance"""
+        return EnrollApplicationInstanceResponse.from_cbor(self._transport.call("Account", "enroll-application-instance", req.to_cbor()))
+
 class AttestationClient:
     """Typed client for the Attestation service."""
     def __init__(self, transport: Transport):
@@ -462,6 +491,14 @@ class RpClient:
     def issue_attestation(self, req: RpIssueAttestationRequest) -> RpIssueAttestationResponse:
         """issue-attestation"""
         return RpIssueAttestationResponse.from_cbor(self._transport.call("Rp", "issue-attestation", req.to_cbor()))
+
+    def resolve_domain_keys(self, req: RpResolveDomainKeysRequest) -> RpResolveDomainKeysResponse:
+        """resolve-domain-keys"""
+        return RpResolveDomainKeysResponse.from_cbor(self._transport.call("Rp", "resolve-domain-keys", req.to_cbor()))
+
+    def resolve_application_keys(self, req: RpResolveApplicationKeysRequest) -> RpResolveApplicationKeysResponse:
+        """resolve-application-keys"""
+        return RpResolveApplicationKeysResponse.from_cbor(self._transport.call("Rp", "resolve-application-keys", req.to_cbor()))
 
 class LocalRpClient:
     """Typed client for the LocalRp service."""

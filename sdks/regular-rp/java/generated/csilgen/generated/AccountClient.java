@@ -60,4 +60,8 @@ public final class AccountClient {
     public ConfirmContactVerificationResponse confirmContactVerification(ConfirmContactVerificationRequest req) throws ClientException {
         return CsilCbor.decodeConfirmContactVerificationResponse(transport.call("Account", "confirm-contact-verification", CsilCbor.encodeConfirmContactVerificationRequest(req)));
     }
+
+    public EnrollApplicationInstanceResponse enrollApplicationInstance(EnrollApplicationInstanceRequest req) throws ClientException {
+        return CsilCbor.decodeEnrollApplicationInstanceResponse(transport.call("Account", "enroll-application-instance", CsilCbor.encodeEnrollApplicationInstanceRequest(req)));
+    }
 }

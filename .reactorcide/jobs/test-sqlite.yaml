@@ -36,6 +36,15 @@ job:
     echo "=== Running tests (SQLite backend) ==="
     TEST_DATABASE_BACKEND=sqlite cargo test --all-features 2>&1
 
+    # The application-key conformance vectors are checked in, and other-language
+    # SDKs are validated against them. They must stay reproducible from the
+    # generator, or a vector could drift from the implementation it is supposed
+    # to pin. The generator is deterministic by construction (fixed seeds, fixed
+    # timestamps, injected randomness), so regenerating must be a no-op.
+    echo "=== Checking conformance vectors are reproducible ==="
+    cargo run -p liblinkkeys --example generate_application_key_vectors
+    git diff --exit-code -- sdks/regular-rp/conformance/
+
     echo "=== SQLite tests passed ==="
   timeout: 1800
   priority: 10

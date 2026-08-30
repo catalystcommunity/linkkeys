@@ -19,6 +19,8 @@
 #   ./tools.sh audit      # dependency advisories and license policy
 #   ./tools.sh generate-regular-rp-bindings # regenerate CSIL client bindings
 #   ./tools.sh test-regular-rp-typescript # test the web application SDK
+#   ./tools.sh test-regular-rp-go       # test the Go application-key SDK
+#   ./tools.sh load-test   # connection/handshake/cache/DDoS load-test smoke run
 #
 # The SQLite path needs only Rust + system libs. The Postgres path also needs a
 # container runtime; it is auto-detected in this order:
@@ -353,6 +355,86 @@ audit() {
 }
 
 # ---------------------------------------------------------------------------
+# Load test (signing-things-request.md, "Connection scalability" step 9)
+#
+# `crates/linkkeys/loadtest` is a STANDALONE crate excluded from the
+# workspace (see the root Cargo.toml) specifically so it never runs as part
+# of `test`/`test-all`/CI — a load test's whole point is to push the server
+# past its normal operating envelope, which is the opposite of what a fast,
+# always-green test suite wants. This target builds and runs it directly,
+# outside `cargo test`.
+#
+# This is a SMOKE run: small counts chosen to finish in well under a minute
+# on any dev machine, proving the harness and the server's real code path
+# work end to end. It is not the 200,000-connection acceptance run — that
+# needs a raised `ulimit -n`, tuned TCP_*/PUBLIC_READ_* env vars, and minutes
+# of runtime; see docs/load-testing.md for those exact commands and for the
+# actual recorded measurements (this smoke run's numbers are not a capacity
+# claim for any real target).
+# ---------------------------------------------------------------------------
+
+load_test() {
+    log_status "building load-test harness (release)"
+    cargo build --release --manifest-path crates/linkkeys/loadtest/Cargo.toml
+    # Deliberately NOT `local`: the EXIT trap below (`cleanup`) runs after
+    # this function returns, once the whole script is exiting, and a bash
+    # `local` variable is out of scope by then — under `set -u` that made
+    # `cleanup` fail with "server_pid: unbound variable". These need to
+    # outlive the function.
+    LOAD_TEST_BIN="crates/linkkeys/loadtest/target/release/linkkeys-loadtest"
+    LOAD_TEST_WORK_DIR="$(mktemp -d)"
+    LOAD_TEST_INFO_FILE="${LOAD_TEST_WORK_DIR}/loadtest-info.json"
+    LOAD_TEST_DB_PATH="${LOAD_TEST_WORK_DIR}/loadtest.sqlite3"
+    LOAD_TEST_SERVER_LOG="${LOAD_TEST_WORK_DIR}/server.log"
+    local bin="$LOAD_TEST_BIN"
+    local info_file="$LOAD_TEST_INFO_FILE"
+    local db_path="$LOAD_TEST_DB_PATH"
+    local server_log="$LOAD_TEST_SERVER_LOG"
+
+    log_status "starting load-test server (log: ${server_log})"
+    "$bin" server \
+        --info-file "$info_file" \
+        --db-path "$db_path" \
+        --metrics-interval-secs 3 \
+        --duration-secs 60 \
+        >"$server_log" 2>&1 &
+    LOAD_TEST_SERVER_PID=$!
+
+    cleanup() {
+        kill "$LOAD_TEST_SERVER_PID" >/dev/null 2>&1 || true
+        wait "$LOAD_TEST_SERVER_PID" 2>/dev/null || true
+        echo "--- server log (${LOAD_TEST_SERVER_LOG}) ---"
+        cat "$LOAD_TEST_SERVER_LOG" || true
+        rm -rf "$LOAD_TEST_WORK_DIR"
+    }
+    trap cleanup EXIT
+
+    local waited=0
+    while [ ! -s "$info_file" ]; do
+        sleep 0.2
+        waited=$((waited + 1))
+        if [ "$waited" -gt 100 ]; then
+            err "load-test server did not become ready within 20s"
+            exit 1
+        fi
+    done
+
+    log_status "smoke: connections (500, held 5s)"
+    "$bin" connections --info-file "$info_file" --count 500 --concurrency 250 --hold-secs 5
+
+    log_status "smoke: handshake-bench (5s)"
+    "$bin" handshake-bench --info-file "$info_file" --duration-secs 5 --concurrency 32
+
+    log_status "smoke: request-bench (5s, DomainKeys/get-domain-keys)"
+    "$bin" request-bench --info-file "$info_file" --connections 16 --duration-secs 5
+
+    log_status "smoke: ddos (500 distinct sources)"
+    "$bin" ddos --info-file "$info_file" --sources 500 --concurrency 200
+
+    log_status "load-test smoke run complete — see docs/load-testing.md for the full-scale profile"
+}
+
+# ---------------------------------------------------------------------------
 # DNS-less local RP SDKs (sdks/local-rp/, dns-less-local-rp-design.md)
 # ---------------------------------------------------------------------------
 
@@ -485,15 +567,40 @@ test_local_rp_python() {
 
 generate_local_rp_sdks() {
     log_status "generate-local-rp-sdks"
+    local generator="${CSILGEN_BIN:-csilgen}"
+    if ! command -v "$generator" >/dev/null 2>&1; then
+        echo "csilgen not found; set CSILGEN_BIN or install it (see AGENTS.md)" >&2
+        return 1
+    fi
+
     # The Rust SDK (sdks/local-rp/rust/) is a workspace member that path-depends
     # on liblinkkeys directly — there is no separate generation step for it (no
     # generated-client codegen to run; see that crate's Cargo.toml for the
-    # layout rationale). This subcommand is a deliberate no-op for "rust" so the
-    # command exists for layout/tooling parity with the other SDK languages
-    # (dns-less-local-rp-design.md, "SDK Layout and Tooling") — once a
-    # generated-language SDK (Go, TypeScript, ...) lands under sdks/local-rp/,
-    # its csilgen generation step is added here.
+    # layout rationale).
     echo "rust: nothing to generate (consumes liblinkkeys directly) — see sdks/local-rp/rust/README.md"
+
+    # Every other local-RP SDK DOES carry checked-in csilgen output, including a
+    # CBOR codec. Each target differs on purpose — see each SDK's README for
+    # why it is types-only rather than a full client — so the target name is
+    # part of the contract, not an accident.
+    #
+    # These used to live only in the READMEs, which meant nothing regenerated
+    # them. That is how they came to ship a codec with a fixed upstream
+    # vulnerability still in it. Regeneration belongs in one command.
+    local targets=(
+        "go-typesonly:sdks/local-rp/go/generated/"
+        "typescript-typesonly:sdks/local-rp/typescript/src/generated"
+        "python-client:sdks/local-rp/python/linkkeys_local_rp/generated/"
+        "php-typesonly:sdks/local-rp/php/src/Generated/"
+    )
+    local entry target output
+    for entry in "${targets[@]}"; do
+        target="${entry%%:*}"
+        output="${entry#*:}"
+        log_status "generating $target -> $output"
+        "$generator" generate --input csil/linkkeys.csil --target "$target" --output "$output"
+    done
+    log_status "local-RP SDK bindings regenerated"
 }
 
 generate_regular_rp_bindings() {
@@ -545,6 +652,27 @@ test_regular_rp_typescript() {
         npm run build
     )
     log_status "regular-RP TypeScript SDK tests passed"
+}
+
+test_regular_rp_go() {
+    log_status "testing regular-RP Go SDK"
+    # Go comes from the shared catalyst-tools bundle when it is not already on
+    # PATH; see the org CLAUDE.md. The SDK's tests replay the cross-language
+    # conformance vectors in sdks/regular-rp/conformance/, which is what proves
+    # the Go application-key verification agrees with the Rust reference in
+    # crates/liblinkkeys/src/application_keys.rs.
+    if ! command -v go >/dev/null 2>&1; then
+        # shellcheck disable=SC1090
+        . "${CATALYST_TOOLS:-$HOME/.local/catalyst-tools}/env.sh"
+    fi
+    (
+        cd sdks/regular-rp/go
+        go build ./...
+        go vet ./...
+        test -z "$(gofmt -l .)" || { echo "gofmt found unformatted files:"; gofmt -l .; exit 1; }
+        go test ./... -race
+    )
+    log_status "regular-RP Go SDK tests passed"
 }
 
 # ---------------------------------------------------------------------------
@@ -628,10 +756,13 @@ Commands:
   clippy     Run cargo clippy (workspace, all targets)
   ui-build   Check and build the embedded SolidJS UI
   audit      Check dependency advisories, licenses, and sources
+  load-test  Build and run a connection/handshake/cache/DDoS load-test smoke
+             run (NOT part of test/test-all; see docs/load-testing.md)
 
   generate-local-rp-sdks   Regenerate DNS-less local-RP SDK bindings (sdks/local-rp/)
   generate-regular-rp-bindings Regenerate regular-RP protocol bindings (sdks/regular-rp/)
   test-regular-rp-typescript Test and build the regular-RP TypeScript SDK
+  test-regular-rp-go       Test the regular-RP Go SDK (application keys + conformance)
   test-local-rp-rust       Run the DNS-less local-RP Rust SDK's tests
   test-local-rp-go         Run the DNS-less local-RP Go SDK's tests
   test-local-rp-typescript Run the DNS-less local-RP TypeScript SDK's tests
@@ -672,9 +803,11 @@ case "${1:-}" in
     clippy)   shift; clippy "$@" ;;
     ui-build) shift; ui_build "$@" ;;
     audit)    shift; audit "$@" ;;
+    load-test) shift; load_test "$@" ;;
     generate-local-rp-sdks) shift; generate_local_rp_sdks "$@" ;;
     generate-regular-rp-bindings) shift; generate_regular_rp_bindings "$@" ;;
     test-regular-rp-typescript) shift; test_regular_rp_typescript "$@" ;;
+    test-regular-rp-go) shift; test_regular_rp_go "$@" ;;
     test-local-rp-rust)     shift; test_local_rp_rust "$@" ;;
     test-local-rp-go)       shift; test_local_rp_go "$@" ;;
     test-local-rp-typescript) shift; test_local_rp_typescript "$@" ;;

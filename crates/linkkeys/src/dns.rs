@@ -52,8 +52,26 @@ impl std::error::Error for DnsFingerprintError {}
 ///
 /// Fails closed: returns an error if DNS fails or no fingerprints are found.
 pub fn resolve_fingerprints(domain: &str) -> Result<Vec<String>, DnsFingerprintError> {
-    let dns = crate::net::Net::production().dns;
+    resolve_fingerprints_via(crate::net::Net::production().dns, domain)
+}
 
+/// Same ambient-runtime-aware resolution as [`resolve_fingerprints`], but
+/// through an injected resolver rather than always the production one.
+///
+/// This is the seam `tcp::tls::FingerprintClientCertVerifier`'s bounded
+/// synchronous DNS fallback uses (see that module's docs): it needs exactly
+/// this runtime-detection dance — it may be invoked from `verify_client_cert`,
+/// a synchronous rustls callback running on an async connection task inside
+/// `#[rocket::main]`'s multi-thread runtime — but must resolve through
+/// whatever `DnsResolver` the verifier was constructed with (a static fake in
+/// tests, the real resolver in production), not always the hard-coded
+/// production one `resolve_fingerprints` uses. `dns` is `Arc`, not a plain
+/// reference, because the current-thread/no-runtime branches below move it
+/// onto a different OS thread.
+pub fn resolve_fingerprints_via(
+    dns: std::sync::Arc<dyn crate::net::DnsResolver>,
+    domain: &str,
+) -> Result<Vec<String>, DnsFingerprintError> {
     match tokio::runtime::Handle::try_current() {
         Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
             let domain = domain.to_string();
@@ -92,13 +110,22 @@ fn resolve_fingerprints_blocking(
 }
 
 /// Resolve domain key fingerprints through an injected [`DnsResolver`], using an
-/// existing runtime to drive the async lookup. This is the seam: the TLS client-
-/// cert verifier calls it with the process `Net`'s resolver in production and a
-/// static fake in tests, so the synchronous (rustls-invoked) handshake path can
-/// be exercised end-to-end without real DNS. The verifier drives its own
-/// dedicated runtime from a plain thread-pool thread during a synchronous
-/// rustls callback — never itself inside an ambient runtime — so `block_on`
-/// here is always safe. Fails closed.
+/// existing runtime to drive the async lookup. This is the seam for any
+/// caller that already holds a dedicated runtime and needs a synchronous
+/// result — today that's `cli/tcp_client.rs`'s callers via
+/// [`resolve_fingerprints`] above. Fails closed.
+///
+/// (The TLS client-cert verifier — `tcp::tls::FingerprintClientCertVerifier`
+/// — used to call this directly from inside a synchronous rustls callback via
+/// its own dedicated runtime. Since the TCP server moved to an async
+/// connection model, that callback runs on a Tokio task's own thread, where
+/// blocking on a fresh runtime here would stall that worker for every other
+/// task scheduled on it. The verifier now consults a small in-memory cache
+/// (`tcp::dns_pin_cache::DnsPinCache`) instead and never calls into this
+/// module at all; a cache miss fails that one handshake attempt closed and
+/// fires a background `tokio::spawn` refresh using
+/// [`resolve_fingerprints_async`] directly, with no runtime-nesting concern
+/// since it already runs on an ambient Tokio task.)
 pub fn resolve_fingerprints_with(
     runtime: &tokio::runtime::Runtime,
     dns: &dyn crate::net::DnsResolver,
@@ -109,8 +136,10 @@ pub fn resolve_fingerprints_with(
 
 /// The actual async lookup + TXT parse, shared by every driving strategy
 /// above (ambient multi-thread runtime, dedicated OS thread, or a
-/// purpose-built runtime).
-async fn resolve_fingerprints_async(
+/// purpose-built runtime), and reused directly (no `block_on` involved) by
+/// `tcp::dns_pin_cache`'s background cache-refresh task, which already runs
+/// on an ambient Tokio task and so needs no driving strategy at all.
+pub(crate) async fn resolve_fingerprints_async(
     dns: &dyn crate::net::DnsResolver,
     domain: &str,
 ) -> Result<Vec<String>, DnsFingerprintError> {

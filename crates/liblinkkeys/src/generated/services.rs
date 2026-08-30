@@ -101,6 +101,41 @@ pub trait UserKeys {
     ) -> Result<GetUserKeysResponse, ServiceError>;
 }
 
+/// ApplicationKeys service trait
+pub trait ApplicationKeys {
+    type Context;
+    /// get-application-keys (request/response).
+    fn get_application_keys(
+        &self,
+        ctx: &Self::Context,
+        input: GetApplicationKeysRequest,
+    ) -> Result<GetApplicationKeysResponse, ServiceError>;
+    /// start-key-challenge (request/response).
+    fn start_key_challenge(
+        &self,
+        ctx: &Self::Context,
+        input: StartApplicationKeyChallengeRequest,
+    ) -> Result<StartApplicationKeyChallengeResponse, ServiceError>;
+    /// add-key (request/response).
+    fn add_key(
+        &self,
+        ctx: &Self::Context,
+        input: AddApplicationKeyRequest,
+    ) -> Result<AddApplicationKeyResponse, ServiceError>;
+    /// renew-attestation (request/response).
+    fn renew_attestation(
+        &self,
+        ctx: &Self::Context,
+        input: RenewApplicationKeyAttestationRequest,
+    ) -> Result<RenewApplicationKeyAttestationResponse, ServiceError>;
+    /// revoke-key (request/response).
+    fn revoke_key(
+        &self,
+        ctx: &Self::Context,
+        input: RevokeApplicationKeyRequest,
+    ) -> Result<RevokeApplicationKeyResponse, ServiceError>;
+}
+
 /// Identity service trait
 pub trait Identity {
     type Context;
@@ -581,6 +616,12 @@ pub trait Account {
         ctx: &Self::Context,
         input: ConfirmContactVerificationRequest,
     ) -> Result<ConfirmContactVerificationResponse, ServiceError>;
+    /// enroll-application-instance (request/response).
+    fn enroll_application_instance(
+        &self,
+        ctx: &Self::Context,
+        input: EnrollApplicationInstanceRequest,
+    ) -> Result<EnrollApplicationInstanceResponse, ServiceError>;
 }
 
 /// Attestation service trait
@@ -627,6 +668,18 @@ pub trait Rp {
         ctx: &Self::Context,
         input: RpIssueAttestationRequest,
     ) -> Result<RpIssueAttestationResponse, ServiceError>;
+    /// resolve-domain-keys (request/response).
+    fn resolve_domain_keys(
+        &self,
+        ctx: &Self::Context,
+        input: RpResolveDomainKeysRequest,
+    ) -> Result<RpResolveDomainKeysResponse, ServiceError>;
+    /// resolve-application-keys (request/response).
+    fn resolve_application_keys(
+        &self,
+        ctx: &Self::Context,
+        input: RpResolveApplicationKeysRequest,
+    ) -> Result<RpResolveApplicationKeysResponse, ServiceError>;
 }
 
 /// LocalRp service trait

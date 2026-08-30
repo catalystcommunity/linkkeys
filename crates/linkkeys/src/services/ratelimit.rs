@@ -39,7 +39,7 @@ struct LimiterState {
 }
 
 impl RateLimiter {
-    fn new(
+    pub fn new(
         capacity: f64,
         refill_per_sec: f64,
         max_entries: usize,

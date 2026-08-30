@@ -1550,3 +1550,212 @@ pub struct TranslationsResponse {
 pub struct ListLocalesResponse {
     pub available_locales: Vec<String>,
 }
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ApplicationKeySignature {
+    pub signed_by_key_id: String,
+    pub signature: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ApplicationKeyAttestation {
+    pub subject_user_id: String,
+    pub subject_domain: String,
+    pub application_id: String,
+    pub instance_id: String,
+    pub key_id: String,
+    pub key_usage: String,
+    pub algorithm: String,
+    pub public_key: Vec<u8>,
+    pub fingerprint: String,
+    pub key_created_at: String,
+    pub key_expires_at: String,
+    pub attested_at: String,
+    pub attestation_expires_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SignedApplicationKeyAttestation {
+    pub attestation: Vec<u8>,
+    pub signatures: Vec<ClaimSignature>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ApplicationKeyAddition {
+    pub subject_user_id: String,
+    pub subject_domain: String,
+    pub application_id: String,
+    pub instance_id: String,
+    pub key_id: String,
+    pub key_usage: String,
+    pub algorithm: String,
+    pub public_key: Vec<u8>,
+    pub fingerprint: String,
+    pub requested_key_lifetime_seconds: i64,
+    pub challenge_id: String,
+    pub challenge: Vec<u8>,
+    pub requested_at: String,
+    pub expires_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SignedApplicationKeyAddition {
+    pub addition: Vec<u8>,
+    pub signatures: Vec<ApplicationKeySignature>,
+    pub possession_proof: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ApplicationKeyRenewal {
+    pub subject_user_id: String,
+    pub subject_domain: String,
+    pub application_id: String,
+    pub instance_id: String,
+    pub key_id: String,
+    pub challenge_id: String,
+    pub challenge: Vec<u8>,
+    pub requested_at: String,
+    pub expires_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SignedApplicationKeyRenewal {
+    pub renewal: Vec<u8>,
+    pub signatures: Vec<ApplicationKeySignature>,
+    pub possession_proof: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ApplicationKeyRevocation {
+    pub subject_user_id: String,
+    pub subject_domain: String,
+    pub application_id: String,
+    pub instance_id: String,
+    pub target_key_id: String,
+    pub target_fingerprint: String,
+    pub revoked_at: String,
+    pub signatures: Vec<ApplicationKeySignature>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StartApplicationKeyChallengeRequest {
+    pub subject_user_id: String,
+    pub application_id: String,
+    pub instance_id: String,
+    pub purpose: String,
+    pub key_usage: String,
+    pub algorithm: String,
+    pub public_key: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StartApplicationKeyChallengeResponse {
+    pub challenge_id: String,
+    pub challenge: Option<Vec<u8>>,
+    pub sealed_challenge: Option<Vec<u8>>,
+    pub expires_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AddApplicationKeyRequest {
+    pub request: SignedApplicationKeyAddition,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AddApplicationKeyResponse {
+    pub attestation: SignedApplicationKeyAttestation,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RenewApplicationKeyAttestationRequest {
+    pub request: SignedApplicationKeyRenewal,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RenewApplicationKeyAttestationResponse {
+    pub attestation: SignedApplicationKeyAttestation,
+    pub signed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RevokeApplicationKeyRequest {
+    pub revocation: ApplicationKeyRevocation,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RevokeApplicationKeyResponse {
+    pub revoked_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnrollApplicationInstanceRequest {
+    pub application_id: String,
+    pub instance_id: String,
+    pub keys: Vec<SignedApplicationKeyAddition>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnrollApplicationInstanceResponse {
+    pub subject_user_id: String,
+    pub subject_domain: String,
+    pub application_id: String,
+    pub instance_id: String,
+    pub attestations: Vec<SignedApplicationKeyAttestation>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetApplicationKeysRequest {
+    pub subject_user_id: String,
+    pub application_id: String,
+    pub instance_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetApplicationKeysResponse {
+    pub subject_user_id: String,
+    pub subject_domain: String,
+    pub application_id: String,
+    pub instance_id: String,
+    pub keys: Vec<SignedApplicationKeyAttestation>,
+    pub revocations: Vec<ApplicationKeyRevocation>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RpResolveDomainKeysRequest {
+    pub domain: String,
+    pub max_cache_age_seconds: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RpResolveDomainKeysResponse {
+    pub domain: String,
+    pub keys: Vec<DomainPublicKey>,
+    pub revocations: Vec<RevocationCertificate>,
+    pub fetched_at: String,
+    pub revocations_checked_at: String,
+    pub cache_status: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RpResolveApplicationKeysRequest {
+    pub subject_user_id: String,
+    pub subject_domain: String,
+    pub application_id: String,
+    pub instance_id: String,
+    pub max_cache_age_seconds: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RpResolveApplicationKeysResponse {
+    pub subject_user_id: String,
+    pub subject_domain: String,
+    pub application_id: String,
+    pub instance_id: String,
+    pub application_keys: Vec<SignedApplicationKeyAttestation>,
+    pub application_key_revocations: Vec<ApplicationKeyRevocation>,
+    pub home_domain_keys: Vec<DomainPublicKey>,
+    pub home_domain_key_revocations: Vec<RevocationCertificate>,
+    pub fetched_at: String,
+    pub revocations_checked_at: String,
+    pub cache_status: String,
+}

@@ -127,6 +127,70 @@ final class UserKeysClient {
   }
 }
 
+/// A typed, transport-agnostic client for the ApplicationKeys service. The client owns
+/// (de)serialization; the carrier only moves bytes.
+final class ApplicationKeysClient {
+  final CsilTransport transport;
+  const ApplicationKeysClient(this.transport);
+
+  GetApplicationKeysResponse getApplicationKeys(
+    GetApplicationKeysRequest request,
+  ) {
+    final csilResp = transport.call(
+      'ApplicationKeys',
+      'get-application-keys',
+      request.toCbor(),
+    );
+    return GetApplicationKeysResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
+  StartApplicationKeyChallengeResponse startKeyChallenge(
+    StartApplicationKeyChallengeRequest request,
+  ) {
+    final csilResp = transport.call(
+      'ApplicationKeys',
+      'start-key-challenge',
+      request.toCbor(),
+    );
+    return StartApplicationKeyChallengeResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
+
+  AddApplicationKeyResponse addKey(AddApplicationKeyRequest request) {
+    final csilResp = transport.call(
+      'ApplicationKeys',
+      'add-key',
+      request.toCbor(),
+    );
+    return AddApplicationKeyResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
+  RenewApplicationKeyAttestationResponse renewAttestation(
+    RenewApplicationKeyAttestationRequest request,
+  ) {
+    final csilResp = transport.call(
+      'ApplicationKeys',
+      'renew-attestation',
+      request.toCbor(),
+    );
+    return RenewApplicationKeyAttestationResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
+
+  RevokeApplicationKeyResponse revokeKey(RevokeApplicationKeyRequest request) {
+    final csilResp = transport.call(
+      'ApplicationKeys',
+      'revoke-key',
+      request.toCbor(),
+    );
+    return RevokeApplicationKeyResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
+}
+
 /// A typed, transport-agnostic client for the Identity service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 final class IdentityClient {
@@ -837,6 +901,19 @@ final class AccountClient {
       CsilCbor.decode(csilResp),
     );
   }
+
+  EnrollApplicationInstanceResponse enrollApplicationInstance(
+    EnrollApplicationInstanceRequest request,
+  ) {
+    final csilResp = transport.call(
+      'Account',
+      'enroll-application-instance',
+      request.toCbor(),
+    );
+    return EnrollApplicationInstanceResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
 }
 
 /// A typed, transport-agnostic client for the Attestation service. The client owns
@@ -890,6 +967,30 @@ final class RpClient {
       request.toCbor(),
     );
     return RpIssueAttestationResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
+  RpResolveDomainKeysResponse resolveDomainKeys(
+    RpResolveDomainKeysRequest request,
+  ) {
+    final csilResp = transport.call(
+      'Rp',
+      'resolve-domain-keys',
+      request.toCbor(),
+    );
+    return RpResolveDomainKeysResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
+  RpResolveApplicationKeysResponse resolveApplicationKeys(
+    RpResolveApplicationKeysRequest request,
+  ) {
+    final csilResp = transport.call(
+      'Rp',
+      'resolve-application-keys',
+      request.toCbor(),
+    );
+    return RpResolveApplicationKeysResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
   }
 }
 

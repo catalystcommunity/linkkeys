@@ -246,6 +246,30 @@ typedef struct LocaleMessages LocaleMessages;
 typedef struct TranslationsRequest TranslationsRequest;
 typedef struct TranslationsResponse TranslationsResponse;
 typedef struct ListLocalesResponse ListLocalesResponse;
+typedef struct ApplicationKeySignature ApplicationKeySignature;
+typedef struct ApplicationKeyAttestation ApplicationKeyAttestation;
+typedef struct SignedApplicationKeyAttestation SignedApplicationKeyAttestation;
+typedef struct ApplicationKeyAddition ApplicationKeyAddition;
+typedef struct SignedApplicationKeyAddition SignedApplicationKeyAddition;
+typedef struct ApplicationKeyRenewal ApplicationKeyRenewal;
+typedef struct SignedApplicationKeyRenewal SignedApplicationKeyRenewal;
+typedef struct ApplicationKeyRevocation ApplicationKeyRevocation;
+typedef struct StartApplicationKeyChallengeRequest StartApplicationKeyChallengeRequest;
+typedef struct StartApplicationKeyChallengeResponse StartApplicationKeyChallengeResponse;
+typedef struct AddApplicationKeyRequest AddApplicationKeyRequest;
+typedef struct AddApplicationKeyResponse AddApplicationKeyResponse;
+typedef struct RenewApplicationKeyAttestationRequest RenewApplicationKeyAttestationRequest;
+typedef struct RenewApplicationKeyAttestationResponse RenewApplicationKeyAttestationResponse;
+typedef struct RevokeApplicationKeyRequest RevokeApplicationKeyRequest;
+typedef struct RevokeApplicationKeyResponse RevokeApplicationKeyResponse;
+typedef struct EnrollApplicationInstanceRequest EnrollApplicationInstanceRequest;
+typedef struct EnrollApplicationInstanceResponse EnrollApplicationInstanceResponse;
+typedef struct GetApplicationKeysRequest GetApplicationKeysRequest;
+typedef struct GetApplicationKeysResponse GetApplicationKeysResponse;
+typedef struct RpResolveDomainKeysRequest RpResolveDomainKeysRequest;
+typedef struct RpResolveDomainKeysResponse RpResolveDomainKeysResponse;
+typedef struct RpResolveApplicationKeysRequest RpResolveApplicationKeysRequest;
+typedef struct RpResolveApplicationKeysResponse RpResolveApplicationKeysResponse;
 
 /* AeadSuite is a type alias. */
 typedef char *AeadSuite;
@@ -1759,5 +1783,228 @@ typedef struct ListLocalesResponse {
     char **available_locales;
     size_t available_locales_count;
 } ListLocalesResponse;
+
+/* ApplicationKeySignature is a structured data type. */
+typedef struct ApplicationKeySignature {
+    char *signed_by_key_id;
+    CsilBytes signature;
+} ApplicationKeySignature;
+
+/* ApplicationKeyAttestation is a structured data type. */
+typedef struct ApplicationKeyAttestation {
+    char *subject_user_id;
+    char *subject_domain;
+    char *application_id;
+    char *instance_id;
+    char *key_id;
+    char *key_usage;
+    char *algorithm;
+    CsilBytes public_key;
+    char *fingerprint;
+    char *key_created_at;
+    char *key_expires_at;
+    char *attested_at;
+    char *attestation_expires_at;
+} ApplicationKeyAttestation;
+
+/* SignedApplicationKeyAttestation is a structured data type. */
+typedef struct SignedApplicationKeyAttestation {
+    CsilBytes attestation;
+    ClaimSignature *signatures;
+    size_t signatures_count;
+} SignedApplicationKeyAttestation;
+
+/* ApplicationKeyAddition is a structured data type. */
+typedef struct ApplicationKeyAddition {
+    char *subject_user_id;
+    char *subject_domain;
+    char *application_id;
+    char *instance_id;
+    char *key_id;
+    char *key_usage;
+    char *algorithm;
+    CsilBytes public_key;
+    char *fingerprint;
+    int64_t requested_key_lifetime_seconds;
+    char *challenge_id;
+    CsilBytes challenge;
+    char *requested_at;
+    char *expires_at;
+} ApplicationKeyAddition;
+
+/* SignedApplicationKeyAddition is a structured data type. */
+typedef struct SignedApplicationKeyAddition {
+    CsilBytes addition;
+    ApplicationKeySignature *signatures;
+    size_t signatures_count;
+    CsilBytes *possession_proof;
+} SignedApplicationKeyAddition;
+
+/* ApplicationKeyRenewal is a structured data type. */
+typedef struct ApplicationKeyRenewal {
+    char *subject_user_id;
+    char *subject_domain;
+    char *application_id;
+    char *instance_id;
+    char *key_id;
+    char *challenge_id;
+    CsilBytes challenge;
+    char *requested_at;
+    char *expires_at;
+} ApplicationKeyRenewal;
+
+/* SignedApplicationKeyRenewal is a structured data type. */
+typedef struct SignedApplicationKeyRenewal {
+    CsilBytes renewal;
+    ApplicationKeySignature *signatures;
+    size_t signatures_count;
+    CsilBytes *possession_proof;
+} SignedApplicationKeyRenewal;
+
+/* ApplicationKeyRevocation is a structured data type. */
+typedef struct ApplicationKeyRevocation {
+    char *subject_user_id;
+    char *subject_domain;
+    char *application_id;
+    char *instance_id;
+    char *target_key_id;
+    char *target_fingerprint;
+    char *revoked_at;
+    ApplicationKeySignature *signatures;
+    size_t signatures_count;
+} ApplicationKeyRevocation;
+
+/* StartApplicationKeyChallengeRequest is a structured data type. */
+typedef struct StartApplicationKeyChallengeRequest {
+    char *subject_user_id;
+    char *application_id;
+    char *instance_id;
+    char *purpose;
+    char *key_usage;
+    char *algorithm;
+    CsilBytes public_key;
+} StartApplicationKeyChallengeRequest;
+
+/* StartApplicationKeyChallengeResponse is a structured data type. */
+typedef struct StartApplicationKeyChallengeResponse {
+    char *challenge_id;
+    CsilBytes *challenge;
+    CsilBytes *sealed_challenge;
+    char *expires_at;
+} StartApplicationKeyChallengeResponse;
+
+/* AddApplicationKeyRequest is a structured data type. */
+typedef struct AddApplicationKeyRequest {
+    SignedApplicationKeyAddition request;
+} AddApplicationKeyRequest;
+
+/* AddApplicationKeyResponse is a structured data type. */
+typedef struct AddApplicationKeyResponse {
+    SignedApplicationKeyAttestation attestation;
+} AddApplicationKeyResponse;
+
+/* RenewApplicationKeyAttestationRequest is a structured data type. */
+typedef struct RenewApplicationKeyAttestationRequest {
+    SignedApplicationKeyRenewal request;
+} RenewApplicationKeyAttestationRequest;
+
+/* RenewApplicationKeyAttestationResponse is a structured data type. */
+typedef struct RenewApplicationKeyAttestationResponse {
+    SignedApplicationKeyAttestation attestation;
+    bool signed_;
+} RenewApplicationKeyAttestationResponse;
+
+/* RevokeApplicationKeyRequest is a structured data type. */
+typedef struct RevokeApplicationKeyRequest {
+    ApplicationKeyRevocation revocation;
+} RevokeApplicationKeyRequest;
+
+/* RevokeApplicationKeyResponse is a structured data type. */
+typedef struct RevokeApplicationKeyResponse {
+    char *revoked_at;
+} RevokeApplicationKeyResponse;
+
+/* EnrollApplicationInstanceRequest is a structured data type. */
+typedef struct EnrollApplicationInstanceRequest {
+    char *application_id;
+    char *instance_id;
+    SignedApplicationKeyAddition *keys;
+    size_t keys_count;
+} EnrollApplicationInstanceRequest;
+
+/* EnrollApplicationInstanceResponse is a structured data type. */
+typedef struct EnrollApplicationInstanceResponse {
+    char *subject_user_id;
+    char *subject_domain;
+    char *application_id;
+    char *instance_id;
+    SignedApplicationKeyAttestation *attestations;
+    size_t attestations_count;
+} EnrollApplicationInstanceResponse;
+
+/* GetApplicationKeysRequest is a structured data type. */
+typedef struct GetApplicationKeysRequest {
+    char *subject_user_id;
+    char *application_id;
+    char *instance_id;
+} GetApplicationKeysRequest;
+
+/* GetApplicationKeysResponse is a structured data type. */
+typedef struct GetApplicationKeysResponse {
+    char *subject_user_id;
+    char *subject_domain;
+    char *application_id;
+    char *instance_id;
+    SignedApplicationKeyAttestation *keys;
+    size_t keys_count;
+    ApplicationKeyRevocation *revocations;
+    size_t revocations_count;
+} GetApplicationKeysResponse;
+
+/* RpResolveDomainKeysRequest is a structured data type. */
+typedef struct RpResolveDomainKeysRequest {
+    char *domain;
+    int64_t *max_cache_age_seconds;
+} RpResolveDomainKeysRequest;
+
+/* RpResolveDomainKeysResponse is a structured data type. */
+typedef struct RpResolveDomainKeysResponse {
+    char *domain;
+    DomainPublicKey *keys;
+    size_t keys_count;
+    RevocationCertificate *revocations;
+    size_t revocations_count;
+    char *fetched_at;
+    char *revocations_checked_at;
+    char *cache_status;
+} RpResolveDomainKeysResponse;
+
+/* RpResolveApplicationKeysRequest is a structured data type. */
+typedef struct RpResolveApplicationKeysRequest {
+    char *subject_user_id;
+    char *subject_domain;
+    char *application_id;
+    char *instance_id;
+    int64_t *max_cache_age_seconds;
+} RpResolveApplicationKeysRequest;
+
+/* RpResolveApplicationKeysResponse is a structured data type. */
+typedef struct RpResolveApplicationKeysResponse {
+    char *subject_user_id;
+    char *subject_domain;
+    char *application_id;
+    char *instance_id;
+    SignedApplicationKeyAttestation *application_keys;
+    size_t application_keys_count;
+    ApplicationKeyRevocation *application_key_revocations;
+    size_t application_key_revocations_count;
+    DomainPublicKey *home_domain_keys;
+    size_t home_domain_keys_count;
+    RevocationCertificate *home_domain_key_revocations;
+    size_t home_domain_key_revocations_count;
+    char *fetched_at;
+    char *revocations_checked_at;
+    char *cache_status;
+} RpResolveApplicationKeysResponse;
 
 #endif /* CSILGEN_TYPES_GEN_H */

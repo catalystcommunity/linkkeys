@@ -1843,6 +1843,7 @@ dependencies = [
  "sha2",
  "subtle",
  "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
@@ -1872,6 +1873,7 @@ dependencies = [
  "hickory-resolver",
  "ipnet",
  "lettre",
+ "libc",
  "liblinkkeys",
  "linkkeys-rpc-client",
  "log",
@@ -1889,10 +1891,12 @@ dependencies = [
  "sha2",
  "threadpool",
  "tokio",
+ "tokio-rustls 0.26.4",
  "toml 0.8.23",
  "urlencoding",
  "uuid",
  "x509-parser",
+ "zeroize",
 ]
 
 [[package]]

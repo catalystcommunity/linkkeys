@@ -2062,3 +2062,325 @@ public sealed record ListLocalesResponse
     public required System.Collections.Generic.List<string> AvailableLocales { get; init; }
 }
 
+public sealed record ApplicationKeySignature
+{
+    // CBOR key: signed_by_key_id
+    public required string SignedByKeyId { get; init; }
+    // CBOR key: signature
+    public required byte[] Signature { get; init; }
+}
+
+public sealed record ApplicationKeyAttestation
+{
+    // CBOR key: subject_user_id
+    public required string SubjectUserId { get; init; }
+    // CBOR key: subject_domain
+    public required string SubjectDomain { get; init; }
+    // CBOR key: application_id
+    public required string ApplicationId { get; init; }
+    // CBOR key: instance_id
+    public required string InstanceId { get; init; }
+    // CBOR key: key_id
+    public required string KeyId { get; init; }
+    // CBOR key: key_usage
+    public required string KeyUsage { get; init; }
+    // CBOR key: algorithm
+    public required string Algorithm { get; init; }
+    // CBOR key: public_key
+    public required byte[] PublicKey { get; init; }
+    // CBOR key: fingerprint
+    public required string Fingerprint { get; init; }
+    // CBOR key: key_created_at
+    public required string KeyCreatedAt { get; init; }
+    // CBOR key: key_expires_at
+    public required string KeyExpiresAt { get; init; }
+    // CBOR key: attested_at
+    public required string AttestedAt { get; init; }
+    // CBOR key: attestation_expires_at
+    public required string AttestationExpiresAt { get; init; }
+}
+
+public sealed record SignedApplicationKeyAttestation
+{
+    // CBOR key: attestation
+    public required byte[] Attestation { get; init; }
+    // CBOR key: signatures
+    public required System.Collections.Generic.List<ClaimSignature> Signatures { get; init; }
+}
+
+public sealed record ApplicationKeyAddition
+{
+    // CBOR key: subject_user_id
+    public required string SubjectUserId { get; init; }
+    // CBOR key: subject_domain
+    public required string SubjectDomain { get; init; }
+    // CBOR key: application_id
+    public required string ApplicationId { get; init; }
+    // CBOR key: instance_id
+    public required string InstanceId { get; init; }
+    // CBOR key: key_id
+    public required string KeyId { get; init; }
+    // CBOR key: key_usage
+    public required string KeyUsage { get; init; }
+    // CBOR key: algorithm
+    public required string Algorithm { get; init; }
+    // CBOR key: public_key
+    public required byte[] PublicKey { get; init; }
+    // CBOR key: fingerprint
+    public required string Fingerprint { get; init; }
+    // CBOR key: requested_key_lifetime_seconds
+    public required long RequestedKeyLifetimeSeconds { get; init; }
+    // CBOR key: challenge_id
+    public required string ChallengeId { get; init; }
+    // CBOR key: challenge
+    public required byte[] Challenge { get; init; }
+    // CBOR key: requested_at
+    public required string RequestedAt { get; init; }
+    // CBOR key: expires_at
+    public required string ExpiresAt { get; init; }
+}
+
+public sealed record SignedApplicationKeyAddition
+{
+    // CBOR key: addition
+    public required byte[] Addition { get; init; }
+    // CBOR key: signatures
+    public required System.Collections.Generic.List<ApplicationKeySignature> Signatures { get; init; }
+    // CBOR key: possession_proof
+    public byte[]? PossessionProof { get; init; }
+}
+
+public sealed record ApplicationKeyRenewal
+{
+    // CBOR key: subject_user_id
+    public required string SubjectUserId { get; init; }
+    // CBOR key: subject_domain
+    public required string SubjectDomain { get; init; }
+    // CBOR key: application_id
+    public required string ApplicationId { get; init; }
+    // CBOR key: instance_id
+    public required string InstanceId { get; init; }
+    // CBOR key: key_id
+    public required string KeyId { get; init; }
+    // CBOR key: challenge_id
+    public required string ChallengeId { get; init; }
+    // CBOR key: challenge
+    public required byte[] Challenge { get; init; }
+    // CBOR key: requested_at
+    public required string RequestedAt { get; init; }
+    // CBOR key: expires_at
+    public required string ExpiresAt { get; init; }
+}
+
+public sealed record SignedApplicationKeyRenewal
+{
+    // CBOR key: renewal
+    public required byte[] Renewal { get; init; }
+    // CBOR key: signatures
+    public required System.Collections.Generic.List<ApplicationKeySignature> Signatures { get; init; }
+    // CBOR key: possession_proof
+    public byte[]? PossessionProof { get; init; }
+}
+
+public sealed record ApplicationKeyRevocation
+{
+    // CBOR key: subject_user_id
+    public required string SubjectUserId { get; init; }
+    // CBOR key: subject_domain
+    public required string SubjectDomain { get; init; }
+    // CBOR key: application_id
+    public required string ApplicationId { get; init; }
+    // CBOR key: instance_id
+    public required string InstanceId { get; init; }
+    // CBOR key: target_key_id
+    public required string TargetKeyId { get; init; }
+    // CBOR key: target_fingerprint
+    public required string TargetFingerprint { get; init; }
+    // CBOR key: revoked_at
+    public required string RevokedAt { get; init; }
+    // CBOR key: signatures
+    public required System.Collections.Generic.List<ApplicationKeySignature> Signatures { get; init; }
+}
+
+public sealed record StartApplicationKeyChallengeRequest
+{
+    // CBOR key: subject_user_id
+    public required string SubjectUserId { get; init; }
+    // CBOR key: application_id
+    public required string ApplicationId { get; init; }
+    // CBOR key: instance_id
+    public required string InstanceId { get; init; }
+    // CBOR key: purpose
+    public required string Purpose { get; init; }
+    // CBOR key: key_usage
+    public required string KeyUsage { get; init; }
+    // CBOR key: algorithm
+    public required string Algorithm { get; init; }
+    // CBOR key: public_key
+    public required byte[] PublicKey { get; init; }
+}
+
+public sealed record StartApplicationKeyChallengeResponse
+{
+    // CBOR key: challenge_id
+    public required string ChallengeId { get; init; }
+    // CBOR key: challenge
+    public byte[]? Challenge { get; init; }
+    // CBOR key: sealed_challenge
+    public byte[]? SealedChallenge { get; init; }
+    // CBOR key: expires_at
+    public required string ExpiresAt { get; init; }
+}
+
+public sealed record AddApplicationKeyRequest
+{
+    // CBOR key: request
+    public required SignedApplicationKeyAddition Request { get; init; }
+}
+
+public sealed record AddApplicationKeyResponse
+{
+    // CBOR key: attestation
+    public required SignedApplicationKeyAttestation Attestation { get; init; }
+}
+
+public sealed record RenewApplicationKeyAttestationRequest
+{
+    // CBOR key: request
+    public required SignedApplicationKeyRenewal Request { get; init; }
+}
+
+public sealed record RenewApplicationKeyAttestationResponse
+{
+    // CBOR key: attestation
+    public required SignedApplicationKeyAttestation Attestation { get; init; }
+    // CBOR key: signed
+    public required bool Signed { get; init; }
+}
+
+public sealed record RevokeApplicationKeyRequest
+{
+    // CBOR key: revocation
+    public required ApplicationKeyRevocation Revocation { get; init; }
+}
+
+public sealed record RevokeApplicationKeyResponse
+{
+    // CBOR key: revoked_at
+    public required string RevokedAt { get; init; }
+}
+
+public sealed record EnrollApplicationInstanceRequest
+{
+    // CBOR key: application_id
+    public required string ApplicationId { get; init; }
+    // CBOR key: instance_id
+    public required string InstanceId { get; init; }
+    // CBOR key: keys
+    public required System.Collections.Generic.List<SignedApplicationKeyAddition> Keys { get; init; }
+}
+
+public sealed record EnrollApplicationInstanceResponse
+{
+    // CBOR key: subject_user_id
+    public required string SubjectUserId { get; init; }
+    // CBOR key: subject_domain
+    public required string SubjectDomain { get; init; }
+    // CBOR key: application_id
+    public required string ApplicationId { get; init; }
+    // CBOR key: instance_id
+    public required string InstanceId { get; init; }
+    // CBOR key: attestations
+    public required System.Collections.Generic.List<SignedApplicationKeyAttestation> Attestations { get; init; }
+}
+
+public sealed record GetApplicationKeysRequest
+{
+    // CBOR key: subject_user_id
+    public required string SubjectUserId { get; init; }
+    // CBOR key: application_id
+    public required string ApplicationId { get; init; }
+    // CBOR key: instance_id
+    public required string InstanceId { get; init; }
+}
+
+public sealed record GetApplicationKeysResponse
+{
+    // CBOR key: subject_user_id
+    public required string SubjectUserId { get; init; }
+    // CBOR key: subject_domain
+    public required string SubjectDomain { get; init; }
+    // CBOR key: application_id
+    public required string ApplicationId { get; init; }
+    // CBOR key: instance_id
+    public required string InstanceId { get; init; }
+    // CBOR key: keys
+    public required System.Collections.Generic.List<SignedApplicationKeyAttestation> Keys { get; init; }
+    // CBOR key: revocations
+    public required System.Collections.Generic.List<ApplicationKeyRevocation> Revocations { get; init; }
+}
+
+public sealed record RpResolveDomainKeysRequest
+{
+    // CBOR key: domain
+    public required string Domain { get; init; }
+    // CBOR key: max_cache_age_seconds
+    public long? MaxCacheAgeSeconds { get; init; }
+}
+
+public sealed record RpResolveDomainKeysResponse
+{
+    // CBOR key: domain
+    public required string Domain { get; init; }
+    // CBOR key: keys
+    public required System.Collections.Generic.List<DomainPublicKey> Keys { get; init; }
+    // CBOR key: revocations
+    public required System.Collections.Generic.List<RevocationCertificate> Revocations { get; init; }
+    // CBOR key: fetched_at
+    public required string FetchedAt { get; init; }
+    // CBOR key: revocations_checked_at
+    public required string RevocationsCheckedAt { get; init; }
+    // CBOR key: cache_status
+    public required string CacheStatus { get; init; }
+}
+
+public sealed record RpResolveApplicationKeysRequest
+{
+    // CBOR key: subject_user_id
+    public required string SubjectUserId { get; init; }
+    // CBOR key: subject_domain
+    public required string SubjectDomain { get; init; }
+    // CBOR key: application_id
+    public required string ApplicationId { get; init; }
+    // CBOR key: instance_id
+    public required string InstanceId { get; init; }
+    // CBOR key: max_cache_age_seconds
+    public long? MaxCacheAgeSeconds { get; init; }
+}
+
+public sealed record RpResolveApplicationKeysResponse
+{
+    // CBOR key: subject_user_id
+    public required string SubjectUserId { get; init; }
+    // CBOR key: subject_domain
+    public required string SubjectDomain { get; init; }
+    // CBOR key: application_id
+    public required string ApplicationId { get; init; }
+    // CBOR key: instance_id
+    public required string InstanceId { get; init; }
+    // CBOR key: application_keys
+    public required System.Collections.Generic.List<SignedApplicationKeyAttestation> ApplicationKeys { get; init; }
+    // CBOR key: application_key_revocations
+    public required System.Collections.Generic.List<ApplicationKeyRevocation> ApplicationKeyRevocations { get; init; }
+    // CBOR key: home_domain_keys
+    public required System.Collections.Generic.List<DomainPublicKey> HomeDomainKeys { get; init; }
+    // CBOR key: home_domain_key_revocations
+    public required System.Collections.Generic.List<RevocationCertificate> HomeDomainKeyRevocations { get; init; }
+    // CBOR key: fetched_at
+    public required string FetchedAt { get; init; }
+    // CBOR key: revocations_checked_at
+    public required string RevocationsCheckedAt { get; init; }
+    // CBOR key: cache_status
+    public required string CacheStatus { get; init; }
+}
+

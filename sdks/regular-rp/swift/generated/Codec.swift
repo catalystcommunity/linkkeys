@@ -84,13 +84,22 @@ public enum CsilCbor {
 
     public static func decode(_ b: [UInt8]) throws -> CsilCborValue {
         var pos = 0
-        let v = try dec(b, &pos)
+        let v = try dec(b, &pos, 0)
         if pos != b.count { throw CsilCborError.trailingBytes }
         return v
     }
 
     static func readArg(_ b: [UInt8], _ pos: inout Int, _ low: UInt8) throws -> UInt64 {
         if low < 24 { pos += 1; return UInt64(low) }
+        let width: Int
+        switch low {
+        case 24: width = 1
+        case 25: width = 2
+        case 26: width = 4
+        case 27: width = 8
+        default: throw CsilCborError.malformed
+        }
+        guard pos < b.count, b.count - pos - 1 >= width else { throw CsilCborError.malformed }
         switch low {
         case 24:
             let v = UInt64(b[pos + 1]); pos += 2; return v
@@ -109,7 +118,8 @@ public enum CsilCbor {
         }
     }
 
-    static func dec(_ b: [UInt8], _ pos: inout Int) throws -> CsilCborValue {
+    static func dec(_ b: [UInt8], _ pos: inout Int, _ depth: Int) throws -> CsilCborValue {
+        guard depth <= 64, pos < b.count else { throw CsilCborError.malformed }
         let ib = b[pos]
         let major = ib >> 5
         let low = ib & 0x1f
@@ -136,29 +146,34 @@ public enum CsilCbor {
             if arg > UInt64(Int64.max) { throw CsilCborError.malformed }
             return .int(-1 - Int64(arg))
         case 2:
+            guard arg <= UInt64(b.count - pos) else { throw CsilCborError.malformed }
             let n = Int(arg)
             let slice = Array(b[pos..<pos + n]); pos += n
             return .bytes(slice)
         case 3:
+            guard arg <= UInt64(b.count - pos) else { throw CsilCborError.malformed }
             let n = Int(arg)
-            let s = String(decoding: b[pos..<pos + n], as: UTF8.self); pos += n
+            guard let s = String(validating: b[pos..<pos + n], as: UTF8.self) else { throw CsilCborError.malformed }
+            pos += n
             return .text(s)
         case 4:
+            guard arg <= UInt64(b.count - pos) else { throw CsilCborError.malformed }
             let n = Int(arg)
             var items: [CsilCborValue] = []
-            for _ in 0..<n { items.append(try dec(b, &pos)) }
+            for _ in 0..<n { items.append(try dec(b, &pos, depth + 1)) }
             return .array(items)
         case 5:
+            guard arg <= UInt64(b.count - pos) else { throw CsilCborError.malformed }
             let n = Int(arg)
             var kvs: [(CsilCborValue, CsilCborValue)] = []
             for _ in 0..<n {
-                let k = try dec(b, &pos)
-                let v = try dec(b, &pos)
+                let k = try dec(b, &pos, depth + 1)
+                let v = try dec(b, &pos, depth + 1)
                 kvs.append((k, v))
             }
             return .map(kvs)
         case 6:
-            let inner = try dec(b, &pos)
+            let inner = try dec(b, &pos, depth + 1)
             return .tag(arg, inner)
         default:
             throw CsilCborError.malformed
@@ -5531,5 +5546,687 @@ public extension ListLocalesResponse {
 
     /// Decode a CSIL CBOR byte payload into this record.
     static func fromCbor(_ bytes: [UInt8]) throws -> ListLocalesResponse { try ListLocalesResponse(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension ApplicationKeySignature {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("signature", .bytes(self.signature)))
+        csilEntries.append(("signed_by_key_id", .text(self.signedByKeyId)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let signedByKeyId = try CsilCbor.asText((try CsilCbor.require(cborValue, "signed_by_key_id")))
+        let signature = try CsilCbor.asBytes((try CsilCbor.require(cborValue, "signature")))
+        self.init(signedByKeyId: signedByKeyId, signature: signature)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> ApplicationKeySignature { try ApplicationKeySignature(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension ApplicationKeyAttestation {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("key_id", .text(self.keyId)))
+        csilEntries.append(("algorithm", .text(self.algorithm)))
+        csilEntries.append(("key_usage", .text(self.keyUsage)))
+        csilEntries.append(("public_key", .bytes(self.publicKey)))
+        csilEntries.append(("attested_at", .text(self.attestedAt)))
+        csilEntries.append(("fingerprint", .text(self.fingerprint)))
+        csilEntries.append(("instance_id", .text(self.instanceId)))
+        csilEntries.append(("application_id", .text(self.applicationId)))
+        csilEntries.append(("key_created_at", .text(self.keyCreatedAt)))
+        csilEntries.append(("key_expires_at", .text(self.keyExpiresAt)))
+        csilEntries.append(("subject_domain", .text(self.subjectDomain)))
+        csilEntries.append(("subject_user_id", .text(self.subjectUserId)))
+        csilEntries.append(("attestation_expires_at", .text(self.attestationExpiresAt)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let subjectUserId = try CsilCbor.asText((try CsilCbor.require(cborValue, "subject_user_id")))
+        let subjectDomain = try CsilCbor.asText((try CsilCbor.require(cborValue, "subject_domain")))
+        let applicationId = try CsilCbor.asText((try CsilCbor.require(cborValue, "application_id")))
+        let instanceId = try CsilCbor.asText((try CsilCbor.require(cborValue, "instance_id")))
+        let keyId = try CsilCbor.asText((try CsilCbor.require(cborValue, "key_id")))
+        let keyUsage = try CsilCbor.asText((try CsilCbor.require(cborValue, "key_usage")))
+        let algorithm = try CsilCbor.asText((try CsilCbor.require(cborValue, "algorithm")))
+        let publicKey = try CsilCbor.asBytes((try CsilCbor.require(cborValue, "public_key")))
+        let fingerprint = try CsilCbor.asText((try CsilCbor.require(cborValue, "fingerprint")))
+        let keyCreatedAt = try CsilCbor.asText((try CsilCbor.require(cborValue, "key_created_at")))
+        let keyExpiresAt = try CsilCbor.asText((try CsilCbor.require(cborValue, "key_expires_at")))
+        let attestedAt = try CsilCbor.asText((try CsilCbor.require(cborValue, "attested_at")))
+        let attestationExpiresAt = try CsilCbor.asText((try CsilCbor.require(cborValue, "attestation_expires_at")))
+        self.init(subjectUserId: subjectUserId, subjectDomain: subjectDomain, applicationId: applicationId, instanceId: instanceId, keyId: keyId, keyUsage: keyUsage, algorithm: algorithm, publicKey: publicKey, fingerprint: fingerprint, keyCreatedAt: keyCreatedAt, keyExpiresAt: keyExpiresAt, attestedAt: attestedAt, attestationExpiresAt: attestationExpiresAt)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> ApplicationKeyAttestation { try ApplicationKeyAttestation(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension SignedApplicationKeyAttestation {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("signatures", CsilCborValue.array(self.signatures.map { $0.toCborValue() })))
+        csilEntries.append(("attestation", .bytes(self.attestation)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let attestation = try CsilCbor.asBytes((try CsilCbor.require(cborValue, "attestation")))
+        let signatures = try CsilCbor.asArray((try CsilCbor.require(cborValue, "signatures"))).map { try ClaimSignature(cborValue: $0) }
+        self.init(attestation: attestation, signatures: signatures)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> SignedApplicationKeyAttestation { try SignedApplicationKeyAttestation(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension ApplicationKeyAddition {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("key_id", .text(self.keyId)))
+        csilEntries.append(("algorithm", .text(self.algorithm)))
+        csilEntries.append(("challenge", .bytes(self.challenge)))
+        csilEntries.append(("key_usage", .text(self.keyUsage)))
+        csilEntries.append(("expires_at", .text(self.expiresAt)))
+        csilEntries.append(("public_key", .bytes(self.publicKey)))
+        csilEntries.append(("fingerprint", .text(self.fingerprint)))
+        csilEntries.append(("instance_id", .text(self.instanceId)))
+        csilEntries.append(("challenge_id", .text(self.challengeId)))
+        csilEntries.append(("requested_at", .text(self.requestedAt)))
+        csilEntries.append(("application_id", .text(self.applicationId)))
+        csilEntries.append(("subject_domain", .text(self.subjectDomain)))
+        csilEntries.append(("subject_user_id", .text(self.subjectUserId)))
+        csilEntries.append(("requested_key_lifetime_seconds", .int(self.requestedKeyLifetimeSeconds)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let subjectUserId = try CsilCbor.asText((try CsilCbor.require(cborValue, "subject_user_id")))
+        let subjectDomain = try CsilCbor.asText((try CsilCbor.require(cborValue, "subject_domain")))
+        let applicationId = try CsilCbor.asText((try CsilCbor.require(cborValue, "application_id")))
+        let instanceId = try CsilCbor.asText((try CsilCbor.require(cborValue, "instance_id")))
+        let keyId = try CsilCbor.asText((try CsilCbor.require(cborValue, "key_id")))
+        let keyUsage = try CsilCbor.asText((try CsilCbor.require(cborValue, "key_usage")))
+        let algorithm = try CsilCbor.asText((try CsilCbor.require(cborValue, "algorithm")))
+        let publicKey = try CsilCbor.asBytes((try CsilCbor.require(cborValue, "public_key")))
+        let fingerprint = try CsilCbor.asText((try CsilCbor.require(cborValue, "fingerprint")))
+        let requestedKeyLifetimeSeconds = try CsilCbor.asI64((try CsilCbor.require(cborValue, "requested_key_lifetime_seconds")))
+        let challengeId = try CsilCbor.asText((try CsilCbor.require(cborValue, "challenge_id")))
+        let challenge = try CsilCbor.asBytes((try CsilCbor.require(cborValue, "challenge")))
+        let requestedAt = try CsilCbor.asText((try CsilCbor.require(cborValue, "requested_at")))
+        let expiresAt = try CsilCbor.asText((try CsilCbor.require(cborValue, "expires_at")))
+        self.init(subjectUserId: subjectUserId, subjectDomain: subjectDomain, applicationId: applicationId, instanceId: instanceId, keyId: keyId, keyUsage: keyUsage, algorithm: algorithm, publicKey: publicKey, fingerprint: fingerprint, requestedKeyLifetimeSeconds: requestedKeyLifetimeSeconds, challengeId: challengeId, challenge: challenge, requestedAt: requestedAt, expiresAt: expiresAt)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> ApplicationKeyAddition { try ApplicationKeyAddition(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension SignedApplicationKeyAddition {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("addition", .bytes(self.addition)))
+        csilEntries.append(("signatures", CsilCborValue.array(self.signatures.map { $0.toCborValue() })))
+        if let csilV = self.possessionProof { csilEntries.append(("possession_proof", .bytes(csilV))) }
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let addition = try CsilCbor.asBytes((try CsilCbor.require(cborValue, "addition")))
+        let signatures = try CsilCbor.asArray((try CsilCbor.require(cborValue, "signatures"))).map { try ApplicationKeySignature(cborValue: $0) }
+        let possessionProof: [UInt8]? = if let csilV = CsilCbor.mapGet(cborValue, "possession_proof") { try CsilCbor.asBytes(csilV) } else { nil }
+        self.init(addition: addition, signatures: signatures, possessionProof: possessionProof)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> SignedApplicationKeyAddition { try SignedApplicationKeyAddition(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension ApplicationKeyRenewal {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("key_id", .text(self.keyId)))
+        csilEntries.append(("challenge", .bytes(self.challenge)))
+        csilEntries.append(("expires_at", .text(self.expiresAt)))
+        csilEntries.append(("instance_id", .text(self.instanceId)))
+        csilEntries.append(("challenge_id", .text(self.challengeId)))
+        csilEntries.append(("requested_at", .text(self.requestedAt)))
+        csilEntries.append(("application_id", .text(self.applicationId)))
+        csilEntries.append(("subject_domain", .text(self.subjectDomain)))
+        csilEntries.append(("subject_user_id", .text(self.subjectUserId)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let subjectUserId = try CsilCbor.asText((try CsilCbor.require(cborValue, "subject_user_id")))
+        let subjectDomain = try CsilCbor.asText((try CsilCbor.require(cborValue, "subject_domain")))
+        let applicationId = try CsilCbor.asText((try CsilCbor.require(cborValue, "application_id")))
+        let instanceId = try CsilCbor.asText((try CsilCbor.require(cborValue, "instance_id")))
+        let keyId = try CsilCbor.asText((try CsilCbor.require(cborValue, "key_id")))
+        let challengeId = try CsilCbor.asText((try CsilCbor.require(cborValue, "challenge_id")))
+        let challenge = try CsilCbor.asBytes((try CsilCbor.require(cborValue, "challenge")))
+        let requestedAt = try CsilCbor.asText((try CsilCbor.require(cborValue, "requested_at")))
+        let expiresAt = try CsilCbor.asText((try CsilCbor.require(cborValue, "expires_at")))
+        self.init(subjectUserId: subjectUserId, subjectDomain: subjectDomain, applicationId: applicationId, instanceId: instanceId, keyId: keyId, challengeId: challengeId, challenge: challenge, requestedAt: requestedAt, expiresAt: expiresAt)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> ApplicationKeyRenewal { try ApplicationKeyRenewal(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension SignedApplicationKeyRenewal {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("renewal", .bytes(self.renewal)))
+        csilEntries.append(("signatures", CsilCborValue.array(self.signatures.map { $0.toCborValue() })))
+        if let csilV = self.possessionProof { csilEntries.append(("possession_proof", .bytes(csilV))) }
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let renewal = try CsilCbor.asBytes((try CsilCbor.require(cborValue, "renewal")))
+        let signatures = try CsilCbor.asArray((try CsilCbor.require(cborValue, "signatures"))).map { try ApplicationKeySignature(cborValue: $0) }
+        let possessionProof: [UInt8]? = if let csilV = CsilCbor.mapGet(cborValue, "possession_proof") { try CsilCbor.asBytes(csilV) } else { nil }
+        self.init(renewal: renewal, signatures: signatures, possessionProof: possessionProof)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> SignedApplicationKeyRenewal { try SignedApplicationKeyRenewal(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension ApplicationKeyRevocation {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("revoked_at", .text(self.revokedAt)))
+        csilEntries.append(("signatures", CsilCborValue.array(self.signatures.map { $0.toCborValue() })))
+        csilEntries.append(("instance_id", .text(self.instanceId)))
+        csilEntries.append(("target_key_id", .text(self.targetKeyId)))
+        csilEntries.append(("application_id", .text(self.applicationId)))
+        csilEntries.append(("subject_domain", .text(self.subjectDomain)))
+        csilEntries.append(("subject_user_id", .text(self.subjectUserId)))
+        csilEntries.append(("target_fingerprint", .text(self.targetFingerprint)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let subjectUserId = try CsilCbor.asText((try CsilCbor.require(cborValue, "subject_user_id")))
+        let subjectDomain = try CsilCbor.asText((try CsilCbor.require(cborValue, "subject_domain")))
+        let applicationId = try CsilCbor.asText((try CsilCbor.require(cborValue, "application_id")))
+        let instanceId = try CsilCbor.asText((try CsilCbor.require(cborValue, "instance_id")))
+        let targetKeyId = try CsilCbor.asText((try CsilCbor.require(cborValue, "target_key_id")))
+        let targetFingerprint = try CsilCbor.asText((try CsilCbor.require(cborValue, "target_fingerprint")))
+        let revokedAt = try CsilCbor.asText((try CsilCbor.require(cborValue, "revoked_at")))
+        let signatures = try CsilCbor.asArray((try CsilCbor.require(cborValue, "signatures"))).map { try ApplicationKeySignature(cborValue: $0) }
+        self.init(subjectUserId: subjectUserId, subjectDomain: subjectDomain, applicationId: applicationId, instanceId: instanceId, targetKeyId: targetKeyId, targetFingerprint: targetFingerprint, revokedAt: revokedAt, signatures: signatures)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> ApplicationKeyRevocation { try ApplicationKeyRevocation(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension StartApplicationKeyChallengeRequest {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("purpose", .text(self.purpose)))
+        csilEntries.append(("algorithm", .text(self.algorithm)))
+        csilEntries.append(("key_usage", .text(self.keyUsage)))
+        csilEntries.append(("public_key", .bytes(self.publicKey)))
+        csilEntries.append(("instance_id", .text(self.instanceId)))
+        csilEntries.append(("application_id", .text(self.applicationId)))
+        csilEntries.append(("subject_user_id", .text(self.subjectUserId)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let subjectUserId = try CsilCbor.asText((try CsilCbor.require(cborValue, "subject_user_id")))
+        let applicationId = try CsilCbor.asText((try CsilCbor.require(cborValue, "application_id")))
+        let instanceId = try CsilCbor.asText((try CsilCbor.require(cborValue, "instance_id")))
+        let purpose = try CsilCbor.asText((try CsilCbor.require(cborValue, "purpose")))
+        let keyUsage = try CsilCbor.asText((try CsilCbor.require(cborValue, "key_usage")))
+        let algorithm = try CsilCbor.asText((try CsilCbor.require(cborValue, "algorithm")))
+        let publicKey = try CsilCbor.asBytes((try CsilCbor.require(cborValue, "public_key")))
+        self.init(subjectUserId: subjectUserId, applicationId: applicationId, instanceId: instanceId, purpose: purpose, keyUsage: keyUsage, algorithm: algorithm, publicKey: publicKey)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> StartApplicationKeyChallengeRequest { try StartApplicationKeyChallengeRequest(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension StartApplicationKeyChallengeResponse {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        if let csilV = self.challenge { csilEntries.append(("challenge", .bytes(csilV))) }
+        csilEntries.append(("expires_at", .text(self.expiresAt)))
+        csilEntries.append(("challenge_id", .text(self.challengeId)))
+        if let csilV = self.sealedChallenge { csilEntries.append(("sealed_challenge", .bytes(csilV))) }
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let challengeId = try CsilCbor.asText((try CsilCbor.require(cborValue, "challenge_id")))
+        let challenge: [UInt8]? = if let csilV = CsilCbor.mapGet(cborValue, "challenge") { try CsilCbor.asBytes(csilV) } else { nil }
+        let sealedChallenge: [UInt8]? = if let csilV = CsilCbor.mapGet(cborValue, "sealed_challenge") { try CsilCbor.asBytes(csilV) } else { nil }
+        let expiresAt = try CsilCbor.asText((try CsilCbor.require(cborValue, "expires_at")))
+        self.init(challengeId: challengeId, challenge: challenge, sealedChallenge: sealedChallenge, expiresAt: expiresAt)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> StartApplicationKeyChallengeResponse { try StartApplicationKeyChallengeResponse(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension AddApplicationKeyRequest {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("request", self.request.toCborValue()))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let request = try SignedApplicationKeyAddition(cborValue: (try CsilCbor.require(cborValue, "request")))
+        self.init(request: request)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> AddApplicationKeyRequest { try AddApplicationKeyRequest(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension AddApplicationKeyResponse {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("attestation", self.attestation.toCborValue()))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let attestation = try SignedApplicationKeyAttestation(cborValue: (try CsilCbor.require(cborValue, "attestation")))
+        self.init(attestation: attestation)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> AddApplicationKeyResponse { try AddApplicationKeyResponse(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension RenewApplicationKeyAttestationRequest {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("request", self.request.toCborValue()))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let request = try SignedApplicationKeyRenewal(cborValue: (try CsilCbor.require(cborValue, "request")))
+        self.init(request: request)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> RenewApplicationKeyAttestationRequest { try RenewApplicationKeyAttestationRequest(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension RenewApplicationKeyAttestationResponse {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("signed", .bool(self.signed)))
+        csilEntries.append(("attestation", self.attestation.toCborValue()))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let attestation = try SignedApplicationKeyAttestation(cborValue: (try CsilCbor.require(cborValue, "attestation")))
+        let signed = try CsilCbor.asBool((try CsilCbor.require(cborValue, "signed")))
+        self.init(attestation: attestation, signed: signed)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> RenewApplicationKeyAttestationResponse { try RenewApplicationKeyAttestationResponse(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension RevokeApplicationKeyRequest {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("revocation", self.revocation.toCborValue()))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let revocation = try ApplicationKeyRevocation(cborValue: (try CsilCbor.require(cborValue, "revocation")))
+        self.init(revocation: revocation)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> RevokeApplicationKeyRequest { try RevokeApplicationKeyRequest(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension RevokeApplicationKeyResponse {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("revoked_at", .text(self.revokedAt)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let revokedAt = try CsilCbor.asText((try CsilCbor.require(cborValue, "revoked_at")))
+        self.init(revokedAt: revokedAt)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> RevokeApplicationKeyResponse { try RevokeApplicationKeyResponse(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension EnrollApplicationInstanceRequest {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("keys", CsilCborValue.array(self.keys.map { $0.toCborValue() })))
+        csilEntries.append(("instance_id", .text(self.instanceId)))
+        csilEntries.append(("application_id", .text(self.applicationId)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let applicationId = try CsilCbor.asText((try CsilCbor.require(cborValue, "application_id")))
+        let instanceId = try CsilCbor.asText((try CsilCbor.require(cborValue, "instance_id")))
+        let keys = try CsilCbor.asArray((try CsilCbor.require(cborValue, "keys"))).map { try SignedApplicationKeyAddition(cborValue: $0) }
+        self.init(applicationId: applicationId, instanceId: instanceId, keys: keys)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> EnrollApplicationInstanceRequest { try EnrollApplicationInstanceRequest(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension EnrollApplicationInstanceResponse {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("instance_id", .text(self.instanceId)))
+        csilEntries.append(("attestations", CsilCborValue.array(self.attestations.map { $0.toCborValue() })))
+        csilEntries.append(("application_id", .text(self.applicationId)))
+        csilEntries.append(("subject_domain", .text(self.subjectDomain)))
+        csilEntries.append(("subject_user_id", .text(self.subjectUserId)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let subjectUserId = try CsilCbor.asText((try CsilCbor.require(cborValue, "subject_user_id")))
+        let subjectDomain = try CsilCbor.asText((try CsilCbor.require(cborValue, "subject_domain")))
+        let applicationId = try CsilCbor.asText((try CsilCbor.require(cborValue, "application_id")))
+        let instanceId = try CsilCbor.asText((try CsilCbor.require(cborValue, "instance_id")))
+        let attestations = try CsilCbor.asArray((try CsilCbor.require(cborValue, "attestations"))).map { try SignedApplicationKeyAttestation(cborValue: $0) }
+        self.init(subjectUserId: subjectUserId, subjectDomain: subjectDomain, applicationId: applicationId, instanceId: instanceId, attestations: attestations)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> EnrollApplicationInstanceResponse { try EnrollApplicationInstanceResponse(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension GetApplicationKeysRequest {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("instance_id", .text(self.instanceId)))
+        csilEntries.append(("application_id", .text(self.applicationId)))
+        csilEntries.append(("subject_user_id", .text(self.subjectUserId)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let subjectUserId = try CsilCbor.asText((try CsilCbor.require(cborValue, "subject_user_id")))
+        let applicationId = try CsilCbor.asText((try CsilCbor.require(cborValue, "application_id")))
+        let instanceId = try CsilCbor.asText((try CsilCbor.require(cborValue, "instance_id")))
+        self.init(subjectUserId: subjectUserId, applicationId: applicationId, instanceId: instanceId)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> GetApplicationKeysRequest { try GetApplicationKeysRequest(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension GetApplicationKeysResponse {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("keys", CsilCborValue.array(self.keys.map { $0.toCborValue() })))
+        csilEntries.append(("instance_id", .text(self.instanceId)))
+        csilEntries.append(("revocations", CsilCborValue.array(self.revocations.map { $0.toCborValue() })))
+        csilEntries.append(("application_id", .text(self.applicationId)))
+        csilEntries.append(("subject_domain", .text(self.subjectDomain)))
+        csilEntries.append(("subject_user_id", .text(self.subjectUserId)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let subjectUserId = try CsilCbor.asText((try CsilCbor.require(cborValue, "subject_user_id")))
+        let subjectDomain = try CsilCbor.asText((try CsilCbor.require(cborValue, "subject_domain")))
+        let applicationId = try CsilCbor.asText((try CsilCbor.require(cborValue, "application_id")))
+        let instanceId = try CsilCbor.asText((try CsilCbor.require(cborValue, "instance_id")))
+        let keys = try CsilCbor.asArray((try CsilCbor.require(cborValue, "keys"))).map { try SignedApplicationKeyAttestation(cborValue: $0) }
+        let revocations = try CsilCbor.asArray((try CsilCbor.require(cborValue, "revocations"))).map { try ApplicationKeyRevocation(cborValue: $0) }
+        self.init(subjectUserId: subjectUserId, subjectDomain: subjectDomain, applicationId: applicationId, instanceId: instanceId, keys: keys, revocations: revocations)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> GetApplicationKeysResponse { try GetApplicationKeysResponse(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension RpResolveDomainKeysRequest {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("domain", .text(self.domain)))
+        if let csilV = self.maxCacheAgeSeconds { csilEntries.append(("max_cache_age_seconds", .int(csilV))) }
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let domain = try CsilCbor.asText((try CsilCbor.require(cborValue, "domain")))
+        let maxCacheAgeSeconds: Int64? = if let csilV = CsilCbor.mapGet(cborValue, "max_cache_age_seconds") { try CsilCbor.asI64(csilV) } else { nil }
+        self.init(domain: domain, maxCacheAgeSeconds: maxCacheAgeSeconds)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> RpResolveDomainKeysRequest { try RpResolveDomainKeysRequest(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension RpResolveDomainKeysResponse {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("keys", CsilCborValue.array(self.keys.map { $0.toCborValue() })))
+        csilEntries.append(("domain", .text(self.domain)))
+        csilEntries.append(("fetched_at", .text(self.fetchedAt)))
+        csilEntries.append(("revocations", CsilCborValue.array(self.revocations.map { $0.toCborValue() })))
+        csilEntries.append(("cache_status", .text(self.cacheStatus)))
+        csilEntries.append(("revocations_checked_at", .text(self.revocationsCheckedAt)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let domain = try CsilCbor.asText((try CsilCbor.require(cborValue, "domain")))
+        let keys = try CsilCbor.asArray((try CsilCbor.require(cborValue, "keys"))).map { try DomainPublicKey(cborValue: $0) }
+        let revocations = try CsilCbor.asArray((try CsilCbor.require(cborValue, "revocations"))).map { try RevocationCertificate(cborValue: $0) }
+        let fetchedAt = try CsilCbor.asText((try CsilCbor.require(cborValue, "fetched_at")))
+        let revocationsCheckedAt = try CsilCbor.asText((try CsilCbor.require(cborValue, "revocations_checked_at")))
+        let cacheStatus = try CsilCbor.asText((try CsilCbor.require(cborValue, "cache_status")))
+        self.init(domain: domain, keys: keys, revocations: revocations, fetchedAt: fetchedAt, revocationsCheckedAt: revocationsCheckedAt, cacheStatus: cacheStatus)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> RpResolveDomainKeysResponse { try RpResolveDomainKeysResponse(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension RpResolveApplicationKeysRequest {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("instance_id", .text(self.instanceId)))
+        csilEntries.append(("application_id", .text(self.applicationId)))
+        csilEntries.append(("subject_domain", .text(self.subjectDomain)))
+        csilEntries.append(("subject_user_id", .text(self.subjectUserId)))
+        if let csilV = self.maxCacheAgeSeconds { csilEntries.append(("max_cache_age_seconds", .int(csilV))) }
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let subjectUserId = try CsilCbor.asText((try CsilCbor.require(cborValue, "subject_user_id")))
+        let subjectDomain = try CsilCbor.asText((try CsilCbor.require(cborValue, "subject_domain")))
+        let applicationId = try CsilCbor.asText((try CsilCbor.require(cborValue, "application_id")))
+        let instanceId = try CsilCbor.asText((try CsilCbor.require(cborValue, "instance_id")))
+        let maxCacheAgeSeconds: Int64? = if let csilV = CsilCbor.mapGet(cborValue, "max_cache_age_seconds") { try CsilCbor.asI64(csilV) } else { nil }
+        self.init(subjectUserId: subjectUserId, subjectDomain: subjectDomain, applicationId: applicationId, instanceId: instanceId, maxCacheAgeSeconds: maxCacheAgeSeconds)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> RpResolveApplicationKeysRequest { try RpResolveApplicationKeysRequest(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension RpResolveApplicationKeysResponse {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("fetched_at", .text(self.fetchedAt)))
+        csilEntries.append(("instance_id", .text(self.instanceId)))
+        csilEntries.append(("cache_status", .text(self.cacheStatus)))
+        csilEntries.append(("application_id", .text(self.applicationId)))
+        csilEntries.append(("subject_domain", .text(self.subjectDomain)))
+        csilEntries.append(("subject_user_id", .text(self.subjectUserId)))
+        csilEntries.append(("application_keys", CsilCborValue.array(self.applicationKeys.map { $0.toCborValue() })))
+        csilEntries.append(("home_domain_keys", CsilCborValue.array(self.homeDomainKeys.map { $0.toCborValue() })))
+        csilEntries.append(("revocations_checked_at", .text(self.revocationsCheckedAt)))
+        csilEntries.append(("application_key_revocations", CsilCborValue.array(self.applicationKeyRevocations.map { $0.toCborValue() })))
+        csilEntries.append(("home_domain_key_revocations", CsilCborValue.array(self.homeDomainKeyRevocations.map { $0.toCborValue() })))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let subjectUserId = try CsilCbor.asText((try CsilCbor.require(cborValue, "subject_user_id")))
+        let subjectDomain = try CsilCbor.asText((try CsilCbor.require(cborValue, "subject_domain")))
+        let applicationId = try CsilCbor.asText((try CsilCbor.require(cborValue, "application_id")))
+        let instanceId = try CsilCbor.asText((try CsilCbor.require(cborValue, "instance_id")))
+        let applicationKeys = try CsilCbor.asArray((try CsilCbor.require(cborValue, "application_keys"))).map { try SignedApplicationKeyAttestation(cborValue: $0) }
+        let applicationKeyRevocations = try CsilCbor.asArray((try CsilCbor.require(cborValue, "application_key_revocations"))).map { try ApplicationKeyRevocation(cborValue: $0) }
+        let homeDomainKeys = try CsilCbor.asArray((try CsilCbor.require(cborValue, "home_domain_keys"))).map { try DomainPublicKey(cborValue: $0) }
+        let homeDomainKeyRevocations = try CsilCbor.asArray((try CsilCbor.require(cborValue, "home_domain_key_revocations"))).map { try RevocationCertificate(cborValue: $0) }
+        let fetchedAt = try CsilCbor.asText((try CsilCbor.require(cborValue, "fetched_at")))
+        let revocationsCheckedAt = try CsilCbor.asText((try CsilCbor.require(cborValue, "revocations_checked_at")))
+        let cacheStatus = try CsilCbor.asText((try CsilCbor.require(cborValue, "cache_status")))
+        self.init(subjectUserId: subjectUserId, subjectDomain: subjectDomain, applicationId: applicationId, instanceId: instanceId, applicationKeys: applicationKeys, applicationKeyRevocations: applicationKeyRevocations, homeDomainKeys: homeDomainKeys, homeDomainKeyRevocations: homeDomainKeyRevocations, fetchedAt: fetchedAt, revocationsCheckedAt: revocationsCheckedAt, cacheStatus: cacheStatus)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> RpResolveApplicationKeysResponse { try RpResolveApplicationKeysResponse(cborValue: CsilCbor.decode(bytes)) }
 }
 

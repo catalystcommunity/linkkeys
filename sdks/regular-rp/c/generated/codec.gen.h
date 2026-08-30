@@ -270,12 +270,36 @@ static inline int csilc_read_arg(const uint8_t *b, size_t len, uint8_t low, uint
 
 static inline const uint8_t *csilc_arena_copy(CsilCodecArena *a, const uint8_t *src, size_t n,
                                        bool as_text) {
+    if (as_text && n == SIZE_MAX) return NULL;
     size_t total = as_text ? n + 1 : (n ? n : 1);
     uint8_t *dst = (uint8_t *)csilc_arena_alloc(a, total);
     if (!dst) return NULL;
     if (n) memcpy(dst, src, n);
     if (as_text) dst[n] = 0;
     return dst;
+}
+
+static inline bool csilc_valid_utf8(const uint8_t *s, size_t n) {
+    size_t i = 0;
+    while (i < n) {
+        uint8_t c = s[i++];
+        if (c < 0x80) continue;
+        size_t need;
+        uint32_t cp;
+        if (c >= 0xc2 && c <= 0xdf) { need = 1; cp = c & 0x1f; }
+        else if (c >= 0xe0 && c <= 0xef) { need = 2; cp = c & 0x0f; }
+        else if (c >= 0xf0 && c <= 0xf4) { need = 3; cp = c & 0x07; }
+        else return false;
+        if (need > n - i) return false;
+        for (size_t j = 0; j < need; j++) {
+            uint8_t d = s[i++];
+            if ((d & 0xc0) != 0x80) return false;
+            cp = (cp << 6) | (uint32_t)(d & 0x3f);
+        }
+        if ((need == 2 && cp < 0x800) || (need == 3 && cp < 0x10000) ||
+            (cp >= 0xd800 && cp <= 0xdfff) || cp > 0x10ffff) return false;
+    }
+    return true;
 }
 
 /* Decode a half-precision float (only ever seen on decode; encode never emits one). */
@@ -304,7 +328,8 @@ static inline double csilc_half_to_double(uint16_t h) {
 }
 
 static inline int csilc_decode_value(CsilCodecArena *a, const uint8_t *b, size_t len,
-                              csilc_value *out, size_t *consumed) {
+                              csilc_value *out, size_t *consumed, size_t depth) {
+    if (depth > 64) return -1;
     if (len == 0) return -1;
     uint8_t ib = b[0];
     uint8_t major = ib >> 5;
@@ -328,6 +353,7 @@ static inline int csilc_decode_value(CsilCodecArena *a, const uint8_t *b, size_t
     case 3: {
         if (arg > len - head) return -1;
         bool as_text = major == 3;
+        if (as_text && !csilc_valid_utf8(b + head, (size_t)arg)) return -1;
         const uint8_t *copy = csilc_arena_copy(a, b + head, (size_t)arg, as_text);
         if (!copy) return -1;
         out->kind = as_text ? CSILC_TEXT : CSILC_BYTES;
@@ -337,6 +363,7 @@ static inline int csilc_decode_value(CsilCodecArena *a, const uint8_t *b, size_t
         return 0;
     }
     case 4: {
+        if (arg > len - head || arg > SIZE_MAX / sizeof(csilc_value)) return -1;
         csilc_value *items = NULL;
         if (arg) {
             items = (csilc_value *)csilc_arena_alloc(a, (size_t)arg * sizeof(*items));
@@ -345,7 +372,7 @@ static inline int csilc_decode_value(CsilCodecArena *a, const uint8_t *b, size_t
         size_t off = head;
         for (uint64_t i = 0; i < arg; i++) {
             size_t m = 0;
-            if (csilc_decode_value(a, b + off, len - off, &items[i], &m)) return -1;
+            if (csilc_decode_value(a, b + off, len - off, &items[i], &m, depth + 1)) return -1;
             off += m;
         }
         out->kind = CSILC_ARRAY;
@@ -355,6 +382,7 @@ static inline int csilc_decode_value(CsilCodecArena *a, const uint8_t *b, size_t
         return 0;
     }
     case 5: {
+        if (arg > len - head || arg > SIZE_MAX / sizeof(csilc_pair)) return -1;
         csilc_pair *pairs = NULL;
         if (arg) {
             pairs = (csilc_pair *)csilc_arena_alloc(a, (size_t)arg * sizeof(*pairs));
@@ -366,9 +394,9 @@ static inline int csilc_decode_value(CsilCodecArena *a, const uint8_t *b, size_t
             csilc_value *v = (csilc_value *)csilc_arena_alloc(a, sizeof(*v));
             if (!k || !v) return -1;
             size_t m = 0;
-            if (csilc_decode_value(a, b + off, len - off, k, &m)) return -1;
+            if (csilc_decode_value(a, b + off, len - off, k, &m, depth + 1)) return -1;
             off += m;
-            if (csilc_decode_value(a, b + off, len - off, v, &m)) return -1;
+            if (csilc_decode_value(a, b + off, len - off, v, &m, depth + 1)) return -1;
             off += m;
             pairs[i].key = k;
             pairs[i].val = v;
@@ -383,7 +411,7 @@ static inline int csilc_decode_value(CsilCodecArena *a, const uint8_t *b, size_t
         csilc_value *content = (csilc_value *)csilc_arena_alloc(a, sizeof(*content));
         if (!content) return -1;
         size_t m = 0;
-        if (csilc_decode_value(a, b + head, len - head, content, &m)) return -1;
+        if (csilc_decode_value(a, b + head, len - head, content, &m, depth + 1)) return -1;
         out->kind = CSILC_TAG;
         out->as.tag.num = arg;
         out->as.tag.content = content;
@@ -449,7 +477,7 @@ static inline int csilc_decode(const uint8_t *b, size_t len, CsilCodecArena **ou
         return -1;
     }
     size_t consumed = 0;
-    if (csilc_decode_value(a, b, len, root, &consumed)) {
+    if (csilc_decode_value(a, b, len, root, &consumed, 0)) {
         csil_codec_arena_free(a);
         return -1;
     }
@@ -1013,6 +1041,54 @@ static inline int csilc_enc_TranslationsResponse(csilc_buf *b, const Translation
 static inline int csilc_dec_TranslationsResponse(const csilc_value *m, CsilCodecArena *a, TranslationsResponse *out);
 static inline int csilc_enc_ListLocalesResponse(csilc_buf *b, const ListLocalesResponse *v);
 static inline int csilc_dec_ListLocalesResponse(const csilc_value *m, CsilCodecArena *a, ListLocalesResponse *out);
+static inline int csilc_enc_ApplicationKeySignature(csilc_buf *b, const ApplicationKeySignature *v);
+static inline int csilc_dec_ApplicationKeySignature(const csilc_value *m, CsilCodecArena *a, ApplicationKeySignature *out);
+static inline int csilc_enc_ApplicationKeyAttestation(csilc_buf *b, const ApplicationKeyAttestation *v);
+static inline int csilc_dec_ApplicationKeyAttestation(const csilc_value *m, CsilCodecArena *a, ApplicationKeyAttestation *out);
+static inline int csilc_enc_SignedApplicationKeyAttestation(csilc_buf *b, const SignedApplicationKeyAttestation *v);
+static inline int csilc_dec_SignedApplicationKeyAttestation(const csilc_value *m, CsilCodecArena *a, SignedApplicationKeyAttestation *out);
+static inline int csilc_enc_ApplicationKeyAddition(csilc_buf *b, const ApplicationKeyAddition *v);
+static inline int csilc_dec_ApplicationKeyAddition(const csilc_value *m, CsilCodecArena *a, ApplicationKeyAddition *out);
+static inline int csilc_enc_SignedApplicationKeyAddition(csilc_buf *b, const SignedApplicationKeyAddition *v);
+static inline int csilc_dec_SignedApplicationKeyAddition(const csilc_value *m, CsilCodecArena *a, SignedApplicationKeyAddition *out);
+static inline int csilc_enc_ApplicationKeyRenewal(csilc_buf *b, const ApplicationKeyRenewal *v);
+static inline int csilc_dec_ApplicationKeyRenewal(const csilc_value *m, CsilCodecArena *a, ApplicationKeyRenewal *out);
+static inline int csilc_enc_SignedApplicationKeyRenewal(csilc_buf *b, const SignedApplicationKeyRenewal *v);
+static inline int csilc_dec_SignedApplicationKeyRenewal(const csilc_value *m, CsilCodecArena *a, SignedApplicationKeyRenewal *out);
+static inline int csilc_enc_ApplicationKeyRevocation(csilc_buf *b, const ApplicationKeyRevocation *v);
+static inline int csilc_dec_ApplicationKeyRevocation(const csilc_value *m, CsilCodecArena *a, ApplicationKeyRevocation *out);
+static inline int csilc_enc_StartApplicationKeyChallengeRequest(csilc_buf *b, const StartApplicationKeyChallengeRequest *v);
+static inline int csilc_dec_StartApplicationKeyChallengeRequest(const csilc_value *m, CsilCodecArena *a, StartApplicationKeyChallengeRequest *out);
+static inline int csilc_enc_StartApplicationKeyChallengeResponse(csilc_buf *b, const StartApplicationKeyChallengeResponse *v);
+static inline int csilc_dec_StartApplicationKeyChallengeResponse(const csilc_value *m, CsilCodecArena *a, StartApplicationKeyChallengeResponse *out);
+static inline int csilc_enc_AddApplicationKeyRequest(csilc_buf *b, const AddApplicationKeyRequest *v);
+static inline int csilc_dec_AddApplicationKeyRequest(const csilc_value *m, CsilCodecArena *a, AddApplicationKeyRequest *out);
+static inline int csilc_enc_AddApplicationKeyResponse(csilc_buf *b, const AddApplicationKeyResponse *v);
+static inline int csilc_dec_AddApplicationKeyResponse(const csilc_value *m, CsilCodecArena *a, AddApplicationKeyResponse *out);
+static inline int csilc_enc_RenewApplicationKeyAttestationRequest(csilc_buf *b, const RenewApplicationKeyAttestationRequest *v);
+static inline int csilc_dec_RenewApplicationKeyAttestationRequest(const csilc_value *m, CsilCodecArena *a, RenewApplicationKeyAttestationRequest *out);
+static inline int csilc_enc_RenewApplicationKeyAttestationResponse(csilc_buf *b, const RenewApplicationKeyAttestationResponse *v);
+static inline int csilc_dec_RenewApplicationKeyAttestationResponse(const csilc_value *m, CsilCodecArena *a, RenewApplicationKeyAttestationResponse *out);
+static inline int csilc_enc_RevokeApplicationKeyRequest(csilc_buf *b, const RevokeApplicationKeyRequest *v);
+static inline int csilc_dec_RevokeApplicationKeyRequest(const csilc_value *m, CsilCodecArena *a, RevokeApplicationKeyRequest *out);
+static inline int csilc_enc_RevokeApplicationKeyResponse(csilc_buf *b, const RevokeApplicationKeyResponse *v);
+static inline int csilc_dec_RevokeApplicationKeyResponse(const csilc_value *m, CsilCodecArena *a, RevokeApplicationKeyResponse *out);
+static inline int csilc_enc_EnrollApplicationInstanceRequest(csilc_buf *b, const EnrollApplicationInstanceRequest *v);
+static inline int csilc_dec_EnrollApplicationInstanceRequest(const csilc_value *m, CsilCodecArena *a, EnrollApplicationInstanceRequest *out);
+static inline int csilc_enc_EnrollApplicationInstanceResponse(csilc_buf *b, const EnrollApplicationInstanceResponse *v);
+static inline int csilc_dec_EnrollApplicationInstanceResponse(const csilc_value *m, CsilCodecArena *a, EnrollApplicationInstanceResponse *out);
+static inline int csilc_enc_GetApplicationKeysRequest(csilc_buf *b, const GetApplicationKeysRequest *v);
+static inline int csilc_dec_GetApplicationKeysRequest(const csilc_value *m, CsilCodecArena *a, GetApplicationKeysRequest *out);
+static inline int csilc_enc_GetApplicationKeysResponse(csilc_buf *b, const GetApplicationKeysResponse *v);
+static inline int csilc_dec_GetApplicationKeysResponse(const csilc_value *m, CsilCodecArena *a, GetApplicationKeysResponse *out);
+static inline int csilc_enc_RpResolveDomainKeysRequest(csilc_buf *b, const RpResolveDomainKeysRequest *v);
+static inline int csilc_dec_RpResolveDomainKeysRequest(const csilc_value *m, CsilCodecArena *a, RpResolveDomainKeysRequest *out);
+static inline int csilc_enc_RpResolveDomainKeysResponse(csilc_buf *b, const RpResolveDomainKeysResponse *v);
+static inline int csilc_dec_RpResolveDomainKeysResponse(const csilc_value *m, CsilCodecArena *a, RpResolveDomainKeysResponse *out);
+static inline int csilc_enc_RpResolveApplicationKeysRequest(csilc_buf *b, const RpResolveApplicationKeysRequest *v);
+static inline int csilc_dec_RpResolveApplicationKeysRequest(const csilc_value *m, CsilCodecArena *a, RpResolveApplicationKeysRequest *out);
+static inline int csilc_enc_RpResolveApplicationKeysResponse(csilc_buf *b, const RpResolveApplicationKeysResponse *v);
+static inline int csilc_dec_RpResolveApplicationKeysResponse(const csilc_value *m, CsilCodecArena *a, RpResolveApplicationKeysResponse *out);
 
 /* csilc_enc_CheckValue writes the union as a tagged sum [variant_index, value]. */
 static inline int csilc_enc_CheckValue(csilc_buf *b, const CheckValue *v) {
@@ -7673,6 +7749,1040 @@ static inline int csilc_dec_ListLocalesResponse(const csilc_value *m, CsilCodecA
     return 0;
 }
 
+/* csilc_enc_ApplicationKeySignature writes ApplicationKeySignature as a canonical CBOR map. */
+static inline int csilc_enc_ApplicationKeySignature(csilc_buf *b, const ApplicationKeySignature *v) {
+    size_t csilc_n = 2;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "signature", 9)) return -1;
+    if (csilc_w_bytes(b, (v->signature).data, (v->signature).len)) return -1;
+    if (csilc_w_text(b, "signed_by_key_id", 16)) return -1;
+    if (csilc_w_text(b, (v->signed_by_key_id), (v->signed_by_key_id) ? strlen(v->signed_by_key_id) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_ApplicationKeySignature reads ApplicationKeySignature from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_ApplicationKeySignature(const csilc_value *m, CsilCodecArena *a, ApplicationKeySignature *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "signature");
+    if (!csilc_get_bytes(csilc_f, &(out->signature).data, &(out->signature).len)) return -1;
+    csilc_f = csilc_map_get(m, "signed_by_key_id");
+    if (!csilc_get_text(csilc_f, &(out->signed_by_key_id))) return -1;
+    return 0;
+}
+
+/* csilc_enc_ApplicationKeyAttestation writes ApplicationKeyAttestation as a canonical CBOR map. */
+static inline int csilc_enc_ApplicationKeyAttestation(csilc_buf *b, const ApplicationKeyAttestation *v) {
+    size_t csilc_n = 13;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "key_id", 6)) return -1;
+    if (csilc_w_text(b, (v->key_id), (v->key_id) ? strlen(v->key_id) : 0)) return -1;
+    if (csilc_w_text(b, "algorithm", 9)) return -1;
+    if (csilc_w_text(b, (v->algorithm), (v->algorithm) ? strlen(v->algorithm) : 0)) return -1;
+    if (csilc_w_text(b, "key_usage", 9)) return -1;
+    if (csilc_w_text(b, (v->key_usage), (v->key_usage) ? strlen(v->key_usage) : 0)) return -1;
+    if (csilc_w_text(b, "public_key", 10)) return -1;
+    if (csilc_w_bytes(b, (v->public_key).data, (v->public_key).len)) return -1;
+    if (csilc_w_text(b, "attested_at", 11)) return -1;
+    if (csilc_w_text(b, (v->attested_at), (v->attested_at) ? strlen(v->attested_at) : 0)) return -1;
+    if (csilc_w_text(b, "fingerprint", 11)) return -1;
+    if (csilc_w_text(b, (v->fingerprint), (v->fingerprint) ? strlen(v->fingerprint) : 0)) return -1;
+    if (csilc_w_text(b, "instance_id", 11)) return -1;
+    if (csilc_w_text(b, (v->instance_id), (v->instance_id) ? strlen(v->instance_id) : 0)) return -1;
+    if (csilc_w_text(b, "application_id", 14)) return -1;
+    if (csilc_w_text(b, (v->application_id), (v->application_id) ? strlen(v->application_id) : 0)) return -1;
+    if (csilc_w_text(b, "key_created_at", 14)) return -1;
+    if (csilc_w_text(b, (v->key_created_at), (v->key_created_at) ? strlen(v->key_created_at) : 0)) return -1;
+    if (csilc_w_text(b, "key_expires_at", 14)) return -1;
+    if (csilc_w_text(b, (v->key_expires_at), (v->key_expires_at) ? strlen(v->key_expires_at) : 0)) return -1;
+    if (csilc_w_text(b, "subject_domain", 14)) return -1;
+    if (csilc_w_text(b, (v->subject_domain), (v->subject_domain) ? strlen(v->subject_domain) : 0)) return -1;
+    if (csilc_w_text(b, "subject_user_id", 15)) return -1;
+    if (csilc_w_text(b, (v->subject_user_id), (v->subject_user_id) ? strlen(v->subject_user_id) : 0)) return -1;
+    if (csilc_w_text(b, "attestation_expires_at", 22)) return -1;
+    if (csilc_w_text(b, (v->attestation_expires_at), (v->attestation_expires_at) ? strlen(v->attestation_expires_at) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_ApplicationKeyAttestation reads ApplicationKeyAttestation from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_ApplicationKeyAttestation(const csilc_value *m, CsilCodecArena *a, ApplicationKeyAttestation *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "key_id");
+    if (!csilc_get_text(csilc_f, &(out->key_id))) return -1;
+    csilc_f = csilc_map_get(m, "algorithm");
+    if (!csilc_get_text(csilc_f, &(out->algorithm))) return -1;
+    csilc_f = csilc_map_get(m, "key_usage");
+    if (!csilc_get_text(csilc_f, &(out->key_usage))) return -1;
+    csilc_f = csilc_map_get(m, "public_key");
+    if (!csilc_get_bytes(csilc_f, &(out->public_key).data, &(out->public_key).len)) return -1;
+    csilc_f = csilc_map_get(m, "attested_at");
+    if (!csilc_get_text(csilc_f, &(out->attested_at))) return -1;
+    csilc_f = csilc_map_get(m, "fingerprint");
+    if (!csilc_get_text(csilc_f, &(out->fingerprint))) return -1;
+    csilc_f = csilc_map_get(m, "instance_id");
+    if (!csilc_get_text(csilc_f, &(out->instance_id))) return -1;
+    csilc_f = csilc_map_get(m, "application_id");
+    if (!csilc_get_text(csilc_f, &(out->application_id))) return -1;
+    csilc_f = csilc_map_get(m, "key_created_at");
+    if (!csilc_get_text(csilc_f, &(out->key_created_at))) return -1;
+    csilc_f = csilc_map_get(m, "key_expires_at");
+    if (!csilc_get_text(csilc_f, &(out->key_expires_at))) return -1;
+    csilc_f = csilc_map_get(m, "subject_domain");
+    if (!csilc_get_text(csilc_f, &(out->subject_domain))) return -1;
+    csilc_f = csilc_map_get(m, "subject_user_id");
+    if (!csilc_get_text(csilc_f, &(out->subject_user_id))) return -1;
+    csilc_f = csilc_map_get(m, "attestation_expires_at");
+    if (!csilc_get_text(csilc_f, &(out->attestation_expires_at))) return -1;
+    return 0;
+}
+
+/* csilc_enc_SignedApplicationKeyAttestation writes SignedApplicationKeyAttestation as a canonical CBOR map. */
+static inline int csilc_enc_SignedApplicationKeyAttestation(csilc_buf *b, const SignedApplicationKeyAttestation *v) {
+    size_t csilc_n = 2;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "signatures", 10)) return -1;
+    if (csilc_w_array_head(b, v->signatures_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->signatures_count; csilc_i++) {
+        if (csilc_enc_ClaimSignature(b, &(v->signatures[csilc_i]))) return -1;
+    }
+    if (csilc_w_text(b, "attestation", 11)) return -1;
+    if (csilc_w_bytes(b, (v->attestation).data, (v->attestation).len)) return -1;
+    return 0;
+}
+
+/* csilc_dec_SignedApplicationKeyAttestation reads SignedApplicationKeyAttestation from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_SignedApplicationKeyAttestation(const csilc_value *m, CsilCodecArena *a, SignedApplicationKeyAttestation *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "signatures");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->signatures_count = csilc_f->as.array.count;
+    out->signatures = NULL;
+    if (out->signatures_count) {
+        out->signatures = (ClaimSignature *)csilc_arena_alloc(a, out->signatures_count * sizeof(ClaimSignature));
+        if (!out->signatures) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->signatures_count; csilc_i++) {
+            if (csilc_dec_ClaimSignature(&csilc_f->as.array.items[csilc_i], a, &(out->signatures[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "attestation");
+    if (!csilc_get_bytes(csilc_f, &(out->attestation).data, &(out->attestation).len)) return -1;
+    return 0;
+}
+
+/* csilc_enc_ApplicationKeyAddition writes ApplicationKeyAddition as a canonical CBOR map. */
+static inline int csilc_enc_ApplicationKeyAddition(csilc_buf *b, const ApplicationKeyAddition *v) {
+    size_t csilc_n = 14;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "key_id", 6)) return -1;
+    if (csilc_w_text(b, (v->key_id), (v->key_id) ? strlen(v->key_id) : 0)) return -1;
+    if (csilc_w_text(b, "algorithm", 9)) return -1;
+    if (csilc_w_text(b, (v->algorithm), (v->algorithm) ? strlen(v->algorithm) : 0)) return -1;
+    if (csilc_w_text(b, "challenge", 9)) return -1;
+    if (csilc_w_bytes(b, (v->challenge).data, (v->challenge).len)) return -1;
+    if (csilc_w_text(b, "key_usage", 9)) return -1;
+    if (csilc_w_text(b, (v->key_usage), (v->key_usage) ? strlen(v->key_usage) : 0)) return -1;
+    if (csilc_w_text(b, "expires_at", 10)) return -1;
+    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_text(b, "public_key", 10)) return -1;
+    if (csilc_w_bytes(b, (v->public_key).data, (v->public_key).len)) return -1;
+    if (csilc_w_text(b, "fingerprint", 11)) return -1;
+    if (csilc_w_text(b, (v->fingerprint), (v->fingerprint) ? strlen(v->fingerprint) : 0)) return -1;
+    if (csilc_w_text(b, "instance_id", 11)) return -1;
+    if (csilc_w_text(b, (v->instance_id), (v->instance_id) ? strlen(v->instance_id) : 0)) return -1;
+    if (csilc_w_text(b, "challenge_id", 12)) return -1;
+    if (csilc_w_text(b, (v->challenge_id), (v->challenge_id) ? strlen(v->challenge_id) : 0)) return -1;
+    if (csilc_w_text(b, "requested_at", 12)) return -1;
+    if (csilc_w_text(b, (v->requested_at), (v->requested_at) ? strlen(v->requested_at) : 0)) return -1;
+    if (csilc_w_text(b, "application_id", 14)) return -1;
+    if (csilc_w_text(b, (v->application_id), (v->application_id) ? strlen(v->application_id) : 0)) return -1;
+    if (csilc_w_text(b, "subject_domain", 14)) return -1;
+    if (csilc_w_text(b, (v->subject_domain), (v->subject_domain) ? strlen(v->subject_domain) : 0)) return -1;
+    if (csilc_w_text(b, "subject_user_id", 15)) return -1;
+    if (csilc_w_text(b, (v->subject_user_id), (v->subject_user_id) ? strlen(v->subject_user_id) : 0)) return -1;
+    if (csilc_w_text(b, "requested_key_lifetime_seconds", 30)) return -1;
+    if (csilc_w_int(b, (int64_t)(v->requested_key_lifetime_seconds))) return -1;
+    return 0;
+}
+
+/* csilc_dec_ApplicationKeyAddition reads ApplicationKeyAddition from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_ApplicationKeyAddition(const csilc_value *m, CsilCodecArena *a, ApplicationKeyAddition *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "key_id");
+    if (!csilc_get_text(csilc_f, &(out->key_id))) return -1;
+    csilc_f = csilc_map_get(m, "algorithm");
+    if (!csilc_get_text(csilc_f, &(out->algorithm))) return -1;
+    csilc_f = csilc_map_get(m, "challenge");
+    if (!csilc_get_bytes(csilc_f, &(out->challenge).data, &(out->challenge).len)) return -1;
+    csilc_f = csilc_map_get(m, "key_usage");
+    if (!csilc_get_text(csilc_f, &(out->key_usage))) return -1;
+    csilc_f = csilc_map_get(m, "expires_at");
+    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    csilc_f = csilc_map_get(m, "public_key");
+    if (!csilc_get_bytes(csilc_f, &(out->public_key).data, &(out->public_key).len)) return -1;
+    csilc_f = csilc_map_get(m, "fingerprint");
+    if (!csilc_get_text(csilc_f, &(out->fingerprint))) return -1;
+    csilc_f = csilc_map_get(m, "instance_id");
+    if (!csilc_get_text(csilc_f, &(out->instance_id))) return -1;
+    csilc_f = csilc_map_get(m, "challenge_id");
+    if (!csilc_get_text(csilc_f, &(out->challenge_id))) return -1;
+    csilc_f = csilc_map_get(m, "requested_at");
+    if (!csilc_get_text(csilc_f, &(out->requested_at))) return -1;
+    csilc_f = csilc_map_get(m, "application_id");
+    if (!csilc_get_text(csilc_f, &(out->application_id))) return -1;
+    csilc_f = csilc_map_get(m, "subject_domain");
+    if (!csilc_get_text(csilc_f, &(out->subject_domain))) return -1;
+    csilc_f = csilc_map_get(m, "subject_user_id");
+    if (!csilc_get_text(csilc_f, &(out->subject_user_id))) return -1;
+    csilc_f = csilc_map_get(m, "requested_key_lifetime_seconds");
+    if (!csilc_as_i64(csilc_f, &(out->requested_key_lifetime_seconds))) return -1;
+    return 0;
+}
+
+/* csilc_enc_SignedApplicationKeyAddition writes SignedApplicationKeyAddition as a canonical CBOR map. */
+static inline int csilc_enc_SignedApplicationKeyAddition(csilc_buf *b, const SignedApplicationKeyAddition *v) {
+    size_t csilc_n = 2;
+    if (v->possession_proof) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "addition", 8)) return -1;
+    if (csilc_w_bytes(b, (v->addition).data, (v->addition).len)) return -1;
+    if (csilc_w_text(b, "signatures", 10)) return -1;
+    if (csilc_w_array_head(b, v->signatures_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->signatures_count; csilc_i++) {
+        if (csilc_enc_ApplicationKeySignature(b, &(v->signatures[csilc_i]))) return -1;
+    }
+    if (v->possession_proof) {
+        if (csilc_w_text(b, "possession_proof", 16)) return -1;
+        if (csilc_w_bytes(b, ((*v->possession_proof)).data, ((*v->possession_proof)).len)) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_SignedApplicationKeyAddition reads SignedApplicationKeyAddition from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_SignedApplicationKeyAddition(const csilc_value *m, CsilCodecArena *a, SignedApplicationKeyAddition *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "addition");
+    if (!csilc_get_bytes(csilc_f, &(out->addition).data, &(out->addition).len)) return -1;
+    csilc_f = csilc_map_get(m, "signatures");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->signatures_count = csilc_f->as.array.count;
+    out->signatures = NULL;
+    if (out->signatures_count) {
+        out->signatures = (ApplicationKeySignature *)csilc_arena_alloc(a, out->signatures_count * sizeof(ApplicationKeySignature));
+        if (!out->signatures) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->signatures_count; csilc_i++) {
+            if (csilc_dec_ApplicationKeySignature(&csilc_f->as.array.items[csilc_i], a, &(out->signatures[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "possession_proof");
+    out->possession_proof = NULL;
+    if (csilc_f) {
+        CsilBytes *csilc_p = (CsilBytes *)csilc_arena_alloc(a, sizeof(CsilBytes));
+        if (!csilc_p) return -1;
+        if (!csilc_get_bytes(csilc_f, &((*csilc_p)).data, &((*csilc_p)).len)) return -1;
+        out->possession_proof = csilc_p;
+    }
+    return 0;
+}
+
+/* csilc_enc_ApplicationKeyRenewal writes ApplicationKeyRenewal as a canonical CBOR map. */
+static inline int csilc_enc_ApplicationKeyRenewal(csilc_buf *b, const ApplicationKeyRenewal *v) {
+    size_t csilc_n = 9;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "key_id", 6)) return -1;
+    if (csilc_w_text(b, (v->key_id), (v->key_id) ? strlen(v->key_id) : 0)) return -1;
+    if (csilc_w_text(b, "challenge", 9)) return -1;
+    if (csilc_w_bytes(b, (v->challenge).data, (v->challenge).len)) return -1;
+    if (csilc_w_text(b, "expires_at", 10)) return -1;
+    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_text(b, "instance_id", 11)) return -1;
+    if (csilc_w_text(b, (v->instance_id), (v->instance_id) ? strlen(v->instance_id) : 0)) return -1;
+    if (csilc_w_text(b, "challenge_id", 12)) return -1;
+    if (csilc_w_text(b, (v->challenge_id), (v->challenge_id) ? strlen(v->challenge_id) : 0)) return -1;
+    if (csilc_w_text(b, "requested_at", 12)) return -1;
+    if (csilc_w_text(b, (v->requested_at), (v->requested_at) ? strlen(v->requested_at) : 0)) return -1;
+    if (csilc_w_text(b, "application_id", 14)) return -1;
+    if (csilc_w_text(b, (v->application_id), (v->application_id) ? strlen(v->application_id) : 0)) return -1;
+    if (csilc_w_text(b, "subject_domain", 14)) return -1;
+    if (csilc_w_text(b, (v->subject_domain), (v->subject_domain) ? strlen(v->subject_domain) : 0)) return -1;
+    if (csilc_w_text(b, "subject_user_id", 15)) return -1;
+    if (csilc_w_text(b, (v->subject_user_id), (v->subject_user_id) ? strlen(v->subject_user_id) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_ApplicationKeyRenewal reads ApplicationKeyRenewal from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_ApplicationKeyRenewal(const csilc_value *m, CsilCodecArena *a, ApplicationKeyRenewal *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "key_id");
+    if (!csilc_get_text(csilc_f, &(out->key_id))) return -1;
+    csilc_f = csilc_map_get(m, "challenge");
+    if (!csilc_get_bytes(csilc_f, &(out->challenge).data, &(out->challenge).len)) return -1;
+    csilc_f = csilc_map_get(m, "expires_at");
+    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    csilc_f = csilc_map_get(m, "instance_id");
+    if (!csilc_get_text(csilc_f, &(out->instance_id))) return -1;
+    csilc_f = csilc_map_get(m, "challenge_id");
+    if (!csilc_get_text(csilc_f, &(out->challenge_id))) return -1;
+    csilc_f = csilc_map_get(m, "requested_at");
+    if (!csilc_get_text(csilc_f, &(out->requested_at))) return -1;
+    csilc_f = csilc_map_get(m, "application_id");
+    if (!csilc_get_text(csilc_f, &(out->application_id))) return -1;
+    csilc_f = csilc_map_get(m, "subject_domain");
+    if (!csilc_get_text(csilc_f, &(out->subject_domain))) return -1;
+    csilc_f = csilc_map_get(m, "subject_user_id");
+    if (!csilc_get_text(csilc_f, &(out->subject_user_id))) return -1;
+    return 0;
+}
+
+/* csilc_enc_SignedApplicationKeyRenewal writes SignedApplicationKeyRenewal as a canonical CBOR map. */
+static inline int csilc_enc_SignedApplicationKeyRenewal(csilc_buf *b, const SignedApplicationKeyRenewal *v) {
+    size_t csilc_n = 2;
+    if (v->possession_proof) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "renewal", 7)) return -1;
+    if (csilc_w_bytes(b, (v->renewal).data, (v->renewal).len)) return -1;
+    if (csilc_w_text(b, "signatures", 10)) return -1;
+    if (csilc_w_array_head(b, v->signatures_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->signatures_count; csilc_i++) {
+        if (csilc_enc_ApplicationKeySignature(b, &(v->signatures[csilc_i]))) return -1;
+    }
+    if (v->possession_proof) {
+        if (csilc_w_text(b, "possession_proof", 16)) return -1;
+        if (csilc_w_bytes(b, ((*v->possession_proof)).data, ((*v->possession_proof)).len)) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_SignedApplicationKeyRenewal reads SignedApplicationKeyRenewal from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_SignedApplicationKeyRenewal(const csilc_value *m, CsilCodecArena *a, SignedApplicationKeyRenewal *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "renewal");
+    if (!csilc_get_bytes(csilc_f, &(out->renewal).data, &(out->renewal).len)) return -1;
+    csilc_f = csilc_map_get(m, "signatures");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->signatures_count = csilc_f->as.array.count;
+    out->signatures = NULL;
+    if (out->signatures_count) {
+        out->signatures = (ApplicationKeySignature *)csilc_arena_alloc(a, out->signatures_count * sizeof(ApplicationKeySignature));
+        if (!out->signatures) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->signatures_count; csilc_i++) {
+            if (csilc_dec_ApplicationKeySignature(&csilc_f->as.array.items[csilc_i], a, &(out->signatures[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "possession_proof");
+    out->possession_proof = NULL;
+    if (csilc_f) {
+        CsilBytes *csilc_p = (CsilBytes *)csilc_arena_alloc(a, sizeof(CsilBytes));
+        if (!csilc_p) return -1;
+        if (!csilc_get_bytes(csilc_f, &((*csilc_p)).data, &((*csilc_p)).len)) return -1;
+        out->possession_proof = csilc_p;
+    }
+    return 0;
+}
+
+/* csilc_enc_ApplicationKeyRevocation writes ApplicationKeyRevocation as a canonical CBOR map. */
+static inline int csilc_enc_ApplicationKeyRevocation(csilc_buf *b, const ApplicationKeyRevocation *v) {
+    size_t csilc_n = 8;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "revoked_at", 10)) return -1;
+    if (csilc_w_text(b, (v->revoked_at), (v->revoked_at) ? strlen(v->revoked_at) : 0)) return -1;
+    if (csilc_w_text(b, "signatures", 10)) return -1;
+    if (csilc_w_array_head(b, v->signatures_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->signatures_count; csilc_i++) {
+        if (csilc_enc_ApplicationKeySignature(b, &(v->signatures[csilc_i]))) return -1;
+    }
+    if (csilc_w_text(b, "instance_id", 11)) return -1;
+    if (csilc_w_text(b, (v->instance_id), (v->instance_id) ? strlen(v->instance_id) : 0)) return -1;
+    if (csilc_w_text(b, "target_key_id", 13)) return -1;
+    if (csilc_w_text(b, (v->target_key_id), (v->target_key_id) ? strlen(v->target_key_id) : 0)) return -1;
+    if (csilc_w_text(b, "application_id", 14)) return -1;
+    if (csilc_w_text(b, (v->application_id), (v->application_id) ? strlen(v->application_id) : 0)) return -1;
+    if (csilc_w_text(b, "subject_domain", 14)) return -1;
+    if (csilc_w_text(b, (v->subject_domain), (v->subject_domain) ? strlen(v->subject_domain) : 0)) return -1;
+    if (csilc_w_text(b, "subject_user_id", 15)) return -1;
+    if (csilc_w_text(b, (v->subject_user_id), (v->subject_user_id) ? strlen(v->subject_user_id) : 0)) return -1;
+    if (csilc_w_text(b, "target_fingerprint", 18)) return -1;
+    if (csilc_w_text(b, (v->target_fingerprint), (v->target_fingerprint) ? strlen(v->target_fingerprint) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_ApplicationKeyRevocation reads ApplicationKeyRevocation from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_ApplicationKeyRevocation(const csilc_value *m, CsilCodecArena *a, ApplicationKeyRevocation *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "revoked_at");
+    if (!csilc_get_text(csilc_f, &(out->revoked_at))) return -1;
+    csilc_f = csilc_map_get(m, "signatures");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->signatures_count = csilc_f->as.array.count;
+    out->signatures = NULL;
+    if (out->signatures_count) {
+        out->signatures = (ApplicationKeySignature *)csilc_arena_alloc(a, out->signatures_count * sizeof(ApplicationKeySignature));
+        if (!out->signatures) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->signatures_count; csilc_i++) {
+            if (csilc_dec_ApplicationKeySignature(&csilc_f->as.array.items[csilc_i], a, &(out->signatures[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "instance_id");
+    if (!csilc_get_text(csilc_f, &(out->instance_id))) return -1;
+    csilc_f = csilc_map_get(m, "target_key_id");
+    if (!csilc_get_text(csilc_f, &(out->target_key_id))) return -1;
+    csilc_f = csilc_map_get(m, "application_id");
+    if (!csilc_get_text(csilc_f, &(out->application_id))) return -1;
+    csilc_f = csilc_map_get(m, "subject_domain");
+    if (!csilc_get_text(csilc_f, &(out->subject_domain))) return -1;
+    csilc_f = csilc_map_get(m, "subject_user_id");
+    if (!csilc_get_text(csilc_f, &(out->subject_user_id))) return -1;
+    csilc_f = csilc_map_get(m, "target_fingerprint");
+    if (!csilc_get_text(csilc_f, &(out->target_fingerprint))) return -1;
+    return 0;
+}
+
+/* csilc_enc_StartApplicationKeyChallengeRequest writes StartApplicationKeyChallengeRequest as a canonical CBOR map. */
+static inline int csilc_enc_StartApplicationKeyChallengeRequest(csilc_buf *b, const StartApplicationKeyChallengeRequest *v) {
+    size_t csilc_n = 7;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "purpose", 7)) return -1;
+    if (csilc_w_text(b, (v->purpose), (v->purpose) ? strlen(v->purpose) : 0)) return -1;
+    if (csilc_w_text(b, "algorithm", 9)) return -1;
+    if (csilc_w_text(b, (v->algorithm), (v->algorithm) ? strlen(v->algorithm) : 0)) return -1;
+    if (csilc_w_text(b, "key_usage", 9)) return -1;
+    if (csilc_w_text(b, (v->key_usage), (v->key_usage) ? strlen(v->key_usage) : 0)) return -1;
+    if (csilc_w_text(b, "public_key", 10)) return -1;
+    if (csilc_w_bytes(b, (v->public_key).data, (v->public_key).len)) return -1;
+    if (csilc_w_text(b, "instance_id", 11)) return -1;
+    if (csilc_w_text(b, (v->instance_id), (v->instance_id) ? strlen(v->instance_id) : 0)) return -1;
+    if (csilc_w_text(b, "application_id", 14)) return -1;
+    if (csilc_w_text(b, (v->application_id), (v->application_id) ? strlen(v->application_id) : 0)) return -1;
+    if (csilc_w_text(b, "subject_user_id", 15)) return -1;
+    if (csilc_w_text(b, (v->subject_user_id), (v->subject_user_id) ? strlen(v->subject_user_id) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_StartApplicationKeyChallengeRequest reads StartApplicationKeyChallengeRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_StartApplicationKeyChallengeRequest(const csilc_value *m, CsilCodecArena *a, StartApplicationKeyChallengeRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "purpose");
+    if (!csilc_get_text(csilc_f, &(out->purpose))) return -1;
+    csilc_f = csilc_map_get(m, "algorithm");
+    if (!csilc_get_text(csilc_f, &(out->algorithm))) return -1;
+    csilc_f = csilc_map_get(m, "key_usage");
+    if (!csilc_get_text(csilc_f, &(out->key_usage))) return -1;
+    csilc_f = csilc_map_get(m, "public_key");
+    if (!csilc_get_bytes(csilc_f, &(out->public_key).data, &(out->public_key).len)) return -1;
+    csilc_f = csilc_map_get(m, "instance_id");
+    if (!csilc_get_text(csilc_f, &(out->instance_id))) return -1;
+    csilc_f = csilc_map_get(m, "application_id");
+    if (!csilc_get_text(csilc_f, &(out->application_id))) return -1;
+    csilc_f = csilc_map_get(m, "subject_user_id");
+    if (!csilc_get_text(csilc_f, &(out->subject_user_id))) return -1;
+    return 0;
+}
+
+/* csilc_enc_StartApplicationKeyChallengeResponse writes StartApplicationKeyChallengeResponse as a canonical CBOR map. */
+static inline int csilc_enc_StartApplicationKeyChallengeResponse(csilc_buf *b, const StartApplicationKeyChallengeResponse *v) {
+    size_t csilc_n = 2;
+    if (v->challenge) csilc_n++;
+    if (v->sealed_challenge) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (v->challenge) {
+        if (csilc_w_text(b, "challenge", 9)) return -1;
+        if (csilc_w_bytes(b, ((*v->challenge)).data, ((*v->challenge)).len)) return -1;
+    }
+    if (csilc_w_text(b, "expires_at", 10)) return -1;
+    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_text(b, "challenge_id", 12)) return -1;
+    if (csilc_w_text(b, (v->challenge_id), (v->challenge_id) ? strlen(v->challenge_id) : 0)) return -1;
+    if (v->sealed_challenge) {
+        if (csilc_w_text(b, "sealed_challenge", 16)) return -1;
+        if (csilc_w_bytes(b, ((*v->sealed_challenge)).data, ((*v->sealed_challenge)).len)) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_StartApplicationKeyChallengeResponse reads StartApplicationKeyChallengeResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_StartApplicationKeyChallengeResponse(const csilc_value *m, CsilCodecArena *a, StartApplicationKeyChallengeResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "challenge");
+    out->challenge = NULL;
+    if (csilc_f) {
+        CsilBytes *csilc_p = (CsilBytes *)csilc_arena_alloc(a, sizeof(CsilBytes));
+        if (!csilc_p) return -1;
+        if (!csilc_get_bytes(csilc_f, &((*csilc_p)).data, &((*csilc_p)).len)) return -1;
+        out->challenge = csilc_p;
+    }
+    csilc_f = csilc_map_get(m, "expires_at");
+    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    csilc_f = csilc_map_get(m, "challenge_id");
+    if (!csilc_get_text(csilc_f, &(out->challenge_id))) return -1;
+    csilc_f = csilc_map_get(m, "sealed_challenge");
+    out->sealed_challenge = NULL;
+    if (csilc_f) {
+        CsilBytes *csilc_p = (CsilBytes *)csilc_arena_alloc(a, sizeof(CsilBytes));
+        if (!csilc_p) return -1;
+        if (!csilc_get_bytes(csilc_f, &((*csilc_p)).data, &((*csilc_p)).len)) return -1;
+        out->sealed_challenge = csilc_p;
+    }
+    return 0;
+}
+
+/* csilc_enc_AddApplicationKeyRequest writes AddApplicationKeyRequest as a canonical CBOR map. */
+static inline int csilc_enc_AddApplicationKeyRequest(csilc_buf *b, const AddApplicationKeyRequest *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "request", 7)) return -1;
+    if (csilc_enc_SignedApplicationKeyAddition(b, &(v->request))) return -1;
+    return 0;
+}
+
+/* csilc_dec_AddApplicationKeyRequest reads AddApplicationKeyRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_AddApplicationKeyRequest(const csilc_value *m, CsilCodecArena *a, AddApplicationKeyRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "request");
+    if (csilc_dec_SignedApplicationKeyAddition(csilc_f, a, &(out->request))) return -1;
+    return 0;
+}
+
+/* csilc_enc_AddApplicationKeyResponse writes AddApplicationKeyResponse as a canonical CBOR map. */
+static inline int csilc_enc_AddApplicationKeyResponse(csilc_buf *b, const AddApplicationKeyResponse *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "attestation", 11)) return -1;
+    if (csilc_enc_SignedApplicationKeyAttestation(b, &(v->attestation))) return -1;
+    return 0;
+}
+
+/* csilc_dec_AddApplicationKeyResponse reads AddApplicationKeyResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_AddApplicationKeyResponse(const csilc_value *m, CsilCodecArena *a, AddApplicationKeyResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "attestation");
+    if (csilc_dec_SignedApplicationKeyAttestation(csilc_f, a, &(out->attestation))) return -1;
+    return 0;
+}
+
+/* csilc_enc_RenewApplicationKeyAttestationRequest writes RenewApplicationKeyAttestationRequest as a canonical CBOR map. */
+static inline int csilc_enc_RenewApplicationKeyAttestationRequest(csilc_buf *b, const RenewApplicationKeyAttestationRequest *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "request", 7)) return -1;
+    if (csilc_enc_SignedApplicationKeyRenewal(b, &(v->request))) return -1;
+    return 0;
+}
+
+/* csilc_dec_RenewApplicationKeyAttestationRequest reads RenewApplicationKeyAttestationRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RenewApplicationKeyAttestationRequest(const csilc_value *m, CsilCodecArena *a, RenewApplicationKeyAttestationRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "request");
+    if (csilc_dec_SignedApplicationKeyRenewal(csilc_f, a, &(out->request))) return -1;
+    return 0;
+}
+
+/* csilc_enc_RenewApplicationKeyAttestationResponse writes RenewApplicationKeyAttestationResponse as a canonical CBOR map. */
+static inline int csilc_enc_RenewApplicationKeyAttestationResponse(csilc_buf *b, const RenewApplicationKeyAttestationResponse *v) {
+    size_t csilc_n = 2;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "signed", 6)) return -1;
+    if (csilc_w_bool(b, (v->signed_))) return -1;
+    if (csilc_w_text(b, "attestation", 11)) return -1;
+    if (csilc_enc_SignedApplicationKeyAttestation(b, &(v->attestation))) return -1;
+    return 0;
+}
+
+/* csilc_dec_RenewApplicationKeyAttestationResponse reads RenewApplicationKeyAttestationResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RenewApplicationKeyAttestationResponse(const csilc_value *m, CsilCodecArena *a, RenewApplicationKeyAttestationResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "signed");
+    if (!csilc_as_bool(csilc_f, &(out->signed_))) return -1;
+    csilc_f = csilc_map_get(m, "attestation");
+    if (csilc_dec_SignedApplicationKeyAttestation(csilc_f, a, &(out->attestation))) return -1;
+    return 0;
+}
+
+/* csilc_enc_RevokeApplicationKeyRequest writes RevokeApplicationKeyRequest as a canonical CBOR map. */
+static inline int csilc_enc_RevokeApplicationKeyRequest(csilc_buf *b, const RevokeApplicationKeyRequest *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "revocation", 10)) return -1;
+    if (csilc_enc_ApplicationKeyRevocation(b, &(v->revocation))) return -1;
+    return 0;
+}
+
+/* csilc_dec_RevokeApplicationKeyRequest reads RevokeApplicationKeyRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RevokeApplicationKeyRequest(const csilc_value *m, CsilCodecArena *a, RevokeApplicationKeyRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "revocation");
+    if (csilc_dec_ApplicationKeyRevocation(csilc_f, a, &(out->revocation))) return -1;
+    return 0;
+}
+
+/* csilc_enc_RevokeApplicationKeyResponse writes RevokeApplicationKeyResponse as a canonical CBOR map. */
+static inline int csilc_enc_RevokeApplicationKeyResponse(csilc_buf *b, const RevokeApplicationKeyResponse *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "revoked_at", 10)) return -1;
+    if (csilc_w_text(b, (v->revoked_at), (v->revoked_at) ? strlen(v->revoked_at) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_RevokeApplicationKeyResponse reads RevokeApplicationKeyResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RevokeApplicationKeyResponse(const csilc_value *m, CsilCodecArena *a, RevokeApplicationKeyResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "revoked_at");
+    if (!csilc_get_text(csilc_f, &(out->revoked_at))) return -1;
+    return 0;
+}
+
+/* csilc_enc_EnrollApplicationInstanceRequest writes EnrollApplicationInstanceRequest as a canonical CBOR map. */
+static inline int csilc_enc_EnrollApplicationInstanceRequest(csilc_buf *b, const EnrollApplicationInstanceRequest *v) {
+    size_t csilc_n = 3;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "keys", 4)) return -1;
+    if (csilc_w_array_head(b, v->keys_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->keys_count; csilc_i++) {
+        if (csilc_enc_SignedApplicationKeyAddition(b, &(v->keys[csilc_i]))) return -1;
+    }
+    if (csilc_w_text(b, "instance_id", 11)) return -1;
+    if (csilc_w_text(b, (v->instance_id), (v->instance_id) ? strlen(v->instance_id) : 0)) return -1;
+    if (csilc_w_text(b, "application_id", 14)) return -1;
+    if (csilc_w_text(b, (v->application_id), (v->application_id) ? strlen(v->application_id) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_EnrollApplicationInstanceRequest reads EnrollApplicationInstanceRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_EnrollApplicationInstanceRequest(const csilc_value *m, CsilCodecArena *a, EnrollApplicationInstanceRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "keys");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->keys_count = csilc_f->as.array.count;
+    out->keys = NULL;
+    if (out->keys_count) {
+        out->keys = (SignedApplicationKeyAddition *)csilc_arena_alloc(a, out->keys_count * sizeof(SignedApplicationKeyAddition));
+        if (!out->keys) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->keys_count; csilc_i++) {
+            if (csilc_dec_SignedApplicationKeyAddition(&csilc_f->as.array.items[csilc_i], a, &(out->keys[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "instance_id");
+    if (!csilc_get_text(csilc_f, &(out->instance_id))) return -1;
+    csilc_f = csilc_map_get(m, "application_id");
+    if (!csilc_get_text(csilc_f, &(out->application_id))) return -1;
+    return 0;
+}
+
+/* csilc_enc_EnrollApplicationInstanceResponse writes EnrollApplicationInstanceResponse as a canonical CBOR map. */
+static inline int csilc_enc_EnrollApplicationInstanceResponse(csilc_buf *b, const EnrollApplicationInstanceResponse *v) {
+    size_t csilc_n = 5;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "instance_id", 11)) return -1;
+    if (csilc_w_text(b, (v->instance_id), (v->instance_id) ? strlen(v->instance_id) : 0)) return -1;
+    if (csilc_w_text(b, "attestations", 12)) return -1;
+    if (csilc_w_array_head(b, v->attestations_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->attestations_count; csilc_i++) {
+        if (csilc_enc_SignedApplicationKeyAttestation(b, &(v->attestations[csilc_i]))) return -1;
+    }
+    if (csilc_w_text(b, "application_id", 14)) return -1;
+    if (csilc_w_text(b, (v->application_id), (v->application_id) ? strlen(v->application_id) : 0)) return -1;
+    if (csilc_w_text(b, "subject_domain", 14)) return -1;
+    if (csilc_w_text(b, (v->subject_domain), (v->subject_domain) ? strlen(v->subject_domain) : 0)) return -1;
+    if (csilc_w_text(b, "subject_user_id", 15)) return -1;
+    if (csilc_w_text(b, (v->subject_user_id), (v->subject_user_id) ? strlen(v->subject_user_id) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_EnrollApplicationInstanceResponse reads EnrollApplicationInstanceResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_EnrollApplicationInstanceResponse(const csilc_value *m, CsilCodecArena *a, EnrollApplicationInstanceResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "instance_id");
+    if (!csilc_get_text(csilc_f, &(out->instance_id))) return -1;
+    csilc_f = csilc_map_get(m, "attestations");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->attestations_count = csilc_f->as.array.count;
+    out->attestations = NULL;
+    if (out->attestations_count) {
+        out->attestations = (SignedApplicationKeyAttestation *)csilc_arena_alloc(a, out->attestations_count * sizeof(SignedApplicationKeyAttestation));
+        if (!out->attestations) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->attestations_count; csilc_i++) {
+            if (csilc_dec_SignedApplicationKeyAttestation(&csilc_f->as.array.items[csilc_i], a, &(out->attestations[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "application_id");
+    if (!csilc_get_text(csilc_f, &(out->application_id))) return -1;
+    csilc_f = csilc_map_get(m, "subject_domain");
+    if (!csilc_get_text(csilc_f, &(out->subject_domain))) return -1;
+    csilc_f = csilc_map_get(m, "subject_user_id");
+    if (!csilc_get_text(csilc_f, &(out->subject_user_id))) return -1;
+    return 0;
+}
+
+/* csilc_enc_GetApplicationKeysRequest writes GetApplicationKeysRequest as a canonical CBOR map. */
+static inline int csilc_enc_GetApplicationKeysRequest(csilc_buf *b, const GetApplicationKeysRequest *v) {
+    size_t csilc_n = 3;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "instance_id", 11)) return -1;
+    if (csilc_w_text(b, (v->instance_id), (v->instance_id) ? strlen(v->instance_id) : 0)) return -1;
+    if (csilc_w_text(b, "application_id", 14)) return -1;
+    if (csilc_w_text(b, (v->application_id), (v->application_id) ? strlen(v->application_id) : 0)) return -1;
+    if (csilc_w_text(b, "subject_user_id", 15)) return -1;
+    if (csilc_w_text(b, (v->subject_user_id), (v->subject_user_id) ? strlen(v->subject_user_id) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_GetApplicationKeysRequest reads GetApplicationKeysRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_GetApplicationKeysRequest(const csilc_value *m, CsilCodecArena *a, GetApplicationKeysRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "instance_id");
+    if (!csilc_get_text(csilc_f, &(out->instance_id))) return -1;
+    csilc_f = csilc_map_get(m, "application_id");
+    if (!csilc_get_text(csilc_f, &(out->application_id))) return -1;
+    csilc_f = csilc_map_get(m, "subject_user_id");
+    if (!csilc_get_text(csilc_f, &(out->subject_user_id))) return -1;
+    return 0;
+}
+
+/* csilc_enc_GetApplicationKeysResponse writes GetApplicationKeysResponse as a canonical CBOR map. */
+static inline int csilc_enc_GetApplicationKeysResponse(csilc_buf *b, const GetApplicationKeysResponse *v) {
+    size_t csilc_n = 6;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "keys", 4)) return -1;
+    if (csilc_w_array_head(b, v->keys_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->keys_count; csilc_i++) {
+        if (csilc_enc_SignedApplicationKeyAttestation(b, &(v->keys[csilc_i]))) return -1;
+    }
+    if (csilc_w_text(b, "instance_id", 11)) return -1;
+    if (csilc_w_text(b, (v->instance_id), (v->instance_id) ? strlen(v->instance_id) : 0)) return -1;
+    if (csilc_w_text(b, "revocations", 11)) return -1;
+    if (csilc_w_array_head(b, v->revocations_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->revocations_count; csilc_i++) {
+        if (csilc_enc_ApplicationKeyRevocation(b, &(v->revocations[csilc_i]))) return -1;
+    }
+    if (csilc_w_text(b, "application_id", 14)) return -1;
+    if (csilc_w_text(b, (v->application_id), (v->application_id) ? strlen(v->application_id) : 0)) return -1;
+    if (csilc_w_text(b, "subject_domain", 14)) return -1;
+    if (csilc_w_text(b, (v->subject_domain), (v->subject_domain) ? strlen(v->subject_domain) : 0)) return -1;
+    if (csilc_w_text(b, "subject_user_id", 15)) return -1;
+    if (csilc_w_text(b, (v->subject_user_id), (v->subject_user_id) ? strlen(v->subject_user_id) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_GetApplicationKeysResponse reads GetApplicationKeysResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_GetApplicationKeysResponse(const csilc_value *m, CsilCodecArena *a, GetApplicationKeysResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "keys");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->keys_count = csilc_f->as.array.count;
+    out->keys = NULL;
+    if (out->keys_count) {
+        out->keys = (SignedApplicationKeyAttestation *)csilc_arena_alloc(a, out->keys_count * sizeof(SignedApplicationKeyAttestation));
+        if (!out->keys) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->keys_count; csilc_i++) {
+            if (csilc_dec_SignedApplicationKeyAttestation(&csilc_f->as.array.items[csilc_i], a, &(out->keys[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "instance_id");
+    if (!csilc_get_text(csilc_f, &(out->instance_id))) return -1;
+    csilc_f = csilc_map_get(m, "revocations");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->revocations_count = csilc_f->as.array.count;
+    out->revocations = NULL;
+    if (out->revocations_count) {
+        out->revocations = (ApplicationKeyRevocation *)csilc_arena_alloc(a, out->revocations_count * sizeof(ApplicationKeyRevocation));
+        if (!out->revocations) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->revocations_count; csilc_i++) {
+            if (csilc_dec_ApplicationKeyRevocation(&csilc_f->as.array.items[csilc_i], a, &(out->revocations[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "application_id");
+    if (!csilc_get_text(csilc_f, &(out->application_id))) return -1;
+    csilc_f = csilc_map_get(m, "subject_domain");
+    if (!csilc_get_text(csilc_f, &(out->subject_domain))) return -1;
+    csilc_f = csilc_map_get(m, "subject_user_id");
+    if (!csilc_get_text(csilc_f, &(out->subject_user_id))) return -1;
+    return 0;
+}
+
+/* csilc_enc_RpResolveDomainKeysRequest writes RpResolveDomainKeysRequest as a canonical CBOR map. */
+static inline int csilc_enc_RpResolveDomainKeysRequest(csilc_buf *b, const RpResolveDomainKeysRequest *v) {
+    size_t csilc_n = 1;
+    if (v->max_cache_age_seconds) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "domain", 6)) return -1;
+    if (csilc_w_text(b, (v->domain), (v->domain) ? strlen(v->domain) : 0)) return -1;
+    if (v->max_cache_age_seconds) {
+        if (csilc_w_text(b, "max_cache_age_seconds", 21)) return -1;
+        if (csilc_w_int(b, (int64_t)((*v->max_cache_age_seconds)))) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_RpResolveDomainKeysRequest reads RpResolveDomainKeysRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RpResolveDomainKeysRequest(const csilc_value *m, CsilCodecArena *a, RpResolveDomainKeysRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "domain");
+    if (!csilc_get_text(csilc_f, &(out->domain))) return -1;
+    csilc_f = csilc_map_get(m, "max_cache_age_seconds");
+    out->max_cache_age_seconds = NULL;
+    if (csilc_f) {
+        int64_t *csilc_p = (int64_t *)csilc_arena_alloc(a, sizeof(int64_t));
+        if (!csilc_p) return -1;
+        if (!csilc_as_i64(csilc_f, &((*csilc_p)))) return -1;
+        out->max_cache_age_seconds = csilc_p;
+    }
+    return 0;
+}
+
+/* csilc_enc_RpResolveDomainKeysResponse writes RpResolveDomainKeysResponse as a canonical CBOR map. */
+static inline int csilc_enc_RpResolveDomainKeysResponse(csilc_buf *b, const RpResolveDomainKeysResponse *v) {
+    size_t csilc_n = 6;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "keys", 4)) return -1;
+    if (csilc_w_array_head(b, v->keys_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->keys_count; csilc_i++) {
+        if (csilc_enc_DomainPublicKey(b, &(v->keys[csilc_i]))) return -1;
+    }
+    if (csilc_w_text(b, "domain", 6)) return -1;
+    if (csilc_w_text(b, (v->domain), (v->domain) ? strlen(v->domain) : 0)) return -1;
+    if (csilc_w_text(b, "fetched_at", 10)) return -1;
+    if (csilc_w_text(b, (v->fetched_at), (v->fetched_at) ? strlen(v->fetched_at) : 0)) return -1;
+    if (csilc_w_text(b, "revocations", 11)) return -1;
+    if (csilc_w_array_head(b, v->revocations_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->revocations_count; csilc_i++) {
+        if (csilc_enc_RevocationCertificate(b, &(v->revocations[csilc_i]))) return -1;
+    }
+    if (csilc_w_text(b, "cache_status", 12)) return -1;
+    if (csilc_w_text(b, (v->cache_status), (v->cache_status) ? strlen(v->cache_status) : 0)) return -1;
+    if (csilc_w_text(b, "revocations_checked_at", 22)) return -1;
+    if (csilc_w_text(b, (v->revocations_checked_at), (v->revocations_checked_at) ? strlen(v->revocations_checked_at) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_RpResolveDomainKeysResponse reads RpResolveDomainKeysResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RpResolveDomainKeysResponse(const csilc_value *m, CsilCodecArena *a, RpResolveDomainKeysResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "keys");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->keys_count = csilc_f->as.array.count;
+    out->keys = NULL;
+    if (out->keys_count) {
+        out->keys = (DomainPublicKey *)csilc_arena_alloc(a, out->keys_count * sizeof(DomainPublicKey));
+        if (!out->keys) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->keys_count; csilc_i++) {
+            if (csilc_dec_DomainPublicKey(&csilc_f->as.array.items[csilc_i], a, &(out->keys[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "domain");
+    if (!csilc_get_text(csilc_f, &(out->domain))) return -1;
+    csilc_f = csilc_map_get(m, "fetched_at");
+    if (!csilc_get_text(csilc_f, &(out->fetched_at))) return -1;
+    csilc_f = csilc_map_get(m, "revocations");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->revocations_count = csilc_f->as.array.count;
+    out->revocations = NULL;
+    if (out->revocations_count) {
+        out->revocations = (RevocationCertificate *)csilc_arena_alloc(a, out->revocations_count * sizeof(RevocationCertificate));
+        if (!out->revocations) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->revocations_count; csilc_i++) {
+            if (csilc_dec_RevocationCertificate(&csilc_f->as.array.items[csilc_i], a, &(out->revocations[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "cache_status");
+    if (!csilc_get_text(csilc_f, &(out->cache_status))) return -1;
+    csilc_f = csilc_map_get(m, "revocations_checked_at");
+    if (!csilc_get_text(csilc_f, &(out->revocations_checked_at))) return -1;
+    return 0;
+}
+
+/* csilc_enc_RpResolveApplicationKeysRequest writes RpResolveApplicationKeysRequest as a canonical CBOR map. */
+static inline int csilc_enc_RpResolveApplicationKeysRequest(csilc_buf *b, const RpResolveApplicationKeysRequest *v) {
+    size_t csilc_n = 4;
+    if (v->max_cache_age_seconds) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "instance_id", 11)) return -1;
+    if (csilc_w_text(b, (v->instance_id), (v->instance_id) ? strlen(v->instance_id) : 0)) return -1;
+    if (csilc_w_text(b, "application_id", 14)) return -1;
+    if (csilc_w_text(b, (v->application_id), (v->application_id) ? strlen(v->application_id) : 0)) return -1;
+    if (csilc_w_text(b, "subject_domain", 14)) return -1;
+    if (csilc_w_text(b, (v->subject_domain), (v->subject_domain) ? strlen(v->subject_domain) : 0)) return -1;
+    if (csilc_w_text(b, "subject_user_id", 15)) return -1;
+    if (csilc_w_text(b, (v->subject_user_id), (v->subject_user_id) ? strlen(v->subject_user_id) : 0)) return -1;
+    if (v->max_cache_age_seconds) {
+        if (csilc_w_text(b, "max_cache_age_seconds", 21)) return -1;
+        if (csilc_w_int(b, (int64_t)((*v->max_cache_age_seconds)))) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_RpResolveApplicationKeysRequest reads RpResolveApplicationKeysRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RpResolveApplicationKeysRequest(const csilc_value *m, CsilCodecArena *a, RpResolveApplicationKeysRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "instance_id");
+    if (!csilc_get_text(csilc_f, &(out->instance_id))) return -1;
+    csilc_f = csilc_map_get(m, "application_id");
+    if (!csilc_get_text(csilc_f, &(out->application_id))) return -1;
+    csilc_f = csilc_map_get(m, "subject_domain");
+    if (!csilc_get_text(csilc_f, &(out->subject_domain))) return -1;
+    csilc_f = csilc_map_get(m, "subject_user_id");
+    if (!csilc_get_text(csilc_f, &(out->subject_user_id))) return -1;
+    csilc_f = csilc_map_get(m, "max_cache_age_seconds");
+    out->max_cache_age_seconds = NULL;
+    if (csilc_f) {
+        int64_t *csilc_p = (int64_t *)csilc_arena_alloc(a, sizeof(int64_t));
+        if (!csilc_p) return -1;
+        if (!csilc_as_i64(csilc_f, &((*csilc_p)))) return -1;
+        out->max_cache_age_seconds = csilc_p;
+    }
+    return 0;
+}
+
+/* csilc_enc_RpResolveApplicationKeysResponse writes RpResolveApplicationKeysResponse as a canonical CBOR map. */
+static inline int csilc_enc_RpResolveApplicationKeysResponse(csilc_buf *b, const RpResolveApplicationKeysResponse *v) {
+    size_t csilc_n = 11;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "fetched_at", 10)) return -1;
+    if (csilc_w_text(b, (v->fetched_at), (v->fetched_at) ? strlen(v->fetched_at) : 0)) return -1;
+    if (csilc_w_text(b, "instance_id", 11)) return -1;
+    if (csilc_w_text(b, (v->instance_id), (v->instance_id) ? strlen(v->instance_id) : 0)) return -1;
+    if (csilc_w_text(b, "cache_status", 12)) return -1;
+    if (csilc_w_text(b, (v->cache_status), (v->cache_status) ? strlen(v->cache_status) : 0)) return -1;
+    if (csilc_w_text(b, "application_id", 14)) return -1;
+    if (csilc_w_text(b, (v->application_id), (v->application_id) ? strlen(v->application_id) : 0)) return -1;
+    if (csilc_w_text(b, "subject_domain", 14)) return -1;
+    if (csilc_w_text(b, (v->subject_domain), (v->subject_domain) ? strlen(v->subject_domain) : 0)) return -1;
+    if (csilc_w_text(b, "subject_user_id", 15)) return -1;
+    if (csilc_w_text(b, (v->subject_user_id), (v->subject_user_id) ? strlen(v->subject_user_id) : 0)) return -1;
+    if (csilc_w_text(b, "application_keys", 16)) return -1;
+    if (csilc_w_array_head(b, v->application_keys_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->application_keys_count; csilc_i++) {
+        if (csilc_enc_SignedApplicationKeyAttestation(b, &(v->application_keys[csilc_i]))) return -1;
+    }
+    if (csilc_w_text(b, "home_domain_keys", 16)) return -1;
+    if (csilc_w_array_head(b, v->home_domain_keys_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->home_domain_keys_count; csilc_i++) {
+        if (csilc_enc_DomainPublicKey(b, &(v->home_domain_keys[csilc_i]))) return -1;
+    }
+    if (csilc_w_text(b, "revocations_checked_at", 22)) return -1;
+    if (csilc_w_text(b, (v->revocations_checked_at), (v->revocations_checked_at) ? strlen(v->revocations_checked_at) : 0)) return -1;
+    if (csilc_w_text(b, "application_key_revocations", 27)) return -1;
+    if (csilc_w_array_head(b, v->application_key_revocations_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->application_key_revocations_count; csilc_i++) {
+        if (csilc_enc_ApplicationKeyRevocation(b, &(v->application_key_revocations[csilc_i]))) return -1;
+    }
+    if (csilc_w_text(b, "home_domain_key_revocations", 27)) return -1;
+    if (csilc_w_array_head(b, v->home_domain_key_revocations_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->home_domain_key_revocations_count; csilc_i++) {
+        if (csilc_enc_RevocationCertificate(b, &(v->home_domain_key_revocations[csilc_i]))) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_RpResolveApplicationKeysResponse reads RpResolveApplicationKeysResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RpResolveApplicationKeysResponse(const csilc_value *m, CsilCodecArena *a, RpResolveApplicationKeysResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "fetched_at");
+    if (!csilc_get_text(csilc_f, &(out->fetched_at))) return -1;
+    csilc_f = csilc_map_get(m, "instance_id");
+    if (!csilc_get_text(csilc_f, &(out->instance_id))) return -1;
+    csilc_f = csilc_map_get(m, "cache_status");
+    if (!csilc_get_text(csilc_f, &(out->cache_status))) return -1;
+    csilc_f = csilc_map_get(m, "application_id");
+    if (!csilc_get_text(csilc_f, &(out->application_id))) return -1;
+    csilc_f = csilc_map_get(m, "subject_domain");
+    if (!csilc_get_text(csilc_f, &(out->subject_domain))) return -1;
+    csilc_f = csilc_map_get(m, "subject_user_id");
+    if (!csilc_get_text(csilc_f, &(out->subject_user_id))) return -1;
+    csilc_f = csilc_map_get(m, "application_keys");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->application_keys_count = csilc_f->as.array.count;
+    out->application_keys = NULL;
+    if (out->application_keys_count) {
+        out->application_keys = (SignedApplicationKeyAttestation *)csilc_arena_alloc(a, out->application_keys_count * sizeof(SignedApplicationKeyAttestation));
+        if (!out->application_keys) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->application_keys_count; csilc_i++) {
+            if (csilc_dec_SignedApplicationKeyAttestation(&csilc_f->as.array.items[csilc_i], a, &(out->application_keys[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "home_domain_keys");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->home_domain_keys_count = csilc_f->as.array.count;
+    out->home_domain_keys = NULL;
+    if (out->home_domain_keys_count) {
+        out->home_domain_keys = (DomainPublicKey *)csilc_arena_alloc(a, out->home_domain_keys_count * sizeof(DomainPublicKey));
+        if (!out->home_domain_keys) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->home_domain_keys_count; csilc_i++) {
+            if (csilc_dec_DomainPublicKey(&csilc_f->as.array.items[csilc_i], a, &(out->home_domain_keys[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "revocations_checked_at");
+    if (!csilc_get_text(csilc_f, &(out->revocations_checked_at))) return -1;
+    csilc_f = csilc_map_get(m, "application_key_revocations");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->application_key_revocations_count = csilc_f->as.array.count;
+    out->application_key_revocations = NULL;
+    if (out->application_key_revocations_count) {
+        out->application_key_revocations = (ApplicationKeyRevocation *)csilc_arena_alloc(a, out->application_key_revocations_count * sizeof(ApplicationKeyRevocation));
+        if (!out->application_key_revocations) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->application_key_revocations_count; csilc_i++) {
+            if (csilc_dec_ApplicationKeyRevocation(&csilc_f->as.array.items[csilc_i], a, &(out->application_key_revocations[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "home_domain_key_revocations");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->home_domain_key_revocations_count = csilc_f->as.array.count;
+    out->home_domain_key_revocations = NULL;
+    if (out->home_domain_key_revocations_count) {
+        out->home_domain_key_revocations = (RevocationCertificate *)csilc_arena_alloc(a, out->home_domain_key_revocations_count * sizeof(RevocationCertificate));
+        if (!out->home_domain_key_revocations) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->home_domain_key_revocations_count; csilc_i++) {
+            if (csilc_dec_RevocationCertificate(&csilc_f->as.array.items[csilc_i], a, &(out->home_domain_key_revocations[csilc_i]))) return -1;
+        }
+    }
+    return 0;
+}
+
 /* Encode a CheckValue to CBOR. On success *out is a malloc'd buffer of
  * *out_len bytes the caller frees with free(); returns non-zero on failure. */
 static inline int csil_encode_CheckValue(const CheckValue *v, uint8_t **out, size_t *out_len) {
@@ -12729,6 +13839,558 @@ static inline int csil_decode_ListLocalesResponse(const uint8_t *in, size_t len,
     const csilc_value *root;
     if (csilc_decode(in, len, &a, &root)) return -1;
     if (csilc_dec_ListLocalesResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ApplicationKeySignature to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ApplicationKeySignature(const ApplicationKeySignature *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ApplicationKeySignature(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ApplicationKeySignature. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ApplicationKeySignature(const uint8_t *in, size_t len, ApplicationKeySignature *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ApplicationKeySignature(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ApplicationKeyAttestation to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ApplicationKeyAttestation(const ApplicationKeyAttestation *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ApplicationKeyAttestation(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ApplicationKeyAttestation. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ApplicationKeyAttestation(const uint8_t *in, size_t len, ApplicationKeyAttestation *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ApplicationKeyAttestation(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SignedApplicationKeyAttestation to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SignedApplicationKeyAttestation(const SignedApplicationKeyAttestation *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SignedApplicationKeyAttestation(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SignedApplicationKeyAttestation. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SignedApplicationKeyAttestation(const uint8_t *in, size_t len, SignedApplicationKeyAttestation *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SignedApplicationKeyAttestation(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ApplicationKeyAddition to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ApplicationKeyAddition(const ApplicationKeyAddition *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ApplicationKeyAddition(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ApplicationKeyAddition. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ApplicationKeyAddition(const uint8_t *in, size_t len, ApplicationKeyAddition *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ApplicationKeyAddition(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SignedApplicationKeyAddition to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SignedApplicationKeyAddition(const SignedApplicationKeyAddition *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SignedApplicationKeyAddition(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SignedApplicationKeyAddition. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SignedApplicationKeyAddition(const uint8_t *in, size_t len, SignedApplicationKeyAddition *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SignedApplicationKeyAddition(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ApplicationKeyRenewal to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ApplicationKeyRenewal(const ApplicationKeyRenewal *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ApplicationKeyRenewal(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ApplicationKeyRenewal. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ApplicationKeyRenewal(const uint8_t *in, size_t len, ApplicationKeyRenewal *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ApplicationKeyRenewal(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SignedApplicationKeyRenewal to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SignedApplicationKeyRenewal(const SignedApplicationKeyRenewal *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SignedApplicationKeyRenewal(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SignedApplicationKeyRenewal. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SignedApplicationKeyRenewal(const uint8_t *in, size_t len, SignedApplicationKeyRenewal *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SignedApplicationKeyRenewal(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ApplicationKeyRevocation to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ApplicationKeyRevocation(const ApplicationKeyRevocation *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ApplicationKeyRevocation(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ApplicationKeyRevocation. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ApplicationKeyRevocation(const uint8_t *in, size_t len, ApplicationKeyRevocation *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ApplicationKeyRevocation(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a StartApplicationKeyChallengeRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_StartApplicationKeyChallengeRequest(const StartApplicationKeyChallengeRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_StartApplicationKeyChallengeRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a StartApplicationKeyChallengeRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_StartApplicationKeyChallengeRequest(const uint8_t *in, size_t len, StartApplicationKeyChallengeRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_StartApplicationKeyChallengeRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a StartApplicationKeyChallengeResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_StartApplicationKeyChallengeResponse(const StartApplicationKeyChallengeResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_StartApplicationKeyChallengeResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a StartApplicationKeyChallengeResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_StartApplicationKeyChallengeResponse(const uint8_t *in, size_t len, StartApplicationKeyChallengeResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_StartApplicationKeyChallengeResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a AddApplicationKeyRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_AddApplicationKeyRequest(const AddApplicationKeyRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_AddApplicationKeyRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a AddApplicationKeyRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_AddApplicationKeyRequest(const uint8_t *in, size_t len, AddApplicationKeyRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_AddApplicationKeyRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a AddApplicationKeyResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_AddApplicationKeyResponse(const AddApplicationKeyResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_AddApplicationKeyResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a AddApplicationKeyResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_AddApplicationKeyResponse(const uint8_t *in, size_t len, AddApplicationKeyResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_AddApplicationKeyResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RenewApplicationKeyAttestationRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RenewApplicationKeyAttestationRequest(const RenewApplicationKeyAttestationRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RenewApplicationKeyAttestationRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RenewApplicationKeyAttestationRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RenewApplicationKeyAttestationRequest(const uint8_t *in, size_t len, RenewApplicationKeyAttestationRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RenewApplicationKeyAttestationRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RenewApplicationKeyAttestationResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RenewApplicationKeyAttestationResponse(const RenewApplicationKeyAttestationResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RenewApplicationKeyAttestationResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RenewApplicationKeyAttestationResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RenewApplicationKeyAttestationResponse(const uint8_t *in, size_t len, RenewApplicationKeyAttestationResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RenewApplicationKeyAttestationResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RevokeApplicationKeyRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RevokeApplicationKeyRequest(const RevokeApplicationKeyRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RevokeApplicationKeyRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RevokeApplicationKeyRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RevokeApplicationKeyRequest(const uint8_t *in, size_t len, RevokeApplicationKeyRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RevokeApplicationKeyRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RevokeApplicationKeyResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RevokeApplicationKeyResponse(const RevokeApplicationKeyResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RevokeApplicationKeyResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RevokeApplicationKeyResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RevokeApplicationKeyResponse(const uint8_t *in, size_t len, RevokeApplicationKeyResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RevokeApplicationKeyResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a EnrollApplicationInstanceRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_EnrollApplicationInstanceRequest(const EnrollApplicationInstanceRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_EnrollApplicationInstanceRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a EnrollApplicationInstanceRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_EnrollApplicationInstanceRequest(const uint8_t *in, size_t len, EnrollApplicationInstanceRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_EnrollApplicationInstanceRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a EnrollApplicationInstanceResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_EnrollApplicationInstanceResponse(const EnrollApplicationInstanceResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_EnrollApplicationInstanceResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a EnrollApplicationInstanceResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_EnrollApplicationInstanceResponse(const uint8_t *in, size_t len, EnrollApplicationInstanceResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_EnrollApplicationInstanceResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a GetApplicationKeysRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_GetApplicationKeysRequest(const GetApplicationKeysRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_GetApplicationKeysRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a GetApplicationKeysRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_GetApplicationKeysRequest(const uint8_t *in, size_t len, GetApplicationKeysRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_GetApplicationKeysRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a GetApplicationKeysResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_GetApplicationKeysResponse(const GetApplicationKeysResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_GetApplicationKeysResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a GetApplicationKeysResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_GetApplicationKeysResponse(const uint8_t *in, size_t len, GetApplicationKeysResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_GetApplicationKeysResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RpResolveDomainKeysRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RpResolveDomainKeysRequest(const RpResolveDomainKeysRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RpResolveDomainKeysRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RpResolveDomainKeysRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RpResolveDomainKeysRequest(const uint8_t *in, size_t len, RpResolveDomainKeysRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RpResolveDomainKeysRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RpResolveDomainKeysResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RpResolveDomainKeysResponse(const RpResolveDomainKeysResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RpResolveDomainKeysResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RpResolveDomainKeysResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RpResolveDomainKeysResponse(const uint8_t *in, size_t len, RpResolveDomainKeysResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RpResolveDomainKeysResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RpResolveApplicationKeysRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RpResolveApplicationKeysRequest(const RpResolveApplicationKeysRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RpResolveApplicationKeysRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RpResolveApplicationKeysRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RpResolveApplicationKeysRequest(const uint8_t *in, size_t len, RpResolveApplicationKeysRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RpResolveApplicationKeysRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RpResolveApplicationKeysResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RpResolveApplicationKeysResponse(const RpResolveApplicationKeysResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RpResolveApplicationKeysResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RpResolveApplicationKeysResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RpResolveApplicationKeysResponse(const uint8_t *in, size_t len, RpResolveApplicationKeysResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RpResolveApplicationKeysResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
     *owner = a;
     return 0;
 }

@@ -972,6 +972,7 @@ dependencies = [
  "sha2",
  "subtle",
  "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]

@@ -1,0 +1,41 @@
+name: linkkeys-test-regular-rp-go
+description: "Test the regular-RP Go SDK against the application-key conformance vectors"
+job:
+  image: containers.catalystsquad.com/public/reactorcide/runnerbase:latest
+  command: |
+    set -e
+    export HOME=/home/runner
+
+    # The Go SDK carries the application-key verification rules for every Go
+    # consumer (Tinku first). Its tests replay the cross-language conformance
+    # vectors in sdks/regular-rp/conformance/, which is the only thing that
+    # proves the Go implementation still agrees with the Rust reference in
+    # crates/liblinkkeys/src/application_keys.rs. A drift here is a silent
+    # verification difference between two implementations of the same protocol,
+    # so this runs on its own rather than as an optional extra.
+    GO_VERSION="1.26.4"
+    if ! command -v go >/dev/null 2>&1; then
+      curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tgz
+      sudo tar -C /usr/local -xzf /tmp/go.tgz
+    fi
+    export PATH="/usr/local/go/bin:$PATH"
+    go version
+
+    cd "${REACTORCIDE_CODE_DIR:-/job/src}/sdks/regular-rp/go"
+
+    echo "=== gofmt ==="
+    test -z "$(gofmt -l .)" || { echo "unformatted files:"; gofmt -l .; exit 1; }
+
+    echo "=== go vet ==="
+    go vet ./...
+
+    echo "=== go test (race) ==="
+    go test ./... -race
+
+    echo "=== regular-RP Go SDK tests passed ==="
+  timeout: 900
+  priority: 10
+  run_as:
+    user: runner
+  run_local:
+    as_runner: true

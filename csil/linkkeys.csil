@@ -1091,9 +1091,22 @@ SetMyClaimSharingRequest = {
 SetMyClaimSharingResponse = {
 }
 
-;; A pseudonymous identity (UUID@domain) belonging to a human account. Mirrors
-;; `crate::db::models::Profile` field-for-field. The root (never-leaked)
-;; anchor is never returned from self-service listing/creation.
+;; A presentation persona for a human account. Mirrors
+;; `crate::db::models::Profile` field-for-field.
+;;
+;; A profile is not a second identity and not an anonymity mechanism. The
+;; account keeps one canonical `UUID@domain` identity. A profile only changes
+;; how the account presents itself in a context. A user can show one handle in
+;; a professional forum and a different handle in a family chat. The domain
+;; decides which fields a profile can override. The domain also decides which
+;; claims it signs for each profile (see `ProfileClaimPref`).
+;;
+;; Each account has exactly one `is_root` anchor profile. The server does not
+;; return the anchor from self-service listing or creation. The other profiles
+;; are the presentable personas.
+;;
+;; A user who wants two unlinked public identities makes two accounts. The
+;; protocol does not link those accounts and does not manage that relation.
 Profile = {
     id: text,
     account_id: text,
@@ -1794,6 +1807,304 @@ ListLocalesResponse = {
     available_locales: [* text]
 }
 
+
+;; ============================================================
+;; Application keys
+;; ============================================================
+
+;; An application (Tinku is the first) generates and holds its own key pairs and
+;; signs its own messages. The home domain never sees an application private key
+;; and never signs an application message. It only attests that a public key
+;; belongs to one canonical account, application, and application instance for a
+;; short, renewable period. This keeps home-domain work proportional to key
+;; enrollment and attestation renewal instead of message and peer volume.
+;;
+;; `subject_user_id` is always the account's one canonical UUID (the `UUID@domain`
+;; identity). A profile is a presentation persona, not a second identity, so an
+;; application key never attaches to a profile.
+;;
+;; Ed25519 keys sign. X25519 keys do key agreement. An X25519 key cannot make a
+;; quorum signature and never counts toward one.
+
+;; One signature by an application key. The signer is identified by application
+;; key id alone: the canonical payload already binds the subject, domain,
+;; application, and instance, so a signature cannot move between them.
+ApplicationKeySignature = {
+    signed_by_key_id: text,
+    signature: bytes
+}
+
+;; What the home domain attests about ONE application public key. The signed
+;; bytes are the deterministic CBOR encoding of this record; see
+;; `SignedApplicationKeyAttestation`. Each key gets its own attestation — there
+;; is no signed keyset manifest, no key order, and no preferred key.
+;;
+;; `key_expires_at` is the life of the KEY. `attestation_expires_at` is the life
+;; of this proof, and it is normally much shorter (default 24h). An expired
+;; attestation does not revoke the key; it means the verifier has no current
+;; proof and must fetch a renewed one.
+ApplicationKeyAttestation = {
+    subject_user_id: text,
+    subject_domain: text,
+    application_id: text,
+    instance_id: text,
+    key_id: text,
+    ;; "sign" (Ed25519) or "agree" (X25519)
+    key_usage: text,
+    algorithm: text,
+    public_key: bytes,
+    fingerprint: text,
+    key_created_at: text,
+    key_expires_at: text,
+    attested_at: text,
+    attestation_expires_at: text
+}
+
+;; A home-domain attestation plus the domain signatures over it. `attestation`
+;; is the exact CBOR byte string each signature covers, under the
+;; domain-separation tag `linkkeys-application-key-attestation-v1alpha`. The
+;; bytes are stored and served verbatim: the home domain does not re-sign on
+;; read. A domain may include signatures from several of its valid signing keys.
+SignedApplicationKeyAttestation = {
+    attestation: bytes,
+    signatures: [* ClaimSignature]
+}
+
+;; A request to add one application key to an instance. Two DISTINCT, currently
+;; valid application signing keys must authorize it; the new key itself never
+;; counts toward that quorum and must separately prove possession.
+;;
+;; `challenge` carries the home-domain nonce from `start-key-challenge`. For an
+;; Ed25519 key the nonce is handed over in the clear and `possession_proof` is
+;; the new key's own signature. For an X25519 key the nonce is delivered sealed
+;; to the claimed public key, and returning the plaintext here IS the proof of
+;; possession — an X25519 key cannot sign.
+ApplicationKeyAddition = {
+    subject_user_id: text,
+    subject_domain: text,
+    application_id: text,
+    instance_id: text,
+    key_id: text,
+    key_usage: text,
+    algorithm: text,
+    public_key: bytes,
+    fingerprint: text,
+    requested_key_lifetime_seconds: int,
+    challenge_id: text,
+    challenge: bytes,
+    requested_at: text,
+    expires_at: text
+}
+
+;; `addition` is the deterministic CBOR encoding of `ApplicationKeyAddition`.
+;; `signatures` are the quorum signatures over it under
+;; `linkkeys-application-key-addition-v1alpha`. `possession_proof` is the NEW
+;; key's signature over the same bytes under the distinct tag
+;; `linkkeys-application-key-possession-v1alpha`, present only for a signing key.
+SignedApplicationKeyAddition = {
+    addition: bytes,
+    signatures: [* ApplicationKeySignature],
+    ? possession_proof: bytes
+}
+
+;; A request to re-attest an existing, unrevoked key. Renewal makes a new
+;; attestation for the SAME key. It never makes a new key and never changes key
+;; equality. It must carry current proof of possession, and the home domain must
+;; refuse it for a revoked key.
+ApplicationKeyRenewal = {
+    subject_user_id: text,
+    subject_domain: text,
+    application_id: text,
+    instance_id: text,
+    key_id: text,
+    challenge_id: text,
+    challenge: bytes,
+    requested_at: text,
+    expires_at: text
+}
+
+;; `renewal` is the deterministic CBOR encoding of `ApplicationKeyRenewal`.
+;; For an Ed25519 target the key signs its own renewal in `possession_proof`
+;; (tag `linkkeys-application-key-possession-v1alpha`), which is both the proof
+;; and the authentication. An X25519 target cannot sign, so it proves possession
+;; by returning the sealed challenge plaintext and the request carries at least
+;; one signature from a currently valid sibling signing key under
+;; `linkkeys-application-key-renewal-v1alpha`.
+SignedApplicationKeyRenewal = {
+    renewal: bytes,
+    signatures: [* ApplicationKeySignature],
+    ? possession_proof: bytes
+}
+
+;; Permanent revocation of one application key, co-signed by two DISTINCT,
+;; currently valid SIBLING signing keys of the same instance. The target key
+;; never signs or counts toward its own revocation — which is why an instance
+;; should hold three signing keys, not two.
+;;
+;; The record is self-authenticating: a verifier checks the signatures against
+;; the attested sibling keys it already holds. `revoked_at` is the effective
+;; time, and a verifier applies the protocol's temporal rules to it.
+ApplicationKeyRevocation = {
+    subject_user_id: text,
+    subject_domain: text,
+    application_id: text,
+    instance_id: text,
+    target_key_id: text,
+    target_fingerprint: text,
+    revoked_at: text,
+    signatures: [* ApplicationKeySignature]
+}
+
+;; Ask the home domain for a single-use nonce before an add or a renew.
+;; `purpose` is "add" or "renew". The operation is anonymous and answers the
+;; same way for a known and an unknown instance: a nonce is useless without the
+;; matching private key, and answering differently would turn this into an
+;; instance-existence oracle.
+StartApplicationKeyChallengeRequest = {
+    subject_user_id: text,
+    application_id: text,
+    instance_id: text,
+    purpose: text,
+    key_usage: text,
+    algorithm: text,
+    public_key: bytes
+}
+
+;; Exactly one of `challenge` and `sealed_challenge` is set. A signing key gets
+;; the plaintext `challenge` (it proves possession by signing). A key-agreement
+;; key gets `sealed_challenge`, a sealed box to the claimed X25519 public key,
+;; and proves possession by returning the plaintext it recovers.
+StartApplicationKeyChallengeResponse = {
+    challenge_id: text,
+    ? challenge: bytes,
+    ? sealed_challenge: bytes,
+    expires_at: text
+}
+
+AddApplicationKeyRequest = {
+    request: SignedApplicationKeyAddition
+}
+
+AddApplicationKeyResponse = {
+    attestation: SignedApplicationKeyAttestation
+}
+
+RenewApplicationKeyAttestationRequest = {
+    request: SignedApplicationKeyRenewal
+}
+
+;; Renewal is idempotent. When the stored attestation still keeps more than half
+;; of its lifetime, the home domain returns those exact bytes with
+;; `signed = false` and makes no new signature. This is a load control: it turns
+;; the common renewal into a stored-bytes read and absorbs retry storms,
+;; restart storms, and clients with a skewed clock.
+RenewApplicationKeyAttestationResponse = {
+    attestation: SignedApplicationKeyAttestation,
+    signed: bool
+}
+
+RevokeApplicationKeyRequest = {
+    revocation: ApplicationKeyRevocation
+}
+
+RevokeApplicationKeyResponse = {
+    revoked_at: text
+}
+
+;; Initial enrollment is the one bootstrap exception to application-key quorum:
+;; the account owner authenticates to the home domain and approves the instance.
+;; The request enrolls at least two signing keys together (three is recommended)
+;; and each key proves its own possession. After this, normal quorum rules apply
+;; and a lost quorum needs a new account-authorized enrollment, which is a
+;; visible trust reset rather than a silent bypass.
+EnrollApplicationInstanceRequest = {
+    application_id: text,
+    instance_id: text,
+    keys: [* SignedApplicationKeyAddition]
+}
+
+EnrollApplicationInstanceResponse = {
+    subject_user_id: text,
+    subject_domain: text,
+    application_id: text,
+    instance_id: text,
+    attestations: [* SignedApplicationKeyAttestation]
+}
+
+;; The anonymous public read. A caller must already know all three identifiers:
+;; this is a lookup, never an enumeration. There is deliberately no operation
+;; that lists the applications or the instances of a subject.
+GetApplicationKeysRequest = {
+    subject_user_id: text,
+    application_id: text,
+    instance_id: text
+}
+
+;; Array order carries no meaning. `revocations` is COMPLETE for the configured
+;; look-back window (default 3 years) and is never truncated or paginated: a
+;; caller that read a partial revocation list would hold a revoked key that
+;; looks valid. When an instance exceeds the configured bounds the operation
+;; returns an error instead of a short list.
+GetApplicationKeysResponse = {
+    subject_user_id: text,
+    subject_domain: text,
+    application_id: text,
+    instance_id: text,
+    keys: [* SignedApplicationKeyAttestation],
+    revocations: [* ApplicationKeyRevocation]
+}
+
+;; ---- RP-facing resolve operations (API-key authenticated) ----
+
+;; An application asks ITS OWN RP server for cached remote key material. The RP
+;; does the discovery, the fetch, the verification, and the caching; the
+;; application never calls a remote home domain itself when it uses a regular RP.
+;; `max_cache_age_seconds` can only ask for material FRESHER than the operator's
+;; policy, never staler.
+RpResolveDomainKeysRequest = {
+    domain: text,
+    ? max_cache_age_seconds: int
+}
+
+;; `cache_status` is one of "fresh" (served within the allowed age),
+;; "refreshed" (fetched for this call), or "stale" (the home domain was
+;; unreachable and these are the last verified records). A "stale" result is
+;; never presented as current trust.
+RpResolveDomainKeysResponse = {
+    domain: text,
+    keys: [* DomainPublicKey],
+    revocations: [* RevocationCertificate],
+    fetched_at: text,
+    revocations_checked_at: text,
+    cache_status: text
+}
+
+RpResolveApplicationKeysRequest = {
+    subject_user_id: text,
+    subject_domain: text,
+    application_id: text,
+    instance_id: text,
+    ? max_cache_age_seconds: int
+}
+
+;; One call carries everything the application SDK needs to verify the
+;; attestations by itself: the signed application records AND the home-domain
+;; keys and revocations that verify them. The RP validates the material before
+;; it stores or returns it; the SDK validates it again before use.
+RpResolveApplicationKeysResponse = {
+    subject_user_id: text,
+    subject_domain: text,
+    application_id: text,
+    instance_id: text,
+    application_keys: [* SignedApplicationKeyAttestation],
+    application_key_revocations: [* ApplicationKeyRevocation],
+    home_domain_keys: [* DomainPublicKey],
+    home_domain_key_revocations: [* RevocationCertificate],
+    fetched_at: text,
+    revocations_checked_at: text,
+    cache_status: text
+}
+
 ;; ============================================================
 ;; Services
 ;; ============================================================
@@ -1821,6 +2132,25 @@ service DomainKeys {
 
 service UserKeys {
     get-user-keys: GetUserKeysRequest -> GetUserKeysResponse
+}
+
+;; Application-key lifecycle and the anonymous public read.
+;;
+;; No operation here takes an API key. get-application-keys and
+;; start-key-challenge are public: the first returns only public material, the
+;; second returns a nonce that is useless without the matching private key.
+;; add-key, renew-attestation, and revoke-key are authenticated AT THE
+;; APPLICATION LAYER by the application's own signatures over a canonical
+;; payload — the same shape LocalRp/redeem-claim-ticket already uses — because
+;; the authority for these operations is the application key quorum, not a
+;; transport credential. Initial enrollment is the exception and lives on
+;; Account/enroll-application-instance, where the account owner authenticates.
+service ApplicationKeys {
+    get-application-keys: GetApplicationKeysRequest -> GetApplicationKeysResponse,
+    start-key-challenge: StartApplicationKeyChallengeRequest -> StartApplicationKeyChallengeResponse,
+    add-key: AddApplicationKeyRequest -> AddApplicationKeyResponse,
+    renew-attestation: RenewApplicationKeyAttestationRequest -> RenewApplicationKeyAttestationResponse,
+    revoke-key: RevokeApplicationKeyRequest -> RevokeApplicationKeyResponse
 }
 
 service Identity {
@@ -1944,7 +2274,8 @@ service Account {
     list-verified-contact-methods: EmptyRequest -> ListVerifiedContactMethodsResponse,
     revoke-verified-contact-method: RevokeVerifiedContactMethodRequest -> RevokeVerifiedContactMethodResponse,
     request-contact-verification: RequestContactVerificationRequest -> RequestContactVerificationResponse,
-    confirm-contact-verification: ConfirmContactVerificationRequest -> ConfirmContactVerificationResponse
+    confirm-contact-verification: ConfirmContactVerificationRequest -> ConfirmContactVerificationResponse,
+    enroll-application-instance: EnrollApplicationInstanceRequest -> EnrollApplicationInstanceResponse
 }
 
 ;; Attested claims (server-to-server). An issuer deposits a claim it signed about
@@ -1961,7 +2292,9 @@ service Rp {
     decrypt-token: RpDecryptRequest -> RpDecryptResponse,
     verify-assertion: RpVerifyRequest -> RpVerifyResponse,
     userinfo-fetch: RpUserInfoRequest -> UserInfo,
-    issue-attestation: RpIssueAttestationRequest -> RpIssueAttestationResponse
+    issue-attestation: RpIssueAttestationRequest -> RpIssueAttestationResponse,
+    resolve-domain-keys: RpResolveDomainKeysRequest -> RpResolveDomainKeysResponse,
+    resolve-application-keys: RpResolveApplicationKeysRequest -> RpResolveApplicationKeysResponse
 }
 
 ;; DNS-less local RP wire operation. Claim-ticket redemption is TCP CSIL-RPC

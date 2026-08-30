@@ -170,6 +170,10 @@ export interface ClaimRequest {
   optional: RequestedClaim[];
 }
 
+export interface AuthenticationRequirements {
+  minimumFactorCount: number;
+}
+
 export interface AuthFlowContext {
   flow: string;
   priorSession?: string;
@@ -196,6 +200,7 @@ export interface DomainClaim {
   claimType: string;
   claimValue: Uint8Array;
   signatures: ClaimSignature[];
+  attestedAt: string;
   expiresAt?: string;
 }
 
@@ -273,6 +278,7 @@ export interface AuthRequest {
   timestamp: string;
   signingKeyId: string;
   requestedClaims?: ClaimRequest;
+  authenticationRequirements?: AuthenticationRequirements;
   flowContext?: AuthFlowContext;
   relyingPartyClaims?: DomainClaim[];
 }
@@ -323,11 +329,14 @@ export interface AdminUser {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  purgedAt?: string;
+  purgeReason?: string;
 }
 
 export interface ListUsersRequest {
   offset?: number;
   limit?: number;
+  includePurged?: boolean;
 }
 
 export interface ListUsersResponse {
@@ -368,6 +377,43 @@ export interface DeactivateUserRequest {
 
 export interface DeactivateUserResponse {
   user: AdminUser;
+}
+
+export interface ActivateUserRequest {
+  userId: string;
+}
+
+export interface ActivateUserResponse {
+  user: AdminUser;
+}
+
+export interface PurgeUserRequest {
+  userId: string;
+  reason?: string;
+}
+
+export interface PurgeUserResponse {
+  user: AdminUser;
+  credentialsRevoked: number;
+  keysRevoked: number;
+  claimsRevoked: number;
+  relationsRemoved: number;
+  profilesDeleted: number;
+  consentGrantsDeleted: number;
+  releasePrefsDeleted: number;
+  emailVerificationsDeleted: number;
+  reviewsResolved: number;
+  localRpClaimTicketsDeleted: number;
+}
+
+export interface RevokeDomainKeyRequest {
+  keyId: string;
+}
+
+export interface RevokeDomainKeyResponse {
+  revokedKey: DomainPublicKey;
+  certificateIssued: boolean;
+  dnsRemovalReminder: string;
 }
 
 export interface ResetPasswordRequest {
@@ -423,6 +469,14 @@ export interface ListUserClaimsResponse {
   claimTypes: string[];
 }
 
+export interface AdminUserClaimsRequest {
+  userId: string;
+}
+
+export interface AdminUserClaimsResponse {
+  claims: Claim[];
+}
+
 export interface SetUserClaimRequest {
   userId: string;
   claimType: string;
@@ -436,7 +490,10 @@ export interface SetUserClaimResponse {
 
 export interface SettableClaimPolicy {
   claimType: string;
+  label: string;
+  description: string;
   datatype: string;
+  maxBytes: number;
   setRule: string;
   requiresApproval: boolean;
   signingRule: string;
@@ -444,6 +501,174 @@ export interface SettableClaimPolicy {
 
 export interface ListSettablePoliciesResponse {
   policies: SettableClaimPolicy[];
+}
+
+export interface ClaimTypePolicy {
+  claimType: string;
+  label: string;
+  description: string;
+  valueType: string;
+  maxBytes: number;
+  setRule: string;
+  signingRule: string;
+  requiresApproval: boolean;
+  userSettable: boolean;
+  defaultAutoSign: boolean;
+  suggested: boolean;
+}
+
+export interface ListClaimTypesResponse {
+  claimTypes: ClaimTypePolicy[];
+}
+
+export interface SetClaimTypeRequest {
+  claimType: string;
+  label: string;
+  description?: string;
+  valueType: string;
+  maxBytes: number;
+  setRule: string;
+  signingRule: string;
+  userSettable: boolean;
+  defaultAutoSign: boolean;
+  requiresApproval: boolean;
+  suggested: boolean;
+}
+
+export interface SetClaimTypeResponse {
+  claimType: ClaimTypePolicy;
+}
+
+export interface RemoveClaimTypeRequest {
+  claimType: string;
+}
+
+export interface RemoveClaimTypeResponse {
+  success: boolean;
+}
+
+export interface ClaimTypeLabel {
+  claimType: string;
+  locale: string;
+  label: string;
+  description?: string;
+}
+
+export interface SetClaimTypeLabelRequest {
+  claimType: string;
+  locale: string;
+  label: string;
+  description?: string;
+}
+
+export interface SetClaimTypeLabelResponse {
+  label: ClaimTypeLabel;
+}
+
+export interface RemoveClaimTypeLabelRequest {
+  claimType: string;
+  locale: string;
+}
+
+export interface RemoveClaimTypeLabelResponse {
+  success: boolean;
+}
+
+export interface TrustedIssuer {
+  claimType: string;
+  issuerDomain: string;
+}
+
+export interface ListTrustedIssuersResponse {
+  trustedIssuers: TrustedIssuer[];
+}
+
+export interface AddTrustedIssuerRequest {
+  claimType: string;
+  issuerDomain: string;
+}
+
+export interface AddTrustedIssuerResponse {
+  trustedIssuer: TrustedIssuer;
+}
+
+export interface RemoveTrustedIssuerRequest {
+  claimType: string;
+  issuerDomain: string;
+}
+
+export interface RemoveTrustedIssuerResponse {
+  success: boolean;
+}
+
+export interface ReleaseRule {
+  audience: string;
+  claimType: string;
+  disposition: string;
+}
+
+export interface ListReleaseRulesResponse {
+  releaseRules: ReleaseRule[];
+}
+
+export interface SetReleaseRuleRequest {
+  audience: string;
+  claimType: string;
+  disposition: string;
+}
+
+export interface SetReleaseRuleResponse {
+  releaseRule: ReleaseRule;
+}
+
+export interface RemoveReleaseRuleRequest {
+  audience: string;
+  claimType: string;
+}
+
+export interface RemoveReleaseRuleResponse {
+  success: boolean;
+}
+
+export interface ClaimApproval {
+  id: string;
+  userId: string;
+  claimType: string;
+  claimValue: Uint8Array;
+  status: string;
+  resolvedBy?: string;
+  resolvedAt?: string;
+  createdAt: string;
+}
+
+export interface ListPendingClaimApprovalsResponse {
+  approvals: ClaimApproval[];
+}
+
+export interface ApproveClaimRequest {
+  approvalId: string;
+}
+
+export interface ApproveClaimResponse {
+  success: boolean;
+}
+
+export interface RejectClaimRequest {
+  approvalId: string;
+}
+
+export interface RejectClaimResponse {
+  success: boolean;
+}
+
+export interface AdminIssueAttestationRequest {
+  userId: string;
+  claimType: string;
+  claimValue: Uint8Array;
+}
+
+export interface AdminIssueAttestationResponse {
+  claim: Claim;
 }
 
 export interface GrantRelationRequest {
@@ -489,6 +714,7 @@ export interface CheckPermissionResponse {
 }
 
 export interface ChangePasswordRequest {
+  currentPassword: string;
   newPassword: string;
 }
 
@@ -502,10 +728,243 @@ export interface GetMyInfoResponse {
   claims: Claim[];
 }
 
+export interface SetMyClaimRequest {
+  claimType: string;
+  claimValue: string;
+}
+
+export interface SetMyClaimResponse {
+  outcome: string;
+  claim?: Claim;
+}
+
+export interface RemoveMyClaimRequest {
+  claimId: string;
+}
+
+export interface RemoveMyClaimResponse {
+  success: boolean;
+}
+
+export interface SetMyClaimSharingRequest {
+  claimType: string;
+  share: boolean;
+}
+
+export interface SetMyClaimSharingResponse {
+}
+
+export interface Profile {
+  id: string;
+  accountId: string;
+  domain: string;
+  isRoot: boolean;
+  label?: string;
+}
+
+export interface CreateProfileRequest {
+  label?: string;
+}
+
+export interface CreateProfileResponse {
+  profile: Profile;
+}
+
+export interface RequestVerificationRequest {
+  issuerDomain: string;
+  requestedClaimTypes: string[];
+}
+
+export interface RequestVerificationResponse {
+  signedRequest: SignedSigningRequest;
+}
+
+export interface PasswordPolicy {
+  minLength: number;
+  maxLength: number;
+}
+
+export interface BrowserSessionInfo {
+  user: AdminUser;
+  issuedAt: string;
+  authenticatedAt: string;
+  expiresAt: string;
+  authenticationMethods: string[];
+}
+
+export interface SessionPasswordLoginRequest {
+  username: string;
+  password: string;
+}
+
+export interface SessionPasswordLoginResponse {
+  session: BrowserSessionInfo;
+}
+
+export interface SessionCurrentResponse {
+  session: BrowserSessionInfo;
+}
+
+export interface SessionLogoutResponse {
+  success: boolean;
+}
+
+export interface IntrospectBrowserSessionRequest {
+  sessionCookie: string;
+}
+
+export interface IntrospectBrowserSessionResponse {
+  userId: string;
+  userDomain: string;
+  authenticatedAt: string;
+  expiresAt: string;
+  authenticationMethods: string[];
+}
+
+export interface NotificationCapability {
+  purpose: string;
+  channel: string;
+  destinationKind: string;
+}
+
+export interface GetNotificationCapabilitiesResponse {
+  capabilities: NotificationCapability[];
+}
+
+export interface VerifiedContactMethod {
+  id: string;
+  channel: string;
+  destination: string;
+  verifiedAt: string;
+  purposes: string[];
+  revokedAt?: string;
+}
+
+export interface ListVerifiedContactMethodsResponse {
+  contactMethods: VerifiedContactMethod[];
+}
+
+export interface RevokeVerifiedContactMethodRequest {
+  contactMethodId: string;
+  currentPassword: string;
+}
+
+export interface RevokeVerifiedContactMethodResponse {
+  success: boolean;
+}
+
+export interface RequestContactVerificationRequest {
+  channel: string;
+  destination: string;
+  currentPassword: string;
+}
+
+export interface RequestContactVerificationResponse {
+  expiresAt: string;
+}
+
+export interface ConfirmContactVerificationRequest {
+  token: string;
+}
+
+export interface ConfirmContactVerificationResponse {
+  contactMethod: VerifiedContactMethod;
+  claims: Claim[];
+}
+
+export interface RequestPasswordRecoveryRequest {
+  identifier: string;
+}
+
+export interface RequestPasswordRecoveryResponse {
+}
+
+export interface ValidatePasswordRecoveryRequest {
+  token: string;
+}
+
+export interface ValidatePasswordRecoveryResponse {
+  expiresAt: string;
+  passwordPolicy: PasswordPolicy;
+}
+
+export interface CompletePasswordRecoveryRequest {
+  token: string;
+  newPassword: string;
+}
+
+export interface CompletePasswordRecoveryResponse {
+  success: boolean;
+}
+
+export interface BrowserAuthorizationInspectRequest {
+  signedRequest: string;
+}
+
+export interface BrowserConsentClaim {
+  claimType: string;
+  label: string;
+  datatype: string;
+  required: boolean;
+  available: boolean;
+  defaultGranted: boolean;
+  policy: string;
+  userSettable: boolean;
+  maxBytes: number;
+  requiresApproval: boolean;
+}
+
+export interface BrowserAuthorizationInspectResponse {
+  relyingParty: string;
+  claims: BrowserConsentClaim[];
+  requestReason?: string;
+}
+
+export interface BrowserAuthorizationCompleteRequest {
+  signedRequest: string;
+  authorizedClaims: string[];
+  claimTypesToSet: string[];
+  claimValuesToSet: string[];
+}
+
+export interface BrowserAuthorizationCompleteResponse {
+  redirectUrl: string;
+}
+
+export interface UiTheme {
+  stylesheetUrl?: string;
+  logoUrl?: string;
+  faviconUrl?: string;
+}
+
+export interface UiExtension {
+  id: string;
+  moduleUrl: string;
+  apiVersion: number;
+  stylesheetUrl?: string;
+}
+
+export interface UiDisplaySettings {
+  siteName: string;
+  supportUrl?: string;
+}
+
+export interface GetUiConfigurationResponse {
+  hostApiVersion: number;
+  domain: string;
+  publicOrigin?: string;
+  capabilities: string[];
+  display: UiDisplaySettings;
+  theme?: UiTheme;
+  extensions: UiExtension[];
+  passwordPolicy?: PasswordPolicy;
+}
+
 export interface RpSignRequest {
   callbackUrl: string;
   nonce: string;
   requestedClaims?: ClaimRequest;
+  authenticationRequirements?: AuthenticationRequirements;
   flowContext?: AuthFlowContext;
 }
 
@@ -548,6 +1007,36 @@ export interface RpIssueAttestationResponse {
   deposited: boolean;
 }
 
+export interface AuthorizeValidateRequest {
+  signedRequest: string;
+  userId?: string;
+}
+
+export interface AuthorizeValidateResponse {
+  relyingParty: string;
+  callbackUrl: string;
+  requestedClaims: string[];
+  alreadyConsented?: boolean;
+  authorizedClaims?: string[];
+}
+
+export interface AuthorizeFinalizeRequest {
+  userId: string;
+  signedRequest: string;
+  authorizedClaims: string[];
+}
+
+export interface AuthorizeFinalizeResponse {
+  redirectUrl: string;
+}
+
+export type ApiErrorCode = "request_already_used" | "rp_key_fetch_failed" | "rp_encrypt_key_untrusted" | "signing_failed" | "storage_failed" | "bad_request" | "unauthorized" | "forbidden" | "not_found" | "internal";
+
+export interface ApiError {
+  code: ApiErrorCode;
+  message: string;
+}
+
 export type AeadSuite = string;
 
 export type LocalRpPolicy = string;
@@ -575,6 +1064,8 @@ export interface LocalRpLoginRequest {
   state: Uint8Array;
   requestedClaims: string[];
   requiredClaims: string[];
+  authenticationRequirements?: AuthenticationRequirements;
+  flowContext?: AuthFlowContext;
   issuedAt: string;
   expiresAt: string;
 }
@@ -710,6 +1201,13 @@ export interface SetLocalRpPolicyResponse {
   policy: LocalRpPolicy;
 }
 
+export interface PurgeLocalRpTicketsRequest {
+}
+
+export interface PurgeLocalRpTicketsResponse {
+  purgedCount: number;
+}
+
 export type LocaleMessages = Record<string, string>;
 
 export interface TranslationsRequest {
@@ -725,6 +1223,191 @@ export interface TranslationsResponse {
 
 export interface ListLocalesResponse {
   availableLocales: string[];
+}
+
+export interface ApplicationKeySignature {
+  signedByKeyId: string;
+  signature: Uint8Array;
+}
+
+export interface ApplicationKeyAttestation {
+  subjectUserId: string;
+  subjectDomain: string;
+  applicationId: string;
+  instanceId: string;
+  keyId: string;
+  keyUsage: string;
+  algorithm: string;
+  publicKey: Uint8Array;
+  fingerprint: string;
+  keyCreatedAt: string;
+  keyExpiresAt: string;
+  attestedAt: string;
+  attestationExpiresAt: string;
+}
+
+export interface SignedApplicationKeyAttestation {
+  attestation: Uint8Array;
+  signatures: ClaimSignature[];
+}
+
+export interface ApplicationKeyAddition {
+  subjectUserId: string;
+  subjectDomain: string;
+  applicationId: string;
+  instanceId: string;
+  keyId: string;
+  keyUsage: string;
+  algorithm: string;
+  publicKey: Uint8Array;
+  fingerprint: string;
+  requestedKeyLifetimeSeconds: number;
+  challengeId: string;
+  challenge: Uint8Array;
+  requestedAt: string;
+  expiresAt: string;
+}
+
+export interface SignedApplicationKeyAddition {
+  addition: Uint8Array;
+  signatures: ApplicationKeySignature[];
+  possessionProof?: Uint8Array;
+}
+
+export interface ApplicationKeyRenewal {
+  subjectUserId: string;
+  subjectDomain: string;
+  applicationId: string;
+  instanceId: string;
+  keyId: string;
+  challengeId: string;
+  challenge: Uint8Array;
+  requestedAt: string;
+  expiresAt: string;
+}
+
+export interface SignedApplicationKeyRenewal {
+  renewal: Uint8Array;
+  signatures: ApplicationKeySignature[];
+  possessionProof?: Uint8Array;
+}
+
+export interface ApplicationKeyRevocation {
+  subjectUserId: string;
+  subjectDomain: string;
+  applicationId: string;
+  instanceId: string;
+  targetKeyId: string;
+  targetFingerprint: string;
+  revokedAt: string;
+  signatures: ApplicationKeySignature[];
+}
+
+export interface StartApplicationKeyChallengeRequest {
+  subjectUserId: string;
+  applicationId: string;
+  instanceId: string;
+  purpose: string;
+  keyUsage: string;
+  algorithm: string;
+  publicKey: Uint8Array;
+}
+
+export interface StartApplicationKeyChallengeResponse {
+  challengeId: string;
+  challenge?: Uint8Array;
+  sealedChallenge?: Uint8Array;
+  expiresAt: string;
+}
+
+export interface AddApplicationKeyRequest {
+  request: SignedApplicationKeyAddition;
+}
+
+export interface AddApplicationKeyResponse {
+  attestation: SignedApplicationKeyAttestation;
+}
+
+export interface RenewApplicationKeyAttestationRequest {
+  request: SignedApplicationKeyRenewal;
+}
+
+export interface RenewApplicationKeyAttestationResponse {
+  attestation: SignedApplicationKeyAttestation;
+  signed: boolean;
+}
+
+export interface RevokeApplicationKeyRequest {
+  revocation: ApplicationKeyRevocation;
+}
+
+export interface RevokeApplicationKeyResponse {
+  revokedAt: string;
+}
+
+export interface EnrollApplicationInstanceRequest {
+  applicationId: string;
+  instanceId: string;
+  keys: SignedApplicationKeyAddition[];
+}
+
+export interface EnrollApplicationInstanceResponse {
+  subjectUserId: string;
+  subjectDomain: string;
+  applicationId: string;
+  instanceId: string;
+  attestations: SignedApplicationKeyAttestation[];
+}
+
+export interface GetApplicationKeysRequest {
+  subjectUserId: string;
+  applicationId: string;
+  instanceId: string;
+}
+
+export interface GetApplicationKeysResponse {
+  subjectUserId: string;
+  subjectDomain: string;
+  applicationId: string;
+  instanceId: string;
+  keys: SignedApplicationKeyAttestation[];
+  revocations: ApplicationKeyRevocation[];
+}
+
+export interface RpResolveDomainKeysRequest {
+  domain: string;
+  maxCacheAgeSeconds?: number;
+}
+
+export interface RpResolveDomainKeysResponse {
+  domain: string;
+  keys: DomainPublicKey[];
+  revocations: RevocationCertificate[];
+  fetchedAt: string;
+  revocationsCheckedAt: string;
+  cacheStatus: string;
+}
+
+export interface RpResolveApplicationKeysRequest {
+  subjectUserId: string;
+  subjectDomain: string;
+  applicationId: string;
+  instanceId: string;
+  maxCacheAgeSeconds?: number;
+}
+
+export interface RpResolveApplicationKeysResponse {
+  subjectUserId: string;
+  subjectDomain: string;
+  applicationId: string;
+  instanceId: string;
+  applicationKeys: SignedApplicationKeyAttestation[];
+  applicationKeyRevocations: ApplicationKeyRevocation[];
+  homeDomainKeys: DomainPublicKey[];
+  homeDomainKeyRevocations: RevocationCertificate[];
+  fetchedAt: string;
+  revocationsCheckedAt: string;
+  cacheStatus: string;
 }
 
 export function validateLocalRpDescriptor(value: LocalRpDescriptor): string[] {

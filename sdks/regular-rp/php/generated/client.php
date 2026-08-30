@@ -165,6 +165,58 @@ class UserKeysClient
  * written in the source and map verbatim onto the CSIL-RPC v1 envelope's
  * service/op fields.
  */
+class ApplicationKeysClient
+{
+    private $transport;
+
+    public function __construct($transport)
+    {
+        $this->transport = $transport;
+    }
+
+    public function getApplicationKeys($request)
+    {
+        $payload = Codec::encodeGetApplicationKeysRequest($request);
+        $reply = $this->transport->call('ApplicationKeys', 'get-application-keys', $payload);
+        return Codec::decodeGetApplicationKeysResponse($reply);
+    }
+
+    public function startKeyChallenge($request)
+    {
+        $payload = Codec::encodeStartApplicationKeyChallengeRequest($request);
+        $reply = $this->transport->call('ApplicationKeys', 'start-key-challenge', $payload);
+        return Codec::decodeStartApplicationKeyChallengeResponse($reply);
+    }
+
+    public function addKey($request)
+    {
+        $payload = Codec::encodeAddApplicationKeyRequest($request);
+        $reply = $this->transport->call('ApplicationKeys', 'add-key', $payload);
+        return Codec::decodeAddApplicationKeyResponse($reply);
+    }
+
+    public function renewAttestation($request)
+    {
+        $payload = Codec::encodeRenewApplicationKeyAttestationRequest($request);
+        $reply = $this->transport->call('ApplicationKeys', 'renew-attestation', $payload);
+        return Codec::decodeRenewApplicationKeyAttestationResponse($reply);
+    }
+
+    public function revokeKey($request)
+    {
+        $payload = Codec::encodeRevokeApplicationKeyRequest($request);
+        $reply = $this->transport->call('ApplicationKeys', 'revoke-key', $payload);
+        return Codec::decodeRevokeApplicationKeyResponse($reply);
+    }
+
+}
+
+/**
+ * The injected transport must expose call($service, $op, $payload) and return
+ * the reply payload bytes. $service and $op are the CSIL names exactly as
+ * written in the source and map verbatim onto the CSIL-RPC v1 envelope's
+ * service/op fields.
+ */
 class IdentityClient
 {
     private $transport;
@@ -831,6 +883,13 @@ class AccountClient
         return Codec::decodeConfirmContactVerificationResponse($reply);
     }
 
+    public function enrollApplicationInstance($request)
+    {
+        $payload = Codec::encodeEnrollApplicationInstanceRequest($request);
+        $reply = $this->transport->call('Account', 'enroll-application-instance', $payload);
+        return Codec::decodeEnrollApplicationInstanceResponse($reply);
+    }
+
 }
 
 /**
@@ -905,6 +964,20 @@ class RpClient
         $payload = Codec::encodeRpIssueAttestationRequest($request);
         $reply = $this->transport->call('Rp', 'issue-attestation', $payload);
         return Codec::decodeRpIssueAttestationResponse($reply);
+    }
+
+    public function resolveDomainKeys($request)
+    {
+        $payload = Codec::encodeRpResolveDomainKeysRequest($request);
+        $reply = $this->transport->call('Rp', 'resolve-domain-keys', $payload);
+        return Codec::decodeRpResolveDomainKeysResponse($reply);
+    }
+
+    public function resolveApplicationKeys($request)
+    {
+        $payload = Codec::encodeRpResolveApplicationKeysRequest($request);
+        $reply = $this->transport->call('Rp', 'resolve-application-keys', $payload);
+        return Codec::decodeRpResolveApplicationKeysResponse($reply);
     }
 
 }

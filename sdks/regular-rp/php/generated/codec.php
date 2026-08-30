@@ -6780,4 +6780,883 @@ class Codec
         ));
     }
 
+    public static function encodeApplicationKeySignature($value)
+    {
+        return CBOR::encode(self::toCborApplicationKeySignature($value));
+    }
+
+    public static function decodeApplicationKeySignature($bytes)
+    {
+        return self::fromCborApplicationKeySignature(CBOR::decode($bytes));
+    }
+
+    public static function toCborApplicationKeySignature($value)
+    {
+        $out = array();
+        $field = $value instanceof ApplicationKeySignature ? $value->signedByKeyId : (is_array($value) && array_key_exists('signed_by_key_id', $value) ? $value['signed_by_key_id'] : null);
+        $out['signed_by_key_id'] = $field;
+        $field = $value instanceof ApplicationKeySignature ? $value->signature : (is_array($value) && array_key_exists('signature', $value) ? $value['signature'] : null);
+        $out['signature'] = CBOR::bytes($field);
+        return $out;
+    }
+
+    public static function fromCborApplicationKeySignature($value)
+    {
+        return new ApplicationKeySignature(array(
+            'signed_by_key_id' => array_key_exists('signed_by_key_id', $value) ? $value['signed_by_key_id'] : null,
+            'signature' => array_key_exists('signature', $value) ? $value['signature'] : null,
+        ));
+    }
+
+    public static function encodeApplicationKeyAttestation($value)
+    {
+        return CBOR::encode(self::toCborApplicationKeyAttestation($value));
+    }
+
+    public static function decodeApplicationKeyAttestation($bytes)
+    {
+        return self::fromCborApplicationKeyAttestation(CBOR::decode($bytes));
+    }
+
+    public static function toCborApplicationKeyAttestation($value)
+    {
+        $out = array();
+        $field = $value instanceof ApplicationKeyAttestation ? $value->subjectUserId : (is_array($value) && array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null);
+        $out['subject_user_id'] = $field;
+        $field = $value instanceof ApplicationKeyAttestation ? $value->subjectDomain : (is_array($value) && array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null);
+        $out['subject_domain'] = $field;
+        $field = $value instanceof ApplicationKeyAttestation ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        $out['application_id'] = $field;
+        $field = $value instanceof ApplicationKeyAttestation ? $value->instanceId : (is_array($value) && array_key_exists('instance_id', $value) ? $value['instance_id'] : null);
+        $out['instance_id'] = $field;
+        $field = $value instanceof ApplicationKeyAttestation ? $value->keyId : (is_array($value) && array_key_exists('key_id', $value) ? $value['key_id'] : null);
+        $out['key_id'] = $field;
+        $field = $value instanceof ApplicationKeyAttestation ? $value->keyUsage : (is_array($value) && array_key_exists('key_usage', $value) ? $value['key_usage'] : null);
+        $out['key_usage'] = $field;
+        $field = $value instanceof ApplicationKeyAttestation ? $value->algorithm : (is_array($value) && array_key_exists('algorithm', $value) ? $value['algorithm'] : null);
+        $out['algorithm'] = $field;
+        $field = $value instanceof ApplicationKeyAttestation ? $value->publicKey : (is_array($value) && array_key_exists('public_key', $value) ? $value['public_key'] : null);
+        $out['public_key'] = CBOR::bytes($field);
+        $field = $value instanceof ApplicationKeyAttestation ? $value->fingerprint : (is_array($value) && array_key_exists('fingerprint', $value) ? $value['fingerprint'] : null);
+        $out['fingerprint'] = $field;
+        $field = $value instanceof ApplicationKeyAttestation ? $value->keyCreatedAt : (is_array($value) && array_key_exists('key_created_at', $value) ? $value['key_created_at'] : null);
+        $out['key_created_at'] = $field;
+        $field = $value instanceof ApplicationKeyAttestation ? $value->keyExpiresAt : (is_array($value) && array_key_exists('key_expires_at', $value) ? $value['key_expires_at'] : null);
+        $out['key_expires_at'] = $field;
+        $field = $value instanceof ApplicationKeyAttestation ? $value->attestedAt : (is_array($value) && array_key_exists('attested_at', $value) ? $value['attested_at'] : null);
+        $out['attested_at'] = $field;
+        $field = $value instanceof ApplicationKeyAttestation ? $value->attestationExpiresAt : (is_array($value) && array_key_exists('attestation_expires_at', $value) ? $value['attestation_expires_at'] : null);
+        $out['attestation_expires_at'] = $field;
+        return $out;
+    }
+
+    public static function fromCborApplicationKeyAttestation($value)
+    {
+        return new ApplicationKeyAttestation(array(
+            'subject_user_id' => array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null,
+            'subject_domain' => array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null,
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+            'instance_id' => array_key_exists('instance_id', $value) ? $value['instance_id'] : null,
+            'key_id' => array_key_exists('key_id', $value) ? $value['key_id'] : null,
+            'key_usage' => array_key_exists('key_usage', $value) ? $value['key_usage'] : null,
+            'algorithm' => array_key_exists('algorithm', $value) ? $value['algorithm'] : null,
+            'public_key' => array_key_exists('public_key', $value) ? $value['public_key'] : null,
+            'fingerprint' => array_key_exists('fingerprint', $value) ? $value['fingerprint'] : null,
+            'key_created_at' => array_key_exists('key_created_at', $value) ? $value['key_created_at'] : null,
+            'key_expires_at' => array_key_exists('key_expires_at', $value) ? $value['key_expires_at'] : null,
+            'attested_at' => array_key_exists('attested_at', $value) ? $value['attested_at'] : null,
+            'attestation_expires_at' => array_key_exists('attestation_expires_at', $value) ? $value['attestation_expires_at'] : null,
+        ));
+    }
+
+    public static function encodeSignedApplicationKeyAttestation($value)
+    {
+        return CBOR::encode(self::toCborSignedApplicationKeyAttestation($value));
+    }
+
+    public static function decodeSignedApplicationKeyAttestation($bytes)
+    {
+        return self::fromCborSignedApplicationKeyAttestation(CBOR::decode($bytes));
+    }
+
+    public static function toCborSignedApplicationKeyAttestation($value)
+    {
+        $out = array();
+        $field = $value instanceof SignedApplicationKeyAttestation ? $value->attestation : (is_array($value) && array_key_exists('attestation', $value) ? $value['attestation'] : null);
+        $out['attestation'] = CBOR::bytes($field);
+        $field = $value instanceof SignedApplicationKeyAttestation ? $value->signatures : (is_array($value) && array_key_exists('signatures', $value) ? $value['signatures'] : null);
+        $out['signatures'] = array_map(function ($item) { return self::toCborClaimSignature($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborSignedApplicationKeyAttestation($value)
+    {
+        return new SignedApplicationKeyAttestation(array(
+            'attestation' => array_key_exists('attestation', $value) ? $value['attestation'] : null,
+            'signatures' => array_key_exists('signatures', $value) ? array_map(function ($item) { return self::fromCborClaimSignature($item); }, $value['signatures'] === null ? array() : $value['signatures']) : null,
+        ));
+    }
+
+    public static function encodeApplicationKeyAddition($value)
+    {
+        return CBOR::encode(self::toCborApplicationKeyAddition($value));
+    }
+
+    public static function decodeApplicationKeyAddition($bytes)
+    {
+        return self::fromCborApplicationKeyAddition(CBOR::decode($bytes));
+    }
+
+    public static function toCborApplicationKeyAddition($value)
+    {
+        $out = array();
+        $field = $value instanceof ApplicationKeyAddition ? $value->subjectUserId : (is_array($value) && array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null);
+        $out['subject_user_id'] = $field;
+        $field = $value instanceof ApplicationKeyAddition ? $value->subjectDomain : (is_array($value) && array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null);
+        $out['subject_domain'] = $field;
+        $field = $value instanceof ApplicationKeyAddition ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        $out['application_id'] = $field;
+        $field = $value instanceof ApplicationKeyAddition ? $value->instanceId : (is_array($value) && array_key_exists('instance_id', $value) ? $value['instance_id'] : null);
+        $out['instance_id'] = $field;
+        $field = $value instanceof ApplicationKeyAddition ? $value->keyId : (is_array($value) && array_key_exists('key_id', $value) ? $value['key_id'] : null);
+        $out['key_id'] = $field;
+        $field = $value instanceof ApplicationKeyAddition ? $value->keyUsage : (is_array($value) && array_key_exists('key_usage', $value) ? $value['key_usage'] : null);
+        $out['key_usage'] = $field;
+        $field = $value instanceof ApplicationKeyAddition ? $value->algorithm : (is_array($value) && array_key_exists('algorithm', $value) ? $value['algorithm'] : null);
+        $out['algorithm'] = $field;
+        $field = $value instanceof ApplicationKeyAddition ? $value->publicKey : (is_array($value) && array_key_exists('public_key', $value) ? $value['public_key'] : null);
+        $out['public_key'] = CBOR::bytes($field);
+        $field = $value instanceof ApplicationKeyAddition ? $value->fingerprint : (is_array($value) && array_key_exists('fingerprint', $value) ? $value['fingerprint'] : null);
+        $out['fingerprint'] = $field;
+        $field = $value instanceof ApplicationKeyAddition ? $value->requestedKeyLifetimeSeconds : (is_array($value) && array_key_exists('requested_key_lifetime_seconds', $value) ? $value['requested_key_lifetime_seconds'] : null);
+        $out['requested_key_lifetime_seconds'] = $field;
+        $field = $value instanceof ApplicationKeyAddition ? $value->challengeId : (is_array($value) && array_key_exists('challenge_id', $value) ? $value['challenge_id'] : null);
+        $out['challenge_id'] = $field;
+        $field = $value instanceof ApplicationKeyAddition ? $value->challenge : (is_array($value) && array_key_exists('challenge', $value) ? $value['challenge'] : null);
+        $out['challenge'] = CBOR::bytes($field);
+        $field = $value instanceof ApplicationKeyAddition ? $value->requestedAt : (is_array($value) && array_key_exists('requested_at', $value) ? $value['requested_at'] : null);
+        $out['requested_at'] = $field;
+        $field = $value instanceof ApplicationKeyAddition ? $value->expiresAt : (is_array($value) && array_key_exists('expires_at', $value) ? $value['expires_at'] : null);
+        $out['expires_at'] = $field;
+        return $out;
+    }
+
+    public static function fromCborApplicationKeyAddition($value)
+    {
+        return new ApplicationKeyAddition(array(
+            'subject_user_id' => array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null,
+            'subject_domain' => array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null,
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+            'instance_id' => array_key_exists('instance_id', $value) ? $value['instance_id'] : null,
+            'key_id' => array_key_exists('key_id', $value) ? $value['key_id'] : null,
+            'key_usage' => array_key_exists('key_usage', $value) ? $value['key_usage'] : null,
+            'algorithm' => array_key_exists('algorithm', $value) ? $value['algorithm'] : null,
+            'public_key' => array_key_exists('public_key', $value) ? $value['public_key'] : null,
+            'fingerprint' => array_key_exists('fingerprint', $value) ? $value['fingerprint'] : null,
+            'requested_key_lifetime_seconds' => array_key_exists('requested_key_lifetime_seconds', $value) ? $value['requested_key_lifetime_seconds'] : null,
+            'challenge_id' => array_key_exists('challenge_id', $value) ? $value['challenge_id'] : null,
+            'challenge' => array_key_exists('challenge', $value) ? $value['challenge'] : null,
+            'requested_at' => array_key_exists('requested_at', $value) ? $value['requested_at'] : null,
+            'expires_at' => array_key_exists('expires_at', $value) ? $value['expires_at'] : null,
+        ));
+    }
+
+    public static function encodeSignedApplicationKeyAddition($value)
+    {
+        return CBOR::encode(self::toCborSignedApplicationKeyAddition($value));
+    }
+
+    public static function decodeSignedApplicationKeyAddition($bytes)
+    {
+        return self::fromCborSignedApplicationKeyAddition(CBOR::decode($bytes));
+    }
+
+    public static function toCborSignedApplicationKeyAddition($value)
+    {
+        $out = array();
+        $field = $value instanceof SignedApplicationKeyAddition ? $value->addition : (is_array($value) && array_key_exists('addition', $value) ? $value['addition'] : null);
+        $out['addition'] = CBOR::bytes($field);
+        $field = $value instanceof SignedApplicationKeyAddition ? $value->signatures : (is_array($value) && array_key_exists('signatures', $value) ? $value['signatures'] : null);
+        $out['signatures'] = array_map(function ($item) { return self::toCborApplicationKeySignature($item); }, $field === null ? array() : $field);
+        $field = $value instanceof SignedApplicationKeyAddition ? $value->possessionProof : (is_array($value) && array_key_exists('possession_proof', $value) ? $value['possession_proof'] : null);
+        if ($field !== null) {
+            $out['possession_proof'] = CBOR::bytes($field);
+        }
+        return $out;
+    }
+
+    public static function fromCborSignedApplicationKeyAddition($value)
+    {
+        return new SignedApplicationKeyAddition(array(
+            'addition' => array_key_exists('addition', $value) ? $value['addition'] : null,
+            'signatures' => array_key_exists('signatures', $value) ? array_map(function ($item) { return self::fromCborApplicationKeySignature($item); }, $value['signatures'] === null ? array() : $value['signatures']) : null,
+            'possession_proof' => array_key_exists('possession_proof', $value) ? $value['possession_proof'] : null,
+        ));
+    }
+
+    public static function encodeApplicationKeyRenewal($value)
+    {
+        return CBOR::encode(self::toCborApplicationKeyRenewal($value));
+    }
+
+    public static function decodeApplicationKeyRenewal($bytes)
+    {
+        return self::fromCborApplicationKeyRenewal(CBOR::decode($bytes));
+    }
+
+    public static function toCborApplicationKeyRenewal($value)
+    {
+        $out = array();
+        $field = $value instanceof ApplicationKeyRenewal ? $value->subjectUserId : (is_array($value) && array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null);
+        $out['subject_user_id'] = $field;
+        $field = $value instanceof ApplicationKeyRenewal ? $value->subjectDomain : (is_array($value) && array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null);
+        $out['subject_domain'] = $field;
+        $field = $value instanceof ApplicationKeyRenewal ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        $out['application_id'] = $field;
+        $field = $value instanceof ApplicationKeyRenewal ? $value->instanceId : (is_array($value) && array_key_exists('instance_id', $value) ? $value['instance_id'] : null);
+        $out['instance_id'] = $field;
+        $field = $value instanceof ApplicationKeyRenewal ? $value->keyId : (is_array($value) && array_key_exists('key_id', $value) ? $value['key_id'] : null);
+        $out['key_id'] = $field;
+        $field = $value instanceof ApplicationKeyRenewal ? $value->challengeId : (is_array($value) && array_key_exists('challenge_id', $value) ? $value['challenge_id'] : null);
+        $out['challenge_id'] = $field;
+        $field = $value instanceof ApplicationKeyRenewal ? $value->challenge : (is_array($value) && array_key_exists('challenge', $value) ? $value['challenge'] : null);
+        $out['challenge'] = CBOR::bytes($field);
+        $field = $value instanceof ApplicationKeyRenewal ? $value->requestedAt : (is_array($value) && array_key_exists('requested_at', $value) ? $value['requested_at'] : null);
+        $out['requested_at'] = $field;
+        $field = $value instanceof ApplicationKeyRenewal ? $value->expiresAt : (is_array($value) && array_key_exists('expires_at', $value) ? $value['expires_at'] : null);
+        $out['expires_at'] = $field;
+        return $out;
+    }
+
+    public static function fromCborApplicationKeyRenewal($value)
+    {
+        return new ApplicationKeyRenewal(array(
+            'subject_user_id' => array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null,
+            'subject_domain' => array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null,
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+            'instance_id' => array_key_exists('instance_id', $value) ? $value['instance_id'] : null,
+            'key_id' => array_key_exists('key_id', $value) ? $value['key_id'] : null,
+            'challenge_id' => array_key_exists('challenge_id', $value) ? $value['challenge_id'] : null,
+            'challenge' => array_key_exists('challenge', $value) ? $value['challenge'] : null,
+            'requested_at' => array_key_exists('requested_at', $value) ? $value['requested_at'] : null,
+            'expires_at' => array_key_exists('expires_at', $value) ? $value['expires_at'] : null,
+        ));
+    }
+
+    public static function encodeSignedApplicationKeyRenewal($value)
+    {
+        return CBOR::encode(self::toCborSignedApplicationKeyRenewal($value));
+    }
+
+    public static function decodeSignedApplicationKeyRenewal($bytes)
+    {
+        return self::fromCborSignedApplicationKeyRenewal(CBOR::decode($bytes));
+    }
+
+    public static function toCborSignedApplicationKeyRenewal($value)
+    {
+        $out = array();
+        $field = $value instanceof SignedApplicationKeyRenewal ? $value->renewal : (is_array($value) && array_key_exists('renewal', $value) ? $value['renewal'] : null);
+        $out['renewal'] = CBOR::bytes($field);
+        $field = $value instanceof SignedApplicationKeyRenewal ? $value->signatures : (is_array($value) && array_key_exists('signatures', $value) ? $value['signatures'] : null);
+        $out['signatures'] = array_map(function ($item) { return self::toCborApplicationKeySignature($item); }, $field === null ? array() : $field);
+        $field = $value instanceof SignedApplicationKeyRenewal ? $value->possessionProof : (is_array($value) && array_key_exists('possession_proof', $value) ? $value['possession_proof'] : null);
+        if ($field !== null) {
+            $out['possession_proof'] = CBOR::bytes($field);
+        }
+        return $out;
+    }
+
+    public static function fromCborSignedApplicationKeyRenewal($value)
+    {
+        return new SignedApplicationKeyRenewal(array(
+            'renewal' => array_key_exists('renewal', $value) ? $value['renewal'] : null,
+            'signatures' => array_key_exists('signatures', $value) ? array_map(function ($item) { return self::fromCborApplicationKeySignature($item); }, $value['signatures'] === null ? array() : $value['signatures']) : null,
+            'possession_proof' => array_key_exists('possession_proof', $value) ? $value['possession_proof'] : null,
+        ));
+    }
+
+    public static function encodeApplicationKeyRevocation($value)
+    {
+        return CBOR::encode(self::toCborApplicationKeyRevocation($value));
+    }
+
+    public static function decodeApplicationKeyRevocation($bytes)
+    {
+        return self::fromCborApplicationKeyRevocation(CBOR::decode($bytes));
+    }
+
+    public static function toCborApplicationKeyRevocation($value)
+    {
+        $out = array();
+        $field = $value instanceof ApplicationKeyRevocation ? $value->subjectUserId : (is_array($value) && array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null);
+        $out['subject_user_id'] = $field;
+        $field = $value instanceof ApplicationKeyRevocation ? $value->subjectDomain : (is_array($value) && array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null);
+        $out['subject_domain'] = $field;
+        $field = $value instanceof ApplicationKeyRevocation ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        $out['application_id'] = $field;
+        $field = $value instanceof ApplicationKeyRevocation ? $value->instanceId : (is_array($value) && array_key_exists('instance_id', $value) ? $value['instance_id'] : null);
+        $out['instance_id'] = $field;
+        $field = $value instanceof ApplicationKeyRevocation ? $value->targetKeyId : (is_array($value) && array_key_exists('target_key_id', $value) ? $value['target_key_id'] : null);
+        $out['target_key_id'] = $field;
+        $field = $value instanceof ApplicationKeyRevocation ? $value->targetFingerprint : (is_array($value) && array_key_exists('target_fingerprint', $value) ? $value['target_fingerprint'] : null);
+        $out['target_fingerprint'] = $field;
+        $field = $value instanceof ApplicationKeyRevocation ? $value->revokedAt : (is_array($value) && array_key_exists('revoked_at', $value) ? $value['revoked_at'] : null);
+        $out['revoked_at'] = $field;
+        $field = $value instanceof ApplicationKeyRevocation ? $value->signatures : (is_array($value) && array_key_exists('signatures', $value) ? $value['signatures'] : null);
+        $out['signatures'] = array_map(function ($item) { return self::toCborApplicationKeySignature($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborApplicationKeyRevocation($value)
+    {
+        return new ApplicationKeyRevocation(array(
+            'subject_user_id' => array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null,
+            'subject_domain' => array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null,
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+            'instance_id' => array_key_exists('instance_id', $value) ? $value['instance_id'] : null,
+            'target_key_id' => array_key_exists('target_key_id', $value) ? $value['target_key_id'] : null,
+            'target_fingerprint' => array_key_exists('target_fingerprint', $value) ? $value['target_fingerprint'] : null,
+            'revoked_at' => array_key_exists('revoked_at', $value) ? $value['revoked_at'] : null,
+            'signatures' => array_key_exists('signatures', $value) ? array_map(function ($item) { return self::fromCborApplicationKeySignature($item); }, $value['signatures'] === null ? array() : $value['signatures']) : null,
+        ));
+    }
+
+    public static function encodeStartApplicationKeyChallengeRequest($value)
+    {
+        return CBOR::encode(self::toCborStartApplicationKeyChallengeRequest($value));
+    }
+
+    public static function decodeStartApplicationKeyChallengeRequest($bytes)
+    {
+        return self::fromCborStartApplicationKeyChallengeRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborStartApplicationKeyChallengeRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof StartApplicationKeyChallengeRequest ? $value->subjectUserId : (is_array($value) && array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null);
+        $out['subject_user_id'] = $field;
+        $field = $value instanceof StartApplicationKeyChallengeRequest ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        $out['application_id'] = $field;
+        $field = $value instanceof StartApplicationKeyChallengeRequest ? $value->instanceId : (is_array($value) && array_key_exists('instance_id', $value) ? $value['instance_id'] : null);
+        $out['instance_id'] = $field;
+        $field = $value instanceof StartApplicationKeyChallengeRequest ? $value->purpose : (is_array($value) && array_key_exists('purpose', $value) ? $value['purpose'] : null);
+        $out['purpose'] = $field;
+        $field = $value instanceof StartApplicationKeyChallengeRequest ? $value->keyUsage : (is_array($value) && array_key_exists('key_usage', $value) ? $value['key_usage'] : null);
+        $out['key_usage'] = $field;
+        $field = $value instanceof StartApplicationKeyChallengeRequest ? $value->algorithm : (is_array($value) && array_key_exists('algorithm', $value) ? $value['algorithm'] : null);
+        $out['algorithm'] = $field;
+        $field = $value instanceof StartApplicationKeyChallengeRequest ? $value->publicKey : (is_array($value) && array_key_exists('public_key', $value) ? $value['public_key'] : null);
+        $out['public_key'] = CBOR::bytes($field);
+        return $out;
+    }
+
+    public static function fromCborStartApplicationKeyChallengeRequest($value)
+    {
+        return new StartApplicationKeyChallengeRequest(array(
+            'subject_user_id' => array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null,
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+            'instance_id' => array_key_exists('instance_id', $value) ? $value['instance_id'] : null,
+            'purpose' => array_key_exists('purpose', $value) ? $value['purpose'] : null,
+            'key_usage' => array_key_exists('key_usage', $value) ? $value['key_usage'] : null,
+            'algorithm' => array_key_exists('algorithm', $value) ? $value['algorithm'] : null,
+            'public_key' => array_key_exists('public_key', $value) ? $value['public_key'] : null,
+        ));
+    }
+
+    public static function encodeStartApplicationKeyChallengeResponse($value)
+    {
+        return CBOR::encode(self::toCborStartApplicationKeyChallengeResponse($value));
+    }
+
+    public static function decodeStartApplicationKeyChallengeResponse($bytes)
+    {
+        return self::fromCborStartApplicationKeyChallengeResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborStartApplicationKeyChallengeResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof StartApplicationKeyChallengeResponse ? $value->challengeId : (is_array($value) && array_key_exists('challenge_id', $value) ? $value['challenge_id'] : null);
+        $out['challenge_id'] = $field;
+        $field = $value instanceof StartApplicationKeyChallengeResponse ? $value->challenge : (is_array($value) && array_key_exists('challenge', $value) ? $value['challenge'] : null);
+        if ($field !== null) {
+            $out['challenge'] = CBOR::bytes($field);
+        }
+        $field = $value instanceof StartApplicationKeyChallengeResponse ? $value->sealedChallenge : (is_array($value) && array_key_exists('sealed_challenge', $value) ? $value['sealed_challenge'] : null);
+        if ($field !== null) {
+            $out['sealed_challenge'] = CBOR::bytes($field);
+        }
+        $field = $value instanceof StartApplicationKeyChallengeResponse ? $value->expiresAt : (is_array($value) && array_key_exists('expires_at', $value) ? $value['expires_at'] : null);
+        $out['expires_at'] = $field;
+        return $out;
+    }
+
+    public static function fromCborStartApplicationKeyChallengeResponse($value)
+    {
+        return new StartApplicationKeyChallengeResponse(array(
+            'challenge_id' => array_key_exists('challenge_id', $value) ? $value['challenge_id'] : null,
+            'challenge' => array_key_exists('challenge', $value) ? $value['challenge'] : null,
+            'sealed_challenge' => array_key_exists('sealed_challenge', $value) ? $value['sealed_challenge'] : null,
+            'expires_at' => array_key_exists('expires_at', $value) ? $value['expires_at'] : null,
+        ));
+    }
+
+    public static function encodeAddApplicationKeyRequest($value)
+    {
+        return CBOR::encode(self::toCborAddApplicationKeyRequest($value));
+    }
+
+    public static function decodeAddApplicationKeyRequest($bytes)
+    {
+        return self::fromCborAddApplicationKeyRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborAddApplicationKeyRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof AddApplicationKeyRequest ? $value->request : (is_array($value) && array_key_exists('request', $value) ? $value['request'] : null);
+        $out['request'] = self::toCborSignedApplicationKeyAddition($field);
+        return $out;
+    }
+
+    public static function fromCborAddApplicationKeyRequest($value)
+    {
+        return new AddApplicationKeyRequest(array(
+            'request' => array_key_exists('request', $value) ? self::fromCborSignedApplicationKeyAddition($value['request']) : null,
+        ));
+    }
+
+    public static function encodeAddApplicationKeyResponse($value)
+    {
+        return CBOR::encode(self::toCborAddApplicationKeyResponse($value));
+    }
+
+    public static function decodeAddApplicationKeyResponse($bytes)
+    {
+        return self::fromCborAddApplicationKeyResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborAddApplicationKeyResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof AddApplicationKeyResponse ? $value->attestation : (is_array($value) && array_key_exists('attestation', $value) ? $value['attestation'] : null);
+        $out['attestation'] = self::toCborSignedApplicationKeyAttestation($field);
+        return $out;
+    }
+
+    public static function fromCborAddApplicationKeyResponse($value)
+    {
+        return new AddApplicationKeyResponse(array(
+            'attestation' => array_key_exists('attestation', $value) ? self::fromCborSignedApplicationKeyAttestation($value['attestation']) : null,
+        ));
+    }
+
+    public static function encodeRenewApplicationKeyAttestationRequest($value)
+    {
+        return CBOR::encode(self::toCborRenewApplicationKeyAttestationRequest($value));
+    }
+
+    public static function decodeRenewApplicationKeyAttestationRequest($bytes)
+    {
+        return self::fromCborRenewApplicationKeyAttestationRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRenewApplicationKeyAttestationRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RenewApplicationKeyAttestationRequest ? $value->request : (is_array($value) && array_key_exists('request', $value) ? $value['request'] : null);
+        $out['request'] = self::toCborSignedApplicationKeyRenewal($field);
+        return $out;
+    }
+
+    public static function fromCborRenewApplicationKeyAttestationRequest($value)
+    {
+        return new RenewApplicationKeyAttestationRequest(array(
+            'request' => array_key_exists('request', $value) ? self::fromCborSignedApplicationKeyRenewal($value['request']) : null,
+        ));
+    }
+
+    public static function encodeRenewApplicationKeyAttestationResponse($value)
+    {
+        return CBOR::encode(self::toCborRenewApplicationKeyAttestationResponse($value));
+    }
+
+    public static function decodeRenewApplicationKeyAttestationResponse($bytes)
+    {
+        return self::fromCborRenewApplicationKeyAttestationResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborRenewApplicationKeyAttestationResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof RenewApplicationKeyAttestationResponse ? $value->attestation : (is_array($value) && array_key_exists('attestation', $value) ? $value['attestation'] : null);
+        $out['attestation'] = self::toCborSignedApplicationKeyAttestation($field);
+        $field = $value instanceof RenewApplicationKeyAttestationResponse ? $value->signed : (is_array($value) && array_key_exists('signed', $value) ? $value['signed'] : null);
+        $out['signed'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRenewApplicationKeyAttestationResponse($value)
+    {
+        return new RenewApplicationKeyAttestationResponse(array(
+            'attestation' => array_key_exists('attestation', $value) ? self::fromCborSignedApplicationKeyAttestation($value['attestation']) : null,
+            'signed' => array_key_exists('signed', $value) ? $value['signed'] : null,
+        ));
+    }
+
+    public static function encodeRevokeApplicationKeyRequest($value)
+    {
+        return CBOR::encode(self::toCborRevokeApplicationKeyRequest($value));
+    }
+
+    public static function decodeRevokeApplicationKeyRequest($bytes)
+    {
+        return self::fromCborRevokeApplicationKeyRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRevokeApplicationKeyRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RevokeApplicationKeyRequest ? $value->revocation : (is_array($value) && array_key_exists('revocation', $value) ? $value['revocation'] : null);
+        $out['revocation'] = self::toCborApplicationKeyRevocation($field);
+        return $out;
+    }
+
+    public static function fromCborRevokeApplicationKeyRequest($value)
+    {
+        return new RevokeApplicationKeyRequest(array(
+            'revocation' => array_key_exists('revocation', $value) ? self::fromCborApplicationKeyRevocation($value['revocation']) : null,
+        ));
+    }
+
+    public static function encodeRevokeApplicationKeyResponse($value)
+    {
+        return CBOR::encode(self::toCborRevokeApplicationKeyResponse($value));
+    }
+
+    public static function decodeRevokeApplicationKeyResponse($bytes)
+    {
+        return self::fromCborRevokeApplicationKeyResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborRevokeApplicationKeyResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof RevokeApplicationKeyResponse ? $value->revokedAt : (is_array($value) && array_key_exists('revoked_at', $value) ? $value['revoked_at'] : null);
+        $out['revoked_at'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRevokeApplicationKeyResponse($value)
+    {
+        return new RevokeApplicationKeyResponse(array(
+            'revoked_at' => array_key_exists('revoked_at', $value) ? $value['revoked_at'] : null,
+        ));
+    }
+
+    public static function encodeEnrollApplicationInstanceRequest($value)
+    {
+        return CBOR::encode(self::toCborEnrollApplicationInstanceRequest($value));
+    }
+
+    public static function decodeEnrollApplicationInstanceRequest($bytes)
+    {
+        return self::fromCborEnrollApplicationInstanceRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborEnrollApplicationInstanceRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof EnrollApplicationInstanceRequest ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        $out['application_id'] = $field;
+        $field = $value instanceof EnrollApplicationInstanceRequest ? $value->instanceId : (is_array($value) && array_key_exists('instance_id', $value) ? $value['instance_id'] : null);
+        $out['instance_id'] = $field;
+        $field = $value instanceof EnrollApplicationInstanceRequest ? $value->keys : (is_array($value) && array_key_exists('keys', $value) ? $value['keys'] : null);
+        $out['keys'] = array_map(function ($item) { return self::toCborSignedApplicationKeyAddition($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborEnrollApplicationInstanceRequest($value)
+    {
+        return new EnrollApplicationInstanceRequest(array(
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+            'instance_id' => array_key_exists('instance_id', $value) ? $value['instance_id'] : null,
+            'keys' => array_key_exists('keys', $value) ? array_map(function ($item) { return self::fromCborSignedApplicationKeyAddition($item); }, $value['keys'] === null ? array() : $value['keys']) : null,
+        ));
+    }
+
+    public static function encodeEnrollApplicationInstanceResponse($value)
+    {
+        return CBOR::encode(self::toCborEnrollApplicationInstanceResponse($value));
+    }
+
+    public static function decodeEnrollApplicationInstanceResponse($bytes)
+    {
+        return self::fromCborEnrollApplicationInstanceResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborEnrollApplicationInstanceResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof EnrollApplicationInstanceResponse ? $value->subjectUserId : (is_array($value) && array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null);
+        $out['subject_user_id'] = $field;
+        $field = $value instanceof EnrollApplicationInstanceResponse ? $value->subjectDomain : (is_array($value) && array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null);
+        $out['subject_domain'] = $field;
+        $field = $value instanceof EnrollApplicationInstanceResponse ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        $out['application_id'] = $field;
+        $field = $value instanceof EnrollApplicationInstanceResponse ? $value->instanceId : (is_array($value) && array_key_exists('instance_id', $value) ? $value['instance_id'] : null);
+        $out['instance_id'] = $field;
+        $field = $value instanceof EnrollApplicationInstanceResponse ? $value->attestations : (is_array($value) && array_key_exists('attestations', $value) ? $value['attestations'] : null);
+        $out['attestations'] = array_map(function ($item) { return self::toCborSignedApplicationKeyAttestation($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborEnrollApplicationInstanceResponse($value)
+    {
+        return new EnrollApplicationInstanceResponse(array(
+            'subject_user_id' => array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null,
+            'subject_domain' => array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null,
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+            'instance_id' => array_key_exists('instance_id', $value) ? $value['instance_id'] : null,
+            'attestations' => array_key_exists('attestations', $value) ? array_map(function ($item) { return self::fromCborSignedApplicationKeyAttestation($item); }, $value['attestations'] === null ? array() : $value['attestations']) : null,
+        ));
+    }
+
+    public static function encodeGetApplicationKeysRequest($value)
+    {
+        return CBOR::encode(self::toCborGetApplicationKeysRequest($value));
+    }
+
+    public static function decodeGetApplicationKeysRequest($bytes)
+    {
+        return self::fromCborGetApplicationKeysRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborGetApplicationKeysRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof GetApplicationKeysRequest ? $value->subjectUserId : (is_array($value) && array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null);
+        $out['subject_user_id'] = $field;
+        $field = $value instanceof GetApplicationKeysRequest ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        $out['application_id'] = $field;
+        $field = $value instanceof GetApplicationKeysRequest ? $value->instanceId : (is_array($value) && array_key_exists('instance_id', $value) ? $value['instance_id'] : null);
+        $out['instance_id'] = $field;
+        return $out;
+    }
+
+    public static function fromCborGetApplicationKeysRequest($value)
+    {
+        return new GetApplicationKeysRequest(array(
+            'subject_user_id' => array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null,
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+            'instance_id' => array_key_exists('instance_id', $value) ? $value['instance_id'] : null,
+        ));
+    }
+
+    public static function encodeGetApplicationKeysResponse($value)
+    {
+        return CBOR::encode(self::toCborGetApplicationKeysResponse($value));
+    }
+
+    public static function decodeGetApplicationKeysResponse($bytes)
+    {
+        return self::fromCborGetApplicationKeysResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborGetApplicationKeysResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof GetApplicationKeysResponse ? $value->subjectUserId : (is_array($value) && array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null);
+        $out['subject_user_id'] = $field;
+        $field = $value instanceof GetApplicationKeysResponse ? $value->subjectDomain : (is_array($value) && array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null);
+        $out['subject_domain'] = $field;
+        $field = $value instanceof GetApplicationKeysResponse ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        $out['application_id'] = $field;
+        $field = $value instanceof GetApplicationKeysResponse ? $value->instanceId : (is_array($value) && array_key_exists('instance_id', $value) ? $value['instance_id'] : null);
+        $out['instance_id'] = $field;
+        $field = $value instanceof GetApplicationKeysResponse ? $value->keys : (is_array($value) && array_key_exists('keys', $value) ? $value['keys'] : null);
+        $out['keys'] = array_map(function ($item) { return self::toCborSignedApplicationKeyAttestation($item); }, $field === null ? array() : $field);
+        $field = $value instanceof GetApplicationKeysResponse ? $value->revocations : (is_array($value) && array_key_exists('revocations', $value) ? $value['revocations'] : null);
+        $out['revocations'] = array_map(function ($item) { return self::toCborApplicationKeyRevocation($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborGetApplicationKeysResponse($value)
+    {
+        return new GetApplicationKeysResponse(array(
+            'subject_user_id' => array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null,
+            'subject_domain' => array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null,
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+            'instance_id' => array_key_exists('instance_id', $value) ? $value['instance_id'] : null,
+            'keys' => array_key_exists('keys', $value) ? array_map(function ($item) { return self::fromCborSignedApplicationKeyAttestation($item); }, $value['keys'] === null ? array() : $value['keys']) : null,
+            'revocations' => array_key_exists('revocations', $value) ? array_map(function ($item) { return self::fromCborApplicationKeyRevocation($item); }, $value['revocations'] === null ? array() : $value['revocations']) : null,
+        ));
+    }
+
+    public static function encodeRpResolveDomainKeysRequest($value)
+    {
+        return CBOR::encode(self::toCborRpResolveDomainKeysRequest($value));
+    }
+
+    public static function decodeRpResolveDomainKeysRequest($bytes)
+    {
+        return self::fromCborRpResolveDomainKeysRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRpResolveDomainKeysRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RpResolveDomainKeysRequest ? $value->domain : (is_array($value) && array_key_exists('domain', $value) ? $value['domain'] : null);
+        $out['domain'] = $field;
+        $field = $value instanceof RpResolveDomainKeysRequest ? $value->maxCacheAgeSeconds : (is_array($value) && array_key_exists('max_cache_age_seconds', $value) ? $value['max_cache_age_seconds'] : null);
+        if ($field !== null) {
+            $out['max_cache_age_seconds'] = $field;
+        }
+        return $out;
+    }
+
+    public static function fromCborRpResolveDomainKeysRequest($value)
+    {
+        return new RpResolveDomainKeysRequest(array(
+            'domain' => array_key_exists('domain', $value) ? $value['domain'] : null,
+            'max_cache_age_seconds' => array_key_exists('max_cache_age_seconds', $value) ? $value['max_cache_age_seconds'] : null,
+        ));
+    }
+
+    public static function encodeRpResolveDomainKeysResponse($value)
+    {
+        return CBOR::encode(self::toCborRpResolveDomainKeysResponse($value));
+    }
+
+    public static function decodeRpResolveDomainKeysResponse($bytes)
+    {
+        return self::fromCborRpResolveDomainKeysResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborRpResolveDomainKeysResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof RpResolveDomainKeysResponse ? $value->domain : (is_array($value) && array_key_exists('domain', $value) ? $value['domain'] : null);
+        $out['domain'] = $field;
+        $field = $value instanceof RpResolveDomainKeysResponse ? $value->keys : (is_array($value) && array_key_exists('keys', $value) ? $value['keys'] : null);
+        $out['keys'] = array_map(function ($item) { return self::toCborDomainPublicKey($item); }, $field === null ? array() : $field);
+        $field = $value instanceof RpResolveDomainKeysResponse ? $value->revocations : (is_array($value) && array_key_exists('revocations', $value) ? $value['revocations'] : null);
+        $out['revocations'] = array_map(function ($item) { return self::toCborRevocationCertificate($item); }, $field === null ? array() : $field);
+        $field = $value instanceof RpResolveDomainKeysResponse ? $value->fetchedAt : (is_array($value) && array_key_exists('fetched_at', $value) ? $value['fetched_at'] : null);
+        $out['fetched_at'] = $field;
+        $field = $value instanceof RpResolveDomainKeysResponse ? $value->revocationsCheckedAt : (is_array($value) && array_key_exists('revocations_checked_at', $value) ? $value['revocations_checked_at'] : null);
+        $out['revocations_checked_at'] = $field;
+        $field = $value instanceof RpResolveDomainKeysResponse ? $value->cacheStatus : (is_array($value) && array_key_exists('cache_status', $value) ? $value['cache_status'] : null);
+        $out['cache_status'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRpResolveDomainKeysResponse($value)
+    {
+        return new RpResolveDomainKeysResponse(array(
+            'domain' => array_key_exists('domain', $value) ? $value['domain'] : null,
+            'keys' => array_key_exists('keys', $value) ? array_map(function ($item) { return self::fromCborDomainPublicKey($item); }, $value['keys'] === null ? array() : $value['keys']) : null,
+            'revocations' => array_key_exists('revocations', $value) ? array_map(function ($item) { return self::fromCborRevocationCertificate($item); }, $value['revocations'] === null ? array() : $value['revocations']) : null,
+            'fetched_at' => array_key_exists('fetched_at', $value) ? $value['fetched_at'] : null,
+            'revocations_checked_at' => array_key_exists('revocations_checked_at', $value) ? $value['revocations_checked_at'] : null,
+            'cache_status' => array_key_exists('cache_status', $value) ? $value['cache_status'] : null,
+        ));
+    }
+
+    public static function encodeRpResolveApplicationKeysRequest($value)
+    {
+        return CBOR::encode(self::toCborRpResolveApplicationKeysRequest($value));
+    }
+
+    public static function decodeRpResolveApplicationKeysRequest($bytes)
+    {
+        return self::fromCborRpResolveApplicationKeysRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRpResolveApplicationKeysRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RpResolveApplicationKeysRequest ? $value->subjectUserId : (is_array($value) && array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null);
+        $out['subject_user_id'] = $field;
+        $field = $value instanceof RpResolveApplicationKeysRequest ? $value->subjectDomain : (is_array($value) && array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null);
+        $out['subject_domain'] = $field;
+        $field = $value instanceof RpResolveApplicationKeysRequest ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        $out['application_id'] = $field;
+        $field = $value instanceof RpResolveApplicationKeysRequest ? $value->instanceId : (is_array($value) && array_key_exists('instance_id', $value) ? $value['instance_id'] : null);
+        $out['instance_id'] = $field;
+        $field = $value instanceof RpResolveApplicationKeysRequest ? $value->maxCacheAgeSeconds : (is_array($value) && array_key_exists('max_cache_age_seconds', $value) ? $value['max_cache_age_seconds'] : null);
+        if ($field !== null) {
+            $out['max_cache_age_seconds'] = $field;
+        }
+        return $out;
+    }
+
+    public static function fromCborRpResolveApplicationKeysRequest($value)
+    {
+        return new RpResolveApplicationKeysRequest(array(
+            'subject_user_id' => array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null,
+            'subject_domain' => array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null,
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+            'instance_id' => array_key_exists('instance_id', $value) ? $value['instance_id'] : null,
+            'max_cache_age_seconds' => array_key_exists('max_cache_age_seconds', $value) ? $value['max_cache_age_seconds'] : null,
+        ));
+    }
+
+    public static function encodeRpResolveApplicationKeysResponse($value)
+    {
+        return CBOR::encode(self::toCborRpResolveApplicationKeysResponse($value));
+    }
+
+    public static function decodeRpResolveApplicationKeysResponse($bytes)
+    {
+        return self::fromCborRpResolveApplicationKeysResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborRpResolveApplicationKeysResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof RpResolveApplicationKeysResponse ? $value->subjectUserId : (is_array($value) && array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null);
+        $out['subject_user_id'] = $field;
+        $field = $value instanceof RpResolveApplicationKeysResponse ? $value->subjectDomain : (is_array($value) && array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null);
+        $out['subject_domain'] = $field;
+        $field = $value instanceof RpResolveApplicationKeysResponse ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        $out['application_id'] = $field;
+        $field = $value instanceof RpResolveApplicationKeysResponse ? $value->instanceId : (is_array($value) && array_key_exists('instance_id', $value) ? $value['instance_id'] : null);
+        $out['instance_id'] = $field;
+        $field = $value instanceof RpResolveApplicationKeysResponse ? $value->applicationKeys : (is_array($value) && array_key_exists('application_keys', $value) ? $value['application_keys'] : null);
+        $out['application_keys'] = array_map(function ($item) { return self::toCborSignedApplicationKeyAttestation($item); }, $field === null ? array() : $field);
+        $field = $value instanceof RpResolveApplicationKeysResponse ? $value->applicationKeyRevocations : (is_array($value) && array_key_exists('application_key_revocations', $value) ? $value['application_key_revocations'] : null);
+        $out['application_key_revocations'] = array_map(function ($item) { return self::toCborApplicationKeyRevocation($item); }, $field === null ? array() : $field);
+        $field = $value instanceof RpResolveApplicationKeysResponse ? $value->homeDomainKeys : (is_array($value) && array_key_exists('home_domain_keys', $value) ? $value['home_domain_keys'] : null);
+        $out['home_domain_keys'] = array_map(function ($item) { return self::toCborDomainPublicKey($item); }, $field === null ? array() : $field);
+        $field = $value instanceof RpResolveApplicationKeysResponse ? $value->homeDomainKeyRevocations : (is_array($value) && array_key_exists('home_domain_key_revocations', $value) ? $value['home_domain_key_revocations'] : null);
+        $out['home_domain_key_revocations'] = array_map(function ($item) { return self::toCborRevocationCertificate($item); }, $field === null ? array() : $field);
+        $field = $value instanceof RpResolveApplicationKeysResponse ? $value->fetchedAt : (is_array($value) && array_key_exists('fetched_at', $value) ? $value['fetched_at'] : null);
+        $out['fetched_at'] = $field;
+        $field = $value instanceof RpResolveApplicationKeysResponse ? $value->revocationsCheckedAt : (is_array($value) && array_key_exists('revocations_checked_at', $value) ? $value['revocations_checked_at'] : null);
+        $out['revocations_checked_at'] = $field;
+        $field = $value instanceof RpResolveApplicationKeysResponse ? $value->cacheStatus : (is_array($value) && array_key_exists('cache_status', $value) ? $value['cache_status'] : null);
+        $out['cache_status'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRpResolveApplicationKeysResponse($value)
+    {
+        return new RpResolveApplicationKeysResponse(array(
+            'subject_user_id' => array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null,
+            'subject_domain' => array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null,
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+            'instance_id' => array_key_exists('instance_id', $value) ? $value['instance_id'] : null,
+            'application_keys' => array_key_exists('application_keys', $value) ? array_map(function ($item) { return self::fromCborSignedApplicationKeyAttestation($item); }, $value['application_keys'] === null ? array() : $value['application_keys']) : null,
+            'application_key_revocations' => array_key_exists('application_key_revocations', $value) ? array_map(function ($item) { return self::fromCborApplicationKeyRevocation($item); }, $value['application_key_revocations'] === null ? array() : $value['application_key_revocations']) : null,
+            'home_domain_keys' => array_key_exists('home_domain_keys', $value) ? array_map(function ($item) { return self::fromCborDomainPublicKey($item); }, $value['home_domain_keys'] === null ? array() : $value['home_domain_keys']) : null,
+            'home_domain_key_revocations' => array_key_exists('home_domain_key_revocations', $value) ? array_map(function ($item) { return self::fromCborRevocationCertificate($item); }, $value['home_domain_key_revocations'] === null ? array() : $value['home_domain_key_revocations']) : null,
+            'fetched_at' => array_key_exists('fetched_at', $value) ? $value['fetched_at'] : null,
+            'revocations_checked_at' => array_key_exists('revocations_checked_at', $value) ? $value['revocations_checked_at'] : null,
+            'cache_status' => array_key_exists('cache_status', $value) ? $value['cache_status'] : null,
+        ));
+    }
+
 }

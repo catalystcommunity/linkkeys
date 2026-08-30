@@ -1,20 +1,24 @@
+pub mod dns_pin_cache;
+pub mod limits;
 pub mod tls;
 
 use std::collections::BTreeSet;
 use std::env;
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use threadpool::ThreadPool;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::mpsc;
+use tokio_rustls::TlsAcceptor;
 
 use crate::conversions::get_domain_name;
 use crate::db::DbPool;
 use crate::services::handshake::HandshakeHandler;
 use crate::services::hello::HelloHandler;
+use crate::services::public_ratelimit::{PublicReadDecision, PublicReadLimiter};
+use limits::{TcpMetrics, TcpServerConfig};
 
 use liblinkkeys::generated::types::{
     DepositClaimResponse, DomainPublicKey, GetDomainKeysResponse, GetUserKeysResponse, UserInfo,
@@ -46,10 +50,19 @@ struct CheckResultResponse {
 
 /// Capabilities the dispatch needs for ops that make an onward server-to-server
 /// call (the `Rp` service's verify-assertion / userinfo-fetch reach the issuing
-/// IDP). Only the TCP server provides this: its worker threads are plain blocking
-/// threads, so they may `block_on` the runtime. The web `/csil/v1/rpc` carrier
-/// and the test harness pass `None` — they already run inside tokio (cannot
-/// `block_on`) and those ops have dedicated routes/tests elsewhere.
+/// IDP). Populated for both the TCP and (soon) any other carrier that has a
+/// database pool and a Tokio runtime handle available; the web `/csil/v1/rpc`
+/// carrier and the test harness pass `None` — those ops have dedicated
+/// routes/tests elsewhere.
+///
+/// `rt` is a plain `Handle` to whatever runtime is currently driving the
+/// connection. Every dispatch call this carries is made from INSIDE a
+/// `tokio::task::spawn_blocking` closure (see `dispatch_one_frame` below), never
+/// from an async task's own poll — so `rt.block_on(...)` here is the
+/// officially-supported "call async code from a spawn_blocking closure"
+/// bridge, not a nested-runtime hazard. `dispatch`, `dispatch_rp`, and
+/// friends are unaware of any of this; they only ever see `&Handle`, exactly
+/// as before.
 pub struct OutboundCtx<'a> {
     pub net: &'a crate::net::Net,
     pub rt: &'a tokio::runtime::Handle,
@@ -63,26 +76,36 @@ struct DispatchContext<'a> {
     ui_configuration: Option<&'a crate::services::ui::LoadedUiConfiguration>,
 }
 
-pub struct TcpServer {
-    listener: TcpListener,
-    thread_pool: ThreadPool,
-    ready_flag: Arc<AtomicBool>,
-    db_pool: DbPool,
-    tls_config: Arc<rustls::ServerConfig>,
-    net: crate::net::Net,
-    runtime: Arc<tokio::runtime::Runtime>,
-    io_timeout: Duration,
-    ui_configuration: crate::services::ui::LoadedUiConfiguration,
-}
-
+/// Everything a spawned connection task needs, cheap to clone (every field is
+/// an `Arc`/pool handle or otherwise already `Clone`-cheap).
 #[derive(Clone)]
 struct ConnectionContext {
     ready_flag: Arc<AtomicBool>,
     db_pool: DbPool,
-    tls_config: Arc<rustls::ServerConfig>,
     net: crate::net::Net,
-    runtime: tokio::runtime::Handle,
-    io_timeout: Duration,
+    ui_configuration: crate::services::ui::LoadedUiConfiguration,
+}
+
+/// Event-driven TCP server: one Tokio task per connection, asynchronous
+/// rustls I/O (`tokio_rustls`), no OS thread held for a connection's
+/// lifetime. See `signing-things-request.md`, "Connection scalability", for
+/// the full design this implements.
+pub struct TcpServer {
+    listener: tokio::net::TcpListener,
+    ready_flag: Arc<AtomicBool>,
+    db_pool: DbPool,
+    tls_acceptor: TlsAcceptor,
+    net: crate::net::Net,
+    config: Arc<TcpServerConfig>,
+    metrics: Arc<TcpMetrics>,
+    handshake_limiter: Arc<PublicReadLimiter>,
+    handshake_semaphore: Arc<tokio::sync::Semaphore>,
+    /// Total open sockets, accept()-to-close (handshaking or established).
+    /// This IS the established-connection limit and the memory safety valve
+    /// in one knob — see `TcpServerConfig::max_connections`'s doc comment for
+    /// why a second, separate "memory limit" config would not be more
+    /// meaningful without real per-connection memory profiling.
+    active_connections: Arc<AtomicUsize>,
     ui_configuration: crate::services::ui::LoadedUiConfiguration,
 }
 
@@ -95,19 +118,28 @@ impl TcpServer {
     ) -> std::io::Result<Self> {
         let port = crate::config::nonzero_u16_env("TCP_PORT", liblinkkeys::dns::DEFAULT_TCP_PORT)
             .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
-        let io_timeout = Duration::from_secs(
-            crate::config::nonzero_u64_env("TCP_IO_TIMEOUT_SECONDS", 60)
+        let config = Arc::new(
+            TcpServerConfig::from_env()
                 .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?,
         );
 
-        let listener = TcpListener::bind(format!("0.0.0.0:{}", port))?;
+        // Bind synchronously (as before — this runs once at startup, before
+        // any connection is being served) and hand the socket to Tokio.
+        let std_listener = std::net::TcpListener::bind(format!("0.0.0.0:{}", port))?;
+        set_listen_backlog(&std_listener, config.listen_backlog);
+        std_listener.set_nonblocking(true)?;
+        let listener = tokio::net::TcpListener::from_std(std_listener)?;
 
-        let pool_size = num_cpus::get() * 2;
-        let thread_pool = ThreadPool::new(pool_size);
+        // Seed the process-wide mTLS pin cache from the persisted TOFU pin
+        // table BEFORE the listener starts serving, so a process restart
+        // does not turn every already-trusted peer back into "first
+        // contact" (see `seed_dns_pin_cache_from_db` and
+        // `dns_pin_cache::MTLS_DNS_PIN_CACHE`'s doc comment).
+        seed_dns_pin_cache_from_db(&db_pool);
 
-        let tls_config = match build_tls_config(&db_pool, net.dns.clone()) {
+        let tls_config = match build_tls_config(&db_pool, net.dns.clone(), config.clone()) {
             Ok(config) => {
-                log::info!("TCP server listening on port {} (mutual TLS)", port);
+                log::info!("TCP server listening on port {} (mutual TLS, async)", port);
                 config
             }
             Err(e) => {
@@ -116,55 +148,133 @@ impl TcpServer {
             }
         };
 
-        // A small multi-thread runtime backs the onward server-to-server calls
-        // the `Rp` ops make. Worker threads `block_on` it; multi-thread lets
-        // several connections do so concurrently without contending a single
-        // current-thread scheduler.
-        let runtime = Arc::new(
-            tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(2)
-                .enable_all()
-                .build()
-                .map_err(|e| std::io::Error::other(format!("TCP runtime build failed: {}", e)))?,
+        limits::report_fd_and_connection_limits(config.max_connections);
+        log::info!(
+            "TCP server config: max_connections={} handshake_timeout={:?} handshake_concurrency={} \
+             idle_timeout={:?} io_timeout={:?} max_inflight_frames={} write_queue_bound={} \
+             dns_sync_fallback_concurrency={}",
+            config.max_connections,
+            config.handshake_timeout,
+            config.handshake_concurrency,
+            config.idle_timeout,
+            config.io_timeout,
+            config.max_inflight_frames,
+            config.write_queue_bound,
+            config.dns_sync_fallback_concurrency,
         );
+
+        let handshake_limiter = Arc::new(PublicReadLimiter::new(config.handshake_limiter.clone()));
+        let handshake_semaphore =
+            Arc::new(tokio::sync::Semaphore::new(config.handshake_concurrency));
 
         Ok(TcpServer {
             listener,
-            thread_pool,
             ready_flag,
             db_pool,
-            tls_config,
+            tls_acceptor: TlsAcceptor::from(tls_config),
             net,
-            runtime,
-            io_timeout,
+            config,
+            metrics: Arc::new(TcpMetrics::new()),
+            handshake_limiter,
+            handshake_semaphore,
+            active_connections: Arc::new(AtomicUsize::new(0)),
             ui_configuration,
         })
     }
 
-    pub fn run(self) {
-        for stream in self.listener.incoming() {
-            match stream {
-                Ok(stream) => {
-                    let context = ConnectionContext {
-                        ready_flag: self.ready_flag.clone(),
-                        db_pool: self.db_pool.clone(),
-                        tls_config: self.tls_config.clone(),
-                        net: self.net.clone(),
-                        runtime: self.runtime.handle().clone(),
-                        io_timeout: self.io_timeout,
-                        ui_configuration: self.ui_configuration.clone(),
-                    };
-                    self.thread_pool.execute(move || {
-                        if let Err(e) = handle_connection(stream, context) {
-                            log::debug!("Connection closed: {}", e);
-                        }
-                    });
-                }
+    /// Bounded metrics for this server instance (signing-things-request.md,
+    /// "Connection and cache metrics").
+    pub fn metrics(&self) -> Arc<TcpMetrics> {
+        self.metrics.clone()
+    }
+
+    /// Accept loop. Runs for the life of the process — the previous
+    /// implementation had no shutdown hook either (`thread::spawn(move ||
+    /// tcp_server.run())` in `main.rs`, never joined); that behavior is
+    /// unchanged here, just as an async task instead of a spawned OS thread.
+    pub async fn run(self) {
+        loop {
+            let (stream, peer_addr) = match self.listener.accept().await {
+                Ok(pair) => pair,
                 Err(e) => {
                     log::error!("Error accepting connection: {}", e);
+                    continue;
                 }
+            };
+            self.metrics.record_accepted();
+
+            // Cheapest possible rejection first, before any TLS/DNS/rate-limit
+            // work: a hard cap on concurrently open sockets. Shedding here
+            // (rather than after the handshake) is what keeps an attacker from
+            // exhausting memory/file-descriptors simply by opening many raw
+            // TCP connections and never completing a handshake.
+            let previously_open = self.active_connections.fetch_add(1, Ordering::SeqCst);
+            if previously_open >= self.config.max_connections {
+                self.active_connections.fetch_sub(1, Ordering::SeqCst);
+                self.metrics.record_shed_connection_limit();
+                drop(stream);
+                continue;
             }
+
+            let ctx = ConnectionContext {
+                ready_flag: self.ready_flag.clone(),
+                db_pool: self.db_pool.clone(),
+                net: self.net.clone(),
+                ui_configuration: self.ui_configuration.clone(),
+            };
+            let acceptor = self.tls_acceptor.clone();
+            let handshake_limiter = self.handshake_limiter.clone();
+            let handshake_semaphore = self.handshake_semaphore.clone();
+            let active_connections = self.active_connections.clone();
+            let metrics = self.metrics.clone();
+            let config = self.config.clone();
+
+            tokio::spawn(async move {
+                let _slot = OpenConnectionGuard {
+                    active_connections,
+                    metrics: metrics.clone(),
+                };
+                handle_connection(
+                    stream,
+                    peer_addr,
+                    acceptor,
+                    handshake_limiter,
+                    handshake_semaphore,
+                    config,
+                    metrics,
+                    ctx,
+                )
+                .await;
+            });
         }
+    }
+}
+
+/// Decrements the open-connection count and gauge no matter how the
+/// connection task ends (normal return, early `return`, or panic unwind) —
+/// covers rate-limited, handshake-timed-out/rejected, and normally-closed
+/// connections alike with one accounting path.
+struct OpenConnectionGuard {
+    active_connections: Arc<AtomicUsize>,
+    metrics: Arc<TcpMetrics>,
+}
+
+impl Drop for OpenConnectionGuard {
+    fn drop(&mut self) {
+        self.active_connections.fetch_sub(1, Ordering::SeqCst);
+        self.metrics.record_closed();
+    }
+}
+
+/// Decrements the established-connection gauge when a connection that
+/// completed its handshake ends, for any reason.
+struct EstablishedGuard {
+    metrics: Arc<TcpMetrics>,
+}
+
+impl Drop for EstablishedGuard {
+    fn drop(&mut self) {
+        self.metrics.record_unestablished();
     }
 }
 
@@ -172,6 +282,7 @@ impl TcpServer {
 fn build_tls_config(
     db_pool: &DbPool,
     dns: Arc<dyn crate::net::DnsResolver>,
+    config: Arc<TcpServerConfig>,
 ) -> Result<Arc<rustls::ServerConfig>, Box<dyn std::error::Error>> {
     let passphrase =
         env::var("DOMAIN_KEY_PASSPHRASE").map_err(|_| "DOMAIN_KEY_PASSPHRASE not set")?;
@@ -188,43 +299,99 @@ fn build_tls_config(
         liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, passphrase.as_bytes())
             .map_err(|e| format!("Failed to decrypt domain key: {}", e))?;
 
-    let seed: [u8; 32] = sk_bytes
-        .try_into()
-        .map_err(|_| "Domain key is not 32 bytes")?;
+    let seed: zeroize::Zeroizing<[u8; 32]> = zeroize::Zeroizing::new(
+        sk_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| "Domain key is not 32 bytes")?,
+    );
 
     let domain_name = get_domain_name();
     let (cert_der, key_der) = tls::generate_domain_tls_cert(&domain_name, &seed)?;
 
-    // Create a tokio runtime for the client cert verifier's DNS lookups
-    let runtime = Arc::new(
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|e| format!("Failed to create runtime for TLS verifier: {}", e))?,
-    );
-    let client_verifier = Arc::new(tls::FingerprintClientCertVerifier::new(runtime, dns));
+    // No dedicated runtime needed for the verifier any more (contrast with
+    // the previous blocking implementation): `FingerprintClientCertVerifier`
+    // touches the process-wide `dns_pin_cache::MTLS_DNS_PIN_CACHE`
+    // synchronously on the hot (hit) path, takes a bounded synchronous DNS
+    // fallback on a miss (gated by `sync_fallback`), and only ever hands
+    // real DNS work off to a background `tokio::spawn` task when that
+    // fallback is exhausted — see `tcp::dns_pin_cache` and the verifier's
+    // doc comments.
+    let sync_fallback = Arc::new(tokio::sync::Semaphore::new(
+        config.dns_sync_fallback_concurrency,
+    ));
+    let client_verifier = Arc::new(tls::FingerprintClientCertVerifier::new(
+        dns,
+        dns_pin_cache::MTLS_DNS_PIN_CACHE.clone(),
+        sync_fallback,
+    ));
 
     tls::build_server_config(cert_der, key_der, client_verifier)
 }
 
-fn read_frame(stream: &mut impl Read) -> std::io::Result<Vec<u8>> {
-    let mut len_buf = [0u8; 4];
-    stream.read_exact(&mut len_buf)?;
-    let len = u32::from_be_bytes(len_buf) as usize;
-
-    if len > MAX_FRAME_SIZE {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!("Frame too large ({} bytes, max {})", len, MAX_FRAME_SIZE),
-        ));
+/// Seed the process-wide mTLS DNS pin cache
+/// (`dns_pin_cache::MTLS_DNS_PIN_CACHE`) from the persisted TOFU pin table
+/// (`domain_key_pins`) at startup. That table already holds the last-known-
+/// good fingerprint set for every domain this server has resolved via the
+/// OUTBOUND path (`services::pins::check_and_update_pin`, driven by RP
+/// lookups, `linkkeys pins recheck`, etc.) — seeding the INBOUND
+/// verification cache from it means "the process just restarted" no longer
+/// means "every peer we already trust is first contact again", which is the
+/// common case a bare, request-scoped cache would otherwise get wrong on
+/// every deploy/restart. Best-effort: a DB error here is logged, not fatal
+/// — the cache still self-heals via the bounded synchronous fallback and
+/// background refresh on the first real handshake for each domain.
+fn seed_dns_pin_cache_from_db(db_pool: &DbPool) {
+    match db_pool.list_domain_pins() {
+        Ok(pins) => {
+            let mut seeded = 0usize;
+            for pin in pins {
+                let fingerprints: Vec<String> = pin
+                    .fingerprints
+                    .split(',')
+                    .filter(|fp| !fp.is_empty())
+                    .map(str::to_string)
+                    .collect();
+                if fingerprints.is_empty() {
+                    continue;
+                }
+                dns_pin_cache::MTLS_DNS_PIN_CACHE.insert_positive(&pin.domain, fingerprints);
+                seeded += 1;
+            }
+            log::info!(
+                "Seeded the mTLS DNS pin cache with {} known domain(s) from domain_key_pins",
+                seeded
+            );
+        }
+        Err(e) => {
+            log::warn!(
+                "Could not seed the mTLS DNS pin cache from domain_key_pins: {}. Inbound \
+                 verification will still work via the bounded synchronous DNS fallback and \
+                 background refresh, just without a warm start.",
+                e
+            );
+        }
     }
+}
 
+/// Read one length-prefixed frame body, given its length has already been
+/// read. Allocates exactly `len` bytes — never `MAX_FRAME_SIZE` — so an idle
+/// or small-message connection never holds a megabyte-scale buffer
+/// (signing-things-request.md: "`MAX_FRAME_SIZE` is a cap, not an allocation
+/// size").
+async fn read_frame_body(
+    reader: &mut (impl tokio::io::AsyncRead + Unpin),
+    len: usize,
+) -> std::io::Result<Vec<u8>> {
     let mut buf = vec![0u8; len];
-    stream.read_exact(&mut buf)?;
+    reader.read_exact(&mut buf).await?;
     Ok(buf)
 }
 
-fn write_frame(stream: &mut impl Write, data: &[u8]) -> std::io::Result<()> {
+async fn write_frame_async(
+    writer: &mut (impl tokio::io::AsyncWrite + Unpin),
+    data: &[u8],
+) -> std::io::Result<()> {
     if data.len() > MAX_FRAME_SIZE {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -232,47 +399,102 @@ fn write_frame(stream: &mut impl Write, data: &[u8]) -> std::io::Result<()> {
         ));
     }
     let len = (data.len() as u32).to_be_bytes();
-    stream.write_all(&len)?;
-    stream.write_all(data)?;
-    stream.flush()
+    writer.write_all(&len).await?;
+    writer.write_all(data).await?;
+    writer.flush().await
 }
 
 pub(crate) const MAX_FRAME_SIZE: usize = 1024 * 1024;
 
-fn handle_connection(stream: TcpStream, context: ConnectionContext) -> std::io::Result<()> {
-    let source_key = stream
-        .peer_addr()
-        .map(|value| value.ip().to_string())
-        .unwrap_or_else(|_| "unknown-tcp-peer".to_string());
-    log::debug!("New TCP connection from: {:?}", stream.peer_addr());
-    // Bound how long a single connection can hold a worker thread. Both read
-    // and write timeouts are set BEFORE the TLS handshake (which reads/writes
-    // on this stream), so a slowloris that stalls mid-handshake or mid-frame is
-    // dropped rather than pinning a thread (tcp-04). Configurable; safe default.
-    stream.set_read_timeout(Some(context.io_timeout))?;
-    stream.set_write_timeout(Some(context.io_timeout))?;
-    stream.set_nodelay(true)?;
+type ServerTlsStream = tokio_rustls::server::TlsStream<tokio::net::TcpStream>;
 
-    let conn =
-        rustls::ServerConnection::new(context.tls_config.clone()).map_err(std::io::Error::other)?;
-    let mut tls_stream = rustls::StreamOwned::new(conn, stream);
+/// Per-connection lifecycle: rate-limit the handshake attempt, bound
+/// concurrent handshakes with a semaphore, bound the handshake's total time
+/// with a timeout, then hand off to the message loop. Never propagates an
+/// error to its caller — every exit path (rate-limited, semaphore-timed-out,
+/// handshake failed/timed out, or the message loop ending) is handled here so
+/// `TcpServer::run`'s accept loop never sees a per-connection failure.
+#[allow(clippy::too_many_arguments)]
+async fn handle_connection(
+    stream: tokio::net::TcpStream,
+    peer_addr: SocketAddr,
+    acceptor: TlsAcceptor,
+    handshake_limiter: Arc<PublicReadLimiter>,
+    handshake_semaphore: Arc<tokio::sync::Semaphore>,
+    config: Arc<TcpServerConfig>,
+    metrics: Arc<TcpMetrics>,
+    ctx: ConnectionContext,
+) {
+    let _ = stream.set_nodelay(true);
 
-    // Drive the handshake to completion before serving frames so the verified
-    // client certificate (if the caller is a domain) is available. mTLS client
-    // auth is optional; a caller with no cert yields no client domain.
-    tls_stream.conn.complete_io(&mut tls_stream.sock)?;
-    let client_domain = tls_stream
-        .conn
-        .peer_certificates()
-        .and_then(|certs| certs.first())
-        .and_then(tls::verified_client_domain);
+    // Source-IP handshake rate limit BEFORE any expensive handshake work
+    // (signing-things-request.md: "Apply a source-IP handshake rate limit
+    // BEFORE expensive handshake work where possible"). There is no
+    // forwarded-header concept at this layer — always the direct peer.
+    let source_key = handshake_limiter.source_key(peer_addr, None);
+    match handshake_limiter.check(&source_key) {
+        PublicReadDecision::Allow => {}
+        PublicReadDecision::Limited { reason, .. } => {
+            metrics.record_handshake_shed(reason);
+            log::debug!("TCP handshake rate limited for {}: {:?}", peer_addr, reason);
+            return;
+        }
+    }
 
-    handle_message_loop(
-        &mut tls_stream,
-        &context,
+    metrics.record_handshake_started();
+    let handshake_result = tokio::time::timeout(config.handshake_timeout, async {
+        // Configurable semaphore bounding concurrent TLS handshakes — CPU-
+        // costly crypto, bounded independently of the (much larger)
+        // established-connection limit.
+        let _permit = handshake_semaphore
+            .acquire()
+            .await
+            .expect("handshake semaphore is never closed");
+        acceptor.accept(stream).await
+    })
+    .await;
+    metrics.record_handshake_ended();
+
+    let tls_stream: ServerTlsStream = match handshake_result {
+        Ok(Ok(stream)) => stream,
+        Ok(Err(e)) => {
+            metrics.record_handshake_rejection();
+            log::debug!("TLS handshake failed for {}: {}", peer_addr, e);
+            return;
+        }
+        Err(_) => {
+            metrics.record_handshake_timeout();
+            log::debug!("TLS handshake timed out for {}", peer_addr);
+            return;
+        }
+    };
+
+    // The verified client certificate (if the caller is a domain) is now
+    // available. mTLS client auth is optional; a caller with no cert yields
+    // no client domain.
+    let client_domain = {
+        let (_, server_conn) = tls_stream.get_ref();
+        server_conn
+            .peer_certificates()
+            .and_then(|certs| certs.first())
+            .and_then(tls::verified_client_domain)
+    };
+
+    metrics.record_established();
+    let _established = EstablishedGuard {
+        metrics: metrics.clone(),
+    };
+
+    let source_key_str = peer_addr.ip().to_string();
+    message_loop(
+        tls_stream,
+        &ctx,
         client_domain.as_deref(),
-        &source_key,
+        &source_key_str,
+        &config,
+        &metrics,
     )
+    .await;
 }
 
 /// Maximum CBOR nesting depth allowed. Prevents stack overflow from deeply
@@ -355,10 +577,15 @@ pub(crate) fn check_cbor_depth(data: &[u8]) -> bool {
                 let Ok(len) = usize::try_from(len) else {
                     return false;
                 };
-                if i + len > data.len() {
+                // `checked_add`: a declared length near usize::MAX would
+                // otherwise wrap and turn this bounds check into a pass.
+                let Some(end) = i.checked_add(len) else {
+                    return false;
+                };
+                if end > data.len() {
                     return false;
                 }
-                i += len;
+                i = end;
             }
             4 | 5 => {
                 let entries = match value {
@@ -369,6 +596,27 @@ pub(crate) fn check_cbor_depth(data: &[u8]) -> bool {
                 let Ok(entries) = usize::try_from(entries) else {
                     return false;
                 };
+                // An array or map cannot hold more items than there are bytes
+                // left to encode them in — every item costs at least one byte.
+                // A larger declared count is unsatisfiable, so the payload is
+                // malformed whatever else it says.
+                //
+                // Kept as defence in depth. The generated CBOR decoder used
+                // to pre-allocate from the DECLARED count
+                // (`Vec::with_capacity(n)` in `codec.gen.rs`), so a nine-byte
+                // anonymous request declaring 2^40 array elements made the
+                // process attempt a 35 TB allocation and abort. csilgen has
+                // since been fixed to bound the length before the cast, and
+                // the generated code here carries that fix.
+                //
+                // This guard stays anyway: it runs BEFORE any decode, on the
+                // envelope as well as the payload, so it does not depend on
+                // any particular generator version being checked in. A
+                // regenerate against an older csilgen would otherwise silently
+                // reopen the hole.
+                if entries > data.len() - i {
+                    return false;
+                }
                 stack.push(Some(entries));
                 if stack.len() > MAX_CBOR_DEPTH {
                     return false;
@@ -386,77 +634,243 @@ pub(crate) fn check_cbor_depth(data: &[u8]) -> bool {
     stack.into_iter().all(|remaining| remaining == Some(0))
 }
 
-fn handle_message_loop(
-    stream: &mut (impl Read + Write),
-    context: &ConnectionContext,
+/// Drive one established connection's request/response traffic as three
+/// cooperating stages, joined by two bounded channels:
+///
+/// ```text
+/// socket --read_loop--> [frame_tx: max_inflight_frames] --dispatch_loop--> [resp_tx: write_queue_bound] --write_loop--> socket
+/// ```
+///
+/// - `read_loop` only reads frames and enforces the idle/I/O timeouts and
+///   size/depth checks; it never runs `dispatch` itself. Its `frame_tx.send`
+///   blocks once `max_inflight_frames` frames are queued for processing —
+///   that's the "process a bounded number of in-flight frames per
+///   connection" requirement: a fast pipelining client can only run this far
+///   ahead of a slower server before the read side itself stalls, which in
+///   turn applies TCP-level backpressure to the client.
+/// - `dispatch_loop` drains `frame_tx` strictly in order (a single consumer,
+///   so response order matches request order with no extra bookkeeping),
+///   runs `dispatch` via `spawn_blocking`, and pushes the encoded response
+///   into `resp_tx`.
+/// - `write_loop` drains `resp_tx` and writes each response to the socket.
+///   `resp_tx.send` blocking once `write_queue_bound` responses are queued
+///   is the "apply write backpressure; never build an unbounded response
+///   queue" requirement: a client that stops reading eventually stalls
+///   `dispatch_loop`, which stalls `read_loop`, which stops draining the
+///   socket — bounded backpressure end to end, no unbounded buffer anywhere.
+///
+/// All three stages share one connection's lifetime and wind down as a
+/// cascade: whichever stage ends first (cleanly or with an error) drops its
+/// half of a channel, which makes the next stage's `recv()` return `None`
+/// and return in turn, and so on. `tokio::join!` waits for all three to
+/// finish (rather than `try_join!`'s cancel-on-first-error), which is what
+/// lets that drain-to-completion cascade actually run instead of abruptly
+/// dropping a stage mid-poll.
+async fn message_loop(
+    stream: ServerTlsStream,
+    ctx: &ConnectionContext,
     client_domain: Option<&str>,
     recovery_source_key: &str,
+    config: &Arc<TcpServerConfig>,
+    metrics: &Arc<TcpMetrics>,
+) {
+    let (reader, writer) = tokio::io::split(stream);
+    let (frame_tx, frame_rx) = mpsc::channel::<Vec<u8>>(config.max_inflight_frames.max(1));
+    let (resp_tx, resp_rx) = mpsc::channel::<Vec<u8>>(config.write_queue_bound.max(1));
+
+    let read = read_loop(reader, frame_tx, config.clone(), metrics.clone());
+    let dispatch = dispatch_loop(
+        frame_rx,
+        resp_tx,
+        ctx.clone(),
+        client_domain.map(str::to_string),
+        recovery_source_key.to_string(),
+        metrics.clone(),
+    );
+    let write = write_loop(writer, resp_rx, config.io_timeout);
+
+    let (read_result, (), write_result) = tokio::join!(read, dispatch, write);
+    if let Err(e) = read_result {
+        log::debug!("Connection read side closed: {}", e);
+    }
+    if let Err(e) = write_result {
+        log::debug!("Connection write side closed: {}", e);
+    }
+}
+
+/// Reads frames off the wire and hands them to `dispatch_loop` via `tx`.
+/// Applies the idle timeout (waiting for a new frame to start) and the I/O
+/// timeout (once a frame's length prefix has arrived, reading its body must
+/// complete promptly — catches a slowloris stalling mid-frame). A clean EOF
+/// or an idle timeout both end the loop normally (`Ok(())`); anything else is
+/// a hard error that tears the connection down.
+async fn read_loop(
+    mut reader: tokio::io::ReadHalf<ServerTlsStream>,
+    tx: mpsc::Sender<Vec<u8>>,
+    config: Arc<TcpServerConfig>,
+    metrics: Arc<TcpMetrics>,
 ) -> std::io::Result<()> {
     loop {
-        let frame = read_frame(stream)?;
-
-        // Defense against deeply nested CBOR causing stack overflow
-        if !check_cbor_depth(&frame) {
-            let resp = error_response(1, "Malformed request: excessive nesting depth");
-            write_frame(stream, &resp)?;
-            continue;
+        let mut len_buf = [0u8; 4];
+        match tokio::time::timeout(config.idle_timeout, reader.read_exact(&mut len_buf)).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(e))
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::ConnectionReset
+                ) =>
+            {
+                return Ok(());
+            }
+            Ok(Err(e)) => return Err(e),
+            Err(_) => return Ok(()), // idle timeout: a normal, quiet disconnect
         }
 
-        let envelope: RpcRequest = match std::panic::catch_unwind(|| RpcRequest::decode(&frame)) {
-            Ok(Ok(env)) => env,
+        let len = u32::from_be_bytes(len_buf) as usize;
+        if len > MAX_FRAME_SIZE {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Frame too large ({} bytes, max {})", len, MAX_FRAME_SIZE),
+            ));
+        }
+
+        // Exact-size allocation, not MAX_FRAME_SIZE — see `read_frame_body`.
+        metrics.add_frame_buffer_bytes(len);
+        let body = tokio::time::timeout(config.io_timeout, read_frame_body(&mut reader, len)).await;
+        let frame = match body {
+            Ok(Ok(frame)) => frame,
             Ok(Err(e)) => {
-                let resp = error_response(1, &format!("Invalid request envelope: {}", e));
-                write_frame(stream, &resp)?;
-                continue;
+                metrics.sub_frame_buffer_bytes(len);
+                return Err(e);
             }
             Err(_) => {
-                // Deserialization panicked (e.g. stack overflow) — don't crash the thread
-                log::warn!(
-                    "CBOR deserialization panicked on frame of {} bytes",
-                    frame.len()
-                );
-                let resp = error_response(1, "Malformed request");
-                write_frame(stream, &resp)?;
-                continue;
+                metrics.sub_frame_buffer_bytes(len);
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "frame body read timed out",
+                ));
             }
         };
 
-        // The inner payload is decoded per-op inside dispatch; depth-check it
-        // here too so a deeply-nested payload can't stack-overflow a handler
-        // (tcp-05). It's already size-bounded by the 1 MiB frame cap.
-        if !check_cbor_depth(&envelope.payload) {
-            let resp = error_response(1, "Malformed request: excessive nesting depth");
-            write_frame(stream, &resp)?;
-            continue;
+        // Bounded hand-off: blocks (backpressure) once `max_inflight_frames`
+        // frames are already queued for `dispatch_loop`.
+        if tx.send(frame).await.is_err() {
+            metrics.sub_frame_buffer_bytes(len);
+            return Ok(()); // dispatch_loop is gone; nothing left to do
         }
-        if envelope.auth.is_some()
-            && !crate::services::ratelimit::API_KEY_SOURCE.check(recovery_source_key)
-        {
-            write_frame(
-                stream,
-                &error_response(5, "Too many authentication attempts. Wait and try again"),
-            )?;
-            continue;
-        }
+        metrics.sub_frame_buffer_bytes(len);
+    }
+}
 
-        let outbound = OutboundCtx {
-            net: &context.net,
-            rt: &context.runtime,
-        };
-        let response = dispatch(
+/// Drains frames in order, dispatches each one (off the async runtime, via
+/// `spawn_blocking` — see `OutboundCtx`'s doc comment for why that's required
+/// and not merely a nicety), and forwards the encoded response to
+/// `write_loop` via `resp_tx`. Never returns an error itself: a dispatch
+/// panic becomes an internal-error response rather than tearing down the
+/// connection, matching the sync server's `catch_unwind` behavior for the
+/// CBOR-decode path and extending it to dispatch as a whole.
+async fn dispatch_loop(
+    mut frame_rx: mpsc::Receiver<Vec<u8>>,
+    resp_tx: mpsc::Sender<Vec<u8>>,
+    ctx: ConnectionContext,
+    client_domain: Option<String>,
+    recovery_source_key: String,
+    metrics: Arc<TcpMetrics>,
+) {
+    while let Some(frame) = frame_rx.recv().await {
+        let response = dispatch_one_frame(&frame, &ctx, &client_domain, &recovery_source_key).await;
+        metrics.record_frame_processed();
+        if resp_tx.send(response).await.is_err() {
+            return; // write_loop is gone; connection is tearing down
+        }
+    }
+}
+
+/// Validate and dispatch exactly one already-read frame, returning the
+/// encoded response. Depth checks and the API-key auth-attempt rate limit
+/// happen here, unchanged from the previous synchronous implementation; the
+/// actual `dispatch(...)` call happens inside `spawn_blocking` because it (via
+/// `OutboundCtx`) may call `Handle::block_on` for onward server-to-server
+/// calls, which would panic if invoked directly from this async task.
+async fn dispatch_one_frame(
+    frame: &[u8],
+    ctx: &ConnectionContext,
+    client_domain: &Option<String>,
+    recovery_source_key: &str,
+) -> Vec<u8> {
+    if !check_cbor_depth(frame) {
+        return error_response(1, "Malformed request: excessive nesting depth");
+    }
+
+    let envelope: RpcRequest = match std::panic::catch_unwind(|| RpcRequest::decode(frame)) {
+        Ok(Ok(env)) => env,
+        Ok(Err(e)) => return error_response(1, &format!("Invalid request envelope: {}", e)),
+        Err(_) => {
+            // Deserialization panicked (e.g. stack overflow) — don't crash
+            // the connection.
+            log::warn!(
+                "CBOR deserialization panicked on frame of {} bytes",
+                frame.len()
+            );
+            return error_response(1, "Malformed request");
+        }
+    };
+
+    // The inner payload is decoded per-op inside dispatch; depth-check it
+    // here too so a deeply-nested payload can't stack-overflow a handler
+    // (tcp-05). It's already size-bounded by the 1 MiB frame cap.
+    if !check_cbor_depth(&envelope.payload) {
+        return error_response(1, "Malformed request: excessive nesting depth");
+    }
+    if envelope.auth.is_some()
+        && !crate::services::ratelimit::API_KEY_SOURCE.check(recovery_source_key)
+    {
+        return error_response(5, "Too many authentication attempts. Wait and try again");
+    }
+
+    let rt = tokio::runtime::Handle::current();
+    let net = ctx.net.clone();
+    let db_pool = ctx.db_pool.clone();
+    let ready_flag = ctx.ready_flag.clone();
+    let ui_configuration = ctx.ui_configuration.clone();
+    let client_domain = client_domain.clone();
+    let recovery_source_key = recovery_source_key.to_string();
+
+    tokio::task::spawn_blocking(move || {
+        let outbound = OutboundCtx { net: &net, rt: &rt };
+        dispatch(
             &envelope,
-            &context.ready_flag,
-            &context.db_pool,
+            &ready_flag,
+            &db_pool,
             DispatchContext {
-                client_domain,
-                recovery_source_key,
+                client_domain: client_domain.as_deref(),
+                recovery_source_key: &recovery_source_key,
                 outbound: Some(&outbound),
                 browser_user: None,
-                ui_configuration: Some(&context.ui_configuration),
+                ui_configuration: Some(&ui_configuration),
             },
-        );
-        write_frame(stream, &response)?;
+        )
+    })
+    .await
+    .unwrap_or_else(|e| {
+        log::error!("dispatch task panicked: {}", e);
+        error_response(4, "internal error")
+    })
+}
+
+/// Drains completed responses and writes them to the socket, bounded by the
+/// I/O timeout per write.
+async fn write_loop(
+    mut writer: tokio::io::WriteHalf<ServerTlsStream>,
+    mut resp_rx: mpsc::Receiver<Vec<u8>>,
+    io_timeout: std::time::Duration,
+) -> std::io::Result<()> {
+    while let Some(response) = resp_rx.recv().await {
+        tokio::time::timeout(io_timeout, write_frame_async(&mut writer, &response))
+            .await
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "write timed out"))??;
     }
+    Ok(())
 }
 
 /// Map an internal database error to a generic client message, logging the
@@ -514,6 +928,102 @@ fn cache_claim_signer_keys(
             }
         }
     }
+}
+
+/// A running test instance of the async connection server, bound to an
+/// ephemeral loopback port. See [`spawn_for_test`].
+pub struct TestServer {
+    pub addr: SocketAddr,
+    pub metrics: Arc<TcpMetrics>,
+    _task: tokio::task::JoinHandle<()>,
+}
+
+/// Raise the kernel accept queue beyond the 128 that `std::net::TcpListener`
+/// hardcodes.
+///
+/// Linux lets `listen(2)` be called again on an already-listening socket to
+/// change the backlog, which is the only way to set it from safe std code.
+/// This matters at the connection counts this server targets: a burst that
+/// arrives faster than the accept loop drains it is refused at the kernel,
+/// and no amount of `net.core.somaxconn` tuning helps while the process
+/// itself asks for 128.
+///
+/// Best effort. The kernel clamps the value to `net.core.somaxconn`, and a
+/// failure here leaves the default backlog in place rather than stopping the
+/// server from starting — a smaller queue is a performance limit, not a
+/// correctness one.
+#[cfg(unix)]
+fn set_listen_backlog(listener: &std::net::TcpListener, backlog: i32) {
+    use std::os::fd::AsRawFd;
+    // Safety: `listener` owns a valid listening socket for the duration of
+    // this call, and `listen` on an existing listening socket only updates
+    // the queue depth.
+    let result = unsafe { libc::listen(listener.as_raw_fd(), backlog) };
+    if result != 0 {
+        log::warn!(
+            "could not raise the TCP listen backlog to {backlog}: {}; keeping the default",
+            std::io::Error::last_os_error()
+        );
+    }
+}
+
+#[cfg(not(unix))]
+fn set_listen_backlog(_listener: &std::net::TcpListener, _backlog: i32) {}
+
+/// Test/diagnostic harness entry point: run the REAL async listener/accept/
+/// handshake/message-loop code (`TcpServer::run`) against an already-built
+/// rustls `ServerConfig`, bound to an ephemeral loopback port — bypassing
+/// only `TcpServer::new`'s domain-key/`DOMAIN_KEY_PASSPHRASE`-backed startup
+/// (`build_tls_config`), which connection-layer tests (handshake timeout,
+/// frame limits, backpressure, load shedding, persistent reuse) have no need
+/// of. Mirrors [`dispatch_for_test`] for the connection layer: a network-
+/// bypass-free seam that still exercises the real code path end to end.
+///
+/// The returned server keeps running until every `TestServer` handle
+/// (including any additional `Arc`s created via `metrics()`) is dropped and
+/// the process ends — matching production's fire-and-forget lifetime — but
+/// since the accept task holds the listener, dropping the returned
+/// `TestServer` (which drops its `JoinHandle`, aborting nothing on its own —
+/// `JoinHandle::drop` merely detaches, so the accept task keeps running for
+/// the rest of the test process) is enough for a short-lived test process.
+pub async fn spawn_for_test(
+    tls_config: Arc<rustls::ServerConfig>,
+    db_pool: DbPool,
+    config: TcpServerConfig,
+) -> std::io::Result<TestServer> {
+    let std_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    set_listen_backlog(&std_listener, config.listen_backlog);
+    std_listener.set_nonblocking(true)?;
+    let listener = tokio::net::TcpListener::from_std(std_listener)?;
+    let addr = listener.local_addr()?;
+
+    let config = Arc::new(config);
+    let metrics = Arc::new(TcpMetrics::new());
+    let handshake_limiter = Arc::new(PublicReadLimiter::new(config.handshake_limiter.clone()));
+    let handshake_semaphore = Arc::new(tokio::sync::Semaphore::new(config.handshake_concurrency));
+    let ui_configuration = crate::services::ui::load()
+        .expect("default UI configuration loads with no UI_CONFIG_FILE/UI_DIST_DIR set");
+
+    let server = TcpServer {
+        listener,
+        ready_flag: Arc::new(AtomicBool::new(true)),
+        db_pool,
+        tls_acceptor: TlsAcceptor::from(tls_config),
+        net: crate::net::Net::production(),
+        config,
+        metrics: metrics.clone(),
+        handshake_limiter,
+        handshake_semaphore,
+        active_connections: Arc::new(AtomicUsize::new(0)),
+        ui_configuration,
+    };
+    let task = tokio::spawn(server.run());
+
+    Ok(TestServer {
+        addr,
+        metrics,
+        _task: task,
+    })
 }
 
 /// Test/diagnostic harness entry point: run the TCP service dispatch directly,
@@ -663,29 +1173,84 @@ fn dispatch(
                 Err(error) => error_response(4, &error.message),
             }
         }
-        ("DomainKeys", "get-domain-keys") => match db_pool.list_active_domain_keys() {
-            Ok(keys) => ok_response(liblinkkeys::generated::encode_get_domain_keys_response(
-                &GetDomainKeysResponse {
-                    domain: get_domain_name(),
-                    keys: keys.iter().map(Into::into).collect(),
-                    recent_revocations_available: Some(
-                        crate::services::revocations::recent_revocations_available(db_pool),
-                    ),
+        // Both domain-key reads are anonymous, so they draw on the same
+        // public-read budget as the application-key reads: an unbounded
+        // anonymous surface is a denial-of-service surface whatever it serves.
+        //
+        // The response is served from an encoded snapshot. Domain key changes
+        // are rare, so one immutable snapshot answers almost every call
+        // without a database round trip or a re-encode. It is invalidated on
+        // a domain-key write and additionally carries a short time limit,
+        // which covers both a missed invalidation and the
+        // `recent_revocations_available` flag going stale simply because time
+        // passed.
+        ("DomainKeys", "get-domain-keys") => {
+            if let Err(response) = public_read_gate(recovery_source_key) {
+                return response;
+            }
+            let loaded = crate::services::pubkey_cache::DOMAIN_SNAPSHOT_CACHE.get_or_load(
+                &crate::services::pubkey_cache::CacheKey::DomainKeys,
+                || {
+                    let keys = db_pool.list_active_domain_keys().map_err(|e| {
+                        crate::services::pubkey_cache::CacheError::Load(db_error_message(e))
+                    })?;
+                    Ok(Some(
+                        liblinkkeys::generated::encode_get_domain_keys_response(
+                            &GetDomainKeysResponse {
+                                domain: get_domain_name(),
+                                keys: keys.iter().map(Into::into).collect(),
+                                recent_revocations_available: Some(
+                                    crate::services::revocations::recent_revocations_available(
+                                        db_pool,
+                                    ),
+                                ),
+                            },
+                        ),
+                    ))
                 },
-            )),
-            Err(e) => error_response(4, &db_error_message(e)),
-        },
+            );
+            match loaded {
+                Ok(Some(bytes)) => ok_response(bytes.as_ref().clone()),
+                Ok(None) => error_response(4, "internal database error"),
+                Err(e) => error_response(4, &e.to_string()),
+            }
+        }
         ("DomainKeys", "get-revocations") => {
+            if let Err(response) = public_read_gate(recovery_source_key) {
+                return response;
+            }
             let request =
                 match liblinkkeys::generated::decode_get_revocations_request(&envelope.payload) {
                     Ok(r) => r,
                     Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
                 };
-            let revocations =
-                crate::services::revocations::serve(db_pool, request.since.as_deref());
-            ok_response(liblinkkeys::generated::encode_get_revocations_response(
-                &liblinkkeys::generated::types::GetRevocationsResponse { revocations },
-            ))
+            // Only the default (unbounded `since`) read is snapshot-cached.
+            // A caller-supplied `since` makes the response caller-specific,
+            // and caching one entry per distinct `since` would let an
+            // anonymous caller fill the cache with values of its own choosing.
+            if request.since.is_some() {
+                let revocations =
+                    crate::services::revocations::serve(db_pool, request.since.as_deref());
+                return ok_response(liblinkkeys::generated::encode_get_revocations_response(
+                    &liblinkkeys::generated::types::GetRevocationsResponse { revocations },
+                ));
+            }
+            let loaded = crate::services::pubkey_cache::DOMAIN_SNAPSHOT_CACHE.get_or_load(
+                &crate::services::pubkey_cache::CacheKey::Revocations,
+                || {
+                    let revocations = crate::services::revocations::serve(db_pool, None);
+                    Ok(Some(
+                        liblinkkeys::generated::encode_get_revocations_response(
+                            &liblinkkeys::generated::types::GetRevocationsResponse { revocations },
+                        ),
+                    ))
+                },
+            );
+            match loaded {
+                Ok(Some(bytes)) => ok_response(bytes.as_ref().clone()),
+                Ok(None) => error_response(4, "internal database error"),
+                Err(e) => error_response(4, &e.to_string()),
+            }
         }
         // Unauthenticated, like DomainKeys/Ops: any CSIL-RPC client (browser
         // POST /csil/v1/rpc or native TCP) fetches the UI catalog before or
@@ -919,6 +1484,28 @@ fn dispatch(
             }))
         }
         // DNS-less local RP claim-ticket redemption (dns-less-local-rp-design.md,
+        // Application keys. No operation here takes an API key.
+        //
+        // get-application-keys and start-key-challenge are public: the first
+        // returns only public material, the second returns a nonce that is
+        // useless without the matching private key. add-key,
+        // renew-attestation, and revoke-key are authenticated at the
+        // APPLICATION layer by the application's own signatures over a
+        // canonical payload — the same shape LocalRp/redeem-claim-ticket
+        // already uses — because the authority for those operations is the
+        // application key quorum, not a transport credential. Initial
+        // enrollment is the exception and lives on Account, where the account
+        // owner has already authenticated.
+        //
+        // Every one of these is anonymous at the transport layer, so all of
+        // them pass the public-read limiter first: an anonymous surface with
+        // no bound is a denial-of-service surface.
+        ("ApplicationKeys", op) => {
+            if let Err(response) = public_read_gate(recovery_source_key) {
+                return response;
+            }
+            dispatch_application_keys(op, &envelope.payload, db_pool)
+        }
         // Phase 5). Unauthenticated at the transport layer like DomainKeys/Ops
         // and Attestation/deposit-claim — authentication is the application-
         // layer possession proof: the request is signed with the local RP's
@@ -1713,6 +2300,29 @@ fn dispatch_account(
                 Err(error) => service_error_response(error),
             }
         }
+        "enroll-application-instance" => {
+            let request =
+                match liblinkkeys::generated::decode_enroll_application_instance_request(payload) {
+                    Ok(r) => r,
+                    Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+                };
+            // The subject is the AUTHENTICATED account, never a value from the
+            // request body. Initial enrollment is the one bootstrap exception
+            // to application-key quorum, so the account owner's identity is
+            // the whole authority for it; taking the subject from the payload
+            // would let any caller enrol keys against somebody else.
+            match crate::services::application_keys::enroll_instance(
+                db_pool,
+                &user.id,
+                request,
+                chrono::Utc::now(),
+            ) {
+                Ok(resp) => ok_response(
+                    liblinkkeys::generated::encode_enroll_application_instance_response(&resp),
+                ),
+                Err(error) => service_error_response(error),
+            }
+        }
         _ => error_response(3, &format!("Unknown Account operation: {}", op)),
     }
 }
@@ -1832,6 +2442,40 @@ fn dispatch_rp(
                 Err(s) => rp_status_to_error(s),
             }
         }
+        "resolve-domain-keys" => {
+            let request = match codec::decode_rp_resolve_domain_keys_request(payload) {
+                Ok(r) => r,
+                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+            };
+            // Resolving a remote domain needs an onward server-to-server call
+            // on a cache miss, so it needs the outbound context the web
+            // carrier does not have.
+            let ctx = match outbound {
+                Some(ctx) => ctx,
+                None => return error_response(4, "operation unavailable on this carrier"),
+            };
+            match crate::services::rp_cache::resolve_domain_keys(db_pool, ctx.net, ctx.rt, request)
+            {
+                Ok(resp) => ok_response(codec::encode_rp_resolve_domain_keys_response(&resp)),
+                Err(error) => service_error_response(error),
+            }
+        }
+        "resolve-application-keys" => {
+            let request = match codec::decode_rp_resolve_application_keys_request(payload) {
+                Ok(r) => r,
+                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+            };
+            let ctx = match outbound {
+                Some(ctx) => ctx,
+                None => return error_response(4, "operation unavailable on this carrier"),
+            };
+            match crate::services::rp_cache::resolve_application_keys(
+                db_pool, ctx.net, ctx.rt, request,
+            ) {
+                Ok(resp) => ok_response(codec::encode_rp_resolve_application_keys_response(&resp)),
+                Err(error) => service_error_response(error),
+            }
+        }
         _ => error_response(3, &format!("Unknown Rp operation: {}", op)),
     }
 }
@@ -1870,6 +2514,12 @@ fn error_response(status: i32, message: &str) -> Vec<u8> {
         3 => Status::UnknownServiceOrOp,
         4 => Status::Internal,
         5 => Status::Forbidden,
+        // Rate limiting answers Unavailable rather than Forbidden. Forbidden
+        // tells a client its credentials are wrong and it should stop;
+        // Unavailable tells it to back off and retry, which is the correct
+        // action here and the one every SDK's error mapping already
+        // understands. The retry delay travels in the message.
+        6 => Status::Unavailable,
         other => Status::Other(other as i64),
     };
     RpcResponse::transport_error(status, message)
@@ -1877,9 +2527,89 @@ fn error_response(status: i32, message: &str) -> Vec<u8> {
         .expect("encode RPC error response")
 }
 
+/// Bound the anonymous public-key surface before it does any work.
+///
+/// The limiter is keyed on the DIRECT socket peer address only. It is never
+/// keyed on a subject UUID, application id, or instance id taken from the
+/// request: an attacker who supplied a victim's value would drain the victim's
+/// bucket instead of its own.
+fn public_read_gate(source_key: &str) -> Result<(), Vec<u8>> {
+    use crate::services::public_ratelimit::{PublicReadDecision, PUBLIC_READS};
+    match PUBLIC_READS.check(&crate::services::public_ratelimit::source_key_from_str(
+        source_key,
+    )) {
+        PublicReadDecision::Allow => Ok(()),
+        PublicReadDecision::Limited {
+            retry_after_seconds,
+            ..
+        } => Err(error_response(
+            6,
+            &format!("Rate limited. Try again in {retry_after_seconds} seconds"),
+        )),
+    }
+}
+
+fn dispatch_application_keys(op: &str, payload: &[u8], db_pool: &DbPool) -> Vec<u8> {
+    use liblinkkeys::generated::codec;
+    let now = chrono::Utc::now();
+    macro_rules! app_key_op {
+        ($decode:path, $handler:expr, $encode:path) => {{
+            let request = match $decode(payload) {
+                Ok(request) => request,
+                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+            };
+            match $handler(db_pool, request, now) {
+                Ok(response) => ok_response($encode(&response)),
+                Err(e) => service_error_response(e),
+            }
+        }};
+    }
+    match op {
+        // Served from the encoded-response cache: a hit repeats neither the
+        // database read nor the CBOR encoding, and concurrent misses for one
+        // instance are coalesced into a single query.
+        "get-application-keys" => {
+            let request = match codec::decode_get_application_keys_request(payload) {
+                Ok(request) => request,
+                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+            };
+            match crate::services::application_keys::get_application_keys_encoded(
+                db_pool, request, now,
+            ) {
+                Ok(bytes) => ok_response(bytes.as_ref().clone()),
+                Err(e) => service_error_response(e),
+            }
+        }
+        "start-key-challenge" => app_key_op!(
+            codec::decode_start_application_key_challenge_request,
+            crate::services::application_keys::start_challenge,
+            codec::encode_start_application_key_challenge_response
+        ),
+        "add-key" => app_key_op!(
+            codec::decode_add_application_key_request,
+            crate::services::application_keys::add_key,
+            codec::encode_add_application_key_response
+        ),
+        "renew-attestation" => app_key_op!(
+            codec::decode_renew_application_key_attestation_request,
+            crate::services::application_keys::renew_attestation,
+            codec::encode_renew_application_key_attestation_response
+        ),
+        "revoke-key" => app_key_op!(
+            codec::decode_revoke_application_key_request,
+            crate::services::application_keys::revoke_key,
+            codec::encode_revoke_application_key_response
+        ),
+        _ => error_response(3, &format!("Unknown ApplicationKeys operation: {}", op)),
+    }
+}
+
 fn service_error_response(error: liblinkkeys::generated::services::ServiceError) -> Vec<u8> {
     let status = if matches!(error.code, 401 | 403) {
         5
+    } else if error.code == 429 {
+        // Back off and retry, not "your credentials are wrong".
+        6
     } else if error.code >= 500 {
         4
     } else {
@@ -1956,6 +2686,41 @@ mod depth_tests {
     #[test]
     fn test_empty_input_passes() {
         assert!(check_cbor_depth(&[]));
+    }
+
+    /// A nine-byte payload that DECLARES 2^40 array elements must be refused
+    /// before it reaches the generated decoder.
+    ///
+    /// The generated decoder pre-allocates from the declared count, so without
+    /// this guard that payload makes the process attempt a 35 TB allocation
+    /// and abort — a remote denial of service from an anonymous caller, on
+    /// every public operation. Every reachable declared-length shape is
+    /// covered here: array, map, byte string, and text string.
+    #[test]
+    fn a_declared_length_larger_than_the_input_is_refused() {
+        // Array header, additional info 27 (eight-byte count), 2^40 items.
+        let huge_array = [0x9b, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00];
+        assert!(!check_cbor_depth(&huge_array));
+
+        // Map header with the same absurd count.
+        let huge_map = [0xbb, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00];
+        assert!(!check_cbor_depth(&huge_map));
+
+        // Byte string and text string with a length near usize::MAX, which
+        // would wrap an unchecked `i + len` bounds test into a pass.
+        let huge_bytes = [0x5b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
+        assert!(!check_cbor_depth(&huge_bytes));
+        let huge_text = [0x7b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
+        assert!(!check_cbor_depth(&huge_text));
+
+        // A count that is merely larger than what remains is equally
+        // unsatisfiable, and must be refused just the same.
+        let slightly_too_big = [0x83, 0x01, 0x02];
+        assert!(!check_cbor_depth(&slightly_too_big));
+
+        // The honest version of the same shape still passes.
+        let honest = [0x83, 0x01, 0x02, 0x03];
+        assert!(check_cbor_depth(&honest));
     }
 
     #[test]
