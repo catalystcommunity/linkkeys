@@ -46,7 +46,13 @@ job:
     git diff --exit-code -- sdks/regular-rp/conformance/
 
     echo "=== SQLite tests passed ==="
-  timeout: 1800
+  # 3600, matching test-postgres. This job is the SLOWEST of the pair despite
+  # the faster database: it also builds the web UI, runs `cargo deny`, and
+  # checks that the application-key conformance vectors still regenerate
+  # byte-for-byte. At the 1800 it had, a 28m39s run left 81 seconds of
+  # headroom, and a timeout reads as a test failure rather than as a job that
+  # ran out of clock.
+  timeout: 3600
   priority: 10
   run_as:
     user: runner
