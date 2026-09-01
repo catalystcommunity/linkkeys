@@ -35,3 +35,10 @@ jobs:
     job_file: .reactorcide/jobs/test-regular-rp-go.yaml
     depends_on:
       - linkkeys-conventional-commits
+  # Split out of the SQLite job. It was adding npm ci, a web UI build, an npm
+  # audit and a committed-asset diff to the LONGEST job on the critical path;
+  # as its own node it runs in parallel with the Rust work instead.
+  linkkeys-web-ui:
+    job_file: .reactorcide/jobs/web-ui.yaml
+    depends_on:
+      - linkkeys-conventional-commits

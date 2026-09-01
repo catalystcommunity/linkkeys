@@ -1,53 +1,17 @@
 name: linkkeys-conventional-commits
 description: "Validate all PR commits follow conventional commit format"
-# Triggering and the downstream build/test fan-out live in
-# .reactorcide/workflows/pr.yaml — this file is the job body only.
+# Triggering lives in .reactorcide/workflows/pr.yaml.
+#
+# The body is a runnerlib lifecycle job: REACTORCIDE_CI_JOB selects a function
+# from CI_JOBS in .reactorcide/plugins/plugin_ci_jobs.py, which runs its
+# commands through subprocess without a shell.
 job:
   image: containers.catalystsquad.com/public/reactorcide/runnerbase:latest
-  command: |
-    set -e
-    cd "${REACTORCIDE_CODE_DIR:-/job/src}"
-
-    # Source is prepared by reactorcide. For fork PRs, the prepared checkout is
-    # the PR head; add the trusted upstream as a second remote so base..HEAD
-    # ranges work without executing CI definitions from the fork.
-    if [ -n "${REACTORCIDE_BASE_URL:-}" ] && [ "${REACTORCIDE_BASE_URL}" != "${REACTORCIDE_HEAD_URL:-${REACTORCIDE_SOURCE_URL:-}}" ]; then
-      git remote add upstream "${REACTORCIDE_BASE_URL}" 2>/dev/null || true
-      git fetch upstream "${REACTORCIDE_BASE_REF:-${REACTORCIDE_PR_BASE_REF:-main}}"
-    fi
-
-    echo "=== Validating Conventional Commits ==="
-    PATTERN="^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?!?: .+"
-    FAILED=0
-
-    DIFF_BASE="${REACTORCIDE_DIFF_BASE:-}"
-    if [ -z "${DIFF_BASE}" ]; then
-      BASE_REF="${REACTORCIDE_BASE_REF:-${REACTORCIDE_PR_BASE_REF:-main}}"
-      if git remote | grep -qx upstream; then
-        DIFF_BASE="upstream/${BASE_REF}"
-      else
-        DIFF_BASE="origin/${BASE_REF}"
-      fi
-    fi
-    git log "${DIFF_BASE}..HEAD" --pretty=format:"%H %s" > /tmp/commits.txt
-    while IFS= read -r LINE; do
-      HASH=$(echo "${LINE}" | cut -d " " -f1)
-      MSG=$(echo "${LINE}" | cut -d " " -f2-)
-      if echo "${MSG}" | grep -qE "${PATTERN}"; then
-        echo "OK: ${MSG}"
-      else
-        echo "FAIL: ${MSG} (${HASH})"
-        FAILED=1
-      fi
-    done < /tmp/commits.txt
-
-    if [ "${FAILED}" = "1" ]; then
-      echo ""
-      echo "Commit messages must match: type(scope)?: description"
-      echo "Valid types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert"
-      exit 1
-    fi
-
-    echo "All commits follow conventional commit format."
+  command: "runnerlib run --job-command true"
   timeout: 300
   priority: 10
+  working_dir: /job
+  run_as:
+    user: runner
+environment:
+  REACTORCIDE_CI_JOB: conventional-commits

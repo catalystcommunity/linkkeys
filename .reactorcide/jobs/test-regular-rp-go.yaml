@@ -2,11 +2,9 @@ name: linkkeys-test-regular-rp-go
 description: "Test the regular-RP Go SDK against the application-key conformance vectors"
 # Triggering lives in .reactorcide/workflows/pr.yaml.
 #
-# The body is a runnerlib lifecycle job, not a shell block: REACTORCIDE_CI_JOB
-# selects a function from CI_JOBS in .reactorcide/plugins/plugin_ci_jobs.py,
-# which runs its commands through subprocess without a shell. An inline shell
-# block is re-quoted on its way to the runner and died here with
-# "sh: Syntax error: Unterminated quoted string" AFTER the tests had passed.
+# The body is a runnerlib lifecycle job: REACTORCIDE_CI_JOB selects a function
+# from CI_JOBS in .reactorcide/plugins/plugin_ci_jobs.py, which runs its
+# commands through subprocess without a shell.
 job:
   image: containers.catalystsquad.com/public/reactorcide/runnerbase:latest
   command: "runnerlib run --job-command true"

@@ -1,60 +1,23 @@
 name: linkkeys-test-sqlite
-description: "Run tests against SQLite backend"
+description: "Run tests against the SQLite backend"
+# Triggering lives in .reactorcide/workflows/pr.yaml.
+#
+# The body is a runnerlib lifecycle job: REACTORCIDE_CI_JOB selects a function
+# from CI_JOBS in .reactorcide/plugins/plugin_ci_jobs.py, which runs its
+# commands through subprocess without a shell.
 job:
   image: containers.catalystsquad.com/public/reactorcide/runnerbase:latest
-  command: |
-    set -e
-    sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-      libpq-dev libsqlite3-dev pkg-config build-essential nodejs npm
-
-    export HOME=/home/runner
-    export PATH="/usr/local/cargo/bin:$HOME/.cargo/bin:$PATH"
-
-    if ! command -v cargo >/dev/null 2>&1; then
-      curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-    fi
-
-    if [ -f "$HOME/.cargo/env" ]; then
-      . "$HOME/.cargo/env"
-    elif [ -f /usr/local/cargo/env ]; then
-      . /usr/local/cargo/env
-    fi
-
-    cd "${REACTORCIDE_CODE_DIR:-/job/src}"
-    export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/tmp/linkkeys-target}"
-
-    echo "=== Checking embedded web UI ==="
-    (cd web-ui && npm ci --no-audit --no-fund && npm run build)
-    (cd web-ui && npm audit --omit=optional)
-    git diff --exit-code -- crates/linkkeys/assets/ui
-
-    if ! cargo deny --version >/dev/null 2>&1; then
-      cargo install cargo-deny --locked
-    fi
-    cargo deny check
-
-    echo "=== Running tests (SQLite backend) ==="
-    TEST_DATABASE_BACKEND=sqlite cargo test --all-features 2>&1
-
-    # The application-key conformance vectors are checked in, and other-language
-    # SDKs are validated against them. They must stay reproducible from the
-    # generator, or a vector could drift from the implementation it is supposed
-    # to pin. The generator is deterministic by construction (fixed seeds, fixed
-    # timestamps, injected randomness), so regenerating must be a no-op.
-    echo "=== Checking conformance vectors are reproducible ==="
-    cargo run -p liblinkkeys --example generate_application_key_vectors
-    git diff --exit-code -- sdks/regular-rp/conformance/
-
-    echo "=== SQLite tests passed ==="
-  # 3600, matching test-postgres. This job is the SLOWEST of the pair despite
-  # the faster database: it also builds the web UI, runs `cargo deny`, and
-  # checks that the application-key conformance vectors still regenerate
-  # byte-for-byte. At the 1800 it had, a 28m39s run left 81 seconds of
-  # headroom, and a timeout reads as a test failure rather than as a job that
-  # ran out of clock.
+  command: "runnerlib run --job-command true"
   timeout: 3600
   priority: 10
+  working_dir: /job
   run_as:
     user: runner
-  run_local:
-    as_runner: true
+  resources:
+    cpu:
+      request: "4"
+      limit: "8"
+    memory:
+      limit: "12Gi"
+environment:
+  REACTORCIDE_CI_JOB: test-sqlite
