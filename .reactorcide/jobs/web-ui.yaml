@@ -1,5 +1,5 @@
-name: linkkeys-test-postgres
-description: "Run tests against the PostgreSQL backend"
+name: linkkeys-web-ui
+description: "Build the embedded web UI and check the committed assets match"
 # Triggering lives in .reactorcide/workflows/pr.yaml.
 #
 # The body is a runnerlib lifecycle job: REACTORCIDE_CI_JOB selects a function
@@ -8,16 +8,10 @@ description: "Run tests against the PostgreSQL backend"
 job:
   image: containers.catalystsquad.com/public/reactorcide/runnerbase:latest
   command: "runnerlib run --job-command true"
-  timeout: 3600
+  timeout: 900
   priority: 10
   working_dir: /job
   run_as:
     user: runner
-  resources:
-    cpu:
-      request: "4"
-      limit: "8"
-    memory:
-      limit: "12Gi"
 environment:
-  REACTORCIDE_CI_JOB: test-postgres
+  REACTORCIDE_CI_JOB: web-ui
