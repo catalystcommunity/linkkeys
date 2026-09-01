@@ -328,7 +328,7 @@ const ExtensionPage: Component<{ route: ExtensionRoute; host: RuntimeHost; path:
 };
 
 const App: Component<{ configuration: GetUiConfigurationResponse }> = (props) => {
-  const [path, setPath] = createSignal(window.location.pathname); const [revision, setRevision] = createSignal(0); const [session, setSession] = createSignal<BrowserSessionInfo>(); const [sessionLoaded, setSessionLoaded] = createSignal(false); const [sessionError, setSessionError] = createSignal(false); const [canAdmin, setCanAdmin] = createSignal(false); const [extensionFailures, setExtensionFailures] = createSignal<string[]>([]); const [extensionsLoaded, setExtensionsLoaded] = createSignal(false); const [logoutBusy, setLogoutBusy] = createSignal(false); const [logoutError, setLogoutError] = createSignal("");
+  const [path, setPath] = createSignal(window.location.pathname); const [session, setSession] = createSignal<BrowserSessionInfo>(); const [sessionLoaded, setSessionLoaded] = createSignal(false); const [sessionError, setSessionError] = createSignal(false); const [canAdmin, setCanAdmin] = createSignal(false); const [extensionFailures, setExtensionFailures] = createSignal<string[]>([]); const [extensionsLoaded, setExtensionsLoaded] = createSignal(false); const [logoutBusy, setLogoutBusy] = createSignal(false); const [logoutError, setLogoutError] = createSignal("");
   const showPath = (nextPath: string) => { setPath(nextPath); window.scrollTo(0, 0); window.requestAnimationFrame(() => { const heading = document.querySelector<HTMLElement>("main h1"); heading?.setAttribute("tabindex", "-1"); heading?.focus(); }); };
   const navigate = (target: string) => {
     setLogoutError("");
@@ -353,14 +353,14 @@ const App: Component<{ configuration: GetUiConfigurationResponse }> = (props) =>
       else setSessionError(true);
     } finally { setSessionLoaded(true); }
   };
-  const host = new RuntimeHost(api, props.configuration, navigate, () => setRevision((value) => value + 1), session);
+  const host = new RuntimeHost(api, props.configuration, navigate, session);
   const pop = () => { setLogoutError(""); showPath(window.location.pathname); };
   const click = (event: MouseEvent) => { const anchor = (event.target as Element).closest<HTMLAnchorElement>("a[data-linkkeys-nav]"); if (!anchor || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return; event.preventDefault(); navigate(anchor.href); };
   onMount(async () => { window.addEventListener("popstate", pop); document.addEventListener("click", click); await refreshSession(); try { setExtensionFailures(await loadExtensions(host)); } finally { setExtensionsLoaded(true); } });
   onCleanup(() => { window.removeEventListener("popstate", pop); document.removeEventListener("click", click); });
   const logout = async () => { setLogoutBusy(true); setLogoutError(""); try { await api.session.logout({}); setSession(undefined); navigate("/app/login"); } catch { setLogoutError("Could not sign out. Check your connection and try again."); } finally { setLogoutBusy(false); } };
   createEffect(() => { const label = path().split("/").filter(Boolean).at(-1) ?? "home"; document.title = `${claimLabel(label)} · ${props.configuration.display.siteName}`; });
-  const page = () => { revision(); const current = path(); const common = { navigate, configuration: props.configuration, session: session(), refreshSession, extensionFailures: extensionFailures() };
+  const page = () => { const current = path(); const common = { navigate, configuration: props.configuration, session: session(), refreshSession, extensionFailures: extensionFailures() };
     if (!sessionLoaded()) return <Loading />;
     if (sessionError()) return <main class="wrap narrow"><section class="card"><h1>Could not check your session</h1><p>LinkKeys could not connect to the account service.</p><button type="button" onClick={refreshSession}>Try again</button></section></main>;
     if (current === "/app" || current === "/app/") return session() ? <Account {...common} /> : <Login {...common} />;
