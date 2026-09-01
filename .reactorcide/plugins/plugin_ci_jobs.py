@@ -188,6 +188,10 @@ def web_ui(code_dir: Path) -> None:
     if not ui_dir.is_dir():
         raise RuntimeError(f"web-ui directory not found: {ui_dir}")
 
+    # The runner image carries no Node. This used to ride along on the SQLite
+    # job's apt line, which is easy to lose when a job is split out.
+    _apt_install(["nodejs", "npm"], cwd=code_dir)
+
     log_stdout("=== Building the embedded web UI ===")
     _run(["npm", "ci", "--no-audit", "--no-fund"], cwd=ui_dir)
     _run(["npm", "run", "build"], cwd=ui_dir)
