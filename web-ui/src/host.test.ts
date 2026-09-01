@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createMemo, createRoot } from "solid-js";
 import type { AsyncApiClient } from "./generated/client.async.gen";
 import type { GetUiConfigurationResponse } from "./generated/types.gen";
 import { RuntimeHost } from "./host";
@@ -7,7 +8,6 @@ function makeHost(): RuntimeHost {
   return new RuntimeHost(
     {} as AsyncApiClient,
     { extensions: [] } as unknown as GetUiConfigurationResponse,
-    () => undefined,
     () => undefined,
     () => undefined,
   );
@@ -19,6 +19,32 @@ beforeEach(() => {
 });
 
 describe("RuntimeHost", () => {
+  it("updates extension contributions after registration and removal", async () => {
+    const host = makeHost();
+    await createRoot(async (dispose) => {
+      try {
+        const navigationLabels = createMemo(() => host.navigationItems().map((item) => item.label));
+        const routeTitle = createMemo(() => host.route("/app/example")?.title);
+
+        expect(navigationLabels()).toEqual([]);
+        expect(routeTitle()).toBeUndefined();
+
+        await host.activate("example", (api) => {
+          api.registerRoute({ path: "/app/example", title: "Example", render: () => undefined });
+          api.registerNavigation({ path: "/app/example", label: "Example" });
+        });
+        expect(navigationLabels()).toEqual(["Example"]);
+        expect(routeTitle()).toBe("Example");
+
+        host.removeExtension("example");
+        expect(navigationLabels()).toEqual([]);
+        expect(routeTitle()).toBeUndefined();
+      } finally {
+        dispose();
+      }
+    });
+  });
+
   it("removes partial contributions after activation fails", async () => {
     const host = makeHost();
     await expect(host.activate("broken", (api) => {

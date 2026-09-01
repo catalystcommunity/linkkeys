@@ -1,5 +1,6 @@
 import type { AsyncApiClient } from "./generated/client.async.gen";
 import type { GetUiConfigurationResponse, BrowserSessionInfo } from "./generated/types.gen";
+import { createSignal, type Accessor, type Setter } from "solid-js";
 
 const CORE_PREFIXES = [
   "/app/login",
@@ -58,14 +59,21 @@ export class RuntimeHost implements LinkKeysHostApiV1 {
   private routeOwners = new Map<string, string>();
   private navigationOwners = new Map<string, string>();
   private disabledExtensions = new Set<string>();
+  private readonly revision: Accessor<number>;
+  private readonly setRevision: Setter<number>;
 
   constructor(
     readonly clients: AsyncApiClient,
     readonly configuration: GetUiConfigurationResponse,
     private readonly navigateFn: (path: string) => void,
-    private readonly changed: () => void,
     private readonly sessionFn: () => BrowserSessionInfo | undefined
-  ) {}
+  ) {
+    [this.revision, this.setRevision] = createSignal(0);
+  }
+
+  private changed(): void {
+    this.setRevision((value) => value + 1);
+  }
 
   registerRoute(route: ExtensionRoute): void {
     throw new Error("Use the extension-scoped host that LinkKeys passes to activate().");
@@ -96,18 +104,21 @@ export class RuntimeHost implements LinkKeysHostApiV1 {
   navigate(path: string): void { this.navigateFn(path); }
   getSession(): BrowserSessionInfo | undefined { return this.sessionFn(); }
   route(path: string): ExtensionRoute | undefined {
+    this.revision();
     const match = [...this.routes.entries()]
       .filter(([prefix]) => path === prefix || path.startsWith(`${prefix}/`))
       .sort(([left], [right]) => right.length - left.length)[0];
     return match?.[1];
   }
   routeOwner(path: string): string | undefined {
+    this.revision();
     const match = [...this.routeOwners.entries()]
       .filter(([prefix]) => path === prefix || path.startsWith(`${prefix}/`))
       .sort(([left], [right]) => right.length - left.length)[0];
     return match?.[1];
   }
   navigationItems(): ExtensionNavigation[] {
+    this.revision();
     return [...this.navigation.values()].sort((left, right) => (left.order ?? 100) - (right.order ?? 100));
   }
 
