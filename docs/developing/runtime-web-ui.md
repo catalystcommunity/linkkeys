@@ -265,7 +265,14 @@ Host API version 1 supports these contributions:
 The host gives each extension a separate host facade. The facade assigns each
 contribution to that extension. The host removes all registrations if module
 load or activation fails. A five-second timeout applies to each phase. A late
-registration from a disabled extension has no effect.
+registration from an old activation has no effect.
+
+The host calls the activation function after the first browser session check.
+It calls the function again when the session changes. This includes sign-in,
+sign-out, and a new session for a different account. Before the new call, the
+host removes the routes and navigation from the prior call. The extension must
+register all contributions that apply to the current session. If activation
+fails, the host retries it after the next session change.
 
 ## Extension delivery
 

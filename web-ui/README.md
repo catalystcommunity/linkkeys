@@ -52,6 +52,12 @@ export function activate(host) {
 An extension route must start with `/app/`. It must not use a core route. A
 route also matches child paths. The host uses the longest matching route.
 
+The host calls `activate(host)` after the first session check. It calls the
+function again when the browser session changes. This includes sign-in,
+sign-out, and a new session for a different account. Before each new call, the
+host removes the routes and navigation from the prior call. The extension must
+register all contributions that apply to the current session.
+
 The render context contains these values:
 
 - `path`: the current client path;
@@ -63,9 +69,10 @@ The render context contains these values:
 Return a cleanup function from `render`. Remove event listeners and DOM state
 in this function.
 
-The host removes all registrations when activation fails. It keeps core routes
-available and writes a safe error to the browser console. It shows extension
-IDs only on the administration page after the administration call succeeds.
+The host removes all registrations when activation fails. It retries the
+extension after the next session change. It keeps core routes available and
+writes a safe error to the browser console. It shows extension IDs only on the
+administration page after the administration call succeeds.
 
 See `../docs/developing/runtime-web-ui.md` and
 `../deploy/ui.example.toml` for deployment details.

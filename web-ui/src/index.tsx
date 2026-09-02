@@ -12,6 +12,7 @@ function query(name: string): string { return new URLSearchParams(window.locatio
 
 function safeNext(value: string): string { return value.startsWith("/app/") ? value : ""; }
 function withNext(path: string, next: string): string { return next ? `${path}?next=${encodeURIComponent(next)}` : path; }
+function sessionIdentity(value?: BrowserSessionInfo): string { return value ? `${value.user.id}:${value.issuedAt}` : ""; }
 
 function takeFragmentToken(storageKey?: string): string {
   const fragmentToken = new URLSearchParams(window.location.hash.slice(1)).get("token");
@@ -341,24 +342,35 @@ const App: Component<{ configuration: GetUiConfigurationResponse }> = (props) =>
     window.history.pushState({}, "", url);
     showPath(url.pathname);
   };
+  const host = new RuntimeHost(api, props.configuration, navigate, session);
+  const reactivateExtensions = async () => {
+    setExtensionsLoaded(false);
+    try { setExtensionFailures(await host.reactivateExtensions()); }
+    finally { setExtensionsLoaded(true); }
+  };
   const refreshSession = async () => {
     setSessionError(false);
     try {
       const current = (await api.session.getCurrent({})).session;
+      const sessionChanged = extensionsLoaded() && sessionIdentity(session()) !== sessionIdentity(current);
       setSession(current);
       if (current) { try { const permission = await api.admin.checkPermission({ userId: current.user.id, relation: "admin", objectType: "domain", objectId: props.configuration.domain }); setCanAdmin(permission.allowed); } catch { setCanAdmin(false); } }
       else setCanAdmin(false);
+      if (sessionChanged) await reactivateExtensions();
     } catch (cause) {
-      if (authenticationFailed(cause)) { setSession(undefined); setCanAdmin(false); }
+      if (authenticationFailed(cause)) {
+        const sessionChanged = extensionsLoaded() && sessionIdentity(session()) !== sessionIdentity();
+        setSession(undefined); setCanAdmin(false);
+        if (sessionChanged) await reactivateExtensions();
+      }
       else setSessionError(true);
     } finally { setSessionLoaded(true); }
   };
-  const host = new RuntimeHost(api, props.configuration, navigate, session);
   const pop = () => { setLogoutError(""); showPath(window.location.pathname); };
   const click = (event: MouseEvent) => { const anchor = (event.target as Element).closest<HTMLAnchorElement>("a[data-linkkeys-nav]"); if (!anchor || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return; event.preventDefault(); navigate(anchor.href); };
   onMount(async () => { window.addEventListener("popstate", pop); document.addEventListener("click", click); await refreshSession(); try { setExtensionFailures(await loadExtensions(host)); } finally { setExtensionsLoaded(true); } });
   onCleanup(() => { window.removeEventListener("popstate", pop); document.removeEventListener("click", click); });
-  const logout = async () => { setLogoutBusy(true); setLogoutError(""); try { await api.session.logout({}); setSession(undefined); navigate("/app/login"); } catch { setLogoutError("Could not sign out. Check your connection and try again."); } finally { setLogoutBusy(false); } };
+  const logout = async () => { setLogoutBusy(true); setLogoutError(""); try { await api.session.logout({}); setSession(undefined); setCanAdmin(false); navigate("/app/login"); await reactivateExtensions(); } catch { setLogoutError("Could not sign out. Check your connection and try again."); } finally { setLogoutBusy(false); } };
   createEffect(() => { const label = path().split("/").filter(Boolean).at(-1) ?? "home"; document.title = `${claimLabel(label)} · ${props.configuration.display.siteName}`; });
   const page = () => { const current = path(); const common = { navigate, configuration: props.configuration, session: session(), refreshSession, extensionFailures: extensionFailures() };
     if (!sessionLoaded()) return <Loading />;
@@ -377,7 +389,7 @@ const App: Component<{ configuration: GetUiConfigurationResponse }> = (props) =>
     const extension = host.route(current); if (extension) { const owner = host.routeOwner(current) ?? extension.title; return session() ? <ExtensionPage route={extension} host={host} path={current} onFailure={() => setExtensionFailures((values) => values.includes(owner) ? values : [...values, owner])} /> : <Login {...common} />; }
     return <Unavailable title="Page not found" detail="This UI route is not registered." destination="/app/account" />;
   };
-  return <><a class="skip-link" href="#main-content">Skip to content</a><header class="site-header"><Link href="/app"><Show when={props.configuration.theme?.logoUrl} fallback={<span class="brand-mark">LK</span>}><img class="brand-logo" src={props.configuration.theme?.logoUrl} alt="" /></Show><span>{props.configuration.display.siteName}</span></Link><nav><Show when={session()}><Link href="/app/account" current={path().startsWith("/app/account")}>Account</Link><Show when={canAdmin()}><Link href="/app/admin" current={path().startsWith("/app/admin")}>Admin</Link></Show><For each={host.navigationItems()}>{(item) => <Link href={item.path} current={path().startsWith(item.path)}>{item.label}</Link>}</For></Show><Show when={session()} fallback={<Link href="/app/login" current={path() === "/app/login"}>Sign in</Link>}><button class="text-button" disabled={logoutBusy()} onClick={logout}>{logoutBusy() ? "Signing out…" : "Sign out"}</button></Show></nav></header>
+  return <><a class="skip-link" href="#main-content">Skip to content</a><header class="site-header"><Link href="/app"><Show when={props.configuration.theme?.logoUrl} fallback={<span class="brand-mark">LK</span>}><img class="brand-logo" src={props.configuration.theme?.logoUrl} alt="" /></Show><span>{props.configuration.display.siteName}</span></Link><nav><Show when={session()}><Link href="/app/account" current={path().startsWith("/app/account")}>Account</Link><Show when={canAdmin()}><Link href="/app/admin" current={path().startsWith("/app/admin")}>Admin</Link></Show><Show when={extensionsLoaded()}><For each={host.navigationItems()}>{(item) => <Link href={item.path} current={path().startsWith(item.path)}>{item.label}</Link>}</For></Show></Show><Show when={session()} fallback={<Link href="/app/login" current={path() === "/app/login"}>Sign in</Link>}><button class="text-button" disabled={logoutBusy()} onClick={logout}>{logoutBusy() ? "Signing out…" : "Sign out"}</button></Show></nav></header>
     <Show when={logoutError()}><div class="global-banner"><p class="notice bad" role="alert">{logoutError()}</p></div></Show>
     <div id="main-content" tabindex="-1">{page()}</div><footer>LinkKeys · {props.configuration.domain}<Show when={props.configuration.display.supportUrl}> · <a href={props.configuration.display.supportUrl}>Support</a></Show></footer></>;
 };

@@ -46,6 +46,10 @@ export interface LinkKeysUiExtension {
   activate(host: LinkKeysHostApiV1): void | Promise<void>;
 }
 
+type ExtensionActivator = (api: LinkKeysHostApiV1) => void | Promise<void>;
+
+const EXTENSION_TIMEOUT_MS = 5_000;
+
 function validExtensionPath(path: string): boolean {
   return path.startsWith("/app/")
     && !path.includes("..")
@@ -59,6 +63,8 @@ export class RuntimeHost implements LinkKeysHostApiV1 {
   private routeOwners = new Map<string, string>();
   private navigationOwners = new Map<string, string>();
   private disabledExtensions = new Set<string>();
+  private activationGenerations = new Map<string, number>();
+  private activators = new Map<string, ExtensionActivator>();
   private readonly revision: Accessor<number>;
   private readonly setRevision: Setter<number>;
 
@@ -79,8 +85,14 @@ export class RuntimeHost implements LinkKeysHostApiV1 {
     throw new Error("Use the extension-scoped host that LinkKeys passes to activate().");
   }
 
-  private registerRouteFor(extensionId: string, route: ExtensionRoute): void {
-    if (this.disabledExtensions.has(extensionId)) throw new Error("The extension is no longer active.");
+  private assertActive(extensionId: string, generation: number): void {
+    if (this.disabledExtensions.has(extensionId) || this.activationGenerations.get(extensionId) !== generation) {
+      throw new Error("The extension is no longer active.");
+    }
+  }
+
+  private registerRouteFor(extensionId: string, generation: number, route: ExtensionRoute): void {
+    this.assertActive(extensionId, generation);
     if (!validExtensionPath(route.path)) throw new Error(`The extension route ${route.path} conflicts with a core route.`);
     if (this.routes.has(route.path)) throw new Error(`The extension route ${route.path} is already registered.`);
     this.routes.set(route.path, route);
@@ -92,8 +104,8 @@ export class RuntimeHost implements LinkKeysHostApiV1 {
     throw new Error("Use the extension-scoped host that LinkKeys passes to activate().");
   }
 
-  private registerNavigationFor(extensionId: string, item: ExtensionNavigation): void {
-    if (this.disabledExtensions.has(extensionId)) throw new Error("The extension is no longer active.");
+  private registerNavigationFor(extensionId: string, generation: number, item: ExtensionNavigation): void {
+    this.assertActive(extensionId, generation);
     if (!this.routes.has(item.path)) throw new Error(`The extension navigation path ${item.path} has no registered route.`);
     if (this.navigation.has(item.path)) throw new Error(`The extension navigation path ${item.path} is already registered.`);
     this.navigation.set(item.path, item);
@@ -122,27 +134,65 @@ export class RuntimeHost implements LinkKeysHostApiV1 {
     return [...this.navigation.values()].sort((left, right) => (left.order ?? 100) - (right.order ?? 100));
   }
 
-  async activate(extensionId: string, callback: (api: LinkKeysHostApiV1) => void | Promise<void>): Promise<void> {
+  async activate(extensionId: string, callback: ExtensionActivator): Promise<void> {
+    this.activators.set(extensionId, callback);
+    const generation = (this.activationGenerations.get(extensionId) ?? 0) + 1;
+    this.activationGenerations.set(extensionId, generation);
     this.disabledExtensions.delete(extensionId);
+    this.removeRegistrations(extensionId);
     const api: LinkKeysHostApiV1 = {
       version: this.version,
       clients: this.clients,
       configuration: this.configuration,
-      registerRoute: (route) => this.registerRouteFor(extensionId, route),
-      registerNavigation: (item) => this.registerNavigationFor(extensionId, item),
+      registerRoute: (route) => this.registerRouteFor(extensionId, generation, route),
+      registerNavigation: (item) => this.registerNavigationFor(extensionId, generation, item),
       navigate: (path) => this.navigate(path),
       getSession: () => this.getSession()
     };
     try { await callback(api); }
-    catch (error) { this.removeExtension(extensionId); throw error; }
+    catch (error) {
+      if (this.activationGenerations.get(extensionId) === generation) this.removeExtension(extensionId);
+      throw error;
+    }
+  }
+
+  private removeRegistrations(extensionId: string): void {
+    for (const [path, owner] of this.navigationOwners) if (owner === extensionId) { this.navigation.delete(path); this.navigationOwners.delete(path); }
+    for (const [path, owner] of this.routeOwners) if (owner === extensionId) { this.routes.delete(path); this.routeOwners.delete(path); }
+    this.changed();
   }
 
   removeExtension(extensionId: string): void {
     this.disabledExtensions.add(extensionId);
-    for (const [path, owner] of this.navigationOwners) if (owner === extensionId) { this.navigation.delete(path); this.navigationOwners.delete(path); }
-    for (const [path, owner] of this.routeOwners) if (owner === extensionId) { this.routes.delete(path); this.routeOwners.delete(path); }
+    this.activationGenerations.set(extensionId, (this.activationGenerations.get(extensionId) ?? 0) + 1);
+    this.removeRegistrations(extensionId);
     document.querySelector(`link[data-linkkeys-style="extension-${CSS.escape(extensionId)}"]`)?.remove();
-    this.changed();
+  }
+
+  async reactivateExtensions(): Promise<string[]> {
+    const failures = this.configuration.extensions
+      .filter((extension) => !this.activators.has(extension.id))
+      .map((extension) => extension.id);
+    for (const extensionId of this.activators.keys()) {
+      this.disabledExtensions.add(extensionId);
+      this.activationGenerations.set(extensionId, (this.activationGenerations.get(extensionId) ?? 0) + 1);
+      this.removeRegistrations(extensionId);
+    }
+    for (const [extensionId, activate] of this.activators) {
+      try {
+        const stylesheetUrl = this.configuration.extensions.find((extension) => extension.id === extensionId)?.stylesheetUrl;
+        if (stylesheetUrl) addStylesheet(stylesheetUrl, `extension-${extensionId}`);
+        await Promise.race([
+          this.activate(extensionId, activate),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("The extension activation timed out.")), EXTENSION_TIMEOUT_MS))
+        ]);
+      } catch (error) {
+        this.removeExtension(extensionId);
+        failures.push(extensionId);
+        console.error(`LinkKeys UI extension ${extensionId} could not start.`, error);
+      }
+    }
+    return failures;
   }
 }
 
@@ -154,12 +204,12 @@ export async function loadExtensions(host: RuntimeHost): Promise<string[]> {
       if (extension.stylesheetUrl) addStylesheet(extension.stylesheetUrl, `extension-${extension.id}`);
       const module = await Promise.race([
         import(/* @vite-ignore */ extension.moduleUrl) as Promise<LinkKeysUiExtension>,
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("The extension load timed out.")), 5_000))
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("The extension load timed out.")), EXTENSION_TIMEOUT_MS))
       ]);
       if (typeof module.activate !== "function") throw new Error("The extension has no activate function.");
       await Promise.race([
         host.activate(extension.id, (api) => module.activate(api)),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("The extension activation timed out.")), 5_000))
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("The extension activation timed out.")), EXTENSION_TIMEOUT_MS))
       ]);
     } catch (error) {
       host.removeExtension(extension.id);
