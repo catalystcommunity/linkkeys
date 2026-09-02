@@ -9566,15 +9566,23 @@ defmodule Csilgen.Generated.BrowserAuthorizationInspectResponse do
   @moduledoc "Generated struct for the BrowserAuthorizationInspectResponse type."
 
   @enforce_keys [:relying_party, :claims]
-  defstruct [:relying_party, :claims, :request_reason]
+  defstruct [:relying_party, :claims, :request_reason, :already_consented, :authorized_claims]
 
   @type t :: %__MODULE__{
           relying_party: String.t(),
           claims: [Csilgen.Generated.BrowserConsentClaim.t()],
-          request_reason: String.t() | nil
+          request_reason: String.t() | nil,
+          already_consented: boolean() | nil,
+          authorized_claims: [String.t()] | nil
         }
 
-  @wire_keys [relying_party: "relying_party", claims: "claims", request_reason: "request_reason"]
+  @wire_keys [
+    relying_party: "relying_party",
+    claims: "claims",
+    request_reason: "request_reason",
+    already_consented: "already_consented",
+    authorized_claims: "authorized_claims"
+  ]
   @doc "Maps struct field atoms to their verbatim CBOR wire keys."
   @spec wire_keys() :: keyword()
   def wire_keys, do: @wire_keys
@@ -9594,6 +9602,16 @@ defmodule Csilgen.Generated.BrowserAuthorizationInspectResponse do
          if(is_nil(v.request_reason),
            do: nil,
            else: {{:text, "request_reason"}, {:text, v.request_reason}}
+         ),
+         if(is_nil(v.already_consented),
+           do: nil,
+           else: {{:text, "already_consented"}, {:bool, v.already_consented}}
+         ),
+         if(is_nil(v.authorized_claims),
+           do: nil,
+           else:
+             {{:text, "authorized_claims"},
+              {:array, Enum.map(v.authorized_claims, fn csil_e -> {:text, csil_e} end)}}
          )
        ],
        &is_nil/1
@@ -9619,6 +9637,22 @@ defmodule Csilgen.Generated.BrowserAuthorizationInspectResponse do
         case Map.get(csil_fields, {:text, "request_reason"}) do
           nil -> nil
           csil_v -> Csilgen.Generated.Cbor.to_text(csil_v)
+        end,
+      already_consented:
+        case Map.get(csil_fields, {:text, "already_consented"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.Cbor.to_bool(csil_v)
+        end,
+      authorized_claims:
+        case Map.get(csil_fields, {:text, "authorized_claims"}) do
+          nil ->
+            nil
+
+          csil_v ->
+            case csil_v do
+              {:array, csil_xs} ->
+                Enum.map(csil_xs, fn csil_e -> Csilgen.Generated.Cbor.to_text(csil_e) end)
+            end
         end
     }
   end
@@ -9636,20 +9670,28 @@ defmodule Csilgen.Generated.BrowserAuthorizationCompleteRequest do
   @moduledoc "Generated struct for the BrowserAuthorizationCompleteRequest type."
 
   @enforce_keys [:signed_request, :authorized_claims, :claim_types_to_set, :claim_values_to_set]
-  defstruct [:signed_request, :authorized_claims, :claim_types_to_set, :claim_values_to_set]
+  defstruct [
+    :signed_request,
+    :authorized_claims,
+    :claim_types_to_set,
+    :claim_values_to_set,
+    :use_standing_grant
+  ]
 
   @type t :: %__MODULE__{
           signed_request: String.t(),
           authorized_claims: [String.t()],
           claim_types_to_set: [String.t()],
-          claim_values_to_set: [String.t()]
+          claim_values_to_set: [String.t()],
+          use_standing_grant: boolean() | nil
         }
 
   @wire_keys [
     signed_request: "signed_request",
     authorized_claims: "authorized_claims",
     claim_types_to_set: "claim_types_to_set",
-    claim_values_to_set: "claim_values_to_set"
+    claim_values_to_set: "claim_values_to_set",
+    use_standing_grant: "use_standing_grant"
   ]
   @doc "Maps struct field atoms to their verbatim CBOR wire keys."
   @spec wire_keys() :: keyword()
@@ -9666,6 +9708,10 @@ defmodule Csilgen.Generated.BrowserAuthorizationCompleteRequest do
           {:array, Enum.map(v.authorized_claims, fn csil_e -> {:text, csil_e} end)}},
          {{:text, "claim_types_to_set"},
           {:array, Enum.map(v.claim_types_to_set, fn csil_e -> {:text, csil_e} end)}},
+         if(is_nil(v.use_standing_grant),
+           do: nil,
+           else: {{:text, "use_standing_grant"}, {:bool, v.use_standing_grant}}
+         ),
          {{:text, "claim_values_to_set"},
           {:array, Enum.map(v.claim_values_to_set, fn csil_e -> {:text, csil_e} end)}}
        ],
@@ -9690,6 +9736,11 @@ defmodule Csilgen.Generated.BrowserAuthorizationCompleteRequest do
         case Map.fetch!(csil_fields, {:text, "claim_types_to_set"}) do
           {:array, csil_xs} ->
             Enum.map(csil_xs, fn csil_e -> Csilgen.Generated.Cbor.to_text(csil_e) end)
+        end,
+      use_standing_grant:
+        case Map.get(csil_fields, {:text, "use_standing_grant"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.Cbor.to_bool(csil_v)
         end,
       claim_values_to_set:
         case Map.fetch!(csil_fields, {:text, "claim_values_to_set"}) do

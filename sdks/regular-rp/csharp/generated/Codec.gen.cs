@@ -4712,6 +4712,14 @@ public static class Codec
         {
             csilEntries.Add((new CborValue.Text("request_reason"), new CborValue.Text(csilV2)));
         }
+        if (value.AlreadyConsented is { } csilV3)
+        {
+            csilEntries.Add((new CborValue.Text("already_consented"), new CborValue.Bool(csilV3)));
+        }
+        if (value.AuthorizedClaims is { } csilV4)
+        {
+            csilEntries.Add((new CborValue.Text("authorized_claims"), new CborValue.Array(csilV4.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        }
         return new CborValue.Map(csilEntries);
     }
 
@@ -4721,11 +4729,15 @@ public static class Codec
         var csilField0 = Cbor.AsText(Cbor.Require(value, "relying_party"));
         var csilField1 = Cbor.AsArray(Cbor.Require(value, "claims")).Select(csilElem => BrowserConsentClaimFromCborValue(csilElem)).ToList();
         string? csilField2 = Cbor.MapGet(value, "request_reason") is { } csilRaw2 ? Cbor.AsText(csilRaw2) : null;
+        bool? csilField3 = Cbor.MapGet(value, "already_consented") is { } csilRaw3 ? Cbor.AsBool(csilRaw3) : null;
+        System.Collections.Generic.List<string>? csilField4 = Cbor.MapGet(value, "authorized_claims") is { } csilRaw4 ? Cbor.AsArray(csilRaw4).Select(csilElem => Cbor.AsText(csilElem)).ToList() : null;
         return new BrowserAuthorizationInspectResponse
         {
             RelyingParty = csilField0,
             Claims = csilField1,
             RequestReason = csilField2,
+            AlreadyConsented = csilField3,
+            AuthorizedClaims = csilField4,
         };
     }
 
@@ -4736,6 +4748,10 @@ public static class Codec
         csilEntries.Add((new CborValue.Text("signed_request"), new CborValue.Text(value.SignedRequest)));
         csilEntries.Add((new CborValue.Text("authorized_claims"), new CborValue.Array(value.AuthorizedClaims.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
         csilEntries.Add((new CborValue.Text("claim_types_to_set"), new CborValue.Array(value.ClaimTypesToSet.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        if (value.UseStandingGrant is { } csilV3)
+        {
+            csilEntries.Add((new CborValue.Text("use_standing_grant"), new CborValue.Bool(csilV3)));
+        }
         csilEntries.Add((new CborValue.Text("claim_values_to_set"), new CborValue.Array(value.ClaimValuesToSet.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
         return new CborValue.Map(csilEntries);
     }
@@ -4747,12 +4763,14 @@ public static class Codec
         var csilField1 = Cbor.AsArray(Cbor.Require(value, "authorized_claims")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
         var csilField2 = Cbor.AsArray(Cbor.Require(value, "claim_types_to_set")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
         var csilField3 = Cbor.AsArray(Cbor.Require(value, "claim_values_to_set")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        bool? csilField4 = Cbor.MapGet(value, "use_standing_grant") is { } csilRaw4 ? Cbor.AsBool(csilRaw4) : null;
         return new BrowserAuthorizationCompleteRequest
         {
             SignedRequest = csilField0,
             AuthorizedClaims = csilField1,
             ClaimTypesToSet = csilField2,
             ClaimValuesToSet = csilField3,
+            UseStandingGrant = csilField4,
         };
     }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BrowserConsentClaim } from "./generated/types.gen";
+import type { BrowserAuthorizationInspectResponse, BrowserConsentClaim } from "./generated/types.gen";
 import { CsilStatus, CsilTransportError } from "./transport";
 import {
   authenticationFailed,
@@ -17,6 +17,7 @@ import {
   recoveryCompletionFailureMessage,
   recoveryLinkExpired,
   recoveryValidationFailureMessage,
+  standingAuthorization,
   transportFailed,
   verificationFailureMessage,
   withLoginContext,
@@ -47,6 +48,20 @@ describe("browser UI decisions", () => {
     expect(hasBlockedRequiredClaim([claim({ required: true, available: false, userSettable: false })])).toBe(true);
     expect(hasBlockedRequiredClaim([claim({ required: true, policy: "forced_deny" })])).toBe(true);
     expect(hasBlockedRequiredClaim([claim({ required: true, available: false, userSettable: true })])).toBe(false);
+  });
+
+  it("uses a standing grant only after the first claim disclosure", () => {
+    const firstDisclosure = {
+      relyingParty: "app.example",
+      claims: [claim({ defaultGranted: true, policy: "forced_allow" })],
+    } as BrowserAuthorizationInspectResponse;
+    expect(standingAuthorization(firstDisclosure)).toBeUndefined();
+
+    expect(standingAuthorization({
+      ...firstDisclosure,
+      alreadyConsented: true,
+      authorizedClaims: ["display_name"],
+    })).toEqual(["display_name"]);
   });
 
   it("uses useful controls for common claim datatypes", () => {

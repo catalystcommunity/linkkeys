@@ -4254,6 +4254,8 @@ public extension BrowserAuthorizationInspectResponse {
         csilEntries.append(("claims", CsilCborValue.array(self.claims.map { $0.toCborValue() })))
         csilEntries.append(("relying_party", .text(self.relyingParty)))
         if let csilV = self.requestReason { csilEntries.append(("request_reason", .text(csilV))) }
+        if let csilV = self.alreadyConsented { csilEntries.append(("already_consented", .bool(csilV))) }
+        if let csilV = self.authorizedClaims { csilEntries.append(("authorized_claims", CsilCborValue.array(csilV.map { .text($0) }))) }
         return .map(csilEntries)
     }
 
@@ -4262,7 +4264,9 @@ public extension BrowserAuthorizationInspectResponse {
         let relyingParty = try CsilCbor.asText((try CsilCbor.require(cborValue, "relying_party")))
         let claims = try CsilCbor.asArray((try CsilCbor.require(cborValue, "claims"))).map { try BrowserConsentClaim(cborValue: $0) }
         let requestReason: String? = if let csilV = CsilCbor.mapGet(cborValue, "request_reason") { try CsilCbor.asText(csilV) } else { nil }
-        self.init(relyingParty: relyingParty, claims: claims, requestReason: requestReason)
+        let alreadyConsented: Bool? = if let csilV = CsilCbor.mapGet(cborValue, "already_consented") { try CsilCbor.asBool(csilV) } else { nil }
+        let authorizedClaims: [String]? = if let csilV = CsilCbor.mapGet(cborValue, "authorized_claims") { try CsilCbor.asArray(csilV).map { try CsilCbor.asText($0) } } else { nil }
+        self.init(relyingParty: relyingParty, claims: claims, requestReason: requestReason, alreadyConsented: alreadyConsented, authorizedClaims: authorizedClaims)
     }
 
     /// Encode this record to canonical CSIL CBOR bytes.
@@ -4279,6 +4283,7 @@ public extension BrowserAuthorizationCompleteRequest {
         csilEntries.append(("signed_request", .text(self.signedRequest)))
         csilEntries.append(("authorized_claims", CsilCborValue.array(self.authorizedClaims.map { .text($0) })))
         csilEntries.append(("claim_types_to_set", CsilCborValue.array(self.claimTypesToSet.map { .text($0) })))
+        if let csilV = self.useStandingGrant { csilEntries.append(("use_standing_grant", .bool(csilV))) }
         csilEntries.append(("claim_values_to_set", CsilCborValue.array(self.claimValuesToSet.map { .text($0) })))
         return .map(csilEntries)
     }
@@ -4289,7 +4294,8 @@ public extension BrowserAuthorizationCompleteRequest {
         let authorizedClaims = try CsilCbor.asArray((try CsilCbor.require(cborValue, "authorized_claims"))).map { try CsilCbor.asText($0) }
         let claimTypesToSet = try CsilCbor.asArray((try CsilCbor.require(cborValue, "claim_types_to_set"))).map { try CsilCbor.asText($0) }
         let claimValuesToSet = try CsilCbor.asArray((try CsilCbor.require(cborValue, "claim_values_to_set"))).map { try CsilCbor.asText($0) }
-        self.init(signedRequest: signedRequest, authorizedClaims: authorizedClaims, claimTypesToSet: claimTypesToSet, claimValuesToSet: claimValuesToSet)
+        let useStandingGrant: Bool? = if let csilV = CsilCbor.mapGet(cborValue, "use_standing_grant") { try CsilCbor.asBool(csilV) } else { nil }
+        self.init(signedRequest: signedRequest, authorizedClaims: authorizedClaims, claimTypesToSet: claimTypesToSet, claimValuesToSet: claimValuesToSet, useStandingGrant: useStandingGrant)
     }
 
     /// Encode this record to canonical CSIL CBOR bytes.

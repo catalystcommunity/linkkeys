@@ -4529,12 +4529,20 @@ class BrowserAuthorizationInspectResponse
     /** @var mixed */
     public $requestReason;
 
+    /** @var mixed */
+    public $alreadyConsented;
+
+    /** @var mixed */
+    public $authorizedClaims;
+
     /** @param array<string,mixed> $values */
     public function __construct(array $values = array())
     {
         $this->relyingParty = array_key_exists('relying_party', $values) ? $values['relying_party'] : null;
         $this->claims = array_key_exists('claims', $values) ? $values['claims'] : null;
         $this->requestReason = array_key_exists('request_reason', $values) ? $values['request_reason'] : null;
+        $this->alreadyConsented = array_key_exists('already_consented', $values) ? $values['already_consented'] : null;
+        $this->authorizedClaims = array_key_exists('authorized_claims', $values) ? $values['authorized_claims'] : null;
     }
 
     /** @return array<string,mixed> */
@@ -4544,6 +4552,8 @@ class BrowserAuthorizationInspectResponse
             'relying_party' => $this->relyingParty,
             'claims' => $this->claims,
             'request_reason' => $this->requestReason,
+            'already_consented' => $this->alreadyConsented,
+            'authorized_claims' => $this->authorizedClaims,
         );
     }
 }
@@ -4562,6 +4572,9 @@ class BrowserAuthorizationCompleteRequest
     /** @var mixed */
     public $claimValuesToSet;
 
+    /** @var mixed */
+    public $useStandingGrant;
+
     /** @param array<string,mixed> $values */
     public function __construct(array $values = array())
     {
@@ -4569,6 +4582,7 @@ class BrowserAuthorizationCompleteRequest
         $this->authorizedClaims = array_key_exists('authorized_claims', $values) ? $values['authorized_claims'] : null;
         $this->claimTypesToSet = array_key_exists('claim_types_to_set', $values) ? $values['claim_types_to_set'] : null;
         $this->claimValuesToSet = array_key_exists('claim_values_to_set', $values) ? $values['claim_values_to_set'] : null;
+        $this->useStandingGrant = array_key_exists('use_standing_grant', $values) ? $values['use_standing_grant'] : null;
     }
 
     /** @return array<string,mixed> */
@@ -4579,6 +4593,7 @@ class BrowserAuthorizationCompleteRequest
             'authorized_claims' => $this->authorizedClaims,
             'claim_types_to_set' => $this->claimTypesToSet,
             'claim_values_to_set' => $this->claimValuesToSet,
+            'use_standing_grant' => $this->useStandingGrant,
         );
     }
 }

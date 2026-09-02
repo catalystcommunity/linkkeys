@@ -197,7 +197,10 @@ A second callback for the same state must fail.
 
 An IDP can complete a normal login without a new consent screen when a valid
 standing grant covers the request. Every required claim must still be approved
-and available. An explicit claims-update request does not use this shortcut.
+and available. The first login always shows the claims that the IDP will send.
+This rule also applies when an administrator requires the release. A new forced
+claim opens the disclosure screen once before it can enter the standing grant.
+An explicit claims-update request does not use this shortcut.
 
 ```mermaid
 sequenceDiagram
@@ -236,9 +239,10 @@ sequenceDiagram
     App-->>Browser: New application session
 ```
 
-The server exposes the standing-consent result to an IDP application through
-the authorize validation API. An IDP UI can use that result to skip a repeated
-consent screen.
+The server exposes the standing-consent result through the browser authorization
+service and the authorize validation API. An IDP UI can use that result to skip
+a repeated consent screen. It must show the normal consent screen when silent
+completion fails.
 
 ## Request more claims after login
 

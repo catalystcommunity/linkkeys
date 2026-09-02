@@ -4796,6 +4796,8 @@ class BrowserAuthorizationInspectResponse:
     relying_party: str
     claims: List[BrowserConsentClaim]
     request_reason: Optional[str] = None
+    already_consented: Optional[bool] = None
+    authorized_claims: Optional[List[str]] = None
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {}
@@ -4805,12 +4807,16 @@ class BrowserAuthorizationInspectResponse:
             result['claims'] = self.claims
         if hasattr(self, 'request_reason') and self.request_reason is not None:
             result['request_reason'] = self.request_reason
+        if hasattr(self, 'already_consented') and self.already_consented is not None:
+            result['already_consented'] = self.already_consented
+        if hasattr(self, 'authorized_claims') and self.authorized_claims is not None:
+            result['authorized_claims'] = self.authorized_claims
         return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'BrowserAuthorizationInspectResponse':
         """Create instance from dictionary."""
-        return cls(relying_party=data.get('relying_party'), claims=data.get('claims'), request_reason=data.get('request_reason'))
+        return cls(relying_party=data.get('relying_party'), claims=data.get('claims'), request_reason=data.get('request_reason'), already_consented=data.get('already_consented'), authorized_claims=data.get('authorized_claims'))
 
     def to_json(self) -> str:
         """Convert to JSON string."""
@@ -4828,6 +4834,7 @@ class BrowserAuthorizationCompleteRequest:
     authorized_claims: List[str]
     claim_types_to_set: List[str]
     claim_values_to_set: List[str]
+    use_standing_grant: Optional[bool] = None
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {}
@@ -4839,12 +4846,14 @@ class BrowserAuthorizationCompleteRequest:
             result['claim_types_to_set'] = self.claim_types_to_set
         if hasattr(self, 'claim_values_to_set') and self.claim_values_to_set is not None:
             result['claim_values_to_set'] = self.claim_values_to_set
+        if hasattr(self, 'use_standing_grant') and self.use_standing_grant is not None:
+            result['use_standing_grant'] = self.use_standing_grant
         return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'BrowserAuthorizationCompleteRequest':
         """Create instance from dictionary."""
-        return cls(signed_request=data.get('signed_request'), authorized_claims=data.get('authorized_claims'), claim_types_to_set=data.get('claim_types_to_set'), claim_values_to_set=data.get('claim_values_to_set'))
+        return cls(signed_request=data.get('signed_request'), authorized_claims=data.get('authorized_claims'), claim_types_to_set=data.get('claim_types_to_set'), claim_values_to_set=data.get('claim_values_to_set'), use_standing_grant=data.get('use_standing_grant'))
 
     def to_json(self) -> str:
         """Convert to JSON string."""

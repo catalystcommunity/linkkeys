@@ -4636,6 +4636,8 @@ class BrowserAuthorizationInspectResponse
     csil_map["claims"] = (claims).map { |csil_e| (csil_e).csil_to_tree }
     csil_map["relying_party"] = relying_party
     csil_map["request_reason"] = request_reason unless request_reason.nil?
+    csil_map["already_consented"] = already_consented unless already_consented.nil?
+    csil_map["authorized_claims"] = (authorized_claims).map { |csil_e| csil_e } unless authorized_claims.nil?
     csil_map
   end
 
@@ -4647,7 +4649,9 @@ class BrowserAuthorizationInspectResponse
     new(
       relying_party: node["relying_party"],
       claims: (node["claims"]).map { |csil_e| BrowserConsentClaim.csil_from_tree(csil_e) },
-      request_reason: (node.key?("request_reason") ? node["request_reason"] : nil)
+      request_reason: (node.key?("request_reason") ? node["request_reason"] : nil),
+      already_consented: (node.key?("already_consented") ? node["already_consented"] : nil),
+      authorized_claims: (node.key?("authorized_claims") ? (node["authorized_claims"]).map { |csil_e| csil_e } : nil)
     )
   end
 end
@@ -4664,6 +4668,7 @@ class BrowserAuthorizationCompleteRequest
     csil_map["signed_request"] = signed_request
     csil_map["authorized_claims"] = (authorized_claims).map { |csil_e| csil_e }
     csil_map["claim_types_to_set"] = (claim_types_to_set).map { |csil_e| csil_e }
+    csil_map["use_standing_grant"] = use_standing_grant unless use_standing_grant.nil?
     csil_map["claim_values_to_set"] = (claim_values_to_set).map { |csil_e| csil_e }
     csil_map
   end
@@ -4677,7 +4682,8 @@ class BrowserAuthorizationCompleteRequest
       signed_request: node["signed_request"],
       authorized_claims: (node["authorized_claims"]).map { |csil_e| csil_e },
       claim_types_to_set: (node["claim_types_to_set"]).map { |csil_e| csil_e },
-      claim_values_to_set: (node["claim_values_to_set"]).map { |csil_e| csil_e }
+      claim_values_to_set: (node["claim_values_to_set"]).map { |csil_e| csil_e },
+      use_standing_grant: (node.key?("use_standing_grant") ? node["use_standing_grant"] : nil)
     )
   end
 end

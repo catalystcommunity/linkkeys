@@ -4919,6 +4919,8 @@ fn dec_BrowserConsentClaim(alloc: std.mem.Allocator, m: Value, out: *types.Brows
 fn enc_BrowserAuthorizationInspectResponse(out: *std.ArrayList(u8), v: *const types.BrowserAuthorizationInspectResponse) CodecError!void {
     var csil_n: usize = 2;
     if (v.request_reason != null) csil_n += 1;
+    if (v.already_consented != null) csil_n += 1;
+    if (v.authorized_claims != null) csil_n += 1;
     try w_map_head(out, csil_n);
     try w_text(out, "claims");
     try w_array_head(out, v.claims.len);
@@ -4930,6 +4932,17 @@ fn enc_BrowserAuthorizationInspectResponse(out: *std.ArrayList(u8), v: *const ty
     if (v.request_reason) |csil_x| {
         try w_text(out, "request_reason");
         try w_text(out, csil_x);
+    }
+    if (v.already_consented) |csil_x| {
+        try w_text(out, "already_consented");
+        try w_bool(out, csil_x);
+    }
+    if (v.authorized_claims) |csil_arr| {
+        try w_text(out, "authorized_claims");
+        try w_array_head(out, csil_arr.len);
+        for (csil_arr) |csil_it| {
+            try w_text(out, csil_it);
+        }
     }
 }
 
@@ -4954,10 +4967,31 @@ fn dec_BrowserAuthorizationInspectResponse(alloc: std.mem.Allocator, m: Value, o
             out.request_reason = null;
         }
     }
+    {
+        if (mget(m, "already_consented")) |csil_fv| {
+            out.already_consented = try as_bool(csil_fv);
+        } else {
+            out.already_consented = null;
+        }
+    }
+    {
+        if (mget(m, "authorized_claims")) |csil_fv| {
+            if (csil_fv != .array) return error.WrongType;
+            const csil_tmp = try alloc.alloc([]const u8, csil_fv.array.len);
+            for (csil_fv.array, 0..) |csil_it, csil_i| {
+                csil_tmp[csil_i] = try as_text(csil_it);
+            }
+            out.authorized_claims = csil_tmp;
+        } else {
+            out.authorized_claims = null;
+        }
+    }
 }
 
 fn enc_BrowserAuthorizationCompleteRequest(out: *std.ArrayList(u8), v: *const types.BrowserAuthorizationCompleteRequest) CodecError!void {
-    try w_map_head(out, 4);
+    var csil_n: usize = 4;
+    if (v.use_standing_grant != null) csil_n += 1;
+    try w_map_head(out, csil_n);
     try w_text(out, "signed_request");
     try w_text(out, v.signed_request);
     try w_text(out, "authorized_claims");
@@ -4969,6 +5003,10 @@ fn enc_BrowserAuthorizationCompleteRequest(out: *std.ArrayList(u8), v: *const ty
     try w_array_head(out, v.claim_types_to_set.len);
     for (v.claim_types_to_set) |csil_it| {
         try w_text(out, csil_it);
+    }
+    if (v.use_standing_grant) |csil_x| {
+        try w_text(out, "use_standing_grant");
+        try w_bool(out, csil_x);
     }
     try w_text(out, "claim_values_to_set");
     try w_array_head(out, v.claim_values_to_set.len);
@@ -4997,6 +5035,13 @@ fn dec_BrowserAuthorizationCompleteRequest(alloc: std.mem.Allocator, m: Value, o
         out.claim_types_to_set = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
             out.claim_types_to_set[csil_i] = try as_text(csil_it);
+        }
+    }
+    {
+        if (mget(m, "use_standing_grant")) |csil_fv| {
+            out.use_standing_grant = try as_bool(csil_fv);
+        } else {
+            out.use_standing_grant = null;
         }
     }
     {

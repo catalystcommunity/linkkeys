@@ -9759,11 +9759,17 @@ func DecodeBrowserConsentClaim(csilData []byte) (BrowserConsentClaim, error) {
 
 // csilEncBrowserAuthorizationInspectResponse builds the canonical CBOR value tree for a BrowserAuthorizationInspectResponse.
 func csilEncBrowserAuthorizationInspectResponse(csilV BrowserAuthorizationInspectResponse) cborValue {
-	csilEntries := make(cborMap, 0, 3)
+	csilEntries := make(cborMap, 0, 5)
 	csilEntries = append(csilEntries, cborEntry{cborText("claims"), cborEncArray(csilV.Claims, func(csilElem BrowserConsentClaim) cborValue { return csilEncBrowserConsentClaim(csilElem) })})
 	csilEntries = append(csilEntries, cborEntry{cborText("relying_party"), cborText(csilV.RelyingParty)})
 	if csilV.RequestReason != nil {
 		csilEntries = append(csilEntries, cborEntry{cborText("request_reason"), cborText((*csilV.RequestReason))})
+	}
+	if csilV.AlreadyConsented != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("already_consented"), cborBool((*csilV.AlreadyConsented))})
+	}
+	if csilV.AuthorizedClaims != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("authorized_claims"), cborEncArray(csilV.AuthorizedClaims, func(csilElem string) cborValue { return cborText(csilElem) })})
 	}
 	return csilEntries
 }
@@ -9802,6 +9808,20 @@ func csilDecBrowserAuthorizationInspectResponse(csilRoot cborValue) (BrowserAuth
 		}
 		csilOut.RequestReason = &csilVal
 	}
+	if csilField, csilOk := cborMapGet(csilRoot, "already_consented"); csilOk {
+		csilVal, csilErr := (cborAsBool)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.AlreadyConsented = &csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "authorized_claims"); csilOk {
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.AuthorizedClaims = csilVal
+	}
 	return csilOut, nil
 }
 
@@ -9822,10 +9842,13 @@ func DecodeBrowserAuthorizationInspectResponse(csilData []byte) (BrowserAuthoriz
 
 // csilEncBrowserAuthorizationCompleteRequest builds the canonical CBOR value tree for a BrowserAuthorizationCompleteRequest.
 func csilEncBrowserAuthorizationCompleteRequest(csilV BrowserAuthorizationCompleteRequest) cborValue {
-	csilEntries := make(cborMap, 0, 4)
+	csilEntries := make(cborMap, 0, 5)
 	csilEntries = append(csilEntries, cborEntry{cborText("signed_request"), cborText(csilV.SignedRequest)})
 	csilEntries = append(csilEntries, cborEntry{cborText("authorized_claims"), cborEncArray(csilV.AuthorizedClaims, func(csilElem string) cborValue { return cborText(csilElem) })})
 	csilEntries = append(csilEntries, cborEntry{cborText("claim_types_to_set"), cborEncArray(csilV.ClaimTypesToSet, func(csilElem string) cborValue { return cborText(csilElem) })})
+	if csilV.UseStandingGrant != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("use_standing_grant"), cborBool((*csilV.UseStandingGrant))})
+	}
 	csilEntries = append(csilEntries, cborEntry{cborText("claim_values_to_set"), cborEncArray(csilV.ClaimValuesToSet, func(csilElem string) cborValue { return cborText(csilElem) })})
 	return csilEntries
 }
@@ -9876,6 +9899,13 @@ func csilDecBrowserAuthorizationCompleteRequest(csilRoot cborValue) (BrowserAuth
 			return csilOut, csilErr
 		}
 		csilOut.ClaimValuesToSet = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "use_standing_grant"); csilOk {
+		csilVal, csilErr := (cborAsBool)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.UseStandingGrant = &csilVal
 	}
 	return csilOut, nil
 }

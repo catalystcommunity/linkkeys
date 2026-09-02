@@ -175,8 +175,12 @@ async fn validate_reports_silent_consent_from_a_standing_grant() {
     );
     let client = Client::tracked(rocket).await.expect("rocket client");
 
+    pool.upsert_release_policy(TEST_DOMAIN, "email", "forced_allow")
+        .expect("force email release");
+
     // 1. No grant yet: user_id is sent, but there is nothing to authorize
-    //    silently. Both fields must be absent.
+    //    silently. The forced-allow policy must not skip the first disclosure.
+    //    Both fields must be absent.
     let sr1 = signed_email_request(&signing.id, &sk_bytes, "validate-nonce-1", false);
     let resp = call_validate(&client, &bearer, &sr1, Some(&user.id)).await;
     assert_eq!(resp.relying_party, TEST_DOMAIN);

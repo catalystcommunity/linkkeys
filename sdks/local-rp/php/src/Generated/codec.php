@@ -5070,6 +5070,14 @@ class Codec
         if ($field !== null) {
             $out['request_reason'] = $field;
         }
+        $field = $value instanceof BrowserAuthorizationInspectResponse ? $value->alreadyConsented : (is_array($value) && array_key_exists('already_consented', $value) ? $value['already_consented'] : null);
+        if ($field !== null) {
+            $out['already_consented'] = $field;
+        }
+        $field = $value instanceof BrowserAuthorizationInspectResponse ? $value->authorizedClaims : (is_array($value) && array_key_exists('authorized_claims', $value) ? $value['authorized_claims'] : null);
+        if ($field !== null) {
+            $out['authorized_claims'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        }
         return $out;
     }
 
@@ -5079,6 +5087,8 @@ class Codec
             'relying_party' => array_key_exists('relying_party', $value) ? $value['relying_party'] : null,
             'claims' => array_key_exists('claims', $value) ? array_map(function ($item) { return self::fromCborBrowserConsentClaim($item); }, $value['claims'] === null ? array() : $value['claims']) : null,
             'request_reason' => array_key_exists('request_reason', $value) ? $value['request_reason'] : null,
+            'already_consented' => array_key_exists('already_consented', $value) ? $value['already_consented'] : null,
+            'authorized_claims' => array_key_exists('authorized_claims', $value) ? array_map(function ($item) { return $item; }, $value['authorized_claims'] === null ? array() : $value['authorized_claims']) : null,
         ));
     }
 
@@ -5103,6 +5113,10 @@ class Codec
         $out['claim_types_to_set'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
         $field = $value instanceof BrowserAuthorizationCompleteRequest ? $value->claimValuesToSet : (is_array($value) && array_key_exists('claim_values_to_set', $value) ? $value['claim_values_to_set'] : null);
         $out['claim_values_to_set'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        $field = $value instanceof BrowserAuthorizationCompleteRequest ? $value->useStandingGrant : (is_array($value) && array_key_exists('use_standing_grant', $value) ? $value['use_standing_grant'] : null);
+        if ($field !== null) {
+            $out['use_standing_grant'] = $field;
+        }
         return $out;
     }
 
@@ -5113,6 +5127,7 @@ class Codec
             'authorized_claims' => array_key_exists('authorized_claims', $value) ? array_map(function ($item) { return $item; }, $value['authorized_claims'] === null ? array() : $value['authorized_claims']) : null,
             'claim_types_to_set' => array_key_exists('claim_types_to_set', $value) ? array_map(function ($item) { return $item; }, $value['claim_types_to_set'] === null ? array() : $value['claim_types_to_set']) : null,
             'claim_values_to_set' => array_key_exists('claim_values_to_set', $value) ? array_map(function ($item) { return $item; }, $value['claim_values_to_set'] === null ? array() : $value['claim_values_to_set']) : null,
+            'use_standing_grant' => array_key_exists('use_standing_grant', $value) ? $value['use_standing_grant'] : null,
         ));
     }
 

@@ -918,6 +918,8 @@ export interface BrowserAuthorizationInspectResponse {
   relyingParty: string;
   claims: BrowserConsentClaim[];
   requestReason?: string;
+  alreadyConsented?: boolean;
+  authorizedClaims?: string[];
 }
 
 export interface BrowserAuthorizationCompleteRequest {
@@ -925,6 +927,7 @@ export interface BrowserAuthorizationCompleteRequest {
   authorizedClaims: string[];
   claimTypesToSet: string[];
   claimValuesToSet: string[];
+  useStandingGrant?: boolean;
 }
 
 export interface BrowserAuthorizationCompleteResponse {

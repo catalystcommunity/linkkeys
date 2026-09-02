@@ -4,7 +4,7 @@ import "./styles.css";
 import { api } from "./transport";
 import { RuntimeHost, addStylesheet, loadExtensions, type ExtensionRoute } from "./host";
 import type { BrowserSessionInfo, Claim, GetUiConfigurationResponse, SettableClaimPolicy, VerifiedContactMethod } from "./generated/types.gen";
-import { authenticationFailed, authorizationHandoff, authorizationRequestIsTerminal, claimValueTooLong, cleanupOnce, currentPasswordMessage, hasBlockedRequiredClaim, inputType, loginFailureMessage, passwordLengthError, passwordManagerUsername, recoveryCompletionFailureMessage, recoveryLinkExpired, recoveryValidationFailureMessage, serviceMessage as message, transportFailed, verificationFailureMessage, withLoginContext } from "./ui-logic";
+import { authenticationFailed, authorizationHandoff, authorizationRequestIsTerminal, claimValueTooLong, cleanupOnce, currentPasswordMessage, hasBlockedRequiredClaim, inputType, loginFailureMessage, passwordLengthError, passwordManagerUsername, recoveryCompletionFailureMessage, recoveryLinkExpired, recoveryValidationFailureMessage, serviceMessage as message, standingAuthorization, transportFailed, verificationFailureMessage, withLoginContext } from "./ui-logic";
 
 type PageProps = { navigate(path: string): void; configuration: GetUiConfigurationResponse; session?: BrowserSessionInfo; refreshSession(): Promise<void>; extensionFailures?: string[] };
 
@@ -88,12 +88,34 @@ const Consent: Component<PageProps> = (props) => {
   const [values, setValues] = createSignal<Record<string, string>>({});
   const [busy, setBusy] = createSignal(false); const [error, setError] = createSignal(""); const [needsLogin, setNeedsLogin] = createSignal(false); const [restartRequired, setRestartRequired] = createSignal(false);
   const blockedRequired = () => hasBlockedRequiredClaim(context()?.claims ?? []);
+  const showConsent = (result: NonNullable<ReturnType<typeof context>>) => {
+    setContext(result);
+    setSelected(Object.fromEntries(result.claims.map((claim) => [claim.claimType, claim.defaultGranted])));
+  };
   onMount(async () => {
     if (!signedRequest) return setError("This sign-in request is missing. Start again from the application.");
     try {
       const result = await api.browserAuthorization.inspect({ signedRequest });
-      setContext(result);
-      setSelected(Object.fromEntries(result.claims.map((claim) => [claim.claimType, claim.defaultGranted])));
+      const authorizedClaims = standingAuthorization(result);
+      if (authorizedClaims) {
+        try {
+          const completion = await api.browserAuthorization.complete({ signedRequest, authorizedClaims, claimTypesToSet: [], claimValuesToSet: [], useStandingGrant: true });
+          sessionStorage.removeItem("linkkeys-authorization-request");
+          window.location.assign(completion.redirectUrl);
+          return;
+        } catch (cause) {
+          if (authenticationFailed(cause)) { showConsent(result); setNeedsLogin(true); setError("Sign in again to continue this application sign-in."); }
+          else if (authorizationRequestIsTerminal(cause)) { showConsent(result); sessionStorage.removeItem("linkkeys-authorization-request"); setRestartRequired(true); setError("This sign-in request is invalid or expired. Return to the application and start sign-in again."); }
+          else {
+            let latest = result;
+            try { latest = await api.browserAuthorization.inspect({ signedRequest }); } catch { /* Use the prior safe disclosure. */ }
+            showConsent(latest);
+            setError("LinkKeys could not use your saved approval. Review the details and continue.");
+          }
+          return;
+        }
+      }
+      showConsent(result);
     } catch (cause) {
       if (authenticationFailed(cause)) {
         setNeedsLogin(true);

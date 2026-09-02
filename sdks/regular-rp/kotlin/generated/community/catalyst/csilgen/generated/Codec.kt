@@ -3953,6 +3953,8 @@ fun BrowserAuthorizationInspectResponse.toCborValue(): CborValue {
     csilEntries.add(CborValue.CText("claims") to CborValue.CArray((this.claims).map { csilE -> csilE.toCborValue() }))
     csilEntries.add(CborValue.CText("relying_party") to CborValue.CText(this.relyingParty))
     this.requestReason?.let { csilV -> csilEntries.add(CborValue.CText("request_reason") to CborValue.CText(csilV)) }
+    this.alreadyConsented?.let { csilV -> csilEntries.add(CborValue.CText("already_consented") to CborValue.CBool(csilV)) }
+    this.authorizedClaims?.let { csilV -> csilEntries.add(CborValue.CText("authorized_claims") to CborValue.CArray((csilV).map { csilE -> CborValue.CText(csilE) })) }
     return CborValue.CMap(csilEntries)
 }
 
@@ -3964,7 +3966,9 @@ fun browserAuthorizationInspectResponseFromCborValue(cbor: CborValue): BrowserAu
     val relyingParty = CsilCbor.asText(CsilCbor.require(cbor, "relying_party"))
     val claims = CsilCbor.asArray(CsilCbor.require(cbor, "claims")).map { csilE -> browserConsentClaimFromCborValue(csilE) }
     val requestReason = CsilCbor.mapGet(cbor, "request_reason")?.let { csilV -> CsilCbor.asText(csilV) }
-    return BrowserAuthorizationInspectResponse(relyingParty = relyingParty, claims = claims, requestReason = requestReason)
+    val alreadyConsented = CsilCbor.mapGet(cbor, "already_consented")?.let { csilV -> CsilCbor.asBoolean(csilV) }
+    val authorizedClaims = CsilCbor.mapGet(cbor, "authorized_claims")?.let { csilV -> CsilCbor.asArray(csilV).map { csilE -> CsilCbor.asText(csilE) } }
+    return BrowserAuthorizationInspectResponse(relyingParty = relyingParty, claims = claims, requestReason = requestReason, alreadyConsented = alreadyConsented, authorizedClaims = authorizedClaims)
 }
 
 /** Decode CSIL CBOR bytes into a BrowserAuthorizationInspectResponse. */
@@ -3976,6 +3980,7 @@ fun BrowserAuthorizationCompleteRequest.toCborValue(): CborValue {
     csilEntries.add(CborValue.CText("signed_request") to CborValue.CText(this.signedRequest))
     csilEntries.add(CborValue.CText("authorized_claims") to CborValue.CArray((this.authorizedClaims).map { csilE -> CborValue.CText(csilE) }))
     csilEntries.add(CborValue.CText("claim_types_to_set") to CborValue.CArray((this.claimTypesToSet).map { csilE -> CborValue.CText(csilE) }))
+    this.useStandingGrant?.let { csilV -> csilEntries.add(CborValue.CText("use_standing_grant") to CborValue.CBool(csilV)) }
     csilEntries.add(CborValue.CText("claim_values_to_set") to CborValue.CArray((this.claimValuesToSet).map { csilE -> CborValue.CText(csilE) }))
     return CborValue.CMap(csilEntries)
 }
@@ -3989,7 +3994,8 @@ fun browserAuthorizationCompleteRequestFromCborValue(cbor: CborValue): BrowserAu
     val authorizedClaims = CsilCbor.asArray(CsilCbor.require(cbor, "authorized_claims")).map { csilE -> CsilCbor.asText(csilE) }
     val claimTypesToSet = CsilCbor.asArray(CsilCbor.require(cbor, "claim_types_to_set")).map { csilE -> CsilCbor.asText(csilE) }
     val claimValuesToSet = CsilCbor.asArray(CsilCbor.require(cbor, "claim_values_to_set")).map { csilE -> CsilCbor.asText(csilE) }
-    return BrowserAuthorizationCompleteRequest(signedRequest = signedRequest, authorizedClaims = authorizedClaims, claimTypesToSet = claimTypesToSet, claimValuesToSet = claimValuesToSet)
+    val useStandingGrant = CsilCbor.mapGet(cbor, "use_standing_grant")?.let { csilV -> CsilCbor.asBoolean(csilV) }
+    return BrowserAuthorizationCompleteRequest(signedRequest = signedRequest, authorizedClaims = authorizedClaims, claimTypesToSet = claimTypesToSet, claimValuesToSet = claimValuesToSet, useStandingGrant = useStandingGrant)
 }
 
 /** Decode CSIL CBOR bytes into a BrowserAuthorizationCompleteRequest. */

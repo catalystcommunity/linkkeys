@@ -8,6 +8,7 @@ public record BrowserAuthorizationCompleteRequest(
     String signedRequest /* wire: "signed_request" */,
     List<String> authorizedClaims /* wire: "authorized_claims" */,
     List<String> claimTypesToSet /* wire: "claim_types_to_set" */,
-    List<String> claimValuesToSet /* wire: "claim_values_to_set" */
+    List<String> claimValuesToSet /* wire: "claim_values_to_set" */,
+    Boolean useStandingGrant /* wire: "use_standing_grant" */
 ) {
 }

@@ -1505,6 +1505,10 @@ public sealed record BrowserAuthorizationInspectResponse
     public required System.Collections.Generic.List<BrowserConsentClaim> Claims { get; init; }
     // CBOR key: request_reason
     public string? RequestReason { get; init; }
+    // CBOR key: already_consented
+    public bool? AlreadyConsented { get; init; }
+    // CBOR key: authorized_claims
+    public System.Collections.Generic.List<string>? AuthorizedClaims { get; init; }
 }
 
 public sealed record BrowserAuthorizationCompleteRequest
@@ -1517,6 +1521,8 @@ public sealed record BrowserAuthorizationCompleteRequest
     public required System.Collections.Generic.List<string> ClaimTypesToSet { get; init; }
     // CBOR key: claim_values_to_set
     public required System.Collections.Generic.List<string> ClaimValuesToSet { get; init; }
+    // CBOR key: use_standing_grant
+    public bool? UseStandingGrant { get; init; }
 }
 
 public sealed record BrowserAuthorizationCompleteResponse

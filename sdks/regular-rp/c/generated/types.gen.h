@@ -1412,6 +1412,9 @@ typedef struct BrowserAuthorizationInspectResponse {
     BrowserConsentClaim *claims;
     size_t claims_count;
     char *request_reason;
+    bool *already_consented;
+    char **authorized_claims;
+    size_t authorized_claims_count;
 } BrowserAuthorizationInspectResponse;
 
 /* BrowserAuthorizationCompleteRequest is a structured data type. */
@@ -1423,6 +1426,7 @@ typedef struct BrowserAuthorizationCompleteRequest {
     size_t claim_types_to_set_count;
     char **claim_values_to_set;
     size_t claim_values_to_set_count;
+    bool *use_standing_grant;
 } BrowserAuthorizationCompleteRequest;
 
 /* BrowserAuthorizationCompleteResponse is a structured data type. */

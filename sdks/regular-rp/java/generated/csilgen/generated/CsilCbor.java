@@ -4356,11 +4356,17 @@ public final class CsilCbor {
     }
 
     static CborValue encBrowserAuthorizationInspectResponse(BrowserAuthorizationInspectResponse v) {
-        List<CborEntry> csilEntries = new ArrayList<>(3);
+        List<CborEntry> csilEntries = new ArrayList<>(5);
         csilEntries.add(new CborEntry(new CborText("claims"), encArray(v.claims(), csilElem0 -> encBrowserConsentClaim(csilElem0))));
         csilEntries.add(new CborEntry(new CborText("relying_party"), new CborText(v.relyingParty())));
         if (v.requestReason() != null) {
             csilEntries.add(new CborEntry(new CborText("request_reason"), new CborText(v.requestReason())));
+        }
+        if (v.alreadyConsented() != null) {
+            csilEntries.add(new CborEntry(new CborText("already_consented"), new CborBool(v.alreadyConsented())));
+        }
+        if (v.authorizedClaims() != null) {
+            csilEntries.add(new CborEntry(new CborText("authorized_claims"), encArray(v.authorizedClaims(), csilElem0 -> new CborText(csilElem0))));
         }
         return new CborMap(csilEntries);
     }
@@ -4373,7 +4379,17 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "request_reason");
             requestReason = csilField != null ? asText(csilField) : null;
         }
-        return new BrowserAuthorizationInspectResponse(relyingParty, claims, requestReason);
+        Boolean alreadyConsented;
+        {
+            CborValue csilField = mapGet(csilRoot, "already_consented");
+            alreadyConsented = csilField != null ? asBool(csilField) : null;
+        }
+        List<String> authorizedClaims;
+        {
+            CborValue csilField = mapGet(csilRoot, "authorized_claims");
+            authorizedClaims = csilField != null ? decArray(csilField, csilE0 -> asText(csilE0)) : null;
+        }
+        return new BrowserAuthorizationInspectResponse(relyingParty, claims, requestReason, alreadyConsented, authorizedClaims);
     }
 
     public static byte[] encodeBrowserAuthorizationInspectResponse(BrowserAuthorizationInspectResponse v) {
@@ -4385,10 +4401,13 @@ public final class CsilCbor {
     }
 
     static CborValue encBrowserAuthorizationCompleteRequest(BrowserAuthorizationCompleteRequest v) {
-        List<CborEntry> csilEntries = new ArrayList<>(4);
+        List<CborEntry> csilEntries = new ArrayList<>(5);
         csilEntries.add(new CborEntry(new CborText("signed_request"), new CborText(v.signedRequest())));
         csilEntries.add(new CborEntry(new CborText("authorized_claims"), encArray(v.authorizedClaims(), csilElem0 -> new CborText(csilElem0))));
         csilEntries.add(new CborEntry(new CborText("claim_types_to_set"), encArray(v.claimTypesToSet(), csilElem0 -> new CborText(csilElem0))));
+        if (v.useStandingGrant() != null) {
+            csilEntries.add(new CborEntry(new CborText("use_standing_grant"), new CborBool(v.useStandingGrant())));
+        }
         csilEntries.add(new CborEntry(new CborText("claim_values_to_set"), encArray(v.claimValuesToSet(), csilElem0 -> new CborText(csilElem0))));
         return new CborMap(csilEntries);
     }
@@ -4398,7 +4417,12 @@ public final class CsilCbor {
         List<String> authorizedClaims = decArray(require(csilRoot, "authorized_claims"), csilE0 -> asText(csilE0));
         List<String> claimTypesToSet = decArray(require(csilRoot, "claim_types_to_set"), csilE0 -> asText(csilE0));
         List<String> claimValuesToSet = decArray(require(csilRoot, "claim_values_to_set"), csilE0 -> asText(csilE0));
-        return new BrowserAuthorizationCompleteRequest(signedRequest, authorizedClaims, claimTypesToSet, claimValuesToSet);
+        Boolean useStandingGrant;
+        {
+            CborValue csilField = mapGet(csilRoot, "use_standing_grant");
+            useStandingGrant = csilField != null ? asBool(csilField) : null;
+        }
+        return new BrowserAuthorizationCompleteRequest(signedRequest, authorizedClaims, claimTypesToSet, claimValuesToSet, useStandingGrant);
     }
 
     public static byte[] encodeBrowserAuthorizationCompleteRequest(BrowserAuthorizationCompleteRequest v) {

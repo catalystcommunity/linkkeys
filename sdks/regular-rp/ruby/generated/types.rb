@@ -888,8 +888,10 @@ BrowserConsentClaim = Data.define(:claim_type, :label, :datatype, :required, :av
 # relying_party [String]
 # claims [Array<BrowserConsentClaim>]
 # request_reason [String]
-BrowserAuthorizationInspectResponse = Data.define(:relying_party, :claims, :request_reason) do
-  def initialize(relying_party:, claims:, request_reason: nil)
+# already_consented [Boolean]
+# authorized_claims [Array<String>]
+BrowserAuthorizationInspectResponse = Data.define(:relying_party, :claims, :request_reason, :already_consented, :authorized_claims) do
+  def initialize(relying_party:, claims:, request_reason: nil, already_consented: nil, authorized_claims: nil)
     super
   end
 end
@@ -898,7 +900,12 @@ end
 # authorized_claims [Array<String>]
 # claim_types_to_set [Array<String>]
 # claim_values_to_set [Array<String>]
-BrowserAuthorizationCompleteRequest = Data.define(:signed_request, :authorized_claims, :claim_types_to_set, :claim_values_to_set)
+# use_standing_grant [Boolean]
+BrowserAuthorizationCompleteRequest = Data.define(:signed_request, :authorized_claims, :claim_types_to_set, :claim_values_to_set, :use_standing_grant) do
+  def initialize(signed_request:, authorized_claims:, claim_types_to_set:, claim_values_to_set:, use_standing_grant: nil)
+    super
+  end
+end
 
 # redirect_url [String]
 BrowserAuthorizationCompleteResponse = Data.define(:redirect_url)

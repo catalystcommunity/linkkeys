@@ -3279,18 +3279,26 @@ public struct BrowserAuthorizationInspectResponse: Equatable, Sendable {
     public let claims: [BrowserConsentClaim]
     /// wire key: request_reason
     public let requestReason: String?
+    /// wire key: already_consented
+    public let alreadyConsented: Bool?
+    /// wire key: authorized_claims
+    public let authorizedClaims: [String]?
 
-    public init(relyingParty: String, claims: [BrowserConsentClaim], requestReason: String? = nil) {
+    public init(relyingParty: String, claims: [BrowserConsentClaim], requestReason: String? = nil, alreadyConsented: Bool? = nil, authorizedClaims: [String]? = nil) {
         self.relyingParty = relyingParty
         self.claims = claims
         self.requestReason = requestReason
+        self.alreadyConsented = alreadyConsented
+        self.authorizedClaims = authorizedClaims
     }
 
     /// CBOR wire keys (verbatim) keyed by Swift property name.
     public static let wireKeys: [String: String] = [
         "relyingParty": "relying_party",
         "claims": "claims",
-        "requestReason": "request_reason"
+        "requestReason": "request_reason",
+        "alreadyConsented": "already_consented",
+        "authorizedClaims": "authorized_claims"
     ]
 }
 
@@ -3304,12 +3312,15 @@ public struct BrowserAuthorizationCompleteRequest: Equatable, Sendable {
     public let claimTypesToSet: [String]
     /// wire key: claim_values_to_set
     public let claimValuesToSet: [String]
+    /// wire key: use_standing_grant
+    public let useStandingGrant: Bool?
 
-    public init(signedRequest: String, authorizedClaims: [String], claimTypesToSet: [String], claimValuesToSet: [String]) {
+    public init(signedRequest: String, authorizedClaims: [String], claimTypesToSet: [String], claimValuesToSet: [String], useStandingGrant: Bool? = nil) {
         self.signedRequest = signedRequest
         self.authorizedClaims = authorizedClaims
         self.claimTypesToSet = claimTypesToSet
         self.claimValuesToSet = claimValuesToSet
+        self.useStandingGrant = useStandingGrant
     }
 
     /// CBOR wire keys (verbatim) keyed by Swift property name.
@@ -3317,7 +3328,8 @@ public struct BrowserAuthorizationCompleteRequest: Equatable, Sendable {
         "signedRequest": "signed_request",
         "authorizedClaims": "authorized_claims",
         "claimTypesToSet": "claim_types_to_set",
-        "claimValuesToSet": "claim_values_to_set"
+        "claimValuesToSet": "claim_values_to_set",
+        "useStandingGrant": "use_standing_grant"
     ]
 }
 

@@ -1122,6 +1122,8 @@ pub const BrowserAuthorizationInspectResponse = struct {
     relying_party: []const u8,
     claims: []BrowserConsentClaim,
     request_reason: ?[]const u8 = null,
+    already_consented: ?bool = null,
+    authorized_claims: ?[][]const u8 = null,
 };
 
 /// BrowserAuthorizationCompleteRequest is a structured data type.
@@ -1130,6 +1132,7 @@ pub const BrowserAuthorizationCompleteRequest = struct {
     authorized_claims: [][]const u8,
     claim_types_to_set: [][]const u8,
     claim_values_to_set: [][]const u8,
+    use_standing_grant: ?bool = null,
 };
 
 /// BrowserAuthorizationCompleteResponse is a structured data type.

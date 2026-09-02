@@ -10225,11 +10225,15 @@ final class BrowserAuthorizationInspectResponse {
   final String relyingParty;
   final List<BrowserConsentClaim> claims;
   final String? requestReason;
+  final bool? alreadyConsented;
+  final List<String>? authorizedClaims;
 
   const BrowserAuthorizationInspectResponse({
     required this.relyingParty,
     required this.claims,
     this.requestReason,
+    this.alreadyConsented,
+    this.authorizedClaims,
   });
 
   Map<String, Object?> toMap() {
@@ -10237,6 +10241,8 @@ final class BrowserAuthorizationInspectResponse {
     map['relying_party'] = relyingParty;
     map['claims'] = claims;
     if (requestReason != null) map['request_reason'] = requestReason;
+    if (alreadyConsented != null) map['already_consented'] = alreadyConsented;
+    if (authorizedClaims != null) map['authorized_claims'] = authorizedClaims;
     return map;
   }
 
@@ -10247,6 +10253,8 @@ final class BrowserAuthorizationInspectResponse {
       relyingParty: map['relying_party'] as String,
       claims: map['claims'] as List<BrowserConsentClaim>,
       requestReason: map['request_reason'] as String?,
+      alreadyConsented: map['already_consented'] as bool?,
+      authorizedClaims: map['authorized_claims'] as List<String>?,
     );
   }
 
@@ -10255,11 +10263,19 @@ final class BrowserAuthorizationInspectResponse {
     if (other is! BrowserAuthorizationInspectResponse) return false;
     return relyingParty == other.relyingParty &&
         claims == other.claims &&
-        requestReason == other.requestReason;
+        requestReason == other.requestReason &&
+        alreadyConsented == other.alreadyConsented &&
+        authorizedClaims == other.authorizedClaims;
   }
 
   @override
-  int get hashCode => Object.hashAll([relyingParty, claims, requestReason]);
+  int get hashCode => Object.hashAll([
+    relyingParty,
+    claims,
+    requestReason,
+    alreadyConsented,
+    authorizedClaims,
+  ]);
 
   /// The CBOR-encodable dynamic tree for this record (deep).
   Map<String, Object?> toCborValue() {
@@ -10267,6 +10283,8 @@ final class BrowserAuthorizationInspectResponse {
     map['relying_party'] = relyingParty;
     map['claims'] = claims.map((csilE) => csilE.toCborValue()).toList();
     if (requestReason != null) map['request_reason'] = requestReason!;
+    if (alreadyConsented != null) map['already_consented'] = alreadyConsented!;
+    if (authorizedClaims != null) map['authorized_claims'] = authorizedClaims!;
     return map;
   }
 
@@ -10282,6 +10300,15 @@ final class BrowserAuthorizationInspectResponse {
       requestReason: map['request_reason'] == null
           ? null
           : map['request_reason'] as String,
+      alreadyConsented: map['already_consented'] == null
+          ? null
+          : map['already_consented'] as bool,
+      authorizedClaims: map['authorized_claims'] == null
+          ? null
+          : (map['authorized_claims'] as List)
+                .map((csilE) => csilE as String)
+                .cast<String>()
+                .toList(),
     );
   }
 
@@ -10298,12 +10325,14 @@ final class BrowserAuthorizationCompleteRequest {
   final List<String> authorizedClaims;
   final List<String> claimTypesToSet;
   final List<String> claimValuesToSet;
+  final bool? useStandingGrant;
 
   const BrowserAuthorizationCompleteRequest({
     required this.signedRequest,
     required this.authorizedClaims,
     required this.claimTypesToSet,
     required this.claimValuesToSet,
+    this.useStandingGrant,
   });
 
   Map<String, Object?> toMap() {
@@ -10312,6 +10341,7 @@ final class BrowserAuthorizationCompleteRequest {
     map['authorized_claims'] = authorizedClaims;
     map['claim_types_to_set'] = claimTypesToSet;
     map['claim_values_to_set'] = claimValuesToSet;
+    if (useStandingGrant != null) map['use_standing_grant'] = useStandingGrant;
     return map;
   }
 
@@ -10323,6 +10353,7 @@ final class BrowserAuthorizationCompleteRequest {
       authorizedClaims: map['authorized_claims'] as List<String>,
       claimTypesToSet: map['claim_types_to_set'] as List<String>,
       claimValuesToSet: map['claim_values_to_set'] as List<String>,
+      useStandingGrant: map['use_standing_grant'] as bool?,
     );
   }
 
@@ -10332,7 +10363,8 @@ final class BrowserAuthorizationCompleteRequest {
     return signedRequest == other.signedRequest &&
         authorizedClaims == other.authorizedClaims &&
         claimTypesToSet == other.claimTypesToSet &&
-        claimValuesToSet == other.claimValuesToSet;
+        claimValuesToSet == other.claimValuesToSet &&
+        useStandingGrant == other.useStandingGrant;
   }
 
   @override
@@ -10341,6 +10373,7 @@ final class BrowserAuthorizationCompleteRequest {
     authorizedClaims,
     claimTypesToSet,
     claimValuesToSet,
+    useStandingGrant,
   ]);
 
   /// The CBOR-encodable dynamic tree for this record (deep).
@@ -10350,6 +10383,7 @@ final class BrowserAuthorizationCompleteRequest {
     map['authorized_claims'] = authorizedClaims;
     map['claim_types_to_set'] = claimTypesToSet;
     map['claim_values_to_set'] = claimValuesToSet;
+    if (useStandingGrant != null) map['use_standing_grant'] = useStandingGrant!;
     return map;
   }
 
@@ -10370,6 +10404,9 @@ final class BrowserAuthorizationCompleteRequest {
           .map((csilE) => csilE as String)
           .cast<String>()
           .toList(),
+      useStandingGrant: map['use_standing_grant'] == null
+          ? null
+          : map['use_standing_grant'] as bool,
     );
   }
 

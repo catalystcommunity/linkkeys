@@ -7,6 +7,8 @@ import java.util.List;
 public record BrowserAuthorizationInspectResponse(
     String relyingParty /* wire: "relying_party" */,
     List<BrowserConsentClaim> claims /* wire: "claims" */,
-    String requestReason /* wire: "request_reason" */
+    String requestReason /* wire: "request_reason" */,
+    Boolean alreadyConsented /* wire: "already_consented" */,
+    List<String> authorizedClaims /* wire: "authorized_claims" */
 ) {
 }
