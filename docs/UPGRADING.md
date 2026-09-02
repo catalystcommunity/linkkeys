@@ -122,17 +122,18 @@ back to `list-user-claims` (type names only, no values).
 sends it asks the server to also check that user's standing consent grant
 for the relying party. `AuthorizeValidateResponse` gained two optional
 fields that answer that check: `already_consented` (`true` when a standing
-grant, or an admin forced-allow policy, already covers every required
-claim) and `authorized_claims` (the claim types a finalize would release
-without showing consent again).
+grant already covers every required claim) and `authorized_claims` (the claim
+types a finalize would release without showing consent again). An administrator
+`forced_allow` rule does not replace the first disclosure. A new forced claim
+opens consent once before the server can add it to the standing grant.
 
-Both response fields are absent when `user_id` was not sent, when no
-standing grant covers the request, or when the answer would be "no" for any
-other reason (a `claims_update` request, an unknown `user_id`, or a required
-claim that has no active value to release). They are never sent as `false`
-or `[]` — absent is the only "no" shape, so a client on the old CSIL subset
-that never sends `user_id` sees a byte-identical response to before this
-change.
+Both response fields are absent when `user_id` was not sent, when no standing
+grant covers the request, or when the answer would be "no" for any other reason
+(a `claims_update` request, an unknown `user_id`, or a required claim that has
+no active value to release). The server does not send `false` as a "no" value.
+`authorized_claims` can be an empty list when the saved decision approves no
+optional claims. A client on the old CSIL subset that never sends `user_id` sees
+a byte-identical response to before this change.
 
 A client that wants this convenience: send the signed-in user's `user_id` on
 `/rp/authorize/validate`, and when `already_consented` is `true`, skip the
@@ -144,3 +145,25 @@ A server built before this release ignores an unknown `user_id` field (CSIL
 decode looks fields up by name) and never sends the new response fields, so
 a client that sends `user_id` against an older server simply never sees
 `already_consented`.
+
+### `BrowserAuthorization/inspect` can report standing consent (additive)
+
+`BrowserAuthorizationInspectResponse` gained optional `already_consented` and
+`authorized_claims` fields. The built-in SPA uses these fields to complete a
+normal repeat login without a new consent screen.
+
+`BrowserAuthorizationCompleteRequest` gained the optional
+`use_standing_grant` field. The SPA sends `true` after an inspection reports
+standing consent. The server then checks the grant and the current release
+policy again. It does not trust the claim list from the inspection. If the
+grant no longer covers the request, the server rejects the completion and the
+SPA shows the consent screen.
+
+The server omits these fields for the first disclosure, for a `claims_update`
+request, and when a new administrator-forced claim is not in the prior grant.
+The SPA shows the normal consent screen in these cases. It also shows the
+screen if silent completion fails.
+
+Older generated clients ignore the additional response keys. New generated
+clients accept an older server that omits them. An older server ignores the
+optional completion field.

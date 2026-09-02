@@ -1562,6 +1562,8 @@ and encode_browser_authorization_inspect_response (v : browser_authorization_ins
          Some (Cbor.Text "claims", (Cbor.Array (List.map (fun csil_e -> (encode_browser_consent_claim csil_e)) v.claims)));
          Some (Cbor.Text "relying_party", (Cbor.Text v.relying_party));
          (match v.request_reason with Some csil_x -> Some (Cbor.Text "request_reason", (Cbor.Text csil_x)) | None -> None);
+         (match v.already_consented with Some csil_x -> Some (Cbor.Text "already_consented", (Cbor.Bool csil_x)) | None -> None);
+         (match v.authorized_claims with Some csil_x -> Some (Cbor.Text "authorized_claims", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) csil_x))) | None -> None);
        ])
 
 and encode_browser_authorization_complete_request (v : browser_authorization_complete_request) : Cbor.t =
@@ -1572,6 +1574,7 @@ and encode_browser_authorization_complete_request (v : browser_authorization_com
          Some (Cbor.Text "signed_request", (Cbor.Text v.signed_request));
          Some (Cbor.Text "authorized_claims", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.authorized_claims)));
          Some (Cbor.Text "claim_types_to_set", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.claim_types_to_set)));
+         (match v.use_standing_grant with Some csil_x -> Some (Cbor.Text "use_standing_grant", (Cbor.Bool csil_x)) | None -> None);
          Some (Cbor.Text "claim_values_to_set", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.claim_values_to_set)));
        ])
 
@@ -4708,6 +4711,8 @@ and decode_browser_authorization_inspect_response (csil_c : Cbor.t) : browser_au
         claims = (match (csil_req "claims") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_browser_consent_claim csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
         relying_party = (Cbor.to_text (csil_req "relying_party"));
         request_reason = (match csil_field "request_reason" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        already_consented = (match csil_field "already_consented" with Some csil_v -> Some (Cbor.to_bool csil_v) | None -> None);
+        authorized_claims = (match csil_field "authorized_claims" with Some csil_v -> Some (match csil_v with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array") | None -> None);
       }
   | _ -> failwith "csilgen: expected map for browser_authorization_inspect_response"
 
@@ -4723,6 +4728,7 @@ and decode_browser_authorization_complete_request (csil_c : Cbor.t) : browser_au
         signed_request = (Cbor.to_text (csil_req "signed_request"));
         authorized_claims = (match (csil_req "authorized_claims") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
         claim_types_to_set = (match (csil_req "claim_types_to_set") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        use_standing_grant = (match csil_field "use_standing_grant" with Some csil_v -> Some (Cbor.to_bool csil_v) | None -> None);
         claim_values_to_set = (match (csil_req "claim_values_to_set") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
       }
   | _ -> failwith "csilgen: expected map for browser_authorization_complete_request"

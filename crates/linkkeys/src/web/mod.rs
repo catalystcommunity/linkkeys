@@ -469,19 +469,19 @@ pub(super) fn filter_authorized_to_active_values(
         .collect())
 }
 
-/// Decide whether a standing consent grant (or an admin forced-allow policy)
-/// already covers everything `request` asks for, so login can finish without
-/// showing the consent screen again. Shared by the browser `/auth/authorize`
+/// Decide whether a standing consent grant already covers everything `request`
+/// asks for, so login can finish without showing the consent screen again.
+/// Shared by the browser `/auth/authorize`
 /// flow and the headless `/rp/authorize/validate` API so the two paths cannot
 /// drift.
 ///
 /// Returns `Some(authorized_claims)` when a silent finalize would succeed:
-/// the request is not a `claims_update`, a prior grant or admin forced-allow
-/// covers every required claim, and every authorized required claim has a
-/// concrete active value (never a value-less release, which would just push
-/// the failure to the RP). Returns `None` when nothing is requested, no
-/// standing coverage exists, or any of the above checks fail — the caller
-/// must fall back to showing consent.
+/// the request is not a `claims_update`, a prior grant covers every required
+/// claim, no newly forced claim would be released, and every authorized
+/// required claim has a concrete active value (never a value-less release,
+/// which would just push the failure to the RP). Returns `None` when nothing is
+/// requested, no standing coverage exists, or any of the above checks fail —
+/// the caller must fall back to showing consent.
 pub(crate) fn silent_authorization(
     pool: &DbPool,
     policy: &DomainPolicy,
@@ -495,23 +495,13 @@ pub(crate) fn silent_authorization(
     let prior = pool
         .find_active_consent_grant(user_id, &request.relying_party)
         .ok()
-        .flatten();
-    let admin_covers_all_required = !req.required.is_empty()
-        && req.required.iter().all(|claim| {
-            policy
-                .forced_allow
-                .iter()
-                .any(|allowed| allowed == &claim.claim_type)
-        });
-    if prior.is_none() && !admin_covers_all_required {
-        return None;
-    }
-    let prior_claims = prior
-        .as_ref()
-        .map(|grant| grant.claim_types.as_slice())
-        .unwrap_or(&[]);
+        .flatten()?;
+    let prior_claims = prior.claim_types.as_slice();
     let authorized = compute_authorized_claims(req, prior_claims, policy);
-    if !all_required_authorized(req, &authorized)
+    if authorized
+        .iter()
+        .any(|claim_type| !prior.claim_types.contains(claim_type))
+        || !all_required_authorized(req, &authorized)
         || first_authorized_required_without_value(pool, user_id, req, &authorized).is_some()
     {
         return None;
@@ -1471,11 +1461,17 @@ async fn inspect_browser_authorization(
         });
     }
 
+    let mut already_consented = None;
+    let mut authorized_claims = None;
     let claims = if let Some(claim_request) = &request.requested_claims {
         let policy = domain_policy_for(pool, &request.relying_party).map_err(|_| ServiceError {
             code: 500,
             message: "Could not load the release policy".to_string(),
         })?;
+        if let Some(authorized) = silent_authorization(pool, &policy, &user.id, &request) {
+            already_consented = Some(true);
+            authorized_claims = Some(authorized);
+        }
         build_consent_screen(
             pool,
             &user.id,
@@ -1533,6 +1529,8 @@ async fn inspect_browser_authorization(
             relying_party: request.relying_party,
             claims,
             request_reason: request.flow_context.and_then(|value| value.request_reason),
+            already_consented,
+            authorized_claims,
         },
     )
 }
@@ -1614,17 +1612,34 @@ async fn complete_browser_authorization(
             code: 500,
             message: "Could not load the release policy".to_string(),
         })?;
-        let policy_authorized =
-            compute_authorized_claims(claim_request, &request_value.authorized_claims, &policy);
-        let stored = store_inline_claim_values(
-            pool,
-            &fresh_user.id,
-            claim_request,
-            &policy_authorized,
-            &request_value.claim_types_to_set,
-            &request_value.claim_values_to_set,
-        )
-        .map_err(|message| ServiceError { code: 400, message })?;
+        let stored = if request_value.use_standing_grant == Some(true) {
+            if !request_value.claim_types_to_set.is_empty()
+                || !request_value.claim_values_to_set.is_empty()
+            {
+                return Err(ServiceError {
+                    code: 400,
+                    message: "A standing grant cannot set claim values".to_string(),
+                });
+            }
+            silent_authorization(pool, &policy, &fresh_user.id, &request).ok_or_else(|| {
+                ServiceError {
+                    code: 400,
+                    message: "The saved approval no longer covers this request".to_string(),
+                }
+            })?
+        } else {
+            let policy_authorized =
+                compute_authorized_claims(claim_request, &request_value.authorized_claims, &policy);
+            store_inline_claim_values(
+                pool,
+                &fresh_user.id,
+                claim_request,
+                &policy_authorized,
+                &request_value.claim_types_to_set,
+                &request_value.claim_values_to_set,
+            )
+            .map_err(|message| ServiceError { code: 400, message })?
+        };
         (stored, requested_types(claim_request))
     } else {
         (Vec::new(), Vec::new())

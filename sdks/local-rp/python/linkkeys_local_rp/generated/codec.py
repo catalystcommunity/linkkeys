@@ -4726,6 +4726,12 @@ def _encode_browser_authorization_inspect_response_value(v: "BrowserAuthorizatio
     csil_x = v.request_reason
     if csil_x is not None:
         csil_m["request_reason"] = csil_x
+    csil_x = v.already_consented
+    if csil_x is not None:
+        csil_m["already_consented"] = csil_x
+    csil_x = v.authorized_claims
+    if csil_x is not None:
+        csil_m["authorized_claims"] = csil_x
     return csil_m
 
 def _decode_browser_authorization_inspect_response_value(tree: Any) -> "BrowserAuthorizationInspectResponse":
@@ -4734,6 +4740,8 @@ def _decode_browser_authorization_inspect_response_value(tree: Any) -> "BrowserA
         relying_party=_csil_expect_text(tree["relying_party"]),
         claims=[_decode_browser_consent_claim_value(csil_e) for csil_e in _csil_expect_array(tree["claims"])],
         request_reason=(None if tree.get("request_reason") is None else _csil_expect_text(tree["request_reason"])),
+        already_consented=(None if tree.get("already_consented") is None else _csil_expect_bool(tree["already_consented"])),
+        authorized_claims=(None if tree.get("authorized_claims") is None else [_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["authorized_claims"])]),
     )
 
 
@@ -4753,6 +4761,9 @@ def _encode_browser_authorization_complete_request_value(v: "BrowserAuthorizatio
     csil_m["signed_request"] = v.signed_request
     csil_m["authorized_claims"] = v.authorized_claims
     csil_m["claim_types_to_set"] = v.claim_types_to_set
+    csil_x = v.use_standing_grant
+    if csil_x is not None:
+        csil_m["use_standing_grant"] = csil_x
     csil_m["claim_values_to_set"] = v.claim_values_to_set
     return csil_m
 
@@ -4763,6 +4774,7 @@ def _decode_browser_authorization_complete_request_value(tree: Any) -> "BrowserA
         authorized_claims=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["authorized_claims"])],
         claim_types_to_set=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["claim_types_to_set"])],
         claim_values_to_set=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["claim_values_to_set"])],
+        use_standing_grant=(None if tree.get("use_standing_grant") is None else _csil_expect_bool(tree["use_standing_grant"])),
     )
 
 

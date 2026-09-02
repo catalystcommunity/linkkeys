@@ -1331,14 +1331,23 @@ BrowserConsentClaim = {
 BrowserAuthorizationInspectResponse = {
     relying_party: text,
     claims: [* BrowserConsentClaim],
-    ? request_reason: text
+    ? request_reason: text,
+    ;; True when a prior standing grant covers this normal login request.
+    ;; The first request for an audience must omit this, including when policy
+    ;; forces all claim choices, so the user sees the initial disclosure.
+    ? already_consented: bool,
+    ;; The claim types that a silent completion can release.
+    ? authorized_claims: [* text]
 }
 
 BrowserAuthorizationCompleteRequest = {
     signed_request: text,
     authorized_claims: [* text],
     claim_types_to_set: [* text],
-    claim_values_to_set: [* text]
+    claim_values_to_set: [* text],
+    ;; Ask the server to re-check and use the current standing grant. The
+    ;; server ignores authorized_claims in this mode and rejects inline values.
+    ? use_standing_grant: bool
 }
 
 BrowserAuthorizationCompleteResponse = {

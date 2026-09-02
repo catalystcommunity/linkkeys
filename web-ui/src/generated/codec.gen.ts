@@ -4146,6 +4146,8 @@ export function toBrowserAuthorizationInspectResponseCborValue(v: BrowserAuthori
   csilMap.set("claims", v.claims.map((csilE): CborValue => toBrowserConsentClaimCborValue(csilE)));
   csilMap.set("relying_party", v.relyingParty);
   if (v.requestReason !== undefined) csilMap.set("request_reason", v.requestReason);
+  if (v.alreadyConsented !== undefined) csilMap.set("already_consented", v.alreadyConsented);
+  if (v.authorizedClaims !== undefined) csilMap.set("authorized_claims", v.authorizedClaims);
   return csilMap;
 }
 
@@ -4154,6 +4156,8 @@ export function fromBrowserAuthorizationInspectResponseCborValue(value: CborValu
     relyingParty: asString(requireKey(value, "relying_party")),
     claims: asArray(requireKey(value, "claims")).map((csilE) => fromBrowserConsentClaimCborValue(csilE)),
     requestReason: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "request_reason")),
+    alreadyConsented: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asBool(csilV))(mapGet(value, "already_consented")),
+    authorizedClaims: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asArray(csilV).map((csilE) => asString(csilE)))(mapGet(value, "authorized_claims")),
   };
 }
 
@@ -4170,6 +4174,7 @@ export function toBrowserAuthorizationCompleteRequestCborValue(v: BrowserAuthori
   csilMap.set("signed_request", v.signedRequest);
   csilMap.set("authorized_claims", v.authorizedClaims);
   csilMap.set("claim_types_to_set", v.claimTypesToSet);
+  if (v.useStandingGrant !== undefined) csilMap.set("use_standing_grant", v.useStandingGrant);
   csilMap.set("claim_values_to_set", v.claimValuesToSet);
   return csilMap;
 }
@@ -4180,6 +4185,7 @@ export function fromBrowserAuthorizationCompleteRequestCborValue(value: CborValu
     authorizedClaims: asArray(requireKey(value, "authorized_claims")).map((csilE) => asString(csilE)),
     claimTypesToSet: asArray(requireKey(value, "claim_types_to_set")).map((csilE) => asString(csilE)),
     claimValuesToSet: asArray(requireKey(value, "claim_values_to_set")).map((csilE) => asString(csilE)),
+    useStandingGrant: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asBool(csilV))(mapGet(value, "use_standing_grant")),
   };
 }
 

@@ -136,6 +136,8 @@ async fn spa_consent_flow_end_to_end() {
         )
         .expect("claim");
     }
+    pool.upsert_release_policy(TEST_DOMAIN, "email", "forced_allow")
+        .expect("force email release");
 
     let authorization = signed_request(
         &signing.id,
@@ -265,10 +267,15 @@ async fn spa_consent_flow_end_to_end() {
             .expect("decode inspection");
     assert_eq!(inspection.relying_party, TEST_DOMAIN);
     assert_eq!(inspection.claims.len(), 2);
+    assert_eq!(inspection.already_consented, None);
+    assert_eq!(inspection.authorized_claims, None);
     assert!(inspection
         .claims
         .iter()
-        .any(|claim| claim.claim_type == "email" && claim.required && claim.available));
+        .any(|claim| claim.claim_type == "email"
+            && claim.required
+            && claim.available
+            && claim.policy == "forced_allow"));
     assert!(inspection
         .claims
         .iter()
@@ -280,6 +287,7 @@ async fn spa_consent_flow_end_to_end() {
             authorized_claims: vec!["email".to_string()],
             claim_types_to_set: Vec::new(),
             claim_values_to_set: Vec::new(),
+            use_standing_grant: None,
         },
     );
     let response = rpc(
@@ -301,6 +309,130 @@ async fn spa_consent_flow_end_to_end() {
         .expect("query grant")
         .expect("stored grant");
     assert_eq!(grant.claim_types, vec!["email"]);
+
+    let repeat_authorization = signed_request(
+        &signing.id,
+        &signing_key_bytes,
+        "spa-login-nonce-repeat",
+        Some(ClaimRequest {
+            required: vec![RequestedClaim {
+                claim_type: "email".to_string(),
+                datatype: "email".to_string(),
+            }],
+            optional: vec![RequestedClaim {
+                claim_type: "ssn".to_string(),
+                datatype: "text".to_string(),
+            }],
+        }),
+        None,
+    );
+    let response = rpc(
+        &client,
+        "BrowserAuthorization",
+        "inspect",
+        liblinkkeys::generated::encode_browser_authorization_inspect_request(
+            &BrowserAuthorizationInspectRequest {
+                signed_request: repeat_authorization.clone(),
+            },
+        ),
+    )
+    .await;
+    assert_eq!(response.status, RpcStatus::Ok);
+    let repeat_inspection =
+        liblinkkeys::generated::decode_browser_authorization_inspect_response(&response.payload)
+            .expect("decode repeat inspection");
+    assert_eq!(repeat_inspection.already_consented, Some(true));
+    assert_eq!(
+        repeat_inspection.authorized_claims,
+        Some(vec!["email".to_string()])
+    );
+
+    let response = rpc(
+        &client,
+        "BrowserAuthorization",
+        "complete",
+        liblinkkeys::generated::encode_browser_authorization_complete_request(
+            &BrowserAuthorizationCompleteRequest {
+                signed_request: repeat_authorization,
+                authorized_claims: repeat_inspection.authorized_claims.unwrap(),
+                claim_types_to_set: Vec::new(),
+                claim_values_to_set: Vec::new(),
+                use_standing_grant: Some(true),
+            },
+        ),
+    )
+    .await;
+    assert_eq!(response.status, RpcStatus::Ok);
+
+    let changed_policy_authorization = signed_request(
+        &signing.id,
+        &signing_key_bytes,
+        "spa-login-nonce-changed-policy",
+        Some(ClaimRequest {
+            required: vec![RequestedClaim {
+                claim_type: "email".to_string(),
+                datatype: "email".to_string(),
+            }],
+            optional: vec![RequestedClaim {
+                claim_type: "ssn".to_string(),
+                datatype: "text".to_string(),
+            }],
+        }),
+        None,
+    );
+    let response = rpc(
+        &client,
+        "BrowserAuthorization",
+        "inspect",
+        liblinkkeys::generated::encode_browser_authorization_inspect_request(
+            &BrowserAuthorizationInspectRequest {
+                signed_request: changed_policy_authorization.clone(),
+            },
+        ),
+    )
+    .await;
+    assert_eq!(response.status, RpcStatus::Ok);
+    let prior_policy_inspection =
+        liblinkkeys::generated::decode_browser_authorization_inspect_response(&response.payload)
+            .expect("decode prior-policy inspection");
+    assert_eq!(prior_policy_inspection.already_consented, Some(true));
+
+    pool.upsert_release_policy(TEST_DOMAIN, "ssn", "forced_allow")
+        .expect("force a newly requested claim");
+    let response = rpc(
+        &client,
+        "BrowserAuthorization",
+        "complete",
+        liblinkkeys::generated::encode_browser_authorization_complete_request(
+            &BrowserAuthorizationCompleteRequest {
+                signed_request: changed_policy_authorization.clone(),
+                authorized_claims: prior_policy_inspection.authorized_claims.unwrap(),
+                claim_types_to_set: Vec::new(),
+                claim_values_to_set: Vec::new(),
+                use_standing_grant: Some(true),
+            },
+        ),
+    )
+    .await;
+    assert_ne!(response.status, RpcStatus::Ok);
+
+    let response = rpc(
+        &client,
+        "BrowserAuthorization",
+        "inspect",
+        liblinkkeys::generated::encode_browser_authorization_inspect_request(
+            &BrowserAuthorizationInspectRequest {
+                signed_request: changed_policy_authorization,
+            },
+        ),
+    )
+    .await;
+    assert_eq!(response.status, RpcStatus::Ok);
+    let changed_policy_inspection =
+        liblinkkeys::generated::decode_browser_authorization_inspect_response(&response.payload)
+            .expect("decode changed-policy inspection");
+    assert_eq!(changed_policy_inspection.already_consented, None);
+    assert_eq!(changed_policy_inspection.authorized_claims, None);
 
     let replay = rpc(
         &client,
@@ -353,6 +485,7 @@ async fn spa_consent_flow_end_to_end() {
                 authorized_claims: vec!["display_name".to_string()],
                 claim_types_to_set: vec!["display_name".to_string()],
                 claim_values_to_set: vec!["Ada".to_string()],
+                use_standing_grant: None,
             },
         ),
     )

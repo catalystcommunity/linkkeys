@@ -1101,6 +1101,8 @@ pub struct BrowserAuthorizationInspectResponse {
     pub relying_party: String,
     pub claims: Vec<BrowserConsentClaim>,
     pub request_reason: Option<String>,
+    pub already_consented: Option<bool>,
+    pub authorized_claims: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1109,6 +1111,7 @@ pub struct BrowserAuthorizationCompleteRequest {
     pub authorized_claims: Vec<String>,
     pub claim_types_to_set: Vec<String>,
     pub claim_values_to_set: Vec<String>,
+    pub use_standing_grant: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

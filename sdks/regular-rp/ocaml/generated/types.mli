@@ -624,6 +624,8 @@ and browser_authorization_inspect_response = {
   relying_party : string;
   claims : browser_consent_claim list;
   request_reason : string option;
+  already_consented : bool option;
+  authorized_claims : string list option;
 }
 
 and browser_authorization_complete_request = {
@@ -631,6 +633,7 @@ and browser_authorization_complete_request = {
   authorized_claims : string list;
   claim_types_to_set : string list;
   claim_values_to_set : string list;
+  use_standing_grant : bool option;
 }
 
 and browser_authorization_complete_response = { redirect_url : string }

@@ -1,4 +1,4 @@
-import type { BrowserConsentClaim } from "./generated/types.gen";
+import type { BrowserAuthorizationInspectResponse, BrowserConsentClaim } from "./generated/types.gen";
 import { CsilStatus, CsilTransportError } from "./transport";
 
 export function authenticationFailed(error: unknown): boolean {
@@ -66,6 +66,12 @@ export function inputType(datatype: string | undefined): "text" | "email" | "url
 export function hasBlockedRequiredClaim(claims: BrowserConsentClaim[]): boolean {
   return claims.some((claim) => claim.required
     && (claim.policy === "forced_deny" || (!claim.available && !claim.userSettable)));
+}
+
+export function standingAuthorization(context: BrowserAuthorizationInspectResponse): string[] | undefined {
+  return context.alreadyConsented === true && context.authorizedClaims
+    ? context.authorizedClaims
+    : undefined;
 }
 
 export function verificationFailureMessage(error: unknown): string {

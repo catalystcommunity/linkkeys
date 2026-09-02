@@ -1078,9 +1078,11 @@ type BrowserConsentClaim struct {
 
 // BrowserAuthorizationInspectResponse represents a structured data type
 type BrowserAuthorizationInspectResponse struct {
-	RelyingParty  string                `json:"relying_party" yaml:"relying_party"`
-	Claims        []BrowserConsentClaim `json:"claims" yaml:"claims"`
-	RequestReason *string               `json:"request_reason,omitempty" yaml:"request_reason,omitempty"`
+	RelyingParty     string                `json:"relying_party" yaml:"relying_party"`
+	Claims           []BrowserConsentClaim `json:"claims" yaml:"claims"`
+	RequestReason    *string               `json:"request_reason,omitempty" yaml:"request_reason,omitempty"`
+	AlreadyConsented *bool                 `json:"already_consented,omitempty" yaml:"already_consented,omitempty"`
+	AuthorizedClaims []string              `json:"authorized_claims,omitempty" yaml:"authorized_claims,omitempty"`
 }
 
 // BrowserAuthorizationCompleteRequest represents a structured data type
@@ -1089,6 +1091,7 @@ type BrowserAuthorizationCompleteRequest struct {
 	AuthorizedClaims []string `json:"authorized_claims" yaml:"authorized_claims"`
 	ClaimTypesToSet  []string `json:"claim_types_to_set" yaml:"claim_types_to_set"`
 	ClaimValuesToSet []string `json:"claim_values_to_set" yaml:"claim_values_to_set"`
+	UseStandingGrant *bool    `json:"use_standing_grant,omitempty" yaml:"use_standing_grant,omitempty"`
 }
 
 // BrowserAuthorizationCompleteResponse represents a structured data type

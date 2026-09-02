@@ -5981,6 +5981,8 @@ static inline int csilc_dec_BrowserConsentClaim(const csilc_value *m, CsilCodecA
 static inline int csilc_enc_BrowserAuthorizationInspectResponse(csilc_buf *b, const BrowserAuthorizationInspectResponse *v) {
     size_t csilc_n = 2;
     if (v->request_reason) csilc_n++;
+    if (v->already_consented) csilc_n++;
+    if (v->authorized_claims_count) csilc_n++;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "claims", 6)) return -1;
     if (csilc_w_array_head(b, v->claims_count)) return -1;
@@ -5992,6 +5994,17 @@ static inline int csilc_enc_BrowserAuthorizationInspectResponse(csilc_buf *b, co
     if (v->request_reason) {
         if (csilc_w_text(b, "request_reason", 14)) return -1;
         if (csilc_w_text(b, (v->request_reason), (v->request_reason) ? strlen(v->request_reason) : 0)) return -1;
+    }
+    if (v->already_consented) {
+        if (csilc_w_text(b, "already_consented", 17)) return -1;
+        if (csilc_w_bool(b, ((*v->already_consented)))) return -1;
+    }
+    if (v->authorized_claims_count) {
+        if (csilc_w_text(b, "authorized_claims", 17)) return -1;
+        if (csilc_w_array_head(b, v->authorized_claims_count)) return -1;
+        for (size_t csilc_i = 0; csilc_i < v->authorized_claims_count; csilc_i++) {
+            if (csilc_w_text(b, (v->authorized_claims[csilc_i]), (v->authorized_claims[csilc_i]) ? strlen(v->authorized_claims[csilc_i]) : 0)) return -1;
+        }
     }
     return 0;
 }
@@ -6016,12 +6029,32 @@ static inline int csilc_dec_BrowserAuthorizationInspectResponse(const csilc_valu
     if (!csilc_get_text(csilc_f, &(out->relying_party))) return -1;
     csilc_f = csilc_map_get(m, "request_reason");
     out->request_reason = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "already_consented");
+    out->already_consented = NULL;
+    if (csilc_f) {
+        bool *csilc_p = (bool *)csilc_arena_alloc(a, sizeof(bool));
+        if (!csilc_p) return -1;
+        if (!csilc_as_bool(csilc_f, &((*csilc_p)))) return -1;
+        out->already_consented = csilc_p;
+    }
+    csilc_f = csilc_map_get(m, "authorized_claims");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->authorized_claims_count = csilc_f->as.array.count;
+    out->authorized_claims = NULL;
+    if (out->authorized_claims_count) {
+        out->authorized_claims = (char * *)csilc_arena_alloc(a, out->authorized_claims_count * sizeof(char *));
+        if (!out->authorized_claims) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->authorized_claims_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->authorized_claims[csilc_i]))) return -1;
+        }
+    }
     return 0;
 }
 
 /* csilc_enc_BrowserAuthorizationCompleteRequest writes BrowserAuthorizationCompleteRequest as a canonical CBOR map. */
 static inline int csilc_enc_BrowserAuthorizationCompleteRequest(csilc_buf *b, const BrowserAuthorizationCompleteRequest *v) {
     size_t csilc_n = 4;
+    if (v->use_standing_grant) csilc_n++;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "signed_request", 14)) return -1;
     if (csilc_w_text(b, (v->signed_request), (v->signed_request) ? strlen(v->signed_request) : 0)) return -1;
@@ -6034,6 +6067,10 @@ static inline int csilc_enc_BrowserAuthorizationCompleteRequest(csilc_buf *b, co
     if (csilc_w_array_head(b, v->claim_types_to_set_count)) return -1;
     for (size_t csilc_i = 0; csilc_i < v->claim_types_to_set_count; csilc_i++) {
         if (csilc_w_text(b, (v->claim_types_to_set[csilc_i]), (v->claim_types_to_set[csilc_i]) ? strlen(v->claim_types_to_set[csilc_i]) : 0)) return -1;
+    }
+    if (v->use_standing_grant) {
+        if (csilc_w_text(b, "use_standing_grant", 18)) return -1;
+        if (csilc_w_bool(b, ((*v->use_standing_grant)))) return -1;
     }
     if (csilc_w_text(b, "claim_values_to_set", 19)) return -1;
     if (csilc_w_array_head(b, v->claim_values_to_set_count)) return -1;
@@ -6071,6 +6108,14 @@ static inline int csilc_dec_BrowserAuthorizationCompleteRequest(const csilc_valu
         for (size_t csilc_i = 0; csilc_i < out->claim_types_to_set_count; csilc_i++) {
             if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->claim_types_to_set[csilc_i]))) return -1;
         }
+    }
+    csilc_f = csilc_map_get(m, "use_standing_grant");
+    out->use_standing_grant = NULL;
+    if (csilc_f) {
+        bool *csilc_p = (bool *)csilc_arena_alloc(a, sizeof(bool));
+        if (!csilc_p) return -1;
+        if (!csilc_as_bool(csilc_f, &((*csilc_p)))) return -1;
+        out->use_standing_grant = csilc_p;
     }
     csilc_f = csilc_map_get(m, "claim_values_to_set");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;

@@ -1621,7 +1621,11 @@ data class BrowserAuthorizationInspectResponse(
     val relyingParty: String,
     val claims: List<BrowserConsentClaim>,
     // wire key: request_reason
-    val requestReason: String? = null
+    val requestReason: String? = null,
+    // wire key: already_consented
+    val alreadyConsented: Boolean? = null,
+    // wire key: authorized_claims
+    val authorizedClaims: List<String>? = null
 )
 
 /** BrowserAuthorizationCompleteRequest record. */
@@ -1633,7 +1637,9 @@ data class BrowserAuthorizationCompleteRequest(
     // wire key: claim_types_to_set
     val claimTypesToSet: List<String>,
     // wire key: claim_values_to_set
-    val claimValuesToSet: List<String>
+    val claimValuesToSet: List<String>,
+    // wire key: use_standing_grant
+    val useStandingGrant: Boolean? = null
 )
 
 /** BrowserAuthorizationCompleteResponse record. */
