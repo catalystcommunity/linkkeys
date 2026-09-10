@@ -20,10 +20,15 @@ application source, so a pull request cannot introduce a plugin of its own.
 
 from __future__ import annotations
 
+import hashlib
 import os
+import platform
 import re
 import shlex
+import shutil
 import subprocess
+import tarfile
+import urllib.request
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
@@ -38,6 +43,12 @@ CONVENTIONAL_COMMIT_PATTERN = re.compile(
 
 APT_PACKAGES_BASE = ["pkg-config", "build-essential"]
 APT_PACKAGES_DB = ["libpq-dev", "libsqlite3-dev"]
+# Vitest 5 requires Node 22.12 or newer. Use the current Node 24 LTS release.
+NODE_VERSION = "24.21.0"
+NODE_ARCHIVE_SHA256 = {
+    "arm64": "6ad1325edbdb5649c379b75a237147a666c95d4f9ae8d340fef2d1575d289ad2",
+    "x64": "fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6",
+}
 
 
 def _run(
@@ -67,6 +78,40 @@ def _apt_install(packages: List[str], *, cwd: Path) -> None:
         ["sudo", "apt-get", "install", "-y", "--no-install-recommends", *packages],
         cwd=cwd,
     )
+
+
+def _node_environment(code_dir: Path) -> Dict[str, str]:
+    """Install the pinned Node release and return its environment."""
+    machine = platform.machine()
+    architecture = {"aarch64": "arm64", "x86_64": "x64"}.get(machine)
+    if architecture is None:
+        raise RuntimeError(f"Node does not support the CI architecture: {machine}")
+
+    release = f"node-v{NODE_VERSION}-linux-{architecture}"
+    archive = Path("/tmp") / f"{release}.tar.xz"
+    install_dir = Path("/tmp") / release
+    url = f"https://nodejs.org/dist/v{NODE_VERSION}/{archive.name}"
+
+    log_stdout(f"=== Installing Node {NODE_VERSION} ===")
+    with urllib.request.urlopen(url, timeout=60) as response, archive.open("wb") as output:
+        shutil.copyfileobj(response, output)
+
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    expected = NODE_ARCHIVE_SHA256[architecture]
+    if digest != expected:
+        raise RuntimeError(f"Node archive checksum mismatch for {archive.name}")
+
+    if install_dir.exists():
+        shutil.rmtree(install_dir)
+    with tarfile.open(archive) as bundle:
+        bundle.extractall(Path("/tmp"), filter="data")
+    archive.unlink()
+
+    environment = os.environ.copy()
+    environment["PATH"] = f"{install_dir / 'bin'}:{environment.get('PATH', '')}"
+    _run(["node", "--version"], cwd=code_dir, env=environment)
+    _run(["npm", "--version"], cwd=code_dir, env=environment)
+    return environment
 
 
 def _cargo_environment() -> Dict[str, str]:
@@ -188,16 +233,14 @@ def web_ui(code_dir: Path) -> None:
     if not ui_dir.is_dir():
         raise RuntimeError(f"web-ui directory not found: {ui_dir}")
 
-    # The runner image carries no Node. This used to ride along on the SQLite
-    # job's apt line, which is easy to lose when a job is split out.
-    _apt_install(["nodejs", "npm"], cwd=code_dir)
+    environment = _node_environment(code_dir)
 
     log_stdout("=== Building the embedded web UI ===")
-    _run(["npm", "ci", "--no-audit", "--no-fund"], cwd=ui_dir)
-    _run(["npm", "run", "build"], cwd=ui_dir)
+    _run(["npm", "ci", "--no-audit", "--no-fund"], cwd=ui_dir, env=environment)
+    _run(["npm", "run", "build"], cwd=ui_dir, env=environment)
 
     log_stdout("=== npm audit ===")
-    _run(["npm", "audit", "--omit=optional"], cwd=ui_dir)
+    _run(["npm", "audit", "--omit=optional"], cwd=ui_dir, env=environment)
 
     # crates/linkkeys/assets/ui is checked in and embedded in the binary. If a
     # build changes it, the commit is missing the rebuilt asset.
