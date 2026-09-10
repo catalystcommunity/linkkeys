@@ -273,6 +273,11 @@ class AdminClient
     GetUserResponse.from_cbor(@transport.call("Admin", "get-user", req.to_cbor))
   end
 
+  # get-user-authentication-activity: -> GetUserAuthenticationActivityResponse
+  def get_user_authentication_activity(req)
+    GetUserAuthenticationActivityResponse.from_cbor(@transport.call("Admin", "get-user-authentication-activity", req.to_cbor))
+  end
+
   # create-user: -> CreateUserResponse
   def create_user(req)
     CreateUserResponse.from_cbor(@transport.call("Admin", "create-user", req.to_cbor))

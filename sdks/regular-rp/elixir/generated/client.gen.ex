@@ -629,6 +629,23 @@ defmodule Csilgen.Generated.AdminClient do
     Csilgen.Generated.GetUserResponse.from_cbor(resp)
   end
 
+  @spec get_user_authentication_activity(
+          t(),
+          Csilgen.Generated.GetUserAuthenticationActivityRequest.t()
+        ) ::
+          Csilgen.Generated.GetUserAuthenticationActivityResponse.t()
+  def get_user_authentication_activity(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Admin",
+        "get-user-authentication-activity",
+        Csilgen.Generated.GetUserAuthenticationActivityRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.GetUserAuthenticationActivityResponse.from_cbor(resp)
+  end
+
   @spec create_user(t(), Csilgen.Generated.CreateUserRequest.t()) ::
           Csilgen.Generated.CreateUserResponse.t()
   def create_user(%__MODULE__{transport: transport}, req) do

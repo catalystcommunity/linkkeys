@@ -21,6 +21,10 @@ public final class AdminClient {
         return CsilCbor.decodeGetUserResponse(transport.call("Admin", "get-user", CsilCbor.encodeGetUserRequest(req)));
     }
 
+    public GetUserAuthenticationActivityResponse getUserAuthenticationActivity(GetUserAuthenticationActivityRequest req) throws ClientException {
+        return CsilCbor.decodeGetUserAuthenticationActivityResponse(transport.call("Admin", "get-user-authentication-activity", CsilCbor.encodeGetUserAuthenticationActivityRequest(req)));
+    }
+
     public CreateUserResponse createUser(CreateUserRequest req) throws ClientException {
         return CsilCbor.decodeCreateUserResponse(transport.call("Admin", "create-user", CsilCbor.encodeCreateUserRequest(req)));
     }

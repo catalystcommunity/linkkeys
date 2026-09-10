@@ -9,7 +9,8 @@ use liblinkkeys::generated::types::{
     CheckPermissionRequest, CheckPermissionResponse, Claim, ClaimApproval, ClaimTypeLabel,
     ClaimTypePolicy, CreateUserRequest, CreateUserResponse, DeactivateUserRequest,
     DeactivateUserResponse, DenyLocalRpRequest, DenyLocalRpResponse, GetLocalRpPolicyRequest,
-    GetLocalRpPolicyResponse, GetLocalRpRequest, GetLocalRpResponse, GetUserRequest,
+    GetLocalRpPolicyResponse, GetLocalRpRequest, GetLocalRpResponse,
+    GetUserAuthenticationActivityRequest, GetUserAuthenticationActivityResponse, GetUserRequest,
     GetUserResponse, GrantRelationRequest, GrantRelationResponse, ListClaimTypesResponse,
     ListLocalRpsRequest, ListLocalRpsResponse, ListPendingClaimApprovalsResponse,
     ListRelationsRequest, ListRelationsResponse, ListReleaseRulesResponse,
@@ -26,7 +27,7 @@ use liblinkkeys::generated::types::{
     SetClaimTypeLabelRequest, SetClaimTypeLabelResponse, SetClaimTypeRequest, SetClaimTypeResponse,
     SetLocalRpPolicyRequest, SetLocalRpPolicyResponse, SetReleaseRuleRequest,
     SetReleaseRuleResponse, SetUserClaimRequest, SetUserClaimResponse, SettableClaimPolicy,
-    TrustedIssuer, UpdateUserRequest, UpdateUserResponse,
+    TrustedIssuer, UpdateUserRequest, UpdateUserResponse, UserAuthenticationActivity,
 };
 
 use crate::db::models;
@@ -116,6 +117,44 @@ pub fn get_user(pool: &DbPool, req: GetUserRequest) -> Result<GetUserResponse, S
     let user = pool.find_user_by_id(&req.user_id).map_err(db_err)?;
     Ok(GetUserResponse {
         user: user_to_admin_user(&user),
+    })
+}
+
+/// Return durable authentication activity and the current active browser
+/// session count for one user.
+pub fn get_user_authentication_activity(
+    pool: &DbPool,
+    req: GetUserAuthenticationActivityRequest,
+) -> Result<GetUserAuthenticationActivityResponse, ServiceError> {
+    pool.find_user_by_id(&req.user_id)
+        .map_err(|error| match error {
+            diesel::result::Error::NotFound => ServiceError {
+                code: 404,
+                message: "User not found".to_string(),
+            },
+            other => db_err(other),
+        })?;
+    let stored = pool
+        .find_user_authentication_activity(&req.user_id)
+        .map_err(db_err)?;
+    let active_browser_session_count = pool
+        .count_active_browser_sessions(
+            &req.user_id,
+            crate::services::browser_session::idle_ttl_seconds(),
+        )
+        .map_err(db_err)?;
+    Ok(GetUserAuthenticationActivityResponse {
+        activity: UserAuthenticationActivity {
+            user_id: req.user_id,
+            last_authenticated_at: stored
+                .as_ref()
+                .map(|value| value.last_authenticated_at.clone()),
+            last_seen_at: stored.as_ref().map(|value| value.last_seen_at.clone()),
+            successful_authentication_count: stored
+                .as_ref()
+                .map_or(0, |value| value.successful_authentication_count),
+            active_browser_session_count,
+        },
     })
 }
 
@@ -410,10 +449,17 @@ pub fn authenticate(
         return Err(svc_err("Too many attempts. Please wait and try again."));
     }
     let authenticator = auth::PasswordAuthenticator::new(pool.clone());
-    match authenticator.authenticate(&req.username, &req.password) {
-        Ok(user) => Ok(AuthenticateResponse {
-            user: user_to_admin_user(&user),
-        }),
+    match authenticator.authenticate_with_evidence(&req.username, &req.password) {
+        Ok(authentication) => {
+            pool.record_user_authentication(
+                &authentication.user.id,
+                authentication.evidence.authenticated_at,
+            )
+            .map_err(db_err)?;
+            Ok(AuthenticateResponse {
+                user: user_to_admin_user(&authentication.user),
+            })
+        }
         Err(_) => Err(svc_err("Invalid username or password")),
     }
 }

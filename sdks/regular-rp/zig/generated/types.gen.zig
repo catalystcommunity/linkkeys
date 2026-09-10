@@ -447,6 +447,25 @@ pub const GetUserResponse = struct {
     user: AdminUser,
 };
 
+/// UserAuthenticationActivity is a structured data type.
+pub const UserAuthenticationActivity = struct {
+    user_id: []const u8,
+    last_authenticated_at: ?[]const u8 = null,
+    last_seen_at: ?[]const u8 = null,
+    successful_authentication_count: i64,
+    active_browser_session_count: i64,
+};
+
+/// GetUserAuthenticationActivityRequest is a structured data type.
+pub const GetUserAuthenticationActivityRequest = struct {
+    user_id: []const u8,
+};
+
+/// GetUserAuthenticationActivityResponse is a structured data type.
+pub const GetUserAuthenticationActivityResponse = struct {
+    activity: UserAuthenticationActivity,
+};
+
 /// CreateUserRequest is a structured data type.
 pub const CreateUserRequest = struct {
     username: []const u8,

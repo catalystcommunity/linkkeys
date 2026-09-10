@@ -288,6 +288,13 @@ fn restore_run(in_file: Option<&str>, key: Option<&str>, force: bool) {
 /// (Transforms that had been applied to every deployment from main — legacy
 /// claim re-signing, profile backfill, admin split — were removed once universal.)
 fn run_startup_transforms(pool: &linkkeys::db::DbPool) {
+    match pool.backfill_user_authentication_activity() {
+        Ok(count) if count > 0 => {
+            log::info!("Backfilled authentication activity for {} user(s)", count)
+        }
+        Ok(_) => {}
+        Err(error) => log::error!("Authentication activity backfill failed: {}", error),
+    }
     match pool.seed_default_policies() {
         Ok(n) if n > 0 => log::info!("Seeded {} default claim-type polic(ies)", n),
         Ok(_) => {}

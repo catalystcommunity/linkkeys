@@ -317,6 +317,11 @@ public struct AdminAsyncClient {
         return try GetUserResponse.fromCbor(csilResp)
     }
 
+    public func getUserAuthenticationActivity(_ request: GetUserAuthenticationActivityRequest) async throws -> GetUserAuthenticationActivityResponse {
+        let csilResp = try await transport.call(service: "Admin", op: "get-user-authentication-activity", request: request.toCbor())
+        return try GetUserAuthenticationActivityResponse.fromCbor(csilResp)
+    }
+
     public func createUser(_ request: CreateUserRequest) async throws -> CreateUserResponse {
         let csilResp = try await transport.call(service: "Admin", op: "create-user", request: request.toCbor())
         return try CreateUserResponse.fromCbor(csilResp)

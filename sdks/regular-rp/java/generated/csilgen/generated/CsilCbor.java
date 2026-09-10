@@ -1916,6 +1916,83 @@ public final class CsilCbor {
         return decGetUserResponse(decode(data));
     }
 
+    static CborValue encUserAuthenticationActivity(UserAuthenticationActivity v) {
+        List<CborEntry> csilEntries = new ArrayList<>(5);
+        csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
+        if (v.lastSeenAt() != null) {
+            csilEntries.add(new CborEntry(new CborText("last_seen_at"), new CborText(v.lastSeenAt())));
+        }
+        if (v.lastAuthenticatedAt() != null) {
+            csilEntries.add(new CborEntry(new CborText("last_authenticated_at"), new CborText(v.lastAuthenticatedAt())));
+        }
+        csilEntries.add(new CborEntry(new CborText("active_browser_session_count"), new CborInt(v.activeBrowserSessionCount())));
+        csilEntries.add(new CborEntry(new CborText("successful_authentication_count"), new CborInt(v.successfulAuthenticationCount())));
+        return new CborMap(csilEntries);
+    }
+
+    static UserAuthenticationActivity decUserAuthenticationActivity(CborValue csilRoot) {
+        String userId = asText(require(csilRoot, "user_id"));
+        String lastAuthenticatedAt;
+        {
+            CborValue csilField = mapGet(csilRoot, "last_authenticated_at");
+            lastAuthenticatedAt = csilField != null ? asText(csilField) : null;
+        }
+        String lastSeenAt;
+        {
+            CborValue csilField = mapGet(csilRoot, "last_seen_at");
+            lastSeenAt = csilField != null ? asText(csilField) : null;
+        }
+        long successfulAuthenticationCount = asI64(require(csilRoot, "successful_authentication_count"));
+        long activeBrowserSessionCount = asI64(require(csilRoot, "active_browser_session_count"));
+        return new UserAuthenticationActivity(userId, lastAuthenticatedAt, lastSeenAt, successfulAuthenticationCount, activeBrowserSessionCount);
+    }
+
+    public static byte[] encodeUserAuthenticationActivity(UserAuthenticationActivity v) {
+        return encode(encUserAuthenticationActivity(v));
+    }
+
+    public static UserAuthenticationActivity decodeUserAuthenticationActivity(byte[] data) {
+        return decUserAuthenticationActivity(decode(data));
+    }
+
+    static CborValue encGetUserAuthenticationActivityRequest(GetUserAuthenticationActivityRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
+        return new CborMap(csilEntries);
+    }
+
+    static GetUserAuthenticationActivityRequest decGetUserAuthenticationActivityRequest(CborValue csilRoot) {
+        String userId = asText(require(csilRoot, "user_id"));
+        return new GetUserAuthenticationActivityRequest(userId);
+    }
+
+    public static byte[] encodeGetUserAuthenticationActivityRequest(GetUserAuthenticationActivityRequest v) {
+        return encode(encGetUserAuthenticationActivityRequest(v));
+    }
+
+    public static GetUserAuthenticationActivityRequest decodeGetUserAuthenticationActivityRequest(byte[] data) {
+        return decGetUserAuthenticationActivityRequest(decode(data));
+    }
+
+    static CborValue encGetUserAuthenticationActivityResponse(GetUserAuthenticationActivityResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("activity"), encUserAuthenticationActivity(v.activity())));
+        return new CborMap(csilEntries);
+    }
+
+    static GetUserAuthenticationActivityResponse decGetUserAuthenticationActivityResponse(CborValue csilRoot) {
+        UserAuthenticationActivity activity = decUserAuthenticationActivity(require(csilRoot, "activity"));
+        return new GetUserAuthenticationActivityResponse(activity);
+    }
+
+    public static byte[] encodeGetUserAuthenticationActivityResponse(GetUserAuthenticationActivityResponse v) {
+        return encode(encGetUserAuthenticationActivityResponse(v));
+    }
+
+    public static GetUserAuthenticationActivityResponse decodeGetUserAuthenticationActivityResponse(byte[] data) {
+        return decGetUserAuthenticationActivityResponse(decode(data));
+    }
+
     static CborValue encCreateUserRequest(CreateUserRequest v) {
         List<CborEntry> csilEntries = new ArrayList<>(3);
         if (v.password() != null) {

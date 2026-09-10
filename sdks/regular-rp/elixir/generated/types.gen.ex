@@ -3606,6 +3606,192 @@ defmodule Csilgen.Generated.GetUserResponse do
   def from_cbor(bytes), do: from_cbor_value(Csilgen.Generated.Cbor.decode(bytes))
 end
 
+defmodule Csilgen.Generated.UserAuthenticationActivity do
+  @moduledoc "Generated struct for the UserAuthenticationActivity type."
+
+  @enforce_keys [:user_id, :successful_authentication_count, :active_browser_session_count]
+  defstruct [
+    :user_id,
+    :last_authenticated_at,
+    :last_seen_at,
+    :successful_authentication_count,
+    :active_browser_session_count
+  ]
+
+  @type t :: %__MODULE__{
+          user_id: String.t(),
+          last_authenticated_at: String.t() | nil,
+          last_seen_at: String.t() | nil,
+          successful_authentication_count: integer(),
+          active_browser_session_count: integer()
+        }
+
+  @wire_keys [
+    user_id: "user_id",
+    last_authenticated_at: "last_authenticated_at",
+    last_seen_at: "last_seen_at",
+    successful_authentication_count: "successful_authentication_count",
+    active_browser_session_count: "active_browser_session_count"
+  ]
+  @doc "Maps struct field atoms to their verbatim CBOR wire keys."
+  @spec wire_keys() :: keyword()
+  def wire_keys, do: @wire_keys
+
+  @doc "Builds the canonical CBOR value tree for this struct."
+  @spec to_cbor_value(t()) :: Csilgen.Generated.Cbor.value()
+  def to_cbor_value(%__MODULE__{} = v) do
+    {:map,
+     Enum.reject(
+       [
+         {{:text, "user_id"}, {:text, v.user_id}},
+         if(is_nil(v.last_seen_at),
+           do: nil,
+           else: {{:text, "last_seen_at"}, {:text, v.last_seen_at}}
+         ),
+         if(is_nil(v.last_authenticated_at),
+           do: nil,
+           else: {{:text, "last_authenticated_at"}, {:text, v.last_authenticated_at}}
+         ),
+         {{:text, "active_browser_session_count"}, {:int, v.active_browser_session_count}},
+         {{:text, "successful_authentication_count"}, {:int, v.successful_authentication_count}}
+       ],
+       &is_nil/1
+     )}
+  end
+
+  @doc "Reconstructs this struct from a decoded CBOR value tree."
+  @spec from_cbor_value(term()) :: t()
+  def from_cbor_value({:map, csil_kvs}) do
+    csil_fields = Map.new(csil_kvs)
+
+    %__MODULE__{
+      user_id: Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "user_id"})),
+      last_seen_at:
+        case Map.get(csil_fields, {:text, "last_seen_at"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.Cbor.to_text(csil_v)
+        end,
+      last_authenticated_at:
+        case Map.get(csil_fields, {:text, "last_authenticated_at"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.Cbor.to_text(csil_v)
+        end,
+      active_browser_session_count:
+        Csilgen.Generated.Cbor.to_int(
+          Map.fetch!(csil_fields, {:text, "active_browser_session_count"})
+        ),
+      successful_authentication_count:
+        Csilgen.Generated.Cbor.to_int(
+          Map.fetch!(csil_fields, {:text, "successful_authentication_count"})
+        )
+    }
+  end
+
+  @doc "Encodes this struct to canonical CBOR bytes."
+  @spec to_cbor(t()) :: binary()
+  def to_cbor(v), do: Csilgen.Generated.Cbor.encode(to_cbor_value(v))
+
+  @doc "Decodes canonical CBOR bytes into this struct."
+  @spec from_cbor(binary()) :: t()
+  def from_cbor(bytes), do: from_cbor_value(Csilgen.Generated.Cbor.decode(bytes))
+end
+
+defmodule Csilgen.Generated.GetUserAuthenticationActivityRequest do
+  @moduledoc "Generated struct for the GetUserAuthenticationActivityRequest type."
+
+  @enforce_keys [:user_id]
+  defstruct [:user_id]
+
+  @type t :: %__MODULE__{
+          user_id: String.t()
+        }
+
+  @wire_keys [user_id: "user_id"]
+  @doc "Maps struct field atoms to their verbatim CBOR wire keys."
+  @spec wire_keys() :: keyword()
+  def wire_keys, do: @wire_keys
+
+  @doc "Builds the canonical CBOR value tree for this struct."
+  @spec to_cbor_value(t()) :: Csilgen.Generated.Cbor.value()
+  def to_cbor_value(%__MODULE__{} = v) do
+    {:map,
+     Enum.reject(
+       [
+         {{:text, "user_id"}, {:text, v.user_id}}
+       ],
+       &is_nil/1
+     )}
+  end
+
+  @doc "Reconstructs this struct from a decoded CBOR value tree."
+  @spec from_cbor_value(term()) :: t()
+  def from_cbor_value({:map, csil_kvs}) do
+    csil_fields = Map.new(csil_kvs)
+
+    %__MODULE__{
+      user_id: Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "user_id"}))
+    }
+  end
+
+  @doc "Encodes this struct to canonical CBOR bytes."
+  @spec to_cbor(t()) :: binary()
+  def to_cbor(v), do: Csilgen.Generated.Cbor.encode(to_cbor_value(v))
+
+  @doc "Decodes canonical CBOR bytes into this struct."
+  @spec from_cbor(binary()) :: t()
+  def from_cbor(bytes), do: from_cbor_value(Csilgen.Generated.Cbor.decode(bytes))
+end
+
+defmodule Csilgen.Generated.GetUserAuthenticationActivityResponse do
+  @moduledoc "Generated struct for the GetUserAuthenticationActivityResponse type."
+
+  @enforce_keys [:activity]
+  defstruct [:activity]
+
+  @type t :: %__MODULE__{
+          activity: Csilgen.Generated.UserAuthenticationActivity.t()
+        }
+
+  @wire_keys [activity: "activity"]
+  @doc "Maps struct field atoms to their verbatim CBOR wire keys."
+  @spec wire_keys() :: keyword()
+  def wire_keys, do: @wire_keys
+
+  @doc "Builds the canonical CBOR value tree for this struct."
+  @spec to_cbor_value(t()) :: Csilgen.Generated.Cbor.value()
+  def to_cbor_value(%__MODULE__{} = v) do
+    {:map,
+     Enum.reject(
+       [
+         {{:text, "activity"},
+          Csilgen.Generated.UserAuthenticationActivity.to_cbor_value(v.activity)}
+       ],
+       &is_nil/1
+     )}
+  end
+
+  @doc "Reconstructs this struct from a decoded CBOR value tree."
+  @spec from_cbor_value(term()) :: t()
+  def from_cbor_value({:map, csil_kvs}) do
+    csil_fields = Map.new(csil_kvs)
+
+    %__MODULE__{
+      activity:
+        Csilgen.Generated.UserAuthenticationActivity.from_cbor_value(
+          Map.fetch!(csil_fields, {:text, "activity"})
+        )
+    }
+  end
+
+  @doc "Encodes this struct to canonical CBOR bytes."
+  @spec to_cbor(t()) :: binary()
+  def to_cbor(v), do: Csilgen.Generated.Cbor.encode(to_cbor_value(v))
+
+  @doc "Decodes canonical CBOR bytes into this struct."
+  @spec from_cbor(binary()) :: t()
+  def from_cbor(bytes), do: from_cbor_value(Csilgen.Generated.Cbor.decode(bytes))
+end
+
 defmodule Csilgen.Generated.CreateUserRequest do
   @moduledoc "Generated struct for the CreateUserRequest type."
 

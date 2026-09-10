@@ -371,6 +371,23 @@ GetUserRequest = Data.define(:user_id)
 # user [AdminUser]
 GetUserResponse = Data.define(:user)
 
+# user_id [String]
+# last_authenticated_at [String]
+# last_seen_at [String]
+# successful_authentication_count [Integer]
+# active_browser_session_count [Integer]
+UserAuthenticationActivity = Data.define(:user_id, :last_authenticated_at, :last_seen_at, :successful_authentication_count, :active_browser_session_count) do
+  def initialize(user_id:, successful_authentication_count:, active_browser_session_count:, last_authenticated_at: nil, last_seen_at: nil)
+    super
+  end
+end
+
+# user_id [String]
+GetUserAuthenticationActivityRequest = Data.define(:user_id)
+
+# activity [UserAuthenticationActivity]
+GetUserAuthenticationActivityResponse = Data.define(:activity)
+
 # username [String]
 # display_name [String]
 # password [String]

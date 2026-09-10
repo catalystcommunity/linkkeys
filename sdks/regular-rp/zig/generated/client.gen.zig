@@ -500,6 +500,17 @@ pub const AdminClient = struct {
         try codec.decode_GetUserResponse(alloc, csil_respb, out);
     }
 
+    /// Invoke Admin/get-user-authentication-activity with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn get_user_authentication_activity(self: AdminClient, alloc: std.mem.Allocator, req: *const types.GetUserAuthenticationActivityRequest, out: *types.GetUserAuthenticationActivityResponse) anyerror!void {
+        const csil_reqb = try codec.encode_GetUserAuthenticationActivityRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Admin", "get-user-authentication-activity", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_GetUserAuthenticationActivityResponse(alloc, csil_respb, out);
+    }
+
     /// Invoke Admin/create-user with a typed request, returning the decoded
     /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
     /// and free it once when done.

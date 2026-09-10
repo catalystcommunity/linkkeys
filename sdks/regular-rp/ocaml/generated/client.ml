@@ -201,6 +201,11 @@ module Admin = struct
     | Ok payload -> Ok (Codec.decode_get_user_response_bytes payload)
     | Error _ as e -> e
 
+  let get_user_authentication_activity (c : client) (req : get_user_authentication_activity_request) : (get_user_authentication_activity_response, string) result =
+    match c.call ~service:"Admin" ~op:"get-user-authentication-activity" ~payload:(Codec.encode_get_user_authentication_activity_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_get_user_authentication_activity_response_bytes payload)
+    | Error _ as e -> e
+
   let create_user (c : client) (req : create_user_request) : (create_user_response, string) result =
     match c.call ~service:"Admin" ~op:"create-user" ~payload:(Codec.encode_create_user_request_bytes req) with
     | Ok payload -> Ok (Codec.decode_create_user_response_bytes payload)

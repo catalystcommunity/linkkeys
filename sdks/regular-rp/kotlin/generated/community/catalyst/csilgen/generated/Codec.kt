@@ -1622,6 +1622,71 @@ fun getUserResponseFromCborValue(cbor: CborValue): GetUserResponse {
 /** Decode CSIL CBOR bytes into a GetUserResponse. */
 fun getUserResponseFromCbor(bytes: ByteArray): GetUserResponse = getUserResponseFromCborValue(CsilCbor.decode(bytes))
 
+/** The CBOR value tree for a UserAuthenticationActivity (deep, canonical key order). */
+fun UserAuthenticationActivity.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
+    this.lastSeenAt?.let { csilV -> csilEntries.add(CborValue.CText("last_seen_at") to CborValue.CText(csilV)) }
+    this.lastAuthenticatedAt?.let { csilV -> csilEntries.add(CborValue.CText("last_authenticated_at") to CborValue.CText(csilV)) }
+    csilEntries.add(CborValue.CText("active_browser_session_count") to CborValue.CInt(this.activeBrowserSessionCount))
+    csilEntries.add(CborValue.CText("successful_authentication_count") to CborValue.CInt(this.successfulAuthenticationCount))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a UserAuthenticationActivity to canonical CSIL CBOR bytes. */
+fun UserAuthenticationActivity.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a UserAuthenticationActivity from a decoded CBOR value tree. */
+fun userAuthenticationActivityFromCborValue(cbor: CborValue): UserAuthenticationActivity {
+    val userId = CsilCbor.asText(CsilCbor.require(cbor, "user_id"))
+    val lastAuthenticatedAt = CsilCbor.mapGet(cbor, "last_authenticated_at")?.let { csilV -> CsilCbor.asText(csilV) }
+    val lastSeenAt = CsilCbor.mapGet(cbor, "last_seen_at")?.let { csilV -> CsilCbor.asText(csilV) }
+    val successfulAuthenticationCount = CsilCbor.asLong(CsilCbor.require(cbor, "successful_authentication_count"))
+    val activeBrowserSessionCount = CsilCbor.asLong(CsilCbor.require(cbor, "active_browser_session_count"))
+    return UserAuthenticationActivity(userId = userId, lastAuthenticatedAt = lastAuthenticatedAt, lastSeenAt = lastSeenAt, successfulAuthenticationCount = successfulAuthenticationCount, activeBrowserSessionCount = activeBrowserSessionCount)
+}
+
+/** Decode CSIL CBOR bytes into a UserAuthenticationActivity. */
+fun userAuthenticationActivityFromCbor(bytes: ByteArray): UserAuthenticationActivity = userAuthenticationActivityFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a GetUserAuthenticationActivityRequest (deep, canonical key order). */
+fun GetUserAuthenticationActivityRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a GetUserAuthenticationActivityRequest to canonical CSIL CBOR bytes. */
+fun GetUserAuthenticationActivityRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a GetUserAuthenticationActivityRequest from a decoded CBOR value tree. */
+fun getUserAuthenticationActivityRequestFromCborValue(cbor: CborValue): GetUserAuthenticationActivityRequest {
+    val userId = CsilCbor.asText(CsilCbor.require(cbor, "user_id"))
+    return GetUserAuthenticationActivityRequest(userId = userId)
+}
+
+/** Decode CSIL CBOR bytes into a GetUserAuthenticationActivityRequest. */
+fun getUserAuthenticationActivityRequestFromCbor(bytes: ByteArray): GetUserAuthenticationActivityRequest = getUserAuthenticationActivityRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a GetUserAuthenticationActivityResponse (deep, canonical key order). */
+fun GetUserAuthenticationActivityResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("activity") to this.activity.toCborValue())
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a GetUserAuthenticationActivityResponse to canonical CSIL CBOR bytes. */
+fun GetUserAuthenticationActivityResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a GetUserAuthenticationActivityResponse from a decoded CBOR value tree. */
+fun getUserAuthenticationActivityResponseFromCborValue(cbor: CborValue): GetUserAuthenticationActivityResponse {
+    val activity = userAuthenticationActivityFromCborValue(CsilCbor.require(cbor, "activity"))
+    return GetUserAuthenticationActivityResponse(activity = activity)
+}
+
+/** Decode CSIL CBOR bytes into a GetUserAuthenticationActivityResponse. */
+fun getUserAuthenticationActivityResponseFromCbor(bytes: ByteArray): GetUserAuthenticationActivityResponse = getUserAuthenticationActivityResponseFromCborValue(CsilCbor.decode(bytes))
+
 /** The CBOR value tree for a CreateUserRequest (deep, canonical key order). */
 fun CreateUserRequest.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
@@ -5854,6 +5919,9 @@ private fun csilToCborValue(value: Any?): CborValue = when (value) {
     is ListUsersResponse -> value.toCborValue()
     is GetUserRequest -> value.toCborValue()
     is GetUserResponse -> value.toCborValue()
+    is UserAuthenticationActivity -> value.toCborValue()
+    is GetUserAuthenticationActivityRequest -> value.toCborValue()
+    is GetUserAuthenticationActivityResponse -> value.toCborValue()
     is CreateUserRequest -> value.toCborValue()
     is CreateUserResponse -> value.toCborValue()
     is UpdateUserRequest -> value.toCborValue()
@@ -6102,6 +6170,9 @@ fun csilFromCborValue(type: kotlin.reflect.KClass<*>, cbor: CborValue): Any = wh
     ListUsersResponse::class -> listUsersResponseFromCborValue(cbor)
     GetUserRequest::class -> getUserRequestFromCborValue(cbor)
     GetUserResponse::class -> getUserResponseFromCborValue(cbor)
+    UserAuthenticationActivity::class -> userAuthenticationActivityFromCborValue(cbor)
+    GetUserAuthenticationActivityRequest::class -> getUserAuthenticationActivityRequestFromCborValue(cbor)
+    GetUserAuthenticationActivityResponse::class -> getUserAuthenticationActivityResponseFromCborValue(cbor)
     CreateUserRequest::class -> createUserRequestFromCborValue(cbor)
     CreateUserResponse::class -> createUserResponseFromCborValue(cbor)
     UpdateUserRequest::class -> updateUserRequestFromCborValue(cbor)

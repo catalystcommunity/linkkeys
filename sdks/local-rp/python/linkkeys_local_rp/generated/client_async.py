@@ -229,6 +229,10 @@ class AdminAsyncClient:
         """get-user"""
         return GetUserResponse.from_cbor(await self._transport.call("Admin", "get-user", req.to_cbor()))
 
+    async def get_user_authentication_activity(self, req: GetUserAuthenticationActivityRequest) -> GetUserAuthenticationActivityResponse:
+        """get-user-authentication-activity"""
+        return GetUserAuthenticationActivityResponse.from_cbor(await self._transport.call("Admin", "get-user-authentication-activity", req.to_cbor()))
+
     async def create_user(self, req: CreateUserRequest) -> CreateUserResponse:
         """create-user"""
         return CreateUserResponse.from_cbor(await self._transport.call("Admin", "create-user", req.to_cbor()))

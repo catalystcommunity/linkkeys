@@ -408,6 +408,19 @@ final class AdminClient {
     return GetUserResponse.fromCborValue(CsilCbor.decode(csilResp));
   }
 
+  GetUserAuthenticationActivityResponse getUserAuthenticationActivity(
+    GetUserAuthenticationActivityRequest request,
+  ) {
+    final csilResp = transport.call(
+      'Admin',
+      'get-user-authentication-activity',
+      request.toCbor(),
+    );
+    return GetUserAuthenticationActivityResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
+
   CreateUserResponse createUser(CreateUserRequest request) {
     final csilResp = transport.call('Admin', 'create-user', request.toCbor());
     return CreateUserResponse.fromCborValue(CsilCbor.decode(csilResp));

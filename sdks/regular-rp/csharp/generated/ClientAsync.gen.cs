@@ -166,6 +166,8 @@ public sealed class AdminAsyncClient(ICsilAsyncTransport transport)
         Codec.Decode<ListUsersResponse>(await transport.Call("Admin", "list-users", Codec.Encode(listUsersRequest)));
     public async System.Threading.Tasks.Task<GetUserResponse> GetUserAsync(GetUserRequest getUserRequest) =>
         Codec.Decode<GetUserResponse>(await transport.Call("Admin", "get-user", Codec.Encode(getUserRequest)));
+    public async System.Threading.Tasks.Task<GetUserAuthenticationActivityResponse> GetUserAuthenticationActivityAsync(GetUserAuthenticationActivityRequest getUserAuthenticationActivityRequest) =>
+        Codec.Decode<GetUserAuthenticationActivityResponse>(await transport.Call("Admin", "get-user-authentication-activity", Codec.Encode(getUserAuthenticationActivityRequest)));
     public async System.Threading.Tasks.Task<CreateUserResponse> CreateUserAsync(CreateUserRequest createUserRequest) =>
         Codec.Decode<CreateUserResponse>(await transport.Call("Admin", "create-user", Codec.Encode(createUserRequest)));
     public async System.Threading.Tasks.Task<UpdateUserResponse> UpdateUserAsync(UpdateUserRequest updateUserRequest) =>

@@ -3907,6 +3907,204 @@ final class GetUserResponse {
       GetUserResponse.fromCborValue(CsilCbor.decode(bytes));
 }
 
+final class UserAuthenticationActivity {
+  final String userId;
+  final String? lastAuthenticatedAt;
+  final String? lastSeenAt;
+  final int successfulAuthenticationCount;
+  final int activeBrowserSessionCount;
+
+  const UserAuthenticationActivity({
+    required this.userId,
+    this.lastAuthenticatedAt,
+    this.lastSeenAt,
+    required this.successfulAuthenticationCount,
+    required this.activeBrowserSessionCount,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['user_id'] = userId;
+    if (lastAuthenticatedAt != null)
+      map['last_authenticated_at'] = lastAuthenticatedAt;
+    if (lastSeenAt != null) map['last_seen_at'] = lastSeenAt;
+    map['successful_authentication_count'] = successfulAuthenticationCount;
+    map['active_browser_session_count'] = activeBrowserSessionCount;
+    return map;
+  }
+
+  factory UserAuthenticationActivity.fromMap(Map<String, Object?> map) {
+    return UserAuthenticationActivity(
+      userId: map['user_id'] as String,
+      lastAuthenticatedAt: map['last_authenticated_at'] as String?,
+      lastSeenAt: map['last_seen_at'] as String?,
+      successfulAuthenticationCount:
+          map['successful_authentication_count'] as int,
+      activeBrowserSessionCount: map['active_browser_session_count'] as int,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! UserAuthenticationActivity) return false;
+    return userId == other.userId &&
+        lastAuthenticatedAt == other.lastAuthenticatedAt &&
+        lastSeenAt == other.lastSeenAt &&
+        successfulAuthenticationCount == other.successfulAuthenticationCount &&
+        activeBrowserSessionCount == other.activeBrowserSessionCount;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+    userId,
+    lastAuthenticatedAt,
+    lastSeenAt,
+    successfulAuthenticationCount,
+    activeBrowserSessionCount,
+  ]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['user_id'] = userId;
+    if (lastAuthenticatedAt != null)
+      map['last_authenticated_at'] = lastAuthenticatedAt!;
+    if (lastSeenAt != null) map['last_seen_at'] = lastSeenAt!;
+    map['successful_authentication_count'] = successfulAuthenticationCount;
+    map['active_browser_session_count'] = activeBrowserSessionCount;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory UserAuthenticationActivity.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return UserAuthenticationActivity(
+      userId: map['user_id'] as String,
+      lastAuthenticatedAt: map['last_authenticated_at'] == null
+          ? null
+          : map['last_authenticated_at'] as String,
+      lastSeenAt: map['last_seen_at'] == null
+          ? null
+          : map['last_seen_at'] as String,
+      successfulAuthenticationCount: map['successful_authentication_count'] as int,
+      activeBrowserSessionCount: map['active_browser_session_count'] as int,
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory UserAuthenticationActivity.fromCbor(List<int> bytes) =>
+      UserAuthenticationActivity.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class GetUserAuthenticationActivityRequest {
+  final String userId;
+
+  const GetUserAuthenticationActivityRequest({required this.userId});
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['user_id'] = userId;
+    return map;
+  }
+
+  factory GetUserAuthenticationActivityRequest.fromMap(
+    Map<String, Object?> map,
+  ) {
+    return GetUserAuthenticationActivityRequest(
+      userId: map['user_id'] as String,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! GetUserAuthenticationActivityRequest) return false;
+    return userId == other.userId;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([userId]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['user_id'] = userId;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory GetUserAuthenticationActivityRequest.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return GetUserAuthenticationActivityRequest(
+      userId: map['user_id'] as String,
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory GetUserAuthenticationActivityRequest.fromCbor(List<int> bytes) =>
+      GetUserAuthenticationActivityRequest.fromCborValue(
+        CsilCbor.decode(bytes),
+      );
+}
+
+final class GetUserAuthenticationActivityResponse {
+  final UserAuthenticationActivity activity;
+
+  const GetUserAuthenticationActivityResponse({required this.activity});
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['activity'] = activity;
+    return map;
+  }
+
+  factory GetUserAuthenticationActivityResponse.fromMap(
+    Map<String, Object?> map,
+  ) {
+    return GetUserAuthenticationActivityResponse(
+      activity: map['activity'] as UserAuthenticationActivity,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! GetUserAuthenticationActivityResponse) return false;
+    return activity == other.activity;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([activity]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['activity'] = activity.toCborValue();
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory GetUserAuthenticationActivityResponse.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return GetUserAuthenticationActivityResponse(
+      activity: UserAuthenticationActivity.fromCborValue(map['activity']),
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory GetUserAuthenticationActivityResponse.fromCbor(List<int> bytes) =>
+      GetUserAuthenticationActivityResponse.fromCborValue(
+        CsilCbor.decode(bytes),
+      );
+}
+
 final class CreateUserRequest {
   final String username;
   final String displayName;

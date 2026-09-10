@@ -1756,6 +1756,86 @@ class GetUserResponse
   end
 end
 
+# CBOR codec for UserAuthenticationActivity: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class UserAuthenticationActivity
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["user_id"] = user_id
+    csil_map["last_seen_at"] = last_seen_at unless last_seen_at.nil?
+    csil_map["last_authenticated_at"] = last_authenticated_at unless last_authenticated_at.nil?
+    csil_map["active_browser_session_count"] = active_browser_session_count
+    csil_map["successful_authentication_count"] = successful_authentication_count
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      user_id: node["user_id"],
+      last_authenticated_at: (node.key?("last_authenticated_at") ? node["last_authenticated_at"] : nil),
+      last_seen_at: (node.key?("last_seen_at") ? node["last_seen_at"] : nil),
+      successful_authentication_count: node["successful_authentication_count"],
+      active_browser_session_count: node["active_browser_session_count"]
+    )
+  end
+end
+
+# CBOR codec for GetUserAuthenticationActivityRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class GetUserAuthenticationActivityRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["user_id"] = user_id
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      user_id: node["user_id"]
+    )
+  end
+end
+
+# CBOR codec for GetUserAuthenticationActivityResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class GetUserAuthenticationActivityResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["activity"] = (activity).csil_to_tree
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      activity: UserAuthenticationActivity.csil_from_tree(node["activity"])
+    )
+  end
+end
+
 # CBOR codec for CreateUserRequest: a map keyed by the verbatim CSIL field names in
 # canonical RFC 8949 order.
 class CreateUserRequest

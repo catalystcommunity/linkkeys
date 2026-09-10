@@ -3207,6 +3207,157 @@ pub fn decode_get_user_response(csil_data: &[u8]) -> Result<GetUserResponse, Csi
     csil_dec_get_user_response(&csil_root)
 }
 
+/// Build the canonical CBOR value tree for a UserAuthenticationActivity.
+fn csil_enc_user_authentication_activity(csil_v: &UserAuthenticationActivity) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(5);
+    csil_entries.push((cbor_text("user_id"), cbor_text(&csil_v.user_id)));
+    if let Some(csil_inner) = &csil_v.last_seen_at {
+        csil_entries.push((cbor_text("last_seen_at"), cbor_text(csil_inner)));
+    }
+    if let Some(csil_inner) = &csil_v.last_authenticated_at {
+        csil_entries.push((cbor_text("last_authenticated_at"), cbor_text(csil_inner)));
+    }
+    csil_entries.push((
+        cbor_text("active_browser_session_count"),
+        cbor_int(csil_v.active_browser_session_count),
+    ));
+    csil_entries.push((
+        cbor_text("successful_authentication_count"),
+        cbor_int(csil_v.successful_authentication_count),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a UserAuthenticationActivity from a decoded CBOR value tree.
+fn csil_dec_user_authentication_activity(
+    csil_root: &CsilCborValue,
+) -> Result<UserAuthenticationActivity, CsilCborError> {
+    let user_id = {
+        let csil_field = cbor_require(csil_root, "user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let last_authenticated_at = match cbor_map_get(csil_root, "last_authenticated_at") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let last_seen_at = match cbor_map_get(csil_root, "last_seen_at") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let successful_authentication_count = {
+        let csil_field = cbor_require(csil_root, "successful_authentication_count")?;
+        let csil_decode = cbor_as_i64;
+        csil_decode(csil_field)?
+    };
+    let active_browser_session_count = {
+        let csil_field = cbor_require(csil_root, "active_browser_session_count")?;
+        let csil_decode = cbor_as_i64;
+        csil_decode(csil_field)?
+    };
+    Ok(UserAuthenticationActivity {
+        user_id,
+        last_authenticated_at,
+        last_seen_at,
+        successful_authentication_count,
+        active_browser_session_count,
+    })
+}
+
+/// Encode a UserAuthenticationActivity to canonical CSIL CBOR bytes.
+pub fn encode_user_authentication_activity(csil_v: &UserAuthenticationActivity) -> Vec<u8> {
+    cbor_encode(&csil_enc_user_authentication_activity(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a UserAuthenticationActivity.
+pub fn decode_user_authentication_activity(
+    csil_data: &[u8],
+) -> Result<UserAuthenticationActivity, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_user_authentication_activity(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a GetUserAuthenticationActivityRequest.
+fn csil_enc_get_user_authentication_activity_request(
+    csil_v: &GetUserAuthenticationActivityRequest,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("user_id"), cbor_text(&csil_v.user_id)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a GetUserAuthenticationActivityRequest from a decoded CBOR value tree.
+fn csil_dec_get_user_authentication_activity_request(
+    csil_root: &CsilCborValue,
+) -> Result<GetUserAuthenticationActivityRequest, CsilCborError> {
+    let user_id = {
+        let csil_field = cbor_require(csil_root, "user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(GetUserAuthenticationActivityRequest { user_id })
+}
+
+/// Encode a GetUserAuthenticationActivityRequest to canonical CSIL CBOR bytes.
+pub fn encode_get_user_authentication_activity_request(
+    csil_v: &GetUserAuthenticationActivityRequest,
+) -> Vec<u8> {
+    cbor_encode(&csil_enc_get_user_authentication_activity_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a GetUserAuthenticationActivityRequest.
+pub fn decode_get_user_authentication_activity_request(
+    csil_data: &[u8],
+) -> Result<GetUserAuthenticationActivityRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_get_user_authentication_activity_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a GetUserAuthenticationActivityResponse.
+fn csil_enc_get_user_authentication_activity_response(
+    csil_v: &GetUserAuthenticationActivityResponse,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("activity"),
+        csil_enc_user_authentication_activity(&csil_v.activity),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a GetUserAuthenticationActivityResponse from a decoded CBOR value tree.
+fn csil_dec_get_user_authentication_activity_response(
+    csil_root: &CsilCborValue,
+) -> Result<GetUserAuthenticationActivityResponse, CsilCborError> {
+    let activity = {
+        let csil_field = cbor_require(csil_root, "activity")?;
+        let csil_decode = csil_dec_user_authentication_activity;
+        csil_decode(csil_field)?
+    };
+    Ok(GetUserAuthenticationActivityResponse { activity })
+}
+
+/// Encode a GetUserAuthenticationActivityResponse to canonical CSIL CBOR bytes.
+pub fn encode_get_user_authentication_activity_response(
+    csil_v: &GetUserAuthenticationActivityResponse,
+) -> Vec<u8> {
+    cbor_encode(&csil_enc_get_user_authentication_activity_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a GetUserAuthenticationActivityResponse.
+pub fn decode_get_user_authentication_activity_response(
+    csil_data: &[u8],
+) -> Result<GetUserAuthenticationActivityResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_get_user_authentication_activity_response(&csil_root)
+}
+
 /// Build the canonical CBOR value tree for a CreateUserRequest.
 fn csil_enc_create_user_request(csil_v: &CreateUserRequest) -> CsilCborValue {
     let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);

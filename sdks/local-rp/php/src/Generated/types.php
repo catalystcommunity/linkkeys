@@ -1703,6 +1703,86 @@ class GetUserResponse
     }
 }
 
+class UserAuthenticationActivity
+{
+    /** @var mixed */
+    public $userId;
+
+    /** @var mixed */
+    public $lastAuthenticatedAt;
+
+    /** @var mixed */
+    public $lastSeenAt;
+
+    /** @var mixed */
+    public $successfulAuthenticationCount;
+
+    /** @var mixed */
+    public $activeBrowserSessionCount;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->userId = array_key_exists('user_id', $values) ? $values['user_id'] : null;
+        $this->lastAuthenticatedAt = array_key_exists('last_authenticated_at', $values) ? $values['last_authenticated_at'] : null;
+        $this->lastSeenAt = array_key_exists('last_seen_at', $values) ? $values['last_seen_at'] : null;
+        $this->successfulAuthenticationCount = array_key_exists('successful_authentication_count', $values) ? $values['successful_authentication_count'] : null;
+        $this->activeBrowserSessionCount = array_key_exists('active_browser_session_count', $values) ? $values['active_browser_session_count'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'user_id' => $this->userId,
+            'last_authenticated_at' => $this->lastAuthenticatedAt,
+            'last_seen_at' => $this->lastSeenAt,
+            'successful_authentication_count' => $this->successfulAuthenticationCount,
+            'active_browser_session_count' => $this->activeBrowserSessionCount,
+        );
+    }
+}
+
+class GetUserAuthenticationActivityRequest
+{
+    /** @var mixed */
+    public $userId;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->userId = array_key_exists('user_id', $values) ? $values['user_id'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'user_id' => $this->userId,
+        );
+    }
+}
+
+class GetUserAuthenticationActivityResponse
+{
+    /** @var mixed */
+    public $activity;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->activity = array_key_exists('activity', $values) ? $values['activity'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'activity' => $this->activity,
+        );
+    }
+}
+
 class CreateUserRequest
 {
     /** @var mixed */

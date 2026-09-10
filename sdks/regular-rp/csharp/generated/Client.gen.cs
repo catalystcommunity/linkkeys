@@ -177,6 +177,8 @@ public sealed class AdminClient(ICsilTransport transport)
         Codec.Decode<ListUsersResponse>(transport.Call("Admin", "list-users", Codec.Encode(listUsersRequest)));
     public GetUserResponse GetUser(GetUserRequest getUserRequest) =>
         Codec.Decode<GetUserResponse>(transport.Call("Admin", "get-user", Codec.Encode(getUserRequest)));
+    public GetUserAuthenticationActivityResponse GetUserAuthenticationActivity(GetUserAuthenticationActivityRequest getUserAuthenticationActivityRequest) =>
+        Codec.Decode<GetUserAuthenticationActivityResponse>(transport.Call("Admin", "get-user-authentication-activity", Codec.Encode(getUserAuthenticationActivityRequest)));
     public CreateUserResponse CreateUser(CreateUserRequest createUserRequest) =>
         Codec.Decode<CreateUserResponse>(transport.Call("Admin", "create-user", Codec.Encode(createUserRequest)));
     public UpdateUserResponse UpdateUser(UpdateUserRequest updateUserRequest) =>

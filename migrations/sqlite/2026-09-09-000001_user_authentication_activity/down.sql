@@ -1,0 +1,2 @@
+DROP TRIGGER set_user_authentication_activity_updated_at;
+DROP TABLE user_authentication_activity;

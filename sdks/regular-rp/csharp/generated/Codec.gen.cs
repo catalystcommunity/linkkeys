@@ -395,6 +395,9 @@ public static class Codec
         ListUsersResponse csilTyped => ListUsersResponseToCborValue(csilTyped),
         GetUserRequest csilTyped => GetUserRequestToCborValue(csilTyped),
         GetUserResponse csilTyped => GetUserResponseToCborValue(csilTyped),
+        UserAuthenticationActivity csilTyped => UserAuthenticationActivityToCborValue(csilTyped),
+        GetUserAuthenticationActivityRequest csilTyped => GetUserAuthenticationActivityRequestToCborValue(csilTyped),
+        GetUserAuthenticationActivityResponse csilTyped => GetUserAuthenticationActivityResponseToCborValue(csilTyped),
         CreateUserRequest csilTyped => CreateUserRequestToCborValue(csilTyped),
         CreateUserResponse csilTyped => CreateUserResponseToCborValue(csilTyped),
         UpdateUserRequest csilTyped => UpdateUserRequestToCborValue(csilTyped),
@@ -642,6 +645,9 @@ public static class Codec
         if (csilType == typeof(ListUsersResponse)) return ListUsersResponseFromCborValue(value);
         if (csilType == typeof(GetUserRequest)) return GetUserRequestFromCborValue(value);
         if (csilType == typeof(GetUserResponse)) return GetUserResponseFromCborValue(value);
+        if (csilType == typeof(UserAuthenticationActivity)) return UserAuthenticationActivityFromCborValue(value);
+        if (csilType == typeof(GetUserAuthenticationActivityRequest)) return GetUserAuthenticationActivityRequestFromCborValue(value);
+        if (csilType == typeof(GetUserAuthenticationActivityResponse)) return GetUserAuthenticationActivityResponseFromCborValue(value);
         if (csilType == typeof(CreateUserRequest)) return CreateUserRequestFromCborValue(value);
         if (csilType == typeof(CreateUserResponse)) return CreateUserResponseFromCborValue(value);
         if (csilType == typeof(UpdateUserRequest)) return UpdateUserRequestFromCborValue(value);
@@ -2299,6 +2305,78 @@ public static class Codec
         return new GetUserResponse
         {
             User = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a UserAuthenticationActivity.</summary>
+    public static CborValue UserAuthenticationActivityToCborValue(UserAuthenticationActivity value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
+        if (value.LastSeenAt is { } csilV1)
+        {
+            csilEntries.Add((new CborValue.Text("last_seen_at"), new CborValue.Text(csilV1)));
+        }
+        if (value.LastAuthenticatedAt is { } csilV2)
+        {
+            csilEntries.Add((new CborValue.Text("last_authenticated_at"), new CborValue.Text(csilV2)));
+        }
+        csilEntries.Add((new CborValue.Text("active_browser_session_count"), new CborValue.Int(value.ActiveBrowserSessionCount)));
+        csilEntries.Add((new CborValue.Text("successful_authentication_count"), new CborValue.Int(value.SuccessfulAuthenticationCount)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a UserAuthenticationActivity from a decoded CBOR value tree.</summary>
+    public static UserAuthenticationActivity UserAuthenticationActivityFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "user_id"));
+        string? csilField1 = Cbor.MapGet(value, "last_authenticated_at") is { } csilRaw1 ? Cbor.AsText(csilRaw1) : null;
+        string? csilField2 = Cbor.MapGet(value, "last_seen_at") is { } csilRaw2 ? Cbor.AsText(csilRaw2) : null;
+        var csilField3 = Cbor.AsI64(Cbor.Require(value, "successful_authentication_count"));
+        var csilField4 = Cbor.AsI64(Cbor.Require(value, "active_browser_session_count"));
+        return new UserAuthenticationActivity
+        {
+            UserId = csilField0,
+            LastAuthenticatedAt = csilField1,
+            LastSeenAt = csilField2,
+            SuccessfulAuthenticationCount = csilField3,
+            ActiveBrowserSessionCount = csilField4,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a GetUserAuthenticationActivityRequest.</summary>
+    public static CborValue GetUserAuthenticationActivityRequestToCborValue(GetUserAuthenticationActivityRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a GetUserAuthenticationActivityRequest from a decoded CBOR value tree.</summary>
+    public static GetUserAuthenticationActivityRequest GetUserAuthenticationActivityRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "user_id"));
+        return new GetUserAuthenticationActivityRequest
+        {
+            UserId = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a GetUserAuthenticationActivityResponse.</summary>
+    public static CborValue GetUserAuthenticationActivityResponseToCborValue(GetUserAuthenticationActivityResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("activity"), UserAuthenticationActivityToCborValue(value.Activity)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a GetUserAuthenticationActivityResponse from a decoded CBOR value tree.</summary>
+    public static GetUserAuthenticationActivityResponse GetUserAuthenticationActivityResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = UserAuthenticationActivityFromCborValue(Cbor.Require(value, "activity"));
+        return new GetUserAuthenticationActivityResponse
+        {
+            Activity = csilField0,
         };
     }
 

@@ -471,6 +471,15 @@ func (c *AdminClient) GetUser(ctx context.Context, req GetUserRequest) (GetUserR
 	return DecodeGetUserResponse(csilResp)
 }
 
+func (c *AdminClient) GetUserAuthenticationActivity(ctx context.Context, req GetUserAuthenticationActivityRequest) (GetUserAuthenticationActivityResponse, error) {
+	var csilZero GetUserAuthenticationActivityResponse
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "get-user-authentication-activity", EncodeGetUserAuthenticationActivityRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeGetUserAuthenticationActivityResponse(csilResp)
+}
+
 func (c *AdminClient) CreateUser(ctx context.Context, req CreateUserRequest) (CreateUserResponse, error) {
 	var csilZero CreateUserResponse
 	csilResp, csilErr := c.transport.Call(ctx, "Admin", "create-user", EncodeCreateUserRequest(req))

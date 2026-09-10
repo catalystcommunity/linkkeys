@@ -457,6 +457,19 @@ final class AdminAsyncClient {
     return GetUserResponse.fromCborValue(CsilCbor.decode(csilResp));
   }
 
+  Future<GetUserAuthenticationActivityResponse> getUserAuthenticationActivity(
+    GetUserAuthenticationActivityRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'Admin',
+      'get-user-authentication-activity',
+      request.toCbor(),
+    );
+    return GetUserAuthenticationActivityResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
+
   Future<CreateUserResponse> createUser(CreateUserRequest request) async {
     final csilResp = await transport.call(
       'Admin',
