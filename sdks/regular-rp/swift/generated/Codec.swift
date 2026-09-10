@@ -1704,6 +1704,77 @@ public extension GetUserResponse {
     static func fromCbor(_ bytes: [UInt8]) throws -> GetUserResponse { try GetUserResponse(cborValue: CsilCbor.decode(bytes)) }
 }
 
+public extension UserAuthenticationActivity {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("user_id", .text(self.userId)))
+        if let csilV = self.lastSeenAt { csilEntries.append(("last_seen_at", .text(csilV))) }
+        if let csilV = self.lastAuthenticatedAt { csilEntries.append(("last_authenticated_at", .text(csilV))) }
+        csilEntries.append(("active_browser_session_count", .int(self.activeBrowserSessionCount)))
+        csilEntries.append(("successful_authentication_count", .int(self.successfulAuthenticationCount)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let userId = try CsilCbor.asText((try CsilCbor.require(cborValue, "user_id")))
+        let lastAuthenticatedAt: String? = if let csilV = CsilCbor.mapGet(cborValue, "last_authenticated_at") { try CsilCbor.asText(csilV) } else { nil }
+        let lastSeenAt: String? = if let csilV = CsilCbor.mapGet(cborValue, "last_seen_at") { try CsilCbor.asText(csilV) } else { nil }
+        let successfulAuthenticationCount = try CsilCbor.asI64((try CsilCbor.require(cborValue, "successful_authentication_count")))
+        let activeBrowserSessionCount = try CsilCbor.asI64((try CsilCbor.require(cborValue, "active_browser_session_count")))
+        self.init(userId: userId, lastAuthenticatedAt: lastAuthenticatedAt, lastSeenAt: lastSeenAt, successfulAuthenticationCount: successfulAuthenticationCount, activeBrowserSessionCount: activeBrowserSessionCount)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> UserAuthenticationActivity { try UserAuthenticationActivity(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension GetUserAuthenticationActivityRequest {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("user_id", .text(self.userId)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let userId = try CsilCbor.asText((try CsilCbor.require(cborValue, "user_id")))
+        self.init(userId: userId)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> GetUserAuthenticationActivityRequest { try GetUserAuthenticationActivityRequest(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension GetUserAuthenticationActivityResponse {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("activity", self.activity.toCborValue()))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let activity = try UserAuthenticationActivity(cborValue: (try CsilCbor.require(cborValue, "activity")))
+        self.init(activity: activity)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> GetUserAuthenticationActivityResponse { try GetUserAuthenticationActivityResponse(cborValue: CsilCbor.decode(bytes)) }
+}
+
 public extension CreateUserRequest {
     /// The CBOR value tree for this record (deep, canonical key order).
     func toCborValue() -> CsilCborValue {

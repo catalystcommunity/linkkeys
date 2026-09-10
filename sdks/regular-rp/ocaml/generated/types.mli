@@ -264,6 +264,20 @@ and list_users_response = { users : admin_user list }
 and get_user_request = { user_id : string }
 and get_user_response = { user : admin_user }
 
+and user_authentication_activity = {
+  user_id : string;
+  last_authenticated_at : string option;
+  last_seen_at : string option;
+  successful_authentication_count : int64;
+  active_browser_session_count : int64;
+}
+
+and get_user_authentication_activity_request = { user_id : string }
+
+and get_user_authentication_activity_response = {
+  activity : user_authentication_activity;
+}
+
 and create_user_request = {
   username : string;
   display_name : string;

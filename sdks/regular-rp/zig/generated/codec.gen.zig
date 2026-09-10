@@ -2300,6 +2300,87 @@ fn dec_GetUserResponse(alloc: std.mem.Allocator, m: Value, out: *types.GetUserRe
     }
 }
 
+fn enc_UserAuthenticationActivity(out: *std.ArrayList(u8), v: *const types.UserAuthenticationActivity) CodecError!void {
+    var csil_n: usize = 3;
+    if (v.last_seen_at != null) csil_n += 1;
+    if (v.last_authenticated_at != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    try w_text(out, "user_id");
+    try w_text(out, v.user_id);
+    if (v.last_seen_at) |csil_x| {
+        try w_text(out, "last_seen_at");
+        try w_text(out, csil_x);
+    }
+    if (v.last_authenticated_at) |csil_x| {
+        try w_text(out, "last_authenticated_at");
+        try w_text(out, csil_x);
+    }
+    try w_text(out, "active_browser_session_count");
+    try w_int(out, v.active_browser_session_count);
+    try w_text(out, "successful_authentication_count");
+    try w_int(out, v.successful_authentication_count);
+}
+
+fn dec_UserAuthenticationActivity(alloc: std.mem.Allocator, m: Value, out: *types.UserAuthenticationActivity) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "user_id");
+        out.user_id = try as_text(csil_fv);
+    }
+    {
+        if (mget(m, "last_seen_at")) |csil_fv| {
+            out.last_seen_at = try as_text(csil_fv);
+        } else {
+            out.last_seen_at = null;
+        }
+    }
+    {
+        if (mget(m, "last_authenticated_at")) |csil_fv| {
+            out.last_authenticated_at = try as_text(csil_fv);
+        } else {
+            out.last_authenticated_at = null;
+        }
+    }
+    {
+        const csil_fv = try req(m, "active_browser_session_count");
+        out.active_browser_session_count = try as_i64(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "successful_authentication_count");
+        out.successful_authentication_count = try as_i64(csil_fv);
+    }
+}
+
+fn enc_GetUserAuthenticationActivityRequest(out: *std.ArrayList(u8), v: *const types.GetUserAuthenticationActivityRequest) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "user_id");
+    try w_text(out, v.user_id);
+}
+
+fn dec_GetUserAuthenticationActivityRequest(alloc: std.mem.Allocator, m: Value, out: *types.GetUserAuthenticationActivityRequest) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "user_id");
+        out.user_id = try as_text(csil_fv);
+    }
+}
+
+fn enc_GetUserAuthenticationActivityResponse(out: *std.ArrayList(u8), v: *const types.GetUserAuthenticationActivityResponse) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "activity");
+    try enc_UserAuthenticationActivity(out, &(v.activity));
+}
+
+fn dec_GetUserAuthenticationActivityResponse(alloc: std.mem.Allocator, m: Value, out: *types.GetUserAuthenticationActivityResponse) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "activity");
+        try dec_UserAuthenticationActivity(alloc, csil_fv, &(out.activity));
+    }
+}
+
 fn enc_CreateUserRequest(out: *std.ArrayList(u8), v: *const types.CreateUserRequest) CodecError!void {
     var csil_n: usize = 2;
     if (v.password != null) csil_n += 1;
@@ -8595,6 +8676,54 @@ pub fn encode_GetUserResponse(alloc: std.mem.Allocator, v: *const types.GetUserR
 pub fn decode_GetUserResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.GetUserResponse) CodecError!void {
     const root = try decode(alloc, bytes);
     try dec_GetUserResponse(alloc, root, out);
+}
+
+/// Encode a UserAuthenticationActivity to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_UserAuthenticationActivity(alloc: std.mem.Allocator, v: *const types.UserAuthenticationActivity) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_UserAuthenticationActivity(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a UserAuthenticationActivity. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_UserAuthenticationActivity(alloc: std.mem.Allocator, bytes: []const u8, out: *types.UserAuthenticationActivity) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_UserAuthenticationActivity(alloc, root, out);
+}
+
+/// Encode a GetUserAuthenticationActivityRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_GetUserAuthenticationActivityRequest(alloc: std.mem.Allocator, v: *const types.GetUserAuthenticationActivityRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_GetUserAuthenticationActivityRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a GetUserAuthenticationActivityRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_GetUserAuthenticationActivityRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.GetUserAuthenticationActivityRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_GetUserAuthenticationActivityRequest(alloc, root, out);
+}
+
+/// Encode a GetUserAuthenticationActivityResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_GetUserAuthenticationActivityResponse(alloc: std.mem.Allocator, v: *const types.GetUserAuthenticationActivityResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_GetUserAuthenticationActivityResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a GetUserAuthenticationActivityResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_GetUserAuthenticationActivityResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.GetUserAuthenticationActivityResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_GetUserAuthenticationActivityResponse(alloc, root, out);
 }
 
 /// Encode a CreateUserRequest to CBOR. The returned slice is owned by the caller

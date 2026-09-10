@@ -50,6 +50,10 @@ fn backup_restore_round_trip_replaces_state() {
         &linkkeys::services::auth::AuthenticationEvidence::single("password"),
     )
     .expect("create pre-backup session");
+    let activity_before = pool
+        .find_user_authentication_activity(&user_a.id)
+        .expect("find pre-backup authentication activity")
+        .expect("pre-backup authentication activity exists");
     let action_token = "pre-backup-action-token";
     pool.create_account_challenge_and_outbox(
         &user_a.id,
@@ -120,6 +124,19 @@ fn backup_restore_round_trip_replaces_state() {
         .find_latest_notification_outbox(&user_a.id, "verify_contact")
         .unwrap()
         .is_none());
+    let activity_after = pool
+        .find_user_authentication_activity(&user_a.id)
+        .expect("find restored authentication activity")
+        .expect("authentication activity survives restore");
+    assert_eq!(
+        activity_after.last_authenticated_at,
+        activity_before.last_authenticated_at
+    );
+    assert_eq!(activity_after.last_seen_at, activity_before.last_seen_at);
+    assert_eq!(
+        activity_after.successful_authentication_count,
+        activity_before.successful_authentication_count
+    );
 }
 
 #[test]

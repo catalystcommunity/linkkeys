@@ -465,6 +465,17 @@ pub mod pg {
     }
 
     diesel::table! {
+        user_authentication_activity (user_id) {
+            user_id -> Uuid,
+            last_authenticated_at -> Timestamptz,
+            last_seen_at -> Timestamptz,
+            successful_authentication_count -> BigInt,
+            created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
         user_release_prefs (user_id, audience, claim_type) {
             user_id -> Uuid,
             audience -> Varchar,
@@ -522,6 +533,7 @@ pub mod pg {
     diesel::joinable!(verified_contact_methods -> users (user_id));
     diesel::joinable!(account_challenges -> users (user_id));
     diesel::joinable!(browser_sessions -> users (user_id));
+    diesel::joinable!(user_authentication_activity -> users (user_id));
     diesel::joinable!(notification_outbox -> users (user_id));
     diesel::joinable!(application_instances -> users (subject_user_id));
     diesel::joinable!(application_keys -> application_instances (instance_row_id));
@@ -564,6 +576,7 @@ pub mod pg {
         account_challenges,
         notification_outbox,
         browser_sessions,
+        user_authentication_activity,
         user_release_prefs,
         local_rp_domain_policy,
         local_rps,
@@ -1035,6 +1048,17 @@ pub mod sqlite {
     }
 
     diesel::table! {
+        user_authentication_activity (user_id) {
+            user_id -> Text,
+            last_authenticated_at -> Text,
+            last_seen_at -> Text,
+            successful_authentication_count -> BigInt,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
         user_release_prefs (user_id, audience, claim_type) {
             user_id -> Text,
             audience -> Text,
@@ -1092,6 +1116,7 @@ pub mod sqlite {
     diesel::joinable!(verified_contact_methods -> users (user_id));
     diesel::joinable!(account_challenges -> users (user_id));
     diesel::joinable!(browser_sessions -> users (user_id));
+    diesel::joinable!(user_authentication_activity -> users (user_id));
     diesel::joinable!(notification_outbox -> users (user_id));
     diesel::joinable!(application_instances -> users (subject_user_id));
     diesel::joinable!(application_keys -> application_instances (instance_row_id));
@@ -1134,6 +1159,7 @@ pub mod sqlite {
         account_challenges,
         notification_outbox,
         browser_sessions,
+        user_authentication_activity,
         user_release_prefs,
         local_rp_domain_policy,
         local_rps,

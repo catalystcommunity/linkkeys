@@ -1905,6 +1905,97 @@ class Codec
         ));
     }
 
+    public static function encodeUserAuthenticationActivity($value)
+    {
+        return CBOR::encode(self::toCborUserAuthenticationActivity($value));
+    }
+
+    public static function decodeUserAuthenticationActivity($bytes)
+    {
+        return self::fromCborUserAuthenticationActivity(CBOR::decode($bytes));
+    }
+
+    public static function toCborUserAuthenticationActivity($value)
+    {
+        $out = array();
+        $field = $value instanceof UserAuthenticationActivity ? $value->userId : (is_array($value) && array_key_exists('user_id', $value) ? $value['user_id'] : null);
+        $out['user_id'] = $field;
+        $field = $value instanceof UserAuthenticationActivity ? $value->lastAuthenticatedAt : (is_array($value) && array_key_exists('last_authenticated_at', $value) ? $value['last_authenticated_at'] : null);
+        if ($field !== null) {
+            $out['last_authenticated_at'] = $field;
+        }
+        $field = $value instanceof UserAuthenticationActivity ? $value->lastSeenAt : (is_array($value) && array_key_exists('last_seen_at', $value) ? $value['last_seen_at'] : null);
+        if ($field !== null) {
+            $out['last_seen_at'] = $field;
+        }
+        $field = $value instanceof UserAuthenticationActivity ? $value->successfulAuthenticationCount : (is_array($value) && array_key_exists('successful_authentication_count', $value) ? $value['successful_authentication_count'] : null);
+        $out['successful_authentication_count'] = $field;
+        $field = $value instanceof UserAuthenticationActivity ? $value->activeBrowserSessionCount : (is_array($value) && array_key_exists('active_browser_session_count', $value) ? $value['active_browser_session_count'] : null);
+        $out['active_browser_session_count'] = $field;
+        return $out;
+    }
+
+    public static function fromCborUserAuthenticationActivity($value)
+    {
+        return new UserAuthenticationActivity(array(
+            'user_id' => array_key_exists('user_id', $value) ? $value['user_id'] : null,
+            'last_authenticated_at' => array_key_exists('last_authenticated_at', $value) ? $value['last_authenticated_at'] : null,
+            'last_seen_at' => array_key_exists('last_seen_at', $value) ? $value['last_seen_at'] : null,
+            'successful_authentication_count' => array_key_exists('successful_authentication_count', $value) ? $value['successful_authentication_count'] : null,
+            'active_browser_session_count' => array_key_exists('active_browser_session_count', $value) ? $value['active_browser_session_count'] : null,
+        ));
+    }
+
+    public static function encodeGetUserAuthenticationActivityRequest($value)
+    {
+        return CBOR::encode(self::toCborGetUserAuthenticationActivityRequest($value));
+    }
+
+    public static function decodeGetUserAuthenticationActivityRequest($bytes)
+    {
+        return self::fromCborGetUserAuthenticationActivityRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborGetUserAuthenticationActivityRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof GetUserAuthenticationActivityRequest ? $value->userId : (is_array($value) && array_key_exists('user_id', $value) ? $value['user_id'] : null);
+        $out['user_id'] = $field;
+        return $out;
+    }
+
+    public static function fromCborGetUserAuthenticationActivityRequest($value)
+    {
+        return new GetUserAuthenticationActivityRequest(array(
+            'user_id' => array_key_exists('user_id', $value) ? $value['user_id'] : null,
+        ));
+    }
+
+    public static function encodeGetUserAuthenticationActivityResponse($value)
+    {
+        return CBOR::encode(self::toCborGetUserAuthenticationActivityResponse($value));
+    }
+
+    public static function decodeGetUserAuthenticationActivityResponse($bytes)
+    {
+        return self::fromCborGetUserAuthenticationActivityResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborGetUserAuthenticationActivityResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof GetUserAuthenticationActivityResponse ? $value->activity : (is_array($value) && array_key_exists('activity', $value) ? $value['activity'] : null);
+        $out['activity'] = self::toCborUserAuthenticationActivity($field);
+        return $out;
+    }
+
+    public static function fromCborGetUserAuthenticationActivityResponse($value)
+    {
+        return new GetUserAuthenticationActivityResponse(array(
+            'activity' => array_key_exists('activity', $value) ? self::fromCborUserAuthenticationActivity($value['activity']) : null,
+        ));
+    }
+
     public static function encodeCreateUserRequest($value)
     {
         return CBOR::encode(self::toCborCreateUserRequest($value));

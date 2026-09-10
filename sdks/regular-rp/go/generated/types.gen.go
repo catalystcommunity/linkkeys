@@ -404,6 +404,25 @@ type GetUserResponse struct {
 	User AdminUser `json:"user" yaml:"user"`
 }
 
+// UserAuthenticationActivity represents a structured data type
+type UserAuthenticationActivity struct {
+	UserId                        string  `json:"user_id" yaml:"user_id"`
+	LastAuthenticatedAt           *string `json:"last_authenticated_at,omitempty" yaml:"last_authenticated_at,omitempty"`
+	LastSeenAt                    *string `json:"last_seen_at,omitempty" yaml:"last_seen_at,omitempty"`
+	SuccessfulAuthenticationCount int64   `json:"successful_authentication_count" yaml:"successful_authentication_count"`
+	ActiveBrowserSessionCount     int64   `json:"active_browser_session_count" yaml:"active_browser_session_count"`
+}
+
+// GetUserAuthenticationActivityRequest represents a structured data type
+type GetUserAuthenticationActivityRequest struct {
+	UserId string `json:"user_id" yaml:"user_id"`
+}
+
+// GetUserAuthenticationActivityResponse represents a structured data type
+type GetUserAuthenticationActivityResponse struct {
+	Activity UserAuthenticationActivity `json:"activity" yaml:"activity"`
+}
+
 // CreateUserRequest represents a structured data type
 type CreateUserRequest struct {
 	Username    string  `json:"username" yaml:"username"`

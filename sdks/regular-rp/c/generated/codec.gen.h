@@ -715,6 +715,12 @@ static inline int csilc_enc_GetUserRequest(csilc_buf *b, const GetUserRequest *v
 static inline int csilc_dec_GetUserRequest(const csilc_value *m, CsilCodecArena *a, GetUserRequest *out);
 static inline int csilc_enc_GetUserResponse(csilc_buf *b, const GetUserResponse *v);
 static inline int csilc_dec_GetUserResponse(const csilc_value *m, CsilCodecArena *a, GetUserResponse *out);
+static inline int csilc_enc_UserAuthenticationActivity(csilc_buf *b, const UserAuthenticationActivity *v);
+static inline int csilc_dec_UserAuthenticationActivity(const csilc_value *m, CsilCodecArena *a, UserAuthenticationActivity *out);
+static inline int csilc_enc_GetUserAuthenticationActivityRequest(csilc_buf *b, const GetUserAuthenticationActivityRequest *v);
+static inline int csilc_dec_GetUserAuthenticationActivityRequest(const csilc_value *m, CsilCodecArena *a, GetUserAuthenticationActivityRequest *out);
+static inline int csilc_enc_GetUserAuthenticationActivityResponse(csilc_buf *b, const GetUserAuthenticationActivityResponse *v);
+static inline int csilc_dec_GetUserAuthenticationActivityResponse(const csilc_value *m, CsilCodecArena *a, GetUserAuthenticationActivityResponse *out);
 static inline int csilc_enc_CreateUserRequest(csilc_buf *b, const CreateUserRequest *v);
 static inline int csilc_dec_CreateUserRequest(const csilc_value *m, CsilCodecArena *a, CreateUserRequest *out);
 static inline int csilc_enc_CreateUserResponse(csilc_buf *b, const CreateUserResponse *v);
@@ -3120,6 +3126,85 @@ static inline int csilc_dec_GetUserResponse(const csilc_value *m, CsilCodecArena
     if (!m || m->kind != CSILC_MAP) return -1;
     csilc_f = csilc_map_get(m, "user");
     if (csilc_dec_AdminUser(csilc_f, a, &(out->user))) return -1;
+    return 0;
+}
+
+/* csilc_enc_UserAuthenticationActivity writes UserAuthenticationActivity as a canonical CBOR map. */
+static inline int csilc_enc_UserAuthenticationActivity(csilc_buf *b, const UserAuthenticationActivity *v) {
+    size_t csilc_n = 3;
+    if (v->last_seen_at) csilc_n++;
+    if (v->last_authenticated_at) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "user_id", 7)) return -1;
+    if (csilc_w_text(b, (v->user_id), (v->user_id) ? strlen(v->user_id) : 0)) return -1;
+    if (v->last_seen_at) {
+        if (csilc_w_text(b, "last_seen_at", 12)) return -1;
+        if (csilc_w_text(b, (v->last_seen_at), (v->last_seen_at) ? strlen(v->last_seen_at) : 0)) return -1;
+    }
+    if (v->last_authenticated_at) {
+        if (csilc_w_text(b, "last_authenticated_at", 21)) return -1;
+        if (csilc_w_text(b, (v->last_authenticated_at), (v->last_authenticated_at) ? strlen(v->last_authenticated_at) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "active_browser_session_count", 28)) return -1;
+    if (csilc_w_int(b, (int64_t)(v->active_browser_session_count))) return -1;
+    if (csilc_w_text(b, "successful_authentication_count", 31)) return -1;
+    if (csilc_w_int(b, (int64_t)(v->successful_authentication_count))) return -1;
+    return 0;
+}
+
+/* csilc_dec_UserAuthenticationActivity reads UserAuthenticationActivity from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_UserAuthenticationActivity(const csilc_value *m, CsilCodecArena *a, UserAuthenticationActivity *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "user_id");
+    if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
+    csilc_f = csilc_map_get(m, "last_seen_at");
+    out->last_seen_at = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "last_authenticated_at");
+    out->last_authenticated_at = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "active_browser_session_count");
+    if (!csilc_as_i64(csilc_f, &(out->active_browser_session_count))) return -1;
+    csilc_f = csilc_map_get(m, "successful_authentication_count");
+    if (!csilc_as_i64(csilc_f, &(out->successful_authentication_count))) return -1;
+    return 0;
+}
+
+/* csilc_enc_GetUserAuthenticationActivityRequest writes GetUserAuthenticationActivityRequest as a canonical CBOR map. */
+static inline int csilc_enc_GetUserAuthenticationActivityRequest(csilc_buf *b, const GetUserAuthenticationActivityRequest *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "user_id", 7)) return -1;
+    if (csilc_w_text(b, (v->user_id), (v->user_id) ? strlen(v->user_id) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_GetUserAuthenticationActivityRequest reads GetUserAuthenticationActivityRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_GetUserAuthenticationActivityRequest(const csilc_value *m, CsilCodecArena *a, GetUserAuthenticationActivityRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "user_id");
+    if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
+    return 0;
+}
+
+/* csilc_enc_GetUserAuthenticationActivityResponse writes GetUserAuthenticationActivityResponse as a canonical CBOR map. */
+static inline int csilc_enc_GetUserAuthenticationActivityResponse(csilc_buf *b, const GetUserAuthenticationActivityResponse *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "activity", 8)) return -1;
+    if (csilc_enc_UserAuthenticationActivity(b, &(v->activity))) return -1;
+    return 0;
+}
+
+/* csilc_dec_GetUserAuthenticationActivityResponse reads GetUserAuthenticationActivityResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_GetUserAuthenticationActivityResponse(const csilc_value *m, CsilCodecArena *a, GetUserAuthenticationActivityResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "activity");
+    if (csilc_dec_UserAuthenticationActivity(csilc_f, a, &(out->activity))) return -1;
     return 0;
 }
 
@@ -10135,6 +10220,75 @@ static inline int csil_decode_GetUserResponse(const uint8_t *in, size_t len, Get
     const csilc_value *root;
     if (csilc_decode(in, len, &a, &root)) return -1;
     if (csilc_dec_GetUserResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a UserAuthenticationActivity to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_UserAuthenticationActivity(const UserAuthenticationActivity *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_UserAuthenticationActivity(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a UserAuthenticationActivity. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_UserAuthenticationActivity(const uint8_t *in, size_t len, UserAuthenticationActivity *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_UserAuthenticationActivity(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a GetUserAuthenticationActivityRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_GetUserAuthenticationActivityRequest(const GetUserAuthenticationActivityRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_GetUserAuthenticationActivityRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a GetUserAuthenticationActivityRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_GetUserAuthenticationActivityRequest(const uint8_t *in, size_t len, GetUserAuthenticationActivityRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_GetUserAuthenticationActivityRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a GetUserAuthenticationActivityResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_GetUserAuthenticationActivityResponse(const GetUserAuthenticationActivityResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_GetUserAuthenticationActivityResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a GetUserAuthenticationActivityResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_GetUserAuthenticationActivityResponse(const uint8_t *in, size_t len, GetUserAuthenticationActivityResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_GetUserAuthenticationActivityResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
     *owner = a;
     return 0;
 }

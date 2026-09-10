@@ -1019,8 +1019,8 @@ impl DbPool {
                 use crate::schema::pg::{
                     account_challenges, admin_review_queue, auth_credentials, browser_sessions,
                     claims, consent_grants, local_rp_claim_tickets, notification_outbox,
-                    profile_claim_prefs, profiles, relations, user_keys, user_release_prefs,
-                    users as user_rows, verified_contact_methods,
+                    profile_claim_prefs, profiles, relations, user_authentication_activity,
+                    user_keys, user_release_prefs, users as user_rows, verified_contact_methods,
                 };
 
                 let mut conn = p.get().map_err(|e| {
@@ -1126,6 +1126,11 @@ impl DbPool {
                         browser_sessions::table.filter(browser_sessions::user_id.eq(uid)),
                     )
                     .execute(conn)?;
+                    diesel::delete(
+                        user_authentication_activity::table
+                            .filter(user_authentication_activity::user_id.eq(uid)),
+                    )
+                    .execute(conn)?;
                     let reviews_resolved = diesel::update(
                         admin_review_queue::table
                             .filter(admin_review_queue::user_id.eq(uid))
@@ -1175,8 +1180,8 @@ impl DbPool {
                 use crate::schema::sqlite::{
                     account_challenges, admin_review_queue, auth_credentials, browser_sessions,
                     claims, consent_grants, local_rp_claim_tickets, notification_outbox,
-                    profile_claim_prefs, profiles, relations, user_keys, user_release_prefs,
-                    verified_contact_methods,
+                    profile_claim_prefs, profiles, relations, user_authentication_activity,
+                    user_keys, user_release_prefs, verified_contact_methods,
                 };
 
                 let mut conn = p.get().map_err(|e| {
@@ -1272,6 +1277,11 @@ impl DbPool {
                     .execute(conn)?;
                     diesel::delete(
                         browser_sessions::table.filter(browser_sessions::user_id.eq(user_id)),
+                    )
+                    .execute(conn)?;
+                    diesel::delete(
+                        user_authentication_activity::table
+                            .filter(user_authentication_activity::user_id.eq(user_id)),
                     )
                     .execute(conn)?;
                     let reviews_resolved = diesel::update(
@@ -3115,6 +3125,89 @@ impl DbPool {
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
                 account_security::sqlite::find_session(&mut *sqlite_conn(p)?, digest)
+            }
+        }
+    }
+
+    pub fn record_user_authentication(
+        &self,
+        user_id: &str,
+        authenticated_at: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => account_security::pg::record_authentication(
+                &mut *pg_conn(p)?,
+                user_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?,
+                authenticated_at,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => account_security::sqlite::record_authentication(
+                &mut *sqlite_conn(p)?,
+                user_id,
+                &authenticated_at.to_rfc3339(),
+            ),
+        }
+    }
+
+    pub fn find_user_authentication_activity(
+        &self,
+        user_id: &str,
+    ) -> QueryResult<Option<models::UserAuthenticationActivity>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => account_security::pg::find_authentication_activity(
+                &mut *pg_conn(p)?,
+                user_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => account_security::sqlite::find_authentication_activity(
+                &mut *sqlite_conn(p)?,
+                user_id,
+            ),
+        }
+    }
+
+    pub fn count_active_browser_sessions(
+        &self,
+        user_id: &str,
+        idle_ttl_seconds: i64,
+    ) -> QueryResult<i64> {
+        let now = chrono::Utc::now();
+        let idle_cutoff = now - chrono::Duration::seconds(idle_ttl_seconds);
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => account_security::pg::count_active_sessions(
+                &mut *pg_conn(p)?,
+                user_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?,
+                now,
+                idle_cutoff,
+            ),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => account_security::sqlite::count_active_sessions(
+                &mut *sqlite_conn(p)?,
+                user_id,
+                &now.to_rfc3339(),
+                &idle_cutoff.to_rfc3339(),
+            ),
+        }
+    }
+
+    pub fn backfill_user_authentication_activity(&self) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                account_security::pg::backfill_authentication_activity(&mut *pg_conn(p)?)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                account_security::sqlite::backfill_authentication_activity(&mut *sqlite_conn(p)?)
             }
         }
     }

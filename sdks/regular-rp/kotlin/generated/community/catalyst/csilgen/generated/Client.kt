@@ -192,6 +192,9 @@ class AdminClient(private val transport: Transport) {
     fun getUser(request: GetUserRequest): GetUserResponse {
         return decode<GetUserResponse>(transport.call("Admin", "get-user", encode(request)))
     }
+    fun getUserAuthenticationActivity(request: GetUserAuthenticationActivityRequest): GetUserAuthenticationActivityResponse {
+        return decode<GetUserAuthenticationActivityResponse>(transport.call("Admin", "get-user-authentication-activity", encode(request)))
+    }
     fun createUser(request: CreateUserRequest): CreateUserResponse {
         return decode<CreateUserResponse>(transport.call("Admin", "create-user", encode(request)))
     }

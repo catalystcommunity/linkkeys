@@ -764,6 +764,31 @@ data class GetUserResponse(
     val user: AdminUser
 )
 
+/** UserAuthenticationActivity record. */
+data class UserAuthenticationActivity(
+    // wire key: user_id
+    val userId: String,
+    // wire key: last_authenticated_at
+    val lastAuthenticatedAt: String? = null,
+    // wire key: last_seen_at
+    val lastSeenAt: String? = null,
+    // wire key: successful_authentication_count
+    val successfulAuthenticationCount: Long,
+    // wire key: active_browser_session_count
+    val activeBrowserSessionCount: Long
+)
+
+/** GetUserAuthenticationActivityRequest record. */
+data class GetUserAuthenticationActivityRequest(
+    // wire key: user_id
+    val userId: String
+)
+
+/** GetUserAuthenticationActivityResponse record. */
+data class GetUserAuthenticationActivityResponse(
+    val activity: UserAuthenticationActivity
+)
+
 /** CreateUserRequest record. */
 data class CreateUserRequest(
     val username: String,

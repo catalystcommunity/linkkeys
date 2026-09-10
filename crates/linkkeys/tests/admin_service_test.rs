@@ -3,6 +3,7 @@ mod common;
 use common::data_factory::{
     create_auth_credential, create_domain_key, create_relation, create_user, DataMap,
 };
+use diesel::prelude::*;
 use liblinkkeys::generated::types::*;
 use linkkeys::services::{admin, auth};
 use serde_json::Value;
@@ -118,6 +119,248 @@ fn test_service_get_user() {
     assert_eq!(resp.user.id, user.id);
     assert_eq!(resp.user.username, user.username);
     assert!(resp.user.is_active);
+}
+
+#[test]
+fn test_user_authentication_activity_survives_session_removal() {
+    let pool = common::create_test_pool();
+    let user = create_user(&pool, &DataMap::new());
+    let empty = admin::get_user_authentication_activity(
+        &pool,
+        GetUserAuthenticationActivityRequest {
+            user_id: user.id.clone(),
+        },
+    )
+    .unwrap()
+    .activity;
+    assert_eq!(empty.user_id, user.id);
+    assert_eq!(empty.last_authenticated_at, None);
+    assert_eq!(empty.last_seen_at, None);
+    assert_eq!(empty.successful_authentication_count, 0);
+    assert_eq!(empty.active_browser_session_count, 0);
+
+    let (_, first) = linkkeys::services::browser_session::create(
+        &pool,
+        &user.id,
+        &auth::AuthenticationEvidence::single("password"),
+    )
+    .unwrap();
+    let (_, _second) = linkkeys::services::browser_session::create(
+        &pool,
+        &user.id,
+        &auth::AuthenticationEvidence::single("password"),
+    )
+    .unwrap();
+    pool.revoke_browser_session(&first.token_digest).unwrap();
+
+    let current = admin::get_user_authentication_activity(
+        &pool,
+        GetUserAuthenticationActivityRequest {
+            user_id: user.id.clone(),
+        },
+    )
+    .unwrap()
+    .activity;
+    assert!(current.last_authenticated_at.is_some());
+    assert!(current.last_seen_at.is_some());
+    assert_eq!(current.successful_authentication_count, 2);
+    assert_eq!(current.active_browser_session_count, 1);
+
+    let earlier = chrono::Utc::now() - chrono::Duration::days(1);
+    pool.record_user_authentication(&user.id, earlier).unwrap();
+    let after_earlier_record = pool
+        .find_user_authentication_activity(&user.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        Some(after_earlier_record.last_authenticated_at),
+        current.last_authenticated_at
+    );
+    assert_eq!(
+        Some(after_earlier_record.last_seen_at),
+        current.last_seen_at
+    );
+    assert_eq!(after_earlier_record.successful_authentication_count, 3);
+
+    match &pool {
+        #[cfg(feature = "postgres")]
+        linkkeys::db::DbPool::Postgres(inner) => {
+            let mut conn = inner.get().unwrap();
+            let user_id: uuid::Uuid = user.id.parse().unwrap();
+            diesel::delete(
+                linkkeys::schema::pg::user_authentication_activity::table.filter(
+                    linkkeys::schema::pg::user_authentication_activity::user_id.eq(user_id),
+                ),
+            )
+            .execute(&mut conn)
+            .unwrap();
+        }
+        #[cfg(feature = "sqlite")]
+        linkkeys::db::DbPool::Sqlite(inner) => {
+            let mut conn = inner.get().unwrap();
+            diesel::delete(
+                linkkeys::schema::sqlite::user_authentication_activity::table.filter(
+                    linkkeys::schema::sqlite::user_authentication_activity::user_id.eq(&user.id),
+                ),
+            )
+            .execute(&mut conn)
+            .unwrap();
+        }
+    }
+    assert_eq!(pool.backfill_user_authentication_activity().unwrap(), 1);
+    let backfilled = admin::get_user_authentication_activity(
+        &pool,
+        GetUserAuthenticationActivityRequest {
+            user_id: user.id.clone(),
+        },
+    )
+    .unwrap()
+    .activity;
+    assert_eq!(backfilled.successful_authentication_count, 2);
+    assert_eq!(backfilled.active_browser_session_count, 1);
+
+    match &pool {
+        #[cfg(feature = "postgres")]
+        linkkeys::db::DbPool::Postgres(inner) => {
+            let mut conn = inner.get().unwrap();
+            let user_id: uuid::Uuid = user.id.parse().unwrap();
+            diesel::delete(
+                linkkeys::schema::pg::browser_sessions::table
+                    .filter(linkkeys::schema::pg::browser_sessions::user_id.eq(user_id)),
+            )
+            .execute(&mut conn)
+            .unwrap();
+        }
+        #[cfg(feature = "sqlite")]
+        linkkeys::db::DbPool::Sqlite(inner) => {
+            let mut conn = inner.get().unwrap();
+            diesel::delete(
+                linkkeys::schema::sqlite::browser_sessions::table
+                    .filter(linkkeys::schema::sqlite::browser_sessions::user_id.eq(&user.id)),
+            )
+            .execute(&mut conn)
+            .unwrap();
+        }
+    }
+
+    let retained = admin::get_user_authentication_activity(
+        &pool,
+        GetUserAuthenticationActivityRequest {
+            user_id: user.id.clone(),
+        },
+    )
+    .unwrap()
+    .activity;
+    assert_eq!(
+        retained.last_authenticated_at,
+        backfilled.last_authenticated_at
+    );
+    assert_eq!(retained.last_seen_at, backfilled.last_seen_at);
+    assert_eq!(retained.successful_authentication_count, 2);
+    assert_eq!(retained.active_browser_session_count, 0);
+}
+
+#[test]
+fn test_rpc_user_authentication_activity_requires_manage_users() {
+    let pool = common::create_test_pool();
+    std::env::set_var("DOMAIN_NAME", "test.com");
+    let caller = create_user(&pool, &DataMap::new());
+    let target = create_user(&pool, &DataMap::new());
+    let (api_key, hash) = auth::generate_api_key(&caller.id);
+    create_auth_credential(&pool, &caller.id, auth::CREDENTIAL_TYPE_API_KEY, &hash);
+    linkkeys::services::browser_session::create(
+        &pool,
+        &target.id,
+        &auth::AuthenticationEvidence::single("password"),
+    )
+    .unwrap();
+    let payload = liblinkkeys::generated::encode_get_user_authentication_activity_request(
+        &GetUserAuthenticationActivityRequest {
+            user_id: target.id.clone(),
+        },
+    );
+
+    let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
+        "Admin",
+        "get-user-authentication-activity",
+        payload.clone(),
+        Some(&api_key),
+        &pool,
+        None,
+    );
+    assert_ne!(status, 0);
+
+    create_relation(
+        &pool,
+        "user",
+        &caller.id,
+        "manage_users",
+        "domain",
+        "test.com",
+    );
+    let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
+        "Admin",
+        "get-user-authentication-activity",
+        payload,
+        Some(&api_key),
+        &pool,
+        None,
+    );
+    assert_eq!(status, 0);
+    let response =
+        liblinkkeys::generated::decode_get_user_authentication_activity_response(&body).unwrap();
+    assert_eq!(response.activity.user_id, target.id);
+    assert_eq!(response.activity.successful_authentication_count, 1);
+    assert_eq!(response.activity.active_browser_session_count, 1);
+}
+
+#[test]
+fn test_admin_authenticate_records_only_successful_authentication() {
+    let pool = common::create_test_pool();
+    let username = format!("admin-auth-{}", uuid::Uuid::now_v7());
+    let user = create_user(
+        &pool,
+        &DataMap::from([("username".into(), Value::String(username.clone()))]),
+    );
+    let password = "correct-admin-auth-password";
+    let hash = linkkeys::services::password::hash_for_storage(password).unwrap();
+    create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_PASSWORD, &hash);
+
+    assert!(admin::authenticate(
+        &pool,
+        AuthenticateRequest {
+            username: username.clone(),
+            password: "wrong-password".to_string(),
+        },
+    )
+    .is_err());
+    let before = admin::get_user_authentication_activity(
+        &pool,
+        GetUserAuthenticationActivityRequest {
+            user_id: user.id.clone(),
+        },
+    )
+    .unwrap()
+    .activity;
+    assert_eq!(before.successful_authentication_count, 0);
+
+    admin::authenticate(
+        &pool,
+        AuthenticateRequest {
+            username,
+            password: password.to_string(),
+        },
+    )
+    .unwrap();
+    let after = admin::get_user_authentication_activity(
+        &pool,
+        GetUserAuthenticationActivityRequest { user_id: user.id },
+    )
+    .unwrap()
+    .activity;
+    assert!(after.last_authenticated_at.is_some());
+    assert_eq!(after.successful_authentication_count, 1);
+    assert_eq!(after.active_browser_session_count, 0);
 }
 
 #[test]

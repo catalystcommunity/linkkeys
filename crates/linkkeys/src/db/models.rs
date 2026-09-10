@@ -450,6 +450,15 @@ pub struct BrowserSession {
     pub revoked_at: Option<String>,
 }
 
+/// Durable summary of successful authentication and browser activity.
+#[derive(Debug, Clone)]
+pub struct UserAuthenticationActivity {
+    pub user_id: String,
+    pub last_authenticated_at: String,
+    pub last_seen_at: String,
+    pub successful_authentication_count: i64,
+}
+
 /// A signed claim that is ready for one database transaction.
 pub struct PreparedClaim {
     pub id: String,
@@ -1663,6 +1672,28 @@ pub mod pg {
                 authentication_methods: r.authentication_methods,
                 expires_at: r.expires_at.to_rfc3339(),
                 revoked_at: r.revoked_at.map(|v| v.to_rfc3339()),
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable, Insertable)]
+    #[diesel(table_name = crate::schema::pg::user_authentication_activity)]
+    pub struct UserAuthenticationActivityRow {
+        pub user_id: uuid::Uuid,
+        pub last_authenticated_at: chrono::DateTime<chrono::Utc>,
+        pub last_seen_at: chrono::DateTime<chrono::Utc>,
+        pub successful_authentication_count: i64,
+        pub created_at: chrono::DateTime<chrono::Utc>,
+        pub updated_at: chrono::DateTime<chrono::Utc>,
+    }
+
+    impl From<UserAuthenticationActivityRow> for super::UserAuthenticationActivity {
+        fn from(row: UserAuthenticationActivityRow) -> Self {
+            Self {
+                user_id: row.user_id.to_string(),
+                last_authenticated_at: row.last_authenticated_at.to_rfc3339(),
+                last_seen_at: row.last_seen_at.to_rfc3339(),
+                successful_authentication_count: row.successful_authentication_count,
             }
         }
     }
@@ -2969,6 +3000,28 @@ pub mod sqlite {
                 authentication_methods: r.authentication_methods,
                 expires_at: r.expires_at,
                 revoked_at: r.revoked_at,
+            }
+        }
+    }
+
+    #[derive(Queryable, Selectable, Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::user_authentication_activity)]
+    pub struct UserAuthenticationActivityRow {
+        pub user_id: String,
+        pub last_authenticated_at: String,
+        pub last_seen_at: String,
+        pub successful_authentication_count: i64,
+        pub created_at: String,
+        pub updated_at: String,
+    }
+
+    impl From<UserAuthenticationActivityRow> for super::UserAuthenticationActivity {
+        fn from(row: UserAuthenticationActivityRow) -> Self {
+            Self {
+                user_id: row.user_id,
+                last_authenticated_at: row.last_authenticated_at,
+                last_seen_at: row.last_seen_at,
+                successful_authentication_count: row.successful_authentication_count,
             }
         }
     }

@@ -589,6 +589,32 @@ public sealed record GetUserResponse
     public required AdminUser User { get; init; }
 }
 
+public sealed record UserAuthenticationActivity
+{
+    // CBOR key: user_id
+    public required string UserId { get; init; }
+    // CBOR key: last_authenticated_at
+    public string? LastAuthenticatedAt { get; init; }
+    // CBOR key: last_seen_at
+    public string? LastSeenAt { get; init; }
+    // CBOR key: successful_authentication_count
+    public required long SuccessfulAuthenticationCount { get; init; }
+    // CBOR key: active_browser_session_count
+    public required long ActiveBrowserSessionCount { get; init; }
+}
+
+public sealed record GetUserAuthenticationActivityRequest
+{
+    // CBOR key: user_id
+    public required string UserId { get; init; }
+}
+
+public sealed record GetUserAuthenticationActivityResponse
+{
+    // CBOR key: activity
+    public required UserAuthenticationActivity Activity { get; init; }
+}
+
 public sealed record CreateUserRequest
 {
     // CBOR key: username

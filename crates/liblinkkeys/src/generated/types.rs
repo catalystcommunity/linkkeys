@@ -427,6 +427,25 @@ pub struct GetUserResponse {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct UserAuthenticationActivity {
+    pub user_id: String,
+    pub last_authenticated_at: Option<String>,
+    pub last_seen_at: Option<String>,
+    pub successful_authentication_count: i64,
+    pub active_browser_session_count: i64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetUserAuthenticationActivityRequest {
+    pub user_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetUserAuthenticationActivityResponse {
+    pub activity: UserAuthenticationActivity,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct CreateUserRequest {
     pub username: String,
     pub display_name: String,

@@ -1722,6 +1722,93 @@ class GetUserResponse:
 
 
 @dataclass
+class UserAuthenticationActivity:
+    user_id: str
+    successful_authentication_count: int
+    active_browser_session_count: int
+    last_authenticated_at: Optional[str] = None
+    last_seen_at: Optional[str] = None
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result = {}
+        if hasattr(self, 'user_id') and self.user_id is not None:
+            result['user_id'] = self.user_id
+        if hasattr(self, 'last_authenticated_at') and self.last_authenticated_at is not None:
+            result['last_authenticated_at'] = self.last_authenticated_at
+        if hasattr(self, 'last_seen_at') and self.last_seen_at is not None:
+            result['last_seen_at'] = self.last_seen_at
+        if hasattr(self, 'successful_authentication_count') and self.successful_authentication_count is not None:
+            result['successful_authentication_count'] = self.successful_authentication_count
+        if hasattr(self, 'active_browser_session_count') and self.active_browser_session_count is not None:
+            result['active_browser_session_count'] = self.active_browser_session_count
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'UserAuthenticationActivity':
+        """Create instance from dictionary."""
+        return cls(user_id=data.get('user_id'), last_authenticated_at=data.get('last_authenticated_at'), last_seen_at=data.get('last_seen_at'), successful_authentication_count=data.get('successful_authentication_count'), active_browser_session_count=data.get('active_browser_session_count'))
+
+    def to_json(self) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'UserAuthenticationActivity':
+        """Create instance from JSON string."""
+        return cls.from_dict(json.loads(json_str))
+
+
+@dataclass
+class GetUserAuthenticationActivityRequest:
+    user_id: str
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result = {}
+        if hasattr(self, 'user_id') and self.user_id is not None:
+            result['user_id'] = self.user_id
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'GetUserAuthenticationActivityRequest':
+        """Create instance from dictionary."""
+        return cls(user_id=data.get('user_id'))
+
+    def to_json(self) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'GetUserAuthenticationActivityRequest':
+        """Create instance from JSON string."""
+        return cls.from_dict(json.loads(json_str))
+
+
+@dataclass
+class GetUserAuthenticationActivityResponse:
+    activity: UserAuthenticationActivity
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result = {}
+        if hasattr(self, 'activity') and self.activity is not None:
+            result['activity'] = self.activity
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'GetUserAuthenticationActivityResponse':
+        """Create instance from dictionary."""
+        return cls(activity=data.get('activity'))
+
+    def to_json(self) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'GetUserAuthenticationActivityResponse':
+        """Create instance from JSON string."""
+        return cls.from_dict(json.loads(json_str))
+
+
+@dataclass
 class CreateUserRequest:
     username: str
     display_name: str

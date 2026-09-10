@@ -6,12 +6,15 @@ pub mod pg {
     use diesel::prelude::*;
 
     use crate::db::models::pg::{
-        AccountChallengeRow, BrowserSessionRow, NotificationOutboxRow, VerifiedContactMethodRow,
+        AccountChallengeRow, BrowserSessionRow, NotificationOutboxRow,
+        UserAuthenticationActivityRow, VerifiedContactMethodRow,
     };
-    use crate::db::models::{AccountChallenge, BrowserSession, User, VerifiedContactMethod};
+    use crate::db::models::{
+        AccountChallenge, BrowserSession, User, UserAuthenticationActivity, VerifiedContactMethod,
+    };
     use crate::schema::pg::{
-        account_challenges, auth_credentials, browser_sessions, claims, notification_outbox, users,
-        verified_contact_methods,
+        account_challenges, auth_credentials, browser_sessions, claims, notification_outbox,
+        user_authentication_activity, users, verified_contact_methods,
     };
 
     #[allow(clippy::too_many_arguments)]
@@ -437,14 +440,62 @@ pub mod pg {
             .map(|v| v.map(Into::into))
     }
 
-    pub fn create_session(
+    fn record_authentication_on_conn(
+        conn: &mut diesel::PgConnection,
+        user_id: uuid::Uuid,
+        authenticated_at: chrono::DateTime<chrono::Utc>,
+        seen_at: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<usize> {
+        let row = UserAuthenticationActivityRow {
+            user_id,
+            last_authenticated_at: authenticated_at,
+            last_seen_at: seen_at,
+            successful_authentication_count: 1,
+            created_at: seen_at,
+            updated_at: seen_at,
+        };
+        diesel::insert_into(user_authentication_activity::table)
+            .values(&row)
+            .on_conflict(user_authentication_activity::user_id)
+            .do_update()
+            .set((
+                user_authentication_activity::last_authenticated_at.eq(diesel::dsl::sql::<
+                    diesel::sql_types::Timestamptz,
+                >(
+                    "GREATEST(user_authentication_activity.last_authenticated_at, EXCLUDED.last_authenticated_at)",
+                )),
+                user_authentication_activity::last_seen_at.eq(diesel::dsl::sql::<
+                    diesel::sql_types::Timestamptz,
+                >(
+                    "GREATEST(user_authentication_activity.last_seen_at, EXCLUDED.last_seen_at)",
+                )),
+                user_authentication_activity::successful_authentication_count
+                    .eq(user_authentication_activity::successful_authentication_count + 1),
+                user_authentication_activity::updated_at.eq(diesel::dsl::sql::<
+                    diesel::sql_types::Timestamptz,
+                >(
+                    "GREATEST(user_authentication_activity.updated_at, EXCLUDED.updated_at)",
+                )),
+            ))
+            .execute(conn)
+    }
+
+    fn insert_session_and_record(
         conn: &mut diesel::PgConnection,
         row: BrowserSessionRow,
     ) -> QueryResult<BrowserSession> {
         diesel::insert_into(browser_sessions::table)
             .values(&row)
             .execute(conn)?;
+        record_authentication_on_conn(conn, row.user_id, row.authenticated_at, row.last_seen_at)?;
         Ok(row.into())
+    }
+
+    pub fn create_session(
+        conn: &mut diesel::PgConnection,
+        row: BrowserSessionRow,
+    ) -> QueryResult<BrowserSession> {
+        conn.transaction(|conn| insert_session_and_record(conn, row))
     }
 
     pub fn create_session_if_password_active(
@@ -474,8 +525,54 @@ pub mod pg {
                 )
                 .select(auth_credentials::id)
                 .first::<uuid::Uuid>(conn)?;
-            create_session(conn, row)
+            insert_session_and_record(conn, row)
         })
+    }
+
+    pub fn record_authentication(
+        conn: &mut diesel::PgConnection,
+        user_id: uuid::Uuid,
+        authenticated_at: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<usize> {
+        record_authentication_on_conn(conn, user_id, authenticated_at, authenticated_at)
+    }
+
+    pub fn find_authentication_activity(
+        conn: &mut diesel::PgConnection,
+        user_id: uuid::Uuid,
+    ) -> QueryResult<Option<UserAuthenticationActivity>> {
+        user_authentication_activity::table
+            .find(user_id)
+            .select(UserAuthenticationActivityRow::as_select())
+            .first(conn)
+            .optional()
+            .map(|value| value.map(Into::into))
+    }
+
+    pub fn count_active_sessions(
+        conn: &mut diesel::PgConnection,
+        user_id: uuid::Uuid,
+        now: chrono::DateTime<chrono::Utc>,
+        idle_cutoff: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<i64> {
+        browser_sessions::table
+            .filter(browser_sessions::user_id.eq(user_id))
+            .filter(browser_sessions::revoked_at.is_null())
+            .filter(browser_sessions::expires_at.ge(now))
+            .filter(browser_sessions::last_seen_at.ge(idle_cutoff))
+            .filter(browser_sessions::last_seen_at.le(now))
+            .count()
+            .get_result(conn)
+    }
+
+    pub fn backfill_authentication_activity(conn: &mut diesel::PgConnection) -> QueryResult<usize> {
+        diesel::sql_query(
+            "INSERT INTO user_authentication_activity \
+             (user_id, last_authenticated_at, last_seen_at, successful_authentication_count, created_at, updated_at) \
+             SELECT user_id, MAX(authenticated_at), MAX(last_seen_at), COUNT(*), MIN(created_at), MAX(updated_at) \
+             FROM browser_sessions GROUP BY user_id ON CONFLICT (user_id) DO NOTHING",
+        )
+        .execute(conn)
     }
 
     pub fn find_session(
@@ -497,16 +594,54 @@ pub mod pg {
         digest: &str,
         last_seen: chrono::DateTime<chrono::Utc>,
     ) -> QueryResult<usize> {
-        diesel::update(
-            browser_sessions::table
+        conn.transaction(|conn| {
+            let session = browser_sessions::table
                 .find(digest)
-                .filter(browser_sessions::revoked_at.is_null()),
-        )
-        .set((
-            browser_sessions::last_seen_at.eq(last_seen),
-            browser_sessions::updated_at.eq(last_seen),
-        ))
-        .execute(conn)
+                .filter(browser_sessions::revoked_at.is_null())
+                .select((
+                    browser_sessions::user_id,
+                    browser_sessions::authenticated_at,
+                ))
+                .first::<(uuid::Uuid, chrono::DateTime<chrono::Utc>)>(conn)?;
+            let changed = diesel::update(
+                browser_sessions::table
+                    .find(digest)
+                    .filter(browser_sessions::revoked_at.is_null())
+                    .filter(browser_sessions::last_seen_at.lt(last_seen)),
+            )
+            .set((
+                browser_sessions::last_seen_at.eq(last_seen),
+                browser_sessions::updated_at.eq(last_seen),
+            ))
+            .execute(conn)?;
+            if changed > 0 {
+                diesel::insert_into(user_authentication_activity::table)
+                    .values(UserAuthenticationActivityRow {
+                        user_id: session.0,
+                        last_authenticated_at: session.1,
+                        last_seen_at: last_seen,
+                        successful_authentication_count: 1,
+                        created_at: session.1,
+                        updated_at: last_seen,
+                    })
+                    .on_conflict(user_authentication_activity::user_id)
+                    .do_update()
+                    .set((
+                        user_authentication_activity::last_seen_at.eq(diesel::dsl::sql::<
+                            diesel::sql_types::Timestamptz,
+                        >(
+                            "GREATEST(user_authentication_activity.last_seen_at, EXCLUDED.last_seen_at)",
+                        )),
+                        user_authentication_activity::updated_at.eq(diesel::dsl::sql::<
+                            diesel::sql_types::Timestamptz,
+                        >(
+                            "GREATEST(user_authentication_activity.updated_at, EXCLUDED.updated_at)",
+                        )),
+                    ))
+                    .execute(conn)?;
+            }
+            Ok(changed)
+        })
     }
 
     pub fn revoke_session(conn: &mut diesel::PgConnection, digest: &str) -> QueryResult<usize> {
@@ -842,12 +977,15 @@ pub mod pg {
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
     use crate::db::models::sqlite::{
-        AccountChallengeRow, BrowserSessionRow, NotificationOutboxRow, VerifiedContactMethodRow,
+        AccountChallengeRow, BrowserSessionRow, NotificationOutboxRow,
+        UserAuthenticationActivityRow, VerifiedContactMethodRow,
     };
-    use crate::db::models::{AccountChallenge, BrowserSession, User, VerifiedContactMethod};
+    use crate::db::models::{
+        AccountChallenge, BrowserSession, User, UserAuthenticationActivity, VerifiedContactMethod,
+    };
     use crate::schema::sqlite::{
-        account_challenges, auth_credentials, browser_sessions, claims, notification_outbox, users,
-        verified_contact_methods,
+        account_challenges, auth_credentials, browser_sessions, claims, notification_outbox,
+        user_authentication_activity, users, verified_contact_methods,
     };
     use diesel::connection::{AnsiTransactionManager, TransactionManager};
     use diesel::prelude::*;
@@ -1260,14 +1398,67 @@ pub mod sqlite {
                 .map(Into::into)
         })
     }
-    pub fn create_session(
+    fn record_authentication_on_conn(
+        conn: &mut diesel::SqliteConnection,
+        user_id: &str,
+        authenticated_at: &str,
+        seen_at: &str,
+    ) -> QueryResult<usize> {
+        let row = UserAuthenticationActivityRow {
+            user_id: user_id.to_string(),
+            last_authenticated_at: authenticated_at.to_string(),
+            last_seen_at: seen_at.to_string(),
+            successful_authentication_count: 1,
+            created_at: seen_at.to_string(),
+            updated_at: seen_at.to_string(),
+        };
+        diesel::insert_into(user_authentication_activity::table)
+            .values(&row)
+            .on_conflict(user_authentication_activity::user_id)
+            .do_update()
+            .set((
+                user_authentication_activity::last_authenticated_at.eq(diesel::dsl::sql::<
+                    diesel::sql_types::Text,
+                >(
+                    "MAX(user_authentication_activity.last_authenticated_at, excluded.last_authenticated_at)",
+                )),
+                user_authentication_activity::last_seen_at.eq(diesel::dsl::sql::<
+                    diesel::sql_types::Text,
+                >(
+                    "MAX(user_authentication_activity.last_seen_at, excluded.last_seen_at)",
+                )),
+                user_authentication_activity::successful_authentication_count
+                    .eq(user_authentication_activity::successful_authentication_count + 1),
+                user_authentication_activity::updated_at.eq(diesel::dsl::sql::<
+                    diesel::sql_types::Text,
+                >(
+                    "MAX(user_authentication_activity.updated_at, excluded.updated_at)",
+                )),
+            ))
+            .execute(conn)
+    }
+
+    fn insert_session_and_record(
         conn: &mut diesel::SqliteConnection,
         row: BrowserSessionRow,
     ) -> QueryResult<BrowserSession> {
         diesel::insert_into(browser_sessions::table)
             .values(&row)
             .execute(conn)?;
+        record_authentication_on_conn(
+            conn,
+            &row.user_id,
+            &row.authenticated_at,
+            &row.last_seen_at,
+        )?;
         Ok(row.into())
+    }
+
+    pub fn create_session(
+        conn: &mut diesel::SqliteConnection,
+        row: BrowserSessionRow,
+    ) -> QueryResult<BrowserSession> {
+        write_transaction(conn, |conn| insert_session_and_record(conn, row))
     }
     pub fn create_session_if_password_active(
         conn: &mut diesel::SqliteConnection,
@@ -1298,8 +1489,56 @@ pub mod sqlite {
                 )
                 .select(auth_credentials::id)
                 .first::<String>(conn)?;
-            create_session(conn, row)
+            insert_session_and_record(conn, row)
         })
+    }
+
+    pub fn record_authentication(
+        conn: &mut diesel::SqliteConnection,
+        user_id: &str,
+        authenticated_at: &str,
+    ) -> QueryResult<usize> {
+        record_authentication_on_conn(conn, user_id, authenticated_at, authenticated_at)
+    }
+
+    pub fn find_authentication_activity(
+        conn: &mut diesel::SqliteConnection,
+        user_id: &str,
+    ) -> QueryResult<Option<UserAuthenticationActivity>> {
+        user_authentication_activity::table
+            .find(user_id)
+            .select(UserAuthenticationActivityRow::as_select())
+            .first(conn)
+            .optional()
+            .map(|value| value.map(Into::into))
+    }
+
+    pub fn count_active_sessions(
+        conn: &mut diesel::SqliteConnection,
+        user_id: &str,
+        now: &str,
+        idle_cutoff: &str,
+    ) -> QueryResult<i64> {
+        browser_sessions::table
+            .filter(browser_sessions::user_id.eq(user_id))
+            .filter(browser_sessions::revoked_at.is_null())
+            .filter(browser_sessions::expires_at.ge(now))
+            .filter(browser_sessions::last_seen_at.ge(idle_cutoff))
+            .filter(browser_sessions::last_seen_at.le(now))
+            .count()
+            .get_result(conn)
+    }
+
+    pub fn backfill_authentication_activity(
+        conn: &mut diesel::SqliteConnection,
+    ) -> QueryResult<usize> {
+        diesel::sql_query(
+            "INSERT INTO user_authentication_activity \
+             (user_id, last_authenticated_at, last_seen_at, successful_authentication_count, created_at, updated_at) \
+             SELECT user_id, MAX(authenticated_at), MAX(last_seen_at), COUNT(*), MIN(created_at), MAX(updated_at) \
+             FROM browser_sessions GROUP BY user_id ON CONFLICT (user_id) DO NOTHING",
+        )
+        .execute(conn)
     }
     pub fn find_session(
         conn: &mut diesel::SqliteConnection,
@@ -1319,16 +1558,54 @@ pub mod sqlite {
         digest: &str,
         last_seen: &str,
     ) -> QueryResult<usize> {
-        diesel::update(
-            browser_sessions::table
+        write_transaction(conn, |conn| {
+            let session = browser_sessions::table
                 .find(digest)
-                .filter(browser_sessions::revoked_at.is_null()),
-        )
-        .set((
-            browser_sessions::last_seen_at.eq(last_seen),
-            browser_sessions::updated_at.eq(last_seen),
-        ))
-        .execute(conn)
+                .filter(browser_sessions::revoked_at.is_null())
+                .select((
+                    browser_sessions::user_id,
+                    browser_sessions::authenticated_at,
+                ))
+                .first::<(String, String)>(conn)?;
+            let changed = diesel::update(
+                browser_sessions::table
+                    .find(digest)
+                    .filter(browser_sessions::revoked_at.is_null())
+                    .filter(browser_sessions::last_seen_at.lt(last_seen)),
+            )
+            .set((
+                browser_sessions::last_seen_at.eq(last_seen),
+                browser_sessions::updated_at.eq(last_seen),
+            ))
+            .execute(conn)?;
+            if changed > 0 {
+                diesel::insert_into(user_authentication_activity::table)
+                    .values(UserAuthenticationActivityRow {
+                        user_id: session.0,
+                        last_authenticated_at: session.1.clone(),
+                        last_seen_at: last_seen.to_string(),
+                        successful_authentication_count: 1,
+                        created_at: session.1,
+                        updated_at: last_seen.to_string(),
+                    })
+                    .on_conflict(user_authentication_activity::user_id)
+                    .do_update()
+                    .set((
+                        user_authentication_activity::last_seen_at.eq(diesel::dsl::sql::<
+                            diesel::sql_types::Text,
+                        >(
+                            "MAX(user_authentication_activity.last_seen_at, excluded.last_seen_at)",
+                        )),
+                        user_authentication_activity::updated_at.eq(diesel::dsl::sql::<
+                            diesel::sql_types::Text,
+                        >(
+                            "MAX(user_authentication_activity.updated_at, excluded.updated_at)",
+                        )),
+                    ))
+                    .execute(conn)?;
+            }
+            Ok(changed)
+        })
     }
     pub fn revoke_session(conn: &mut diesel::SqliteConnection, digest: &str) -> QueryResult<usize> {
         let now = chrono::Utc::now().to_rfc3339();

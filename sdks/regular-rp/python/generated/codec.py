@@ -1922,6 +1922,87 @@ def _get_user_response_from_cbor(data: bytes) -> "GetUserResponse":
 GetUserResponse.to_cbor = _get_user_response_to_cbor
 GetUserResponse.from_cbor = staticmethod(_get_user_response_from_cbor)
 
+def _encode_user_authentication_activity_value(v: "UserAuthenticationActivity") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["user_id"] = v.user_id
+    csil_x = v.last_seen_at
+    if csil_x is not None:
+        csil_m["last_seen_at"] = csil_x
+    csil_x = v.last_authenticated_at
+    if csil_x is not None:
+        csil_m["last_authenticated_at"] = csil_x
+    csil_m["active_browser_session_count"] = v.active_browser_session_count
+    csil_m["successful_authentication_count"] = v.successful_authentication_count
+    return csil_m
+
+def _decode_user_authentication_activity_value(tree: Any) -> "UserAuthenticationActivity":
+    tree = _csil_expect_map(tree)
+    return UserAuthenticationActivity(
+        user_id=_csil_expect_text(tree["user_id"]),
+        last_authenticated_at=(None if tree.get("last_authenticated_at") is None else _csil_expect_text(tree["last_authenticated_at"])),
+        last_seen_at=(None if tree.get("last_seen_at") is None else _csil_expect_text(tree["last_seen_at"])),
+        successful_authentication_count=_csil_expect_int(tree["successful_authentication_count"]),
+        active_browser_session_count=_csil_expect_int(tree["active_browser_session_count"]),
+    )
+
+
+def _user_authentication_activity_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_user_authentication_activity_value(self))
+
+
+def _user_authentication_activity_from_cbor(data: bytes) -> "UserAuthenticationActivity":
+    return _decode_user_authentication_activity_value(cbor_decode(data))
+
+
+UserAuthenticationActivity.to_cbor = _user_authentication_activity_to_cbor
+UserAuthenticationActivity.from_cbor = staticmethod(_user_authentication_activity_from_cbor)
+
+def _encode_get_user_authentication_activity_request_value(v: "GetUserAuthenticationActivityRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["user_id"] = v.user_id
+    return csil_m
+
+def _decode_get_user_authentication_activity_request_value(tree: Any) -> "GetUserAuthenticationActivityRequest":
+    tree = _csil_expect_map(tree)
+    return GetUserAuthenticationActivityRequest(
+        user_id=_csil_expect_text(tree["user_id"]),
+    )
+
+
+def _get_user_authentication_activity_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_get_user_authentication_activity_request_value(self))
+
+
+def _get_user_authentication_activity_request_from_cbor(data: bytes) -> "GetUserAuthenticationActivityRequest":
+    return _decode_get_user_authentication_activity_request_value(cbor_decode(data))
+
+
+GetUserAuthenticationActivityRequest.to_cbor = _get_user_authentication_activity_request_to_cbor
+GetUserAuthenticationActivityRequest.from_cbor = staticmethod(_get_user_authentication_activity_request_from_cbor)
+
+def _encode_get_user_authentication_activity_response_value(v: "GetUserAuthenticationActivityResponse") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["activity"] = _encode_user_authentication_activity_value(v.activity)
+    return csil_m
+
+def _decode_get_user_authentication_activity_response_value(tree: Any) -> "GetUserAuthenticationActivityResponse":
+    tree = _csil_expect_map(tree)
+    return GetUserAuthenticationActivityResponse(
+        activity=_decode_user_authentication_activity_value(tree["activity"]),
+    )
+
+
+def _get_user_authentication_activity_response_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_get_user_authentication_activity_response_value(self))
+
+
+def _get_user_authentication_activity_response_from_cbor(data: bytes) -> "GetUserAuthenticationActivityResponse":
+    return _decode_get_user_authentication_activity_response_value(cbor_decode(data))
+
+
+GetUserAuthenticationActivityResponse.to_cbor = _get_user_authentication_activity_response_to_cbor
+GetUserAuthenticationActivityResponse.from_cbor = staticmethod(_get_user_authentication_activity_response_from_cbor)
+
 def _encode_create_user_request_value(v: "CreateUserRequest") -> Dict[Any, Any]:
     csil_m: Dict[Any, Any] = {}
     csil_x = v.password

@@ -74,9 +74,12 @@ pub fn caller_may_manage_target(pool: &DbPool, caller_id: &str, target_user_id: 
 pub fn required_relation_for_op(service: &str, op: &str) -> Option<&'static str> {
     match service {
         "Admin" => Some(match op {
-            "list-users" | "get-user" | "create-user" | "update-user" | "authenticate" => {
-                RELATION_MANAGE_USERS
-            }
+            "list-users"
+            | "get-user"
+            | "get-user-authentication-activity"
+            | "create-user"
+            | "update-user"
+            | "authenticate" => RELATION_MANAGE_USERS,
             // These operations can take over or disable an account. Requiring
             // full admin authority avoids a race with concurrent admin grants.
             "deactivate-user" | "reset-password" | "remove-credential" => RELATION_ADMIN,

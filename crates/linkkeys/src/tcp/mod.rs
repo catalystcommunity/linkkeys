@@ -1909,6 +1909,11 @@ fn dispatch_admin(op: &str, payload: &[u8], db_pool: &DbPool, caller_id: &str) -
             admin::get_user,
             codec::encode_get_user_response
         ),
+        "get-user-authentication-activity" => admin_op!(
+            codec::decode_get_user_authentication_activity_request,
+            admin::get_user_authentication_activity,
+            codec::encode_get_user_authentication_activity_response
+        ),
         "create-user" => admin_op!(
             codec::decode_create_user_request,
             admin::create_user,

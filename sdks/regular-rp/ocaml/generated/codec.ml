@@ -565,6 +565,34 @@ and encode_get_user_response (v : get_user_response) : Cbor.t =
          Some (Cbor.Text "user", (encode_admin_user v.user));
        ])
 
+and encode_user_authentication_activity (v : user_authentication_activity) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
+         (match v.last_seen_at with Some csil_x -> Some (Cbor.Text "last_seen_at", (Cbor.Text csil_x)) | None -> None);
+         (match v.last_authenticated_at with Some csil_x -> Some (Cbor.Text "last_authenticated_at", (Cbor.Text csil_x)) | None -> None);
+         Some (Cbor.Text "active_browser_session_count", (Cbor.int64 v.active_browser_session_count));
+         Some (Cbor.Text "successful_authentication_count", (Cbor.int64 v.successful_authentication_count));
+       ])
+
+and encode_get_user_authentication_activity_request (v : get_user_authentication_activity_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
+       ])
+
+and encode_get_user_authentication_activity_response (v : get_user_authentication_activity_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "activity", (encode_user_authentication_activity v.activity));
+       ])
+
 and encode_create_user_request (v : create_user_request) : Cbor.t =
   Cbor.Map
     (List.filter_map
@@ -3172,6 +3200,49 @@ and decode_get_user_response (csil_c : Cbor.t) : get_user_response =
         user = (decode_admin_user (csil_req "user"));
       }
   | _ -> failwith "csilgen: expected map for get_user_response"
+
+and decode_user_authentication_activity (csil_c : Cbor.t) : user_authentication_activity =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        user_id = (Cbor.to_text (csil_req "user_id"));
+        last_seen_at = (match csil_field "last_seen_at" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        last_authenticated_at = (match csil_field "last_authenticated_at" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        active_browser_session_count = (Cbor.to_i64 (csil_req "active_browser_session_count"));
+        successful_authentication_count = (Cbor.to_i64 (csil_req "successful_authentication_count"));
+      }
+  | _ -> failwith "csilgen: expected map for user_authentication_activity"
+
+and decode_get_user_authentication_activity_request (csil_c : Cbor.t) : get_user_authentication_activity_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        user_id = (Cbor.to_text (csil_req "user_id"));
+      }
+  | _ -> failwith "csilgen: expected map for get_user_authentication_activity_request"
+
+and decode_get_user_authentication_activity_response (csil_c : Cbor.t) : get_user_authentication_activity_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        activity = (decode_user_authentication_activity (csil_req "activity"));
+      }
+  | _ -> failwith "csilgen: expected map for get_user_authentication_activity_response"
 
 and decode_create_user_request (csil_c : Cbor.t) : create_user_request =
   match csil_c with
@@ -6082,6 +6153,18 @@ let decode_get_user_request_bytes (b : bytes) : get_user_request =
 let encode_get_user_response_bytes (v : get_user_response) : bytes = Cbor.encode (encode_get_user_response v)
 let decode_get_user_response_bytes (b : bytes) : get_user_response =
   match Cbor.decode b with Ok c -> decode_get_user_response c | Error e -> failwith e
+
+let encode_user_authentication_activity_bytes (v : user_authentication_activity) : bytes = Cbor.encode (encode_user_authentication_activity v)
+let decode_user_authentication_activity_bytes (b : bytes) : user_authentication_activity =
+  match Cbor.decode b with Ok c -> decode_user_authentication_activity c | Error e -> failwith e
+
+let encode_get_user_authentication_activity_request_bytes (v : get_user_authentication_activity_request) : bytes = Cbor.encode (encode_get_user_authentication_activity_request v)
+let decode_get_user_authentication_activity_request_bytes (b : bytes) : get_user_authentication_activity_request =
+  match Cbor.decode b with Ok c -> decode_get_user_authentication_activity_request c | Error e -> failwith e
+
+let encode_get_user_authentication_activity_response_bytes (v : get_user_authentication_activity_response) : bytes = Cbor.encode (encode_get_user_authentication_activity_response v)
+let decode_get_user_authentication_activity_response_bytes (b : bytes) : get_user_authentication_activity_response =
+  match Cbor.decode b with Ok c -> decode_get_user_authentication_activity_response c | Error e -> failwith e
 
 let encode_create_user_request_bytes (v : create_user_request) : bytes = Cbor.encode (encode_create_user_request v)
 let decode_create_user_request_bytes (b : bytes) : create_user_request =

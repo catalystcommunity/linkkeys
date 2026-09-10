@@ -660,6 +660,23 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         decode_get_user_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
     }
 
+    /// get-user-authentication-activity (request/response).
+    pub async fn get_user_authentication_activity(
+        &self,
+        req: GetUserAuthenticationActivityRequest,
+    ) -> Result<GetUserAuthenticationActivityResponse, ClientError> {
+        let csil_resp = self
+            .transport
+            .call(
+                "Admin",
+                "get-user-authentication-activity",
+                &encode_get_user_authentication_activity_request(&req),
+            )
+            .await?;
+        decode_get_user_authentication_activity_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
     /// create-user (request/response).
     pub async fn create_user(
         &self,

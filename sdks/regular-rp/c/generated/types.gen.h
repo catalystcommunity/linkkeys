@@ -84,6 +84,9 @@ typedef struct ListUsersRequest ListUsersRequest;
 typedef struct ListUsersResponse ListUsersResponse;
 typedef struct GetUserRequest GetUserRequest;
 typedef struct GetUserResponse GetUserResponse;
+typedef struct UserAuthenticationActivity UserAuthenticationActivity;
+typedef struct GetUserAuthenticationActivityRequest GetUserAuthenticationActivityRequest;
+typedef struct GetUserAuthenticationActivityResponse GetUserAuthenticationActivityResponse;
 typedef struct CreateUserRequest CreateUserRequest;
 typedef struct CreateUserResponse CreateUserResponse;
 typedef struct UpdateUserRequest UpdateUserRequest;
@@ -716,6 +719,25 @@ typedef struct GetUserRequest {
 typedef struct GetUserResponse {
     AdminUser user;
 } GetUserResponse;
+
+/* UserAuthenticationActivity is a structured data type. */
+typedef struct UserAuthenticationActivity {
+    char *user_id;
+    char *last_authenticated_at;
+    char *last_seen_at;
+    int64_t successful_authentication_count;
+    int64_t active_browser_session_count;
+} UserAuthenticationActivity;
+
+/* GetUserAuthenticationActivityRequest is a structured data type. */
+typedef struct GetUserAuthenticationActivityRequest {
+    char *user_id;
+} GetUserAuthenticationActivityRequest;
+
+/* GetUserAuthenticationActivityResponse is a structured data type. */
+typedef struct GetUserAuthenticationActivityResponse {
+    UserAuthenticationActivity activity;
+} GetUserAuthenticationActivityResponse;
 
 /* CreateUserRequest is a structured data type. */
 typedef struct CreateUserRequest {

@@ -481,6 +481,13 @@ class AdminClient
         return Codec::decodeGetUserResponse($reply);
     }
 
+    public function getUserAuthenticationActivity($request)
+    {
+        $payload = Codec::encodeGetUserAuthenticationActivityRequest($request);
+        $reply = $this->transport->call('Admin', 'get-user-authentication-activity', $payload);
+        return Codec::decodeGetUserAuthenticationActivityResponse($reply);
+    }
+
     public function createUser($request)
     {
         $payload = Codec::encodeCreateUserRequest($request);

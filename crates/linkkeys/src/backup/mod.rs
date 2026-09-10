@@ -213,6 +213,7 @@ const SNAPSHOT_TABLES: &[&str] = &[
     "domain_keys",
     "users",
     "auth_credentials",
+    "user_authentication_activity",
     "relations",
     "user_keys",
     "claims",
@@ -296,6 +297,10 @@ mod sqlite_backend {
     backup_row!(AuthCredentialRow => auth_credentials {
         id: String, user_id: String, credential_type: String, credential_hash: String,
         created_at: String, expires_at: Option<String>, revoked_at: Option<String>, updated_at: String,
+    });
+    backup_row!(UserAuthenticationActivityRow => user_authentication_activity {
+        user_id: String, last_authenticated_at: String, last_seen_at: String,
+        successful_authentication_count: i64, created_at: String, updated_at: String,
     });
     backup_row!(RelationRow => relations {
         id: String, subject_type: String, subject_id: String, relation: String,
@@ -443,6 +448,7 @@ mod sqlite_backend {
             $op!("domain_keys", domain_keys, DomainKeyRow, $($arg)*);
             $op!("users", users, UserRow, $($arg)*);
             $op!("auth_credentials", auth_credentials, AuthCredentialRow, $($arg)*);
+            $op!("user_authentication_activity", user_authentication_activity, UserAuthenticationActivityRow, $($arg)*);
             $op!("relations", relations, RelationRow, $($arg)*);
             $op!("user_keys", user_keys, UserKeyRow, $($arg)*);
             $op!("claims", claims, ClaimRow, $($arg)*);

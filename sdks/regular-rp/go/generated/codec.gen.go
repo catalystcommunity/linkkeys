@@ -4014,6 +4014,167 @@ func DecodeGetUserResponse(csilData []byte) (GetUserResponse, error) {
 	return csilDecGetUserResponse(csilRoot)
 }
 
+// csilEncUserAuthenticationActivity builds the canonical CBOR value tree for a UserAuthenticationActivity.
+func csilEncUserAuthenticationActivity(csilV UserAuthenticationActivity) cborValue {
+	csilEntries := make(cborMap, 0, 5)
+	csilEntries = append(csilEntries, cborEntry{cborText("user_id"), cborText(csilV.UserId)})
+	if csilV.LastSeenAt != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("last_seen_at"), cborText((*csilV.LastSeenAt))})
+	}
+	if csilV.LastAuthenticatedAt != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("last_authenticated_at"), cborText((*csilV.LastAuthenticatedAt))})
+	}
+	csilEntries = append(csilEntries, cborEntry{cborText("active_browser_session_count"), cborInt(csilV.ActiveBrowserSessionCount)})
+	csilEntries = append(csilEntries, cborEntry{cborText("successful_authentication_count"), cborInt(csilV.SuccessfulAuthenticationCount)})
+	return csilEntries
+}
+
+// csilDecUserAuthenticationActivity reconstructs a UserAuthenticationActivity from a decoded CBOR value tree.
+func csilDecUserAuthenticationActivity(csilRoot cborValue) (UserAuthenticationActivity, error) {
+	var csilOut UserAuthenticationActivity
+	{
+		csilField, csilErr := cborRequire(csilRoot, "user_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.UserId = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "last_authenticated_at"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.LastAuthenticatedAt = &csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "last_seen_at"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.LastSeenAt = &csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "successful_authentication_count")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsI64)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SuccessfulAuthenticationCount = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "active_browser_session_count")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsI64)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ActiveBrowserSessionCount = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeUserAuthenticationActivity encodes a UserAuthenticationActivity to canonical CSIL CBOR bytes.
+func EncodeUserAuthenticationActivity(csilV UserAuthenticationActivity) []byte {
+	return cborEncode(csilEncUserAuthenticationActivity(csilV))
+}
+
+// DecodeUserAuthenticationActivity decodes canonical CSIL CBOR bytes into a UserAuthenticationActivity.
+func DecodeUserAuthenticationActivity(csilData []byte) (UserAuthenticationActivity, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero UserAuthenticationActivity
+		return csilZero, csilErr
+	}
+	return csilDecUserAuthenticationActivity(csilRoot)
+}
+
+// csilEncGetUserAuthenticationActivityRequest builds the canonical CBOR value tree for a GetUserAuthenticationActivityRequest.
+func csilEncGetUserAuthenticationActivityRequest(csilV GetUserAuthenticationActivityRequest) cborValue {
+	csilEntries := make(cborMap, 0, 1)
+	csilEntries = append(csilEntries, cborEntry{cborText("user_id"), cborText(csilV.UserId)})
+	return csilEntries
+}
+
+// csilDecGetUserAuthenticationActivityRequest reconstructs a GetUserAuthenticationActivityRequest from a decoded CBOR value tree.
+func csilDecGetUserAuthenticationActivityRequest(csilRoot cborValue) (GetUserAuthenticationActivityRequest, error) {
+	var csilOut GetUserAuthenticationActivityRequest
+	{
+		csilField, csilErr := cborRequire(csilRoot, "user_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.UserId = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeGetUserAuthenticationActivityRequest encodes a GetUserAuthenticationActivityRequest to canonical CSIL CBOR bytes.
+func EncodeGetUserAuthenticationActivityRequest(csilV GetUserAuthenticationActivityRequest) []byte {
+	return cborEncode(csilEncGetUserAuthenticationActivityRequest(csilV))
+}
+
+// DecodeGetUserAuthenticationActivityRequest decodes canonical CSIL CBOR bytes into a GetUserAuthenticationActivityRequest.
+func DecodeGetUserAuthenticationActivityRequest(csilData []byte) (GetUserAuthenticationActivityRequest, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero GetUserAuthenticationActivityRequest
+		return csilZero, csilErr
+	}
+	return csilDecGetUserAuthenticationActivityRequest(csilRoot)
+}
+
+// csilEncGetUserAuthenticationActivityResponse builds the canonical CBOR value tree for a GetUserAuthenticationActivityResponse.
+func csilEncGetUserAuthenticationActivityResponse(csilV GetUserAuthenticationActivityResponse) cborValue {
+	csilEntries := make(cborMap, 0, 1)
+	csilEntries = append(csilEntries, cborEntry{cborText("activity"), csilEncUserAuthenticationActivity(csilV.Activity)})
+	return csilEntries
+}
+
+// csilDecGetUserAuthenticationActivityResponse reconstructs a GetUserAuthenticationActivityResponse from a decoded CBOR value tree.
+func csilDecGetUserAuthenticationActivityResponse(csilRoot cborValue) (GetUserAuthenticationActivityResponse, error) {
+	var csilOut GetUserAuthenticationActivityResponse
+	{
+		csilField, csilErr := cborRequire(csilRoot, "activity")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (csilDecUserAuthenticationActivity)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Activity = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeGetUserAuthenticationActivityResponse encodes a GetUserAuthenticationActivityResponse to canonical CSIL CBOR bytes.
+func EncodeGetUserAuthenticationActivityResponse(csilV GetUserAuthenticationActivityResponse) []byte {
+	return cborEncode(csilEncGetUserAuthenticationActivityResponse(csilV))
+}
+
+// DecodeGetUserAuthenticationActivityResponse decodes canonical CSIL CBOR bytes into a GetUserAuthenticationActivityResponse.
+func DecodeGetUserAuthenticationActivityResponse(csilData []byte) (GetUserAuthenticationActivityResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero GetUserAuthenticationActivityResponse
+		return csilZero, csilErr
+	}
+	return csilDecGetUserAuthenticationActivityResponse(csilRoot)
+}
+
 // csilEncCreateUserRequest builds the canonical CBOR value tree for a CreateUserRequest.
 func csilEncCreateUserRequest(csilV CreateUserRequest) cborValue {
 	csilEntries := make(cborMap, 0, 3)

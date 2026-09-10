@@ -281,6 +281,12 @@ pub trait Admin {
         ctx: &Self::Context,
         input: GetUserRequest,
     ) -> Result<GetUserResponse, ServiceError>;
+    /// get-user-authentication-activity (request/response).
+    fn get_user_authentication_activity(
+        &self,
+        ctx: &Self::Context,
+        input: GetUserAuthenticationActivityRequest,
+    ) -> Result<GetUserAuthenticationActivityResponse, ServiceError>;
     /// create-user (request/response).
     fn create_user(
         &self,

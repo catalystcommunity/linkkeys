@@ -351,6 +351,22 @@ export interface GetUserResponse {
   user: AdminUser;
 }
 
+export interface UserAuthenticationActivity {
+  userId: string;
+  lastAuthenticatedAt?: string;
+  lastSeenAt?: string;
+  successfulAuthenticationCount: number;
+  activeBrowserSessionCount: number;
+}
+
+export interface GetUserAuthenticationActivityRequest {
+  userId: string;
+}
+
+export interface GetUserAuthenticationActivityResponse {
+  activity: UserAuthenticationActivity;
+}
+
 export interface CreateUserRequest {
   username: string;
   displayName: string;

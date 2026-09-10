@@ -167,3 +167,31 @@ screen if silent completion fails.
 Older generated clients ignore the additional response keys. New generated
 clients accept an older server that omits them. An older server ignores the
 optional completion field.
+
+## Upgrading to the release with user authentication activity
+
+### New op: `Admin/get-user-authentication-activity`
+
+This operation returns authentication activity for one user. It requires the
+`manage_users` relation. The response contains these fields:
+
+- `last_authenticated_at`: The time of the last successful authentication.
+- `last_seen_at`: The last activity time that LinkKeys recorded for a
+  successful authentication. Browser-session refreshes update this value.
+- `successful_authentication_count`: The number of successful authentications
+  that LinkKeys recorded.
+- `active_browser_session_count`: The number of browser sessions that are not
+  expired, idle, or revoked.
+
+The first three values are in the durable `user_authentication_activity`
+table. They remain after LinkKeys removes a browser-session row. LinkKeys adds
+this table to encrypted backups. A user who has not authenticated has absent
+timestamps and a successful-authentication count of zero.
+
+On the first start after the upgrade, LinkKeys copies available activity from
+existing browser-session rows. It cannot restore data from session rows that
+were removed before the upgrade.
+
+LinkKeys removes the durable activity when it purges the user. The operation
+does not return sign-in, sign-out, or failed-attempt history. That history
+needs a separate retention policy and API.

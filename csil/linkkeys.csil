@@ -561,6 +561,26 @@ GetUserResponse = {
     user: AdminUser
 }
 
+;; Durable authentication activity for one user. The last-authenticated and
+;; last-seen values remain after browser-session rows expire or are removed.
+;; The active-session count is a current value and excludes expired, idle, and
+;; revoked browser sessions.
+UserAuthenticationActivity = {
+    user_id: text,
+    ? last_authenticated_at: text,
+    ? last_seen_at: text,
+    successful_authentication_count: int,
+    active_browser_session_count: int
+}
+
+GetUserAuthenticationActivityRequest = {
+    user_id: text
+}
+
+GetUserAuthenticationActivityResponse = {
+    activity: UserAuthenticationActivity
+}
+
 CreateUserRequest = {
     username: text,
     display_name: text,
@@ -2226,6 +2246,7 @@ service BrowserAuthorization {
 service Admin {
     list-users: ListUsersRequest -> ListUsersResponse,
     get-user: GetUserRequest -> GetUserResponse,
+    get-user-authentication-activity: GetUserAuthenticationActivityRequest -> GetUserAuthenticationActivityResponse,
     create-user: CreateUserRequest -> CreateUserResponse,
     update-user: UpdateUserRequest -> UpdateUserResponse,
     deactivate-user: DeactivateUserRequest -> DeactivateUserResponse,

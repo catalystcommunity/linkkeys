@@ -1234,6 +1234,66 @@ public struct GetUserResponse: Equatable, Sendable {
     ]
 }
 
+/// UserAuthenticationActivity is a generated CSIL record type.
+public struct UserAuthenticationActivity: Equatable, Sendable {
+    /// wire key: user_id
+    public let userId: String
+    /// wire key: last_authenticated_at
+    public let lastAuthenticatedAt: String?
+    /// wire key: last_seen_at
+    public let lastSeenAt: String?
+    /// wire key: successful_authentication_count
+    public let successfulAuthenticationCount: Int64
+    /// wire key: active_browser_session_count
+    public let activeBrowserSessionCount: Int64
+
+    public init(userId: String, lastAuthenticatedAt: String? = nil, lastSeenAt: String? = nil, successfulAuthenticationCount: Int64, activeBrowserSessionCount: Int64) {
+        self.userId = userId
+        self.lastAuthenticatedAt = lastAuthenticatedAt
+        self.lastSeenAt = lastSeenAt
+        self.successfulAuthenticationCount = successfulAuthenticationCount
+        self.activeBrowserSessionCount = activeBrowserSessionCount
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "userId": "user_id",
+        "lastAuthenticatedAt": "last_authenticated_at",
+        "lastSeenAt": "last_seen_at",
+        "successfulAuthenticationCount": "successful_authentication_count",
+        "activeBrowserSessionCount": "active_browser_session_count"
+    ]
+}
+
+/// GetUserAuthenticationActivityRequest is a generated CSIL record type.
+public struct GetUserAuthenticationActivityRequest: Equatable, Sendable {
+    /// wire key: user_id
+    public let userId: String
+
+    public init(userId: String) {
+        self.userId = userId
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "userId": "user_id"
+    ]
+}
+
+/// GetUserAuthenticationActivityResponse is a generated CSIL record type.
+public struct GetUserAuthenticationActivityResponse: Equatable, Sendable {
+    public let activity: UserAuthenticationActivity
+
+    public init(activity: UserAuthenticationActivity) {
+        self.activity = activity
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "activity": "activity"
+    ]
+}
+
 /// CreateUserRequest is a generated CSIL record type.
 public struct CreateUserRequest: Equatable, Sendable {
     public let username: String
