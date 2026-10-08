@@ -1429,6 +1429,227 @@ export interface RpResolveApplicationKeysResponse {
   cacheStatus: string;
 }
 
+export interface ApplicationRef {
+  subjectUserId: string;
+  subjectDomain: string;
+  applicationId: string;
+}
+
+export interface GranteeRef {
+  application?: ApplicationRef;
+  localRpDescriptorFingerprint?: string;
+}
+
+export interface GranteeProof {
+  applicationInstanceId?: string;
+  localRpDescriptor?: SignedLocalRpDescriptor;
+  signature: ApplicationKeySignature;
+}
+
+export interface ActAsScopeEntry {
+  scope: string;
+  description?: string;
+}
+
+export interface ActAsScopeSet {
+  audience: ApplicationRef;
+  grantee: GranteeRef;
+  entries: ActAsScopeEntry[];
+  language?: string;
+  audienceHandleClaim?: Claim;
+  issuedAt: string;
+  expiresAt: string;
+}
+
+export interface SignedActAsScopeSet {
+  scopeSet: Uint8Array;
+  signerInstanceId: string;
+  signatures: ApplicationKeySignature[];
+}
+
+export interface ActAsScopeSetRequest {
+  grantee: GranteeRef;
+  scope: string[];
+  localePreferences?: string[];
+}
+
+export interface ActAsGrant {
+  grantId: string;
+  userId: string;
+  subjectDomain: string;
+  grantee: GranteeRef;
+  audience: ApplicationRef;
+  scopeSet: SignedActAsScopeSet;
+  approvedScope: string[];
+  issuedAt: string;
+  expiresAt: string;
+  seriesIssuedAt: string;
+  renewableUntil: string;
+  deviceFingerprint?: string;
+}
+
+export interface SignedActAsGrant {
+  grant: Uint8Array;
+  signatures: ClaimSignature[];
+}
+
+export interface ActAsGrantRequest {
+  grantee: GranteeRef;
+  scopeSet: SignedActAsScopeSet;
+  requestedLifetimeSeconds?: number;
+  requestedRenewalWindowSeconds?: number;
+  granteeHandleClaim?: Claim;
+  callbackUrl: string;
+  nonce: string;
+  requestedAt: string;
+  expiresAt: string;
+}
+
+export interface SignedActAsGrantRequest {
+  request: Uint8Array;
+  proof: GranteeProof;
+}
+
+export interface ActAsRefreshRequest {
+  grantId: string;
+  grantee: GranteeRef;
+  requestedAt: string;
+  expiresAt: string;
+  nonce: string;
+}
+
+export interface SignedActAsRefreshRequest {
+  request: Uint8Array;
+  proof: GranteeProof;
+}
+
+export interface RefreshActAsGrantRequest {
+  request: SignedActAsRefreshRequest;
+}
+
+export interface RefreshActAsGrantResponse {
+  grant: SignedActAsGrant;
+  signed: boolean;
+}
+
+export interface ActAsPresentation {
+  grantHash: Uint8Array;
+  audience: ApplicationRef;
+  requestDigest: Uint8Array;
+  presentedAt: string;
+  nonce: Uint8Array;
+}
+
+export interface SignedActAsPresentation {
+  presentation: Uint8Array;
+  proof: GranteeProof;
+}
+
+export interface ActAsCredential {
+  grant: SignedActAsGrant;
+  presentation: SignedActAsPresentation;
+}
+
+export interface ActAsGrantRevocation {
+  grantId: string;
+  userId: string;
+  subjectDomain: string;
+  revokedAt: string;
+}
+
+export interface SignedActAsGrantRevocation {
+  revocation: Uint8Array;
+  signatures: ClaimSignature[];
+}
+
+export interface GetActAsGrantRevocationsRequest {
+  grantIds: string[];
+}
+
+export interface GetActAsGrantRevocationsResponse {
+  revocations: SignedActAsGrantRevocation[];
+}
+
+export interface RpActAsRefreshRequest {
+  subjectDomain: string;
+  request: SignedActAsRefreshRequest;
+}
+
+export interface RpResolveActAsRevocationsRequest {
+  subjectDomain: string;
+  grantIds: string[];
+}
+
+export interface BrowserActAsInspectRequest {
+  signedRequest: string;
+}
+
+export interface BrowserActAsScopeEntry {
+  scope: string;
+  description?: string;
+  removedByPolicy: boolean;
+}
+
+export interface BrowserActAsParty {
+  domain?: string;
+  applicationId?: string;
+  subjectUserId?: string;
+  handle?: string;
+  localRpName?: string;
+  localRpFingerprint?: string;
+  ownDomain: boolean;
+  userHasHistory: boolean;
+  domainKeyPinned: boolean;
+  operatorTrusted: boolean;
+}
+
+export interface BrowserActAsInspectResponse {
+  grantee: GranteeRef;
+  granteeParty: BrowserActAsParty;
+  audience: ApplicationRef;
+  audienceParty: BrowserActAsParty;
+  entries: BrowserActAsScopeEntry[];
+  language?: string;
+  defaultLifetimeSeconds: number;
+  maxLifetimeSeconds: number;
+  defaultRenewalWindowSeconds: number;
+  maxRenewalWindowSeconds: number;
+}
+
+export interface BrowserActAsCompleteRequest {
+  signedRequest: string;
+  approvedScope: string[];
+  lifetimeSeconds: number;
+  renewalWindowSeconds: number;
+}
+
+export interface BrowserActAsCompleteResponse {
+  redirectUrl: string;
+}
+
+export interface ActAsGrantSummary {
+  grantId: string;
+  grantee: GranteeRef;
+  audience: ApplicationRef;
+  approvedScope: string[];
+  issuedAt: string;
+  expiresAt: string;
+  renewableUntil: string;
+  revokedAt?: string;
+}
+
+export interface ListActAsGrantsResponse {
+  grants: ActAsGrantSummary[];
+}
+
+export interface RevokeActAsGrantRequest {
+  grantId: string;
+}
+
+export interface RevokeActAsGrantResponse {
+  revokedAt: string;
+}
+
 export function validateLocalRpDescriptor(value: LocalRpDescriptor): string[] {
   const errors: string[] = [];
   if (value.signingPublicKey.length !== 32) errors.push("signingPublicKey: length must equal 32");

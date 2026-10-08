@@ -11,9 +11,9 @@ namespace LinkKeys.LocalRp;
 /// </summary>
 public static class UrlEncoding
 {
-    private static string EncodeUrlParam(byte[] b) => Convert.ToBase64String(b).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    internal static string EncodeUrlParam(byte[] b) => Convert.ToBase64String(b).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
-    private static byte[] DecodeUrlParam(string s)
+    internal static byte[] DecodeUrlParam(string s)
     {
         if (s.Contains('='))
         {

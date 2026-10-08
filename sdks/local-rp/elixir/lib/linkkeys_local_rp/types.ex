@@ -170,6 +170,93 @@ defmodule LinkkeysLocalRp.Types do
     defstruct [:revocations]
   end
 
+  # -- Act-as grants (docs/spec/reserved/act-as-grants.md) ----------------
+
+  defmodule ApplicationRef do
+    @moduledoc "CSIL `ApplicationRef` — an enrolled application. An act-as audience is always one of these."
+    defstruct [:subject_user_id, :subject_domain, :application_id]
+  end
+
+  defmodule GranteeRef do
+    @moduledoc "CSIL `GranteeRef` — exactly one of `application` or `local_rp_descriptor_fingerprint`."
+    defstruct application: nil, local_rp_descriptor_fingerprint: nil
+  end
+
+  defmodule ApplicationKeySignature do
+    @moduledoc "CSIL `ApplicationKeySignature`."
+    defstruct [:signed_by_key_id, :signature]
+  end
+
+  defmodule GranteeProof do
+    @moduledoc "CSIL `GranteeProof` — a local RP sets `local_rp_descriptor`, never `application_instance_id`."
+    defstruct [:signature, application_instance_id: nil, local_rp_descriptor: nil]
+  end
+
+  defmodule SignedActAsScopeSet do
+    @moduledoc """
+    CSIL `SignedActAsScopeSet` — the audience's signed scope set. `scope_set` is kept as the
+    exact signed bytes. `signatures` is a non-empty list of `ApplicationKeySignature`.
+    """
+    defstruct [:scope_set, :signer_instance_id, :signatures]
+  end
+
+  defmodule ActAsGrantRequest do
+    @moduledoc """
+    CSIL `ActAsGrantRequest`. A local RP never sends the optional `grantee_handle_claim` (it
+    has no enrolling account), so this struct does not carry it and the encoder always omits it.
+    """
+    defstruct [
+      :grantee,
+      :scope_set,
+      :callback_url,
+      :nonce,
+      :requested_at,
+      :expires_at,
+      requested_lifetime_seconds: nil,
+      requested_renewal_window_seconds: nil
+    ]
+  end
+
+  defmodule SignedActAsGrantRequest do
+    @moduledoc "CSIL `SignedActAsGrantRequest` — the exact `ActAsGrantRequest` bytes plus the grantee proof."
+    defstruct [:request, :proof]
+  end
+
+  defmodule ActAsRefreshRequest do
+    @moduledoc "CSIL `ActAsRefreshRequest`."
+    defstruct [:grant_id, :grantee, :requested_at, :expires_at, :nonce]
+  end
+
+  defmodule SignedActAsRefreshRequest do
+    @moduledoc "CSIL `SignedActAsRefreshRequest`."
+    defstruct [:request, :proof]
+  end
+
+  defmodule SignedActAsGrant do
+    @moduledoc "CSIL `SignedActAsGrant` — `grant` is the exact home-domain-signed `ActAsGrant` bytes."
+    defstruct [:grant, :signatures]
+  end
+
+  defmodule RefreshActAsGrantResponse do
+    @moduledoc "CSIL `RefreshActAsGrantResponse` — `signed` is true when the home domain signed a new grant for this call."
+    defstruct [:grant, :signed]
+  end
+
+  defmodule ActAsPresentation do
+    @moduledoc "CSIL `ActAsPresentation`."
+    defstruct [:grant_hash, :audience, :request_digest, :presented_at, :nonce]
+  end
+
+  defmodule SignedActAsPresentation do
+    @moduledoc "CSIL `SignedActAsPresentation`."
+    defstruct [:presentation, :proof]
+  end
+
+  defmodule ActAsCredential do
+    @moduledoc "CSIL `ActAsCredential` — what a grantee sends the audience with each call."
+    defstruct [:grant, :presentation]
+  end
+
   # -- helpers -----------------------------------------------------------
 
   defp put_opt(map, _key, nil), do: map
@@ -182,6 +269,9 @@ defmodule LinkkeysLocalRp.Types do
   defp get_opt(tree, key), do: Map.get(tree, key)
 
   defp map_list(list, f), do: Enum.map(list, f)
+
+  defp non_empty_list!([_ | _] = list, f), do: Enum.map(list, f)
+  defp non_empty_list!(_, _), do: raise(ArgumentError, "expected a non-empty CBOR array")
 
   # -- DomainPublicKey -----------------------------------------------------
 
@@ -651,4 +741,248 @@ defmodule LinkkeysLocalRp.Types do
 
   def get_revocations_response_from_cbor(data),
     do: get_revocations_response_from_tree(Cbor.decode(data))
+
+  # -- ApplicationRef -----------------------------------------------------------
+
+  def application_ref_to_tree(%ApplicationRef{} = v) do
+    %{
+      "subject_user_id" => v.subject_user_id,
+      "subject_domain" => v.subject_domain,
+      "application_id" => v.application_id
+    }
+  end
+
+  def application_ref_from_tree(tree) do
+    %ApplicationRef{
+      subject_user_id: get(tree, "subject_user_id"),
+      subject_domain: get(tree, "subject_domain"),
+      application_id: get(tree, "application_id")
+    }
+  end
+
+  # -- GranteeRef ----------------------------------------------------------------
+
+  def grantee_ref_to_tree(%GranteeRef{} = v) do
+    %{}
+    |> put_opt("application", if(v.application, do: application_ref_to_tree(v.application)))
+    |> put_opt("local_rp_descriptor_fingerprint", v.local_rp_descriptor_fingerprint)
+  end
+
+  def grantee_ref_from_tree(tree) do
+    %GranteeRef{
+      application: if(app = get_opt(tree, "application"), do: application_ref_from_tree(app)),
+      local_rp_descriptor_fingerprint: get_opt(tree, "local_rp_descriptor_fingerprint")
+    }
+  end
+
+  # -- ApplicationKeySignature ---------------------------------------------------
+
+  def application_key_signature_to_tree(%ApplicationKeySignature{} = v) do
+    %{"signed_by_key_id" => v.signed_by_key_id, "signature" => Cbor.bytes(v.signature)}
+  end
+
+  def application_key_signature_from_tree(tree) do
+    %ApplicationKeySignature{
+      signed_by_key_id: get(tree, "signed_by_key_id"),
+      signature: Cbor.bytes!(get(tree, "signature"))
+    }
+  end
+
+  # -- GranteeProof --------------------------------------------------------------
+
+  def grantee_proof_to_tree(%GranteeProof{} = v) do
+    %{"signature" => application_key_signature_to_tree(v.signature)}
+    |> put_opt("application_instance_id", v.application_instance_id)
+    |> put_opt(
+      "local_rp_descriptor",
+      if(v.local_rp_descriptor, do: signed_local_rp_descriptor_to_tree(v.local_rp_descriptor))
+    )
+  end
+
+  def grantee_proof_from_tree(tree) do
+    %GranteeProof{
+      signature: application_key_signature_from_tree(get(tree, "signature")),
+      application_instance_id: get_opt(tree, "application_instance_id"),
+      local_rp_descriptor: if(d = get_opt(tree, "local_rp_descriptor"), do: signed_local_rp_descriptor_from_tree(d))
+    }
+  end
+
+  # -- SignedActAsScopeSet -------------------------------------------------------
+
+  def signed_act_as_scope_set_to_tree(%SignedActAsScopeSet{} = v) do
+    %{
+      "scope_set" => Cbor.bytes(v.scope_set),
+      "signer_instance_id" => v.signer_instance_id,
+      "signatures" => Enum.map(v.signatures, &application_key_signature_to_tree/1)
+    }
+  end
+
+  def signed_act_as_scope_set_to_cbor(%SignedActAsScopeSet{} = v),
+    do: Cbor.encode(signed_act_as_scope_set_to_tree(v))
+
+  def signed_act_as_scope_set_from_tree(tree) do
+    %SignedActAsScopeSet{
+      scope_set: Cbor.bytes!(get(tree, "scope_set")),
+      signer_instance_id: get(tree, "signer_instance_id"),
+      signatures: non_empty_list!(get(tree, "signatures"), &application_key_signature_from_tree/1)
+    }
+  end
+
+  def signed_act_as_scope_set_from_cbor(data),
+    do: signed_act_as_scope_set_from_tree(Cbor.decode(data))
+
+  # -- ActAsGrantRequest -----------------------------------------------------------
+
+  def act_as_grant_request_to_tree(%ActAsGrantRequest{} = v) do
+    %{
+      "grantee" => grantee_ref_to_tree(v.grantee),
+      "scope_set" => signed_act_as_scope_set_to_tree(v.scope_set),
+      "callback_url" => v.callback_url,
+      "nonce" => v.nonce,
+      "requested_at" => v.requested_at,
+      "expires_at" => v.expires_at
+    }
+    |> put_opt("requested_lifetime_seconds", v.requested_lifetime_seconds)
+    |> put_opt("requested_renewal_window_seconds", v.requested_renewal_window_seconds)
+  end
+
+  def act_as_grant_request_to_cbor(%ActAsGrantRequest{} = v), do: Cbor.encode(act_as_grant_request_to_tree(v))
+
+  def act_as_grant_request_from_tree(tree) do
+    %ActAsGrantRequest{
+      grantee: grantee_ref_from_tree(get(tree, "grantee")),
+      scope_set: signed_act_as_scope_set_from_tree(get(tree, "scope_set")),
+      callback_url: get(tree, "callback_url"),
+      nonce: get(tree, "nonce"),
+      requested_at: get(tree, "requested_at"),
+      expires_at: get(tree, "expires_at"),
+      requested_lifetime_seconds: get_opt(tree, "requested_lifetime_seconds"),
+      requested_renewal_window_seconds: get_opt(tree, "requested_renewal_window_seconds")
+    }
+  end
+
+  def act_as_grant_request_from_cbor(data), do: act_as_grant_request_from_tree(Cbor.decode(data))
+
+  # -- SignedActAsGrantRequest / SignedActAsRefreshRequest --------------------------
+
+  def signed_act_as_grant_request_to_tree(%SignedActAsGrantRequest{} = v) do
+    %{"request" => Cbor.bytes(v.request), "proof" => grantee_proof_to_tree(v.proof)}
+  end
+
+  def signed_act_as_grant_request_to_cbor(%SignedActAsGrantRequest{} = v),
+    do: Cbor.encode(signed_act_as_grant_request_to_tree(v))
+
+  def signed_act_as_grant_request_from_cbor(data) do
+    tree = Cbor.decode(data)
+
+    %SignedActAsGrantRequest{
+      request: Cbor.bytes!(get(tree, "request")),
+      proof: grantee_proof_from_tree(get(tree, "proof"))
+    }
+  end
+
+  def signed_act_as_refresh_request_to_tree(%SignedActAsRefreshRequest{} = v) do
+    %{"request" => Cbor.bytes(v.request), "proof" => grantee_proof_to_tree(v.proof)}
+  end
+
+  def signed_act_as_refresh_request_to_cbor(%SignedActAsRefreshRequest{} = v),
+    do: Cbor.encode(signed_act_as_refresh_request_to_tree(v))
+
+  def signed_act_as_refresh_request_from_tree(tree) do
+    %SignedActAsRefreshRequest{
+      request: Cbor.bytes!(get(tree, "request")),
+      proof: grantee_proof_from_tree(get(tree, "proof"))
+    }
+  end
+
+  def signed_act_as_refresh_request_from_cbor(data),
+    do: signed_act_as_refresh_request_from_tree(Cbor.decode(data))
+
+  # -- ActAsRefreshRequest ------------------------------------------------------------
+
+  def act_as_refresh_request_to_tree(%ActAsRefreshRequest{} = v) do
+    %{
+      "grant_id" => v.grant_id,
+      "grantee" => grantee_ref_to_tree(v.grantee),
+      "requested_at" => v.requested_at,
+      "expires_at" => v.expires_at,
+      "nonce" => v.nonce
+    }
+  end
+
+  def act_as_refresh_request_to_cbor(%ActAsRefreshRequest{} = v), do: Cbor.encode(act_as_refresh_request_to_tree(v))
+
+  def act_as_refresh_request_from_cbor(data) do
+    tree = Cbor.decode(data)
+
+    %ActAsRefreshRequest{
+      grant_id: get(tree, "grant_id"),
+      grantee: grantee_ref_from_tree(get(tree, "grantee")),
+      requested_at: get(tree, "requested_at"),
+      expires_at: get(tree, "expires_at"),
+      nonce: get(tree, "nonce")
+    }
+  end
+
+  # -- RefreshActAsGrantRequest (CSIL `{request: SignedActAsRefreshRequest}`) ----------
+
+  def refresh_act_as_grant_request_to_cbor(%SignedActAsRefreshRequest{} = request),
+    do: Cbor.encode(%{"request" => signed_act_as_refresh_request_to_tree(request)})
+
+  def refresh_act_as_grant_request_from_cbor(data),
+    do: signed_act_as_refresh_request_from_tree(get(Cbor.decode(data), "request"))
+
+  # -- SignedActAsGrant / RefreshActAsGrantResponse -------------------------------------
+
+  def signed_act_as_grant_to_tree(%SignedActAsGrant{} = v) do
+    %{"grant" => Cbor.bytes(v.grant), "signatures" => Enum.map(v.signatures, &claim_signature_to_tree/1)}
+  end
+
+  def signed_act_as_grant_to_cbor(%SignedActAsGrant{} = v), do: Cbor.encode(signed_act_as_grant_to_tree(v))
+
+  def signed_act_as_grant_from_tree(tree) do
+    %SignedActAsGrant{
+      grant: Cbor.bytes!(get(tree, "grant")),
+      signatures: map_list(get(tree, "signatures"), &claim_signature_from_tree/1)
+    }
+  end
+
+  def signed_act_as_grant_from_cbor(data), do: signed_act_as_grant_from_tree(Cbor.decode(data))
+
+  def refresh_act_as_grant_response_to_cbor(%RefreshActAsGrantResponse{} = v),
+    do: Cbor.encode(%{"grant" => signed_act_as_grant_to_tree(v.grant), "signed" => v.signed})
+
+  def refresh_act_as_grant_response_from_cbor(data) do
+    tree = Cbor.decode(data)
+    signed = get(tree, "signed")
+    if not is_boolean(signed), do: raise(ArgumentError, "csil cbor: 'signed' must be a bool")
+    %RefreshActAsGrantResponse{grant: signed_act_as_grant_from_tree(get(tree, "grant")), signed: signed}
+  end
+
+  # -- ActAsPresentation / SignedActAsPresentation / ActAsCredential ----------------------
+
+  def act_as_presentation_to_tree(%ActAsPresentation{} = v) do
+    %{
+      "grant_hash" => Cbor.bytes(v.grant_hash),
+      "audience" => application_ref_to_tree(v.audience),
+      "request_digest" => Cbor.bytes(v.request_digest),
+      "presented_at" => v.presented_at,
+      "nonce" => Cbor.bytes(v.nonce)
+    }
+  end
+
+  def act_as_presentation_to_cbor(%ActAsPresentation{} = v), do: Cbor.encode(act_as_presentation_to_tree(v))
+
+  def signed_act_as_presentation_to_tree(%SignedActAsPresentation{} = v) do
+    %{"presentation" => Cbor.bytes(v.presentation), "proof" => grantee_proof_to_tree(v.proof)}
+  end
+
+  def act_as_credential_to_tree(%ActAsCredential{} = v) do
+    %{
+      "grant" => signed_act_as_grant_to_tree(v.grant),
+      "presentation" => signed_act_as_presentation_to_tree(v.presentation)
+    }
+  end
+
+  def act_as_credential_to_cbor(%ActAsCredential{} = v), do: Cbor.encode(act_as_credential_to_tree(v))
 end

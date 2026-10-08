@@ -31,6 +31,19 @@ const FLOW_USER_DOMAIN = 'example.test';
 const FLOW_CALLBACK_URL = 'http://127.0.0.1:8080/callback';
 const FLOW_DOMAIN_KEY_ID = 'test-domain-key-1';
 
+/**
+ * A resolver that always fails: Begin::beginLocalLogin falls back to the
+ * identity domain, keeping the flow offline (discovery itself is exercised
+ * in BrowserTest.php).
+ */
+final class FlowOfflineDns implements DnsResolver
+{
+    public function txtLookup(string $name): array
+    {
+        throw new \RuntimeException('offline');
+    }
+}
+
 final class FakeDnsResolver implements DnsResolver
 {
     private string $linkkeysTxt;
@@ -104,7 +117,7 @@ function flowSetup(\DateTimeImmutable $now): FlowFixture
         'revoked_at' => null,
     ])];
 
-    [$redirect, $pending] = Begin::beginLocalLogin(new BeginLocalLoginConfig($fx->keyMaterial, FLOW_CALLBACK_URL, FLOW_USER_DOMAIN, $now));
+    [$redirect, $pending] = Begin::beginLocalLogin(new BeginLocalLoginConfig($fx->keyMaterial, FLOW_CALLBACK_URL, FLOW_USER_DOMAIN, $now, null, null, null, new FlowOfflineDns()));
     $fx->pending = $pending;
 
     $query = parse_url($redirect->redirectUrl, PHP_URL_QUERY);
@@ -440,7 +453,7 @@ TestKit::test('flow.unadvertised_suite_rejected', function () {
         null,
         [Crypto::AEAD_SUITE_AES_256_GCM]
     ));
-    [$redirect, $pending] = Begin::beginLocalLogin(new BeginLocalLoginConfig($fx->keyMaterial, FLOW_CALLBACK_URL, FLOW_USER_DOMAIN, $now));
+    [$redirect, $pending] = Begin::beginLocalLogin(new BeginLocalLoginConfig($fx->keyMaterial, FLOW_CALLBACK_URL, FLOW_USER_DOMAIN, $now, null, null, null, new FlowOfflineDns()));
     $fx->pending = $pending;
     parse_str(parse_url($redirect->redirectUrl, PHP_URL_QUERY), $q);
     $fx->requestFromUrl = LocalRp::verifyLocalRpLoginRequest(Encoding::signedLocalRpLoginRequestFromUrlParam($q['signed_request']), $now, LocalRp::DEFAULT_CLOCK_SKEW_SECONDS);

@@ -2135,6 +2135,299 @@ RpResolveApplicationKeysResponse = {
 }
 
 ;; ============================================================
+;; Act-as grants
+;; ============================================================
+
+;; A user lets one application (the grantee) act as the user at a second
+;; application (the audience). The user's home domain signs the user's
+;; decision. It does not interpret the scope. The audience defines and enforces
+;; the scope strings. No party is in the request path between the grantee and
+;; the audience. See docs/spec/reserved/act-as-grants.md.
+
+;; An application, as an application-key attestation binds it. No instance_id:
+;; any enrolled instance of the application can use a grant to it.
+ApplicationRef = {
+    subject_user_id: text,
+    subject_domain: text,
+    application_id: text
+}
+
+;; The party that can act. Exactly one field is present. A local RP has no DNS
+;; domain, so its descriptor signing-key fingerprint identifies it.
+GranteeRef = {
+    ? application: ApplicationRef,
+    ? local_rp_descriptor_fingerprint: text
+}
+
+;; Proof that a grantee key signed something. For an application grantee,
+;; `application_instance_id` names the instance whose attested key signed, so a
+;; verifier can resolve the attestation. For a local-RP grantee,
+;; `local_rp_descriptor` carries the signed descriptor whose signing key signed.
+;; Exactly one of the two is present.
+GranteeProof = {
+    ? application_instance_id: text,
+    ? local_rp_descriptor: SignedLocalRpDescriptor,
+    signature: ApplicationKeySignature
+}
+
+;; One scope the audience offers. `scope` is opaque to LinkKeys.
+ActAsScopeEntry = {
+    scope: text,
+    ? description: text
+}
+
+;; The complete set of scopes the audience signs for one grantee. The audience
+;; writes all descriptions in one language. `audience_handle_claim` is an
+;; OPTIONAL signed `handle` claim about the account that enrolled the audience,
+;; signed by that account's domain, so a consent screen can show the handle.
+ActAsScopeSet = {
+    audience: ApplicationRef,
+    grantee: GranteeRef,
+    entries: [+ ActAsScopeEntry],
+    ? language: text,
+    ? audience_handle_claim: Claim,
+    issued_at: text,
+    expires_at: text
+}
+
+;; `scope_set` is the exact CBOR of ActAsScopeSet. The audience instance that
+;; `signer_instance_id` names signs it with its current signing keys under
+;; linkkeys-act-as-scope-set-v1alpha. One signature from a valid key is
+;; enough, so one expired or revoked key does not break the set.
+SignedActAsScopeSet = {
+    scope_set: bytes,
+    signer_instance_id: text,
+    signatures: [+ ApplicationKeySignature]
+}
+
+;; What a grantee sends the audience to ask for a signed scope set. The
+;; transport is an application protocol. LinkKeys defines only this shape.
+ActAsScopeSetRequest = {
+    grantee: GranteeRef,
+    scope: [+ text],
+    ? locale_preferences: [* text]
+}
+
+;; The user's decision, signed by the user's home domain under
+;; linkkeys-act-as-grant-v1alpha. `approved_scope` is a subset of the scope
+;; set's entries. A renewal keeps every field except issued_at and expires_at.
+ActAsGrant = {
+    grant_id: text,
+    user_id: text,
+    subject_domain: text,
+    grantee: GranteeRef,
+    audience: ApplicationRef,
+    scope_set: SignedActAsScopeSet,
+    approved_scope: [+ text],
+    issued_at: text,
+    expires_at: text,
+    series_issued_at: text,
+    renewable_until: text,
+    ? device_fingerprint: text
+}
+
+SignedActAsGrant = {
+    grant: bytes,                     ;; CBOR(ActAsGrant)
+    signatures: [* ClaimSignature]
+}
+
+;; The grantee's request to the user's home domain, carried through the
+;; browser. Signed by a grantee key under linkkeys-act-as-grant-request-v1alpha.
+;; `nonce` comes back to the callback so the grantee can match its own state.
+;; `grantee_handle_claim` is an OPTIONAL signed `handle` claim about the account
+;; that enrolled an application grantee, for the consent screen.
+ActAsGrantRequest = {
+    grantee: GranteeRef,
+    scope_set: SignedActAsScopeSet,
+    ? requested_lifetime_seconds: int,
+    ? requested_renewal_window_seconds: int,
+    ? grantee_handle_claim: Claim,
+    callback_url: text,
+    nonce: text,
+    requested_at: text,
+    expires_at: text
+}
+
+SignedActAsGrantRequest = {
+    request: bytes,                   ;; CBOR(ActAsGrantRequest)
+    proof: GranteeProof
+}
+
+;; The grantee asks for its current grant. Signed by a grantee key under
+;; linkkeys-act-as-refresh-request-v1alpha. The home domain returns the stored
+;; grant, and signs a renewed one only when renewal is allowed and due.
+ActAsRefreshRequest = {
+    grant_id: text,
+    grantee: GranteeRef,
+    requested_at: text,
+    expires_at: text,
+    nonce: text
+}
+
+SignedActAsRefreshRequest = {
+    request: bytes,                   ;; CBOR(ActAsRefreshRequest)
+    proof: GranteeProof
+}
+
+RefreshActAsGrantRequest = {
+    request: SignedActAsRefreshRequest
+}
+
+;; `signed` is true when the home domain made a new signature for this call.
+RefreshActAsGrantResponse = {
+    grant: SignedActAsGrant,
+    signed: bool
+}
+
+;; One call from the grantee to the audience, signed by a grantee key under
+;; linkkeys-act-as-presentation-v1alpha. `grant_hash` is SHA-256 of the
+;; SignedActAsGrant.grant bytes. `request_digest` is defined by the audience's
+;; application protocol.
+ActAsPresentation = {
+    grant_hash: bytes,
+    audience: ApplicationRef,
+    request_digest: bytes,
+    presented_at: text,
+    nonce: bytes
+}
+
+SignedActAsPresentation = {
+    presentation: bytes,              ;; CBOR(ActAsPresentation)
+    proof: GranteeProof
+}
+
+;; What the grantee sends with each call to the audience.
+ActAsCredential = {
+    grant: SignedActAsGrant,
+    presentation: SignedActAsPresentation
+}
+
+;; The user revoked a grant series. Signed by the home domain under
+;; linkkeys-act-as-grant-revocation-v1alpha.
+ActAsGrantRevocation = {
+    grant_id: text,
+    user_id: text,
+    subject_domain: text,
+    revoked_at: text
+}
+
+SignedActAsGrantRevocation = {
+    revocation: bytes,                ;; CBOR(ActAsGrantRevocation)
+    signatures: [* ClaimSignature]
+}
+
+;; The public revocation read. Keyed by grant id only. There is no operation
+;; that lists the grants of a user.
+GetActAsGrantRevocationsRequest = {
+    grant_ids: [+ text]
+}
+
+GetActAsGrantRevocationsResponse = {
+    revocations: [* SignedActAsGrantRevocation]
+}
+
+;; ---- RP-facing forwarding (API-key authenticated) ----
+
+;; An application asks its own RP to forward its signed refresh to the user's
+;; home domain. The grantee's signature is the authority; the RP only carries
+;; the request.
+RpActAsRefreshRequest = {
+    subject_domain: text,
+    request: SignedActAsRefreshRequest
+}
+
+;; An audience asks its own RP for the signed revocations of some grants, from
+;; the user's home domain. The application verifies them against that domain's
+;; keys (Rp/resolve-domain-keys).
+RpResolveActAsRevocationsRequest = {
+    subject_domain: text,
+    grant_ids: [+ text]
+}
+
+;; ---- Browser consent (same-origin carrier, browser session) ----
+
+BrowserActAsInspectRequest = {
+    signed_request: text
+}
+
+BrowserActAsScopeEntry = {
+    scope: text,
+    ? description: text,
+    ;; True when home-domain policy removed this entry. The user cannot
+    ;; restore it.
+    removed_by_policy: bool
+}
+
+;; One party on the consent screen. The domain comes first. The three trust
+;; signals say whether this domain was seen before: this user's earlier grants
+;; or claim consents with it, an existing key pin for it, and the operator's
+;; trusted-issuer list. A local-RP grantee has no domain: it carries its
+;; descriptor name and fingerprint, `user_has_history` covers earlier grants to
+;; that fingerprint, and `operator_trusted` means the domain approved it.
+BrowserActAsParty = {
+    ? domain: text,
+    ? application_id: text,
+    ? subject_user_id: text,
+    ;; From a signed handle claim that verified. Absent otherwise.
+    ? handle: text,
+    ? local_rp_name: text,
+    ? local_rp_fingerprint: text,
+    own_domain: bool,
+    user_has_history: bool,
+    domain_key_pinned: bool,
+    operator_trusted: bool
+}
+
+BrowserActAsInspectResponse = {
+    grantee: GranteeRef,
+    grantee_party: BrowserActAsParty,
+    audience: ApplicationRef,
+    audience_party: BrowserActAsParty,
+    entries: [* BrowserActAsScopeEntry],
+    ? language: text,
+    default_lifetime_seconds: int,
+    max_lifetime_seconds: int,
+    default_renewal_window_seconds: int,
+    max_renewal_window_seconds: int
+}
+
+BrowserActAsCompleteRequest = {
+    signed_request: text,
+    approved_scope: [+ text],
+    lifetime_seconds: int,
+    renewal_window_seconds: int
+}
+
+BrowserActAsCompleteResponse = {
+    redirect_url: text
+}
+
+;; ---- Account self-service ----
+
+ActAsGrantSummary = {
+    grant_id: text,
+    grantee: GranteeRef,
+    audience: ApplicationRef,
+    approved_scope: [* text],
+    issued_at: text,
+    expires_at: text,
+    renewable_until: text,
+    ? revoked_at: text
+}
+
+ListActAsGrantsResponse = {
+    grants: [* ActAsGrantSummary]
+}
+
+RevokeActAsGrantRequest = {
+    grant_id: text
+}
+
+RevokeActAsGrantResponse = {
+    revoked_at: text
+}
+
+;; ============================================================
 ;; Services
 ;; ============================================================
 
@@ -2240,7 +2533,9 @@ service Recovery {
 ;; uses the authenticated browser session and cannot use an API key.
 service BrowserAuthorization {
     inspect: BrowserAuthorizationInspectRequest -> BrowserAuthorizationInspectResponse,
-    complete: BrowserAuthorizationCompleteRequest -> BrowserAuthorizationCompleteResponse
+    complete: BrowserAuthorizationCompleteRequest -> BrowserAuthorizationCompleteResponse,
+    inspect-act-as: BrowserActAsInspectRequest -> BrowserActAsInspectResponse,
+    complete-act-as: BrowserActAsCompleteRequest -> BrowserActAsCompleteResponse
 }
 
 service Admin {
@@ -2305,7 +2600,9 @@ service Account {
     revoke-verified-contact-method: RevokeVerifiedContactMethodRequest -> RevokeVerifiedContactMethodResponse,
     request-contact-verification: RequestContactVerificationRequest -> RequestContactVerificationResponse,
     confirm-contact-verification: ConfirmContactVerificationRequest -> ConfirmContactVerificationResponse,
-    enroll-application-instance: EnrollApplicationInstanceRequest -> EnrollApplicationInstanceResponse
+    enroll-application-instance: EnrollApplicationInstanceRequest -> EnrollApplicationInstanceResponse,
+    list-act-as-grants: EmptyRequest -> ListActAsGrantsResponse,
+    revoke-act-as-grant: RevokeActAsGrantRequest -> RevokeActAsGrantResponse
 }
 
 ;; Attested claims (server-to-server). An issuer deposits a claim it signed about
@@ -2324,7 +2621,19 @@ service Rp {
     userinfo-fetch: RpUserInfoRequest -> UserInfo,
     issue-attestation: RpIssueAttestationRequest -> RpIssueAttestationResponse,
     resolve-domain-keys: RpResolveDomainKeysRequest -> RpResolveDomainKeysResponse,
-    resolve-application-keys: RpResolveApplicationKeysRequest -> RpResolveApplicationKeysResponse
+    resolve-application-keys: RpResolveApplicationKeysRequest -> RpResolveApplicationKeysResponse,
+    act-as-refresh-grant: RpActAsRefreshRequest -> RefreshActAsGrantResponse,
+    resolve-act-as-revocations: RpResolveActAsRevocationsRequest -> GetActAsGrantRevocationsResponse
+}
+
+;; Act-as grants, wire operations. No operation takes an API key.
+;; refresh-grant is authenticated at the application layer by the grantee's
+;; signature. get-grant-revocations is a public, rate-limited read keyed by
+;; grant id. The browser consent flow is on BrowserAuthorization, and the
+;; user's grant list and revocation are on Account.
+service ActAs {
+    refresh-grant: RefreshActAsGrantRequest -> RefreshActAsGrantResponse,
+    get-grant-revocations: GetActAsGrantRevocationsRequest -> GetActAsGrantRevocationsResponse
 }
 
 ;; DNS-less local RP wire operation. Claim-ticket redemption is TCP CSIL-RPC

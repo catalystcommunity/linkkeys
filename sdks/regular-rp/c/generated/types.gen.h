@@ -273,6 +273,40 @@ typedef struct RpResolveDomainKeysRequest RpResolveDomainKeysRequest;
 typedef struct RpResolveDomainKeysResponse RpResolveDomainKeysResponse;
 typedef struct RpResolveApplicationKeysRequest RpResolveApplicationKeysRequest;
 typedef struct RpResolveApplicationKeysResponse RpResolveApplicationKeysResponse;
+typedef struct ApplicationRef ApplicationRef;
+typedef struct GranteeRef GranteeRef;
+typedef struct GranteeProof GranteeProof;
+typedef struct ActAsScopeEntry ActAsScopeEntry;
+typedef struct ActAsScopeSet ActAsScopeSet;
+typedef struct SignedActAsScopeSet SignedActAsScopeSet;
+typedef struct ActAsScopeSetRequest ActAsScopeSetRequest;
+typedef struct ActAsGrant ActAsGrant;
+typedef struct SignedActAsGrant SignedActAsGrant;
+typedef struct ActAsGrantRequest ActAsGrantRequest;
+typedef struct SignedActAsGrantRequest SignedActAsGrantRequest;
+typedef struct ActAsRefreshRequest ActAsRefreshRequest;
+typedef struct SignedActAsRefreshRequest SignedActAsRefreshRequest;
+typedef struct RefreshActAsGrantRequest RefreshActAsGrantRequest;
+typedef struct RefreshActAsGrantResponse RefreshActAsGrantResponse;
+typedef struct ActAsPresentation ActAsPresentation;
+typedef struct SignedActAsPresentation SignedActAsPresentation;
+typedef struct ActAsCredential ActAsCredential;
+typedef struct ActAsGrantRevocation ActAsGrantRevocation;
+typedef struct SignedActAsGrantRevocation SignedActAsGrantRevocation;
+typedef struct GetActAsGrantRevocationsRequest GetActAsGrantRevocationsRequest;
+typedef struct GetActAsGrantRevocationsResponse GetActAsGrantRevocationsResponse;
+typedef struct RpActAsRefreshRequest RpActAsRefreshRequest;
+typedef struct RpResolveActAsRevocationsRequest RpResolveActAsRevocationsRequest;
+typedef struct BrowserActAsInspectRequest BrowserActAsInspectRequest;
+typedef struct BrowserActAsScopeEntry BrowserActAsScopeEntry;
+typedef struct BrowserActAsParty BrowserActAsParty;
+typedef struct BrowserActAsInspectResponse BrowserActAsInspectResponse;
+typedef struct BrowserActAsCompleteRequest BrowserActAsCompleteRequest;
+typedef struct BrowserActAsCompleteResponse BrowserActAsCompleteResponse;
+typedef struct ActAsGrantSummary ActAsGrantSummary;
+typedef struct ListActAsGrantsResponse ListActAsGrantsResponse;
+typedef struct RevokeActAsGrantRequest RevokeActAsGrantRequest;
+typedef struct RevokeActAsGrantResponse RevokeActAsGrantResponse;
 
 /* AeadSuite is a type alias. */
 typedef char *AeadSuite;
@@ -2032,5 +2066,274 @@ typedef struct RpResolveApplicationKeysResponse {
     char *revocations_checked_at;
     char *cache_status;
 } RpResolveApplicationKeysResponse;
+
+/* ApplicationRef is a structured data type. */
+typedef struct ApplicationRef {
+    char *subject_user_id;
+    char *subject_domain;
+    char *application_id;
+} ApplicationRef;
+
+/* GranteeRef is a structured data type. */
+typedef struct GranteeRef {
+    ApplicationRef *application;
+    char *local_rp_descriptor_fingerprint;
+} GranteeRef;
+
+/* GranteeProof is a structured data type. */
+typedef struct GranteeProof {
+    char *application_instance_id;
+    SignedLocalRpDescriptor *local_rp_descriptor;
+    ApplicationKeySignature signature;
+} GranteeProof;
+
+/* ActAsScopeEntry is a structured data type. */
+typedef struct ActAsScopeEntry {
+    char *scope;
+    char *description;
+} ActAsScopeEntry;
+
+/* ActAsScopeSet is a structured data type. */
+typedef struct ActAsScopeSet {
+    ApplicationRef audience;
+    GranteeRef grantee;
+    ActAsScopeEntry *entries;
+    size_t entries_count;
+    char *language;
+    Claim *audience_handle_claim;
+    char *issued_at;
+    char *expires_at;
+} ActAsScopeSet;
+
+/* SignedActAsScopeSet is a structured data type. */
+typedef struct SignedActAsScopeSet {
+    CsilBytes scope_set;
+    char *signer_instance_id;
+    ApplicationKeySignature *signatures;
+    size_t signatures_count;
+} SignedActAsScopeSet;
+
+/* ActAsScopeSetRequest is a structured data type. */
+typedef struct ActAsScopeSetRequest {
+    GranteeRef grantee;
+    char **scope;
+    size_t scope_count;
+    char **locale_preferences;
+    size_t locale_preferences_count;
+} ActAsScopeSetRequest;
+
+/* ActAsGrant is a structured data type. */
+typedef struct ActAsGrant {
+    char *grant_id;
+    char *user_id;
+    char *subject_domain;
+    GranteeRef grantee;
+    ApplicationRef audience;
+    SignedActAsScopeSet scope_set;
+    char **approved_scope;
+    size_t approved_scope_count;
+    char *issued_at;
+    char *expires_at;
+    char *series_issued_at;
+    char *renewable_until;
+    char *device_fingerprint;
+} ActAsGrant;
+
+/* SignedActAsGrant is a structured data type. */
+typedef struct SignedActAsGrant {
+    CsilBytes grant;
+    ClaimSignature *signatures;
+    size_t signatures_count;
+} SignedActAsGrant;
+
+/* ActAsGrantRequest is a structured data type. */
+typedef struct ActAsGrantRequest {
+    GranteeRef grantee;
+    SignedActAsScopeSet scope_set;
+    int64_t *requested_lifetime_seconds;
+    int64_t *requested_renewal_window_seconds;
+    Claim *grantee_handle_claim;
+    char *callback_url;
+    char *nonce;
+    char *requested_at;
+    char *expires_at;
+} ActAsGrantRequest;
+
+/* SignedActAsGrantRequest is a structured data type. */
+typedef struct SignedActAsGrantRequest {
+    CsilBytes request;
+    GranteeProof proof;
+} SignedActAsGrantRequest;
+
+/* ActAsRefreshRequest is a structured data type. */
+typedef struct ActAsRefreshRequest {
+    char *grant_id;
+    GranteeRef grantee;
+    char *requested_at;
+    char *expires_at;
+    char *nonce;
+} ActAsRefreshRequest;
+
+/* SignedActAsRefreshRequest is a structured data type. */
+typedef struct SignedActAsRefreshRequest {
+    CsilBytes request;
+    GranteeProof proof;
+} SignedActAsRefreshRequest;
+
+/* RefreshActAsGrantRequest is a structured data type. */
+typedef struct RefreshActAsGrantRequest {
+    SignedActAsRefreshRequest request;
+} RefreshActAsGrantRequest;
+
+/* RefreshActAsGrantResponse is a structured data type. */
+typedef struct RefreshActAsGrantResponse {
+    SignedActAsGrant grant;
+    bool signed_;
+} RefreshActAsGrantResponse;
+
+/* ActAsPresentation is a structured data type. */
+typedef struct ActAsPresentation {
+    CsilBytes grant_hash;
+    ApplicationRef audience;
+    CsilBytes request_digest;
+    char *presented_at;
+    CsilBytes nonce;
+} ActAsPresentation;
+
+/* SignedActAsPresentation is a structured data type. */
+typedef struct SignedActAsPresentation {
+    CsilBytes presentation;
+    GranteeProof proof;
+} SignedActAsPresentation;
+
+/* ActAsCredential is a structured data type. */
+typedef struct ActAsCredential {
+    SignedActAsGrant grant;
+    SignedActAsPresentation presentation;
+} ActAsCredential;
+
+/* ActAsGrantRevocation is a structured data type. */
+typedef struct ActAsGrantRevocation {
+    char *grant_id;
+    char *user_id;
+    char *subject_domain;
+    char *revoked_at;
+} ActAsGrantRevocation;
+
+/* SignedActAsGrantRevocation is a structured data type. */
+typedef struct SignedActAsGrantRevocation {
+    CsilBytes revocation;
+    ClaimSignature *signatures;
+    size_t signatures_count;
+} SignedActAsGrantRevocation;
+
+/* GetActAsGrantRevocationsRequest is a structured data type. */
+typedef struct GetActAsGrantRevocationsRequest {
+    char **grant_ids;
+    size_t grant_ids_count;
+} GetActAsGrantRevocationsRequest;
+
+/* GetActAsGrantRevocationsResponse is a structured data type. */
+typedef struct GetActAsGrantRevocationsResponse {
+    SignedActAsGrantRevocation *revocations;
+    size_t revocations_count;
+} GetActAsGrantRevocationsResponse;
+
+/* RpActAsRefreshRequest is a structured data type. */
+typedef struct RpActAsRefreshRequest {
+    char *subject_domain;
+    SignedActAsRefreshRequest request;
+} RpActAsRefreshRequest;
+
+/* RpResolveActAsRevocationsRequest is a structured data type. */
+typedef struct RpResolveActAsRevocationsRequest {
+    char *subject_domain;
+    char **grant_ids;
+    size_t grant_ids_count;
+} RpResolveActAsRevocationsRequest;
+
+/* BrowserActAsInspectRequest is a structured data type. */
+typedef struct BrowserActAsInspectRequest {
+    char *signed_request;
+} BrowserActAsInspectRequest;
+
+/* BrowserActAsScopeEntry is a structured data type. */
+typedef struct BrowserActAsScopeEntry {
+    char *scope;
+    char *description;
+    bool removed_by_policy;
+} BrowserActAsScopeEntry;
+
+/* BrowserActAsParty is a structured data type. */
+typedef struct BrowserActAsParty {
+    char *domain;
+    char *application_id;
+    char *subject_user_id;
+    char *handle;
+    char *local_rp_name;
+    char *local_rp_fingerprint;
+    bool own_domain;
+    bool user_has_history;
+    bool domain_key_pinned;
+    bool operator_trusted;
+} BrowserActAsParty;
+
+/* BrowserActAsInspectResponse is a structured data type. */
+typedef struct BrowserActAsInspectResponse {
+    GranteeRef grantee;
+    BrowserActAsParty grantee_party;
+    ApplicationRef audience;
+    BrowserActAsParty audience_party;
+    BrowserActAsScopeEntry *entries;
+    size_t entries_count;
+    char *language;
+    int64_t default_lifetime_seconds;
+    int64_t max_lifetime_seconds;
+    int64_t default_renewal_window_seconds;
+    int64_t max_renewal_window_seconds;
+} BrowserActAsInspectResponse;
+
+/* BrowserActAsCompleteRequest is a structured data type. */
+typedef struct BrowserActAsCompleteRequest {
+    char *signed_request;
+    char **approved_scope;
+    size_t approved_scope_count;
+    int64_t lifetime_seconds;
+    int64_t renewal_window_seconds;
+} BrowserActAsCompleteRequest;
+
+/* BrowserActAsCompleteResponse is a structured data type. */
+typedef struct BrowserActAsCompleteResponse {
+    char *redirect_url;
+} BrowserActAsCompleteResponse;
+
+/* ActAsGrantSummary is a structured data type. */
+typedef struct ActAsGrantSummary {
+    char *grant_id;
+    GranteeRef grantee;
+    ApplicationRef audience;
+    char **approved_scope;
+    size_t approved_scope_count;
+    char *issued_at;
+    char *expires_at;
+    char *renewable_until;
+    char *revoked_at;
+} ActAsGrantSummary;
+
+/* ListActAsGrantsResponse is a structured data type. */
+typedef struct ListActAsGrantsResponse {
+    ActAsGrantSummary *grants;
+    size_t grants_count;
+} ListActAsGrantsResponse;
+
+/* RevokeActAsGrantRequest is a structured data type. */
+typedef struct RevokeActAsGrantRequest {
+    char *grant_id;
+} RevokeActAsGrantRequest;
+
+/* RevokeActAsGrantResponse is a structured data type. */
+typedef struct RevokeActAsGrantResponse {
+    char *revoked_at;
+} RevokeActAsGrantResponse;
 
 #endif /* CSILGEN_TYPES_GEN_H */

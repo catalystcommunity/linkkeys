@@ -589,6 +589,34 @@ defmodule Csilgen.Generated.BrowserAuthorizationClient do
 
     Csilgen.Generated.BrowserAuthorizationCompleteResponse.from_cbor(resp)
   end
+
+  @spec inspect_act_as(t(), Csilgen.Generated.BrowserActAsInspectRequest.t()) ::
+          Csilgen.Generated.BrowserActAsInspectResponse.t()
+  def inspect_act_as(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "BrowserAuthorization",
+        "inspect-act-as",
+        Csilgen.Generated.BrowserActAsInspectRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.BrowserActAsInspectResponse.from_cbor(resp)
+  end
+
+  @spec complete_act_as(t(), Csilgen.Generated.BrowserActAsCompleteRequest.t()) ::
+          Csilgen.Generated.BrowserActAsCompleteResponse.t()
+  def complete_act_as(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "BrowserAuthorization",
+        "complete-act-as",
+        Csilgen.Generated.BrowserActAsCompleteRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.BrowserActAsCompleteResponse.from_cbor(resp)
+  end
 end
 
 defmodule Csilgen.Generated.AdminClient do
@@ -1443,6 +1471,34 @@ defmodule Csilgen.Generated.AccountClient do
 
     Csilgen.Generated.EnrollApplicationInstanceResponse.from_cbor(resp)
   end
+
+  @spec list_act_as_grants(t(), Csilgen.Generated.EmptyRequest.t()) ::
+          Csilgen.Generated.ListActAsGrantsResponse.t()
+  def list_act_as_grants(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Account",
+        "list-act-as-grants",
+        Csilgen.Generated.EmptyRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.ListActAsGrantsResponse.from_cbor(resp)
+  end
+
+  @spec revoke_act_as_grant(t(), Csilgen.Generated.RevokeActAsGrantRequest.t()) ::
+          Csilgen.Generated.RevokeActAsGrantResponse.t()
+  def revoke_act_as_grant(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Account",
+        "revoke-act-as-grant",
+        Csilgen.Generated.RevokeActAsGrantRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.RevokeActAsGrantResponse.from_cbor(resp)
+  end
 end
 
 defmodule Csilgen.Generated.AttestationClient do
@@ -1576,6 +1632,73 @@ defmodule Csilgen.Generated.RpClient do
       )
 
     Csilgen.Generated.RpResolveApplicationKeysResponse.from_cbor(resp)
+  end
+
+  @spec act_as_refresh_grant(t(), Csilgen.Generated.RpActAsRefreshRequest.t()) ::
+          Csilgen.Generated.RefreshActAsGrantResponse.t()
+  def act_as_refresh_grant(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Rp",
+        "act-as-refresh-grant",
+        Csilgen.Generated.RpActAsRefreshRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.RefreshActAsGrantResponse.from_cbor(resp)
+  end
+
+  @spec resolve_act_as_revocations(t(), Csilgen.Generated.RpResolveActAsRevocationsRequest.t()) ::
+          Csilgen.Generated.GetActAsGrantRevocationsResponse.t()
+  def resolve_act_as_revocations(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Rp",
+        "resolve-act-as-revocations",
+        Csilgen.Generated.RpResolveActAsRevocationsRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.GetActAsGrantRevocationsResponse.from_cbor(resp)
+  end
+end
+
+defmodule Csilgen.Generated.ActAsClient do
+  @moduledoc "Typed client for the ActAs service. The client owns (de)serialization via the codec; the transport only moves bytes."
+
+  @enforce_keys [:transport]
+  defstruct [:transport]
+  @type t :: %__MODULE__{transport: Csilgen.Generated.Transport.t()}
+
+  @spec new(Csilgen.Generated.Transport.t()) :: t()
+  def new(transport), do: %__MODULE__{transport: transport}
+
+  @spec refresh_grant(t(), Csilgen.Generated.RefreshActAsGrantRequest.t()) ::
+          Csilgen.Generated.RefreshActAsGrantResponse.t()
+  def refresh_grant(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "ActAs",
+        "refresh-grant",
+        Csilgen.Generated.RefreshActAsGrantRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.RefreshActAsGrantResponse.from_cbor(resp)
+  end
+
+  @spec get_grant_revocations(t(), Csilgen.Generated.GetActAsGrantRevocationsRequest.t()) ::
+          Csilgen.Generated.GetActAsGrantRevocationsResponse.t()
+  def get_grant_revocations(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "ActAs",
+        "get-grant-revocations",
+        Csilgen.Generated.GetActAsGrantRevocationsRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.GetActAsGrantRevocationsResponse.from_cbor(resp)
   end
 end
 

@@ -35,6 +35,9 @@ from .generated.types import (
     GetRevocationsRequest,
     GetRevocationsResponse,
     LocalRpTicketRedemptionResponse,
+    RefreshActAsGrantRequest,
+    RefreshActAsGrantResponse,
+    SignedActAsRefreshRequest,
     SignedLocalRpTicketRedemptionRequest,
 )
 from .transport import Transport
@@ -244,3 +247,19 @@ def redeem_claim_ticket(
     # claim_value decoded as CBOR bytes (bstr), never text (tstr). See
     # claims.decode_ticket_redemption_response.
     return claims_mod.decode_ticket_redemption_response(resp_bytes)
+
+
+def refresh_act_as_grant(
+    transport: Transport,
+    dns: dns_mod.DnsResolver,
+    domain: str,
+    signed_request: SignedActAsRefreshRequest,
+) -> RefreshActAsGrantResponse:
+    """Fetch or renew an act-as grant at `domain` (the user's home domain):
+    `ActAs/refresh-grant` over TCP CSIL-RPC, pinned via the domain's DNS
+    `fp=` set -- the same discovery and pinned path as `redeem_claim_ticket`.
+    The signed refresh request is the grantee's possession proof."""
+    endpoint = discover_domain_endpoint(dns, domain)
+    payload = RefreshActAsGrantRequest(request=signed_request).to_cbor()
+    resp_bytes = _call(transport, endpoint, "ActAs", "refresh-grant", payload)
+    return RefreshActAsGrantResponse.from_cbor(resp_bytes)

@@ -1,4 +1,5 @@
 pub mod account_security;
+pub mod act_as;
 pub mod application_keys;
 pub mod auth_credentials;
 pub mod claim_policy;
@@ -2356,7 +2357,7 @@ impl DbPool {
         }
     }
 
-    // -- Application keys (signing-things-request.md, step 2) --
+    // -- Application keys (docs/application-keys.md) --
 
     pub fn upsert_application_instance(
         &self,
@@ -4614,7 +4615,7 @@ impl DbPool {
         }
     }
 
-    // -- RP cache (signing-things-request.md, step 6) --
+    // -- RP cache (docs/application-keys.md) --
 
     /// Freshness record for our cache of `domain`'s signing keys. The key
     /// material itself lives in `peer_keys` / `list_active_domain_keys`.

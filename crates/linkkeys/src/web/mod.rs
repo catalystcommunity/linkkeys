@@ -1893,6 +1893,9 @@ fn validate_error_response(e: ValidateAuthRequestError) -> ApiErrorResponse {
 }
 
 #[rocket::post("/rp/authorize/validate", data = "<body>")]
+// Rocket returns the error responder by value. Boxing it would need a custom
+// Responder impl for no gain on a per-request path.
+#[allow(clippy::result_large_err)]
 async fn rp_authorize_validate(
     auth: guard::AuthenticatedUser,
     pool: &State<DbPool>,
@@ -1951,6 +1954,9 @@ async fn rp_authorize_validate(
 }
 
 #[rocket::post("/rp/authorize/finalize", data = "<body>")]
+// Rocket returns the error responder by value. Boxing it would need a custom
+// Responder impl for no gain on a per-request path.
+#[allow(clippy::result_large_err)]
 async fn rp_authorize_finalize(
     auth: guard::AuthenticatedUser,
     pool: &State<DbPool>,
@@ -2077,6 +2083,34 @@ async fn auth_authorize_get(
         "/app/authorize{username_query}#request={}",
         urlencoding::encode(sr)
     ))))
+}
+
+/// Begin an act-as grant (docs/spec/reserved/act-as-grants.md). The grantee
+/// sends the browser here with its signed request. Full verification needs
+/// the network, so this route only checks that the request decodes, then hands
+/// it to the consent page in the URL fragment. The consent page's
+/// `inspect-act-as` call verifies everything before the user sees anything.
+#[rocket::get("/auth/act-as?<signed_request>")]
+fn auth_act_as_get(signed_request: Option<String>) -> rocket::Either<Redirect, RawHtml<String>> {
+    use base64ct::{Base64UrlUnpadded, Encoding};
+    let decodes = signed_request.as_deref().is_some_and(|sr| {
+        sr.len() <= crate::tcp::MAX_FRAME_SIZE
+            && Base64UrlUnpadded::decode_vec(sr)
+                .ok()
+                .and_then(|bytes| {
+                    liblinkkeys::generated::decode_signed_act_as_grant_request(&bytes).ok()
+                })
+                .is_some()
+    });
+    match signed_request {
+        Some(sr) if decodes => rocket::Either::Left(Redirect::found(format!(
+            "/app/act-as#request={}",
+            urlencoding::encode(&sr)
+        ))),
+        _ => rocket::Either::Right(render_error_page(
+            "This request is missing or damaged. Return to the application and start again.",
+        )),
+    }
 }
 
 #[derive(FromForm)]
@@ -3084,6 +3118,97 @@ async fn rpc_cbor(
                     ),
                 }
             }
+            "inspect-act-as" => {
+                match liblinkkeys::generated::decode_browser_act_as_inspect_request(
+                    &request.payload,
+                ) {
+                    Ok(value) => {
+                        let pool = pool.inner().clone();
+                        let net = net.inner().clone();
+                        let rt = rocket::tokio::runtime::Handle::current();
+                        let user = browser_user.clone();
+                        match rocket::tokio::task::spawn_blocking(move || {
+                            let keys = crate::services::act_as::CachedKeySource {
+                                pool: &pool,
+                                net: &net,
+                                rt: &rt,
+                            };
+                            crate::services::act_as::inspect(
+                                &pool,
+                                &keys,
+                                &user,
+                                &value.signed_request,
+                                chrono::Utc::now(),
+                            )
+                        })
+                        .await
+                        {
+                            Ok(Ok(value)) => rpc_ok(
+                                liblinkkeys::generated::encode_browser_act_as_inspect_response(
+                                    &value,
+                                ),
+                            ),
+                            Ok(Err(error)) => service_rpc_error(error),
+                            Err(_) => rpc_error(
+                                csilgen_transport::Status::Internal,
+                                "The request could not be checked",
+                            ),
+                        }
+                    }
+                    Err(error) => rpc_error(
+                        csilgen_transport::Status::MalformedEnvelope,
+                        &format!("Invalid payload: {error}"),
+                    ),
+                }
+            }
+            "complete-act-as" => {
+                match liblinkkeys::generated::decode_browser_act_as_complete_request(
+                    &request.payload,
+                ) {
+                    Ok(value) => {
+                        let pool = pool.inner().clone();
+                        let net = net.inner().clone();
+                        let rt = rocket::tokio::runtime::Handle::current();
+                        let user = browser_user.clone();
+                        match rocket::tokio::task::spawn_blocking(move || {
+                            let keys = crate::services::act_as::CachedKeySource {
+                                pool: &pool,
+                                net: &net,
+                                rt: &rt,
+                            };
+                            let nonces = nonce_store::NonceStore::new(
+                                pool.clone(),
+                                crate::services::act_as::nonce_ttl(),
+                            );
+                            crate::services::act_as::complete(
+                                &pool,
+                                &keys,
+                                &|nonce| nonces.record(nonce),
+                                &user,
+                                &value,
+                                chrono::Utc::now(),
+                            )
+                        })
+                        .await
+                        {
+                            Ok(Ok(value)) => rpc_ok(
+                                liblinkkeys::generated::encode_browser_act_as_complete_response(
+                                    &value,
+                                ),
+                            ),
+                            Ok(Err(error)) => service_rpc_error(error),
+                            Err(_) => rpc_error(
+                                csilgen_transport::Status::Internal,
+                                "The grant could not be completed",
+                            ),
+                        }
+                    }
+                    Err(error) => rpc_error(
+                        csilgen_transport::Status::MalformedEnvelope,
+                        &format!("Invalid payload: {error}"),
+                    ),
+                }
+            }
             _ => rpc_error(
                 csilgen_transport::Status::UnknownServiceOrOp,
                 "Unknown browser authorization operation",
@@ -3543,6 +3668,7 @@ fn build_rocket_with_ui(
         log::info!("Password auth enabled");
         routes.extend(rocket::routes![
             auth_authorize_get,
+            auth_act_as_get,
             auth_authorize_post,
             auth_consent_post,
             local_rp_ui::auth_local_rp_get,

@@ -302,7 +302,7 @@ pub struct IssuedRevocation {
 }
 
 /// One enrolled application instance of one canonical account
-/// (signing-things-request.md). Looked up by the composite
+/// (docs/application-keys.md). Looked up by the composite
 /// (subject_user_id, application_id, instance_id) key.
 #[derive(Debug, Clone)]
 pub struct ApplicationInstance {
@@ -558,7 +558,7 @@ fn parse_json_types(field: &str, raw: &str) -> Vec<String> {
 }
 
 /// Freshness record for the RP's cache of one remote domain's signing keys
-/// (signing-things-request.md, "RP cache"). The key material itself keeps
+/// (docs/application-keys.md, "RP cache configuration"). The key material itself keeps
 /// using `peer_keys`; this is only the "when did we last check" clock, kept
 /// separate per the design's requirement to record fetch and revocation-check
 /// times independently.
@@ -1831,7 +1831,7 @@ pub mod pg {
         pub expires_at: chrono::DateTime<chrono::Utc>,
     }
 
-    // -- RP cache (signing-things-request.md, step 6) --
+    // -- RP cache (docs/application-keys.md) --
 
     #[derive(Queryable, Selectable)]
     #[diesel(table_name = crate::schema::pg::rp_domain_key_cache)]
@@ -3159,7 +3159,7 @@ pub mod sqlite {
         pub expires_at: String,
     }
 
-    // -- RP cache (signing-things-request.md, step 6) --
+    // -- RP cache (docs/application-keys.md) --
 
     #[derive(Queryable, Selectable)]
     #[diesel(table_name = crate::schema::sqlite::rp_domain_key_cache)]

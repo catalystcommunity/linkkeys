@@ -1,12 +1,22 @@
 // `beginLocalLogin` (design doc: "SDK API Shape", "Flow" steps 4-6). Mirrors
-// `sdks/local-rp/rust/src/begin.rs`.
+// `sdks/local-rp/go/begin.go`.
 //
-// Pure/offline: no network access happens here. It generates a fresh
-// nonce/state, builds and signs a `LocalRpLoginRequest` around the
-// identity's already-signed descriptor, and returns a redirect URL plus the
-// pending-login state the app must persist and treat as single-use.
+// It generates a fresh nonce/state, builds and signs a `LocalRpLoginRequest`
+// around the identity's already-signed descriptor, and returns a redirect
+// URL plus the pending-login state the app must persist and treat as
+// single-use.
+//
+// The signing work is pure/offline. The one network touch is a DNS TXT
+// lookup of `_linkkeys_apis.<userDomain>` to discover the browser-facing
+// HTTPS endpoint (the identity domain is a trust domain, not necessarily
+// the host serving the login routes). The resolver is injectable via
+// `BeginLocalLoginConfig.dns`; on any discovery failure the redirect falls
+// back to `https://<userDomain>`.
 
+import { BROWSER_ROUTE_LOCAL_RP, resolveBrowserEndpoint } from "./browser.ts";
 import { randomBytes } from "./crypto.ts";
+import { defaultDnsResolver } from "./defaults.ts";
+import type { DnsResolver } from "./dns.ts";
 import { signedLocalRpLoginRequestToUrlParam } from "./encoding.ts";
 import { InvalidInputError, type LocalRpKeyMaterial } from "./identity.ts";
 import { buildLocalRpLoginRequest, signLocalRpLoginRequest } from "./localRp.ts";
@@ -33,6 +43,12 @@ export interface BeginLocalLoginConfig {
   /** Login-request lifetime from `now`, in milliseconds. Defaults to `DEFAULT_LOGIN_REQUEST_LIFETIME_MS`. */
   requestLifetimeMs?: number;
   now: Date;
+  /**
+   * The DNS TXT lookup seam for browser endpoint discovery
+   * (`_linkkeys_apis.<userDomain>`, its `https=` endpoint). Defaults to
+   * `defaultDnsResolver()` when omitted, same as `CompleteLocalLoginConfig.dns`.
+   */
+  dns?: DnsResolver;
 }
 
 /** The redirect URL the app should send the user's browser to. This SDK never performs the redirect itself. */
@@ -63,7 +79,7 @@ export interface PendingLogin {
   requiredClaims: string[];
 }
 
-function validateCallbackScheme(url: string): void {
+export function validateCallbackScheme(url: string): void {
   if (!url.startsWith("http://") && !url.startsWith("https://")) {
     throw new InvalidInputError(`callbackUrl must be http:// or https://, got: ${JSON.stringify(url)}`);
   }
@@ -73,7 +89,7 @@ function toHex(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("hex");
 }
 
-function parseIdentityInput(value: string): { username?: string; domain: string } {
+export function parseIdentityInput(value: string): { username?: string; domain: string } {
   const input = value.trim();
   if (!/^[\x00-\x7F]+$/.test(input) || (input.match(/@/g)?.length ?? 0) > 1) {
     throw new InvalidInputError("identity must be a username@domain or a domain");
@@ -103,11 +119,15 @@ function parseIdentityInput(value: string): { username?: string; domain: string 
  * doc, "SDK API Shape"). Generates a fresh nonce/state, builds and signs a
  * `LocalRpLoginRequest`, and returns the full redirect URL for the user's
  * LinkKeys domain plus the pending-login state.
+ *
+ * Async because the redirect host comes from a `_linkkeys_apis` DNS TXT
+ * lookup (see this module's header). The lookup never fails the call: on
+ * any discovery failure the redirect falls back to `https://<userDomain>`.
  */
-export function beginLocalLogin(config: BeginLocalLoginConfig): {
+export async function beginLocalLogin(config: BeginLocalLoginConfig): Promise<{
   redirect: LocalLoginRedirect;
   pending: PendingLogin;
-} {
+}> {
   validateCallbackScheme(config.callbackUrl);
   const identity = parseIdentityInput(config.userDomain);
 
@@ -133,9 +153,14 @@ export function beginLocalLogin(config: BeginLocalLoginConfig): {
   const signed = signLocalRpLoginRequest(request, config.keyMaterial.signingPrivateKey);
   const encoded = signedLocalRpLoginRequestToUrlParam(signed);
 
-  // Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>".
-  const redirect = new URL(`https://${identity.domain}/auth/local-rp`);
-  redirect.searchParams.set("signed_request", encoded);
+  // Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>"
+  // — mirrors the existing GET /auth/authorize?signed_request=... shape.
+  // The host comes from `_linkkeys_apis.<userDomain>` discovery (with a
+  // fallback to the identity domain itself); `pending.userDomain` stays the
+  // identity domain — verification is bound to it, never to the discovered
+  // service host.
+  const dns = config.dns ?? defaultDnsResolver();
+  const redirect = new URL(await resolveBrowserEndpoint(dns, identity.domain, BROWSER_ROUTE_LOCAL_RP, encoded));
   if (identity.username !== undefined) redirect.searchParams.set("username", identity.username);
   const redirectUrl = redirect.toString();
 

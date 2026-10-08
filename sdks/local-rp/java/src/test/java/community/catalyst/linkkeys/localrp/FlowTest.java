@@ -80,7 +80,7 @@ import community.catalyst.linkkeys.localrp.wire.Types.SignedLocalRpCallbackPaylo
  * effective at exercising the verification chain.
  */
 class FlowTest {
-    private static final String USER_DOMAIN = "example.test";
+    static final String USER_DOMAIN = "example.test";
     private static final String CALLBACK_URL = "http://localhost/callback";
     private static final String DOMAIN_KEY_ID = "test-domain-key-1";
 
@@ -203,7 +203,7 @@ class FlowTest {
      * connection that never completes its TLS handshake (the "bad pin"
      * test) is swallowed rather than propagated, so it can't hang the test.
      */
-    private static String spawnFakeIdp(byte[] domainSeed, int expectedRequests, Dispatch dispatch) throws Exception {
+    static String spawnFakeIdp(byte[] domainSeed, int expectedRequests, Dispatch dispatch) throws Exception {
         PrivateKey privateKey = Crypto.importEd25519PrivateKey(domainSeed);
         X509Certificate cert = generateDomainTlsCert(USER_DOMAIN, domainSeed);
 
@@ -291,6 +291,12 @@ class FlowTest {
         Begin.BeginLocalLoginConfig beginConfig =
                 new Begin.BeginLocalLoginConfig(keyMaterial, CALLBACK_URL, USER_DOMAIN, now);
         beginConfig.requiredClaims = scenario.requiredClaimsOverride;
+        // Browser endpoint discovery is out of scope here (BrowserTest covers
+        // it); fail the lookup so begin takes its https://<USER_DOMAIN>
+        // fallback without a live DNS request.
+        beginConfig.dns = name -> {
+            throw new SdkException(SdkException.Kind.DNS, "no DNS in flow tests: " + name);
+        };
         Begin.BeginResult begun = Begin.beginLocalLogin(beginConfig);
         Begin.PendingLogin pending = begun.pending();
 

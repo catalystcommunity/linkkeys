@@ -553,7 +553,8 @@ test_local_rp_php() {
         (cd sdks/local-rp/php && ./run-tests.sh)
     else
         # No system PHP: run in a container (see feedback: use nerdctl).
-        (cd sdks/local-rp && sudo nerdctl run --rm -v "$(pwd)":/repo -w /repo/php php:8.3-cli ./run-tests.sh)
+        # Mount all of sdks/ so the shared regular-RP act-as vectors are reachable.
+        (cd sdks && sudo nerdctl run --rm -v "$(pwd)":/repo -w /repo/local-rp/php php:8.3-cli ./run-tests.sh)
     fi
     log_status "local-rp PHP SDK tests passed"
 }

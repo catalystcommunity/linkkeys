@@ -282,13 +282,17 @@ fn run_scenario(scenario: Scenario) -> Result<linkkeys_local_rp::VerifiedLocalLo
     let now = Utc::now();
     let key_material = fixed_key_material(now);
 
-    let (_redirect, pending): (_, PendingLogin) = begin_local_login(BeginLocalLoginConfig::new(
-        &key_material,
-        CALLBACK_URL,
-        USER_DOMAIN,
-        now,
-    ))
-    .unwrap();
+    // begin's `_linkkeys_apis` browser discovery gets a canned tcp-only
+    // answer (no `https=`), so it falls back to the identity domain and never
+    // touches live DNS from this test.
+    let begin_dns = FakeDnsResolver {
+        linkkeys_txt: String::new(),
+        apis_txt: "v=lk1 tcp=127.0.0.1:1".to_string(),
+    };
+    let mut begin_config =
+        BeginLocalLoginConfig::new(&key_material, CALLBACK_URL, USER_DOMAIN, now);
+    begin_config.dns = Some(&begin_dns);
+    let (_redirect, pending): (_, PendingLogin) = begin_local_login(begin_config).unwrap();
 
     let mut domain_key = domain_public_key(now);
     (scenario.mutate_domain_key)(&mut domain_key);

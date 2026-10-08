@@ -443,6 +443,24 @@ func (c *BrowserAuthorizationClient) Complete(ctx context.Context, req BrowserAu
 	return DecodeBrowserAuthorizationCompleteResponse(csilResp)
 }
 
+func (c *BrowserAuthorizationClient) InspectActAs(ctx context.Context, req BrowserActAsInspectRequest) (BrowserActAsInspectResponse, error) {
+	var csilZero BrowserActAsInspectResponse
+	csilResp, csilErr := c.transport.Call(ctx, "BrowserAuthorization", "inspect-act-as", EncodeBrowserActAsInspectRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeBrowserActAsInspectResponse(csilResp)
+}
+
+func (c *BrowserAuthorizationClient) CompleteActAs(ctx context.Context, req BrowserActAsCompleteRequest) (BrowserActAsCompleteResponse, error) {
+	var csilZero BrowserActAsCompleteResponse
+	csilResp, csilErr := c.transport.Call(ctx, "BrowserAuthorization", "complete-act-as", EncodeBrowserActAsCompleteRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeBrowserActAsCompleteResponse(csilResp)
+}
+
 // AdminClient is a typed client for the Admin service. The client owns
 // (de)serialization via the generated codec; the transport only moves bytes.
 type AdminClient struct {
@@ -994,6 +1012,24 @@ func (c *AccountClient) EnrollApplicationInstance(ctx context.Context, req Enrol
 	return DecodeEnrollApplicationInstanceResponse(csilResp)
 }
 
+func (c *AccountClient) ListActAsGrants(ctx context.Context, req EmptyRequest) (ListActAsGrantsResponse, error) {
+	var csilZero ListActAsGrantsResponse
+	csilResp, csilErr := c.transport.Call(ctx, "Account", "list-act-as-grants", EncodeEmptyRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeListActAsGrantsResponse(csilResp)
+}
+
+func (c *AccountClient) RevokeActAsGrant(ctx context.Context, req RevokeActAsGrantRequest) (RevokeActAsGrantResponse, error) {
+	var csilZero RevokeActAsGrantResponse
+	csilResp, csilErr := c.transport.Call(ctx, "Account", "revoke-act-as-grant", EncodeRevokeActAsGrantRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeRevokeActAsGrantResponse(csilResp)
+}
+
 // AttestationClient is a typed client for the Attestation service. The client owns
 // (de)serialization via the generated codec; the transport only moves bytes.
 type AttestationClient struct {
@@ -1084,6 +1120,52 @@ func (c *RpClient) ResolveApplicationKeys(ctx context.Context, req RpResolveAppl
 		return csilZero, csilErr
 	}
 	return DecodeRpResolveApplicationKeysResponse(csilResp)
+}
+
+func (c *RpClient) ActAsRefreshGrant(ctx context.Context, req RpActAsRefreshRequest) (RefreshActAsGrantResponse, error) {
+	var csilZero RefreshActAsGrantResponse
+	csilResp, csilErr := c.transport.Call(ctx, "Rp", "act-as-refresh-grant", EncodeRpActAsRefreshRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeRefreshActAsGrantResponse(csilResp)
+}
+
+func (c *RpClient) ResolveActAsRevocations(ctx context.Context, req RpResolveActAsRevocationsRequest) (GetActAsGrantRevocationsResponse, error) {
+	var csilZero GetActAsGrantRevocationsResponse
+	csilResp, csilErr := c.transport.Call(ctx, "Rp", "resolve-act-as-revocations", EncodeRpResolveActAsRevocationsRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeGetActAsGrantRevocationsResponse(csilResp)
+}
+
+// ActAsClient is a typed client for the ActAs service. The client owns
+// (de)serialization via the generated codec; the transport only moves bytes.
+type ActAsClient struct {
+	transport Transport
+}
+
+func NewActAsClient(transport Transport) *ActAsClient {
+	return &ActAsClient{transport: transport}
+}
+
+func (c *ActAsClient) RefreshGrant(ctx context.Context, req RefreshActAsGrantRequest) (RefreshActAsGrantResponse, error) {
+	var csilZero RefreshActAsGrantResponse
+	csilResp, csilErr := c.transport.Call(ctx, "ActAs", "refresh-grant", EncodeRefreshActAsGrantRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeRefreshActAsGrantResponse(csilResp)
+}
+
+func (c *ActAsClient) GetGrantRevocations(ctx context.Context, req GetActAsGrantRevocationsRequest) (GetActAsGrantRevocationsResponse, error) {
+	var csilZero GetActAsGrantRevocationsResponse
+	csilResp, csilErr := c.transport.Call(ctx, "ActAs", "get-grant-revocations", EncodeGetActAsGrantRevocationsRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeGetActAsGrantRevocationsResponse(csilResp)
 }
 
 // LocalRpClient is a typed client for the LocalRp service. The client owns

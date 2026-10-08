@@ -55,7 +55,8 @@ Future<void> main() async {
   ));
   // App: persist begun.pending (e.g. in a server-side session), then
   // redirect the browser to begun.redirect.redirectUrl. This SDK never
-  // performs the redirect itself.
+  // performs the redirect itself. beginLocalLogin discovers the browser
+  // host from `_linkkeys_apis.<domain>` (see "Browser endpoint discovery").
 
   // On callback (app's HTTP handler received `arrivedUrl`, which carries an
   // `encrypted_token=` query parameter):
@@ -75,6 +76,127 @@ Future<void> main() async {
 `begin_local_login`'s default claim set matches the design doc exactly:
 requested `display_name`, `email`, `handle`; required `handle`. Pass
 `requestedClaims`/`requiredClaims` on `BeginLocalLoginConfig` to override.
+
+## Browser endpoint discovery
+
+`beginLocalLogin` does one DNS TXT lookup. It reads
+`_linkkeys_apis.<identity domain>` and uses the `https=` value as the
+browser-facing base URL (`docs/spec/trust-and-anchors.md`). The identity
+domain is a trust domain. It is not always the host that serves the login
+routes.
+
+The rules are:
+
+- The first valid `v=lk1` record with an `https=` value wins.
+- A base is valid only when it uses `https`, has a host, and has no
+  userinfo, query, or fragment. A path prefix is allowed and is kept:
+  `https=login.example.com/linkkeys` gives
+  `https://login.example.com/linkkeys/auth/local-rp?signed_request=...`.
+- If the lookup fails, if no record has a valid `https=` value, or if the
+  base is invalid, the redirect falls back to `https://<identity domain>`.
+- `PendingLogin.userDomain` is always the identity domain. It is never the
+  discovered host. Verification binds to the identity domain.
+
+Inject a resolver with `BeginLocalLoginConfig.dns`. The default is
+`defaultDnsResolver()` (the hand-rolled `SystemDnsResolver`). Any
+`DnsResolver` works, so tests can supply canned answers:
+
+```dart
+class CannedDns implements DnsResolver {
+  @override
+  Future<List<String>> txtLookup(String name) async {
+    if (name == '_linkkeys_apis.example.com') {
+      return ['v=lk1 https=login.example.com/linkkeys'];
+    }
+    throw SdkException(SdkExceptionKind.dns, 'no record for $name');
+  }
+}
+
+final begun = await beginLocalLogin(BeginLocalLoginConfig(
+  keyMaterial: reloaded,
+  callbackUrl: 'http://jukebox.lan:8080/auth/callback',
+  userDomain: 'alice@example.com',
+  now: DateTime.now().toUtc(),
+  dns: CannedDns(),
+));
+```
+
+Redirect the browser to `begun.redirect.redirectUrl` as returned. Do not
+parse or rewrite it.
+
+The helpers are public: `resolveBrowserBase`, `buildBrowserEndpoint`,
+`browserRouteLocalRp`, and `browserRouteAuthorize` (`lib/src/browser.dart`).
+Regular-RP application glue can use them to build `/auth/authorize` URLs
+with the same discovery.
+
+## Act-as grants
+
+An act-as grant lets a user give this local RP (the grantee) permission to
+act as the user at an enrolled application (the audience). See
+`docs/spec/reserved/act-as-grants.md`. The feature is Reserved and can
+change.
+
+A local RP can be a grantee only. Its home domain must approve the local RP
+first. The home domain refuses an act-as request from a local RP that it did
+not approve. A local RP cannot be an audience, because a peer cannot find
+its keys through DNS.
+
+The descriptor signing key signs every grantee message. The grantee is
+`GranteeRef(localRpDescriptorFingerprint: <fingerprint>)`.
+
+1. Get the signed scope set from the audience. The audience protocol does
+   this, not this SDK. Keep the CBOR bytes as you received them.
+2. Call `beginActAs`. It signs an `ActAsGrantRequest` and returns
+   `redirectUrl` and a `PendingActAs`. Keep the `PendingActAs`. Send the
+   browser to `redirectUrl`. The URL host comes from `_linkkeys_apis`
+   discovery, with the same fallback as `beginLocalLogin`.
+3. The home domain sends the browser to your callback URL with
+   `act_as_grant_id` and `nonce`. Call `completeActAsCallback` with the
+   `PendingActAs` and the callback URL. It compares the nonce in constant
+   time and returns the grant id. Use each `PendingActAs` one time only.
+4. Call `refreshActAsGrant` with the home domain and the grant id. It calls
+   `ActAs/refresh-grant` over the DNS-pinned TCP CSIL-RPC path. It returns
+   the `SignedActAsGrant` and `signed` (true when the home domain signed a
+   new grant). Call it again when less than half of the grant life remains.
+5. For each call to the audience, call `presentActAsGrant` with the grant,
+   the audience `ApplicationRef`, the request digest, the time, and a fresh
+   nonce. Send `bytes` (the CBOR `ActAsCredential`) with the call.
+
+```dart
+final begun = await beginActAs(BeginActAsConfig(
+  keyMaterial: identity,
+  userIdentity: 'alice@example.com',
+  signedScopeSet: scopeSetBytesFromAudience,
+  requestedLifetimeSeconds: 3600,
+  callbackUrl: 'http://jukebox.lan:8080/act-as/callback',
+  now: DateTime.now().toUtc(),
+));
+// Keep begun.pending. Send the browser to begun.redirectUrl.
+
+final grantId = completeActAsCallback(begun.pending, arrivedCallbackUrl);
+final refreshed = await refreshActAsGrant(RefreshActAsGrantConfig(
+  keyMaterial: identity,
+  userDomain: begun.pending.userDomain,
+  grantId: grantId,
+  now: DateTime.now().toUtc(),
+));
+final presented = await presentActAsGrant(
+  grant: refreshed.grant,
+  audience: audienceRef,
+  requestDigest: digest,
+  now: DateTime.now().toUtc(),
+  nonce: freshNonce,
+  keyMaterial: identity,
+);
+// Send presented.bytes to the audience.
+```
+
+The request window of `beginActAs` is 300 seconds by default. The maximum is
+900 seconds. The pure helpers are on `ActAs` (`signGrantRequest`,
+`signRefreshRequest`, `grantHash`, and the tags). The wire types and
+`ActAsCodec` are in `lib/src/wire/act_as_wire.dart`.
+`test/act_as_test.dart` checks the bytes against the `local_rp_grantee`
+case of `sdks/regular-rp/conformance/act_as_grantee_signing.json`.
 
 ## Package health check: `cryptography_plus` vs `cryptography`
 
@@ -262,6 +384,10 @@ the design doc's "SDK API Shape":
   entire point of this mode); `AddressPolicy.publicOnly` is available
   opt-in for integrators who want the stricter posture the server-side S2S
   client uses for its own outbound calls.
+- `beginLocalLogin` uses the `_linkkeys_apis` `https=` endpoint as the
+  browser host only. A spoofed value can only change where the browser is
+  sent. It cannot change which domain's keys verify the login, because
+  `PendingLogin.userDomain` stays the identity domain.
 - The default `DnsResolver` reads the OS-configured nameservers from
   `/etc/resolv.conf` with no DNSSEC/DoH validation; LAN resolver spoofing
   is an accepted, documented tradeoff for this mode (design doc,
@@ -291,8 +417,10 @@ dart test
 `analysis_options.yaml`, on top of `package:lints/recommended.yaml`).
 `dart test` runs 8 conformance test files against every one of the eight
 `sdks/local-rp/conformance/*.json` vector files (positive and negative
-cases alike), plus identity/begin unit tests, the TLS pin-check unit tests
-described above, and the flow tests. All green.
+cases alike), plus identity/begin unit tests, the browser endpoint
+discovery tests (`test/browser_test.dart`, fake resolver, no live DNS), the
+TLS pin-check unit tests described above, and the flow tests. All green
+(67 tests as of this writing).
 
 ## Package layout
 
@@ -302,6 +430,8 @@ lib/
   src/
     identity.dart              # generate_local_rp_identity, byte helpers
     begin.dart                 # begin_local_login
+    act_as.dart                # act-as grants, grantee side
+    browser.dart               # _linkkeys_apis https= discovery + browser route URLs
     complete.dart               # complete_local_login (+ internal test seam)
     local_rp.dart               # envelope sign/verify, sealed box, expiry
     claims.dart                  # claim signature verification
@@ -313,6 +443,7 @@ lib/
       cbor.dart
       codec.dart
       types.dart
+      act_as_wire.dart             # act-as types + codec
     crypto/                        # cryptography_plus-backed primitives
       crypto.dart
       aead_suite.dart
@@ -334,6 +465,7 @@ test/
   identity_test.dart
   begin_test.dart
   flow_test.dart
+  act_as_test.dart
   tls_pinning_test.dart
 ```
 

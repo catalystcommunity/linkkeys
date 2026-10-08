@@ -188,6 +188,7 @@ from linkkeys_local_rp.transport import StdTransport
 from linkkeys_local_rp import tls as lk_tls
 from linkkeys_local_rp import dns as lk_dns
 from linkkeys_local_rp.dns import SystemDnsResolver, DnsParseError
+from linkkeys_local_rp.browser import resolve_browser_base
 from linkkeys_local_rp.rpc import MAX_FRAME_SIZE
 from linkkeys_local_rp.generated.codec import CborTag, cbor_encode, cbor_decode
 from linkkeys_local_rp.generated.types import (
@@ -289,22 +290,14 @@ def default_claim_request() -> ClaimRequest:
 
 def resolve_api_base(domain: str, resolver=None) -> str:
     """Look up the IDP's own `_linkkeys_apis` TXT record for its `https=`
-    base URL; fall back to `https://<domain>` if there is none (matching
-    the Rust reference RP client, `demoappsite/src/main.rs`'s
-    `resolve_api_base`)."""
+    base URL; fall back to `https://<domain>` if there is none -- the same
+    fallback rule `begin_local_login` applies. `resolve_browser_base` is the
+    SDK's exported discovery helper (validated https-only base)."""
     resolver = resolver or SystemDnsResolver()
-    name = lk_dns.linkkeys_apis_dns_name(domain)
     try:
-        for txt in resolver.txt_lookup(name):
-            try:
-                apis = lk_dns.parse_linkkeys_apis_txt(txt)
-            except DnsParseError:
-                continue
-            if apis.https_base:
-                return apis.https_base
+        return resolve_browser_base(resolver, domain)
     except Exception:
-        pass
-    return f"https://{domain}"
+        return f"https://{domain}"
 
 
 def build_authorize_redirect(rp_config: RpConfig, api_base: str, callback_url: str,

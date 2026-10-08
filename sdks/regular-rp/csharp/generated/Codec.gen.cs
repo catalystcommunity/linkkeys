@@ -166,6 +166,12 @@ public static partial class Cbor
         }
     }
 
+    // PreallocLimit bounds the elements a decoded array or map reserves before it reads
+    // them. The declared length is checked against the remaining input, but one input
+    // byte can become a much larger value, so reserving the full declared length lets a
+    // small frame reserve a large multiple of its size at every nesting level.
+    const int PreallocLimit = 1024;
+
     static CborValue Dec(byte[] b, ref int csilPos, int csilDepth)
     {
         if (csilDepth > 64) { throw new CborException("nesting limit exceeded"); }
@@ -226,7 +232,7 @@ public static partial class Cbor
             {
                 if (arg > (ulong)(b.Length - csilPos)) { throw new CborException("array length exceeds remaining input"); }
                 var n = (int)arg;
-                var items = new System.Collections.Generic.List<CborValue>(n);
+                var items = new System.Collections.Generic.List<CborValue>(System.Math.Min(n, PreallocLimit));
                 for (int csilI = 0; csilI < n; csilI++) { items.Add(Dec(b, ref csilPos, csilDepth + 1)); }
                 return new CborValue.Array(items);
             }
@@ -234,7 +240,7 @@ public static partial class Cbor
             {
                 if (arg > (ulong)(b.Length - csilPos)) { throw new CborException("map length exceeds remaining input"); }
                 var n = (int)arg;
-                var kvs = new System.Collections.Generic.List<(CborValue, CborValue)>(n);
+                var kvs = new System.Collections.Generic.List<(CborValue, CborValue)>(System.Math.Min(n, PreallocLimit));
                 for (int csilI = 0; csilI < n; csilI++)
                 {
                     var k = Dec(b, ref csilPos, csilDepth + 1);
@@ -584,6 +590,40 @@ public static class Codec
         RpResolveDomainKeysResponse csilTyped => RpResolveDomainKeysResponseToCborValue(csilTyped),
         RpResolveApplicationKeysRequest csilTyped => RpResolveApplicationKeysRequestToCborValue(csilTyped),
         RpResolveApplicationKeysResponse csilTyped => RpResolveApplicationKeysResponseToCborValue(csilTyped),
+        ApplicationRef csilTyped => ApplicationRefToCborValue(csilTyped),
+        GranteeRef csilTyped => GranteeRefToCborValue(csilTyped),
+        GranteeProof csilTyped => GranteeProofToCborValue(csilTyped),
+        ActAsScopeEntry csilTyped => ActAsScopeEntryToCborValue(csilTyped),
+        ActAsScopeSet csilTyped => ActAsScopeSetToCborValue(csilTyped),
+        SignedActAsScopeSet csilTyped => SignedActAsScopeSetToCborValue(csilTyped),
+        ActAsScopeSetRequest csilTyped => ActAsScopeSetRequestToCborValue(csilTyped),
+        ActAsGrant csilTyped => ActAsGrantToCborValue(csilTyped),
+        SignedActAsGrant csilTyped => SignedActAsGrantToCborValue(csilTyped),
+        ActAsGrantRequest csilTyped => ActAsGrantRequestToCborValue(csilTyped),
+        SignedActAsGrantRequest csilTyped => SignedActAsGrantRequestToCborValue(csilTyped),
+        ActAsRefreshRequest csilTyped => ActAsRefreshRequestToCborValue(csilTyped),
+        SignedActAsRefreshRequest csilTyped => SignedActAsRefreshRequestToCborValue(csilTyped),
+        RefreshActAsGrantRequest csilTyped => RefreshActAsGrantRequestToCborValue(csilTyped),
+        RefreshActAsGrantResponse csilTyped => RefreshActAsGrantResponseToCborValue(csilTyped),
+        ActAsPresentation csilTyped => ActAsPresentationToCborValue(csilTyped),
+        SignedActAsPresentation csilTyped => SignedActAsPresentationToCborValue(csilTyped),
+        ActAsCredential csilTyped => ActAsCredentialToCborValue(csilTyped),
+        ActAsGrantRevocation csilTyped => ActAsGrantRevocationToCborValue(csilTyped),
+        SignedActAsGrantRevocation csilTyped => SignedActAsGrantRevocationToCborValue(csilTyped),
+        GetActAsGrantRevocationsRequest csilTyped => GetActAsGrantRevocationsRequestToCborValue(csilTyped),
+        GetActAsGrantRevocationsResponse csilTyped => GetActAsGrantRevocationsResponseToCborValue(csilTyped),
+        RpActAsRefreshRequest csilTyped => RpActAsRefreshRequestToCborValue(csilTyped),
+        RpResolveActAsRevocationsRequest csilTyped => RpResolveActAsRevocationsRequestToCborValue(csilTyped),
+        BrowserActAsInspectRequest csilTyped => BrowserActAsInspectRequestToCborValue(csilTyped),
+        BrowserActAsScopeEntry csilTyped => BrowserActAsScopeEntryToCborValue(csilTyped),
+        BrowserActAsParty csilTyped => BrowserActAsPartyToCborValue(csilTyped),
+        BrowserActAsInspectResponse csilTyped => BrowserActAsInspectResponseToCborValue(csilTyped),
+        BrowserActAsCompleteRequest csilTyped => BrowserActAsCompleteRequestToCborValue(csilTyped),
+        BrowserActAsCompleteResponse csilTyped => BrowserActAsCompleteResponseToCborValue(csilTyped),
+        ActAsGrantSummary csilTyped => ActAsGrantSummaryToCborValue(csilTyped),
+        ListActAsGrantsResponse csilTyped => ListActAsGrantsResponseToCborValue(csilTyped),
+        RevokeActAsGrantRequest csilTyped => RevokeActAsGrantRequestToCborValue(csilTyped),
+        RevokeActAsGrantResponse csilTyped => RevokeActAsGrantResponseToCborValue(csilTyped),
         _ => throw new System.ArgumentException("csilgen: no CSIL codec for the requested type"),
     };
 
@@ -834,6 +874,40 @@ public static class Codec
         if (csilType == typeof(RpResolveDomainKeysResponse)) return RpResolveDomainKeysResponseFromCborValue(value);
         if (csilType == typeof(RpResolveApplicationKeysRequest)) return RpResolveApplicationKeysRequestFromCborValue(value);
         if (csilType == typeof(RpResolveApplicationKeysResponse)) return RpResolveApplicationKeysResponseFromCborValue(value);
+        if (csilType == typeof(ApplicationRef)) return ApplicationRefFromCborValue(value);
+        if (csilType == typeof(GranteeRef)) return GranteeRefFromCborValue(value);
+        if (csilType == typeof(GranteeProof)) return GranteeProofFromCborValue(value);
+        if (csilType == typeof(ActAsScopeEntry)) return ActAsScopeEntryFromCborValue(value);
+        if (csilType == typeof(ActAsScopeSet)) return ActAsScopeSetFromCborValue(value);
+        if (csilType == typeof(SignedActAsScopeSet)) return SignedActAsScopeSetFromCborValue(value);
+        if (csilType == typeof(ActAsScopeSetRequest)) return ActAsScopeSetRequestFromCborValue(value);
+        if (csilType == typeof(ActAsGrant)) return ActAsGrantFromCborValue(value);
+        if (csilType == typeof(SignedActAsGrant)) return SignedActAsGrantFromCborValue(value);
+        if (csilType == typeof(ActAsGrantRequest)) return ActAsGrantRequestFromCborValue(value);
+        if (csilType == typeof(SignedActAsGrantRequest)) return SignedActAsGrantRequestFromCborValue(value);
+        if (csilType == typeof(ActAsRefreshRequest)) return ActAsRefreshRequestFromCborValue(value);
+        if (csilType == typeof(SignedActAsRefreshRequest)) return SignedActAsRefreshRequestFromCborValue(value);
+        if (csilType == typeof(RefreshActAsGrantRequest)) return RefreshActAsGrantRequestFromCborValue(value);
+        if (csilType == typeof(RefreshActAsGrantResponse)) return RefreshActAsGrantResponseFromCborValue(value);
+        if (csilType == typeof(ActAsPresentation)) return ActAsPresentationFromCborValue(value);
+        if (csilType == typeof(SignedActAsPresentation)) return SignedActAsPresentationFromCborValue(value);
+        if (csilType == typeof(ActAsCredential)) return ActAsCredentialFromCborValue(value);
+        if (csilType == typeof(ActAsGrantRevocation)) return ActAsGrantRevocationFromCborValue(value);
+        if (csilType == typeof(SignedActAsGrantRevocation)) return SignedActAsGrantRevocationFromCborValue(value);
+        if (csilType == typeof(GetActAsGrantRevocationsRequest)) return GetActAsGrantRevocationsRequestFromCborValue(value);
+        if (csilType == typeof(GetActAsGrantRevocationsResponse)) return GetActAsGrantRevocationsResponseFromCborValue(value);
+        if (csilType == typeof(RpActAsRefreshRequest)) return RpActAsRefreshRequestFromCborValue(value);
+        if (csilType == typeof(RpResolveActAsRevocationsRequest)) return RpResolveActAsRevocationsRequestFromCborValue(value);
+        if (csilType == typeof(BrowserActAsInspectRequest)) return BrowserActAsInspectRequestFromCborValue(value);
+        if (csilType == typeof(BrowserActAsScopeEntry)) return BrowserActAsScopeEntryFromCborValue(value);
+        if (csilType == typeof(BrowserActAsParty)) return BrowserActAsPartyFromCborValue(value);
+        if (csilType == typeof(BrowserActAsInspectResponse)) return BrowserActAsInspectResponseFromCborValue(value);
+        if (csilType == typeof(BrowserActAsCompleteRequest)) return BrowserActAsCompleteRequestFromCborValue(value);
+        if (csilType == typeof(BrowserActAsCompleteResponse)) return BrowserActAsCompleteResponseFromCborValue(value);
+        if (csilType == typeof(ActAsGrantSummary)) return ActAsGrantSummaryFromCborValue(value);
+        if (csilType == typeof(ListActAsGrantsResponse)) return ListActAsGrantsResponseFromCborValue(value);
+        if (csilType == typeof(RevokeActAsGrantRequest)) return RevokeActAsGrantRequestFromCborValue(value);
+        if (csilType == typeof(RevokeActAsGrantResponse)) return RevokeActAsGrantResponseFromCborValue(value);
         throw new System.ArgumentException("csilgen: no CSIL codec for the requested type");
     }
 
@@ -6855,6 +6929,936 @@ public static class Codec
             FetchedAt = csilField8,
             RevocationsCheckedAt = csilField9,
             CacheStatus = csilField10,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a ApplicationRef.</summary>
+    public static CborValue ApplicationRefToCborValue(ApplicationRef value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("application_id"), new CborValue.Text(value.ApplicationId)));
+        csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
+        csilEntries.Add((new CborValue.Text("subject_user_id"), new CborValue.Text(value.SubjectUserId)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a ApplicationRef from a decoded CBOR value tree.</summary>
+    public static ApplicationRef ApplicationRefFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "subject_user_id"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "subject_domain"));
+        var csilField2 = Cbor.AsText(Cbor.Require(value, "application_id"));
+        return new ApplicationRef
+        {
+            SubjectUserId = csilField0,
+            SubjectDomain = csilField1,
+            ApplicationId = csilField2,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a GranteeRef.</summary>
+    public static CborValue GranteeRefToCborValue(GranteeRef value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        if (value.Application is { } csilV0)
+        {
+            csilEntries.Add((new CborValue.Text("application"), ApplicationRefToCborValue(csilV0)));
+        }
+        if (value.LocalRpDescriptorFingerprint is { } csilV1)
+        {
+            csilEntries.Add((new CborValue.Text("local_rp_descriptor_fingerprint"), new CborValue.Text(csilV1)));
+        }
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a GranteeRef from a decoded CBOR value tree.</summary>
+    public static GranteeRef GranteeRefFromCborValue(CborValue value)
+    {
+        ApplicationRef? csilField0 = Cbor.MapGet(value, "application") is { } csilRaw0 ? ApplicationRefFromCborValue(csilRaw0) : null;
+        string? csilField1 = Cbor.MapGet(value, "local_rp_descriptor_fingerprint") is { } csilRaw1 ? Cbor.AsText(csilRaw1) : null;
+        return new GranteeRef
+        {
+            Application = csilField0,
+            LocalRpDescriptorFingerprint = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a GranteeProof.</summary>
+    public static CborValue GranteeProofToCborValue(GranteeProof value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("signature"), ApplicationKeySignatureToCborValue(value.Signature)));
+        if (value.LocalRpDescriptor is { } csilV1)
+        {
+            csilEntries.Add((new CborValue.Text("local_rp_descriptor"), SignedLocalRpDescriptorToCborValue(csilV1)));
+        }
+        if (value.ApplicationInstanceId is { } csilV2)
+        {
+            csilEntries.Add((new CborValue.Text("application_instance_id"), new CborValue.Text(csilV2)));
+        }
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a GranteeProof from a decoded CBOR value tree.</summary>
+    public static GranteeProof GranteeProofFromCborValue(CborValue value)
+    {
+        string? csilField0 = Cbor.MapGet(value, "application_instance_id") is { } csilRaw0 ? Cbor.AsText(csilRaw0) : null;
+        SignedLocalRpDescriptor? csilField1 = Cbor.MapGet(value, "local_rp_descriptor") is { } csilRaw1 ? SignedLocalRpDescriptorFromCborValue(csilRaw1) : null;
+        var csilField2 = ApplicationKeySignatureFromCborValue(Cbor.Require(value, "signature"));
+        return new GranteeProof
+        {
+            ApplicationInstanceId = csilField0,
+            LocalRpDescriptor = csilField1,
+            Signature = csilField2,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a ActAsScopeEntry.</summary>
+    public static CborValue ActAsScopeEntryToCborValue(ActAsScopeEntry value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("scope"), new CborValue.Text(value.Scope)));
+        if (value.Description is { } csilV1)
+        {
+            csilEntries.Add((new CborValue.Text("description"), new CborValue.Text(csilV1)));
+        }
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a ActAsScopeEntry from a decoded CBOR value tree.</summary>
+    public static ActAsScopeEntry ActAsScopeEntryFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "scope"));
+        string? csilField1 = Cbor.MapGet(value, "description") is { } csilRaw1 ? Cbor.AsText(csilRaw1) : null;
+        return new ActAsScopeEntry
+        {
+            Scope = csilField0,
+            Description = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a ActAsScopeSet.</summary>
+    public static CborValue ActAsScopeSetToCborValue(ActAsScopeSet value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("entries"), new CborValue.Array(value.Entries.Select(csilElem => (CborValue)ActAsScopeEntryToCborValue(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("grantee"), GranteeRefToCborValue(value.Grantee)));
+        csilEntries.Add((new CborValue.Text("audience"), ApplicationRefToCborValue(value.Audience)));
+        if (value.Language is { } csilV3)
+        {
+            csilEntries.Add((new CborValue.Text("language"), new CborValue.Text(csilV3)));
+        }
+        csilEntries.Add((new CborValue.Text("issued_at"), new CborValue.Text(value.IssuedAt)));
+        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        if (value.AudienceHandleClaim is { } csilV6)
+        {
+            csilEntries.Add((new CborValue.Text("audience_handle_claim"), ClaimToCborValue(csilV6)));
+        }
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a ActAsScopeSet from a decoded CBOR value tree.</summary>
+    public static ActAsScopeSet ActAsScopeSetFromCborValue(CborValue value)
+    {
+        var csilField0 = ApplicationRefFromCborValue(Cbor.Require(value, "audience"));
+        var csilField1 = GranteeRefFromCborValue(Cbor.Require(value, "grantee"));
+        var csilField2 = Cbor.AsArray(Cbor.Require(value, "entries")).Select(csilElem => ActAsScopeEntryFromCborValue(csilElem)).ToList();
+        string? csilField3 = Cbor.MapGet(value, "language") is { } csilRaw3 ? Cbor.AsText(csilRaw3) : null;
+        Claim? csilField4 = Cbor.MapGet(value, "audience_handle_claim") is { } csilRaw4 ? ClaimFromCborValue(csilRaw4) : null;
+        var csilField5 = Cbor.AsText(Cbor.Require(value, "issued_at"));
+        var csilField6 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        return new ActAsScopeSet
+        {
+            Audience = csilField0,
+            Grantee = csilField1,
+            Entries = csilField2,
+            Language = csilField3,
+            AudienceHandleClaim = csilField4,
+            IssuedAt = csilField5,
+            ExpiresAt = csilField6,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a SignedActAsScopeSet.</summary>
+    public static CborValue SignedActAsScopeSetToCborValue(SignedActAsScopeSet value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("scope_set"), new CborValue.Bytes(value.ScopeSet)));
+        csilEntries.Add((new CborValue.Text("signatures"), new CborValue.Array(value.Signatures.Select(csilElem => (CborValue)ApplicationKeySignatureToCborValue(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("signer_instance_id"), new CborValue.Text(value.SignerInstanceId)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a SignedActAsScopeSet from a decoded CBOR value tree.</summary>
+    public static SignedActAsScopeSet SignedActAsScopeSetFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsBytes(Cbor.Require(value, "scope_set"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "signer_instance_id"));
+        var csilField2 = Cbor.AsArray(Cbor.Require(value, "signatures")).Select(csilElem => ApplicationKeySignatureFromCborValue(csilElem)).ToList();
+        return new SignedActAsScopeSet
+        {
+            ScopeSet = csilField0,
+            SignerInstanceId = csilField1,
+            Signatures = csilField2,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a ActAsScopeSetRequest.</summary>
+    public static CborValue ActAsScopeSetRequestToCborValue(ActAsScopeSetRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("scope"), new CborValue.Array(value.Scope.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("grantee"), GranteeRefToCborValue(value.Grantee)));
+        if (value.LocalePreferences is { } csilV2)
+        {
+            csilEntries.Add((new CborValue.Text("locale_preferences"), new CborValue.Array(csilV2.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        }
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a ActAsScopeSetRequest from a decoded CBOR value tree.</summary>
+    public static ActAsScopeSetRequest ActAsScopeSetRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = GranteeRefFromCborValue(Cbor.Require(value, "grantee"));
+        var csilField1 = Cbor.AsArray(Cbor.Require(value, "scope")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        System.Collections.Generic.List<string>? csilField2 = Cbor.MapGet(value, "locale_preferences") is { } csilRaw2 ? Cbor.AsArray(csilRaw2).Select(csilElem => Cbor.AsText(csilElem)).ToList() : null;
+        return new ActAsScopeSetRequest
+        {
+            Grantee = csilField0,
+            Scope = csilField1,
+            LocalePreferences = csilField2,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a ActAsGrant.</summary>
+    public static CborValue ActAsGrantToCborValue(ActAsGrant value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("grantee"), GranteeRefToCborValue(value.Grantee)));
+        csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
+        csilEntries.Add((new CborValue.Text("audience"), ApplicationRefToCborValue(value.Audience)));
+        csilEntries.Add((new CborValue.Text("grant_id"), new CborValue.Text(value.GrantId)));
+        csilEntries.Add((new CborValue.Text("issued_at"), new CborValue.Text(value.IssuedAt)));
+        csilEntries.Add((new CborValue.Text("scope_set"), SignedActAsScopeSetToCborValue(value.ScopeSet)));
+        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("approved_scope"), new CborValue.Array(value.ApprovedScope.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
+        csilEntries.Add((new CborValue.Text("renewable_until"), new CborValue.Text(value.RenewableUntil)));
+        csilEntries.Add((new CborValue.Text("series_issued_at"), new CborValue.Text(value.SeriesIssuedAt)));
+        if (value.DeviceFingerprint is { } csilV11)
+        {
+            csilEntries.Add((new CborValue.Text("device_fingerprint"), new CborValue.Text(csilV11)));
+        }
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a ActAsGrant from a decoded CBOR value tree.</summary>
+    public static ActAsGrant ActAsGrantFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "grant_id"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "user_id"));
+        var csilField2 = Cbor.AsText(Cbor.Require(value, "subject_domain"));
+        var csilField3 = GranteeRefFromCborValue(Cbor.Require(value, "grantee"));
+        var csilField4 = ApplicationRefFromCborValue(Cbor.Require(value, "audience"));
+        var csilField5 = SignedActAsScopeSetFromCborValue(Cbor.Require(value, "scope_set"));
+        var csilField6 = Cbor.AsArray(Cbor.Require(value, "approved_scope")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        var csilField7 = Cbor.AsText(Cbor.Require(value, "issued_at"));
+        var csilField8 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        var csilField9 = Cbor.AsText(Cbor.Require(value, "series_issued_at"));
+        var csilField10 = Cbor.AsText(Cbor.Require(value, "renewable_until"));
+        string? csilField11 = Cbor.MapGet(value, "device_fingerprint") is { } csilRaw11 ? Cbor.AsText(csilRaw11) : null;
+        return new ActAsGrant
+        {
+            GrantId = csilField0,
+            UserId = csilField1,
+            SubjectDomain = csilField2,
+            Grantee = csilField3,
+            Audience = csilField4,
+            ScopeSet = csilField5,
+            ApprovedScope = csilField6,
+            IssuedAt = csilField7,
+            ExpiresAt = csilField8,
+            SeriesIssuedAt = csilField9,
+            RenewableUntil = csilField10,
+            DeviceFingerprint = csilField11,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a SignedActAsGrant.</summary>
+    public static CborValue SignedActAsGrantToCborValue(SignedActAsGrant value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("grant"), new CborValue.Bytes(value.Grant)));
+        csilEntries.Add((new CborValue.Text("signatures"), new CborValue.Array(value.Signatures.Select(csilElem => (CborValue)ClaimSignatureToCborValue(csilElem)).ToList())));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a SignedActAsGrant from a decoded CBOR value tree.</summary>
+    public static SignedActAsGrant SignedActAsGrantFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsBytes(Cbor.Require(value, "grant"));
+        var csilField1 = Cbor.AsArray(Cbor.Require(value, "signatures")).Select(csilElem => ClaimSignatureFromCborValue(csilElem)).ToList();
+        return new SignedActAsGrant
+        {
+            Grant = csilField0,
+            Signatures = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a ActAsGrantRequest.</summary>
+    public static CborValue ActAsGrantRequestToCborValue(ActAsGrantRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("nonce"), new CborValue.Text(value.Nonce)));
+        csilEntries.Add((new CborValue.Text("grantee"), GranteeRefToCborValue(value.Grantee)));
+        csilEntries.Add((new CborValue.Text("scope_set"), SignedActAsScopeSetToCborValue(value.ScopeSet)));
+        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("callback_url"), new CborValue.Text(value.CallbackUrl)));
+        csilEntries.Add((new CborValue.Text("requested_at"), new CborValue.Text(value.RequestedAt)));
+        if (value.GranteeHandleClaim is { } csilV6)
+        {
+            csilEntries.Add((new CborValue.Text("grantee_handle_claim"), ClaimToCborValue(csilV6)));
+        }
+        if (value.RequestedLifetimeSeconds is { } csilV7)
+        {
+            csilEntries.Add((new CborValue.Text("requested_lifetime_seconds"), new CborValue.Int(csilV7)));
+        }
+        if (value.RequestedRenewalWindowSeconds is { } csilV8)
+        {
+            csilEntries.Add((new CborValue.Text("requested_renewal_window_seconds"), new CborValue.Int(csilV8)));
+        }
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a ActAsGrantRequest from a decoded CBOR value tree.</summary>
+    public static ActAsGrantRequest ActAsGrantRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = GranteeRefFromCborValue(Cbor.Require(value, "grantee"));
+        var csilField1 = SignedActAsScopeSetFromCborValue(Cbor.Require(value, "scope_set"));
+        long? csilField2 = Cbor.MapGet(value, "requested_lifetime_seconds") is { } csilRaw2 ? Cbor.AsI64(csilRaw2) : null;
+        long? csilField3 = Cbor.MapGet(value, "requested_renewal_window_seconds") is { } csilRaw3 ? Cbor.AsI64(csilRaw3) : null;
+        Claim? csilField4 = Cbor.MapGet(value, "grantee_handle_claim") is { } csilRaw4 ? ClaimFromCborValue(csilRaw4) : null;
+        var csilField5 = Cbor.AsText(Cbor.Require(value, "callback_url"));
+        var csilField6 = Cbor.AsText(Cbor.Require(value, "nonce"));
+        var csilField7 = Cbor.AsText(Cbor.Require(value, "requested_at"));
+        var csilField8 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        return new ActAsGrantRequest
+        {
+            Grantee = csilField0,
+            ScopeSet = csilField1,
+            RequestedLifetimeSeconds = csilField2,
+            RequestedRenewalWindowSeconds = csilField3,
+            GranteeHandleClaim = csilField4,
+            CallbackUrl = csilField5,
+            Nonce = csilField6,
+            RequestedAt = csilField7,
+            ExpiresAt = csilField8,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a SignedActAsGrantRequest.</summary>
+    public static CborValue SignedActAsGrantRequestToCborValue(SignedActAsGrantRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("proof"), GranteeProofToCborValue(value.Proof)));
+        csilEntries.Add((new CborValue.Text("request"), new CborValue.Bytes(value.Request)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a SignedActAsGrantRequest from a decoded CBOR value tree.</summary>
+    public static SignedActAsGrantRequest SignedActAsGrantRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsBytes(Cbor.Require(value, "request"));
+        var csilField1 = GranteeProofFromCborValue(Cbor.Require(value, "proof"));
+        return new SignedActAsGrantRequest
+        {
+            Request = csilField0,
+            Proof = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a ActAsRefreshRequest.</summary>
+    public static CborValue ActAsRefreshRequestToCborValue(ActAsRefreshRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("nonce"), new CborValue.Text(value.Nonce)));
+        csilEntries.Add((new CborValue.Text("grantee"), GranteeRefToCborValue(value.Grantee)));
+        csilEntries.Add((new CborValue.Text("grant_id"), new CborValue.Text(value.GrantId)));
+        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("requested_at"), new CborValue.Text(value.RequestedAt)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a ActAsRefreshRequest from a decoded CBOR value tree.</summary>
+    public static ActAsRefreshRequest ActAsRefreshRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "grant_id"));
+        var csilField1 = GranteeRefFromCborValue(Cbor.Require(value, "grantee"));
+        var csilField2 = Cbor.AsText(Cbor.Require(value, "requested_at"));
+        var csilField3 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        var csilField4 = Cbor.AsText(Cbor.Require(value, "nonce"));
+        return new ActAsRefreshRequest
+        {
+            GrantId = csilField0,
+            Grantee = csilField1,
+            RequestedAt = csilField2,
+            ExpiresAt = csilField3,
+            Nonce = csilField4,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a SignedActAsRefreshRequest.</summary>
+    public static CborValue SignedActAsRefreshRequestToCborValue(SignedActAsRefreshRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("proof"), GranteeProofToCborValue(value.Proof)));
+        csilEntries.Add((new CborValue.Text("request"), new CborValue.Bytes(value.Request)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a SignedActAsRefreshRequest from a decoded CBOR value tree.</summary>
+    public static SignedActAsRefreshRequest SignedActAsRefreshRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsBytes(Cbor.Require(value, "request"));
+        var csilField1 = GranteeProofFromCborValue(Cbor.Require(value, "proof"));
+        return new SignedActAsRefreshRequest
+        {
+            Request = csilField0,
+            Proof = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RefreshActAsGrantRequest.</summary>
+    public static CborValue RefreshActAsGrantRequestToCborValue(RefreshActAsGrantRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("request"), SignedActAsRefreshRequestToCborValue(value.Request)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RefreshActAsGrantRequest from a decoded CBOR value tree.</summary>
+    public static RefreshActAsGrantRequest RefreshActAsGrantRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = SignedActAsRefreshRequestFromCborValue(Cbor.Require(value, "request"));
+        return new RefreshActAsGrantRequest
+        {
+            Request = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RefreshActAsGrantResponse.</summary>
+    public static CborValue RefreshActAsGrantResponseToCborValue(RefreshActAsGrantResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("grant"), SignedActAsGrantToCborValue(value.Grant)));
+        csilEntries.Add((new CborValue.Text("signed"), new CborValue.Bool(value.Signed)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RefreshActAsGrantResponse from a decoded CBOR value tree.</summary>
+    public static RefreshActAsGrantResponse RefreshActAsGrantResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = SignedActAsGrantFromCborValue(Cbor.Require(value, "grant"));
+        var csilField1 = Cbor.AsBool(Cbor.Require(value, "signed"));
+        return new RefreshActAsGrantResponse
+        {
+            Grant = csilField0,
+            Signed = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a ActAsPresentation.</summary>
+    public static CborValue ActAsPresentationToCborValue(ActAsPresentation value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("nonce"), new CborValue.Bytes(value.Nonce)));
+        csilEntries.Add((new CborValue.Text("audience"), ApplicationRefToCborValue(value.Audience)));
+        csilEntries.Add((new CborValue.Text("grant_hash"), new CborValue.Bytes(value.GrantHash)));
+        csilEntries.Add((new CborValue.Text("presented_at"), new CborValue.Text(value.PresentedAt)));
+        csilEntries.Add((new CborValue.Text("request_digest"), new CborValue.Bytes(value.RequestDigest)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a ActAsPresentation from a decoded CBOR value tree.</summary>
+    public static ActAsPresentation ActAsPresentationFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsBytes(Cbor.Require(value, "grant_hash"));
+        var csilField1 = ApplicationRefFromCborValue(Cbor.Require(value, "audience"));
+        var csilField2 = Cbor.AsBytes(Cbor.Require(value, "request_digest"));
+        var csilField3 = Cbor.AsText(Cbor.Require(value, "presented_at"));
+        var csilField4 = Cbor.AsBytes(Cbor.Require(value, "nonce"));
+        return new ActAsPresentation
+        {
+            GrantHash = csilField0,
+            Audience = csilField1,
+            RequestDigest = csilField2,
+            PresentedAt = csilField3,
+            Nonce = csilField4,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a SignedActAsPresentation.</summary>
+    public static CborValue SignedActAsPresentationToCborValue(SignedActAsPresentation value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("proof"), GranteeProofToCborValue(value.Proof)));
+        csilEntries.Add((new CborValue.Text("presentation"), new CborValue.Bytes(value.Presentation)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a SignedActAsPresentation from a decoded CBOR value tree.</summary>
+    public static SignedActAsPresentation SignedActAsPresentationFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsBytes(Cbor.Require(value, "presentation"));
+        var csilField1 = GranteeProofFromCborValue(Cbor.Require(value, "proof"));
+        return new SignedActAsPresentation
+        {
+            Presentation = csilField0,
+            Proof = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a ActAsCredential.</summary>
+    public static CborValue ActAsCredentialToCborValue(ActAsCredential value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("grant"), SignedActAsGrantToCborValue(value.Grant)));
+        csilEntries.Add((new CborValue.Text("presentation"), SignedActAsPresentationToCborValue(value.Presentation)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a ActAsCredential from a decoded CBOR value tree.</summary>
+    public static ActAsCredential ActAsCredentialFromCborValue(CborValue value)
+    {
+        var csilField0 = SignedActAsGrantFromCborValue(Cbor.Require(value, "grant"));
+        var csilField1 = SignedActAsPresentationFromCborValue(Cbor.Require(value, "presentation"));
+        return new ActAsCredential
+        {
+            Grant = csilField0,
+            Presentation = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a ActAsGrantRevocation.</summary>
+    public static CborValue ActAsGrantRevocationToCborValue(ActAsGrantRevocation value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
+        csilEntries.Add((new CborValue.Text("grant_id"), new CborValue.Text(value.GrantId)));
+        csilEntries.Add((new CborValue.Text("revoked_at"), new CborValue.Text(value.RevokedAt)));
+        csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a ActAsGrantRevocation from a decoded CBOR value tree.</summary>
+    public static ActAsGrantRevocation ActAsGrantRevocationFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "grant_id"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "user_id"));
+        var csilField2 = Cbor.AsText(Cbor.Require(value, "subject_domain"));
+        var csilField3 = Cbor.AsText(Cbor.Require(value, "revoked_at"));
+        return new ActAsGrantRevocation
+        {
+            GrantId = csilField0,
+            UserId = csilField1,
+            SubjectDomain = csilField2,
+            RevokedAt = csilField3,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a SignedActAsGrantRevocation.</summary>
+    public static CborValue SignedActAsGrantRevocationToCborValue(SignedActAsGrantRevocation value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("revocation"), new CborValue.Bytes(value.Revocation)));
+        csilEntries.Add((new CborValue.Text("signatures"), new CborValue.Array(value.Signatures.Select(csilElem => (CborValue)ClaimSignatureToCborValue(csilElem)).ToList())));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a SignedActAsGrantRevocation from a decoded CBOR value tree.</summary>
+    public static SignedActAsGrantRevocation SignedActAsGrantRevocationFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsBytes(Cbor.Require(value, "revocation"));
+        var csilField1 = Cbor.AsArray(Cbor.Require(value, "signatures")).Select(csilElem => ClaimSignatureFromCborValue(csilElem)).ToList();
+        return new SignedActAsGrantRevocation
+        {
+            Revocation = csilField0,
+            Signatures = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a GetActAsGrantRevocationsRequest.</summary>
+    public static CborValue GetActAsGrantRevocationsRequestToCborValue(GetActAsGrantRevocationsRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("grant_ids"), new CborValue.Array(value.GrantIds.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a GetActAsGrantRevocationsRequest from a decoded CBOR value tree.</summary>
+    public static GetActAsGrantRevocationsRequest GetActAsGrantRevocationsRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsArray(Cbor.Require(value, "grant_ids")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        return new GetActAsGrantRevocationsRequest
+        {
+            GrantIds = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a GetActAsGrantRevocationsResponse.</summary>
+    public static CborValue GetActAsGrantRevocationsResponseToCborValue(GetActAsGrantRevocationsResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("revocations"), new CborValue.Array(value.Revocations.Select(csilElem => (CborValue)SignedActAsGrantRevocationToCborValue(csilElem)).ToList())));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a GetActAsGrantRevocationsResponse from a decoded CBOR value tree.</summary>
+    public static GetActAsGrantRevocationsResponse GetActAsGrantRevocationsResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsArray(Cbor.Require(value, "revocations")).Select(csilElem => SignedActAsGrantRevocationFromCborValue(csilElem)).ToList();
+        return new GetActAsGrantRevocationsResponse
+        {
+            Revocations = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RpActAsRefreshRequest.</summary>
+    public static CborValue RpActAsRefreshRequestToCborValue(RpActAsRefreshRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("request"), SignedActAsRefreshRequestToCborValue(value.Request)));
+        csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RpActAsRefreshRequest from a decoded CBOR value tree.</summary>
+    public static RpActAsRefreshRequest RpActAsRefreshRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "subject_domain"));
+        var csilField1 = SignedActAsRefreshRequestFromCborValue(Cbor.Require(value, "request"));
+        return new RpActAsRefreshRequest
+        {
+            SubjectDomain = csilField0,
+            Request = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RpResolveActAsRevocationsRequest.</summary>
+    public static CborValue RpResolveActAsRevocationsRequestToCborValue(RpResolveActAsRevocationsRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("grant_ids"), new CborValue.Array(value.GrantIds.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RpResolveActAsRevocationsRequest from a decoded CBOR value tree.</summary>
+    public static RpResolveActAsRevocationsRequest RpResolveActAsRevocationsRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "subject_domain"));
+        var csilField1 = Cbor.AsArray(Cbor.Require(value, "grant_ids")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        return new RpResolveActAsRevocationsRequest
+        {
+            SubjectDomain = csilField0,
+            GrantIds = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a BrowserActAsInspectRequest.</summary>
+    public static CborValue BrowserActAsInspectRequestToCborValue(BrowserActAsInspectRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("signed_request"), new CborValue.Text(value.SignedRequest)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a BrowserActAsInspectRequest from a decoded CBOR value tree.</summary>
+    public static BrowserActAsInspectRequest BrowserActAsInspectRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "signed_request"));
+        return new BrowserActAsInspectRequest
+        {
+            SignedRequest = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a BrowserActAsScopeEntry.</summary>
+    public static CborValue BrowserActAsScopeEntryToCborValue(BrowserActAsScopeEntry value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("scope"), new CborValue.Text(value.Scope)));
+        if (value.Description is { } csilV1)
+        {
+            csilEntries.Add((new CborValue.Text("description"), new CborValue.Text(csilV1)));
+        }
+        csilEntries.Add((new CborValue.Text("removed_by_policy"), new CborValue.Bool(value.RemovedByPolicy)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a BrowserActAsScopeEntry from a decoded CBOR value tree.</summary>
+    public static BrowserActAsScopeEntry BrowserActAsScopeEntryFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "scope"));
+        string? csilField1 = Cbor.MapGet(value, "description") is { } csilRaw1 ? Cbor.AsText(csilRaw1) : null;
+        var csilField2 = Cbor.AsBool(Cbor.Require(value, "removed_by_policy"));
+        return new BrowserActAsScopeEntry
+        {
+            Scope = csilField0,
+            Description = csilField1,
+            RemovedByPolicy = csilField2,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a BrowserActAsParty.</summary>
+    public static CborValue BrowserActAsPartyToCborValue(BrowserActAsParty value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        if (value.Domain is { } csilV0)
+        {
+            csilEntries.Add((new CborValue.Text("domain"), new CborValue.Text(csilV0)));
+        }
+        if (value.Handle is { } csilV1)
+        {
+            csilEntries.Add((new CborValue.Text("handle"), new CborValue.Text(csilV1)));
+        }
+        csilEntries.Add((new CborValue.Text("own_domain"), new CborValue.Bool(value.OwnDomain)));
+        if (value.LocalRpName is { } csilV3)
+        {
+            csilEntries.Add((new CborValue.Text("local_rp_name"), new CborValue.Text(csilV3)));
+        }
+        if (value.ApplicationId is { } csilV4)
+        {
+            csilEntries.Add((new CborValue.Text("application_id"), new CborValue.Text(csilV4)));
+        }
+        if (value.SubjectUserId is { } csilV5)
+        {
+            csilEntries.Add((new CborValue.Text("subject_user_id"), new CborValue.Text(csilV5)));
+        }
+        csilEntries.Add((new CborValue.Text("operator_trusted"), new CborValue.Bool(value.OperatorTrusted)));
+        csilEntries.Add((new CborValue.Text("user_has_history"), new CborValue.Bool(value.UserHasHistory)));
+        csilEntries.Add((new CborValue.Text("domain_key_pinned"), new CborValue.Bool(value.DomainKeyPinned)));
+        if (value.LocalRpFingerprint is { } csilV9)
+        {
+            csilEntries.Add((new CborValue.Text("local_rp_fingerprint"), new CborValue.Text(csilV9)));
+        }
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a BrowserActAsParty from a decoded CBOR value tree.</summary>
+    public static BrowserActAsParty BrowserActAsPartyFromCborValue(CborValue value)
+    {
+        string? csilField0 = Cbor.MapGet(value, "domain") is { } csilRaw0 ? Cbor.AsText(csilRaw0) : null;
+        string? csilField1 = Cbor.MapGet(value, "application_id") is { } csilRaw1 ? Cbor.AsText(csilRaw1) : null;
+        string? csilField2 = Cbor.MapGet(value, "subject_user_id") is { } csilRaw2 ? Cbor.AsText(csilRaw2) : null;
+        string? csilField3 = Cbor.MapGet(value, "handle") is { } csilRaw3 ? Cbor.AsText(csilRaw3) : null;
+        string? csilField4 = Cbor.MapGet(value, "local_rp_name") is { } csilRaw4 ? Cbor.AsText(csilRaw4) : null;
+        string? csilField5 = Cbor.MapGet(value, "local_rp_fingerprint") is { } csilRaw5 ? Cbor.AsText(csilRaw5) : null;
+        var csilField6 = Cbor.AsBool(Cbor.Require(value, "own_domain"));
+        var csilField7 = Cbor.AsBool(Cbor.Require(value, "user_has_history"));
+        var csilField8 = Cbor.AsBool(Cbor.Require(value, "domain_key_pinned"));
+        var csilField9 = Cbor.AsBool(Cbor.Require(value, "operator_trusted"));
+        return new BrowserActAsParty
+        {
+            Domain = csilField0,
+            ApplicationId = csilField1,
+            SubjectUserId = csilField2,
+            Handle = csilField3,
+            LocalRpName = csilField4,
+            LocalRpFingerprint = csilField5,
+            OwnDomain = csilField6,
+            UserHasHistory = csilField7,
+            DomainKeyPinned = csilField8,
+            OperatorTrusted = csilField9,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a BrowserActAsInspectResponse.</summary>
+    public static CborValue BrowserActAsInspectResponseToCborValue(BrowserActAsInspectResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("entries"), new CborValue.Array(value.Entries.Select(csilElem => (CborValue)BrowserActAsScopeEntryToCborValue(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("grantee"), GranteeRefToCborValue(value.Grantee)));
+        csilEntries.Add((new CborValue.Text("audience"), ApplicationRefToCborValue(value.Audience)));
+        if (value.Language is { } csilV3)
+        {
+            csilEntries.Add((new CborValue.Text("language"), new CborValue.Text(csilV3)));
+        }
+        csilEntries.Add((new CborValue.Text("grantee_party"), BrowserActAsPartyToCborValue(value.GranteeParty)));
+        csilEntries.Add((new CborValue.Text("audience_party"), BrowserActAsPartyToCborValue(value.AudienceParty)));
+        csilEntries.Add((new CborValue.Text("max_lifetime_seconds"), new CborValue.Int(value.MaxLifetimeSeconds)));
+        csilEntries.Add((new CborValue.Text("default_lifetime_seconds"), new CborValue.Int(value.DefaultLifetimeSeconds)));
+        csilEntries.Add((new CborValue.Text("max_renewal_window_seconds"), new CborValue.Int(value.MaxRenewalWindowSeconds)));
+        csilEntries.Add((new CborValue.Text("default_renewal_window_seconds"), new CborValue.Int(value.DefaultRenewalWindowSeconds)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a BrowserActAsInspectResponse from a decoded CBOR value tree.</summary>
+    public static BrowserActAsInspectResponse BrowserActAsInspectResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = GranteeRefFromCborValue(Cbor.Require(value, "grantee"));
+        var csilField1 = BrowserActAsPartyFromCborValue(Cbor.Require(value, "grantee_party"));
+        var csilField2 = ApplicationRefFromCborValue(Cbor.Require(value, "audience"));
+        var csilField3 = BrowserActAsPartyFromCborValue(Cbor.Require(value, "audience_party"));
+        var csilField4 = Cbor.AsArray(Cbor.Require(value, "entries")).Select(csilElem => BrowserActAsScopeEntryFromCborValue(csilElem)).ToList();
+        string? csilField5 = Cbor.MapGet(value, "language") is { } csilRaw5 ? Cbor.AsText(csilRaw5) : null;
+        var csilField6 = Cbor.AsI64(Cbor.Require(value, "default_lifetime_seconds"));
+        var csilField7 = Cbor.AsI64(Cbor.Require(value, "max_lifetime_seconds"));
+        var csilField8 = Cbor.AsI64(Cbor.Require(value, "default_renewal_window_seconds"));
+        var csilField9 = Cbor.AsI64(Cbor.Require(value, "max_renewal_window_seconds"));
+        return new BrowserActAsInspectResponse
+        {
+            Grantee = csilField0,
+            GranteeParty = csilField1,
+            Audience = csilField2,
+            AudienceParty = csilField3,
+            Entries = csilField4,
+            Language = csilField5,
+            DefaultLifetimeSeconds = csilField6,
+            MaxLifetimeSeconds = csilField7,
+            DefaultRenewalWindowSeconds = csilField8,
+            MaxRenewalWindowSeconds = csilField9,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a BrowserActAsCompleteRequest.</summary>
+    public static CborValue BrowserActAsCompleteRequestToCborValue(BrowserActAsCompleteRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("approved_scope"), new CborValue.Array(value.ApprovedScope.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("signed_request"), new CborValue.Text(value.SignedRequest)));
+        csilEntries.Add((new CborValue.Text("lifetime_seconds"), new CborValue.Int(value.LifetimeSeconds)));
+        csilEntries.Add((new CborValue.Text("renewal_window_seconds"), new CborValue.Int(value.RenewalWindowSeconds)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a BrowserActAsCompleteRequest from a decoded CBOR value tree.</summary>
+    public static BrowserActAsCompleteRequest BrowserActAsCompleteRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "signed_request"));
+        var csilField1 = Cbor.AsArray(Cbor.Require(value, "approved_scope")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        var csilField2 = Cbor.AsI64(Cbor.Require(value, "lifetime_seconds"));
+        var csilField3 = Cbor.AsI64(Cbor.Require(value, "renewal_window_seconds"));
+        return new BrowserActAsCompleteRequest
+        {
+            SignedRequest = csilField0,
+            ApprovedScope = csilField1,
+            LifetimeSeconds = csilField2,
+            RenewalWindowSeconds = csilField3,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a BrowserActAsCompleteResponse.</summary>
+    public static CborValue BrowserActAsCompleteResponseToCborValue(BrowserActAsCompleteResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("redirect_url"), new CborValue.Text(value.RedirectUrl)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a BrowserActAsCompleteResponse from a decoded CBOR value tree.</summary>
+    public static BrowserActAsCompleteResponse BrowserActAsCompleteResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "redirect_url"));
+        return new BrowserActAsCompleteResponse
+        {
+            RedirectUrl = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a ActAsGrantSummary.</summary>
+    public static CborValue ActAsGrantSummaryToCborValue(ActAsGrantSummary value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("grantee"), GranteeRefToCborValue(value.Grantee)));
+        csilEntries.Add((new CborValue.Text("audience"), ApplicationRefToCborValue(value.Audience)));
+        csilEntries.Add((new CborValue.Text("grant_id"), new CborValue.Text(value.GrantId)));
+        csilEntries.Add((new CborValue.Text("issued_at"), new CborValue.Text(value.IssuedAt)));
+        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        if (value.RevokedAt is { } csilV5)
+        {
+            csilEntries.Add((new CborValue.Text("revoked_at"), new CborValue.Text(csilV5)));
+        }
+        csilEntries.Add((new CborValue.Text("approved_scope"), new CborValue.Array(value.ApprovedScope.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("renewable_until"), new CborValue.Text(value.RenewableUntil)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a ActAsGrantSummary from a decoded CBOR value tree.</summary>
+    public static ActAsGrantSummary ActAsGrantSummaryFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "grant_id"));
+        var csilField1 = GranteeRefFromCborValue(Cbor.Require(value, "grantee"));
+        var csilField2 = ApplicationRefFromCborValue(Cbor.Require(value, "audience"));
+        var csilField3 = Cbor.AsArray(Cbor.Require(value, "approved_scope")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        var csilField4 = Cbor.AsText(Cbor.Require(value, "issued_at"));
+        var csilField5 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        var csilField6 = Cbor.AsText(Cbor.Require(value, "renewable_until"));
+        string? csilField7 = Cbor.MapGet(value, "revoked_at") is { } csilRaw7 ? Cbor.AsText(csilRaw7) : null;
+        return new ActAsGrantSummary
+        {
+            GrantId = csilField0,
+            Grantee = csilField1,
+            Audience = csilField2,
+            ApprovedScope = csilField3,
+            IssuedAt = csilField4,
+            ExpiresAt = csilField5,
+            RenewableUntil = csilField6,
+            RevokedAt = csilField7,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a ListActAsGrantsResponse.</summary>
+    public static CborValue ListActAsGrantsResponseToCborValue(ListActAsGrantsResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("grants"), new CborValue.Array(value.Grants.Select(csilElem => (CborValue)ActAsGrantSummaryToCborValue(csilElem)).ToList())));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a ListActAsGrantsResponse from a decoded CBOR value tree.</summary>
+    public static ListActAsGrantsResponse ListActAsGrantsResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsArray(Cbor.Require(value, "grants")).Select(csilElem => ActAsGrantSummaryFromCborValue(csilElem)).ToList();
+        return new ListActAsGrantsResponse
+        {
+            Grants = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RevokeActAsGrantRequest.</summary>
+    public static CborValue RevokeActAsGrantRequestToCborValue(RevokeActAsGrantRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("grant_id"), new CborValue.Text(value.GrantId)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RevokeActAsGrantRequest from a decoded CBOR value tree.</summary>
+    public static RevokeActAsGrantRequest RevokeActAsGrantRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "grant_id"));
+        return new RevokeActAsGrantRequest
+        {
+            GrantId = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RevokeActAsGrantResponse.</summary>
+    public static CborValue RevokeActAsGrantResponseToCborValue(RevokeActAsGrantResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("revoked_at"), new CborValue.Text(value.RevokedAt)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RevokeActAsGrantResponse from a decoded CBOR value tree.</summary>
+    public static RevokeActAsGrantResponse RevokeActAsGrantResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "revoked_at"));
+        return new RevokeActAsGrantResponse
+        {
+            RevokedAt = csilField0,
         };
     }
 }

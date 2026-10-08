@@ -190,6 +190,12 @@ fn half_to_f64(h: u16) f64 {
     return @as(f64, @as(f32, @bitCast(bits)));
 }
 
+// The most elements a decoded array or map reserves before it reads them. The
+// declared length is checked against the remaining input, but one input byte can
+// become a much larger value, so reserving the full declared length lets a small
+// frame reserve a large multiple of its size at every nesting level.
+const prealloc_limit: usize = 1024;
+
 fn decode_value(alloc: std.mem.Allocator, b: []const u8, depth: usize) CodecError!Decoded {
     if (depth > 64) return error.Malformed;
     if (b.len == 0) return error.UnexpectedEof;
@@ -216,20 +222,20 @@ fn decode_value(alloc: std.mem.Allocator, b: []const u8, depth: usize) CodecErro
         4 => {
             if (arg > b.len - n) return error.UnexpectedEof;
             const count: usize = @intCast(arg);
-            const items = try alloc.alloc(Value, count);
+            var items = try std.ArrayListUnmanaged(Value).initCapacity(alloc, @min(count, prealloc_limit));
             var off = n;
             var i: usize = 0;
             while (i < count) : (i += 1) {
                 const d = try decode_value(alloc, b[off..], depth + 1);
-                items[i] = d.value;
+                try items.append(alloc, d.value);
                 off += d.consumed;
             }
-            return .{ .value = .{ .array = items }, .consumed = off };
+            return .{ .value = .{ .array = try items.toOwnedSlice(alloc) }, .consumed = off };
         },
         5 => {
             if (arg > b.len - n) return error.UnexpectedEof;
             const count: usize = @intCast(arg);
-            const pairs = try alloc.alloc(Pair, count);
+            var pairs = try std.ArrayListUnmanaged(Pair).initCapacity(alloc, @min(count, prealloc_limit));
             var off = n;
             var i: usize = 0;
             while (i < count) : (i += 1) {
@@ -237,9 +243,9 @@ fn decode_value(alloc: std.mem.Allocator, b: []const u8, depth: usize) CodecErro
                 off += k.consumed;
                 const v = try decode_value(alloc, b[off..], depth + 1);
                 off += v.consumed;
-                pairs[i] = .{ .key = k.value, .val = v.value };
+                try pairs.append(alloc, .{ .key = k.value, .val = v.value });
             }
-            return .{ .value = .{ .map = pairs }, .consumed = off };
+            return .{ .value = .{ .map = try pairs.toOwnedSlice(alloc) }, .consumed = off };
         },
         6 => {
             const inner = try decode_value(alloc, b[n..], depth + 1);
@@ -7782,6 +7788,1245 @@ fn dec_RpResolveApplicationKeysResponse(alloc: std.mem.Allocator, m: Value, out:
     }
 }
 
+fn enc_ApplicationRef(out: *std.ArrayList(u8), v: *const types.ApplicationRef) CodecError!void {
+    try w_map_head(out, 3);
+    try w_text(out, "application_id");
+    try w_text(out, v.application_id);
+    try w_text(out, "subject_domain");
+    try w_text(out, v.subject_domain);
+    try w_text(out, "subject_user_id");
+    try w_text(out, v.subject_user_id);
+}
+
+fn dec_ApplicationRef(alloc: std.mem.Allocator, m: Value, out: *types.ApplicationRef) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "application_id");
+        out.application_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "subject_domain");
+        out.subject_domain = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "subject_user_id");
+        out.subject_user_id = try as_text(csil_fv);
+    }
+}
+
+fn enc_GranteeRef(out: *std.ArrayList(u8), v: *const types.GranteeRef) CodecError!void {
+    var csil_n: usize = 0;
+    if (v.application != null) csil_n += 1;
+    if (v.local_rp_descriptor_fingerprint != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    if (v.application) |csil_x| {
+        try w_text(out, "application");
+        try enc_ApplicationRef(out, &(csil_x));
+    }
+    if (v.local_rp_descriptor_fingerprint) |csil_x| {
+        try w_text(out, "local_rp_descriptor_fingerprint");
+        try w_text(out, csil_x);
+    }
+}
+
+fn dec_GranteeRef(alloc: std.mem.Allocator, m: Value, out: *types.GranteeRef) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        if (mget(m, "application")) |csil_fv| {
+            var csil_tmp: types.ApplicationRef = undefined;
+            try dec_ApplicationRef(alloc, csil_fv, &csil_tmp);
+            out.application = csil_tmp;
+        } else {
+            out.application = null;
+        }
+    }
+    {
+        if (mget(m, "local_rp_descriptor_fingerprint")) |csil_fv| {
+            out.local_rp_descriptor_fingerprint = try as_text(csil_fv);
+        } else {
+            out.local_rp_descriptor_fingerprint = null;
+        }
+    }
+}
+
+fn enc_GranteeProof(out: *std.ArrayList(u8), v: *const types.GranteeProof) CodecError!void {
+    var csil_n: usize = 1;
+    if (v.local_rp_descriptor != null) csil_n += 1;
+    if (v.application_instance_id != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    try w_text(out, "signature");
+    try enc_ApplicationKeySignature(out, &(v.signature));
+    if (v.local_rp_descriptor) |csil_x| {
+        try w_text(out, "local_rp_descriptor");
+        try enc_SignedLocalRpDescriptor(out, &(csil_x));
+    }
+    if (v.application_instance_id) |csil_x| {
+        try w_text(out, "application_instance_id");
+        try w_text(out, csil_x);
+    }
+}
+
+fn dec_GranteeProof(alloc: std.mem.Allocator, m: Value, out: *types.GranteeProof) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "signature");
+        try dec_ApplicationKeySignature(alloc, csil_fv, &(out.signature));
+    }
+    {
+        if (mget(m, "local_rp_descriptor")) |csil_fv| {
+            var csil_tmp: types.SignedLocalRpDescriptor = undefined;
+            try dec_SignedLocalRpDescriptor(alloc, csil_fv, &csil_tmp);
+            out.local_rp_descriptor = csil_tmp;
+        } else {
+            out.local_rp_descriptor = null;
+        }
+    }
+    {
+        if (mget(m, "application_instance_id")) |csil_fv| {
+            out.application_instance_id = try as_text(csil_fv);
+        } else {
+            out.application_instance_id = null;
+        }
+    }
+}
+
+fn enc_ActAsScopeEntry(out: *std.ArrayList(u8), v: *const types.ActAsScopeEntry) CodecError!void {
+    var csil_n: usize = 1;
+    if (v.description != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    try w_text(out, "scope");
+    try w_text(out, v.scope);
+    if (v.description) |csil_x| {
+        try w_text(out, "description");
+        try w_text(out, csil_x);
+    }
+}
+
+fn dec_ActAsScopeEntry(alloc: std.mem.Allocator, m: Value, out: *types.ActAsScopeEntry) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "scope");
+        out.scope = try as_text(csil_fv);
+    }
+    {
+        if (mget(m, "description")) |csil_fv| {
+            out.description = try as_text(csil_fv);
+        } else {
+            out.description = null;
+        }
+    }
+}
+
+fn enc_ActAsScopeSet(out: *std.ArrayList(u8), v: *const types.ActAsScopeSet) CodecError!void {
+    var csil_n: usize = 5;
+    if (v.language != null) csil_n += 1;
+    if (v.audience_handle_claim != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    try w_text(out, "entries");
+    try w_array_head(out, v.entries.len);
+    for (v.entries) |csil_it| {
+        try enc_ActAsScopeEntry(out, &(csil_it));
+    }
+    try w_text(out, "grantee");
+    try enc_GranteeRef(out, &(v.grantee));
+    try w_text(out, "audience");
+    try enc_ApplicationRef(out, &(v.audience));
+    if (v.language) |csil_x| {
+        try w_text(out, "language");
+        try w_text(out, csil_x);
+    }
+    try w_text(out, "issued_at");
+    try w_text(out, v.issued_at);
+    try w_text(out, "expires_at");
+    try w_text(out, v.expires_at);
+    if (v.audience_handle_claim) |csil_x| {
+        try w_text(out, "audience_handle_claim");
+        try enc_Claim(out, &(csil_x));
+    }
+}
+
+fn dec_ActAsScopeSet(alloc: std.mem.Allocator, m: Value, out: *types.ActAsScopeSet) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "entries");
+        if (csil_fv != .array) return error.WrongType;
+        out.entries = try alloc.alloc(types.ActAsScopeEntry, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_ActAsScopeEntry(alloc, csil_it, &(out.entries[csil_i]));
+        }
+    }
+    {
+        const csil_fv = try req(m, "grantee");
+        try dec_GranteeRef(alloc, csil_fv, &(out.grantee));
+    }
+    {
+        const csil_fv = try req(m, "audience");
+        try dec_ApplicationRef(alloc, csil_fv, &(out.audience));
+    }
+    {
+        if (mget(m, "language")) |csil_fv| {
+            out.language = try as_text(csil_fv);
+        } else {
+            out.language = null;
+        }
+    }
+    {
+        const csil_fv = try req(m, "issued_at");
+        out.issued_at = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "expires_at");
+        out.expires_at = try as_text(csil_fv);
+    }
+    {
+        if (mget(m, "audience_handle_claim")) |csil_fv| {
+            var csil_tmp: types.Claim = undefined;
+            try dec_Claim(alloc, csil_fv, &csil_tmp);
+            out.audience_handle_claim = csil_tmp;
+        } else {
+            out.audience_handle_claim = null;
+        }
+    }
+}
+
+fn enc_SignedActAsScopeSet(out: *std.ArrayList(u8), v: *const types.SignedActAsScopeSet) CodecError!void {
+    try w_map_head(out, 3);
+    try w_text(out, "scope_set");
+    try w_bytes(out, v.scope_set);
+    try w_text(out, "signatures");
+    try w_array_head(out, v.signatures.len);
+    for (v.signatures) |csil_it| {
+        try enc_ApplicationKeySignature(out, &(csil_it));
+    }
+    try w_text(out, "signer_instance_id");
+    try w_text(out, v.signer_instance_id);
+}
+
+fn dec_SignedActAsScopeSet(alloc: std.mem.Allocator, m: Value, out: *types.SignedActAsScopeSet) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "scope_set");
+        out.scope_set = try as_bytes(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "signatures");
+        if (csil_fv != .array) return error.WrongType;
+        out.signatures = try alloc.alloc(types.ApplicationKeySignature, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_ApplicationKeySignature(alloc, csil_it, &(out.signatures[csil_i]));
+        }
+    }
+    {
+        const csil_fv = try req(m, "signer_instance_id");
+        out.signer_instance_id = try as_text(csil_fv);
+    }
+}
+
+fn enc_ActAsScopeSetRequest(out: *std.ArrayList(u8), v: *const types.ActAsScopeSetRequest) CodecError!void {
+    var csil_n: usize = 2;
+    if (v.locale_preferences != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    try w_text(out, "scope");
+    try w_array_head(out, v.scope.len);
+    for (v.scope) |csil_it| {
+        try w_text(out, csil_it);
+    }
+    try w_text(out, "grantee");
+    try enc_GranteeRef(out, &(v.grantee));
+    if (v.locale_preferences) |csil_arr| {
+        try w_text(out, "locale_preferences");
+        try w_array_head(out, csil_arr.len);
+        for (csil_arr) |csil_it| {
+            try w_text(out, csil_it);
+        }
+    }
+}
+
+fn dec_ActAsScopeSetRequest(alloc: std.mem.Allocator, m: Value, out: *types.ActAsScopeSetRequest) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "scope");
+        if (csil_fv != .array) return error.WrongType;
+        out.scope = try alloc.alloc([]const u8, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            out.scope[csil_i] = try as_text(csil_it);
+        }
+    }
+    {
+        const csil_fv = try req(m, "grantee");
+        try dec_GranteeRef(alloc, csil_fv, &(out.grantee));
+    }
+    {
+        if (mget(m, "locale_preferences")) |csil_fv| {
+            if (csil_fv != .array) return error.WrongType;
+            const csil_tmp = try alloc.alloc([]const u8, csil_fv.array.len);
+            for (csil_fv.array, 0..) |csil_it, csil_i| {
+                csil_tmp[csil_i] = try as_text(csil_it);
+            }
+            out.locale_preferences = csil_tmp;
+        } else {
+            out.locale_preferences = null;
+        }
+    }
+}
+
+fn enc_ActAsGrant(out: *std.ArrayList(u8), v: *const types.ActAsGrant) CodecError!void {
+    var csil_n: usize = 11;
+    if (v.device_fingerprint != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    try w_text(out, "grantee");
+    try enc_GranteeRef(out, &(v.grantee));
+    try w_text(out, "user_id");
+    try w_text(out, v.user_id);
+    try w_text(out, "audience");
+    try enc_ApplicationRef(out, &(v.audience));
+    try w_text(out, "grant_id");
+    try w_text(out, v.grant_id);
+    try w_text(out, "issued_at");
+    try w_text(out, v.issued_at);
+    try w_text(out, "scope_set");
+    try enc_SignedActAsScopeSet(out, &(v.scope_set));
+    try w_text(out, "expires_at");
+    try w_text(out, v.expires_at);
+    try w_text(out, "approved_scope");
+    try w_array_head(out, v.approved_scope.len);
+    for (v.approved_scope) |csil_it| {
+        try w_text(out, csil_it);
+    }
+    try w_text(out, "subject_domain");
+    try w_text(out, v.subject_domain);
+    try w_text(out, "renewable_until");
+    try w_text(out, v.renewable_until);
+    try w_text(out, "series_issued_at");
+    try w_text(out, v.series_issued_at);
+    if (v.device_fingerprint) |csil_x| {
+        try w_text(out, "device_fingerprint");
+        try w_text(out, csil_x);
+    }
+}
+
+fn dec_ActAsGrant(alloc: std.mem.Allocator, m: Value, out: *types.ActAsGrant) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "grantee");
+        try dec_GranteeRef(alloc, csil_fv, &(out.grantee));
+    }
+    {
+        const csil_fv = try req(m, "user_id");
+        out.user_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "audience");
+        try dec_ApplicationRef(alloc, csil_fv, &(out.audience));
+    }
+    {
+        const csil_fv = try req(m, "grant_id");
+        out.grant_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "issued_at");
+        out.issued_at = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "scope_set");
+        try dec_SignedActAsScopeSet(alloc, csil_fv, &(out.scope_set));
+    }
+    {
+        const csil_fv = try req(m, "expires_at");
+        out.expires_at = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "approved_scope");
+        if (csil_fv != .array) return error.WrongType;
+        out.approved_scope = try alloc.alloc([]const u8, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            out.approved_scope[csil_i] = try as_text(csil_it);
+        }
+    }
+    {
+        const csil_fv = try req(m, "subject_domain");
+        out.subject_domain = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "renewable_until");
+        out.renewable_until = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "series_issued_at");
+        out.series_issued_at = try as_text(csil_fv);
+    }
+    {
+        if (mget(m, "device_fingerprint")) |csil_fv| {
+            out.device_fingerprint = try as_text(csil_fv);
+        } else {
+            out.device_fingerprint = null;
+        }
+    }
+}
+
+fn enc_SignedActAsGrant(out: *std.ArrayList(u8), v: *const types.SignedActAsGrant) CodecError!void {
+    try w_map_head(out, 2);
+    try w_text(out, "grant");
+    try w_bytes(out, v.grant);
+    try w_text(out, "signatures");
+    try w_array_head(out, v.signatures.len);
+    for (v.signatures) |csil_it| {
+        try enc_ClaimSignature(out, &(csil_it));
+    }
+}
+
+fn dec_SignedActAsGrant(alloc: std.mem.Allocator, m: Value, out: *types.SignedActAsGrant) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "grant");
+        out.grant = try as_bytes(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "signatures");
+        if (csil_fv != .array) return error.WrongType;
+        out.signatures = try alloc.alloc(types.ClaimSignature, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_ClaimSignature(alloc, csil_it, &(out.signatures[csil_i]));
+        }
+    }
+}
+
+fn enc_ActAsGrantRequest(out: *std.ArrayList(u8), v: *const types.ActAsGrantRequest) CodecError!void {
+    var csil_n: usize = 6;
+    if (v.grantee_handle_claim != null) csil_n += 1;
+    if (v.requested_lifetime_seconds != null) csil_n += 1;
+    if (v.requested_renewal_window_seconds != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    try w_text(out, "nonce");
+    try w_text(out, v.nonce);
+    try w_text(out, "grantee");
+    try enc_GranteeRef(out, &(v.grantee));
+    try w_text(out, "scope_set");
+    try enc_SignedActAsScopeSet(out, &(v.scope_set));
+    try w_text(out, "expires_at");
+    try w_text(out, v.expires_at);
+    try w_text(out, "callback_url");
+    try w_text(out, v.callback_url);
+    try w_text(out, "requested_at");
+    try w_text(out, v.requested_at);
+    if (v.grantee_handle_claim) |csil_x| {
+        try w_text(out, "grantee_handle_claim");
+        try enc_Claim(out, &(csil_x));
+    }
+    if (v.requested_lifetime_seconds) |csil_x| {
+        try w_text(out, "requested_lifetime_seconds");
+        try w_int(out, csil_x);
+    }
+    if (v.requested_renewal_window_seconds) |csil_x| {
+        try w_text(out, "requested_renewal_window_seconds");
+        try w_int(out, csil_x);
+    }
+}
+
+fn dec_ActAsGrantRequest(alloc: std.mem.Allocator, m: Value, out: *types.ActAsGrantRequest) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "nonce");
+        out.nonce = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "grantee");
+        try dec_GranteeRef(alloc, csil_fv, &(out.grantee));
+    }
+    {
+        const csil_fv = try req(m, "scope_set");
+        try dec_SignedActAsScopeSet(alloc, csil_fv, &(out.scope_set));
+    }
+    {
+        const csil_fv = try req(m, "expires_at");
+        out.expires_at = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "callback_url");
+        out.callback_url = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "requested_at");
+        out.requested_at = try as_text(csil_fv);
+    }
+    {
+        if (mget(m, "grantee_handle_claim")) |csil_fv| {
+            var csil_tmp: types.Claim = undefined;
+            try dec_Claim(alloc, csil_fv, &csil_tmp);
+            out.grantee_handle_claim = csil_tmp;
+        } else {
+            out.grantee_handle_claim = null;
+        }
+    }
+    {
+        if (mget(m, "requested_lifetime_seconds")) |csil_fv| {
+            out.requested_lifetime_seconds = try as_i64(csil_fv);
+        } else {
+            out.requested_lifetime_seconds = null;
+        }
+    }
+    {
+        if (mget(m, "requested_renewal_window_seconds")) |csil_fv| {
+            out.requested_renewal_window_seconds = try as_i64(csil_fv);
+        } else {
+            out.requested_renewal_window_seconds = null;
+        }
+    }
+}
+
+fn enc_SignedActAsGrantRequest(out: *std.ArrayList(u8), v: *const types.SignedActAsGrantRequest) CodecError!void {
+    try w_map_head(out, 2);
+    try w_text(out, "proof");
+    try enc_GranteeProof(out, &(v.proof));
+    try w_text(out, "request");
+    try w_bytes(out, v.request);
+}
+
+fn dec_SignedActAsGrantRequest(alloc: std.mem.Allocator, m: Value, out: *types.SignedActAsGrantRequest) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "proof");
+        try dec_GranteeProof(alloc, csil_fv, &(out.proof));
+    }
+    {
+        const csil_fv = try req(m, "request");
+        out.request = try as_bytes(csil_fv);
+    }
+}
+
+fn enc_ActAsRefreshRequest(out: *std.ArrayList(u8), v: *const types.ActAsRefreshRequest) CodecError!void {
+    try w_map_head(out, 5);
+    try w_text(out, "nonce");
+    try w_text(out, v.nonce);
+    try w_text(out, "grantee");
+    try enc_GranteeRef(out, &(v.grantee));
+    try w_text(out, "grant_id");
+    try w_text(out, v.grant_id);
+    try w_text(out, "expires_at");
+    try w_text(out, v.expires_at);
+    try w_text(out, "requested_at");
+    try w_text(out, v.requested_at);
+}
+
+fn dec_ActAsRefreshRequest(alloc: std.mem.Allocator, m: Value, out: *types.ActAsRefreshRequest) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "nonce");
+        out.nonce = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "grantee");
+        try dec_GranteeRef(alloc, csil_fv, &(out.grantee));
+    }
+    {
+        const csil_fv = try req(m, "grant_id");
+        out.grant_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "expires_at");
+        out.expires_at = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "requested_at");
+        out.requested_at = try as_text(csil_fv);
+    }
+}
+
+fn enc_SignedActAsRefreshRequest(out: *std.ArrayList(u8), v: *const types.SignedActAsRefreshRequest) CodecError!void {
+    try w_map_head(out, 2);
+    try w_text(out, "proof");
+    try enc_GranteeProof(out, &(v.proof));
+    try w_text(out, "request");
+    try w_bytes(out, v.request);
+}
+
+fn dec_SignedActAsRefreshRequest(alloc: std.mem.Allocator, m: Value, out: *types.SignedActAsRefreshRequest) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "proof");
+        try dec_GranteeProof(alloc, csil_fv, &(out.proof));
+    }
+    {
+        const csil_fv = try req(m, "request");
+        out.request = try as_bytes(csil_fv);
+    }
+}
+
+fn enc_RefreshActAsGrantRequest(out: *std.ArrayList(u8), v: *const types.RefreshActAsGrantRequest) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "request");
+    try enc_SignedActAsRefreshRequest(out, &(v.request));
+}
+
+fn dec_RefreshActAsGrantRequest(alloc: std.mem.Allocator, m: Value, out: *types.RefreshActAsGrantRequest) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "request");
+        try dec_SignedActAsRefreshRequest(alloc, csil_fv, &(out.request));
+    }
+}
+
+fn enc_RefreshActAsGrantResponse(out: *std.ArrayList(u8), v: *const types.RefreshActAsGrantResponse) CodecError!void {
+    try w_map_head(out, 2);
+    try w_text(out, "grant");
+    try enc_SignedActAsGrant(out, &(v.grant));
+    try w_text(out, "signed");
+    try w_bool(out, v.signed);
+}
+
+fn dec_RefreshActAsGrantResponse(alloc: std.mem.Allocator, m: Value, out: *types.RefreshActAsGrantResponse) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "grant");
+        try dec_SignedActAsGrant(alloc, csil_fv, &(out.grant));
+    }
+    {
+        const csil_fv = try req(m, "signed");
+        out.signed = try as_bool(csil_fv);
+    }
+}
+
+fn enc_ActAsPresentation(out: *std.ArrayList(u8), v: *const types.ActAsPresentation) CodecError!void {
+    try w_map_head(out, 5);
+    try w_text(out, "nonce");
+    try w_bytes(out, v.nonce);
+    try w_text(out, "audience");
+    try enc_ApplicationRef(out, &(v.audience));
+    try w_text(out, "grant_hash");
+    try w_bytes(out, v.grant_hash);
+    try w_text(out, "presented_at");
+    try w_text(out, v.presented_at);
+    try w_text(out, "request_digest");
+    try w_bytes(out, v.request_digest);
+}
+
+fn dec_ActAsPresentation(alloc: std.mem.Allocator, m: Value, out: *types.ActAsPresentation) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "nonce");
+        out.nonce = try as_bytes(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "audience");
+        try dec_ApplicationRef(alloc, csil_fv, &(out.audience));
+    }
+    {
+        const csil_fv = try req(m, "grant_hash");
+        out.grant_hash = try as_bytes(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "presented_at");
+        out.presented_at = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "request_digest");
+        out.request_digest = try as_bytes(csil_fv);
+    }
+}
+
+fn enc_SignedActAsPresentation(out: *std.ArrayList(u8), v: *const types.SignedActAsPresentation) CodecError!void {
+    try w_map_head(out, 2);
+    try w_text(out, "proof");
+    try enc_GranteeProof(out, &(v.proof));
+    try w_text(out, "presentation");
+    try w_bytes(out, v.presentation);
+}
+
+fn dec_SignedActAsPresentation(alloc: std.mem.Allocator, m: Value, out: *types.SignedActAsPresentation) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "proof");
+        try dec_GranteeProof(alloc, csil_fv, &(out.proof));
+    }
+    {
+        const csil_fv = try req(m, "presentation");
+        out.presentation = try as_bytes(csil_fv);
+    }
+}
+
+fn enc_ActAsCredential(out: *std.ArrayList(u8), v: *const types.ActAsCredential) CodecError!void {
+    try w_map_head(out, 2);
+    try w_text(out, "grant");
+    try enc_SignedActAsGrant(out, &(v.grant));
+    try w_text(out, "presentation");
+    try enc_SignedActAsPresentation(out, &(v.presentation));
+}
+
+fn dec_ActAsCredential(alloc: std.mem.Allocator, m: Value, out: *types.ActAsCredential) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "grant");
+        try dec_SignedActAsGrant(alloc, csil_fv, &(out.grant));
+    }
+    {
+        const csil_fv = try req(m, "presentation");
+        try dec_SignedActAsPresentation(alloc, csil_fv, &(out.presentation));
+    }
+}
+
+fn enc_ActAsGrantRevocation(out: *std.ArrayList(u8), v: *const types.ActAsGrantRevocation) CodecError!void {
+    try w_map_head(out, 4);
+    try w_text(out, "user_id");
+    try w_text(out, v.user_id);
+    try w_text(out, "grant_id");
+    try w_text(out, v.grant_id);
+    try w_text(out, "revoked_at");
+    try w_text(out, v.revoked_at);
+    try w_text(out, "subject_domain");
+    try w_text(out, v.subject_domain);
+}
+
+fn dec_ActAsGrantRevocation(alloc: std.mem.Allocator, m: Value, out: *types.ActAsGrantRevocation) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "user_id");
+        out.user_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "grant_id");
+        out.grant_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "revoked_at");
+        out.revoked_at = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "subject_domain");
+        out.subject_domain = try as_text(csil_fv);
+    }
+}
+
+fn enc_SignedActAsGrantRevocation(out: *std.ArrayList(u8), v: *const types.SignedActAsGrantRevocation) CodecError!void {
+    try w_map_head(out, 2);
+    try w_text(out, "revocation");
+    try w_bytes(out, v.revocation);
+    try w_text(out, "signatures");
+    try w_array_head(out, v.signatures.len);
+    for (v.signatures) |csil_it| {
+        try enc_ClaimSignature(out, &(csil_it));
+    }
+}
+
+fn dec_SignedActAsGrantRevocation(alloc: std.mem.Allocator, m: Value, out: *types.SignedActAsGrantRevocation) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "revocation");
+        out.revocation = try as_bytes(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "signatures");
+        if (csil_fv != .array) return error.WrongType;
+        out.signatures = try alloc.alloc(types.ClaimSignature, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_ClaimSignature(alloc, csil_it, &(out.signatures[csil_i]));
+        }
+    }
+}
+
+fn enc_GetActAsGrantRevocationsRequest(out: *std.ArrayList(u8), v: *const types.GetActAsGrantRevocationsRequest) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "grant_ids");
+    try w_array_head(out, v.grant_ids.len);
+    for (v.grant_ids) |csil_it| {
+        try w_text(out, csil_it);
+    }
+}
+
+fn dec_GetActAsGrantRevocationsRequest(alloc: std.mem.Allocator, m: Value, out: *types.GetActAsGrantRevocationsRequest) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "grant_ids");
+        if (csil_fv != .array) return error.WrongType;
+        out.grant_ids = try alloc.alloc([]const u8, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            out.grant_ids[csil_i] = try as_text(csil_it);
+        }
+    }
+}
+
+fn enc_GetActAsGrantRevocationsResponse(out: *std.ArrayList(u8), v: *const types.GetActAsGrantRevocationsResponse) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "revocations");
+    try w_array_head(out, v.revocations.len);
+    for (v.revocations) |csil_it| {
+        try enc_SignedActAsGrantRevocation(out, &(csil_it));
+    }
+}
+
+fn dec_GetActAsGrantRevocationsResponse(alloc: std.mem.Allocator, m: Value, out: *types.GetActAsGrantRevocationsResponse) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "revocations");
+        if (csil_fv != .array) return error.WrongType;
+        out.revocations = try alloc.alloc(types.SignedActAsGrantRevocation, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_SignedActAsGrantRevocation(alloc, csil_it, &(out.revocations[csil_i]));
+        }
+    }
+}
+
+fn enc_RpActAsRefreshRequest(out: *std.ArrayList(u8), v: *const types.RpActAsRefreshRequest) CodecError!void {
+    try w_map_head(out, 2);
+    try w_text(out, "request");
+    try enc_SignedActAsRefreshRequest(out, &(v.request));
+    try w_text(out, "subject_domain");
+    try w_text(out, v.subject_domain);
+}
+
+fn dec_RpActAsRefreshRequest(alloc: std.mem.Allocator, m: Value, out: *types.RpActAsRefreshRequest) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "request");
+        try dec_SignedActAsRefreshRequest(alloc, csil_fv, &(out.request));
+    }
+    {
+        const csil_fv = try req(m, "subject_domain");
+        out.subject_domain = try as_text(csil_fv);
+    }
+}
+
+fn enc_RpResolveActAsRevocationsRequest(out: *std.ArrayList(u8), v: *const types.RpResolveActAsRevocationsRequest) CodecError!void {
+    try w_map_head(out, 2);
+    try w_text(out, "grant_ids");
+    try w_array_head(out, v.grant_ids.len);
+    for (v.grant_ids) |csil_it| {
+        try w_text(out, csil_it);
+    }
+    try w_text(out, "subject_domain");
+    try w_text(out, v.subject_domain);
+}
+
+fn dec_RpResolveActAsRevocationsRequest(alloc: std.mem.Allocator, m: Value, out: *types.RpResolveActAsRevocationsRequest) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "grant_ids");
+        if (csil_fv != .array) return error.WrongType;
+        out.grant_ids = try alloc.alloc([]const u8, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            out.grant_ids[csil_i] = try as_text(csil_it);
+        }
+    }
+    {
+        const csil_fv = try req(m, "subject_domain");
+        out.subject_domain = try as_text(csil_fv);
+    }
+}
+
+fn enc_BrowserActAsInspectRequest(out: *std.ArrayList(u8), v: *const types.BrowserActAsInspectRequest) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "signed_request");
+    try w_text(out, v.signed_request);
+}
+
+fn dec_BrowserActAsInspectRequest(alloc: std.mem.Allocator, m: Value, out: *types.BrowserActAsInspectRequest) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "signed_request");
+        out.signed_request = try as_text(csil_fv);
+    }
+}
+
+fn enc_BrowserActAsScopeEntry(out: *std.ArrayList(u8), v: *const types.BrowserActAsScopeEntry) CodecError!void {
+    var csil_n: usize = 2;
+    if (v.description != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    try w_text(out, "scope");
+    try w_text(out, v.scope);
+    if (v.description) |csil_x| {
+        try w_text(out, "description");
+        try w_text(out, csil_x);
+    }
+    try w_text(out, "removed_by_policy");
+    try w_bool(out, v.removed_by_policy);
+}
+
+fn dec_BrowserActAsScopeEntry(alloc: std.mem.Allocator, m: Value, out: *types.BrowserActAsScopeEntry) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "scope");
+        out.scope = try as_text(csil_fv);
+    }
+    {
+        if (mget(m, "description")) |csil_fv| {
+            out.description = try as_text(csil_fv);
+        } else {
+            out.description = null;
+        }
+    }
+    {
+        const csil_fv = try req(m, "removed_by_policy");
+        out.removed_by_policy = try as_bool(csil_fv);
+    }
+}
+
+fn enc_BrowserActAsParty(out: *std.ArrayList(u8), v: *const types.BrowserActAsParty) CodecError!void {
+    var csil_n: usize = 4;
+    if (v.domain != null) csil_n += 1;
+    if (v.handle != null) csil_n += 1;
+    if (v.local_rp_name != null) csil_n += 1;
+    if (v.application_id != null) csil_n += 1;
+    if (v.subject_user_id != null) csil_n += 1;
+    if (v.local_rp_fingerprint != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    if (v.domain) |csil_x| {
+        try w_text(out, "domain");
+        try w_text(out, csil_x);
+    }
+    if (v.handle) |csil_x| {
+        try w_text(out, "handle");
+        try w_text(out, csil_x);
+    }
+    try w_text(out, "own_domain");
+    try w_bool(out, v.own_domain);
+    if (v.local_rp_name) |csil_x| {
+        try w_text(out, "local_rp_name");
+        try w_text(out, csil_x);
+    }
+    if (v.application_id) |csil_x| {
+        try w_text(out, "application_id");
+        try w_text(out, csil_x);
+    }
+    if (v.subject_user_id) |csil_x| {
+        try w_text(out, "subject_user_id");
+        try w_text(out, csil_x);
+    }
+    try w_text(out, "operator_trusted");
+    try w_bool(out, v.operator_trusted);
+    try w_text(out, "user_has_history");
+    try w_bool(out, v.user_has_history);
+    try w_text(out, "domain_key_pinned");
+    try w_bool(out, v.domain_key_pinned);
+    if (v.local_rp_fingerprint) |csil_x| {
+        try w_text(out, "local_rp_fingerprint");
+        try w_text(out, csil_x);
+    }
+}
+
+fn dec_BrowserActAsParty(alloc: std.mem.Allocator, m: Value, out: *types.BrowserActAsParty) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        if (mget(m, "domain")) |csil_fv| {
+            out.domain = try as_text(csil_fv);
+        } else {
+            out.domain = null;
+        }
+    }
+    {
+        if (mget(m, "handle")) |csil_fv| {
+            out.handle = try as_text(csil_fv);
+        } else {
+            out.handle = null;
+        }
+    }
+    {
+        const csil_fv = try req(m, "own_domain");
+        out.own_domain = try as_bool(csil_fv);
+    }
+    {
+        if (mget(m, "local_rp_name")) |csil_fv| {
+            out.local_rp_name = try as_text(csil_fv);
+        } else {
+            out.local_rp_name = null;
+        }
+    }
+    {
+        if (mget(m, "application_id")) |csil_fv| {
+            out.application_id = try as_text(csil_fv);
+        } else {
+            out.application_id = null;
+        }
+    }
+    {
+        if (mget(m, "subject_user_id")) |csil_fv| {
+            out.subject_user_id = try as_text(csil_fv);
+        } else {
+            out.subject_user_id = null;
+        }
+    }
+    {
+        const csil_fv = try req(m, "operator_trusted");
+        out.operator_trusted = try as_bool(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "user_has_history");
+        out.user_has_history = try as_bool(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "domain_key_pinned");
+        out.domain_key_pinned = try as_bool(csil_fv);
+    }
+    {
+        if (mget(m, "local_rp_fingerprint")) |csil_fv| {
+            out.local_rp_fingerprint = try as_text(csil_fv);
+        } else {
+            out.local_rp_fingerprint = null;
+        }
+    }
+}
+
+fn enc_BrowserActAsInspectResponse(out: *std.ArrayList(u8), v: *const types.BrowserActAsInspectResponse) CodecError!void {
+    var csil_n: usize = 9;
+    if (v.language != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    try w_text(out, "entries");
+    try w_array_head(out, v.entries.len);
+    for (v.entries) |csil_it| {
+        try enc_BrowserActAsScopeEntry(out, &(csil_it));
+    }
+    try w_text(out, "grantee");
+    try enc_GranteeRef(out, &(v.grantee));
+    try w_text(out, "audience");
+    try enc_ApplicationRef(out, &(v.audience));
+    if (v.language) |csil_x| {
+        try w_text(out, "language");
+        try w_text(out, csil_x);
+    }
+    try w_text(out, "grantee_party");
+    try enc_BrowserActAsParty(out, &(v.grantee_party));
+    try w_text(out, "audience_party");
+    try enc_BrowserActAsParty(out, &(v.audience_party));
+    try w_text(out, "max_lifetime_seconds");
+    try w_int(out, v.max_lifetime_seconds);
+    try w_text(out, "default_lifetime_seconds");
+    try w_int(out, v.default_lifetime_seconds);
+    try w_text(out, "max_renewal_window_seconds");
+    try w_int(out, v.max_renewal_window_seconds);
+    try w_text(out, "default_renewal_window_seconds");
+    try w_int(out, v.default_renewal_window_seconds);
+}
+
+fn dec_BrowserActAsInspectResponse(alloc: std.mem.Allocator, m: Value, out: *types.BrowserActAsInspectResponse) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "entries");
+        if (csil_fv != .array) return error.WrongType;
+        out.entries = try alloc.alloc(types.BrowserActAsScopeEntry, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_BrowserActAsScopeEntry(alloc, csil_it, &(out.entries[csil_i]));
+        }
+    }
+    {
+        const csil_fv = try req(m, "grantee");
+        try dec_GranteeRef(alloc, csil_fv, &(out.grantee));
+    }
+    {
+        const csil_fv = try req(m, "audience");
+        try dec_ApplicationRef(alloc, csil_fv, &(out.audience));
+    }
+    {
+        if (mget(m, "language")) |csil_fv| {
+            out.language = try as_text(csil_fv);
+        } else {
+            out.language = null;
+        }
+    }
+    {
+        const csil_fv = try req(m, "grantee_party");
+        try dec_BrowserActAsParty(alloc, csil_fv, &(out.grantee_party));
+    }
+    {
+        const csil_fv = try req(m, "audience_party");
+        try dec_BrowserActAsParty(alloc, csil_fv, &(out.audience_party));
+    }
+    {
+        const csil_fv = try req(m, "max_lifetime_seconds");
+        out.max_lifetime_seconds = try as_i64(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "default_lifetime_seconds");
+        out.default_lifetime_seconds = try as_i64(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "max_renewal_window_seconds");
+        out.max_renewal_window_seconds = try as_i64(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "default_renewal_window_seconds");
+        out.default_renewal_window_seconds = try as_i64(csil_fv);
+    }
+}
+
+fn enc_BrowserActAsCompleteRequest(out: *std.ArrayList(u8), v: *const types.BrowserActAsCompleteRequest) CodecError!void {
+    try w_map_head(out, 4);
+    try w_text(out, "approved_scope");
+    try w_array_head(out, v.approved_scope.len);
+    for (v.approved_scope) |csil_it| {
+        try w_text(out, csil_it);
+    }
+    try w_text(out, "signed_request");
+    try w_text(out, v.signed_request);
+    try w_text(out, "lifetime_seconds");
+    try w_int(out, v.lifetime_seconds);
+    try w_text(out, "renewal_window_seconds");
+    try w_int(out, v.renewal_window_seconds);
+}
+
+fn dec_BrowserActAsCompleteRequest(alloc: std.mem.Allocator, m: Value, out: *types.BrowserActAsCompleteRequest) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "approved_scope");
+        if (csil_fv != .array) return error.WrongType;
+        out.approved_scope = try alloc.alloc([]const u8, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            out.approved_scope[csil_i] = try as_text(csil_it);
+        }
+    }
+    {
+        const csil_fv = try req(m, "signed_request");
+        out.signed_request = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "lifetime_seconds");
+        out.lifetime_seconds = try as_i64(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "renewal_window_seconds");
+        out.renewal_window_seconds = try as_i64(csil_fv);
+    }
+}
+
+fn enc_BrowserActAsCompleteResponse(out: *std.ArrayList(u8), v: *const types.BrowserActAsCompleteResponse) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "redirect_url");
+    try w_text(out, v.redirect_url);
+}
+
+fn dec_BrowserActAsCompleteResponse(alloc: std.mem.Allocator, m: Value, out: *types.BrowserActAsCompleteResponse) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "redirect_url");
+        out.redirect_url = try as_text(csil_fv);
+    }
+}
+
+fn enc_ActAsGrantSummary(out: *std.ArrayList(u8), v: *const types.ActAsGrantSummary) CodecError!void {
+    var csil_n: usize = 7;
+    if (v.revoked_at != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    try w_text(out, "grantee");
+    try enc_GranteeRef(out, &(v.grantee));
+    try w_text(out, "audience");
+    try enc_ApplicationRef(out, &(v.audience));
+    try w_text(out, "grant_id");
+    try w_text(out, v.grant_id);
+    try w_text(out, "issued_at");
+    try w_text(out, v.issued_at);
+    try w_text(out, "expires_at");
+    try w_text(out, v.expires_at);
+    if (v.revoked_at) |csil_x| {
+        try w_text(out, "revoked_at");
+        try w_text(out, csil_x);
+    }
+    try w_text(out, "approved_scope");
+    try w_array_head(out, v.approved_scope.len);
+    for (v.approved_scope) |csil_it| {
+        try w_text(out, csil_it);
+    }
+    try w_text(out, "renewable_until");
+    try w_text(out, v.renewable_until);
+}
+
+fn dec_ActAsGrantSummary(alloc: std.mem.Allocator, m: Value, out: *types.ActAsGrantSummary) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "grantee");
+        try dec_GranteeRef(alloc, csil_fv, &(out.grantee));
+    }
+    {
+        const csil_fv = try req(m, "audience");
+        try dec_ApplicationRef(alloc, csil_fv, &(out.audience));
+    }
+    {
+        const csil_fv = try req(m, "grant_id");
+        out.grant_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "issued_at");
+        out.issued_at = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "expires_at");
+        out.expires_at = try as_text(csil_fv);
+    }
+    {
+        if (mget(m, "revoked_at")) |csil_fv| {
+            out.revoked_at = try as_text(csil_fv);
+        } else {
+            out.revoked_at = null;
+        }
+    }
+    {
+        const csil_fv = try req(m, "approved_scope");
+        if (csil_fv != .array) return error.WrongType;
+        out.approved_scope = try alloc.alloc([]const u8, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            out.approved_scope[csil_i] = try as_text(csil_it);
+        }
+    }
+    {
+        const csil_fv = try req(m, "renewable_until");
+        out.renewable_until = try as_text(csil_fv);
+    }
+}
+
+fn enc_ListActAsGrantsResponse(out: *std.ArrayList(u8), v: *const types.ListActAsGrantsResponse) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "grants");
+    try w_array_head(out, v.grants.len);
+    for (v.grants) |csil_it| {
+        try enc_ActAsGrantSummary(out, &(csil_it));
+    }
+}
+
+fn dec_ListActAsGrantsResponse(alloc: std.mem.Allocator, m: Value, out: *types.ListActAsGrantsResponse) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "grants");
+        if (csil_fv != .array) return error.WrongType;
+        out.grants = try alloc.alloc(types.ActAsGrantSummary, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_ActAsGrantSummary(alloc, csil_it, &(out.grants[csil_i]));
+        }
+    }
+}
+
+fn enc_RevokeActAsGrantRequest(out: *std.ArrayList(u8), v: *const types.RevokeActAsGrantRequest) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "grant_id");
+    try w_text(out, v.grant_id);
+}
+
+fn dec_RevokeActAsGrantRequest(alloc: std.mem.Allocator, m: Value, out: *types.RevokeActAsGrantRequest) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "grant_id");
+        out.grant_id = try as_text(csil_fv);
+    }
+}
+
+fn enc_RevokeActAsGrantResponse(out: *std.ArrayList(u8), v: *const types.RevokeActAsGrantResponse) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "revoked_at");
+    try w_text(out, v.revoked_at);
+}
+
+fn dec_RevokeActAsGrantResponse(alloc: std.mem.Allocator, m: Value, out: *types.RevokeActAsGrantResponse) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "revoked_at");
+        out.revoked_at = try as_text(csil_fv);
+    }
+}
+
 /// Encode a CheckValue to CBOR. The returned slice is owned by the caller
 /// (free it with alloc.free).
 pub fn encode_CheckValue(alloc: std.mem.Allocator, v: *const types.CheckValue) CodecError![]u8 {
@@ -11700,4 +12945,548 @@ pub fn encode_RpResolveApplicationKeysResponse(alloc: std.mem.Allocator, v: *con
 pub fn decode_RpResolveApplicationKeysResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RpResolveApplicationKeysResponse) CodecError!void {
     const root = try decode(alloc, bytes);
     try dec_RpResolveApplicationKeysResponse(alloc, root, out);
+}
+
+/// Encode a ApplicationRef to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ApplicationRef(alloc: std.mem.Allocator, v: *const types.ApplicationRef) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ApplicationRef(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ApplicationRef. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ApplicationRef(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ApplicationRef) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ApplicationRef(alloc, root, out);
+}
+
+/// Encode a GranteeRef to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_GranteeRef(alloc: std.mem.Allocator, v: *const types.GranteeRef) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_GranteeRef(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a GranteeRef. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_GranteeRef(alloc: std.mem.Allocator, bytes: []const u8, out: *types.GranteeRef) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_GranteeRef(alloc, root, out);
+}
+
+/// Encode a GranteeProof to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_GranteeProof(alloc: std.mem.Allocator, v: *const types.GranteeProof) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_GranteeProof(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a GranteeProof. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_GranteeProof(alloc: std.mem.Allocator, bytes: []const u8, out: *types.GranteeProof) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_GranteeProof(alloc, root, out);
+}
+
+/// Encode a ActAsScopeEntry to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ActAsScopeEntry(alloc: std.mem.Allocator, v: *const types.ActAsScopeEntry) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ActAsScopeEntry(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ActAsScopeEntry. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ActAsScopeEntry(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ActAsScopeEntry) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ActAsScopeEntry(alloc, root, out);
+}
+
+/// Encode a ActAsScopeSet to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ActAsScopeSet(alloc: std.mem.Allocator, v: *const types.ActAsScopeSet) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ActAsScopeSet(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ActAsScopeSet. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ActAsScopeSet(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ActAsScopeSet) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ActAsScopeSet(alloc, root, out);
+}
+
+/// Encode a SignedActAsScopeSet to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_SignedActAsScopeSet(alloc: std.mem.Allocator, v: *const types.SignedActAsScopeSet) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_SignedActAsScopeSet(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a SignedActAsScopeSet. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_SignedActAsScopeSet(alloc: std.mem.Allocator, bytes: []const u8, out: *types.SignedActAsScopeSet) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_SignedActAsScopeSet(alloc, root, out);
+}
+
+/// Encode a ActAsScopeSetRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ActAsScopeSetRequest(alloc: std.mem.Allocator, v: *const types.ActAsScopeSetRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ActAsScopeSetRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ActAsScopeSetRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ActAsScopeSetRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ActAsScopeSetRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ActAsScopeSetRequest(alloc, root, out);
+}
+
+/// Encode a ActAsGrant to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ActAsGrant(alloc: std.mem.Allocator, v: *const types.ActAsGrant) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ActAsGrant(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ActAsGrant. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ActAsGrant(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ActAsGrant) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ActAsGrant(alloc, root, out);
+}
+
+/// Encode a SignedActAsGrant to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_SignedActAsGrant(alloc: std.mem.Allocator, v: *const types.SignedActAsGrant) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_SignedActAsGrant(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a SignedActAsGrant. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_SignedActAsGrant(alloc: std.mem.Allocator, bytes: []const u8, out: *types.SignedActAsGrant) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_SignedActAsGrant(alloc, root, out);
+}
+
+/// Encode a ActAsGrantRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ActAsGrantRequest(alloc: std.mem.Allocator, v: *const types.ActAsGrantRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ActAsGrantRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ActAsGrantRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ActAsGrantRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ActAsGrantRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ActAsGrantRequest(alloc, root, out);
+}
+
+/// Encode a SignedActAsGrantRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_SignedActAsGrantRequest(alloc: std.mem.Allocator, v: *const types.SignedActAsGrantRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_SignedActAsGrantRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a SignedActAsGrantRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_SignedActAsGrantRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.SignedActAsGrantRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_SignedActAsGrantRequest(alloc, root, out);
+}
+
+/// Encode a ActAsRefreshRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ActAsRefreshRequest(alloc: std.mem.Allocator, v: *const types.ActAsRefreshRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ActAsRefreshRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ActAsRefreshRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ActAsRefreshRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ActAsRefreshRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ActAsRefreshRequest(alloc, root, out);
+}
+
+/// Encode a SignedActAsRefreshRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_SignedActAsRefreshRequest(alloc: std.mem.Allocator, v: *const types.SignedActAsRefreshRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_SignedActAsRefreshRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a SignedActAsRefreshRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_SignedActAsRefreshRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.SignedActAsRefreshRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_SignedActAsRefreshRequest(alloc, root, out);
+}
+
+/// Encode a RefreshActAsGrantRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RefreshActAsGrantRequest(alloc: std.mem.Allocator, v: *const types.RefreshActAsGrantRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RefreshActAsGrantRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RefreshActAsGrantRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RefreshActAsGrantRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RefreshActAsGrantRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RefreshActAsGrantRequest(alloc, root, out);
+}
+
+/// Encode a RefreshActAsGrantResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RefreshActAsGrantResponse(alloc: std.mem.Allocator, v: *const types.RefreshActAsGrantResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RefreshActAsGrantResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RefreshActAsGrantResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RefreshActAsGrantResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RefreshActAsGrantResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RefreshActAsGrantResponse(alloc, root, out);
+}
+
+/// Encode a ActAsPresentation to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ActAsPresentation(alloc: std.mem.Allocator, v: *const types.ActAsPresentation) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ActAsPresentation(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ActAsPresentation. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ActAsPresentation(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ActAsPresentation) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ActAsPresentation(alloc, root, out);
+}
+
+/// Encode a SignedActAsPresentation to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_SignedActAsPresentation(alloc: std.mem.Allocator, v: *const types.SignedActAsPresentation) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_SignedActAsPresentation(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a SignedActAsPresentation. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_SignedActAsPresentation(alloc: std.mem.Allocator, bytes: []const u8, out: *types.SignedActAsPresentation) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_SignedActAsPresentation(alloc, root, out);
+}
+
+/// Encode a ActAsCredential to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ActAsCredential(alloc: std.mem.Allocator, v: *const types.ActAsCredential) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ActAsCredential(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ActAsCredential. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ActAsCredential(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ActAsCredential) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ActAsCredential(alloc, root, out);
+}
+
+/// Encode a ActAsGrantRevocation to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ActAsGrantRevocation(alloc: std.mem.Allocator, v: *const types.ActAsGrantRevocation) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ActAsGrantRevocation(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ActAsGrantRevocation. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ActAsGrantRevocation(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ActAsGrantRevocation) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ActAsGrantRevocation(alloc, root, out);
+}
+
+/// Encode a SignedActAsGrantRevocation to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_SignedActAsGrantRevocation(alloc: std.mem.Allocator, v: *const types.SignedActAsGrantRevocation) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_SignedActAsGrantRevocation(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a SignedActAsGrantRevocation. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_SignedActAsGrantRevocation(alloc: std.mem.Allocator, bytes: []const u8, out: *types.SignedActAsGrantRevocation) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_SignedActAsGrantRevocation(alloc, root, out);
+}
+
+/// Encode a GetActAsGrantRevocationsRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_GetActAsGrantRevocationsRequest(alloc: std.mem.Allocator, v: *const types.GetActAsGrantRevocationsRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_GetActAsGrantRevocationsRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a GetActAsGrantRevocationsRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_GetActAsGrantRevocationsRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.GetActAsGrantRevocationsRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_GetActAsGrantRevocationsRequest(alloc, root, out);
+}
+
+/// Encode a GetActAsGrantRevocationsResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_GetActAsGrantRevocationsResponse(alloc: std.mem.Allocator, v: *const types.GetActAsGrantRevocationsResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_GetActAsGrantRevocationsResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a GetActAsGrantRevocationsResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_GetActAsGrantRevocationsResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.GetActAsGrantRevocationsResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_GetActAsGrantRevocationsResponse(alloc, root, out);
+}
+
+/// Encode a RpActAsRefreshRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RpActAsRefreshRequest(alloc: std.mem.Allocator, v: *const types.RpActAsRefreshRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RpActAsRefreshRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RpActAsRefreshRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RpActAsRefreshRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RpActAsRefreshRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RpActAsRefreshRequest(alloc, root, out);
+}
+
+/// Encode a RpResolveActAsRevocationsRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RpResolveActAsRevocationsRequest(alloc: std.mem.Allocator, v: *const types.RpResolveActAsRevocationsRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RpResolveActAsRevocationsRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RpResolveActAsRevocationsRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RpResolveActAsRevocationsRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RpResolveActAsRevocationsRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RpResolveActAsRevocationsRequest(alloc, root, out);
+}
+
+/// Encode a BrowserActAsInspectRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_BrowserActAsInspectRequest(alloc: std.mem.Allocator, v: *const types.BrowserActAsInspectRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_BrowserActAsInspectRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a BrowserActAsInspectRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_BrowserActAsInspectRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.BrowserActAsInspectRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_BrowserActAsInspectRequest(alloc, root, out);
+}
+
+/// Encode a BrowserActAsScopeEntry to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_BrowserActAsScopeEntry(alloc: std.mem.Allocator, v: *const types.BrowserActAsScopeEntry) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_BrowserActAsScopeEntry(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a BrowserActAsScopeEntry. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_BrowserActAsScopeEntry(alloc: std.mem.Allocator, bytes: []const u8, out: *types.BrowserActAsScopeEntry) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_BrowserActAsScopeEntry(alloc, root, out);
+}
+
+/// Encode a BrowserActAsParty to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_BrowserActAsParty(alloc: std.mem.Allocator, v: *const types.BrowserActAsParty) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_BrowserActAsParty(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a BrowserActAsParty. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_BrowserActAsParty(alloc: std.mem.Allocator, bytes: []const u8, out: *types.BrowserActAsParty) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_BrowserActAsParty(alloc, root, out);
+}
+
+/// Encode a BrowserActAsInspectResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_BrowserActAsInspectResponse(alloc: std.mem.Allocator, v: *const types.BrowserActAsInspectResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_BrowserActAsInspectResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a BrowserActAsInspectResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_BrowserActAsInspectResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.BrowserActAsInspectResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_BrowserActAsInspectResponse(alloc, root, out);
+}
+
+/// Encode a BrowserActAsCompleteRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_BrowserActAsCompleteRequest(alloc: std.mem.Allocator, v: *const types.BrowserActAsCompleteRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_BrowserActAsCompleteRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a BrowserActAsCompleteRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_BrowserActAsCompleteRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.BrowserActAsCompleteRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_BrowserActAsCompleteRequest(alloc, root, out);
+}
+
+/// Encode a BrowserActAsCompleteResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_BrowserActAsCompleteResponse(alloc: std.mem.Allocator, v: *const types.BrowserActAsCompleteResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_BrowserActAsCompleteResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a BrowserActAsCompleteResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_BrowserActAsCompleteResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.BrowserActAsCompleteResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_BrowserActAsCompleteResponse(alloc, root, out);
+}
+
+/// Encode a ActAsGrantSummary to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ActAsGrantSummary(alloc: std.mem.Allocator, v: *const types.ActAsGrantSummary) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ActAsGrantSummary(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ActAsGrantSummary. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ActAsGrantSummary(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ActAsGrantSummary) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ActAsGrantSummary(alloc, root, out);
+}
+
+/// Encode a ListActAsGrantsResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ListActAsGrantsResponse(alloc: std.mem.Allocator, v: *const types.ListActAsGrantsResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ListActAsGrantsResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ListActAsGrantsResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ListActAsGrantsResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ListActAsGrantsResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ListActAsGrantsResponse(alloc, root, out);
+}
+
+/// Encode a RevokeActAsGrantRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RevokeActAsGrantRequest(alloc: std.mem.Allocator, v: *const types.RevokeActAsGrantRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RevokeActAsGrantRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RevokeActAsGrantRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RevokeActAsGrantRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RevokeActAsGrantRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RevokeActAsGrantRequest(alloc, root, out);
+}
+
+/// Encode a RevokeActAsGrantResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RevokeActAsGrantResponse(alloc: std.mem.Allocator, v: *const types.RevokeActAsGrantResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RevokeActAsGrantResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RevokeActAsGrantResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RevokeActAsGrantResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RevokeActAsGrantResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RevokeActAsGrantResponse(alloc, root, out);
 }

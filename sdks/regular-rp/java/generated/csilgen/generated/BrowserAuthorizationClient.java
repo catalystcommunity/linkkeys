@@ -20,4 +20,12 @@ public final class BrowserAuthorizationClient {
     public BrowserAuthorizationCompleteResponse complete(BrowserAuthorizationCompleteRequest req) throws ClientException {
         return CsilCbor.decodeBrowserAuthorizationCompleteResponse(transport.call("BrowserAuthorization", "complete", CsilCbor.encodeBrowserAuthorizationCompleteRequest(req)));
     }
+
+    public BrowserActAsInspectResponse inspectActAs(BrowserActAsInspectRequest req) throws ClientException {
+        return CsilCbor.decodeBrowserActAsInspectResponse(transport.call("BrowserAuthorization", "inspect-act-as", CsilCbor.encodeBrowserActAsInspectRequest(req)));
+    }
+
+    public BrowserActAsCompleteResponse completeActAs(BrowserActAsCompleteRequest req) throws ClientException {
+        return CsilCbor.decodeBrowserActAsCompleteResponse(transport.call("BrowserAuthorization", "complete-act-as", CsilCbor.encodeBrowserActAsCompleteRequest(req)));
+    }
 }

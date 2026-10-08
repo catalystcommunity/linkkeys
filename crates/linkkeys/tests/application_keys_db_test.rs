@@ -1,4 +1,4 @@
-//! Storage-layer tests for application-key enrollment (signing-things-request.md,
+//! Storage-layer tests for application-key enrollment (docs/application-keys.md,
 //! step 2): application instances, their public keys, each key's home-domain
 //! attestation, permanent revocation evidence, and single-use enrollment
 //! challenges. Pure storage — no quorum verification, no dispatch.

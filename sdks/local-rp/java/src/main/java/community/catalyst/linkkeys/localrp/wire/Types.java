@@ -114,4 +114,72 @@ public final class Types {
 
     public record LocalRpTicketRedemptionResponse(
             String userId, String userDomain, List<Claim> claims, String ticketExpiresAt) {}
+
+    // -----------------------------------------------------------------
+    // Act-as grants (grantee side only). A local RP can be a grantee, never
+    // an audience. See docs/spec/reserved/act-as-grants.md.
+    // -----------------------------------------------------------------
+
+    public record ApplicationRef(String subjectUserId, String subjectDomain, String applicationId) {}
+
+    /** Exactly one field is non-null. This SDK always sets {@code localRpDescriptorFingerprint}. */
+    public record GranteeRef(ApplicationRef application, String localRpDescriptorFingerprint) {}
+
+    public record ApplicationKeySignature(String signedByKeyId, byte[] signature) {}
+
+    /** Exactly one of the first two fields is non-null. This SDK always sets {@code localRpDescriptor}. */
+    public record GranteeProof(
+            String applicationInstanceId, SignedLocalRpDescriptor localRpDescriptor, ApplicationKeySignature signature) {}
+
+    /**
+     * The audience's signed scope set. {@code scopeSet} is the signed CBOR of an {@code ActAsScopeSet}, kept unchanged.
+     * {@code signatures} has at least one entry (CSIL {@code [+ ApplicationKeySignature]}).
+     */
+    public record SignedActAsScopeSet(
+            byte[] scopeSet, String signerInstanceId, List<ApplicationKeySignature> signatures) {}
+
+    /** A grant as the home domain signed it. {@code grant} is the signed CBOR of an {@link ActAsGrant}. */
+    public record SignedActAsGrant(byte[] grant, List<ClaimSignature> signatures) {}
+
+    public record ActAsGrant(
+            String grantId,
+            String userId,
+            String subjectDomain,
+            GranteeRef grantee,
+            ApplicationRef audience,
+            SignedActAsScopeSet scopeSet,
+            List<String> approvedScope,
+            String issuedAt,
+            String expiresAt,
+            String seriesIssuedAt,
+            String renewableUntil,
+            String deviceFingerprint) {}
+
+    public record ActAsGrantRequest(
+            GranteeRef grantee,
+            SignedActAsScopeSet scopeSet,
+            Long requestedLifetimeSeconds,
+            Long requestedRenewalWindowSeconds,
+            String callbackUrl,
+            String nonce,
+            String requestedAt,
+            String expiresAt) {}
+
+    public record SignedActAsGrantRequest(byte[] request, GranteeProof proof) {}
+
+    public record ActAsRefreshRequest(
+            String grantId, GranteeRef grantee, String requestedAt, String expiresAt, String nonce) {}
+
+    public record SignedActAsRefreshRequest(byte[] request, GranteeProof proof) {}
+
+    public record RefreshActAsGrantRequest(SignedActAsRefreshRequest request) {}
+
+    public record RefreshActAsGrantResponse(SignedActAsGrant grant, boolean signed) {}
+
+    public record ActAsPresentation(
+            byte[] grantHash, ApplicationRef audience, byte[] requestDigest, String presentedAt, byte[] nonce) {}
+
+    public record SignedActAsPresentation(byte[] presentation, GranteeProof proof) {}
+
+    public record ActAsCredential(SignedActAsGrant grant, SignedActAsPresentation presentation) {}
 }

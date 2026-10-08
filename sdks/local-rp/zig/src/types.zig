@@ -63,13 +63,13 @@ pub fn claimSignatureFromValue(v: cbor.Value) !ClaimSignature {
     };
 }
 
-fn claimSignatureArrayToValue(allocator: std.mem.Allocator, items: []const ClaimSignature) !cbor.Value {
+pub fn claimSignatureArrayToValue(allocator: std.mem.Allocator, items: []const ClaimSignature) !cbor.Value {
     const vals = try allocator.alloc(cbor.Value, items.len);
     for (items, 0..) |it, i| vals[i] = try claimSignatureToValue(allocator, it);
     return cbor.arrayVal(vals);
 }
 
-fn claimSignatureArrayFromValue(allocator: std.mem.Allocator, v: cbor.Value) ![]ClaimSignature {
+pub fn claimSignatureArrayFromValue(allocator: std.mem.Allocator, v: cbor.Value) ![]ClaimSignature {
     const arr = try cbor.asArray(v);
     const out = try allocator.alloc(ClaimSignature, arr.len);
     for (arr, 0..) |it, i| out[i] = try claimSignatureFromValue(it);

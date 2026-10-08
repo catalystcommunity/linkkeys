@@ -6912,3 +6912,989 @@ class RpResolveApplicationKeysResponse
     )
   end
 end
+
+# CBOR codec for ApplicationRef: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class ApplicationRef
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["application_id"] = application_id
+    csil_map["subject_domain"] = subject_domain
+    csil_map["subject_user_id"] = subject_user_id
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      subject_user_id: node["subject_user_id"],
+      subject_domain: node["subject_domain"],
+      application_id: node["application_id"]
+    )
+  end
+end
+
+# CBOR codec for GranteeRef: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class GranteeRef
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["application"] = (application).csil_to_tree unless application.nil?
+    csil_map["local_rp_descriptor_fingerprint"] = local_rp_descriptor_fingerprint unless local_rp_descriptor_fingerprint.nil?
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      application: (node.key?("application") ? ApplicationRef.csil_from_tree(node["application"]) : nil),
+      local_rp_descriptor_fingerprint: (node.key?("local_rp_descriptor_fingerprint") ? node["local_rp_descriptor_fingerprint"] : nil)
+    )
+  end
+end
+
+# CBOR codec for GranteeProof: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class GranteeProof
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["signature"] = (signature).csil_to_tree
+    csil_map["local_rp_descriptor"] = (local_rp_descriptor).csil_to_tree unless local_rp_descriptor.nil?
+    csil_map["application_instance_id"] = application_instance_id unless application_instance_id.nil?
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      application_instance_id: (node.key?("application_instance_id") ? node["application_instance_id"] : nil),
+      local_rp_descriptor: (node.key?("local_rp_descriptor") ? SignedLocalRpDescriptor.csil_from_tree(node["local_rp_descriptor"]) : nil),
+      signature: ApplicationKeySignature.csil_from_tree(node["signature"])
+    )
+  end
+end
+
+# CBOR codec for ActAsScopeEntry: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class ActAsScopeEntry
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["scope"] = scope
+    csil_map["description"] = description unless description.nil?
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      scope: node["scope"],
+      description: (node.key?("description") ? node["description"] : nil)
+    )
+  end
+end
+
+# CBOR codec for ActAsScopeSet: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class ActAsScopeSet
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["entries"] = (entries).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["grantee"] = (grantee).csil_to_tree
+    csil_map["audience"] = (audience).csil_to_tree
+    csil_map["language"] = language unless language.nil?
+    csil_map["issued_at"] = issued_at
+    csil_map["expires_at"] = expires_at
+    csil_map["audience_handle_claim"] = (audience_handle_claim).csil_to_tree unless audience_handle_claim.nil?
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      audience: ApplicationRef.csil_from_tree(node["audience"]),
+      grantee: GranteeRef.csil_from_tree(node["grantee"]),
+      entries: (node["entries"]).map { |csil_e| ActAsScopeEntry.csil_from_tree(csil_e) },
+      language: (node.key?("language") ? node["language"] : nil),
+      audience_handle_claim: (node.key?("audience_handle_claim") ? Claim.csil_from_tree(node["audience_handle_claim"]) : nil),
+      issued_at: node["issued_at"],
+      expires_at: node["expires_at"]
+    )
+  end
+end
+
+# CBOR codec for SignedActAsScopeSet: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class SignedActAsScopeSet
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["scope_set"] = (scope_set).b
+    csil_map["signatures"] = (signatures).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["signer_instance_id"] = signer_instance_id
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      scope_set: node["scope_set"],
+      signer_instance_id: node["signer_instance_id"],
+      signatures: (node["signatures"]).map { |csil_e| ApplicationKeySignature.csil_from_tree(csil_e) }
+    )
+  end
+end
+
+# CBOR codec for ActAsScopeSetRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class ActAsScopeSetRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["scope"] = (scope).map { |csil_e| csil_e }
+    csil_map["grantee"] = (grantee).csil_to_tree
+    csil_map["locale_preferences"] = (locale_preferences).map { |csil_e| csil_e } unless locale_preferences.nil?
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      grantee: GranteeRef.csil_from_tree(node["grantee"]),
+      scope: (node["scope"]).map { |csil_e| csil_e },
+      locale_preferences: (node.key?("locale_preferences") ? (node["locale_preferences"]).map { |csil_e| csil_e } : nil)
+    )
+  end
+end
+
+# CBOR codec for ActAsGrant: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class ActAsGrant
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["grantee"] = (grantee).csil_to_tree
+    csil_map["user_id"] = user_id
+    csil_map["audience"] = (audience).csil_to_tree
+    csil_map["grant_id"] = grant_id
+    csil_map["issued_at"] = issued_at
+    csil_map["scope_set"] = (scope_set).csil_to_tree
+    csil_map["expires_at"] = expires_at
+    csil_map["approved_scope"] = (approved_scope).map { |csil_e| csil_e }
+    csil_map["subject_domain"] = subject_domain
+    csil_map["renewable_until"] = renewable_until
+    csil_map["series_issued_at"] = series_issued_at
+    csil_map["device_fingerprint"] = device_fingerprint unless device_fingerprint.nil?
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      grant_id: node["grant_id"],
+      user_id: node["user_id"],
+      subject_domain: node["subject_domain"],
+      grantee: GranteeRef.csil_from_tree(node["grantee"]),
+      audience: ApplicationRef.csil_from_tree(node["audience"]),
+      scope_set: SignedActAsScopeSet.csil_from_tree(node["scope_set"]),
+      approved_scope: (node["approved_scope"]).map { |csil_e| csil_e },
+      issued_at: node["issued_at"],
+      expires_at: node["expires_at"],
+      series_issued_at: node["series_issued_at"],
+      renewable_until: node["renewable_until"],
+      device_fingerprint: (node.key?("device_fingerprint") ? node["device_fingerprint"] : nil)
+    )
+  end
+end
+
+# CBOR codec for SignedActAsGrant: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class SignedActAsGrant
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["grant"] = (grant).b
+    csil_map["signatures"] = (signatures).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      grant: node["grant"],
+      signatures: (node["signatures"]).map { |csil_e| ClaimSignature.csil_from_tree(csil_e) }
+    )
+  end
+end
+
+# CBOR codec for ActAsGrantRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class ActAsGrantRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["nonce"] = nonce
+    csil_map["grantee"] = (grantee).csil_to_tree
+    csil_map["scope_set"] = (scope_set).csil_to_tree
+    csil_map["expires_at"] = expires_at
+    csil_map["callback_url"] = callback_url
+    csil_map["requested_at"] = requested_at
+    csil_map["grantee_handle_claim"] = (grantee_handle_claim).csil_to_tree unless grantee_handle_claim.nil?
+    csil_map["requested_lifetime_seconds"] = requested_lifetime_seconds unless requested_lifetime_seconds.nil?
+    csil_map["requested_renewal_window_seconds"] = requested_renewal_window_seconds unless requested_renewal_window_seconds.nil?
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      grantee: GranteeRef.csil_from_tree(node["grantee"]),
+      scope_set: SignedActAsScopeSet.csil_from_tree(node["scope_set"]),
+      requested_lifetime_seconds: (node.key?("requested_lifetime_seconds") ? node["requested_lifetime_seconds"] : nil),
+      requested_renewal_window_seconds: (node.key?("requested_renewal_window_seconds") ? node["requested_renewal_window_seconds"] : nil),
+      grantee_handle_claim: (node.key?("grantee_handle_claim") ? Claim.csil_from_tree(node["grantee_handle_claim"]) : nil),
+      callback_url: node["callback_url"],
+      nonce: node["nonce"],
+      requested_at: node["requested_at"],
+      expires_at: node["expires_at"]
+    )
+  end
+end
+
+# CBOR codec for SignedActAsGrantRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class SignedActAsGrantRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["proof"] = (proof).csil_to_tree
+    csil_map["request"] = (request).b
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      request: node["request"],
+      proof: GranteeProof.csil_from_tree(node["proof"])
+    )
+  end
+end
+
+# CBOR codec for ActAsRefreshRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class ActAsRefreshRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["nonce"] = nonce
+    csil_map["grantee"] = (grantee).csil_to_tree
+    csil_map["grant_id"] = grant_id
+    csil_map["expires_at"] = expires_at
+    csil_map["requested_at"] = requested_at
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      grant_id: node["grant_id"],
+      grantee: GranteeRef.csil_from_tree(node["grantee"]),
+      requested_at: node["requested_at"],
+      expires_at: node["expires_at"],
+      nonce: node["nonce"]
+    )
+  end
+end
+
+# CBOR codec for SignedActAsRefreshRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class SignedActAsRefreshRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["proof"] = (proof).csil_to_tree
+    csil_map["request"] = (request).b
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      request: node["request"],
+      proof: GranteeProof.csil_from_tree(node["proof"])
+    )
+  end
+end
+
+# CBOR codec for RefreshActAsGrantRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class RefreshActAsGrantRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["request"] = (request).csil_to_tree
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      request: SignedActAsRefreshRequest.csil_from_tree(node["request"])
+    )
+  end
+end
+
+# CBOR codec for RefreshActAsGrantResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class RefreshActAsGrantResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["grant"] = (grant).csil_to_tree
+    csil_map["signed"] = signed
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      grant: SignedActAsGrant.csil_from_tree(node["grant"]),
+      signed: node["signed"]
+    )
+  end
+end
+
+# CBOR codec for ActAsPresentation: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class ActAsPresentation
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["nonce"] = (nonce).b
+    csil_map["audience"] = (audience).csil_to_tree
+    csil_map["grant_hash"] = (grant_hash).b
+    csil_map["presented_at"] = presented_at
+    csil_map["request_digest"] = (request_digest).b
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      grant_hash: node["grant_hash"],
+      audience: ApplicationRef.csil_from_tree(node["audience"]),
+      request_digest: node["request_digest"],
+      presented_at: node["presented_at"],
+      nonce: node["nonce"]
+    )
+  end
+end
+
+# CBOR codec for SignedActAsPresentation: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class SignedActAsPresentation
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["proof"] = (proof).csil_to_tree
+    csil_map["presentation"] = (presentation).b
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      presentation: node["presentation"],
+      proof: GranteeProof.csil_from_tree(node["proof"])
+    )
+  end
+end
+
+# CBOR codec for ActAsCredential: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class ActAsCredential
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["grant"] = (grant).csil_to_tree
+    csil_map["presentation"] = (presentation).csil_to_tree
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      grant: SignedActAsGrant.csil_from_tree(node["grant"]),
+      presentation: SignedActAsPresentation.csil_from_tree(node["presentation"])
+    )
+  end
+end
+
+# CBOR codec for ActAsGrantRevocation: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class ActAsGrantRevocation
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["user_id"] = user_id
+    csil_map["grant_id"] = grant_id
+    csil_map["revoked_at"] = revoked_at
+    csil_map["subject_domain"] = subject_domain
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      grant_id: node["grant_id"],
+      user_id: node["user_id"],
+      subject_domain: node["subject_domain"],
+      revoked_at: node["revoked_at"]
+    )
+  end
+end
+
+# CBOR codec for SignedActAsGrantRevocation: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class SignedActAsGrantRevocation
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["revocation"] = (revocation).b
+    csil_map["signatures"] = (signatures).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      revocation: node["revocation"],
+      signatures: (node["signatures"]).map { |csil_e| ClaimSignature.csil_from_tree(csil_e) }
+    )
+  end
+end
+
+# CBOR codec for GetActAsGrantRevocationsRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class GetActAsGrantRevocationsRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["grant_ids"] = (grant_ids).map { |csil_e| csil_e }
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      grant_ids: (node["grant_ids"]).map { |csil_e| csil_e }
+    )
+  end
+end
+
+# CBOR codec for GetActAsGrantRevocationsResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class GetActAsGrantRevocationsResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["revocations"] = (revocations).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      revocations: (node["revocations"]).map { |csil_e| SignedActAsGrantRevocation.csil_from_tree(csil_e) }
+    )
+  end
+end
+
+# CBOR codec for RpActAsRefreshRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class RpActAsRefreshRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["request"] = (request).csil_to_tree
+    csil_map["subject_domain"] = subject_domain
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      subject_domain: node["subject_domain"],
+      request: SignedActAsRefreshRequest.csil_from_tree(node["request"])
+    )
+  end
+end
+
+# CBOR codec for RpResolveActAsRevocationsRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class RpResolveActAsRevocationsRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["grant_ids"] = (grant_ids).map { |csil_e| csil_e }
+    csil_map["subject_domain"] = subject_domain
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      subject_domain: node["subject_domain"],
+      grant_ids: (node["grant_ids"]).map { |csil_e| csil_e }
+    )
+  end
+end
+
+# CBOR codec for BrowserActAsInspectRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class BrowserActAsInspectRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["signed_request"] = signed_request
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      signed_request: node["signed_request"]
+    )
+  end
+end
+
+# CBOR codec for BrowserActAsScopeEntry: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class BrowserActAsScopeEntry
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["scope"] = scope
+    csil_map["description"] = description unless description.nil?
+    csil_map["removed_by_policy"] = removed_by_policy
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      scope: node["scope"],
+      description: (node.key?("description") ? node["description"] : nil),
+      removed_by_policy: node["removed_by_policy"]
+    )
+  end
+end
+
+# CBOR codec for BrowserActAsParty: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class BrowserActAsParty
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["domain"] = domain unless domain.nil?
+    csil_map["handle"] = handle unless handle.nil?
+    csil_map["own_domain"] = own_domain
+    csil_map["local_rp_name"] = local_rp_name unless local_rp_name.nil?
+    csil_map["application_id"] = application_id unless application_id.nil?
+    csil_map["subject_user_id"] = subject_user_id unless subject_user_id.nil?
+    csil_map["operator_trusted"] = operator_trusted
+    csil_map["user_has_history"] = user_has_history
+    csil_map["domain_key_pinned"] = domain_key_pinned
+    csil_map["local_rp_fingerprint"] = local_rp_fingerprint unless local_rp_fingerprint.nil?
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      domain: (node.key?("domain") ? node["domain"] : nil),
+      application_id: (node.key?("application_id") ? node["application_id"] : nil),
+      subject_user_id: (node.key?("subject_user_id") ? node["subject_user_id"] : nil),
+      handle: (node.key?("handle") ? node["handle"] : nil),
+      local_rp_name: (node.key?("local_rp_name") ? node["local_rp_name"] : nil),
+      local_rp_fingerprint: (node.key?("local_rp_fingerprint") ? node["local_rp_fingerprint"] : nil),
+      own_domain: node["own_domain"],
+      user_has_history: node["user_has_history"],
+      domain_key_pinned: node["domain_key_pinned"],
+      operator_trusted: node["operator_trusted"]
+    )
+  end
+end
+
+# CBOR codec for BrowserActAsInspectResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class BrowserActAsInspectResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["entries"] = (entries).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["grantee"] = (grantee).csil_to_tree
+    csil_map["audience"] = (audience).csil_to_tree
+    csil_map["language"] = language unless language.nil?
+    csil_map["grantee_party"] = (grantee_party).csil_to_tree
+    csil_map["audience_party"] = (audience_party).csil_to_tree
+    csil_map["max_lifetime_seconds"] = max_lifetime_seconds
+    csil_map["default_lifetime_seconds"] = default_lifetime_seconds
+    csil_map["max_renewal_window_seconds"] = max_renewal_window_seconds
+    csil_map["default_renewal_window_seconds"] = default_renewal_window_seconds
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      grantee: GranteeRef.csil_from_tree(node["grantee"]),
+      grantee_party: BrowserActAsParty.csil_from_tree(node["grantee_party"]),
+      audience: ApplicationRef.csil_from_tree(node["audience"]),
+      audience_party: BrowserActAsParty.csil_from_tree(node["audience_party"]),
+      entries: (node["entries"]).map { |csil_e| BrowserActAsScopeEntry.csil_from_tree(csil_e) },
+      language: (node.key?("language") ? node["language"] : nil),
+      default_lifetime_seconds: node["default_lifetime_seconds"],
+      max_lifetime_seconds: node["max_lifetime_seconds"],
+      default_renewal_window_seconds: node["default_renewal_window_seconds"],
+      max_renewal_window_seconds: node["max_renewal_window_seconds"]
+    )
+  end
+end
+
+# CBOR codec for BrowserActAsCompleteRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class BrowserActAsCompleteRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["approved_scope"] = (approved_scope).map { |csil_e| csil_e }
+    csil_map["signed_request"] = signed_request
+    csil_map["lifetime_seconds"] = lifetime_seconds
+    csil_map["renewal_window_seconds"] = renewal_window_seconds
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      signed_request: node["signed_request"],
+      approved_scope: (node["approved_scope"]).map { |csil_e| csil_e },
+      lifetime_seconds: node["lifetime_seconds"],
+      renewal_window_seconds: node["renewal_window_seconds"]
+    )
+  end
+end
+
+# CBOR codec for BrowserActAsCompleteResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class BrowserActAsCompleteResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["redirect_url"] = redirect_url
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      redirect_url: node["redirect_url"]
+    )
+  end
+end
+
+# CBOR codec for ActAsGrantSummary: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class ActAsGrantSummary
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["grantee"] = (grantee).csil_to_tree
+    csil_map["audience"] = (audience).csil_to_tree
+    csil_map["grant_id"] = grant_id
+    csil_map["issued_at"] = issued_at
+    csil_map["expires_at"] = expires_at
+    csil_map["revoked_at"] = revoked_at unless revoked_at.nil?
+    csil_map["approved_scope"] = (approved_scope).map { |csil_e| csil_e }
+    csil_map["renewable_until"] = renewable_until
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      grant_id: node["grant_id"],
+      grantee: GranteeRef.csil_from_tree(node["grantee"]),
+      audience: ApplicationRef.csil_from_tree(node["audience"]),
+      approved_scope: (node["approved_scope"]).map { |csil_e| csil_e },
+      issued_at: node["issued_at"],
+      expires_at: node["expires_at"],
+      renewable_until: node["renewable_until"],
+      revoked_at: (node.key?("revoked_at") ? node["revoked_at"] : nil)
+    )
+  end
+end
+
+# CBOR codec for ListActAsGrantsResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class ListActAsGrantsResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["grants"] = (grants).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      grants: (node["grants"]).map { |csil_e| ActAsGrantSummary.csil_from_tree(csil_e) }
+    )
+  end
+end
+
+# CBOR codec for RevokeActAsGrantRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class RevokeActAsGrantRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["grant_id"] = grant_id
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      grant_id: node["grant_id"]
+    )
+  end
+end
+
+# CBOR codec for RevokeActAsGrantResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class RevokeActAsGrantResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["revoked_at"] = revoked_at
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      revoked_at: node["revoked_at"]
+    )
+  end
+end

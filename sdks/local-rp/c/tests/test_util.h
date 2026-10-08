@@ -19,5 +19,13 @@ void t_hex_field_fixed(const json_value *obj, const char *key, uint8_t *out, siz
 
 int run_conformance_tests(void);
 int run_flow_tests(void);
+int run_browser_tests(void);
+int run_act_as_tests(void);
+
+/* act_as_grantee_signing.json (sdks/regular-rp/conformance/) and its
+ * local_rp_grantee identity (signing seed, signed descriptor, fingerprint).
+ * Free with json_free / lrp_identity_free. */
+json_value *t_act_as_load_vectors(void);
+void t_act_as_vector_identity(const json_value *vec, lrp_identity *out);
 
 #endif

@@ -295,4 +295,26 @@ defmodule LinkkeysLocalRp.Rpc do
       end
     end
   end
+
+  @doc """
+  Refresh an act-as grant at `domain` (the user's home domain):
+  `ActAs/refresh-grant` over TCP CSIL-RPC, pinned via the domain's DNS `fp=`
+  set, exactly like `redeem_claim_ticket/4`. The signed refresh request is the
+  authority; there is no client certificate.
+  """
+  @spec refresh_act_as_grant(Transport.t(), Dns.resolver(), String.t(), Types.SignedActAsRefreshRequest.t()) ::
+          {:ok, Types.RefreshActAsGrantResponse.t()} | {:error, term}
+  def refresh_act_as_grant(transport, dns, domain, %Types.SignedActAsRefreshRequest{} = signed_request) do
+    with {:ok, endpoint} <- discover_domain_endpoint(dns, domain) do
+      payload = Types.refresh_act_as_grant_request_to_cbor(signed_request)
+
+      with {:ok, resp_bytes} <- call(transport, endpoint, "ActAs", "refresh-grant", payload) do
+        try do
+          {:ok, Types.refresh_act_as_grant_response_from_cbor(resp_bytes)}
+        rescue
+          e -> {:error, %ProtocolError{message: "refresh-grant response decode failed: #{Exception.message(e)}"}}
+        end
+      end
+    end
+  end
 end

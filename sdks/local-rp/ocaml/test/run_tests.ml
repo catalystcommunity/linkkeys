@@ -542,17 +542,173 @@ let string_contains (haystack : string) (needle : string) : bool =
   let rec loop i = i + n <= h && (String.sub haystack i n = needle || loop (i + 1)) in
   loop 0
 
+(* ------------------------------------------------------------------ *)
+(* Browser endpoint discovery in [begin_local_login] (mirrors             *)
+(* sdks/local-rp/go/browser_test.go). Every resolver here is a hermetic  *)
+(* fake with canned TXT answers; no test performs a live DNS request.    *)
+(* ------------------------------------------------------------------ *)
+
+let browser_test_domain = "ident.example.test"
+
+let apis_resolver (txts : string list) : Dns.resolver =
+  {
+    Dns.txt_lookup =
+      (fun name ->
+        if name = "_linkkeys_apis." ^ browser_test_domain then txts
+        else raise (Dns.Dns_parse_error ("no fake record for " ^ name)));
+  }
+
+(* Every lookup fails: [begin_local_login] falls back to the identity domain. *)
+let failing_resolver : Dns.resolver = { Dns.txt_lookup = (fun _ -> raise (Dns.Dns_parse_error "SERVFAIL")) }
+
+let has_prefix ~prefix s = String.length s >= String.length prefix && String.sub s 0 (String.length prefix) = prefix
+
+let has_suffix ~suffix s =
+  let ls = String.length s and lx = String.length suffix in
+  ls >= lx && String.sub s (ls - lx) lx = suffix
+
+let check_prefix (msg : string) (prefix : string) (url : string) : unit =
+  check_bool (Printf.sprintf "%s: %S has prefix %S" msg url prefix) true (has_prefix ~prefix url)
+
+let browser_begin_with ?(user_domain = browser_test_domain) (dns : Dns.resolver) =
+  let now = Timeutil.parse_rfc3339 "2026-08-17T12:00:00Z" in
+  let identity = Identity.generate_local_rp_identity_exn (Identity.make_config ~app_name:"browser-test" ~now ()) in
+  Begin_login.begin_local_login_exn
+    (Begin_login.make_config ~key_material:identity ~callback_url:"http://app.lan:8080/cb" ~user_domain ~now ~dns ())
+
+(* Case 1: a valid https= host is used for the redirect instead of the
+   identity domain. Case 8: [pending_login.user_domain] stays the identity
+   domain -- verification stays bound to it, not to the service host. *)
+let test_browser_discovered_host () =
+  let redirect, pending =
+    browser_begin_with (apis_resolver [ "v=lk1 tcp=linkkeys.ident.example.test https=linkkeys.ident.example.test" ])
+  in
+  check_prefix "discovered host" "https://linkkeys.ident.example.test/auth/local-rp?signed_request=" redirect.redirect_url;
+  check_bool "identity domain is not the redirect host" false
+    (has_prefix ~prefix:("https://" ^ browser_test_domain ^ "/") redirect.redirect_url);
+  Alcotest.(check string) "pending user_domain stays the identity domain" browser_test_domain pending.user_domain
+
+(* Case 2: an https= value with a path prefix preserves that prefix. *)
+let test_browser_path_prefix () =
+  let redirect, _ = browser_begin_with (apis_resolver [ "v=lk1 https=login.example.test/linkkeys" ]) in
+  check_prefix "path prefix" "https://login.example.test/linkkeys/auth/local-rp?signed_request=" redirect.redirect_url
+
+(* Case 3: a record with only tcp= falls back to the identity domain. *)
+let test_browser_tcp_only_fallback () =
+  let redirect, _ = browser_begin_with (apis_resolver [ "v=lk1 tcp=linkkeys.ident.example.test" ]) in
+  check_prefix "tcp-only fallback" ("https://" ^ browser_test_domain ^ "/auth/local-rp?signed_request=") redirect.redirect_url
+
+(* Case 4: a DNS lookup error falls back to the identity domain. *)
+let test_browser_dns_error_fallback () =
+  let redirect, _ = browser_begin_with failing_resolver in
+  check_prefix "dns error fallback" ("https://" ^ browser_test_domain ^ "/auth/local-rp?signed_request=") redirect.redirect_url
+
+(* Cases 5 + 6: invalid TXT records are ignored, and across several records
+   the FIRST valid record with https= is selected. *)
+let test_browser_first_valid_record () =
+  let redirect, _ =
+    browser_begin_with
+      (apis_resolver
+         [
+           "not a linkkeys record";
+           "v=lk2 https=wrong-version.example.test";
+           "v=lk1 tcp=tcp-only.example.test";
+           "v=lk1 https=first.example.test";
+           "v=lk1 https=second.example.test";
+         ])
+  in
+  check_prefix "first valid record" "https://first.example.test/auth/local-rp?signed_request=" redirect.redirect_url
+
+(* Case 7: signed_request rides the discovered URL unchanged -- it decodes
+   to the signed login request whose fields match this login. *)
+let test_browser_signed_request_survives () =
+  let redirect, pending = browser_begin_with (apis_resolver [ "v=lk1 https=login.example.test/linkkeys" ]) in
+  let url = redirect.redirect_url in
+  let marker = "?signed_request=" in
+  let rec find i = if i + String.length marker > String.length url then None else if String.sub url i (String.length marker) = marker then Some i else find (i + 1) in
+  let start = match find 0 with Some i -> i + String.length marker | None -> Alcotest.fail "redirect URL missing signed_request param" in
+  let stop = match String.index_from_opt url start '&' with Some i -> i | None -> String.length url in
+  let param = String.sub url start (stop - start) in
+  let signed = Url_params.signed_local_rp_login_request_from_url_param param in
+  let request = Types.Local_rp_login_request.of_cbor signed.request in
+  Alcotest.(check string) "callback_url" "http://app.lan:8080/cb" request.callback_url;
+  check_bool "nonce matches pending" true (request.nonce = pending.nonce)
+
+(* The username hint still rides the discovered URL, after signed_request. *)
+let test_browser_username_hint () =
+  let redirect, pending =
+    browser_begin_with ~user_domain:("Alice+work@" ^ browser_test_domain) (apis_resolver [ "v=lk1 https=login.example.test" ])
+  in
+  check_prefix "username on discovered host" "https://login.example.test/auth/local-rp?signed_request=" redirect.redirect_url;
+  check_bool "username hint is last" true (has_suffix ~suffix:"&username=Alice%2Bwork" redirect.redirect_url);
+  Alcotest.(check string) "pending user_domain stays the identity domain" browser_test_domain pending.user_domain
+
+(* Case 9: a config built without [~dns] compiles unchanged (this test is
+   that caller) and defaults to [Dns.default_resolver] at call time. The
+   default path is not executed here -- that would be a live DNS request. *)
+let test_browser_config_without_resolver () =
+  let now = Timeutil.parse_rfc3339 "2026-08-17T12:00:00Z" in
+  let identity = Identity.generate_local_rp_identity_exn (Identity.make_config ~app_name:"browser-test" ~now ()) in
+  let config =
+    Begin_login.make_config ~key_material:identity ~callback_url:"http://app.lan:8080/cb" ~user_domain:browser_test_domain ~now ()
+  in
+  check_bool "dns defaults to None" true (match config.dns with None -> true | Some _ -> false)
+
+(* Direct tests for the exported helpers. *)
+let test_resolve_browser_base () =
+  (match Browser.resolve_browser_base (apis_resolver [ "v=lk1 tcp=x.example.test https=login.example.test:8443/linkkeys" ]) browser_test_domain with
+  | Ok base -> Alcotest.(check string) "base" "https://login.example.test:8443/linkkeys" base
+  | Error e -> Alcotest.failf "resolve_browser_base: %s" (Error.to_string e));
+  (* A record whose https= value smuggles URL structure is skipped; with no
+     other candidate, resolution errors so the caller can fall back. *)
+  List.iter
+    (fun hostile ->
+      match Browser.resolve_browser_base (apis_resolver [ hostile ]) browser_test_domain with
+      | Ok base -> Alcotest.failf "accepted hostile record %S as %S" hostile base
+      | Error _ -> ())
+    [ "v=lk1 https=user@evil.example.test"; "v=lk1 https=evil.example.test/x?y=1"; "v=lk1 https=evil.example.test/x#frag" ];
+  check_bool "tcp-only errors" true
+    (Result.is_error (Browser.resolve_browser_base (apis_resolver [ "v=lk1 tcp=only.example.test" ]) browser_test_domain));
+  check_bool "lookup failure errors" true (Result.is_error (Browser.resolve_browser_base failing_resolver browser_test_domain))
+
+let test_build_browser_endpoint () =
+  (match Browser.build_browser_endpoint "https://h.example.test" Browser.browser_route_local_rp "PAYLOAD-123_abc" with
+  | Ok url -> Alcotest.(check string) "plain host" "https://h.example.test/auth/local-rp?signed_request=PAYLOAD-123_abc" url
+  | Error e -> Alcotest.failf "build_browser_endpoint: %s" (Error.to_string e));
+  (* Path prefix, with and without a trailing slash, and the regular-RP
+     route -- the same helper serves /auth/authorize glue. *)
+  List.iter
+    (fun (base, want) ->
+      match Browser.build_browser_endpoint base Browser.browser_route_authorize "s" with
+      | Ok url -> Alcotest.(check string) base want url
+      | Error e -> Alcotest.failf "build_browser_endpoint %S: %s" base (Error.to_string e))
+    [
+      ("https://h.example.test/pfx", "https://h.example.test/pfx/auth/authorize?signed_request=s");
+      ("https://h.example.test/pfx/", "https://h.example.test/pfx/auth/authorize?signed_request=s");
+      ("https://h.example.test:8443", "https://h.example.test:8443/auth/authorize?signed_request=s");
+    ];
+  (* A non-HTTPS scheme must never be selectable. *)
+  List.iter
+    (fun bad ->
+      check_bool (Printf.sprintf "rejects %S" bad) true
+        (Result.is_error (Browser.build_browser_endpoint bad Browser.browser_route_local_rp "s")))
+    [ "http://h.example.test"; "ftp://h.example.test"; "https://"; "https://u:p@h.example.test"; "https://h.example.test:0"; "https://h.example.test:abc"; "https://h.example.test/x?y" ];
+  check_bool "rejects route without leading slash" true
+    (Result.is_error (Browser.build_browser_endpoint "https://h.example.test" "auth/no-leading-slash" "s"));
+  Alcotest.(check string) "local-rp route" "/auth/local-rp" Browser.browser_route_local_rp;
+  Alcotest.(check string) "authorize route" "/auth/authorize" Browser.browser_route_authorize
+
 let test_begin_identity_input () =
   let now = Timeutil.parse_rfc3339 "2026-01-01T00:00:00Z" in
   let identity = Identity.generate_local_rp_identity_exn (Identity.make_config ~app_name:"Test App" ~now ()) in
   let redirect, pending = Begin_login.begin_local_login_exn
       (Begin_login.make_config ~key_material:identity ~callback_url:"http://localhost/callback"
-         ~user_domain:"Alice+work@ID.Example.TEST" ~now ()) in
+         ~user_domain:"Alice+work@ID.Example.TEST" ~now ~dns:failing_resolver ()) in
   check_bool "username is encoded in redirect" true (string_contains redirect.redirect_url "&username=Alice%2Bwork");
   Alcotest.(check string) "pending state contains destination only" "id.example.test" pending.user_domain;
   List.iter (fun input ->
     match Begin_login.begin_local_login
-        (Begin_login.make_config ~key_material:identity ~callback_url:"http://localhost/callback" ~user_domain:input ~now ()) with
+        (Begin_login.make_config ~key_material:identity ~callback_url:"http://localhost/callback" ~user_domain:input ~now ~dns:failing_resolver ()) with
     | Error _ -> ()
     | Ok _ -> Alcotest.failf "accepted malformed identity input %S" input)
     [ "alice"; "alice@@example.test"; "https://example.test"; "alice@example.test:+443" ]
@@ -569,7 +725,7 @@ let run_happy_path () : Complete_login.verified_local_login =
   let idp = make_fake_idp ~now ~domain:"idp.example" in
   let redirect, pending =
     Begin_login.begin_local_login_exn
-      (Begin_login.make_config ~key_material:identity ~callback_url:"http://127.0.0.1:9000/callback" ~user_domain:idp.domain ~now ())
+      (Begin_login.make_config ~key_material:identity ~callback_url:"http://127.0.0.1:9000/callback" ~user_domain:idp.domain ~now ~dns:failing_resolver ())
   in
   check_bool "redirect URL targets the user domain" true (String.length redirect.redirect_url > 0);
   let request = Url_params.signed_local_rp_login_request_from_url_param
@@ -657,7 +813,7 @@ let test_flow_wrong_domain_keys_fails () =
   let attacker_idp = make_fake_idp ~now ~domain:"idp.example" in
   let _redirect, pending =
     Begin_login.begin_local_login_exn
-      (Begin_login.make_config ~key_material:identity ~callback_url:"http://127.0.0.1:9000/callback" ~user_domain:idp.domain ~now ())
+      (Begin_login.make_config ~key_material:identity ~callback_url:"http://127.0.0.1:9000/callback" ~user_domain:idp.domain ~now ~dns:failing_resolver ())
   in
   let payload =
     Local_rp.build_local_rp_callback_payload ~user_id:"user-1" ~user_domain:idp.domain ~claim_ticket:(Crypto.random_bytes 32)
@@ -906,7 +1062,7 @@ let test_pending_login_required_claims_roundtrip () =
   let _redirect, pending =
     Begin_login.begin_local_login_exn
       (Begin_login.make_config ~key_material:identity ~callback_url:"http://127.0.0.1:9000/callback" ~user_domain:"idp.example" ~now
-         ~required_claims:[ "handle"; "email" ] ())
+         ~required_claims:[ "handle"; "email" ] ~dns:failing_resolver ())
   in
   Alcotest.(check (list string)) "pending_login retains the required_claims it was begun with" [ "handle"; "email" ] pending.required_claims;
   let fields = Begin_login.pending_login_to_fields pending in
@@ -1042,6 +1198,425 @@ let test_dns_spoofed_response_rejected () =
 
 (* ==================================================================== *)
 
+(* ==================================================================== *)
+(* Act-as grants, grantee side                                          *)
+(* ==================================================================== *)
+
+(* The act-as vectors live with the regular-RP conformance suite:
+   sdks/regular-rp/conformance/act_as_grantee_signing.json. *)
+let act_as_vectors = lazy (Yojson.Safe.from_file "../../../../../regular-rp/conformance/act_as_grantee_signing.json")
+
+let act_as_local_rp_case () : Yojson.Safe.t =
+  match
+    List.find_opt (fun c -> text "name" c = "local_rp_grantee") (list_ (field "cases" (Lazy.force act_as_vectors)))
+  with
+  | Some c -> c
+  | None -> Alcotest.fail "act_as_grantee_signing.json has no local_rp_grantee case"
+
+(* Key material for the vector's published local-RP grantee. The encryption
+   private key is not used by act-as signing. *)
+let act_as_vector_key_material () : Identity.key_material =
+  let g = field "local_rp_grantee" (Lazy.force act_as_vectors) in
+  let descriptor = Types.Signed_local_rp_descriptor.of_cbor (hex "signed_descriptor_cbor_hex" g) in
+  let inner = Types.Local_rp_descriptor.of_cbor descriptor.descriptor in
+  Alcotest.(check string) "descriptor fingerprint" (text "fingerprint" g) inner.fingerprint;
+  {
+    signing_private_key = hex "signing_private_key_hex" g;
+    signing_public_key = inner.signing_public_key;
+    encryption_private_key = String.make 32 '\x00';
+    encryption_public_key = inner.encryption_public_key;
+    descriptor;
+    fingerprint = inner.fingerprint;
+  }
+
+let check_hex (msg : string) (expected_hex : string) (actual : string) : unit =
+  Alcotest.(check string) msg expected_hex (Hex.encode actual)
+
+let test_act_as_vector_grant_request () =
+  let km = act_as_vector_key_material () in
+  let case = act_as_local_rp_case () in
+  let gr = field "grant_request" case in
+  let inputs = field "inputs" gr in
+  let int_opt name = match field name inputs with `Null -> None | `Int n -> Some n | _ -> Alcotest.fail name in
+  let request : Types.Act_as_grant_request.t =
+    {
+      grantee = Act_as.local_rp_grantee km;
+      scope_set = Types.Signed_act_as_scope_set.of_cbor (hex "scope_set_signed_cbor_hex" inputs);
+      requested_lifetime_seconds = int_opt "requested_lifetime_seconds";
+      requested_renewal_window_seconds = int_opt "requested_renewal_window_seconds";
+      callback_url = text "callback_url" inputs;
+      nonce = text "nonce" inputs;
+      requested_at = text "requested_at" inputs;
+      expires_at = text "expires_at" inputs;
+    }
+  in
+  check_hex "request cbor" (text "request_cbor_hex" gr) (Types.Act_as_grant_request.to_cbor request);
+  check_hex "signature input" (text "signature_input_cbor_hex" gr)
+    (Internal.Local_rp.envelope_signature_input Act_as.grant_request_tag (Types.Act_as_grant_request.to_cbor request));
+  let signed = Act_as.sign_grant_request km request in
+  check_hex "signed grant request" (text "signed_cbor_hex" gr) (Types.Signed_act_as_grant_request.to_cbor signed);
+  Alcotest.(check string) "url_param" (text "url_param" gr) (Url_params.signed_act_as_grant_request_to_url_param signed)
+
+let test_act_as_vector_refresh_request () =
+  let km = act_as_vector_key_material () in
+  let rr = field "refresh_request" (act_as_local_rp_case ()) in
+  let inputs = field "inputs" rr in
+  let now = Timeutil.parse_rfc3339 (text "requested_at" inputs) in
+  let request = Act_as.build_refresh_request km ~grant_id:(text "grant_id" inputs) ~now ~nonce:(text "nonce" inputs) in
+  Alcotest.(check string) "expires_at is now + 300 s" (text "expires_at" inputs) request.expires_at;
+  check_hex "refresh request cbor" (text "request_cbor_hex" rr) (Types.Act_as_refresh_request.to_cbor request);
+  check_hex "signed refresh request" (text "signed_cbor_hex" rr)
+    (Types.Signed_act_as_refresh_request.to_cbor (Act_as.sign_refresh_request km request))
+
+let test_act_as_vector_presentation () =
+  let km = act_as_vector_key_material () in
+  let pr = field "presentation" (act_as_local_rp_case ()) in
+  let inputs = field "inputs" pr in
+  let a = field "audience" inputs in
+  let audience : Types.Application_ref.t =
+    { subject_user_id = text "subject_user_id" a; subject_domain = text "subject_domain" a; application_id = text "application_id" a }
+  in
+  let grant_bytes = hex "grant_signed_cbor_hex" inputs in
+  let grant = Types.Signed_act_as_grant.of_cbor grant_bytes in
+  check_hex "grant re-encodes unchanged" (text "grant_signed_cbor_hex" inputs) (Types.Signed_act_as_grant.to_cbor grant);
+  check_hex "grant hash" (text "grant_hash_hex" pr) (Act_as.grant_hash grant.grant);
+  (* A fractional [now] still yields a whole-second presented_at. *)
+  let now = Timeutil.parse_rfc3339 (text "presented_at" inputs) +. 0.75 in
+  let credential, credential_bytes =
+    Act_as.present_bytes ~grant ~audience ~request_digest:(hex "request_digest_hex" inputs) ~now
+      ~nonce:(hex "nonce_hex" inputs) km
+  in
+  check_hex "presentation cbor" (text "presentation_cbor_hex" pr) credential.presentation.presentation;
+  check_hex "credential cbor" (text "credential_cbor_hex" pr) credential_bytes;
+  Alcotest.(check bool) "facade present matches" true
+    (Types.Act_as_credential.to_cbor (present_act_as ~grant ~audience ~request_digest:(hex "request_digest_hex" inputs) ~now
+        ~nonce:(hex "nonce_hex" inputs) km) = credential_bytes)
+
+(* The audience's signed scope set decodes through the typed record with every
+   signature kept, and encodes back to the same bytes. *)
+let test_act_as_scope_set_vector_round_trip () =
+  let bytes = hex "scope_set_signed_cbor_hex" (field "inputs" (field "grant_request" (act_as_local_rp_case ()))) in
+  let decoded = Types.Signed_act_as_scope_set.of_cbor bytes in
+  Alcotest.(check int) "two signatures" 2 (List.length decoded.signatures);
+  Alcotest.(check (list string)) "signer key ids" [ "audience-key-1"; "audience-key-2" ]
+    (List.map (fun (s : Types.Application_key_signature.t) -> s.signed_by_key_id) decoded.signatures);
+  Alcotest.(check string) "signer instance" "audience-instance-1" decoded.signer_instance_id;
+  check_hex "re-encodes byte-identically" (Hex.encode bytes) (Types.Signed_act_as_scope_set.to_cbor decoded)
+
+let test_act_as_scope_set_empty_signatures_refused () =
+  let bytes =
+    Cbor.encode
+      (Map [ (Text "scope_set", Bytes "\xa0"); (Text "signer_instance_id", Text "audience-instance-1"); (Text "signatures", Array []) ])
+  in
+  match Types.Signed_act_as_scope_set.of_cbor bytes with
+  | _ -> Alcotest.fail "an empty signatures array decoded"
+  | exception Cbor.Decode_error _ -> ()
+
+(* A scope set and identity for the begin/refresh tests. Its bytes need not
+   verify: the home domain checks the audience's signature, not the
+   grantee. *)
+let act_as_scope_set_bytes () : string = hex "scope_set_signed_cbor_hex" (field "inputs" (field "grant_request" (act_as_local_rp_case ())))
+
+let act_as_identity () =
+  Identity.generate_local_rp_identity_exn (Identity.make_config ~app_name:"act-as-test" ~now:(Timeutil.parse_rfc3339 "2026-10-01T00:00:00Z") ())
+
+let act_as_begin ?(user_domain = browser_test_domain) ?request_window ?requested_lifetime_seconds km dns =
+  Act_as.begin_act_as
+    (Act_as.make_begin_config ~key_material:km ~user_domain ~scope_set:(act_as_scope_set_bytes ()) ?requested_lifetime_seconds
+       ~callback_url:"http://app.lan:8080/act-as/callback" ~now:(Timeutil.parse_rfc3339 "2026-10-06T11:59:00Z") ~dns
+       ?request_window ())
+
+let signed_request_of_url (url : string) : string =
+  match String.index_opt url '=' with
+  | Some i -> String.sub url (i + 1) (String.length url - i - 1)
+  | None -> Alcotest.fail "redirect URL has no signed_request"
+
+let test_act_as_begin_discovered_host () =
+  let km = act_as_identity () in
+  let redirect, pending =
+    match act_as_begin ~user_domain:("Alice@" ^ browser_test_domain) km (apis_resolver [ "v=lk1 https=login.example.test/lk" ]) with
+    | Ok v -> v
+    | Error e -> Alcotest.fail (Error.to_string e)
+  in
+  check_prefix "discovered host" "https://login.example.test/lk/auth/act-as?signed_request=" redirect.redirect_url;
+  check_bool "no username hint" false (string_contains redirect.redirect_url "username=");
+  Alcotest.(check string) "pending domain is the identity domain" browser_test_domain pending.user_domain;
+  Alcotest.(check string) "pending callback" "http://app.lan:8080/act-as/callback" pending.callback_url;
+  let signed = Url_params.signed_act_as_grant_request_from_url_param (signed_request_of_url redirect.redirect_url) in
+  let request = Types.Act_as_grant_request.of_cbor signed.request in
+  Alcotest.(check string) "nonce matches pending" pending.nonce request.nonce;
+  Alcotest.(check int) "nonce is 32 bytes" 32 (String.length (Url_params.b64url_decode request.nonce));
+  Alcotest.(check (option string)) "grantee fingerprint" (Some km.fingerprint) request.grantee.local_rp_descriptor_fingerprint;
+  check_bool "no application grantee" true (request.grantee.application = None);
+  Alcotest.(check string) "requested_at" "2026-10-06T11:59:00Z" request.requested_at;
+  Alcotest.(check string) "default window 300 s" "2026-10-06T12:04:00Z" request.expires_at;
+  check_hex "scope set embedded unchanged" (Hex.encode (act_as_scope_set_bytes ()))
+    (Types.Signed_act_as_scope_set.to_cbor request.scope_set);
+  check_bool "proof carries descriptor" true (signed.proof.local_rp_descriptor = Some km.descriptor);
+  Alcotest.(check string) "signed_by_key_id" km.fingerprint signed.proof.signature.signed_by_key_id;
+  check_bool "signature verifies with descriptor key" true
+    (Crypto.verify_ed25519 km.signing_public_key
+       (Internal.Local_rp.envelope_signature_input Act_as.grant_request_tag signed.request)
+       signed.proof.signature.signature)
+
+let test_act_as_begin_fallback_and_validation () =
+  let km = act_as_identity () in
+  (match act_as_begin km failing_resolver with
+  | Ok (redirect, _) ->
+    check_prefix "fallback" ("https://" ^ browser_test_domain ^ "/auth/act-as?signed_request=") redirect.redirect_url
+  | Error e -> Alcotest.fail (Error.to_string e));
+  (match act_as_begin ~request_window:900 km failing_resolver with
+  | Ok (redirect, _) ->
+    let signed = Url_params.signed_act_as_grant_request_from_url_param (signed_request_of_url redirect.redirect_url) in
+    Alcotest.(check string) "900 s window" "2026-10-06T12:14:00Z" (Types.Act_as_grant_request.of_cbor signed.request).expires_at
+  | Error e -> Alcotest.fail (Error.to_string e));
+  let rejected msg = function Ok _ -> Alcotest.failf "accepted %s" msg | Error _ -> () in
+  rejected "901 s window" (act_as_begin ~request_window:901 km failing_resolver);
+  rejected "0 s window" (act_as_begin ~request_window:0 km failing_resolver);
+  rejected "zero lifetime" (act_as_begin ~requested_lifetime_seconds:0 km failing_resolver);
+  rejected "bad identity" (act_as_begin ~user_domain:"alice" km failing_resolver);
+  rejected "bad scope set"
+    (Act_as.begin_act_as
+       (Act_as.make_begin_config ~key_material:km ~user_domain:browser_test_domain ~scope_set:"\x01"
+          ~callback_url:"http://app.lan/cb" ~now:0.0 ~dns:failing_resolver ()))
+
+let test_act_as_complete () =
+  let pending : Act_as.pending_act_as =
+    { nonce = "n0nce-AbC_123"; user_domain = "example.test"; callback_url = "http://app.lan/cb" }
+  in
+  (match complete_act_as pending "http://app.lan/cb?x=1&act_as_grant_id=grant%2D1&nonce=n0nce-AbC_123#frag" with
+  | Ok id -> Alcotest.(check string) "grant id" "grant-1" id
+  | Error e -> Alcotest.fail (Error.to_string e));
+  (match complete_act_as pending "act_as_grant_id=g2&nonce=n0nce-AbC_123" with
+  | Ok id -> Alcotest.(check string) "bare query" "g2" id
+  | Error e -> Alcotest.fail (Error.to_string e));
+  (match complete_act_as pending "http://app.lan/cb?act_as_grant_id=g&nonce=n0nce-AbC_124" with
+  | Error Error.Nonce_mismatch -> ()
+  | _ -> Alcotest.fail "expected Nonce_mismatch");
+  List.iter
+    (fun cb -> match complete_act_as pending cb with Ok _ -> Alcotest.failf "accepted %S" cb | Error _ -> ())
+    [
+      "http://app.lan/cb?nonce=n0nce-AbC_123";
+      "http://app.lan/cb?act_as_grant_id=g";
+      "http://app.lan/cb?act_as_grant_id=g&nonce=n0nce-AbC_123&nonce=n0nce-AbC_123";
+      "http://app.lan/cb?act_as_grant_id=g&nonce=%zz";
+    ]
+
+(* A one-shot fake home domain: a real TLS server (Tls.Engine) in a forked
+   child, over a socketpair. No listener and no network. The child sends the
+   raw request frame back to the parent through a pipe. *)
+let act_as_server_cert (now : float) =
+  Crypto.ensure_rng ();
+  let priv = X509.Private_key.generate `ED25519 in
+  let dn = [ X509.Distinguished_name.(Relative_distinguished_name.singleton (CN "act-as.example.test")) ] in
+  let csr = Result.get_ok (X509.Signing_request.create dn priv) in
+  let ptime t = Option.get (Ptime.of_float_s t) in
+  let cert =
+    Result.get_ok (X509.Signing_request.sign csr ~valid_from:(ptime (now -. 86400.)) ~valid_until:(ptime (now +. 86400.)) priv dn)
+  in
+  (cert, priv)
+
+let serve_one_tls (fd : Unix.file_descr) ~cert ~priv (response : string) : string =
+  let state = ref (Tls.Engine.server (Tls.Config.server ~certificates:(`Single ([ cert ], priv)) ())) in
+  let inbuf = ref "" in
+  let rec read_exact n =
+    if String.length !inbuf >= n then begin
+      let r = String.sub !inbuf 0 n in
+      inbuf := String.sub !inbuf n (String.length !inbuf - n);
+      r
+    end
+    else
+      match Tls.Engine.handle_tls !state (Tls_client.raw_read fd) with
+      | Ok (st, _, `Response resp, `Data data) ->
+        state := st;
+        Option.iter (Tls_client.raw_write fd) resp;
+        Option.iter (fun d -> inbuf := !inbuf ^ Cstruct.to_string d) data;
+        read_exact n
+      | Error (_, `Response resp) ->
+        Tls_client.raw_write fd resp;
+        failwith "fake server TLS failure"
+  in
+  let request = Rpc.read_frame read_exact in
+  Rpc.send_frame
+    (fun s ->
+      match Tls.Engine.send_application_data !state [ Cstruct.of_string s ] with
+      | Some (st, out) ->
+        state := st;
+        Tls_client.raw_write fd out
+      | None -> failwith "fake server not ready")
+    response;
+  request
+
+let read_all (fd : Unix.file_descr) : string =
+  let buf = Buffer.create 1024 and chunk = Bytes.create 4096 in
+  let rec go () =
+    let n = Unix.read fd chunk 0 4096 in
+    if n > 0 then begin
+      Buffer.add_subbytes buf chunk 0 n;
+      go ()
+    end
+  in
+  go ();
+  Buffer.contents buf
+
+(* Run one refresh against the fake server. Returns the refresh result and
+   the raw request frame the server received. *)
+let run_act_as_refresh (km : Identity.key_material) ~(now : float) (response : string) =
+  let cert, priv = act_as_server_cert now in
+  let fp = Tls_client.leaf_fingerprint cert in
+  let client_fd, server_fd = Unix.socketpair Unix.PF_UNIX Unix.SOCK_STREAM 0 in
+  let pipe_r, pipe_w = Unix.pipe () in
+  match Unix.fork () with
+  | 0 ->
+    Unix.close client_fd;
+    Unix.close pipe_r;
+    (try
+       let request = serve_one_tls server_fd ~cert ~priv response in
+       ignore (Unix.write_substring pipe_w request 0 (String.length request))
+     with _ -> ());
+    Unix._exit 0
+  | pid ->
+    Unix.close server_fd;
+    Unix.close pipe_w;
+    let dialed = ref "" in
+    let transport : Transport.t = { dial = (fun addr -> dialed := addr; client_fd) } in
+    let dns : Dns.resolver =
+      {
+        Dns.txt_lookup =
+          (fun name ->
+            if name = "_linkkeys.home.example.test" then [ "v=lk1 fp=" ^ fp ]
+            else if name = "_linkkeys_apis.home.example.test" then [ "v=lk1 tcp=act-as.example.test:7443" ]
+            else raise (Dns.Dns_parse_error ("no fake record for " ^ name)));
+      }
+    in
+    let result =
+      refresh_act_as_grant
+        (Act_as.make_refresh_config ~key_material:km ~user_domain:"home.example.test" ~grant_id:"grant-1" ~now ~transport ~dns ())
+    in
+    let received = read_all pipe_r in
+    Unix.close pipe_r;
+    ignore (Unix.waitpid [] pid);
+    Alcotest.(check string) "dialed the discovered tcp= address" "act-as.example.test:7443" !dialed;
+    (result, received)
+
+(* A grant as a home domain stores it. Only the identifying fields matter to
+   the grantee; the audience checks the signature. *)
+let served_act_as_grant ~grant_id ~fingerprint ~subject_domain : Types.Signed_act_as_grant.t =
+  let grant =
+    Cbor.encode
+      (Map
+         [
+           (Text "grant_id", Text grant_id);
+           (Text "user_id", Text "user-1");
+           (Text "subject_domain", Text subject_domain);
+           (Text "grantee", Map [ (Text "local_rp_descriptor_fingerprint", Text fingerprint) ]);
+           ( Text "audience",
+             Map
+               [
+                 (Text "subject_user_id", Text "audience-owner");
+                 (Text "subject_domain", Text "audience.test");
+                 (Text "application_id", Text "audience-app");
+               ] );
+           ( Text "scope_set",
+             Map
+               [
+                 (Text "scope_set", Bytes "\xa0");
+                 (Text "signer_instance_id", Text "audience-inst");
+                 ( Text "signatures",
+                   Array
+                     [
+                       Map
+                         [ (Text "signed_by_key_id", Text "audience-key"); (Text "signature", Bytes (String.make 64 '\000')) ];
+                     ] );
+               ] );
+           (Text "approved_scope", Array [ Text "read" ]);
+           (Text "issued_at", Text "2026-10-06T12:00:00Z");
+           (Text "expires_at", Text "2026-10-06T13:00:00Z");
+           (Text "series_issued_at", Text "2026-10-06T12:00:00Z");
+           (Text "renewable_until", Text "2026-10-06T13:00:00Z");
+         ])
+  in
+  { grant; signatures = [ { domain = subject_domain; signed_by_key_id = "domain-key"; signature = String.make 64 '\009' } ] }
+
+let refresh_ok_response (grant : Types.Signed_act_as_grant.t) ~(signed : bool) : string =
+  Cbor.encode
+    (Map
+       [
+         (Text "v", Int 1);
+         (Text "status", Int 0);
+         (Text "payload", Tag (24, Bytes (Types.Refresh_act_as_grant_response.to_cbor { grant; signed })));
+       ])
+
+let test_act_as_refresh_refuses_another_grant () =
+  let km = act_as_identity () in
+  let now = Float.floor (Unix.gettimeofday ()) in
+  List.iter
+    (fun served ->
+      match run_act_as_refresh km ~now (refresh_ok_response served ~signed:false) with
+      | Error (Error.Identity_mismatch _), _ -> ()
+      | Ok _, _ -> Alcotest.fail "accepted a grant for another grant id, grantee, or domain"
+      | Error e, _ -> Alcotest.fail (Error.to_string e))
+    [
+      served_act_as_grant ~grant_id:"grant-2" ~fingerprint:km.fingerprint ~subject_domain:"home.example.test";
+      served_act_as_grant ~grant_id:"grant-1" ~fingerprint:"another-local-rp" ~subject_domain:"home.example.test";
+      served_act_as_grant ~grant_id:"grant-1" ~fingerprint:km.fingerprint ~subject_domain:"other.test";
+    ]
+
+let test_act_as_refresh_via_fake_server () =
+  let km = act_as_identity () in
+  let now = Float.floor (Unix.gettimeofday ()) in
+  let grant = served_act_as_grant ~grant_id:"grant-1" ~fingerprint:km.fingerprint ~subject_domain:"home.example.test" in
+  let grant_bytes = Types.Signed_act_as_grant.to_cbor grant in
+  let ok_response = refresh_ok_response grant ~signed:true in
+  let result, received = run_act_as_refresh km ~now ok_response in
+  (match result with
+  | Ok (g, signed) ->
+    check_hex "returned grant" (Hex.encode grant_bytes) (Types.Signed_act_as_grant.to_cbor g);
+    check_bool "signed flag" true signed
+  | Error e -> Alcotest.fail (Error.to_string e));
+  let envelope = Cbor.as_map (Cbor.decode received) in
+  Alcotest.(check string) "service" "ActAs" (Cbor.field_text envelope "service");
+  Alcotest.(check string) "op" "refresh-grant" (Cbor.field_text envelope "op");
+  let payload = match Cbor.field envelope "payload" with Some (Tag (24, Bytes b)) -> b | _ -> Alcotest.fail "payload" in
+  let signed = (Types.Refresh_act_as_grant_request.of_cbor payload).request in
+  let request = Types.Act_as_refresh_request.of_cbor signed.request in
+  Alcotest.(check string) "grant id" "grant-1" request.grant_id;
+  Alcotest.(check (option string)) "grantee" (Some km.fingerprint) request.grantee.local_rp_descriptor_fingerprint;
+  Alcotest.(check string) "requested_at" (Timeutil.to_rfc3339 now) request.requested_at;
+  Alcotest.(check string) "expires_at" (Timeutil.to_rfc3339 (now +. 300.)) request.expires_at;
+  check_bool "fresh nonce" true (String.length request.nonce = 43);
+  check_bool "proof descriptor" true (signed.proof.local_rp_descriptor = Some km.descriptor);
+  Alcotest.(check string) "signed_by_key_id" km.fingerprint signed.proof.signature.signed_by_key_id;
+  check_bool "signature verifies with descriptor key" true
+    (Crypto.verify_ed25519 km.signing_public_key
+       (Internal.Local_rp.envelope_signature_input Act_as.refresh_request_tag signed.request)
+       signed.proof.signature.signature);
+  (* A server status error surfaces as Server_error. *)
+  let error_response =
+    Cbor.encode (Map [ (Text "v", Int 1); (Text "status", Int 3); (Text "error", Text "grant not found"); (Text "payload", Tag (24, Bytes "")) ])
+  in
+  match run_act_as_refresh km ~now error_response with
+  | Error (Error.Server_error (3, _)), _ -> ()
+  | _ -> Alcotest.fail "expected Server_error"
+
+let test_act_as_refresh_transport_error () =
+  let km = act_as_identity () in
+  let dns : Dns.resolver =
+    {
+      Dns.txt_lookup =
+        (fun name ->
+          if name = "_linkkeys.home.example.test" then [ "v=lk1 fp=" ^ String.make 64 'a' ]
+          else [ "v=lk1 tcp=act-as.example.test:7443" ]);
+    }
+  in
+  let transport : Transport.t = { dial = (fun _ -> raise (Transport.Connect_failed "refused")) } in
+  match
+    refresh_act_as_grant
+      (Act_as.make_refresh_config ~key_material:km ~user_domain:"home.example.test" ~grant_id:"grant-1" ~now:0.0 ~transport ~dns ())
+  with
+  | Error (Error.Transport_error _) -> ()
+  | _ -> Alcotest.fail "expected Transport_error"
+
 let () =
   Alcotest.run "linkkeys_local_rp"
     [
@@ -1064,6 +1639,19 @@ let () =
       ("tls pin extraction", [ Alcotest.test_case "openssl-minted Ed25519 cert fixture" `Quick test_tls_pin_extraction ]);
       ("rpc framing", [ Alcotest.test_case "length-prefix + envelope round-trip" `Quick test_rpc_framing ]);
       ("begin login", [ Alcotest.test_case "identity input" `Quick test_begin_identity_input ]);
+      ( "browser endpoint discovery",
+        [
+          Alcotest.test_case "discovered https host used; pending domain stays identity" `Quick test_browser_discovered_host;
+          Alcotest.test_case "https= path prefix preserved" `Quick test_browser_path_prefix;
+          Alcotest.test_case "tcp-only record falls back" `Quick test_browser_tcp_only_fallback;
+          Alcotest.test_case "DNS error falls back" `Quick test_browser_dns_error_fallback;
+          Alcotest.test_case "invalid records ignored; first valid https= selected" `Quick test_browser_first_valid_record;
+          Alcotest.test_case "signed_request survives and decodes" `Quick test_browser_signed_request_survives;
+          Alcotest.test_case "username hint appended" `Quick test_browser_username_hint;
+          Alcotest.test_case "config without resolver compiles" `Quick test_browser_config_without_resolver;
+          Alcotest.test_case "resolve_browser_base" `Quick test_resolve_browser_base;
+          Alcotest.test_case "build_browser_endpoint" `Quick test_build_browser_endpoint;
+        ] );
       ( "flow",
         [
           Alcotest.test_case "happy path end-to-end" `Quick test_flow_happy_path;
@@ -1088,5 +1676,19 @@ let () =
           Alcotest.test_case "hostile IDP (5): certificate-revoked signing key is excluded" `Quick
             test_rpc_establish_trusted_keys_cert_revoked_signing_key_excluded;
           Alcotest.test_case "SF-4: spoofed/mismatched DNS response is rejected" `Quick test_dns_spoofed_response_rejected;
+        ] );
+      ( "act-as grantee",
+        [
+          Alcotest.test_case "vector: signed grant request + url_param" `Quick test_act_as_vector_grant_request;
+          Alcotest.test_case "vector: signed refresh request" `Quick test_act_as_vector_refresh_request;
+          Alcotest.test_case "vector: presentation + credential" `Quick test_act_as_vector_presentation;
+          Alcotest.test_case "vector: signed scope set round trip" `Quick test_act_as_scope_set_vector_round_trip;
+          Alcotest.test_case "scope set: empty signatures refused" `Quick test_act_as_scope_set_empty_signatures_refused;
+          Alcotest.test_case "begin: discovered host, signed request" `Quick test_act_as_begin_discovered_host;
+          Alcotest.test_case "begin: fallback + input validation" `Quick test_act_as_begin_fallback_and_validation;
+          Alcotest.test_case "complete: nonce match + mismatch" `Quick test_act_as_complete;
+          Alcotest.test_case "refresh: fake TLS home domain" `Quick test_act_as_refresh_via_fake_server;
+          Alcotest.test_case "refresh: another grant is refused" `Quick test_act_as_refresh_refuses_another_grant;
+          Alcotest.test_case "refresh: transport error surfaces" `Quick test_act_as_refresh_transport_error;
         ] );
     ]

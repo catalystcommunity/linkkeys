@@ -1,6 +1,6 @@
 //! End-to-end tests for `services::rp_cache`: the RP's persistent cache of
 //! remote domain keys and remote application-key attestations
-//! (signing-things-request.md, "RP cache" / "RP-facing operations"). No real
+//! (docs/application-keys.md, "Caches"). No real
 //! sockets — DNS and CSIL-RPC are served by the canned `Net` seam
 //! (`tests/common/net.rs`), each fake remote domain gets its own Ed25519
 //! signing key, and every attestation/revocation is built and signed with

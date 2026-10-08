@@ -53,6 +53,9 @@ test {
     // `openssl` CLI note (test-scope only, never a runtime dependency).
     systemProperty 'linkkeys.conformanceDir',
         layout.projectDirectory.dir('../conformance').asFile.absolutePath
+    // Act-as grantee vectors live with the regular-RP conformance set.
+    systemProperty 'linkkeys.regularRpConformanceDir',
+        layout.projectDirectory.dir('../../regular-rp/conformance').asFile.absolutePath
 }
 
 tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {

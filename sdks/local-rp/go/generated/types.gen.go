@@ -1673,3 +1673,258 @@ type RpResolveApplicationKeysResponse struct {
 	RevocationsCheckedAt      string                            `json:"revocations_checked_at" yaml:"revocations_checked_at"`
 	CacheStatus               string                            `json:"cache_status" yaml:"cache_status"`
 }
+
+// ApplicationRef represents a structured data type
+type ApplicationRef struct {
+	SubjectUserId string `json:"subject_user_id" yaml:"subject_user_id"`
+	SubjectDomain string `json:"subject_domain" yaml:"subject_domain"`
+	ApplicationId string `json:"application_id" yaml:"application_id"`
+}
+
+// GranteeRef represents a structured data type
+type GranteeRef struct {
+	Application                  *ApplicationRef `json:"application,omitempty" yaml:"application,omitempty"`
+	LocalRpDescriptorFingerprint *string         `json:"local_rp_descriptor_fingerprint,omitempty" yaml:"local_rp_descriptor_fingerprint,omitempty"`
+}
+
+// GranteeProof represents a structured data type
+type GranteeProof struct {
+	ApplicationInstanceId *string                  `json:"application_instance_id,omitempty" yaml:"application_instance_id,omitempty"`
+	LocalRpDescriptor     *SignedLocalRpDescriptor `json:"local_rp_descriptor,omitempty" yaml:"local_rp_descriptor,omitempty"`
+	Signature             ApplicationKeySignature  `json:"signature" yaml:"signature"`
+}
+
+// ActAsScopeEntry represents a structured data type
+type ActAsScopeEntry struct {
+	Scope       string  `json:"scope" yaml:"scope"`
+	Description *string `json:"description,omitempty" yaml:"description,omitempty"`
+}
+
+// ActAsScopeSet represents a structured data type
+type ActAsScopeSet struct {
+	Audience            ApplicationRef    `json:"audience" yaml:"audience"`
+	Grantee             GranteeRef        `json:"grantee" yaml:"grantee"`
+	Entries             []ActAsScopeEntry `json:"entries" yaml:"entries"`
+	Language            *string           `json:"language,omitempty" yaml:"language,omitempty"`
+	AudienceHandleClaim *Claim            `json:"audience_handle_claim,omitempty" yaml:"audience_handle_claim,omitempty"`
+	IssuedAt            string            `json:"issued_at" yaml:"issued_at"`
+	ExpiresAt           string            `json:"expires_at" yaml:"expires_at"`
+}
+
+// SignedActAsScopeSet represents a structured data type
+type SignedActAsScopeSet struct {
+	ScopeSet         []byte                    `json:"scope_set" yaml:"scope_set"`
+	SignerInstanceId string                    `json:"signer_instance_id" yaml:"signer_instance_id"`
+	Signatures       []ApplicationKeySignature `json:"signatures" yaml:"signatures"`
+}
+
+// ActAsScopeSetRequest represents a structured data type
+type ActAsScopeSetRequest struct {
+	Grantee           GranteeRef `json:"grantee" yaml:"grantee"`
+	Scope             []string   `json:"scope" yaml:"scope"`
+	LocalePreferences []string   `json:"locale_preferences,omitempty" yaml:"locale_preferences,omitempty"`
+}
+
+// ActAsGrant represents a structured data type
+type ActAsGrant struct {
+	GrantId           string              `json:"grant_id" yaml:"grant_id"`
+	UserId            string              `json:"user_id" yaml:"user_id"`
+	SubjectDomain     string              `json:"subject_domain" yaml:"subject_domain"`
+	Grantee           GranteeRef          `json:"grantee" yaml:"grantee"`
+	Audience          ApplicationRef      `json:"audience" yaml:"audience"`
+	ScopeSet          SignedActAsScopeSet `json:"scope_set" yaml:"scope_set"`
+	ApprovedScope     []string            `json:"approved_scope" yaml:"approved_scope"`
+	IssuedAt          string              `json:"issued_at" yaml:"issued_at"`
+	ExpiresAt         string              `json:"expires_at" yaml:"expires_at"`
+	SeriesIssuedAt    string              `json:"series_issued_at" yaml:"series_issued_at"`
+	RenewableUntil    string              `json:"renewable_until" yaml:"renewable_until"`
+	DeviceFingerprint *string             `json:"device_fingerprint,omitempty" yaml:"device_fingerprint,omitempty"`
+}
+
+// SignedActAsGrant represents a structured data type
+type SignedActAsGrant struct {
+	Grant      []byte           `json:"grant" yaml:"grant"`
+	Signatures []ClaimSignature `json:"signatures" yaml:"signatures"`
+}
+
+// ActAsGrantRequest represents a structured data type
+type ActAsGrantRequest struct {
+	Grantee                       GranteeRef          `json:"grantee" yaml:"grantee"`
+	ScopeSet                      SignedActAsScopeSet `json:"scope_set" yaml:"scope_set"`
+	RequestedLifetimeSeconds      *int64              `json:"requested_lifetime_seconds,omitempty" yaml:"requested_lifetime_seconds,omitempty"`
+	RequestedRenewalWindowSeconds *int64              `json:"requested_renewal_window_seconds,omitempty" yaml:"requested_renewal_window_seconds,omitempty"`
+	GranteeHandleClaim            *Claim              `json:"grantee_handle_claim,omitempty" yaml:"grantee_handle_claim,omitempty"`
+	CallbackUrl                   string              `json:"callback_url" yaml:"callback_url"`
+	Nonce                         string              `json:"nonce" yaml:"nonce"`
+	RequestedAt                   string              `json:"requested_at" yaml:"requested_at"`
+	ExpiresAt                     string              `json:"expires_at" yaml:"expires_at"`
+}
+
+// SignedActAsGrantRequest represents a structured data type
+type SignedActAsGrantRequest struct {
+	Request []byte       `json:"request" yaml:"request"`
+	Proof   GranteeProof `json:"proof" yaml:"proof"`
+}
+
+// ActAsRefreshRequest represents a structured data type
+type ActAsRefreshRequest struct {
+	GrantId     string     `json:"grant_id" yaml:"grant_id"`
+	Grantee     GranteeRef `json:"grantee" yaml:"grantee"`
+	RequestedAt string     `json:"requested_at" yaml:"requested_at"`
+	ExpiresAt   string     `json:"expires_at" yaml:"expires_at"`
+	Nonce       string     `json:"nonce" yaml:"nonce"`
+}
+
+// SignedActAsRefreshRequest represents a structured data type
+type SignedActAsRefreshRequest struct {
+	Request []byte       `json:"request" yaml:"request"`
+	Proof   GranteeProof `json:"proof" yaml:"proof"`
+}
+
+// RefreshActAsGrantRequest represents a structured data type
+type RefreshActAsGrantRequest struct {
+	Request SignedActAsRefreshRequest `json:"request" yaml:"request"`
+}
+
+// RefreshActAsGrantResponse represents a structured data type
+type RefreshActAsGrantResponse struct {
+	Grant  SignedActAsGrant `json:"grant" yaml:"grant"`
+	Signed bool             `json:"signed" yaml:"signed"`
+}
+
+// ActAsPresentation represents a structured data type
+type ActAsPresentation struct {
+	GrantHash     []byte         `json:"grant_hash" yaml:"grant_hash"`
+	Audience      ApplicationRef `json:"audience" yaml:"audience"`
+	RequestDigest []byte         `json:"request_digest" yaml:"request_digest"`
+	PresentedAt   string         `json:"presented_at" yaml:"presented_at"`
+	Nonce         []byte         `json:"nonce" yaml:"nonce"`
+}
+
+// SignedActAsPresentation represents a structured data type
+type SignedActAsPresentation struct {
+	Presentation []byte       `json:"presentation" yaml:"presentation"`
+	Proof        GranteeProof `json:"proof" yaml:"proof"`
+}
+
+// ActAsCredential represents a structured data type
+type ActAsCredential struct {
+	Grant        SignedActAsGrant        `json:"grant" yaml:"grant"`
+	Presentation SignedActAsPresentation `json:"presentation" yaml:"presentation"`
+}
+
+// ActAsGrantRevocation represents a structured data type
+type ActAsGrantRevocation struct {
+	GrantId       string `json:"grant_id" yaml:"grant_id"`
+	UserId        string `json:"user_id" yaml:"user_id"`
+	SubjectDomain string `json:"subject_domain" yaml:"subject_domain"`
+	RevokedAt     string `json:"revoked_at" yaml:"revoked_at"`
+}
+
+// SignedActAsGrantRevocation represents a structured data type
+type SignedActAsGrantRevocation struct {
+	Revocation []byte           `json:"revocation" yaml:"revocation"`
+	Signatures []ClaimSignature `json:"signatures" yaml:"signatures"`
+}
+
+// GetActAsGrantRevocationsRequest represents a structured data type
+type GetActAsGrantRevocationsRequest struct {
+	GrantIds []string `json:"grant_ids" yaml:"grant_ids"`
+}
+
+// GetActAsGrantRevocationsResponse represents a structured data type
+type GetActAsGrantRevocationsResponse struct {
+	Revocations []SignedActAsGrantRevocation `json:"revocations" yaml:"revocations"`
+}
+
+// RpActAsRefreshRequest represents a structured data type
+type RpActAsRefreshRequest struct {
+	SubjectDomain string                    `json:"subject_domain" yaml:"subject_domain"`
+	Request       SignedActAsRefreshRequest `json:"request" yaml:"request"`
+}
+
+// RpResolveActAsRevocationsRequest represents a structured data type
+type RpResolveActAsRevocationsRequest struct {
+	SubjectDomain string   `json:"subject_domain" yaml:"subject_domain"`
+	GrantIds      []string `json:"grant_ids" yaml:"grant_ids"`
+}
+
+// BrowserActAsInspectRequest represents a structured data type
+type BrowserActAsInspectRequest struct {
+	SignedRequest string `json:"signed_request" yaml:"signed_request"`
+}
+
+// BrowserActAsScopeEntry represents a structured data type
+type BrowserActAsScopeEntry struct {
+	Scope           string  `json:"scope" yaml:"scope"`
+	Description     *string `json:"description,omitempty" yaml:"description,omitempty"`
+	RemovedByPolicy bool    `json:"removed_by_policy" yaml:"removed_by_policy"`
+}
+
+// BrowserActAsParty represents a structured data type
+type BrowserActAsParty struct {
+	Domain             *string `json:"domain,omitempty" yaml:"domain,omitempty"`
+	ApplicationId      *string `json:"application_id,omitempty" yaml:"application_id,omitempty"`
+	SubjectUserId      *string `json:"subject_user_id,omitempty" yaml:"subject_user_id,omitempty"`
+	Handle             *string `json:"handle,omitempty" yaml:"handle,omitempty"`
+	LocalRpName        *string `json:"local_rp_name,omitempty" yaml:"local_rp_name,omitempty"`
+	LocalRpFingerprint *string `json:"local_rp_fingerprint,omitempty" yaml:"local_rp_fingerprint,omitempty"`
+	OwnDomain          bool    `json:"own_domain" yaml:"own_domain"`
+	UserHasHistory     bool    `json:"user_has_history" yaml:"user_has_history"`
+	DomainKeyPinned    bool    `json:"domain_key_pinned" yaml:"domain_key_pinned"`
+	OperatorTrusted    bool    `json:"operator_trusted" yaml:"operator_trusted"`
+}
+
+// BrowserActAsInspectResponse represents a structured data type
+type BrowserActAsInspectResponse struct {
+	Grantee                     GranteeRef               `json:"grantee" yaml:"grantee"`
+	GranteeParty                BrowserActAsParty        `json:"grantee_party" yaml:"grantee_party"`
+	Audience                    ApplicationRef           `json:"audience" yaml:"audience"`
+	AudienceParty               BrowserActAsParty        `json:"audience_party" yaml:"audience_party"`
+	Entries                     []BrowserActAsScopeEntry `json:"entries" yaml:"entries"`
+	Language                    *string                  `json:"language,omitempty" yaml:"language,omitempty"`
+	DefaultLifetimeSeconds      int64                    `json:"default_lifetime_seconds" yaml:"default_lifetime_seconds"`
+	MaxLifetimeSeconds          int64                    `json:"max_lifetime_seconds" yaml:"max_lifetime_seconds"`
+	DefaultRenewalWindowSeconds int64                    `json:"default_renewal_window_seconds" yaml:"default_renewal_window_seconds"`
+	MaxRenewalWindowSeconds     int64                    `json:"max_renewal_window_seconds" yaml:"max_renewal_window_seconds"`
+}
+
+// BrowserActAsCompleteRequest represents a structured data type
+type BrowserActAsCompleteRequest struct {
+	SignedRequest        string   `json:"signed_request" yaml:"signed_request"`
+	ApprovedScope        []string `json:"approved_scope" yaml:"approved_scope"`
+	LifetimeSeconds      int64    `json:"lifetime_seconds" yaml:"lifetime_seconds"`
+	RenewalWindowSeconds int64    `json:"renewal_window_seconds" yaml:"renewal_window_seconds"`
+}
+
+// BrowserActAsCompleteResponse represents a structured data type
+type BrowserActAsCompleteResponse struct {
+	RedirectUrl string `json:"redirect_url" yaml:"redirect_url"`
+}
+
+// ActAsGrantSummary represents a structured data type
+type ActAsGrantSummary struct {
+	GrantId        string         `json:"grant_id" yaml:"grant_id"`
+	Grantee        GranteeRef     `json:"grantee" yaml:"grantee"`
+	Audience       ApplicationRef `json:"audience" yaml:"audience"`
+	ApprovedScope  []string       `json:"approved_scope" yaml:"approved_scope"`
+	IssuedAt       string         `json:"issued_at" yaml:"issued_at"`
+	ExpiresAt      string         `json:"expires_at" yaml:"expires_at"`
+	RenewableUntil string         `json:"renewable_until" yaml:"renewable_until"`
+	RevokedAt      *string        `json:"revoked_at,omitempty" yaml:"revoked_at,omitempty"`
+}
+
+// ListActAsGrantsResponse represents a structured data type
+type ListActAsGrantsResponse struct {
+	Grants []ActAsGrantSummary `json:"grants" yaml:"grants"`
+}
+
+// RevokeActAsGrantRequest represents a structured data type
+type RevokeActAsGrantRequest struct {
+	GrantId string `json:"grant_id" yaml:"grant_id"`
+}
+
+// RevokeActAsGrantResponse represents a structured data type
+type RevokeActAsGrantResponse struct {
+	RevokedAt string `json:"revoked_at" yaml:"revoked_at"`
+}

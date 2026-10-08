@@ -34,6 +34,9 @@
 //! });
 //! // App: persist `result.pending` (e.g. in a server-side session), then
 //! // redirect the browser to `result.redirect.redirect_url`.
+//! // `beginLocalLogin` discovers the browser host from
+//! // `_linkkeys_apis.<domain>` (its `https=` endpoint) and falls back to
+//! // `https://<domain>`; set `.dns` to inject a resolver (see browser.zig).
 //!
 //! // On callback (app's HTTP handler received `arrived_url` with an
 //! // `encrypted_token=` query parameter whose value is `encrypted_token`):
@@ -94,6 +97,11 @@
 //!   resolver spoofing is an accepted, documented tradeoff for this mode
 //!   (matching the design doc's "Decided" section). Inject a hardened
 //!   `DnsResolver` if your deployment needs more.
+//! - The browser host that `beginLocalLogin` discovers from
+//!   `_linkkeys_apis` (`browser.zig`) is a service location only.
+//!   `PendingLogin.user_domain` stays the identity domain, and
+//!   `completeLocalLogin` binds verification to that domain — never to the
+//!   discovered host.
 
 const std = @import("std");
 
@@ -107,10 +115,12 @@ pub const dns = @import("dns.zig");
 pub const encoding = @import("encoding.zig");
 pub const identity = @import("identity.zig");
 pub const begin = @import("begin.zig");
+pub const browser = @import("browser.zig");
 pub const complete = @import("complete.zig");
 pub const rpc = @import("rpc.zig");
 pub const transport = @import("transport.zig");
 pub const tls_pin = @import("tls_pin.zig");
+pub const act_as = @import("act_as.zig");
 
 // ---------------------------------------------------------------------
 // Flat re-exports of the "SDK API Shape" surface.
@@ -134,9 +144,32 @@ pub const BeginLocalLoginConfig = begin.BeginLocalLoginConfig;
 pub const LocalLoginRedirect = begin.LocalLoginRedirect;
 pub const PendingLogin = begin.PendingLogin;
 
+pub const resolveBrowserBase = browser.resolveBrowserBase;
+pub const buildBrowserEndpoint = browser.buildBrowserEndpoint;
+pub const browser_route_local_rp = browser.browser_route_local_rp;
+pub const browser_route_authorize = browser.browser_route_authorize;
+pub const browser_route_act_as = browser.browser_route_act_as;
+
 pub const completeLocalLogin = complete.completeLocalLogin;
 pub const CompleteLocalLoginConfig = complete.CompleteLocalLoginConfig;
 pub const VerifiedLocalLogin = complete.VerifiedLocalLogin;
+
+// Act-as grants, grantee side (act_as.zig).
+pub const beginActAs = act_as.beginActAs;
+pub const BeginActAsConfig = act_as.BeginActAsConfig;
+pub const BeginActAsResult = act_as.BeginActAsResult;
+pub const ActAsRedirect = act_as.ActAsRedirect;
+pub const PendingActAs = act_as.PendingActAs;
+pub const completeActAsCallback = act_as.completeActAsCallback;
+pub const refreshActAsGrant = act_as.refreshActAsGrant;
+pub const RefreshActAsGrantConfig = act_as.RefreshActAsGrantConfig;
+pub const RefreshActAsGrantResponse = act_as.RefreshActAsGrantResponse;
+pub const presentActAs = act_as.presentActAs;
+pub const PresentActAsConfig = act_as.PresentActAsConfig;
+pub const PresentedActAs = act_as.PresentedActAs;
+pub const ApplicationRef = act_as.ApplicationRef;
+pub const SignedActAsGrant = act_as.SignedActAsGrant;
+pub const ActAsCredential = act_as.ActAsCredential;
 
 pub const checkExpirations = identity.checkExpirations;
 pub const ExpirationStatus = local_rp.ExpirationStatus;

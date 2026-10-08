@@ -236,7 +236,7 @@ const SNAPSHOT_TABLES: &[&str] = &[
     "application_key_attestations",
     "application_key_revocations",
     "application_key_challenges",
-    // RP cache (signing-things-request.md, step 6): the RP's own cache of
+    // RP cache (docs/application-keys.md): the RP's own cache of
     // OTHER domains' public material. Included deliberately, not by default
     // — see the module doc on `services::rp_cache` for the reasoning, and
     // the precedent already set by `peer_keys` / `domain_key_pins` /
@@ -255,6 +255,9 @@ const SNAPSHOT_TABLES: &[&str] = &[
     "local_rp_domain_policy",
     "local_rps",
     "local_rp_claim_tickets",
+    // Act-as grants: the user's signed decisions and revocations. A restore
+    // without them would silently cancel every grant.
+    "act_as_grants",
 ];
 
 #[cfg(feature = "sqlite")]
@@ -434,6 +437,16 @@ mod sqlite_backend {
         updated_at: String, expires_at: Option<String>, last_seen_at: Option<String>,
         admin_notes: Option<String>, first_seen_by_user_id: Option<String>,
     });
+    backup_row!(ActAsGrantBackupRow => act_as_grants {
+        id: String, user_id: String, grantee_kind: String,
+        grantee_subject_user_id: Option<String>, grantee_subject_domain: Option<String>,
+        grantee_application_id: Option<String>, grantee_local_rp_fingerprint: Option<String>,
+        audience_subject_user_id: String, audience_subject_domain: String,
+        audience_application_id: String, approved_scope: String, lifetime_seconds: i64,
+        series_issued_at: String, renewable_until: String, signed_grant: Vec<u8>,
+        issued_at: String, expires_at: String, revoked_at: Option<String>,
+        signed_revocation: Option<Vec<u8>>, created_at: String, updated_at: String,
+    });
     backup_row!(LocalRpClaimTicketBackupRow => local_rp_claim_tickets {
         ticket_hash: String, fingerprint: String, user_id: String, user_domain: String,
         granted_claims: String, issued_at: String, expires_at: String,
@@ -480,6 +493,7 @@ mod sqlite_backend {
             $op!("local_rp_domain_policy", local_rp_domain_policy, LocalRpDomainPolicyBackupRow, $($arg)*);
             $op!("local_rps", local_rps, LocalRpBackupRow, $($arg)*);
             $op!("local_rp_claim_tickets", local_rp_claim_tickets, LocalRpClaimTicketBackupRow, $($arg)*);
+            $op!("act_as_grants", act_as_grants, ActAsGrantBackupRow, $($arg)*);
         };
     }
 

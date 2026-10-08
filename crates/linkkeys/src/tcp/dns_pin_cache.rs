@@ -1,7 +1,7 @@
 //! Bounded, TTL'd cache of DNS-published `_linkkeys` fingerprint sets,
 //! fronting the mTLS client-certificate verifier so a per-handshake lookup is
 //! a plain in-memory read rather than network I/O on the async connection
-//! task's own thread (signing-things-request.md, "Connection scalability":
+//! task's own thread (design requirement:
 //! "identified server-to-server operations need bounded and CACHED DNS pin
 //! resolution").
 //!

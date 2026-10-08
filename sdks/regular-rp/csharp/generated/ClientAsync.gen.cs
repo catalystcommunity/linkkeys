@@ -156,6 +156,10 @@ public sealed class BrowserAuthorizationAsyncClient(ICsilAsyncTransport transpor
         Codec.Decode<BrowserAuthorizationInspectResponse>(await transport.Call("BrowserAuthorization", "inspect", Codec.Encode(browserAuthorizationInspectRequest)));
     public async System.Threading.Tasks.Task<BrowserAuthorizationCompleteResponse> CompleteAsync(BrowserAuthorizationCompleteRequest browserAuthorizationCompleteRequest) =>
         Codec.Decode<BrowserAuthorizationCompleteResponse>(await transport.Call("BrowserAuthorization", "complete", Codec.Encode(browserAuthorizationCompleteRequest)));
+    public async System.Threading.Tasks.Task<BrowserActAsInspectResponse> InspectActAsAsync(BrowserActAsInspectRequest browserActAsInspectRequest) =>
+        Codec.Decode<BrowserActAsInspectResponse>(await transport.Call("BrowserAuthorization", "inspect-act-as", Codec.Encode(browserActAsInspectRequest)));
+    public async System.Threading.Tasks.Task<BrowserActAsCompleteResponse> CompleteActAsAsync(BrowserActAsCompleteRequest browserActAsCompleteRequest) =>
+        Codec.Decode<BrowserActAsCompleteResponse>(await transport.Call("BrowserAuthorization", "complete-act-as", Codec.Encode(browserActAsCompleteRequest)));
 }
 
 /// <summary>Typed RPC client for the Admin service. The client owns
@@ -286,6 +290,10 @@ public sealed class AccountAsyncClient(ICsilAsyncTransport transport)
         Codec.Decode<ConfirmContactVerificationResponse>(await transport.Call("Account", "confirm-contact-verification", Codec.Encode(confirmContactVerificationRequest)));
     public async System.Threading.Tasks.Task<EnrollApplicationInstanceResponse> EnrollApplicationInstanceAsync(EnrollApplicationInstanceRequest enrollApplicationInstanceRequest) =>
         Codec.Decode<EnrollApplicationInstanceResponse>(await transport.Call("Account", "enroll-application-instance", Codec.Encode(enrollApplicationInstanceRequest)));
+    public async System.Threading.Tasks.Task<ListActAsGrantsResponse> ListActAsGrantsAsync(EmptyRequest emptyRequest) =>
+        Codec.Decode<ListActAsGrantsResponse>(await transport.Call("Account", "list-act-as-grants", Codec.Encode(emptyRequest)));
+    public async System.Threading.Tasks.Task<RevokeActAsGrantResponse> RevokeActAsGrantAsync(RevokeActAsGrantRequest revokeActAsGrantRequest) =>
+        Codec.Decode<RevokeActAsGrantResponse>(await transport.Call("Account", "revoke-act-as-grant", Codec.Encode(revokeActAsGrantRequest)));
 }
 
 /// <summary>Typed RPC client for the Attestation service. The client owns
@@ -314,6 +322,20 @@ public sealed class RpAsyncClient(ICsilAsyncTransport transport)
         Codec.Decode<RpResolveDomainKeysResponse>(await transport.Call("Rp", "resolve-domain-keys", Codec.Encode(rpResolveDomainKeysRequest)));
     public async System.Threading.Tasks.Task<RpResolveApplicationKeysResponse> ResolveApplicationKeysAsync(RpResolveApplicationKeysRequest rpResolveApplicationKeysRequest) =>
         Codec.Decode<RpResolveApplicationKeysResponse>(await transport.Call("Rp", "resolve-application-keys", Codec.Encode(rpResolveApplicationKeysRequest)));
+    public async System.Threading.Tasks.Task<RefreshActAsGrantResponse> ActAsRefreshGrantAsync(RpActAsRefreshRequest rpActAsRefreshRequest) =>
+        Codec.Decode<RefreshActAsGrantResponse>(await transport.Call("Rp", "act-as-refresh-grant", Codec.Encode(rpActAsRefreshRequest)));
+    public async System.Threading.Tasks.Task<GetActAsGrantRevocationsResponse> ResolveActAsRevocationsAsync(RpResolveActAsRevocationsRequest rpResolveActAsRevocationsRequest) =>
+        Codec.Decode<GetActAsGrantRevocationsResponse>(await transport.Call("Rp", "resolve-act-as-revocations", Codec.Encode(rpResolveActAsRevocationsRequest)));
+}
+
+/// <summary>Typed RPC client for the ActAs service. The client owns
+/// (de)serialization via the generated codec; the transport only moves bytes.</summary>
+public sealed class ActAsAsyncClient(ICsilAsyncTransport transport)
+{
+    public async System.Threading.Tasks.Task<RefreshActAsGrantResponse> RefreshGrantAsync(RefreshActAsGrantRequest refreshActAsGrantRequest) =>
+        Codec.Decode<RefreshActAsGrantResponse>(await transport.Call("ActAs", "refresh-grant", Codec.Encode(refreshActAsGrantRequest)));
+    public async System.Threading.Tasks.Task<GetActAsGrantRevocationsResponse> GetGrantRevocationsAsync(GetActAsGrantRevocationsRequest getActAsGrantRevocationsRequest) =>
+        Codec.Decode<GetActAsGrantRevocationsResponse>(await transport.Call("ActAs", "get-grant-revocations", Codec.Encode(getActAsGrantRevocationsRequest)));
 }
 
 /// <summary>Typed RPC client for the LocalRp service. The client owns

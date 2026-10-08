@@ -66,7 +66,9 @@ export type LocalRpErrorCode =
   | "key-expired"
   | "redemption-identity-mismatch"
   | "claim-identity-mismatch"
-  | "required-claim-missing";
+  | "required-claim-missing"
+  | "missing-parameter"
+  | "grant-mismatch";
 
 export class LocalRpError extends Error {
   readonly code: LocalRpErrorCode;

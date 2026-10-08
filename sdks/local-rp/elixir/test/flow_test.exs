@@ -31,6 +31,7 @@ defmodule LinkkeysLocalRp.FlowTest do
 
   use ExUnit.Case, async: false
 
+  alias LinkkeysLocalRp.ActAs
   alias LinkkeysLocalRp.Begin
   alias LinkkeysLocalRp.Cbor
   alias LinkkeysLocalRp.Cbor.Tag
@@ -309,12 +310,15 @@ defmodule LinkkeysLocalRp.FlowTest do
     now = DateTime.utc_now()
     key_material = fixed_key_material(now)
 
+    # Browser endpoint discovery is not under test here; a failing resolver
+    # keeps begin hermetic (fallback to https://<user_domain>).
     {_redirect, pending} =
       Begin.begin_local_login(
         key_material: key_material,
         callback_url: @callback_url,
         user_domain: @user_domain,
-        now: now
+        now: now,
+        dns: fn _name -> {:error, :no_fake_record} end
       )
 
     domain_key = scenario.mutate_domain_key.(domain_public_key(now))
@@ -671,5 +675,140 @@ defmodule LinkkeysLocalRp.FlowTest do
     # fails to find it -- proof the certificate was actually fetched,
     # quorum-verified, AND applied before the key was ever consulted.
     assert {:error, {:key_not_found, @domain_key_id}} = result
+  end
+
+  # ---------------------------------------------------------------------
+  # Act-as refresh (ActAs/refresh-grant over the same pinned path)
+  # ---------------------------------------------------------------------
+
+  defp run_act_as_refresh(dispatch_reply) do
+    test_pid = self()
+    now = DateTime.utc_now()
+    key_material = fixed_key_material(now)
+    domain_key = domain_public_key(now)
+
+    dispatch = fn service, op, payload ->
+      send(test_pid, {:rpc, service, op, payload})
+      dispatch_reply.(service, op)
+    end
+
+    tcp_addr = spawn_fake_idp(@domain_signing_seed, 1, dispatch)
+
+    dns = fn
+      "_linkkeys." <> @user_domain -> {:ok, ["v=lk1 fp=#{Crypto.fingerprint(domain_key.public_key)}"]}
+      "_linkkeys_apis." <> @user_domain -> {:ok, ["v=lk1 tcp=#{tcp_addr}"]}
+      name -> {:error, {:no_fake_record, name}}
+    end
+
+    result =
+      ActAs.refresh_act_as_grant(
+        key_material: key_material,
+        user_domain: @user_domain,
+        grant_id: "grant-1",
+        now: now,
+        transport: &Transport.dial/1,
+        dns: dns
+      )
+
+    {result, key_material, now}
+  end
+
+  # A grant as a home domain stores it. Only the identifying fields matter to
+  # the grantee; the audience checks the signature.
+  defp served_grant(grant_id, fingerprint, subject_domain) do
+    grant =
+      Cbor.encode(%{
+        "grant_id" => grant_id,
+        "user_id" => "user-1",
+        "subject_domain" => subject_domain,
+        "grantee" => %{"local_rp_descriptor_fingerprint" => fingerprint},
+        "audience" => %{
+          "subject_user_id" => "audience-owner",
+          "subject_domain" => "audience.test",
+          "application_id" => "audience-app"
+        },
+        "scope_set" => %{
+          "scope_set" => Cbor.bytes(<<0xA0>>),
+          "signer_instance_id" => "audience-inst",
+          "signatures" => [
+            %{"signed_by_key_id" => "audience-key", "signature" => Cbor.bytes(:binary.copy(<<0>>, 64))}
+          ]
+        },
+        "approved_scope" => ["read"],
+        "issued_at" => "2026-10-06T12:00:00Z",
+        "expires_at" => "2026-10-06T13:00:00Z",
+        "series_issued_at" => "2026-10-06T12:00:00Z",
+        "renewable_until" => "2026-10-06T13:00:00Z"
+      })
+
+    %Types.SignedActAsGrant{
+      grant: grant,
+      signatures: [
+        %Types.ClaimSignature{
+          domain: subject_domain,
+          signed_by_key_id: @domain_key_id,
+          signature: :binary.copy(<<9>>, 64)
+        }
+      ]
+    }
+  end
+
+  defp own_fingerprint, do: fixed_key_material(DateTime.utc_now()).fingerprint
+
+  test "act-as refresh refuses a grant for another grant id, grantee, or domain" do
+    for {served, field} <- [
+          {served_grant("grant-2", own_fingerprint(), @user_domain), :grant_id},
+          {served_grant("grant-1", "another-local-rp", @user_domain), :grantee},
+          {served_grant("grant-1", own_fingerprint(), "other.test"), :subject_domain}
+        ] do
+      {result, _, _} =
+        run_act_as_refresh(fn _service, _op ->
+          encode_ok_response(
+            Types.refresh_act_as_grant_response_to_cbor(%Types.RefreshActAsGrantResponse{grant: served, signed: false})
+          )
+        end)
+
+      assert {:error, {:grant_mismatch, ^field}} = result
+    end
+  end
+
+  test "act-as refresh sends a verifiable signed request and decodes the grant" do
+    grant = served_grant("grant-1", own_fingerprint(), @user_domain)
+
+    {result, key_material, now} =
+      run_act_as_refresh(fn _service, _op ->
+        encode_ok_response(
+          Types.refresh_act_as_grant_response_to_cbor(%Types.RefreshActAsGrantResponse{grant: grant, signed: true})
+        )
+      end)
+
+    assert {:ok, {^grant, true}} = result
+    assert_received {:rpc, "ActAs", "refresh-grant", payload}
+
+    signed = Types.refresh_act_as_grant_request_from_cbor(payload)
+    request = Types.act_as_refresh_request_from_cbor(signed.request)
+    assert request.grant_id == "grant-1"
+    assert request.grantee.local_rp_descriptor_fingerprint == key_material.fingerprint
+    assert request.requested_at == Timeutil.to_rfc3339(now)
+    assert request.expires_at == Timeutil.to_rfc3339(DateTime.add(now, 300, :second))
+    assert byte_size(Encoding.b64url_decode(request.nonce)) == 32
+    assert signed.proof.local_rp_descriptor == key_material.descriptor
+    assert signed.proof.signature.signed_by_key_id == key_material.fingerprint
+
+    assert Crypto.ed25519_verify(
+             LocalRp.envelope_signature_input(ActAs.refresh_request_tag(), signed.request),
+             signed.proof.signature.signature,
+             key_material.signing_public_key
+           )
+  end
+
+  test "act-as refresh surfaces a transport error" do
+    {result, _, _} = run_act_as_refresh(fn _service, _op -> encode_error_response(5, "grant not found") end)
+    assert {:error, %LinkkeysLocalRp.Rpc.ServerError{status: 5}} = result
+  end
+
+  test "act-as refresh fails closed on an undecodable response" do
+    {result, _, _} = run_act_as_refresh(fn _service, _op -> encode_ok_response(Cbor.encode(%{"signed" => true})) end)
+    assert {:error, %LinkkeysLocalRp.Rpc.ProtocolError{}} = result
   end
 end

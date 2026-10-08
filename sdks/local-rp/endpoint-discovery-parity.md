@@ -1,7 +1,7 @@
-# Follow-up: browser endpoint discovery parity across local-RP SDKs
+# Browser endpoint discovery parity across local-RP SDKs
 
-Status: Open
-Date: 2026-08-17
+Status: Done
+Date: 2026-08-17 (opened), 2026-09-16 (all SDKs complete)
 
 ## Background
 
@@ -14,73 +14,64 @@ record's `https=` value names the browser-facing host (see
 whenever the two differ, and forces each consumer to rediscover and rewrite
 the URL (Reactorcide did exactly that).
 
-The Go SDK now performs this discovery itself (`sdks/local-rp/go/browser.go`):
+## The contract every SDK now implements
 
-- `ResolveBrowserBase(dns, identityDomain)` reads
-  `_linkkeys_apis.<identityDomain>` and selects the first valid LinkKeys v1
-  record with an `https=` endpoint. It validates the base (https only, host
-  present, optional path prefix, no userinfo/query/fragment).
-- `BuildBrowserEndpoint(base, route, signedRequest)` joins the base, the
-  route (`/auth/local-rp` or `/auth/authorize`), and the `signed_request`
-  query parameter with real URL handling — a path prefix in `https=` is
-  preserved.
-- `BeginLocalLogin` composes the two, takes an injectable resolver
-  (`BeginLocalLoginConfig.DNS`, default system resolver), and falls back to
-  `https://<identityDomain>` when DNS lookup fails, no valid record carries
-  `https=`, or the discovered base is invalid.
-- `PendingLogin.UserDomain` stays the identity domain. Verification stays
+The Go SDK (`sdks/local-rp/go/browser.go`) is the reference. Every SDK
+below implements the same behavior:
+
+- An exported browser-base resolver reads `_linkkeys_apis.<identityDomain>`
+  through the SDK's existing DNS seam and existing `_linkkeys_apis` parser.
+  It selects the first valid LinkKeys v1 record with an `https=` endpoint.
+  It validates the base: https only, host present, optional path prefix,
+  no userinfo, query, or fragment. It returns an error when the lookup
+  fails or no record yields a valid base.
+- An exported browser-endpoint builder joins the base, a route
+  (`/auth/local-rp` or `/auth/authorize`, exported constants), and the
+  `signed_request` query parameter with the language's URL facilities. A
+  path prefix in `https=` is preserved. The `signed_request` value passes
+  through byte-identically.
+- The begin step calls both with an injectable resolver. An omitted
+  resolver selects the SDK's default system resolver. The begin step falls
+  back to `https://<identityDomain>` when the DNS lookup fails, no valid
+  record carries `https=`, or the discovered base is invalid.
+- The pending-login user domain stays the identity domain. Verification is
   bound to the identity domain, never to the discovered service host.
+- Nine test cases with a fake resolver (no live DNS): discovered host used,
+  path prefix preserved, tcp-only fallback, DNS-error fallback, invalid
+  record ignored, first valid record selected, `signed_request` round-trip,
+  identity domain retained, resolver-omitted caller still works. Plus
+  direct tests of the exported helpers.
+- README and package docs describe discovery, resolver injection, and the
+  fallback rule.
 
-Go tests cover: discovered host used, path prefix preserved, tcp-only
-fallback, DNS-error fallback, invalid records ignored, first-valid-record
-selection, `signed_request` round-trip, identity-domain retention, and
-resolver-omitted compatibility (`sdks/local-rp/go/browser_test.go`).
+The begin step is no longer fully offline in any SDK. It performs one DNS
+TXT lookup with a defined fallback.
 
-## Affected SDKs
+## Per-SDK status
 
-Every other maintained SDK still hard-codes
-`https://<user-domain>/auth/local-rp?signed_request=...` in its begin step.
-Each already has a DNS TXT resolver seam and the `_linkkeys_apis` parser
-(used by its complete step), so the parity work reuses existing pieces —
-do not add a second TXT parser.
-
-| SDK | Begin construction to replace |
-| --- | --- |
-| rust | `sdks/local-rp/rust/src/begin.rs` (`format!("https://{}/auth/local-rp...")`) |
-| typescript | `sdks/local-rp/typescript/src/begin.ts` (template literal) |
-| python | `sdks/local-rp/python/linkkeys_local_rp/begin.py` (f-string) |
-| ruby | `sdks/local-rp/ruby/lib/linkkeys_local_rp/begin.rb` |
-| elixir | `sdks/local-rp/elixir/lib/linkkeys_local_rp/begin.ex` |
-| java | `sdks/local-rp/java/src/main/java/community/catalyst/linkkeys/localrp/Begin.java` |
-| kotlin | wraps the Java SDK (`Login.kt`); fixed transitively by the Java change |
-| csharp | `sdks/local-rp/csharp/src/LinkKeys.LocalRp/Begin.cs` |
-| dart | `sdks/local-rp/dart/lib/src/begin.dart` |
-| zig | `sdks/local-rp/zig/src/begin.zig` |
-| c | `sdks/local-rp/c/src/begin.c` |
-| ocaml | `sdks/local-rp/ocaml/lib/begin_login.ml` |
-| php | `sdks/local-rp/php/src/Begin.php` |
-
-## Required work per SDK
-
-1. Add an exported browser-base resolver and endpoint builder equivalent to
-   the Go helpers, reusing the SDK's existing DNS seam and
-   `_linkkeys_apis` parser.
-2. Make the begin step call them, with an injectable resolver and the same
-   fallback rules (fall back to `https://<identity-domain>` on lookup
-   failure, no valid `https=`, or an invalid base).
-3. Keep the pending-login identity domain unchanged.
-4. Build the URL with the language's URL library, not string concatenation;
-   preserve an `https=` path prefix; never allow a non-HTTPS scheme.
-5. Port the nine Go test cases with a fake resolver (no live DNS in unit
-   tests).
-6. Update the SDK's README/package docs.
-
-The begin step stops being fully offline in every SDK: it gains one DNS TXT
-lookup with a defined fallback. Mirror the Go doc comments when porting.
+| SDK | Module | Notes |
+| --- | --- | --- |
+| go | `go/browser.go` | Reference implementation. |
+| rust | `rust/src/browser.rs` | `dns: Option<&dyn DnsResolver>` on the begin config. Direct `url` dependency added; the crate was already in the tree. |
+| typescript | `typescript/src/browser.ts` | **`beginLocalLogin` is now `async`.** Callers must `await` it. |
+| python | `python/linkkeys_local_rp/browser.py` | `dns=None` on `BeginLocalLoginConfig`. |
+| ruby | `ruby/lib/linkkeys_local_rp/browser.rb` | `:dns` struct member on the begin config. |
+| elixir | `elixir/lib/linkkeys_local_rp/browser.ex` | `:dns` key on the begin config. `example.md` regular-RP glue still has its own `resolve_api_base`; it can delegate to `Browser` in a later change. |
+| java | `java/.../Browser.java` | `BeginLocalLoginConfig.dns` (null = default). |
+| kotlin | wraps Java | `beginLocalLogin(..., dns = defaultDnsResolver())` plus Kotlin wrappers and `BrowserRoutes`. |
+| csharp | `csharp/src/LinkKeys.LocalRp/Browser.cs` | Trailing optional `IDnsResolver? Dns = null` record parameter. |
+| dart | `dart/lib/src/browser.dart` | `BeginLocalLoginConfig.dns`. `beginLocalLogin` was already a `Future`. |
+| zig | `zig/src/browser.zig` | `dns: ?DnsResolver = null` on the begin config. |
+| c | `c/src/browser.c`, `c/src/browser.h` | New `dns` pointer at the end of `lrp_begin_login_config`. Hand-written strict `https://host[:port][/path]` grammar; C has no URL library. |
+| ocaml | `ocaml/lib/browser.ml` | `make_config ?dns`. A caller that builds the `Begin_login.config` record literally must add the `dns` field. Hand-written validator; `uri` is not a dependency. |
 
 ## Consumers
 
-After parity lands in an SDK, its consumers redirect to the returned URL
-without parsing or rewriting it. The Reactorcide Go consumer
-(`coordinator_api/internal/auth/backend_localrp.go`) can drop its own
-discovery-and-rewrite once it adopts the updated Go SDK.
+Consumers redirect to the returned URL without parsing or rewriting it.
+The Reactorcide Go consumer already injects its own resolver into
+`BeginLocalLogin` and no longer rewrites the URL.
+
+## Verification
+
+Run `./tools.sh test-local-rp-all` from the repository root. It runs every
+local-RP SDK test suite in sequence.

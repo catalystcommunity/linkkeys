@@ -1,6 +1,6 @@
 //! Consumer zero for `sdks/regular-rp/conformance/`: reads the checked-in
-//! JSON vectors for application keys (signing-things-request.md, "Required
-//! tests and acceptance checks" -> "Cryptographic tests") and verifies every
+//! JSON vectors for application keys (docs/spec/application-keys.md, §11 "Conformance
+//! vectors") and verifies every
 //! positive AND negative case against the real `liblinkkeys` implementation.
 //!
 //! This is an integration test (lives in `tests/`, outside the library

@@ -3,6 +3,7 @@ package community.catalyst.linkkeys.localrp.kt
 import java.time.Duration
 import java.time.Instant
 import community.catalyst.linkkeys.localrp.Begin as JBegin
+import community.catalyst.linkkeys.localrp.Browser as JBrowser
 
 /** The redirect URL the app should send the user's browser to. This SDK never performs the redirect itself. */
 data class LocalLoginRedirect(val redirectUrl: String)
@@ -57,13 +58,23 @@ val DEFAULT_LOGIN_REQUEST_LIFETIME: Duration = JBegin.DEFAULT_LOGIN_REQUEST_LIFE
 
 /**
  * `begin_local_login(config) -> (LocalLoginRedirect, PendingLogin)` (design
- * doc, "SDK API Shape", "Flow" steps 4-6). Pure/offline: no network access
- * happens here. Generates a fresh nonce/state, builds and signs a login
- * request around [identity]'s already-signed descriptor, and returns the full
- * redirect URL plus the pending-login state.
+ * doc, "SDK API Shape", "Flow" steps 4-6). Generates a fresh nonce/state,
+ * builds and signs a login request around [identity]'s already-signed
+ * descriptor, and returns the full redirect URL plus the pending-login state.
+ *
+ * The signing work is pure/offline. The one network touch is a DNS TXT
+ * lookup of `_linkkeys_apis.<userDomain>` to discover the browser-facing
+ * HTTPS endpoint: the identity domain is a trust domain, not necessarily the
+ * host that serves the login routes (see [resolveBrowserBase]). The redirect
+ * uses the first valid `https=` endpoint. When the lookup fails, no valid
+ * record carries `https=`, or the discovered base is invalid, the redirect
+ * falls back to `https://<userDomain>`. [PendingLogin.userDomain] stays the
+ * identity domain either way -- verification is bound to it, never to the
+ * discovered service host.
  *
  * @param requestedClaims defaults to [DefaultClaims.REQUESTED].
  * @param requiredClaims defaults to [DefaultClaims.REQUIRED].
+ * @param dns the DNS TXT lookup seam for browser endpoint discovery. Defaults to [defaultDnsResolver].
  * @throws LocalRpException.InvalidInput if [callbackUrl] is not `http://`/`https://`, or [userDomain] is blank.
  */
 fun beginLocalLogin(
@@ -74,11 +85,13 @@ fun beginLocalLogin(
     requestedClaims: List<String> = DefaultClaims.REQUESTED,
     requiredClaims: List<String> = DefaultClaims.REQUIRED,
     requestLifetime: Duration = DEFAULT_LOGIN_REQUEST_LIFETIME,
+    dns: DnsResolver = defaultDnsResolver(),
 ): BeginLoginResult {
     val config = JBegin.BeginLocalLoginConfig(identity.javaMaterial, callbackUrl, userDomain, now)
     config.requestedClaims = requestedClaims
     config.requiredClaims = requiredClaims
     config.requestLifetime = requestLifetime
+    config.dns = dns
 
     val result = runCatchingSdk { JBegin.beginLocalLogin(config) }
     return BeginLoginResult(
@@ -97,3 +110,55 @@ fun PendingLogin.toBytes(): ByteArray = runCatchingSdk { javaPending.toBytes() }
 
 /** The inverse of [PendingLogin.toBytes]. @throws LocalRpException.InvalidInput if [bytes] is malformed. */
 fun pendingLoginFromBytes(bytes: ByteArray): PendingLogin = wrap(runCatchingSdk { JBegin.PendingLogin.fromBytes(bytes) })
+
+// -----------------------------------------------------------------------
+// Browser endpoint discovery
+// -----------------------------------------------------------------------
+
+/**
+ * Browser routes under a discovered browser base. The identity domain (what
+ * the user typed, what [PendingLogin.userDomain] stores) is a trust and
+ * discovery domain; the browser base (`https://host[:port][/path]`, from the
+ * `https=` endpoint of `_linkkeys_apis.<identity-domain>`) is a service
+ * location only; the route is the path under that base for one flow.
+ */
+object BrowserRoutes {
+    /** The browser route for the DNS-less local-RP login flow: `/auth/local-rp`. */
+    const val LOCAL_RP: String = JBrowser.BROWSER_ROUTE_LOCAL_RP
+    /** The browser route for the regular (domain-keyed) RP login flow: `/auth/authorize`. */
+    const val AUTHORIZE: String = JBrowser.BROWSER_ROUTE_AUTHORIZE
+}
+
+/**
+ * Resolve [identityDomain]'s browser-facing HTTPS base URL (e.g.
+ * `https://linkkeys.todandlorna.com` or `https://login.example.com/linkkeys`)
+ * from its `_linkkeys_apis.<identityDomain>` TXT record.
+ *
+ * Selects the first LinkKeys v1 record whose `https=` endpoint is a valid
+ * browser base (https only, a host, an optional path prefix, no userinfo /
+ * query / fragment); invalid TXT records and records without `https=` are
+ * skipped. [beginLocalLogin] calls this itself; it is exposed for
+ * regular-RP application glue that builds `/auth/authorize` URLs.
+ *
+ * The resolved base is a service location only. Identity verification stays
+ * bound to the identity domain -- never bind trust decisions to the host
+ * this returns.
+ *
+ * @throws LocalRpException.Network (kind [NetworkErrorKind.DNS]) when the lookup fails or no record yields a valid base.
+ */
+fun resolveBrowserBase(identityDomain: String, dns: DnsResolver = defaultDnsResolver()): String =
+    runCatchingSdk { JBrowser.resolveBrowserBase(dns, identityDomain) }
+
+/**
+ * Build the full browser URL for [route] (e.g. [BrowserRoutes.LOCAL_RP])
+ * under [browserBase], carrying [signedRequest] as the `signed_request`
+ * query parameter. A path prefix in the base is preserved: base
+ * `https://login.example.com/linkkeys` and route `/auth/local-rp` produce
+ * `https://login.example.com/linkkeys/auth/local-rp?...`. The URL is
+ * assembled with `java.net.URI`; an unpadded-base64url `signed_request`
+ * value passes through byte-identically.
+ *
+ * @throws LocalRpException.InvalidInput if [browserBase] is not a valid https base or [route] does not start with `/`.
+ */
+fun buildBrowserEndpoint(browserBase: String, route: String, signedRequest: String): String =
+    runCatchingSdk { JBrowser.buildBrowserEndpoint(browserBase, route, signedRequest) }

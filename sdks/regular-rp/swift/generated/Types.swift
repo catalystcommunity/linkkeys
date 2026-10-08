@@ -5178,3 +5178,806 @@ public struct RpResolveApplicationKeysResponse: Equatable, Sendable {
     ]
 }
 
+/// ApplicationRef is a generated CSIL record type.
+public struct ApplicationRef: Equatable, Sendable {
+    /// wire key: subject_user_id
+    public let subjectUserId: String
+    /// wire key: subject_domain
+    public let subjectDomain: String
+    /// wire key: application_id
+    public let applicationId: String
+
+    public init(subjectUserId: String, subjectDomain: String, applicationId: String) {
+        self.subjectUserId = subjectUserId
+        self.subjectDomain = subjectDomain
+        self.applicationId = applicationId
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "subjectUserId": "subject_user_id",
+        "subjectDomain": "subject_domain",
+        "applicationId": "application_id"
+    ]
+}
+
+/// GranteeRef is a generated CSIL record type.
+public struct GranteeRef: Equatable, Sendable {
+    public let application: ApplicationRef?
+    /// wire key: local_rp_descriptor_fingerprint
+    public let localRpDescriptorFingerprint: String?
+
+    public init(application: ApplicationRef? = nil, localRpDescriptorFingerprint: String? = nil) {
+        self.application = application
+        self.localRpDescriptorFingerprint = localRpDescriptorFingerprint
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "application": "application",
+        "localRpDescriptorFingerprint": "local_rp_descriptor_fingerprint"
+    ]
+}
+
+/// GranteeProof is a generated CSIL record type.
+public struct GranteeProof: Equatable, Sendable {
+    /// wire key: application_instance_id
+    public let applicationInstanceId: String?
+    /// wire key: local_rp_descriptor
+    public let localRpDescriptor: SignedLocalRpDescriptor?
+    public let signature: ApplicationKeySignature
+
+    public init(applicationInstanceId: String? = nil, localRpDescriptor: SignedLocalRpDescriptor? = nil, signature: ApplicationKeySignature) {
+        self.applicationInstanceId = applicationInstanceId
+        self.localRpDescriptor = localRpDescriptor
+        self.signature = signature
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "applicationInstanceId": "application_instance_id",
+        "localRpDescriptor": "local_rp_descriptor",
+        "signature": "signature"
+    ]
+}
+
+/// ActAsScopeEntry is a generated CSIL record type.
+public struct ActAsScopeEntry: Equatable, Sendable {
+    public let scope: String
+    public let description: String?
+
+    public init(scope: String, description: String? = nil) {
+        self.scope = scope
+        self.description = description
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "scope": "scope",
+        "description": "description"
+    ]
+}
+
+/// ActAsScopeSet is a generated CSIL record type.
+public struct ActAsScopeSet: Equatable, Sendable {
+    public let audience: ApplicationRef
+    public let grantee: GranteeRef
+    public let entries: [ActAsScopeEntry]
+    public let language: String?
+    /// wire key: audience_handle_claim
+    public let audienceHandleClaim: Claim?
+    /// wire key: issued_at
+    public let issuedAt: String
+    /// wire key: expires_at
+    public let expiresAt: String
+
+    public init(audience: ApplicationRef, grantee: GranteeRef, entries: [ActAsScopeEntry], language: String? = nil, audienceHandleClaim: Claim? = nil, issuedAt: String, expiresAt: String) {
+        self.audience = audience
+        self.grantee = grantee
+        self.entries = entries
+        self.language = language
+        self.audienceHandleClaim = audienceHandleClaim
+        self.issuedAt = issuedAt
+        self.expiresAt = expiresAt
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "audience": "audience",
+        "grantee": "grantee",
+        "entries": "entries",
+        "language": "language",
+        "audienceHandleClaim": "audience_handle_claim",
+        "issuedAt": "issued_at",
+        "expiresAt": "expires_at"
+    ]
+}
+
+/// SignedActAsScopeSet is a generated CSIL record type.
+public struct SignedActAsScopeSet: Equatable, Sendable {
+    /// wire key: scope_set
+    public let scopeSet: [UInt8]
+    /// wire key: signer_instance_id
+    public let signerInstanceId: String
+    public let signatures: [ApplicationKeySignature]
+
+    public init(scopeSet: [UInt8], signerInstanceId: String, signatures: [ApplicationKeySignature]) {
+        self.scopeSet = scopeSet
+        self.signerInstanceId = signerInstanceId
+        self.signatures = signatures
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "scopeSet": "scope_set",
+        "signerInstanceId": "signer_instance_id",
+        "signatures": "signatures"
+    ]
+}
+
+/// ActAsScopeSetRequest is a generated CSIL record type.
+public struct ActAsScopeSetRequest: Equatable, Sendable {
+    public let grantee: GranteeRef
+    public let scope: [String]
+    /// wire key: locale_preferences
+    public let localePreferences: [String]?
+
+    public init(grantee: GranteeRef, scope: [String], localePreferences: [String]? = nil) {
+        self.grantee = grantee
+        self.scope = scope
+        self.localePreferences = localePreferences
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "grantee": "grantee",
+        "scope": "scope",
+        "localePreferences": "locale_preferences"
+    ]
+}
+
+/// ActAsGrant is a generated CSIL record type.
+public struct ActAsGrant: Equatable, Sendable {
+    /// wire key: grant_id
+    public let grantId: String
+    /// wire key: user_id
+    public let userId: String
+    /// wire key: subject_domain
+    public let subjectDomain: String
+    public let grantee: GranteeRef
+    public let audience: ApplicationRef
+    /// wire key: scope_set
+    public let scopeSet: SignedActAsScopeSet
+    /// wire key: approved_scope
+    public let approvedScope: [String]
+    /// wire key: issued_at
+    public let issuedAt: String
+    /// wire key: expires_at
+    public let expiresAt: String
+    /// wire key: series_issued_at
+    public let seriesIssuedAt: String
+    /// wire key: renewable_until
+    public let renewableUntil: String
+    /// wire key: device_fingerprint
+    public let deviceFingerprint: String?
+
+    public init(grantId: String, userId: String, subjectDomain: String, grantee: GranteeRef, audience: ApplicationRef, scopeSet: SignedActAsScopeSet, approvedScope: [String], issuedAt: String, expiresAt: String, seriesIssuedAt: String, renewableUntil: String, deviceFingerprint: String? = nil) {
+        self.grantId = grantId
+        self.userId = userId
+        self.subjectDomain = subjectDomain
+        self.grantee = grantee
+        self.audience = audience
+        self.scopeSet = scopeSet
+        self.approvedScope = approvedScope
+        self.issuedAt = issuedAt
+        self.expiresAt = expiresAt
+        self.seriesIssuedAt = seriesIssuedAt
+        self.renewableUntil = renewableUntil
+        self.deviceFingerprint = deviceFingerprint
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "grantId": "grant_id",
+        "userId": "user_id",
+        "subjectDomain": "subject_domain",
+        "grantee": "grantee",
+        "audience": "audience",
+        "scopeSet": "scope_set",
+        "approvedScope": "approved_scope",
+        "issuedAt": "issued_at",
+        "expiresAt": "expires_at",
+        "seriesIssuedAt": "series_issued_at",
+        "renewableUntil": "renewable_until",
+        "deviceFingerprint": "device_fingerprint"
+    ]
+}
+
+/// SignedActAsGrant is a generated CSIL record type.
+public struct SignedActAsGrant: Equatable, Sendable {
+    public let grant: [UInt8]
+    public let signatures: [ClaimSignature]
+
+    public init(grant: [UInt8], signatures: [ClaimSignature]) {
+        self.grant = grant
+        self.signatures = signatures
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "grant": "grant",
+        "signatures": "signatures"
+    ]
+}
+
+/// ActAsGrantRequest is a generated CSIL record type.
+public struct ActAsGrantRequest: Equatable, Sendable {
+    public let grantee: GranteeRef
+    /// wire key: scope_set
+    public let scopeSet: SignedActAsScopeSet
+    /// wire key: requested_lifetime_seconds
+    public let requestedLifetimeSeconds: Int64?
+    /// wire key: requested_renewal_window_seconds
+    public let requestedRenewalWindowSeconds: Int64?
+    /// wire key: grantee_handle_claim
+    public let granteeHandleClaim: Claim?
+    /// wire key: callback_url
+    public let callbackUrl: String
+    public let nonce: String
+    /// wire key: requested_at
+    public let requestedAt: String
+    /// wire key: expires_at
+    public let expiresAt: String
+
+    public init(grantee: GranteeRef, scopeSet: SignedActAsScopeSet, requestedLifetimeSeconds: Int64? = nil, requestedRenewalWindowSeconds: Int64? = nil, granteeHandleClaim: Claim? = nil, callbackUrl: String, nonce: String, requestedAt: String, expiresAt: String) {
+        self.grantee = grantee
+        self.scopeSet = scopeSet
+        self.requestedLifetimeSeconds = requestedLifetimeSeconds
+        self.requestedRenewalWindowSeconds = requestedRenewalWindowSeconds
+        self.granteeHandleClaim = granteeHandleClaim
+        self.callbackUrl = callbackUrl
+        self.nonce = nonce
+        self.requestedAt = requestedAt
+        self.expiresAt = expiresAt
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "grantee": "grantee",
+        "scopeSet": "scope_set",
+        "requestedLifetimeSeconds": "requested_lifetime_seconds",
+        "requestedRenewalWindowSeconds": "requested_renewal_window_seconds",
+        "granteeHandleClaim": "grantee_handle_claim",
+        "callbackUrl": "callback_url",
+        "nonce": "nonce",
+        "requestedAt": "requested_at",
+        "expiresAt": "expires_at"
+    ]
+}
+
+/// SignedActAsGrantRequest is a generated CSIL record type.
+public struct SignedActAsGrantRequest: Equatable, Sendable {
+    public let request: [UInt8]
+    public let proof: GranteeProof
+
+    public init(request: [UInt8], proof: GranteeProof) {
+        self.request = request
+        self.proof = proof
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "request": "request",
+        "proof": "proof"
+    ]
+}
+
+/// ActAsRefreshRequest is a generated CSIL record type.
+public struct ActAsRefreshRequest: Equatable, Sendable {
+    /// wire key: grant_id
+    public let grantId: String
+    public let grantee: GranteeRef
+    /// wire key: requested_at
+    public let requestedAt: String
+    /// wire key: expires_at
+    public let expiresAt: String
+    public let nonce: String
+
+    public init(grantId: String, grantee: GranteeRef, requestedAt: String, expiresAt: String, nonce: String) {
+        self.grantId = grantId
+        self.grantee = grantee
+        self.requestedAt = requestedAt
+        self.expiresAt = expiresAt
+        self.nonce = nonce
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "grantId": "grant_id",
+        "grantee": "grantee",
+        "requestedAt": "requested_at",
+        "expiresAt": "expires_at",
+        "nonce": "nonce"
+    ]
+}
+
+/// SignedActAsRefreshRequest is a generated CSIL record type.
+public struct SignedActAsRefreshRequest: Equatable, Sendable {
+    public let request: [UInt8]
+    public let proof: GranteeProof
+
+    public init(request: [UInt8], proof: GranteeProof) {
+        self.request = request
+        self.proof = proof
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "request": "request",
+        "proof": "proof"
+    ]
+}
+
+/// RefreshActAsGrantRequest is a generated CSIL record type.
+public struct RefreshActAsGrantRequest: Equatable, Sendable {
+    public let request: SignedActAsRefreshRequest
+
+    public init(request: SignedActAsRefreshRequest) {
+        self.request = request
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "request": "request"
+    ]
+}
+
+/// RefreshActAsGrantResponse is a generated CSIL record type.
+public struct RefreshActAsGrantResponse: Equatable, Sendable {
+    public let grant: SignedActAsGrant
+    public let signed: Bool
+
+    public init(grant: SignedActAsGrant, signed: Bool) {
+        self.grant = grant
+        self.signed = signed
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "grant": "grant",
+        "signed": "signed"
+    ]
+}
+
+/// ActAsPresentation is a generated CSIL record type.
+public struct ActAsPresentation: Equatable, Sendable {
+    /// wire key: grant_hash
+    public let grantHash: [UInt8]
+    public let audience: ApplicationRef
+    /// wire key: request_digest
+    public let requestDigest: [UInt8]
+    /// wire key: presented_at
+    public let presentedAt: String
+    public let nonce: [UInt8]
+
+    public init(grantHash: [UInt8], audience: ApplicationRef, requestDigest: [UInt8], presentedAt: String, nonce: [UInt8]) {
+        self.grantHash = grantHash
+        self.audience = audience
+        self.requestDigest = requestDigest
+        self.presentedAt = presentedAt
+        self.nonce = nonce
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "grantHash": "grant_hash",
+        "audience": "audience",
+        "requestDigest": "request_digest",
+        "presentedAt": "presented_at",
+        "nonce": "nonce"
+    ]
+}
+
+/// SignedActAsPresentation is a generated CSIL record type.
+public struct SignedActAsPresentation: Equatable, Sendable {
+    public let presentation: [UInt8]
+    public let proof: GranteeProof
+
+    public init(presentation: [UInt8], proof: GranteeProof) {
+        self.presentation = presentation
+        self.proof = proof
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "presentation": "presentation",
+        "proof": "proof"
+    ]
+}
+
+/// ActAsCredential is a generated CSIL record type.
+public struct ActAsCredential: Equatable, Sendable {
+    public let grant: SignedActAsGrant
+    public let presentation: SignedActAsPresentation
+
+    public init(grant: SignedActAsGrant, presentation: SignedActAsPresentation) {
+        self.grant = grant
+        self.presentation = presentation
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "grant": "grant",
+        "presentation": "presentation"
+    ]
+}
+
+/// ActAsGrantRevocation is a generated CSIL record type.
+public struct ActAsGrantRevocation: Equatable, Sendable {
+    /// wire key: grant_id
+    public let grantId: String
+    /// wire key: user_id
+    public let userId: String
+    /// wire key: subject_domain
+    public let subjectDomain: String
+    /// wire key: revoked_at
+    public let revokedAt: String
+
+    public init(grantId: String, userId: String, subjectDomain: String, revokedAt: String) {
+        self.grantId = grantId
+        self.userId = userId
+        self.subjectDomain = subjectDomain
+        self.revokedAt = revokedAt
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "grantId": "grant_id",
+        "userId": "user_id",
+        "subjectDomain": "subject_domain",
+        "revokedAt": "revoked_at"
+    ]
+}
+
+/// SignedActAsGrantRevocation is a generated CSIL record type.
+public struct SignedActAsGrantRevocation: Equatable, Sendable {
+    public let revocation: [UInt8]
+    public let signatures: [ClaimSignature]
+
+    public init(revocation: [UInt8], signatures: [ClaimSignature]) {
+        self.revocation = revocation
+        self.signatures = signatures
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "revocation": "revocation",
+        "signatures": "signatures"
+    ]
+}
+
+/// GetActAsGrantRevocationsRequest is a generated CSIL record type.
+public struct GetActAsGrantRevocationsRequest: Equatable, Sendable {
+    /// wire key: grant_ids
+    public let grantIds: [String]
+
+    public init(grantIds: [String]) {
+        self.grantIds = grantIds
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "grantIds": "grant_ids"
+    ]
+}
+
+/// GetActAsGrantRevocationsResponse is a generated CSIL record type.
+public struct GetActAsGrantRevocationsResponse: Equatable, Sendable {
+    public let revocations: [SignedActAsGrantRevocation]
+
+    public init(revocations: [SignedActAsGrantRevocation]) {
+        self.revocations = revocations
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "revocations": "revocations"
+    ]
+}
+
+/// RpActAsRefreshRequest is a generated CSIL record type.
+public struct RpActAsRefreshRequest: Equatable, Sendable {
+    /// wire key: subject_domain
+    public let subjectDomain: String
+    public let request: SignedActAsRefreshRequest
+
+    public init(subjectDomain: String, request: SignedActAsRefreshRequest) {
+        self.subjectDomain = subjectDomain
+        self.request = request
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "subjectDomain": "subject_domain",
+        "request": "request"
+    ]
+}
+
+/// RpResolveActAsRevocationsRequest is a generated CSIL record type.
+public struct RpResolveActAsRevocationsRequest: Equatable, Sendable {
+    /// wire key: subject_domain
+    public let subjectDomain: String
+    /// wire key: grant_ids
+    public let grantIds: [String]
+
+    public init(subjectDomain: String, grantIds: [String]) {
+        self.subjectDomain = subjectDomain
+        self.grantIds = grantIds
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "subjectDomain": "subject_domain",
+        "grantIds": "grant_ids"
+    ]
+}
+
+/// BrowserActAsInspectRequest is a generated CSIL record type.
+public struct BrowserActAsInspectRequest: Equatable, Sendable {
+    /// wire key: signed_request
+    public let signedRequest: String
+
+    public init(signedRequest: String) {
+        self.signedRequest = signedRequest
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "signedRequest": "signed_request"
+    ]
+}
+
+/// BrowserActAsScopeEntry is a generated CSIL record type.
+public struct BrowserActAsScopeEntry: Equatable, Sendable {
+    public let scope: String
+    public let description: String?
+    /// wire key: removed_by_policy
+    public let removedByPolicy: Bool
+
+    public init(scope: String, description: String? = nil, removedByPolicy: Bool) {
+        self.scope = scope
+        self.description = description
+        self.removedByPolicy = removedByPolicy
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "scope": "scope",
+        "description": "description",
+        "removedByPolicy": "removed_by_policy"
+    ]
+}
+
+/// BrowserActAsParty is a generated CSIL record type.
+public struct BrowserActAsParty: Equatable, Sendable {
+    public let domain: String?
+    /// wire key: application_id
+    public let applicationId: String?
+    /// wire key: subject_user_id
+    public let subjectUserId: String?
+    public let handle: String?
+    /// wire key: local_rp_name
+    public let localRpName: String?
+    /// wire key: local_rp_fingerprint
+    public let localRpFingerprint: String?
+    /// wire key: own_domain
+    public let ownDomain: Bool
+    /// wire key: user_has_history
+    public let userHasHistory: Bool
+    /// wire key: domain_key_pinned
+    public let domainKeyPinned: Bool
+    /// wire key: operator_trusted
+    public let operatorTrusted: Bool
+
+    public init(domain: String? = nil, applicationId: String? = nil, subjectUserId: String? = nil, handle: String? = nil, localRpName: String? = nil, localRpFingerprint: String? = nil, ownDomain: Bool, userHasHistory: Bool, domainKeyPinned: Bool, operatorTrusted: Bool) {
+        self.domain = domain
+        self.applicationId = applicationId
+        self.subjectUserId = subjectUserId
+        self.handle = handle
+        self.localRpName = localRpName
+        self.localRpFingerprint = localRpFingerprint
+        self.ownDomain = ownDomain
+        self.userHasHistory = userHasHistory
+        self.domainKeyPinned = domainKeyPinned
+        self.operatorTrusted = operatorTrusted
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "domain": "domain",
+        "applicationId": "application_id",
+        "subjectUserId": "subject_user_id",
+        "handle": "handle",
+        "localRpName": "local_rp_name",
+        "localRpFingerprint": "local_rp_fingerprint",
+        "ownDomain": "own_domain",
+        "userHasHistory": "user_has_history",
+        "domainKeyPinned": "domain_key_pinned",
+        "operatorTrusted": "operator_trusted"
+    ]
+}
+
+/// BrowserActAsInspectResponse is a generated CSIL record type.
+public struct BrowserActAsInspectResponse: Equatable, Sendable {
+    public let grantee: GranteeRef
+    /// wire key: grantee_party
+    public let granteeParty: BrowserActAsParty
+    public let audience: ApplicationRef
+    /// wire key: audience_party
+    public let audienceParty: BrowserActAsParty
+    public let entries: [BrowserActAsScopeEntry]
+    public let language: String?
+    /// wire key: default_lifetime_seconds
+    public let defaultLifetimeSeconds: Int64
+    /// wire key: max_lifetime_seconds
+    public let maxLifetimeSeconds: Int64
+    /// wire key: default_renewal_window_seconds
+    public let defaultRenewalWindowSeconds: Int64
+    /// wire key: max_renewal_window_seconds
+    public let maxRenewalWindowSeconds: Int64
+
+    public init(grantee: GranteeRef, granteeParty: BrowserActAsParty, audience: ApplicationRef, audienceParty: BrowserActAsParty, entries: [BrowserActAsScopeEntry], language: String? = nil, defaultLifetimeSeconds: Int64, maxLifetimeSeconds: Int64, defaultRenewalWindowSeconds: Int64, maxRenewalWindowSeconds: Int64) {
+        self.grantee = grantee
+        self.granteeParty = granteeParty
+        self.audience = audience
+        self.audienceParty = audienceParty
+        self.entries = entries
+        self.language = language
+        self.defaultLifetimeSeconds = defaultLifetimeSeconds
+        self.maxLifetimeSeconds = maxLifetimeSeconds
+        self.defaultRenewalWindowSeconds = defaultRenewalWindowSeconds
+        self.maxRenewalWindowSeconds = maxRenewalWindowSeconds
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "grantee": "grantee",
+        "granteeParty": "grantee_party",
+        "audience": "audience",
+        "audienceParty": "audience_party",
+        "entries": "entries",
+        "language": "language",
+        "defaultLifetimeSeconds": "default_lifetime_seconds",
+        "maxLifetimeSeconds": "max_lifetime_seconds",
+        "defaultRenewalWindowSeconds": "default_renewal_window_seconds",
+        "maxRenewalWindowSeconds": "max_renewal_window_seconds"
+    ]
+}
+
+/// BrowserActAsCompleteRequest is a generated CSIL record type.
+public struct BrowserActAsCompleteRequest: Equatable, Sendable {
+    /// wire key: signed_request
+    public let signedRequest: String
+    /// wire key: approved_scope
+    public let approvedScope: [String]
+    /// wire key: lifetime_seconds
+    public let lifetimeSeconds: Int64
+    /// wire key: renewal_window_seconds
+    public let renewalWindowSeconds: Int64
+
+    public init(signedRequest: String, approvedScope: [String], lifetimeSeconds: Int64, renewalWindowSeconds: Int64) {
+        self.signedRequest = signedRequest
+        self.approvedScope = approvedScope
+        self.lifetimeSeconds = lifetimeSeconds
+        self.renewalWindowSeconds = renewalWindowSeconds
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "signedRequest": "signed_request",
+        "approvedScope": "approved_scope",
+        "lifetimeSeconds": "lifetime_seconds",
+        "renewalWindowSeconds": "renewal_window_seconds"
+    ]
+}
+
+/// BrowserActAsCompleteResponse is a generated CSIL record type.
+public struct BrowserActAsCompleteResponse: Equatable, Sendable {
+    /// wire key: redirect_url
+    public let redirectUrl: String
+
+    public init(redirectUrl: String) {
+        self.redirectUrl = redirectUrl
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "redirectUrl": "redirect_url"
+    ]
+}
+
+/// ActAsGrantSummary is a generated CSIL record type.
+public struct ActAsGrantSummary: Equatable, Sendable {
+    /// wire key: grant_id
+    public let grantId: String
+    public let grantee: GranteeRef
+    public let audience: ApplicationRef
+    /// wire key: approved_scope
+    public let approvedScope: [String]
+    /// wire key: issued_at
+    public let issuedAt: String
+    /// wire key: expires_at
+    public let expiresAt: String
+    /// wire key: renewable_until
+    public let renewableUntil: String
+    /// wire key: revoked_at
+    public let revokedAt: String?
+
+    public init(grantId: String, grantee: GranteeRef, audience: ApplicationRef, approvedScope: [String], issuedAt: String, expiresAt: String, renewableUntil: String, revokedAt: String? = nil) {
+        self.grantId = grantId
+        self.grantee = grantee
+        self.audience = audience
+        self.approvedScope = approvedScope
+        self.issuedAt = issuedAt
+        self.expiresAt = expiresAt
+        self.renewableUntil = renewableUntil
+        self.revokedAt = revokedAt
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "grantId": "grant_id",
+        "grantee": "grantee",
+        "audience": "audience",
+        "approvedScope": "approved_scope",
+        "issuedAt": "issued_at",
+        "expiresAt": "expires_at",
+        "renewableUntil": "renewable_until",
+        "revokedAt": "revoked_at"
+    ]
+}
+
+/// ListActAsGrantsResponse is a generated CSIL record type.
+public struct ListActAsGrantsResponse: Equatable, Sendable {
+    public let grants: [ActAsGrantSummary]
+
+    public init(grants: [ActAsGrantSummary]) {
+        self.grants = grants
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "grants": "grants"
+    ]
+}
+
+/// RevokeActAsGrantRequest is a generated CSIL record type.
+public struct RevokeActAsGrantRequest: Equatable, Sendable {
+    /// wire key: grant_id
+    public let grantId: String
+
+    public init(grantId: String) {
+        self.grantId = grantId
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "grantId": "grant_id"
+    ]
+}
+
+/// RevokeActAsGrantResponse is a generated CSIL record type.
+public struct RevokeActAsGrantResponse: Equatable, Sendable {
+    /// wire key: revoked_at
+    public let revokedAt: String
+
+    public init(revokedAt: String) {
+        self.revokedAt = revokedAt
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "revokedAt": "revoked_at"
+    ]
+}
+

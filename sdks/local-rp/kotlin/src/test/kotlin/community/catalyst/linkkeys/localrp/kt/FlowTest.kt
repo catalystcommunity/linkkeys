@@ -53,7 +53,7 @@ import community.catalyst.linkkeys.localrp.wire.Types as JTypes
  */
 class FlowTest {
     companion object {
-        private const val USER_DOMAIN = "example.test"
+        internal const val USER_DOMAIN = "example.test"
         private const val CALLBACK_URL = "http://localhost/callback"
         private const val DOMAIN_KEY_ID = "test-domain-key-1"
     }
@@ -63,7 +63,7 @@ class FlowTest {
     // -----------------------------------------------------------------
 
     /** A [Transport] the test provides itself, proving the seam is genuinely injectable. */
-    private class TestTransport : Transport {
+    internal class TestTransport : Transport {
         override fun dial(hostPort: String): Socket {
             val idx = hostPort.lastIndexOf(':')
             val host = hostPort.substring(0, idx)
@@ -79,7 +79,7 @@ class FlowTest {
     }
 
     /** Canned DNS answers for exactly one domain. */
-    private class FakeDnsResolver(private val linkkeysTxt: String, private val apisTxt: String) : DnsResolver {
+    internal class FakeDnsResolver(private val linkkeysTxt: String, private val apisTxt: String) : DnsResolver {
         override fun txtLookup(name: String): List<String> = when (name) {
             "_linkkeys.$USER_DOMAIN" -> listOf(linkkeysTxt)
             "_linkkeys_apis.$USER_DOMAIN" -> listOf(apisTxt)
@@ -148,7 +148,7 @@ class FlowTest {
      * from [domainSeed], and answers each with `dispatch(service, op, payload)`.
      * Returns the bound address.
      */
-    private fun spawnFakeIdp(domainSeed: ByteArray, expectedRequests: Int, dispatch: (String, String, ByteArray) -> JRpcEnvelope.Response): String {
+    internal fun spawnFakeIdp(domainSeed: ByteArray, expectedRequests: Int, dispatch: (String, String, ByteArray) -> JRpcEnvelope.Response): String {
         val privateKey: PrivateKey = JCrypto.importEd25519PrivateKey(domainSeed)
         val cert = generateDomainTlsCert(USER_DOMAIN, domainSeed)
 
@@ -227,9 +227,13 @@ class FlowTest {
         val now = Instant.now()
         val identity = fixedIdentity(now)
 
+        // Browser endpoint discovery is out of scope here (BrowserTest covers
+        // it); fail the lookup so begin takes its https://<USER_DOMAIN>
+        // fallback without a live DNS request.
         val begun = beginLocalLogin(
             identity, CALLBACK_URL, USER_DOMAIN, now,
             requiredClaims = scenario.requiredClaimsOverride ?: DefaultClaims.REQUIRED,
+            dns = DnsResolver { name -> throw LocalRpException.Network(NetworkErrorKind.DNS, "no DNS in flow tests: $name") },
         )
         val pending = begun.pending
 

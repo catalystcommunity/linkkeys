@@ -35,11 +35,16 @@ sdks/local-rp/c/
     identity.c                     generate_local_rp_identity, byte helpers,
                                     check_expirations
     begin.c                        begin_local_login, PendingLogin bytes
+    browser.c/.h                   _linkkeys_apis https= discovery + browser URL building
     complete.c                     complete_local_login (the full chain)
+    act_as.c/.h                    act-as grantee: begin, callback, refresh, present
+    identity_input.h               user@domain parsing shared by begin and act-as
   tests/
     json.c/.h                      minimal JSON parser — TEST HARNESS ONLY
     test_util.c/.h                  assertion macros + fixture hex helpers
     test_conformance.c              runs every sdks/local-rp/conformance/*.json
+    test_browser.c                  _linkkeys_apis discovery + browser URL tests (fake resolver)
+    test_act_as.c                   act-as vector bytes, begin URL, callback nonce
     test_flow.c                     real loopback TLS "fake IDP" + happy path
                                      + sibling failure modes
     test_main.c
@@ -121,7 +126,9 @@ lrp_login_redirect redirect = {0};
 lrp_pending_login pending = {0};
 if (lrp_begin_local_login(&begin_cfg, &redirect, &pending, &err) != LRP_OK) { /* ... */ }
 /* app: persist `pending` (e.g. in a server-side session), then redirect the
- * browser to redirect.redirect_url. */
+ * browser to redirect.redirect_url. Redirect to it as returned; do not parse
+ * or rewrite it (see "Browser endpoint discovery" below). begin_cfg.dns left
+ * NULL -> system resolver; set it to inject a resolver. */
 
 /* On callback (your HTTP handler received `arrived_url`, whose query
  * string carries `encrypted_token=...`): */
@@ -260,6 +267,110 @@ See `src/crypto.h`'s module doc for the full rationale; summary:
   `X509_get0_pubkey` -> `EVP_PKEY_get_raw_public_key` to recover the raw
   32-byte Ed25519 SPKI content directly — no manual ASN.1/DER unwrapping
   needed, since OpenSSL's EVP layer already does it.
+
+## Browser endpoint discovery
+
+`lrp_begin_local_login` does one DNS TXT lookup. It reads
+`_linkkeys_apis.<identity-domain>` and selects the first valid LinkKeys v1
+record with an `https=` endpoint. That endpoint is the browser-facing host
+(see `docs/spec/trust-and-anchors.md`). The identity domain is a trust and
+discovery domain. It is not always the host that serves the login routes.
+
+The redirect URL is built from three parts:
+
+1. The discovered base, for example `https://login.example.com/linkkeys`.
+2. The route `/auth/local-rp` (`LRP_BROWSER_ROUTE_LOCAL_RP`).
+3. The `signed_request` query parameter (and `username` for a full login).
+
+A path prefix in the `https=` value is preserved. The base must use `https`,
+must have a host, and must not carry userinfo, a query, or a fragment.
+Records that fail these checks are skipped. C has no URL library, so
+`src/browser.c` validates the base with a strict grammar and joins the parts
+explicitly. The query value is percent-encoded with the unreserved set.
+Base64url passes through unchanged.
+
+Fallback rule: when the lookup fails, when no valid record carries `https=`,
+or when the discovered base is invalid, the SDK uses
+`https://<identity-domain>`. This keeps a domain that serves its browser
+routes at the apex working without a `_linkkeys_apis` record.
+
+Inject a resolver with `lrp_begin_login_config.dns`. `NULL` selects the
+system resolver (`lrp_default_dns_resolver`). Tests inject a fake resolver so
+that no live DNS request happens.
+
+`lrp_pending_login.user_domain` always stays the identity domain.
+`lrp_complete_local_login` binds verification to that domain, never to the
+discovered host.
+
+The helpers are exported for other glue (for example a regular RP building
+`/auth/authorize`):
+
+```c
+lrp_dns_resolver dns = lrp_default_dns_resolver();
+lrp_str base = {0}, url = {0};
+if (lrp_resolve_browser_base(&dns, "example.com", &base, &err) == LRP_OK &&
+    lrp_build_browser_endpoint(base.data, LRP_BROWSER_ROUTE_AUTHORIZE, signed_request_param, &url, &err) == LRP_OK) {
+    /* redirect to url.data */
+}
+lrp_str_free(&url);
+lrp_str_free(&base);
+```
+
+## Act-as grants
+
+Status: Reserved (`docs/spec/reserved/act-as-grants.md`). The spec can
+change.
+
+A user can let this local RP act as the user at an enrolled application.
+This local RP is the grantee. The application is the audience.
+
+- A local RP can be a grantee only after its home domain approved it.
+- A local RP cannot be an audience. A peer cannot resolve its keys through
+  DNS.
+- The descriptor signing key signs every grantee structure. Each signature
+  covers `CBOR([tag, payload_bytes])`.
+
+Steps:
+
+1. Get the audience's signed scope set (CBOR of `SignedActAsScopeSet`).
+   The audience's application protocol supplies it.
+2. Call `lrp_begin_act_as`. It signs an `ActAsGrantRequest` and returns the
+   browser URL `<browser base>/auth/act-as?signed_request=...`. Discovery
+   and fallback are the same as `lrp_begin_local_login`. Keep the returned
+   `lrp_pending_act_as`. Use it one time only.
+3. Send the browser to the URL. The user approves at the home domain.
+4. On the callback, call `lrp_complete_act_as_callback` with the pending
+   state and the callback URL. It compares the nonce in constant time and
+   returns the grant id.
+5. Call `lrp_refresh_act_as_grant` with the identity domain and the grant
+   id. It calls `ActAs/refresh-grant` over the same DNS-pinned TCP
+   CSIL-RPC path as claim-ticket redemption. Call it again to renew the
+   grant when less than one half of its life remains.
+6. For each call to the audience, call `lrp_act_as_present`. Send
+   `credential_cbor` to the audience.
+
+Rules:
+
+- The request window is 300 seconds by default. The SDK refuses a window
+  longer than 900 seconds.
+- A requested lifetime must be positive. A requested renewal window must
+  not be negative. If you do not set a value, the request does not send it.
+- A local RP has no enrolling account. The request never sends
+  `grantee_handle_claim`.
+- The SDK copies the audience's `SignedActAsScopeSet` (`scope_set` bytes,
+  `signer_instance_id`, and the `signatures` array) into the request
+  without a change. It does not verify the audience signatures.
+- `lrp_refresh_act_as_grant` refuses a grant that does not have the
+  requested grant id, this local RP as grantee, and the identity domain as
+  `subject_domain`. It does not verify the domain signature. The audience
+  verifies the grant.
+- `lrp_act_as_present` needs a fresh random nonce for each call. The
+  audience defines the request digest.
+- The grant is not secret. Do not log the nonce.
+
+Tests reproduce `sdks/regular-rp/conformance/act_as_grantee_signing.json`
+(`local_rp_grantee`) byte for byte, and run refresh against the loopback
+fake IDP in `tests/test_flow.c`.
 
 ## DNS TXT lookups
 

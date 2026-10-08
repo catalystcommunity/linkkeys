@@ -6,11 +6,19 @@ namespace LinkKeys\LocalRp;
 
 /**
  * `beginLocalLogin` (design doc: "SDK API Shape", "Flow" steps 4-6).
+ * Mirrors `sdks/local-rp/go/begin.go`.
  *
- * Pure/offline: no network access happens here. It generates a fresh
- * nonce/state, builds and signs a `LocalRpLoginRequest` around the
- * identity's already-signed descriptor, and returns a redirect URL plus the
- * pending-login state the app must persist and treat as single-use.
+ * It generates a fresh nonce/state, builds and signs a `LocalRpLoginRequest`
+ * around the identity's already-signed descriptor, and returns a redirect
+ * URL plus the pending-login state the app must persist and treat as
+ * single-use.
+ *
+ * The signing work is pure/offline. The one network touch is a DNS TXT
+ * lookup of `_linkkeys_apis.<userDomain>` to discover the browser-facing
+ * HTTPS endpoint (the identity domain is a trust domain, not necessarily
+ * the host serving the login routes). The resolver is injectable via
+ * {@see BeginLocalLoginConfig::$dns}; on any discovery failure the redirect
+ * falls back to `https://<userDomain>`.
  */
 final class Begin
 {
@@ -26,6 +34,10 @@ final class Begin
      * (design doc, "SDK API Shape"). Generates a fresh nonce/state, builds
      * and signs a `LocalRpLoginRequest`, and returns the full redirect URL
      * for the user's LinkKeys domain plus the pending-login state.
+     *
+     * The redirect host comes from a `_linkkeys_apis` DNS TXT lookup (see
+     * the class docblock). The lookup never fails the call: on any
+     * discovery failure the redirect falls back to `https://<userDomain>`.
      *
      * @return array{0: LocalLoginRedirect, 1: PendingLogin}
      */
@@ -57,10 +69,16 @@ final class Begin
 
         $encoded = Encoding::signedLocalRpLoginRequestToUrlParam($signed);
 
-        // Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>".
-        $redirectUrl = "https://{$domain}/auth/local-rp?signed_request={$encoded}";
+        // Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>"
+        // — mirrors the existing GET /auth/authorize?signed_request=... shape.
+        // The host comes from `_linkkeys_apis.<userDomain>` discovery (with a
+        // fallback to the identity domain itself); PendingLogin::$userDomain
+        // stays the identity domain — verification is bound to it, never to
+        // the discovered service host.
+        $dns = $config->dns ?? new SystemDnsResolver();
+        $redirectUrl = Browser::resolveBrowserEndpoint($dns, $domain, Browser::ROUTE_LOCAL_RP, $encoded);
         if ($username !== null) {
-            $redirectUrl .= '&username=' . rawurlencode($username);
+            $redirectUrl = self::appendQueryParam($redirectUrl, 'username', $username);
         }
 
         return [
@@ -69,15 +87,31 @@ final class Begin
         ];
     }
 
-    private static function validateCallbackScheme(string $url): void
+    /** Add one query parameter to an already-built URL with `parse_url()` + `http_build_query()`. */
+    private static function appendQueryParam(string $url, string $name, string $value): string
+    {
+        $u = parse_url($url);
+        if ($u === false || !isset($u['scheme'], $u['host'])) {
+            throw new \InvalidArgumentException('browser endpoint produced an invalid URL');
+        }
+        parse_str($u['query'] ?? '', $query);
+        $query[$name] = $value;
+        return Browser::unparseUrl($u, $u['path'] ?? '', http_build_query($query, '', '&', PHP_QUERY_RFC3986));
+    }
+
+    /** @internal Shared with {@see ActAs::beginActAs}. */
+    public static function validateCallbackScheme(string $url): void
     {
         if (!str_starts_with($url, 'http://') && !str_starts_with($url, 'https://')) {
             throw new \InvalidArgumentException("callback_url must be http:// or https://, got: {$url}");
         }
     }
 
-    /** @return array{0: ?string, 1: string} */
-    private static function parseIdentityInput(string $value): array
+    /**
+     * @internal Shared with {@see ActAs::beginActAs}.
+     * @return array{0: ?string, 1: string}
+     */
+    public static function parseIdentityInput(string $value): array
     {
         $identity = trim($value);
         if ($identity === '' || preg_match('/[^\x00-\x7F]/', $identity) === 1 || substr_count($identity, '@') > 1) {
@@ -119,6 +153,12 @@ final class BeginLocalLoginConfig
     public ?array $requiredClaims;
     public ?int $requestLifetimeSeconds;
     public \DateTimeImmutable $now;
+    /**
+     * The DNS TXT lookup seam for browser endpoint discovery
+     * (`_linkkeys_apis.<userDomain>`, its `https=` endpoint). `null` means
+     * `new SystemDnsResolver()`, same as {@see CompleteLocalLoginConfig::$dns}.
+     */
+    public ?DnsResolver $dns;
 
     /**
      * @param string[]|null $requestedClaims
@@ -131,7 +171,8 @@ final class BeginLocalLoginConfig
         \DateTimeImmutable $now,
         ?array $requestedClaims = null,
         ?array $requiredClaims = null,
-        ?int $requestLifetimeSeconds = null
+        ?int $requestLifetimeSeconds = null,
+        ?DnsResolver $dns = null
     ) {
         $this->keyMaterial = $keyMaterial;
         $this->callbackUrl = $callbackUrl;
@@ -140,6 +181,7 @@ final class BeginLocalLoginConfig
         $this->requestedClaims = $requestedClaims;
         $this->requiredClaims = $requiredClaims;
         $this->requestLifetimeSeconds = $requestLifetimeSeconds;
+        $this->dns = $dns;
     }
 }
 

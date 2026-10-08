@@ -14,6 +14,9 @@ const std = @import("std");
 //   - tests/flow.zig: end-to-end begin/complete against a fake IDP at the
 //     Transport seam (see README's "TLS evaluation outcome" for why this is
 //     plaintext-at-the-seam rather than real pinned TLS)
+//   - tests/act_as.zig: act-as grantee vectors
+//     (sdks/regular-rp/conformance/act_as_grantee_signing.json), begin URL
+//     discovery, and refresh against a fake IDP at the same seam
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -43,12 +46,16 @@ pub fn build(b: *std.Build) void {
     const conformance_dir = b.pathResolve(&.{ b.build_root.path orelse ".", "..", "conformance" });
     const options = b.addOptions();
     options.addOption([]const u8, "conformance_dir", conformance_dir);
+    // Act-as grantee vectors are shared with the regular-RP SDKs.
+    const regular_rp_conformance_dir = b.pathResolve(&.{ b.build_root.path orelse ".", "..", "..", "regular-rp", "conformance" });
+    options.addOption([]const u8, "regular_rp_conformance_dir", regular_rp_conformance_dir);
 
     // Out-of-module test binaries: each imports the module by name, exactly
     // as an app dependency would.
     inline for (.{
         "tests/conformance.zig",
         "tests/flow.zig",
+        "tests/act_as.zig",
     }) |test_file| {
         const t_mod = b.createModule(.{
             .root_source_file = b.path(test_file),

@@ -1,4 +1,4 @@
-//! Application-key resolution for a DNS-less RP (`signing-things-request.md`,
+//! Application-key resolution for a DNS-less RP (`docs/application-keys.md`,
 //! "Roles and trust boundaries" -> "DNS-less RP": "A DNS-less RP has no DNS
 //! identity that a remote home domain can verify... This is not a problem for
 //! public-key reads. A DNS-less RP can read the same anonymous public key

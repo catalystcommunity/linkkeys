@@ -7053,3 +7053,1108 @@ class RpResolveApplicationKeysResponse
     }
 }
 
+class ApplicationRef
+{
+    /** @var mixed */
+    public $subjectUserId;
+
+    /** @var mixed */
+    public $subjectDomain;
+
+    /** @var mixed */
+    public $applicationId;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->subjectUserId = array_key_exists('subject_user_id', $values) ? $values['subject_user_id'] : null;
+        $this->subjectDomain = array_key_exists('subject_domain', $values) ? $values['subject_domain'] : null;
+        $this->applicationId = array_key_exists('application_id', $values) ? $values['application_id'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'subject_user_id' => $this->subjectUserId,
+            'subject_domain' => $this->subjectDomain,
+            'application_id' => $this->applicationId,
+        );
+    }
+}
+
+class GranteeRef
+{
+    /** @var mixed */
+    public $application;
+
+    /** @var mixed */
+    public $localRpDescriptorFingerprint;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->application = array_key_exists('application', $values) ? $values['application'] : null;
+        $this->localRpDescriptorFingerprint = array_key_exists('local_rp_descriptor_fingerprint', $values) ? $values['local_rp_descriptor_fingerprint'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'application' => $this->application,
+            'local_rp_descriptor_fingerprint' => $this->localRpDescriptorFingerprint,
+        );
+    }
+}
+
+class GranteeProof
+{
+    /** @var mixed */
+    public $applicationInstanceId;
+
+    /** @var mixed */
+    public $localRpDescriptor;
+
+    /** @var mixed */
+    public $signature;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->applicationInstanceId = array_key_exists('application_instance_id', $values) ? $values['application_instance_id'] : null;
+        $this->localRpDescriptor = array_key_exists('local_rp_descriptor', $values) ? $values['local_rp_descriptor'] : null;
+        $this->signature = array_key_exists('signature', $values) ? $values['signature'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'application_instance_id' => $this->applicationInstanceId,
+            'local_rp_descriptor' => $this->localRpDescriptor,
+            'signature' => $this->signature,
+        );
+    }
+}
+
+class ActAsScopeEntry
+{
+    /** @var mixed */
+    public $scope;
+
+    /** @var mixed */
+    public $description;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->scope = array_key_exists('scope', $values) ? $values['scope'] : null;
+        $this->description = array_key_exists('description', $values) ? $values['description'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'scope' => $this->scope,
+            'description' => $this->description,
+        );
+    }
+}
+
+class ActAsScopeSet
+{
+    /** @var mixed */
+    public $audience;
+
+    /** @var mixed */
+    public $grantee;
+
+    /** @var mixed */
+    public $entries;
+
+    /** @var mixed */
+    public $language;
+
+    /** @var mixed */
+    public $audienceHandleClaim;
+
+    /** @var mixed */
+    public $issuedAt;
+
+    /** @var mixed */
+    public $expiresAt;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->audience = array_key_exists('audience', $values) ? $values['audience'] : null;
+        $this->grantee = array_key_exists('grantee', $values) ? $values['grantee'] : null;
+        $this->entries = array_key_exists('entries', $values) ? $values['entries'] : null;
+        $this->language = array_key_exists('language', $values) ? $values['language'] : null;
+        $this->audienceHandleClaim = array_key_exists('audience_handle_claim', $values) ? $values['audience_handle_claim'] : null;
+        $this->issuedAt = array_key_exists('issued_at', $values) ? $values['issued_at'] : null;
+        $this->expiresAt = array_key_exists('expires_at', $values) ? $values['expires_at'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'audience' => $this->audience,
+            'grantee' => $this->grantee,
+            'entries' => $this->entries,
+            'language' => $this->language,
+            'audience_handle_claim' => $this->audienceHandleClaim,
+            'issued_at' => $this->issuedAt,
+            'expires_at' => $this->expiresAt,
+        );
+    }
+}
+
+class SignedActAsScopeSet
+{
+    /** @var mixed */
+    public $scopeSet;
+
+    /** @var mixed */
+    public $signerInstanceId;
+
+    /** @var mixed */
+    public $signatures;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->scopeSet = array_key_exists('scope_set', $values) ? $values['scope_set'] : null;
+        $this->signerInstanceId = array_key_exists('signer_instance_id', $values) ? $values['signer_instance_id'] : null;
+        $this->signatures = array_key_exists('signatures', $values) ? $values['signatures'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'scope_set' => $this->scopeSet,
+            'signer_instance_id' => $this->signerInstanceId,
+            'signatures' => $this->signatures,
+        );
+    }
+}
+
+class ActAsScopeSetRequest
+{
+    /** @var mixed */
+    public $grantee;
+
+    /** @var mixed */
+    public $scope;
+
+    /** @var mixed */
+    public $localePreferences;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->grantee = array_key_exists('grantee', $values) ? $values['grantee'] : null;
+        $this->scope = array_key_exists('scope', $values) ? $values['scope'] : null;
+        $this->localePreferences = array_key_exists('locale_preferences', $values) ? $values['locale_preferences'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'grantee' => $this->grantee,
+            'scope' => $this->scope,
+            'locale_preferences' => $this->localePreferences,
+        );
+    }
+}
+
+class ActAsGrant
+{
+    /** @var mixed */
+    public $grantId;
+
+    /** @var mixed */
+    public $userId;
+
+    /** @var mixed */
+    public $subjectDomain;
+
+    /** @var mixed */
+    public $grantee;
+
+    /** @var mixed */
+    public $audience;
+
+    /** @var mixed */
+    public $scopeSet;
+
+    /** @var mixed */
+    public $approvedScope;
+
+    /** @var mixed */
+    public $issuedAt;
+
+    /** @var mixed */
+    public $expiresAt;
+
+    /** @var mixed */
+    public $seriesIssuedAt;
+
+    /** @var mixed */
+    public $renewableUntil;
+
+    /** @var mixed */
+    public $deviceFingerprint;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->grantId = array_key_exists('grant_id', $values) ? $values['grant_id'] : null;
+        $this->userId = array_key_exists('user_id', $values) ? $values['user_id'] : null;
+        $this->subjectDomain = array_key_exists('subject_domain', $values) ? $values['subject_domain'] : null;
+        $this->grantee = array_key_exists('grantee', $values) ? $values['grantee'] : null;
+        $this->audience = array_key_exists('audience', $values) ? $values['audience'] : null;
+        $this->scopeSet = array_key_exists('scope_set', $values) ? $values['scope_set'] : null;
+        $this->approvedScope = array_key_exists('approved_scope', $values) ? $values['approved_scope'] : null;
+        $this->issuedAt = array_key_exists('issued_at', $values) ? $values['issued_at'] : null;
+        $this->expiresAt = array_key_exists('expires_at', $values) ? $values['expires_at'] : null;
+        $this->seriesIssuedAt = array_key_exists('series_issued_at', $values) ? $values['series_issued_at'] : null;
+        $this->renewableUntil = array_key_exists('renewable_until', $values) ? $values['renewable_until'] : null;
+        $this->deviceFingerprint = array_key_exists('device_fingerprint', $values) ? $values['device_fingerprint'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'grant_id' => $this->grantId,
+            'user_id' => $this->userId,
+            'subject_domain' => $this->subjectDomain,
+            'grantee' => $this->grantee,
+            'audience' => $this->audience,
+            'scope_set' => $this->scopeSet,
+            'approved_scope' => $this->approvedScope,
+            'issued_at' => $this->issuedAt,
+            'expires_at' => $this->expiresAt,
+            'series_issued_at' => $this->seriesIssuedAt,
+            'renewable_until' => $this->renewableUntil,
+            'device_fingerprint' => $this->deviceFingerprint,
+        );
+    }
+}
+
+class SignedActAsGrant
+{
+    /** @var mixed */
+    public $grant;
+
+    /** @var mixed */
+    public $signatures;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->grant = array_key_exists('grant', $values) ? $values['grant'] : null;
+        $this->signatures = array_key_exists('signatures', $values) ? $values['signatures'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'grant' => $this->grant,
+            'signatures' => $this->signatures,
+        );
+    }
+}
+
+class ActAsGrantRequest
+{
+    /** @var mixed */
+    public $grantee;
+
+    /** @var mixed */
+    public $scopeSet;
+
+    /** @var mixed */
+    public $requestedLifetimeSeconds;
+
+    /** @var mixed */
+    public $requestedRenewalWindowSeconds;
+
+    /** @var mixed */
+    public $granteeHandleClaim;
+
+    /** @var mixed */
+    public $callbackUrl;
+
+    /** @var mixed */
+    public $nonce;
+
+    /** @var mixed */
+    public $requestedAt;
+
+    /** @var mixed */
+    public $expiresAt;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->grantee = array_key_exists('grantee', $values) ? $values['grantee'] : null;
+        $this->scopeSet = array_key_exists('scope_set', $values) ? $values['scope_set'] : null;
+        $this->requestedLifetimeSeconds = array_key_exists('requested_lifetime_seconds', $values) ? $values['requested_lifetime_seconds'] : null;
+        $this->requestedRenewalWindowSeconds = array_key_exists('requested_renewal_window_seconds', $values) ? $values['requested_renewal_window_seconds'] : null;
+        $this->granteeHandleClaim = array_key_exists('grantee_handle_claim', $values) ? $values['grantee_handle_claim'] : null;
+        $this->callbackUrl = array_key_exists('callback_url', $values) ? $values['callback_url'] : null;
+        $this->nonce = array_key_exists('nonce', $values) ? $values['nonce'] : null;
+        $this->requestedAt = array_key_exists('requested_at', $values) ? $values['requested_at'] : null;
+        $this->expiresAt = array_key_exists('expires_at', $values) ? $values['expires_at'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'grantee' => $this->grantee,
+            'scope_set' => $this->scopeSet,
+            'requested_lifetime_seconds' => $this->requestedLifetimeSeconds,
+            'requested_renewal_window_seconds' => $this->requestedRenewalWindowSeconds,
+            'grantee_handle_claim' => $this->granteeHandleClaim,
+            'callback_url' => $this->callbackUrl,
+            'nonce' => $this->nonce,
+            'requested_at' => $this->requestedAt,
+            'expires_at' => $this->expiresAt,
+        );
+    }
+}
+
+class SignedActAsGrantRequest
+{
+    /** @var mixed */
+    public $request;
+
+    /** @var mixed */
+    public $proof;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->request = array_key_exists('request', $values) ? $values['request'] : null;
+        $this->proof = array_key_exists('proof', $values) ? $values['proof'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'request' => $this->request,
+            'proof' => $this->proof,
+        );
+    }
+}
+
+class ActAsRefreshRequest
+{
+    /** @var mixed */
+    public $grantId;
+
+    /** @var mixed */
+    public $grantee;
+
+    /** @var mixed */
+    public $requestedAt;
+
+    /** @var mixed */
+    public $expiresAt;
+
+    /** @var mixed */
+    public $nonce;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->grantId = array_key_exists('grant_id', $values) ? $values['grant_id'] : null;
+        $this->grantee = array_key_exists('grantee', $values) ? $values['grantee'] : null;
+        $this->requestedAt = array_key_exists('requested_at', $values) ? $values['requested_at'] : null;
+        $this->expiresAt = array_key_exists('expires_at', $values) ? $values['expires_at'] : null;
+        $this->nonce = array_key_exists('nonce', $values) ? $values['nonce'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'grant_id' => $this->grantId,
+            'grantee' => $this->grantee,
+            'requested_at' => $this->requestedAt,
+            'expires_at' => $this->expiresAt,
+            'nonce' => $this->nonce,
+        );
+    }
+}
+
+class SignedActAsRefreshRequest
+{
+    /** @var mixed */
+    public $request;
+
+    /** @var mixed */
+    public $proof;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->request = array_key_exists('request', $values) ? $values['request'] : null;
+        $this->proof = array_key_exists('proof', $values) ? $values['proof'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'request' => $this->request,
+            'proof' => $this->proof,
+        );
+    }
+}
+
+class RefreshActAsGrantRequest
+{
+    /** @var mixed */
+    public $request;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->request = array_key_exists('request', $values) ? $values['request'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'request' => $this->request,
+        );
+    }
+}
+
+class RefreshActAsGrantResponse
+{
+    /** @var mixed */
+    public $grant;
+
+    /** @var mixed */
+    public $signed;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->grant = array_key_exists('grant', $values) ? $values['grant'] : null;
+        $this->signed = array_key_exists('signed', $values) ? $values['signed'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'grant' => $this->grant,
+            'signed' => $this->signed,
+        );
+    }
+}
+
+class ActAsPresentation
+{
+    /** @var mixed */
+    public $grantHash;
+
+    /** @var mixed */
+    public $audience;
+
+    /** @var mixed */
+    public $requestDigest;
+
+    /** @var mixed */
+    public $presentedAt;
+
+    /** @var mixed */
+    public $nonce;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->grantHash = array_key_exists('grant_hash', $values) ? $values['grant_hash'] : null;
+        $this->audience = array_key_exists('audience', $values) ? $values['audience'] : null;
+        $this->requestDigest = array_key_exists('request_digest', $values) ? $values['request_digest'] : null;
+        $this->presentedAt = array_key_exists('presented_at', $values) ? $values['presented_at'] : null;
+        $this->nonce = array_key_exists('nonce', $values) ? $values['nonce'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'grant_hash' => $this->grantHash,
+            'audience' => $this->audience,
+            'request_digest' => $this->requestDigest,
+            'presented_at' => $this->presentedAt,
+            'nonce' => $this->nonce,
+        );
+    }
+}
+
+class SignedActAsPresentation
+{
+    /** @var mixed */
+    public $presentation;
+
+    /** @var mixed */
+    public $proof;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->presentation = array_key_exists('presentation', $values) ? $values['presentation'] : null;
+        $this->proof = array_key_exists('proof', $values) ? $values['proof'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'presentation' => $this->presentation,
+            'proof' => $this->proof,
+        );
+    }
+}
+
+class ActAsCredential
+{
+    /** @var mixed */
+    public $grant;
+
+    /** @var mixed */
+    public $presentation;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->grant = array_key_exists('grant', $values) ? $values['grant'] : null;
+        $this->presentation = array_key_exists('presentation', $values) ? $values['presentation'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'grant' => $this->grant,
+            'presentation' => $this->presentation,
+        );
+    }
+}
+
+class ActAsGrantRevocation
+{
+    /** @var mixed */
+    public $grantId;
+
+    /** @var mixed */
+    public $userId;
+
+    /** @var mixed */
+    public $subjectDomain;
+
+    /** @var mixed */
+    public $revokedAt;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->grantId = array_key_exists('grant_id', $values) ? $values['grant_id'] : null;
+        $this->userId = array_key_exists('user_id', $values) ? $values['user_id'] : null;
+        $this->subjectDomain = array_key_exists('subject_domain', $values) ? $values['subject_domain'] : null;
+        $this->revokedAt = array_key_exists('revoked_at', $values) ? $values['revoked_at'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'grant_id' => $this->grantId,
+            'user_id' => $this->userId,
+            'subject_domain' => $this->subjectDomain,
+            'revoked_at' => $this->revokedAt,
+        );
+    }
+}
+
+class SignedActAsGrantRevocation
+{
+    /** @var mixed */
+    public $revocation;
+
+    /** @var mixed */
+    public $signatures;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->revocation = array_key_exists('revocation', $values) ? $values['revocation'] : null;
+        $this->signatures = array_key_exists('signatures', $values) ? $values['signatures'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'revocation' => $this->revocation,
+            'signatures' => $this->signatures,
+        );
+    }
+}
+
+class GetActAsGrantRevocationsRequest
+{
+    /** @var mixed */
+    public $grantIds;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->grantIds = array_key_exists('grant_ids', $values) ? $values['grant_ids'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'grant_ids' => $this->grantIds,
+        );
+    }
+}
+
+class GetActAsGrantRevocationsResponse
+{
+    /** @var mixed */
+    public $revocations;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->revocations = array_key_exists('revocations', $values) ? $values['revocations'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'revocations' => $this->revocations,
+        );
+    }
+}
+
+class RpActAsRefreshRequest
+{
+    /** @var mixed */
+    public $subjectDomain;
+
+    /** @var mixed */
+    public $request;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->subjectDomain = array_key_exists('subject_domain', $values) ? $values['subject_domain'] : null;
+        $this->request = array_key_exists('request', $values) ? $values['request'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'subject_domain' => $this->subjectDomain,
+            'request' => $this->request,
+        );
+    }
+}
+
+class RpResolveActAsRevocationsRequest
+{
+    /** @var mixed */
+    public $subjectDomain;
+
+    /** @var mixed */
+    public $grantIds;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->subjectDomain = array_key_exists('subject_domain', $values) ? $values['subject_domain'] : null;
+        $this->grantIds = array_key_exists('grant_ids', $values) ? $values['grant_ids'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'subject_domain' => $this->subjectDomain,
+            'grant_ids' => $this->grantIds,
+        );
+    }
+}
+
+class BrowserActAsInspectRequest
+{
+    /** @var mixed */
+    public $signedRequest;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->signedRequest = array_key_exists('signed_request', $values) ? $values['signed_request'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'signed_request' => $this->signedRequest,
+        );
+    }
+}
+
+class BrowserActAsScopeEntry
+{
+    /** @var mixed */
+    public $scope;
+
+    /** @var mixed */
+    public $description;
+
+    /** @var mixed */
+    public $removedByPolicy;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->scope = array_key_exists('scope', $values) ? $values['scope'] : null;
+        $this->description = array_key_exists('description', $values) ? $values['description'] : null;
+        $this->removedByPolicy = array_key_exists('removed_by_policy', $values) ? $values['removed_by_policy'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'scope' => $this->scope,
+            'description' => $this->description,
+            'removed_by_policy' => $this->removedByPolicy,
+        );
+    }
+}
+
+class BrowserActAsParty
+{
+    /** @var mixed */
+    public $domain;
+
+    /** @var mixed */
+    public $applicationId;
+
+    /** @var mixed */
+    public $subjectUserId;
+
+    /** @var mixed */
+    public $handle;
+
+    /** @var mixed */
+    public $localRpName;
+
+    /** @var mixed */
+    public $localRpFingerprint;
+
+    /** @var mixed */
+    public $ownDomain;
+
+    /** @var mixed */
+    public $userHasHistory;
+
+    /** @var mixed */
+    public $domainKeyPinned;
+
+    /** @var mixed */
+    public $operatorTrusted;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->domain = array_key_exists('domain', $values) ? $values['domain'] : null;
+        $this->applicationId = array_key_exists('application_id', $values) ? $values['application_id'] : null;
+        $this->subjectUserId = array_key_exists('subject_user_id', $values) ? $values['subject_user_id'] : null;
+        $this->handle = array_key_exists('handle', $values) ? $values['handle'] : null;
+        $this->localRpName = array_key_exists('local_rp_name', $values) ? $values['local_rp_name'] : null;
+        $this->localRpFingerprint = array_key_exists('local_rp_fingerprint', $values) ? $values['local_rp_fingerprint'] : null;
+        $this->ownDomain = array_key_exists('own_domain', $values) ? $values['own_domain'] : null;
+        $this->userHasHistory = array_key_exists('user_has_history', $values) ? $values['user_has_history'] : null;
+        $this->domainKeyPinned = array_key_exists('domain_key_pinned', $values) ? $values['domain_key_pinned'] : null;
+        $this->operatorTrusted = array_key_exists('operator_trusted', $values) ? $values['operator_trusted'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'domain' => $this->domain,
+            'application_id' => $this->applicationId,
+            'subject_user_id' => $this->subjectUserId,
+            'handle' => $this->handle,
+            'local_rp_name' => $this->localRpName,
+            'local_rp_fingerprint' => $this->localRpFingerprint,
+            'own_domain' => $this->ownDomain,
+            'user_has_history' => $this->userHasHistory,
+            'domain_key_pinned' => $this->domainKeyPinned,
+            'operator_trusted' => $this->operatorTrusted,
+        );
+    }
+}
+
+class BrowserActAsInspectResponse
+{
+    /** @var mixed */
+    public $grantee;
+
+    /** @var mixed */
+    public $granteeParty;
+
+    /** @var mixed */
+    public $audience;
+
+    /** @var mixed */
+    public $audienceParty;
+
+    /** @var mixed */
+    public $entries;
+
+    /** @var mixed */
+    public $language;
+
+    /** @var mixed */
+    public $defaultLifetimeSeconds;
+
+    /** @var mixed */
+    public $maxLifetimeSeconds;
+
+    /** @var mixed */
+    public $defaultRenewalWindowSeconds;
+
+    /** @var mixed */
+    public $maxRenewalWindowSeconds;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->grantee = array_key_exists('grantee', $values) ? $values['grantee'] : null;
+        $this->granteeParty = array_key_exists('grantee_party', $values) ? $values['grantee_party'] : null;
+        $this->audience = array_key_exists('audience', $values) ? $values['audience'] : null;
+        $this->audienceParty = array_key_exists('audience_party', $values) ? $values['audience_party'] : null;
+        $this->entries = array_key_exists('entries', $values) ? $values['entries'] : null;
+        $this->language = array_key_exists('language', $values) ? $values['language'] : null;
+        $this->defaultLifetimeSeconds = array_key_exists('default_lifetime_seconds', $values) ? $values['default_lifetime_seconds'] : null;
+        $this->maxLifetimeSeconds = array_key_exists('max_lifetime_seconds', $values) ? $values['max_lifetime_seconds'] : null;
+        $this->defaultRenewalWindowSeconds = array_key_exists('default_renewal_window_seconds', $values) ? $values['default_renewal_window_seconds'] : null;
+        $this->maxRenewalWindowSeconds = array_key_exists('max_renewal_window_seconds', $values) ? $values['max_renewal_window_seconds'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'grantee' => $this->grantee,
+            'grantee_party' => $this->granteeParty,
+            'audience' => $this->audience,
+            'audience_party' => $this->audienceParty,
+            'entries' => $this->entries,
+            'language' => $this->language,
+            'default_lifetime_seconds' => $this->defaultLifetimeSeconds,
+            'max_lifetime_seconds' => $this->maxLifetimeSeconds,
+            'default_renewal_window_seconds' => $this->defaultRenewalWindowSeconds,
+            'max_renewal_window_seconds' => $this->maxRenewalWindowSeconds,
+        );
+    }
+}
+
+class BrowserActAsCompleteRequest
+{
+    /** @var mixed */
+    public $signedRequest;
+
+    /** @var mixed */
+    public $approvedScope;
+
+    /** @var mixed */
+    public $lifetimeSeconds;
+
+    /** @var mixed */
+    public $renewalWindowSeconds;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->signedRequest = array_key_exists('signed_request', $values) ? $values['signed_request'] : null;
+        $this->approvedScope = array_key_exists('approved_scope', $values) ? $values['approved_scope'] : null;
+        $this->lifetimeSeconds = array_key_exists('lifetime_seconds', $values) ? $values['lifetime_seconds'] : null;
+        $this->renewalWindowSeconds = array_key_exists('renewal_window_seconds', $values) ? $values['renewal_window_seconds'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'signed_request' => $this->signedRequest,
+            'approved_scope' => $this->approvedScope,
+            'lifetime_seconds' => $this->lifetimeSeconds,
+            'renewal_window_seconds' => $this->renewalWindowSeconds,
+        );
+    }
+}
+
+class BrowserActAsCompleteResponse
+{
+    /** @var mixed */
+    public $redirectUrl;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->redirectUrl = array_key_exists('redirect_url', $values) ? $values['redirect_url'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'redirect_url' => $this->redirectUrl,
+        );
+    }
+}
+
+class ActAsGrantSummary
+{
+    /** @var mixed */
+    public $grantId;
+
+    /** @var mixed */
+    public $grantee;
+
+    /** @var mixed */
+    public $audience;
+
+    /** @var mixed */
+    public $approvedScope;
+
+    /** @var mixed */
+    public $issuedAt;
+
+    /** @var mixed */
+    public $expiresAt;
+
+    /** @var mixed */
+    public $renewableUntil;
+
+    /** @var mixed */
+    public $revokedAt;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->grantId = array_key_exists('grant_id', $values) ? $values['grant_id'] : null;
+        $this->grantee = array_key_exists('grantee', $values) ? $values['grantee'] : null;
+        $this->audience = array_key_exists('audience', $values) ? $values['audience'] : null;
+        $this->approvedScope = array_key_exists('approved_scope', $values) ? $values['approved_scope'] : null;
+        $this->issuedAt = array_key_exists('issued_at', $values) ? $values['issued_at'] : null;
+        $this->expiresAt = array_key_exists('expires_at', $values) ? $values['expires_at'] : null;
+        $this->renewableUntil = array_key_exists('renewable_until', $values) ? $values['renewable_until'] : null;
+        $this->revokedAt = array_key_exists('revoked_at', $values) ? $values['revoked_at'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'grant_id' => $this->grantId,
+            'grantee' => $this->grantee,
+            'audience' => $this->audience,
+            'approved_scope' => $this->approvedScope,
+            'issued_at' => $this->issuedAt,
+            'expires_at' => $this->expiresAt,
+            'renewable_until' => $this->renewableUntil,
+            'revoked_at' => $this->revokedAt,
+        );
+    }
+}
+
+class ListActAsGrantsResponse
+{
+    /** @var mixed */
+    public $grants;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->grants = array_key_exists('grants', $values) ? $values['grants'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'grants' => $this->grants,
+        );
+    }
+}
+
+class RevokeActAsGrantRequest
+{
+    /** @var mixed */
+    public $grantId;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->grantId = array_key_exists('grant_id', $values) ? $values['grant_id'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'grant_id' => $this->grantId,
+        );
+    }
+}
+
+class RevokeActAsGrantResponse
+{
+    /** @var mixed */
+    public $revokedAt;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->revokedAt = array_key_exists('revoked_at', $values) ? $values['revoked_at'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'revoked_at' => $this->revokedAt,
+        );
+    }
+}
+

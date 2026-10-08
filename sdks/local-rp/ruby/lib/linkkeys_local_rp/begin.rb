@@ -2,17 +2,27 @@
 
 require 'securerandom'
 require 'uri'
+require_relative 'browser'
+require_relative 'dns'
 require_relative 'url_params'
 require_relative 'local_rp'
 require_relative 'timeutil'
 
 module LinkkeysLocalRp
   # `begin_local_login` (design doc: "SDK API Shape", "Flow" steps 4-6).
+  # Mirrors `sdks/local-rp/go/begin.go`.
   #
-  # Pure/offline: no network access happens here. It generates a fresh
-  # nonce/state, builds and signs a LocalRpLoginRequest around the
-  # identity's already-signed descriptor, and returns a redirect URL plus
-  # the pending-login state the app must persist and treat as single-use.
+  # It generates a fresh nonce/state, builds and signs a LocalRpLoginRequest
+  # around the identity's already-signed descriptor, and returns a redirect
+  # URL plus the pending-login state the app must persist and treat as
+  # single-use.
+  #
+  # The signing work is pure/offline. The one network touch is a DNS TXT
+  # lookup of `_linkkeys_apis.<user_domain>` to discover the browser-facing
+  # HTTPS endpoint (the identity domain is a trust domain, not necessarily
+  # the host serving the login routes). The resolver is injectable via
+  # BeginLocalLoginConfig#dns; on any discovery failure the redirect falls
+  # back to `https://<user_domain>`.
   module Begin
     # Default requested claims when the caller doesn't specify any (design
     # doc, "Default Claim Set"): a usable "identity" out of the box with
@@ -29,9 +39,15 @@ module LinkkeysLocalRp
 
     # Input to begin_local_login. user_domain accepts a full login or a bare
     # domain. A full login adds a username hint.
+    #
+    # `dns` is the DNS TXT lookup seam for browser endpoint discovery
+    # (`_linkkeys_apis.<user_domain>`, its `https=` endpoint): any object
+    # responding to `txt_lookup(name) -> Array<String>`. Defaults to
+    # Dns::SystemDnsResolver.new when nil, same as complete_local_login's
+    # `dns:` keyword.
     BeginLocalLoginConfig = Struct.new(
       :key_material, :callback_url, :user_domain, :now,
-      :requested_claims, :required_claims, :request_lifetime,
+      :requested_claims, :required_claims, :request_lifetime, :dns,
       keyword_init: true
     )
 
@@ -83,7 +99,6 @@ module LinkkeysLocalRp
 
       raise Error, "callback_url must be http:// or https://, got: #{url.inspect}"
     end
-    private_class_method :validate_callback_scheme!
 
     def parse_identity_input!(value)
       identity = value.to_s.strip
@@ -101,7 +116,6 @@ module LinkkeysLocalRp
       invalid.call unless valid_host && domain.length <= 259 && (!port || port.between?(1, 65_535))
       [username, domain.downcase]
     end
-    private_class_method :parse_identity_input!
 
     # `begin_local_login(config) -> [LocalLoginRedirect, PendingLogin]`
     # (design doc, "SDK API Shape"). Generates a fresh nonce/state, builds
@@ -109,6 +123,10 @@ module LinkkeysLocalRp
     # linkkeys-local-rp-login-request-v1alpha context) around the identity's
     # descriptor, and returns the full redirect URL for the user's LinkKeys
     # domain plus the pending-login state.
+    #
+    # The redirect host comes from a `_linkkeys_apis` DNS TXT lookup (see
+    # the module docs). The lookup never fails the call: on any discovery
+    # failure the redirect falls back to `https://<user_domain>`.
     def begin_local_login(config)
       validate_callback_scheme!(config.callback_url)
       username, domain = parse_identity_input!(config.user_domain)
@@ -132,9 +150,17 @@ module LinkkeysLocalRp
 
       # Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>"
       # -- mirrors the existing GET /auth/authorize?signed_request=... route
-      # shape.
-      redirect_url = "https://#{domain}/auth/local-rp?signed_request=#{encoded}"
-      redirect_url += "&username=#{URI.encode_www_form_component(username)}" if username
+      # shape. The host comes from `_linkkeys_apis.<user_domain>` discovery
+      # (with a fallback to the identity domain itself); PendingLogin's
+      # user_domain stays the identity domain -- verification is bound to
+      # it, never to the discovered service host.
+      dns = config.dns || Dns::SystemDnsResolver.new
+      redirect_url = Browser.resolve_browser_endpoint(dns, domain, Browser::BROWSER_ROUTE_LOCAL_RP, encoded)
+      if username
+        redirect = URI.parse(redirect_url)
+        redirect.query = URI.encode_www_form(URI.decode_www_form(redirect.query) << ['username', username])
+        redirect_url = redirect.to_s
+      end
 
       [
         LocalLoginRedirect.new(redirect_url: redirect_url),

@@ -43,7 +43,9 @@ var reloaded = Identity.LocalRpIdentityFromBytes(storedBytes);
 var begun = Begin.BeginLocalLogin(new Begin.BeginLocalLoginConfig(
     reloaded, "http://jukebox.lan:8080/auth/callback", "alice@example.com", DateTimeOffset.UtcNow));
 // App: persist begun.Pending (e.g. in a server-side session), then redirect the
-// browser to begun.Redirect.RedirectUrl.
+// browser to begun.Redirect.RedirectUrl. Do not parse or rewrite that URL:
+// BeginLocalLogin already discovered the browser-facing host (see "Browser
+// endpoint discovery" below).
 
 // On callback (app's HTTP handler received `arrivedUrl` with an `encrypted_token=`
 // query parameter):
@@ -54,6 +56,101 @@ var verified = Complete.CompleteLocalLogin(config);
 // fingerprint, and expirations — session creation, local user records, and
 // authorization are all the app's own responsibility.
 ```
+
+## Browser endpoint discovery
+
+`Begin.BeginLocalLogin` performs one DNS TXT lookup. It reads
+`_linkkeys_apis.<identity domain>` and selects the first valid LinkKeys v1 record
+with an `https=` endpoint. It builds the redirect URL from that endpoint, the
+`/auth/local-rp` route, and the `signed_request` parameter. A path prefix in
+`https=` stays in the URL.
+
+The identity domain is a trust domain. It is not always the host that serves the
+browser login routes. `docs/spec/trust-and-anchors.md` defines `https=` as the
+browser-facing endpoint.
+
+The fallback rule: when the lookup fails, when no valid record carries `https=`, or
+when the discovered base is not a valid `https://host[:port][/path]` URL, the SDK
+uses `https://<identity domain>`. The SDK never selects a non-HTTPS scheme.
+
+`Begin.PendingLogin.UserDomain` always holds the identity domain, never the
+discovered host. `Complete.CompleteLocalLogin` binds verification to that identity
+domain.
+
+Inject a resolver through the `Dns` parameter of `Begin.BeginLocalLoginConfig`. Set
+it to an `IDnsResolver` of your own (a hardened resolver, or a canned resolver in
+tests). Leave it `null` to use `LinkKeysLocalRp.DefaultDnsResolver()`, the same
+default `Complete` uses. Unit tests must inject a resolver; the default performs a
+live DNS request.
+
+```csharp
+var begun = Begin.BeginLocalLogin(new Begin.BeginLocalLoginConfig(
+    reloaded, "http://jukebox.lan:8080/auth/callback", "alice@example.com", DateTimeOffset.UtcNow,
+    Dns: myResolver));   // optional; null = system resolver
+```
+
+The `Browser` class exports the two building blocks for application glue that needs
+them (for example, regular-RP code that builds `/auth/authorize` URLs):
+
+- `Browser.ResolveBrowserBase(dns, identityDomain)` returns the browser base URL, or
+  throws `SdkException` (kind `Dns`) when no record yields a valid base.
+- `Browser.BuildBrowserEndpoint(base, route, signedRequest)` joins the base, a route
+  (`Browser.BrowserRouteLocalRp` or `Browser.BrowserRouteAuthorize`), and the
+  `signed_request` query parameter with `System.Uri`/`UriBuilder`.
+
+## Act-as grants
+
+An act-as grant lets this local RP act as a user at an enrolled application.
+The local RP is the grantee. The application is the audience. The user's home
+domain signs the grant. The protocol is in
+`docs/spec/reserved/act-as-grants.md`. That specification is Reserved, so this
+API can change.
+
+A local RP can be a grantee only after its home domain approved it. The home
+domain policy for local RPs must also not be `disabled`. A local RP cannot be
+an audience, because a peer cannot find its keys through DNS. This SDK has no
+audience-side check.
+
+The `ActAs` class has four steps:
+
+1. Get a signed scope set (the CBOR of `SignedActAsScopeSet`) from the
+   audience. The audience defines that exchange. Then call
+   `ActAs.BeginActAs`. It signs an `ActAsGrantRequest` with the descriptor
+   signing key and returns the redirect URL and a `PendingActAs`. The
+   redirect URL uses the `/auth/act-as` route and the same browser endpoint
+   discovery and fallback as `Begin.BeginLocalLogin`. The request window is
+   300 seconds by default. The maximum is 900 seconds.
+2. Keep the `PendingActAs`. Use it one time only. When the browser comes back
+   to your callback, call `ActAs.CompleteActAsCallback(pending, arrivedUrl)`.
+   It compares the `nonce` parameter with the pending nonce in constant time
+   and returns the `act_as_grant_id`. A different nonce is a `LocalRpError`
+   of kind `NonceMismatch`.
+3. Call `ActAs.RefreshActAsGrant` with the grant id and `pending.UserDomain`.
+   It sends a signed `ActAsRefreshRequest` to `ActAs/refresh-grant` over the
+   same pinned TCP CSIL-RPC path as claim-ticket redemption. It returns the
+   `SignedActAsGrant` and `Signed` (true when the home domain signed a new
+   grant). Call it again when less than half of the grant life remains.
+   `ActAs.DecodeGrantUnverified` reads `ExpiresAt` from the grant. It does
+   not verify the grant.
+4. For each call to the audience, call `ActAs.Present` with the grant, the
+   audience `ApplicationRef`, the request digest, the time, and a fresh
+   nonce. Send the bytes from `ActAs.EncodeCredential` to the audience.
+
+```csharp
+var begun = ActAs.BeginActAs(new ActAs.BeginActAsConfig(
+    identity, "alice@example.com", scopeSetCbor, "http://jukebox.lan:8080/act-as/callback",
+    DateTimeOffset.UtcNow, RequestedLifetimeSeconds: 3600));
+// Persist begun.Pending; redirect the browser to begun.RedirectUrl.
+
+var grantId = ActAs.CompleteActAsCallback(pending, arrivedUrl);
+var refreshed = ActAs.RefreshActAsGrant(
+    new ActAs.RefreshActAsGrantConfig(identity, pending.UserDomain, grantId, DateTimeOffset.UtcNow));
+var credential = ActAs.Present(refreshed.Grant, audience, requestDigest, DateTimeOffset.UtcNow, nonce, identity);
+byte[] wire = ActAs.EncodeCredential(credential);
+```
+
+The tests check the signed bytes against the `local_rp_grantee` case of
+`sdks/regular-rp/conformance/act_as_grantee_signing.json`.
 
 ## Project layout
 
@@ -69,6 +166,8 @@ src/LinkKeys.LocalRp/
   Revocation.cs      Sibling-signed key revocation certificate verification
   Identity.cs        GenerateLocalRpIdentity + byte storage helpers
   Begin.cs           BeginLocalLogin
+  Browser.cs         _linkkeys_apis https= discovery + browser route URL builder
+  ActAs.cs           Act-as grants, grantee side: begin, callback, refresh, present
   Complete.cs        CompleteLocalLogin (the full verification chain)
   LinkKeysLocalRp.cs Facade: default seams, CheckExpirations
   UrlEncoding.cs     URL-param (base64url-unpadded) helpers
@@ -78,6 +177,8 @@ tests/LinkKeys.LocalRp.Tests/
   *ConformanceTests.cs   One test class per sdks/local-rp/conformance/*.json file
   FlowTests.cs       End-to-end tests against a real (fake-identity) TLS+CSIL-RPC IDP
   BeginTests.cs, IdentityTests.cs   SDK-surface unit tests
+  BrowserTests.cs    Browser endpoint discovery with a fake resolver (no live DNS)
+  ActAsTests.cs      Act-as grantee vectors, begin URL, callback nonce, refresh via the fake IDP
 ```
 
 ## Dependency justifications
@@ -261,6 +362,9 @@ authorization (design doc). Concretely:
   (dials private/loopback/LAN addresses) by design — that is the entire point of this
   mode. `AddressPolicy.PublicOnly` is available as an opt-in for integrators who want a
   stricter posture.
+- The browser host that `Begin.BeginLocalLogin` discovers from `_linkkeys_apis` is a
+  service location only. It carries no authority. The SDK binds verification to the
+  identity domain in `PendingLogin`, never to the discovered host.
 - None of this SDK's exception types carry key material, nonces, tokens, tickets, or
   claim values in their messages.
 

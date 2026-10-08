@@ -1,14 +1,24 @@
 // `beginLocalLogin` (design doc: "SDK API Shape", "Flow" steps 4-6).
 //
-// Pure/offline: no network access happens here. It generates a fresh
-// nonce/state, builds and signs a `LocalRpLoginRequest` around the
-// identity's already-signed descriptor, and returns a redirect URL plus the
-// pending-login state the app must persist and treat as single-use.
+// It generates a fresh nonce/state, builds and signs a `LocalRpLoginRequest`
+// around the identity's already-signed descriptor, and returns a redirect
+// URL plus the pending-login state the app must persist and treat as
+// single-use.
+//
+// The signing work is pure/offline. The one network touch is a DNS TXT
+// lookup of `_linkkeys_apis.<userDomain>` to discover the browser-facing
+// HTTPS endpoint (the identity domain is a trust domain, not necessarily the
+// host serving the login routes -- see `browser.dart`). The resolver is
+// injectable via [BeginLocalLoginConfig.dns]; on any discovery failure the
+// redirect falls back to `https://<userDomain>`.
 library;
 
 import 'dart:typed_data';
 
+import 'browser.dart';
+import 'complete.dart' show defaultDnsResolver;
 import 'crypto/crypto.dart';
+import 'dns/dns_resolver.dart';
 import 'encoding.dart';
 import 'errors.dart';
 import 'identity.dart';
@@ -38,6 +48,11 @@ class BeginLocalLoginConfig {
   final Duration? requestLifetime;
   final DateTime now;
 
+  /// The DNS TXT lookup seam for browser endpoint discovery
+  /// (`_linkkeys_apis.<userDomain>`, its `https=` endpoint). Defaults to
+  /// [defaultDnsResolver] when null, same as `CompleteLocalLoginConfig.dns`.
+  final DnsResolver? dns;
+
   const BeginLocalLoginConfig({
     required this.keyMaterial,
     required this.callbackUrl,
@@ -46,6 +61,7 @@ class BeginLocalLoginConfig {
     this.requiredClaims,
     this.requestLifetime,
     required this.now,
+    this.dns,
   });
 }
 
@@ -89,14 +105,18 @@ class BeginResult {
   const BeginResult(this.redirect, this.pending);
 }
 
-void _validateCallbackScheme(String url) {
+/// Internal: shared with `act_as.dart`. Not exported from the package.
+void validateCallbackScheme(String url) {
   if (!(url.startsWith('http://') || url.startsWith('https://'))) {
     throw SdkException(SdkExceptionKind.invalidInput,
         'callback_url must be http:// or https://, got: $url');
   }
 }
 
-({String? username, String domain}) _parseIdentityInput(String value) {
+/// Internal: parse a `username@domain` or `domain` identity input, as
+/// [beginLocalLogin] does. Shared with `act_as.dart`. Not exported from the
+/// package.
+({String? username, String domain}) parseIdentityInput(String value) {
   final identity = value.trim();
   if (identity.isEmpty ||
       identity.codeUnits.any((c) => c > 127) ||
@@ -139,9 +159,14 @@ void _validateCallbackScheme(String url) {
 /// doc, "SDK API Shape"). Generates a fresh nonce/state, builds and signs a
 /// `LocalRpLoginRequest` around the identity's descriptor, and returns the
 /// full redirect URL plus the pending-login state.
+///
+/// The redirect host comes from `_linkkeys_apis.<userDomain>` discovery
+/// ([resolveBrowserEndpoint], with a fallback to the identity domain
+/// itself); [PendingLogin.userDomain] stays the identity domain --
+/// verification is bound to it, never to the discovered service host.
 Future<BeginResult> beginLocalLogin(BeginLocalLoginConfig config) async {
-  _validateCallbackScheme(config.callbackUrl);
-  final identity = _parseIdentityInput(config.userDomain);
+  validateCallbackScheme(config.callbackUrl);
+  final identity = parseIdentityInput(config.userDomain);
 
   final nonce = Crypto.randomBytes(32);
   final state = Crypto.randomBytes(32);
@@ -168,17 +193,18 @@ Future<BeginResult> beginLocalLogin(BeginLocalLoginConfig config) async {
   final encoded = signedLocalRpLoginRequestToUrlParam(signed);
 
   // Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>".
-  final query = <String, String>{'signed_request': encoded};
-  if (identity.username != null) query['username'] = identity.username!;
-  final redirectUrl = Uri(
-          scheme: 'https',
-          host: identity.domain.split(':').first,
-          port: identity.domain.contains(':')
-              ? int.parse(identity.domain.split(':').last)
-              : null,
-          path: '/auth/local-rp',
-          queryParameters: query)
-      .toString();
+  // The host comes from `_linkkeys_apis.<domain>` discovery (with a
+  // fallback to the identity domain itself).
+  final dns = config.dns ?? defaultDnsResolver();
+  var redirectUrl = await resolveBrowserEndpoint(
+      dns, identity.domain, browserRouteLocalRp, encoded);
+  if (identity.username != null) {
+    final discovered = Uri.parse(redirectUrl);
+    redirectUrl = discovered.replace(queryParameters: <String, String>{
+      ...discovered.queryParameters,
+      'username': identity.username!,
+    }).toString();
+  }
 
   return BeginResult(
     LocalLoginRedirect(redirectUrl),

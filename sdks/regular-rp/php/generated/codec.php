@@ -7765,4 +7765,1151 @@ class Codec
         ));
     }
 
+    public static function encodeApplicationRef($value)
+    {
+        return CBOR::encode(self::toCborApplicationRef($value));
+    }
+
+    public static function decodeApplicationRef($bytes)
+    {
+        return self::fromCborApplicationRef(CBOR::decode($bytes));
+    }
+
+    public static function toCborApplicationRef($value)
+    {
+        $out = array();
+        $field = $value instanceof ApplicationRef ? $value->subjectUserId : (is_array($value) && array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null);
+        $out['subject_user_id'] = $field;
+        $field = $value instanceof ApplicationRef ? $value->subjectDomain : (is_array($value) && array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null);
+        $out['subject_domain'] = $field;
+        $field = $value instanceof ApplicationRef ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        $out['application_id'] = $field;
+        return $out;
+    }
+
+    public static function fromCborApplicationRef($value)
+    {
+        return new ApplicationRef(array(
+            'subject_user_id' => array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null,
+            'subject_domain' => array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null,
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+        ));
+    }
+
+    public static function encodeGranteeRef($value)
+    {
+        return CBOR::encode(self::toCborGranteeRef($value));
+    }
+
+    public static function decodeGranteeRef($bytes)
+    {
+        return self::fromCborGranteeRef(CBOR::decode($bytes));
+    }
+
+    public static function toCborGranteeRef($value)
+    {
+        $out = array();
+        $field = $value instanceof GranteeRef ? $value->application : (is_array($value) && array_key_exists('application', $value) ? $value['application'] : null);
+        if ($field !== null) {
+            $out['application'] = self::toCborApplicationRef($field);
+        }
+        $field = $value instanceof GranteeRef ? $value->localRpDescriptorFingerprint : (is_array($value) && array_key_exists('local_rp_descriptor_fingerprint', $value) ? $value['local_rp_descriptor_fingerprint'] : null);
+        if ($field !== null) {
+            $out['local_rp_descriptor_fingerprint'] = $field;
+        }
+        return $out;
+    }
+
+    public static function fromCborGranteeRef($value)
+    {
+        return new GranteeRef(array(
+            'application' => array_key_exists('application', $value) ? self::fromCborApplicationRef($value['application']) : null,
+            'local_rp_descriptor_fingerprint' => array_key_exists('local_rp_descriptor_fingerprint', $value) ? $value['local_rp_descriptor_fingerprint'] : null,
+        ));
+    }
+
+    public static function encodeGranteeProof($value)
+    {
+        return CBOR::encode(self::toCborGranteeProof($value));
+    }
+
+    public static function decodeGranteeProof($bytes)
+    {
+        return self::fromCborGranteeProof(CBOR::decode($bytes));
+    }
+
+    public static function toCborGranteeProof($value)
+    {
+        $out = array();
+        $field = $value instanceof GranteeProof ? $value->applicationInstanceId : (is_array($value) && array_key_exists('application_instance_id', $value) ? $value['application_instance_id'] : null);
+        if ($field !== null) {
+            $out['application_instance_id'] = $field;
+        }
+        $field = $value instanceof GranteeProof ? $value->localRpDescriptor : (is_array($value) && array_key_exists('local_rp_descriptor', $value) ? $value['local_rp_descriptor'] : null);
+        if ($field !== null) {
+            $out['local_rp_descriptor'] = self::toCborSignedLocalRpDescriptor($field);
+        }
+        $field = $value instanceof GranteeProof ? $value->signature : (is_array($value) && array_key_exists('signature', $value) ? $value['signature'] : null);
+        $out['signature'] = self::toCborApplicationKeySignature($field);
+        return $out;
+    }
+
+    public static function fromCborGranteeProof($value)
+    {
+        return new GranteeProof(array(
+            'application_instance_id' => array_key_exists('application_instance_id', $value) ? $value['application_instance_id'] : null,
+            'local_rp_descriptor' => array_key_exists('local_rp_descriptor', $value) ? self::fromCborSignedLocalRpDescriptor($value['local_rp_descriptor']) : null,
+            'signature' => array_key_exists('signature', $value) ? self::fromCborApplicationKeySignature($value['signature']) : null,
+        ));
+    }
+
+    public static function encodeActAsScopeEntry($value)
+    {
+        return CBOR::encode(self::toCborActAsScopeEntry($value));
+    }
+
+    public static function decodeActAsScopeEntry($bytes)
+    {
+        return self::fromCborActAsScopeEntry(CBOR::decode($bytes));
+    }
+
+    public static function toCborActAsScopeEntry($value)
+    {
+        $out = array();
+        $field = $value instanceof ActAsScopeEntry ? $value->scope : (is_array($value) && array_key_exists('scope', $value) ? $value['scope'] : null);
+        $out['scope'] = $field;
+        $field = $value instanceof ActAsScopeEntry ? $value->description : (is_array($value) && array_key_exists('description', $value) ? $value['description'] : null);
+        if ($field !== null) {
+            $out['description'] = $field;
+        }
+        return $out;
+    }
+
+    public static function fromCborActAsScopeEntry($value)
+    {
+        return new ActAsScopeEntry(array(
+            'scope' => array_key_exists('scope', $value) ? $value['scope'] : null,
+            'description' => array_key_exists('description', $value) ? $value['description'] : null,
+        ));
+    }
+
+    public static function encodeActAsScopeSet($value)
+    {
+        return CBOR::encode(self::toCborActAsScopeSet($value));
+    }
+
+    public static function decodeActAsScopeSet($bytes)
+    {
+        return self::fromCborActAsScopeSet(CBOR::decode($bytes));
+    }
+
+    public static function toCborActAsScopeSet($value)
+    {
+        $out = array();
+        $field = $value instanceof ActAsScopeSet ? $value->audience : (is_array($value) && array_key_exists('audience', $value) ? $value['audience'] : null);
+        $out['audience'] = self::toCborApplicationRef($field);
+        $field = $value instanceof ActAsScopeSet ? $value->grantee : (is_array($value) && array_key_exists('grantee', $value) ? $value['grantee'] : null);
+        $out['grantee'] = self::toCborGranteeRef($field);
+        $field = $value instanceof ActAsScopeSet ? $value->entries : (is_array($value) && array_key_exists('entries', $value) ? $value['entries'] : null);
+        $out['entries'] = array_map(function ($item) { return self::toCborActAsScopeEntry($item); }, $field === null ? array() : $field);
+        $field = $value instanceof ActAsScopeSet ? $value->language : (is_array($value) && array_key_exists('language', $value) ? $value['language'] : null);
+        if ($field !== null) {
+            $out['language'] = $field;
+        }
+        $field = $value instanceof ActAsScopeSet ? $value->audienceHandleClaim : (is_array($value) && array_key_exists('audience_handle_claim', $value) ? $value['audience_handle_claim'] : null);
+        if ($field !== null) {
+            $out['audience_handle_claim'] = self::toCborClaim($field);
+        }
+        $field = $value instanceof ActAsScopeSet ? $value->issuedAt : (is_array($value) && array_key_exists('issued_at', $value) ? $value['issued_at'] : null);
+        $out['issued_at'] = $field;
+        $field = $value instanceof ActAsScopeSet ? $value->expiresAt : (is_array($value) && array_key_exists('expires_at', $value) ? $value['expires_at'] : null);
+        $out['expires_at'] = $field;
+        return $out;
+    }
+
+    public static function fromCborActAsScopeSet($value)
+    {
+        return new ActAsScopeSet(array(
+            'audience' => array_key_exists('audience', $value) ? self::fromCborApplicationRef($value['audience']) : null,
+            'grantee' => array_key_exists('grantee', $value) ? self::fromCborGranteeRef($value['grantee']) : null,
+            'entries' => array_key_exists('entries', $value) ? array_map(function ($item) { return self::fromCborActAsScopeEntry($item); }, $value['entries'] === null ? array() : $value['entries']) : null,
+            'language' => array_key_exists('language', $value) ? $value['language'] : null,
+            'audience_handle_claim' => array_key_exists('audience_handle_claim', $value) ? self::fromCborClaim($value['audience_handle_claim']) : null,
+            'issued_at' => array_key_exists('issued_at', $value) ? $value['issued_at'] : null,
+            'expires_at' => array_key_exists('expires_at', $value) ? $value['expires_at'] : null,
+        ));
+    }
+
+    public static function encodeSignedActAsScopeSet($value)
+    {
+        return CBOR::encode(self::toCborSignedActAsScopeSet($value));
+    }
+
+    public static function decodeSignedActAsScopeSet($bytes)
+    {
+        return self::fromCborSignedActAsScopeSet(CBOR::decode($bytes));
+    }
+
+    public static function toCborSignedActAsScopeSet($value)
+    {
+        $out = array();
+        $field = $value instanceof SignedActAsScopeSet ? $value->scopeSet : (is_array($value) && array_key_exists('scope_set', $value) ? $value['scope_set'] : null);
+        $out['scope_set'] = CBOR::bytes($field);
+        $field = $value instanceof SignedActAsScopeSet ? $value->signerInstanceId : (is_array($value) && array_key_exists('signer_instance_id', $value) ? $value['signer_instance_id'] : null);
+        $out['signer_instance_id'] = $field;
+        $field = $value instanceof SignedActAsScopeSet ? $value->signatures : (is_array($value) && array_key_exists('signatures', $value) ? $value['signatures'] : null);
+        $out['signatures'] = array_map(function ($item) { return self::toCborApplicationKeySignature($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborSignedActAsScopeSet($value)
+    {
+        return new SignedActAsScopeSet(array(
+            'scope_set' => array_key_exists('scope_set', $value) ? $value['scope_set'] : null,
+            'signer_instance_id' => array_key_exists('signer_instance_id', $value) ? $value['signer_instance_id'] : null,
+            'signatures' => array_key_exists('signatures', $value) ? array_map(function ($item) { return self::fromCborApplicationKeySignature($item); }, $value['signatures'] === null ? array() : $value['signatures']) : null,
+        ));
+    }
+
+    public static function encodeActAsScopeSetRequest($value)
+    {
+        return CBOR::encode(self::toCborActAsScopeSetRequest($value));
+    }
+
+    public static function decodeActAsScopeSetRequest($bytes)
+    {
+        return self::fromCborActAsScopeSetRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborActAsScopeSetRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof ActAsScopeSetRequest ? $value->grantee : (is_array($value) && array_key_exists('grantee', $value) ? $value['grantee'] : null);
+        $out['grantee'] = self::toCborGranteeRef($field);
+        $field = $value instanceof ActAsScopeSetRequest ? $value->scope : (is_array($value) && array_key_exists('scope', $value) ? $value['scope'] : null);
+        $out['scope'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        $field = $value instanceof ActAsScopeSetRequest ? $value->localePreferences : (is_array($value) && array_key_exists('locale_preferences', $value) ? $value['locale_preferences'] : null);
+        if ($field !== null) {
+            $out['locale_preferences'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        }
+        return $out;
+    }
+
+    public static function fromCborActAsScopeSetRequest($value)
+    {
+        return new ActAsScopeSetRequest(array(
+            'grantee' => array_key_exists('grantee', $value) ? self::fromCborGranteeRef($value['grantee']) : null,
+            'scope' => array_key_exists('scope', $value) ? array_map(function ($item) { return $item; }, $value['scope'] === null ? array() : $value['scope']) : null,
+            'locale_preferences' => array_key_exists('locale_preferences', $value) ? array_map(function ($item) { return $item; }, $value['locale_preferences'] === null ? array() : $value['locale_preferences']) : null,
+        ));
+    }
+
+    public static function encodeActAsGrant($value)
+    {
+        return CBOR::encode(self::toCborActAsGrant($value));
+    }
+
+    public static function decodeActAsGrant($bytes)
+    {
+        return self::fromCborActAsGrant(CBOR::decode($bytes));
+    }
+
+    public static function toCborActAsGrant($value)
+    {
+        $out = array();
+        $field = $value instanceof ActAsGrant ? $value->grantId : (is_array($value) && array_key_exists('grant_id', $value) ? $value['grant_id'] : null);
+        $out['grant_id'] = $field;
+        $field = $value instanceof ActAsGrant ? $value->userId : (is_array($value) && array_key_exists('user_id', $value) ? $value['user_id'] : null);
+        $out['user_id'] = $field;
+        $field = $value instanceof ActAsGrant ? $value->subjectDomain : (is_array($value) && array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null);
+        $out['subject_domain'] = $field;
+        $field = $value instanceof ActAsGrant ? $value->grantee : (is_array($value) && array_key_exists('grantee', $value) ? $value['grantee'] : null);
+        $out['grantee'] = self::toCborGranteeRef($field);
+        $field = $value instanceof ActAsGrant ? $value->audience : (is_array($value) && array_key_exists('audience', $value) ? $value['audience'] : null);
+        $out['audience'] = self::toCborApplicationRef($field);
+        $field = $value instanceof ActAsGrant ? $value->scopeSet : (is_array($value) && array_key_exists('scope_set', $value) ? $value['scope_set'] : null);
+        $out['scope_set'] = self::toCborSignedActAsScopeSet($field);
+        $field = $value instanceof ActAsGrant ? $value->approvedScope : (is_array($value) && array_key_exists('approved_scope', $value) ? $value['approved_scope'] : null);
+        $out['approved_scope'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        $field = $value instanceof ActAsGrant ? $value->issuedAt : (is_array($value) && array_key_exists('issued_at', $value) ? $value['issued_at'] : null);
+        $out['issued_at'] = $field;
+        $field = $value instanceof ActAsGrant ? $value->expiresAt : (is_array($value) && array_key_exists('expires_at', $value) ? $value['expires_at'] : null);
+        $out['expires_at'] = $field;
+        $field = $value instanceof ActAsGrant ? $value->seriesIssuedAt : (is_array($value) && array_key_exists('series_issued_at', $value) ? $value['series_issued_at'] : null);
+        $out['series_issued_at'] = $field;
+        $field = $value instanceof ActAsGrant ? $value->renewableUntil : (is_array($value) && array_key_exists('renewable_until', $value) ? $value['renewable_until'] : null);
+        $out['renewable_until'] = $field;
+        $field = $value instanceof ActAsGrant ? $value->deviceFingerprint : (is_array($value) && array_key_exists('device_fingerprint', $value) ? $value['device_fingerprint'] : null);
+        if ($field !== null) {
+            $out['device_fingerprint'] = $field;
+        }
+        return $out;
+    }
+
+    public static function fromCborActAsGrant($value)
+    {
+        return new ActAsGrant(array(
+            'grant_id' => array_key_exists('grant_id', $value) ? $value['grant_id'] : null,
+            'user_id' => array_key_exists('user_id', $value) ? $value['user_id'] : null,
+            'subject_domain' => array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null,
+            'grantee' => array_key_exists('grantee', $value) ? self::fromCborGranteeRef($value['grantee']) : null,
+            'audience' => array_key_exists('audience', $value) ? self::fromCborApplicationRef($value['audience']) : null,
+            'scope_set' => array_key_exists('scope_set', $value) ? self::fromCborSignedActAsScopeSet($value['scope_set']) : null,
+            'approved_scope' => array_key_exists('approved_scope', $value) ? array_map(function ($item) { return $item; }, $value['approved_scope'] === null ? array() : $value['approved_scope']) : null,
+            'issued_at' => array_key_exists('issued_at', $value) ? $value['issued_at'] : null,
+            'expires_at' => array_key_exists('expires_at', $value) ? $value['expires_at'] : null,
+            'series_issued_at' => array_key_exists('series_issued_at', $value) ? $value['series_issued_at'] : null,
+            'renewable_until' => array_key_exists('renewable_until', $value) ? $value['renewable_until'] : null,
+            'device_fingerprint' => array_key_exists('device_fingerprint', $value) ? $value['device_fingerprint'] : null,
+        ));
+    }
+
+    public static function encodeSignedActAsGrant($value)
+    {
+        return CBOR::encode(self::toCborSignedActAsGrant($value));
+    }
+
+    public static function decodeSignedActAsGrant($bytes)
+    {
+        return self::fromCborSignedActAsGrant(CBOR::decode($bytes));
+    }
+
+    public static function toCborSignedActAsGrant($value)
+    {
+        $out = array();
+        $field = $value instanceof SignedActAsGrant ? $value->grant : (is_array($value) && array_key_exists('grant', $value) ? $value['grant'] : null);
+        $out['grant'] = CBOR::bytes($field);
+        $field = $value instanceof SignedActAsGrant ? $value->signatures : (is_array($value) && array_key_exists('signatures', $value) ? $value['signatures'] : null);
+        $out['signatures'] = array_map(function ($item) { return self::toCborClaimSignature($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborSignedActAsGrant($value)
+    {
+        return new SignedActAsGrant(array(
+            'grant' => array_key_exists('grant', $value) ? $value['grant'] : null,
+            'signatures' => array_key_exists('signatures', $value) ? array_map(function ($item) { return self::fromCborClaimSignature($item); }, $value['signatures'] === null ? array() : $value['signatures']) : null,
+        ));
+    }
+
+    public static function encodeActAsGrantRequest($value)
+    {
+        return CBOR::encode(self::toCborActAsGrantRequest($value));
+    }
+
+    public static function decodeActAsGrantRequest($bytes)
+    {
+        return self::fromCborActAsGrantRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborActAsGrantRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof ActAsGrantRequest ? $value->grantee : (is_array($value) && array_key_exists('grantee', $value) ? $value['grantee'] : null);
+        $out['grantee'] = self::toCborGranteeRef($field);
+        $field = $value instanceof ActAsGrantRequest ? $value->scopeSet : (is_array($value) && array_key_exists('scope_set', $value) ? $value['scope_set'] : null);
+        $out['scope_set'] = self::toCborSignedActAsScopeSet($field);
+        $field = $value instanceof ActAsGrantRequest ? $value->requestedLifetimeSeconds : (is_array($value) && array_key_exists('requested_lifetime_seconds', $value) ? $value['requested_lifetime_seconds'] : null);
+        if ($field !== null) {
+            $out['requested_lifetime_seconds'] = $field;
+        }
+        $field = $value instanceof ActAsGrantRequest ? $value->requestedRenewalWindowSeconds : (is_array($value) && array_key_exists('requested_renewal_window_seconds', $value) ? $value['requested_renewal_window_seconds'] : null);
+        if ($field !== null) {
+            $out['requested_renewal_window_seconds'] = $field;
+        }
+        $field = $value instanceof ActAsGrantRequest ? $value->granteeHandleClaim : (is_array($value) && array_key_exists('grantee_handle_claim', $value) ? $value['grantee_handle_claim'] : null);
+        if ($field !== null) {
+            $out['grantee_handle_claim'] = self::toCborClaim($field);
+        }
+        $field = $value instanceof ActAsGrantRequest ? $value->callbackUrl : (is_array($value) && array_key_exists('callback_url', $value) ? $value['callback_url'] : null);
+        $out['callback_url'] = $field;
+        $field = $value instanceof ActAsGrantRequest ? $value->nonce : (is_array($value) && array_key_exists('nonce', $value) ? $value['nonce'] : null);
+        $out['nonce'] = $field;
+        $field = $value instanceof ActAsGrantRequest ? $value->requestedAt : (is_array($value) && array_key_exists('requested_at', $value) ? $value['requested_at'] : null);
+        $out['requested_at'] = $field;
+        $field = $value instanceof ActAsGrantRequest ? $value->expiresAt : (is_array($value) && array_key_exists('expires_at', $value) ? $value['expires_at'] : null);
+        $out['expires_at'] = $field;
+        return $out;
+    }
+
+    public static function fromCborActAsGrantRequest($value)
+    {
+        return new ActAsGrantRequest(array(
+            'grantee' => array_key_exists('grantee', $value) ? self::fromCborGranteeRef($value['grantee']) : null,
+            'scope_set' => array_key_exists('scope_set', $value) ? self::fromCborSignedActAsScopeSet($value['scope_set']) : null,
+            'requested_lifetime_seconds' => array_key_exists('requested_lifetime_seconds', $value) ? $value['requested_lifetime_seconds'] : null,
+            'requested_renewal_window_seconds' => array_key_exists('requested_renewal_window_seconds', $value) ? $value['requested_renewal_window_seconds'] : null,
+            'grantee_handle_claim' => array_key_exists('grantee_handle_claim', $value) ? self::fromCborClaim($value['grantee_handle_claim']) : null,
+            'callback_url' => array_key_exists('callback_url', $value) ? $value['callback_url'] : null,
+            'nonce' => array_key_exists('nonce', $value) ? $value['nonce'] : null,
+            'requested_at' => array_key_exists('requested_at', $value) ? $value['requested_at'] : null,
+            'expires_at' => array_key_exists('expires_at', $value) ? $value['expires_at'] : null,
+        ));
+    }
+
+    public static function encodeSignedActAsGrantRequest($value)
+    {
+        return CBOR::encode(self::toCborSignedActAsGrantRequest($value));
+    }
+
+    public static function decodeSignedActAsGrantRequest($bytes)
+    {
+        return self::fromCborSignedActAsGrantRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborSignedActAsGrantRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof SignedActAsGrantRequest ? $value->request : (is_array($value) && array_key_exists('request', $value) ? $value['request'] : null);
+        $out['request'] = CBOR::bytes($field);
+        $field = $value instanceof SignedActAsGrantRequest ? $value->proof : (is_array($value) && array_key_exists('proof', $value) ? $value['proof'] : null);
+        $out['proof'] = self::toCborGranteeProof($field);
+        return $out;
+    }
+
+    public static function fromCborSignedActAsGrantRequest($value)
+    {
+        return new SignedActAsGrantRequest(array(
+            'request' => array_key_exists('request', $value) ? $value['request'] : null,
+            'proof' => array_key_exists('proof', $value) ? self::fromCborGranteeProof($value['proof']) : null,
+        ));
+    }
+
+    public static function encodeActAsRefreshRequest($value)
+    {
+        return CBOR::encode(self::toCborActAsRefreshRequest($value));
+    }
+
+    public static function decodeActAsRefreshRequest($bytes)
+    {
+        return self::fromCborActAsRefreshRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborActAsRefreshRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof ActAsRefreshRequest ? $value->grantId : (is_array($value) && array_key_exists('grant_id', $value) ? $value['grant_id'] : null);
+        $out['grant_id'] = $field;
+        $field = $value instanceof ActAsRefreshRequest ? $value->grantee : (is_array($value) && array_key_exists('grantee', $value) ? $value['grantee'] : null);
+        $out['grantee'] = self::toCborGranteeRef($field);
+        $field = $value instanceof ActAsRefreshRequest ? $value->requestedAt : (is_array($value) && array_key_exists('requested_at', $value) ? $value['requested_at'] : null);
+        $out['requested_at'] = $field;
+        $field = $value instanceof ActAsRefreshRequest ? $value->expiresAt : (is_array($value) && array_key_exists('expires_at', $value) ? $value['expires_at'] : null);
+        $out['expires_at'] = $field;
+        $field = $value instanceof ActAsRefreshRequest ? $value->nonce : (is_array($value) && array_key_exists('nonce', $value) ? $value['nonce'] : null);
+        $out['nonce'] = $field;
+        return $out;
+    }
+
+    public static function fromCborActAsRefreshRequest($value)
+    {
+        return new ActAsRefreshRequest(array(
+            'grant_id' => array_key_exists('grant_id', $value) ? $value['grant_id'] : null,
+            'grantee' => array_key_exists('grantee', $value) ? self::fromCborGranteeRef($value['grantee']) : null,
+            'requested_at' => array_key_exists('requested_at', $value) ? $value['requested_at'] : null,
+            'expires_at' => array_key_exists('expires_at', $value) ? $value['expires_at'] : null,
+            'nonce' => array_key_exists('nonce', $value) ? $value['nonce'] : null,
+        ));
+    }
+
+    public static function encodeSignedActAsRefreshRequest($value)
+    {
+        return CBOR::encode(self::toCborSignedActAsRefreshRequest($value));
+    }
+
+    public static function decodeSignedActAsRefreshRequest($bytes)
+    {
+        return self::fromCborSignedActAsRefreshRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborSignedActAsRefreshRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof SignedActAsRefreshRequest ? $value->request : (is_array($value) && array_key_exists('request', $value) ? $value['request'] : null);
+        $out['request'] = CBOR::bytes($field);
+        $field = $value instanceof SignedActAsRefreshRequest ? $value->proof : (is_array($value) && array_key_exists('proof', $value) ? $value['proof'] : null);
+        $out['proof'] = self::toCborGranteeProof($field);
+        return $out;
+    }
+
+    public static function fromCborSignedActAsRefreshRequest($value)
+    {
+        return new SignedActAsRefreshRequest(array(
+            'request' => array_key_exists('request', $value) ? $value['request'] : null,
+            'proof' => array_key_exists('proof', $value) ? self::fromCborGranteeProof($value['proof']) : null,
+        ));
+    }
+
+    public static function encodeRefreshActAsGrantRequest($value)
+    {
+        return CBOR::encode(self::toCborRefreshActAsGrantRequest($value));
+    }
+
+    public static function decodeRefreshActAsGrantRequest($bytes)
+    {
+        return self::fromCborRefreshActAsGrantRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRefreshActAsGrantRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RefreshActAsGrantRequest ? $value->request : (is_array($value) && array_key_exists('request', $value) ? $value['request'] : null);
+        $out['request'] = self::toCborSignedActAsRefreshRequest($field);
+        return $out;
+    }
+
+    public static function fromCborRefreshActAsGrantRequest($value)
+    {
+        return new RefreshActAsGrantRequest(array(
+            'request' => array_key_exists('request', $value) ? self::fromCborSignedActAsRefreshRequest($value['request']) : null,
+        ));
+    }
+
+    public static function encodeRefreshActAsGrantResponse($value)
+    {
+        return CBOR::encode(self::toCborRefreshActAsGrantResponse($value));
+    }
+
+    public static function decodeRefreshActAsGrantResponse($bytes)
+    {
+        return self::fromCborRefreshActAsGrantResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborRefreshActAsGrantResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof RefreshActAsGrantResponse ? $value->grant : (is_array($value) && array_key_exists('grant', $value) ? $value['grant'] : null);
+        $out['grant'] = self::toCborSignedActAsGrant($field);
+        $field = $value instanceof RefreshActAsGrantResponse ? $value->signed : (is_array($value) && array_key_exists('signed', $value) ? $value['signed'] : null);
+        $out['signed'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRefreshActAsGrantResponse($value)
+    {
+        return new RefreshActAsGrantResponse(array(
+            'grant' => array_key_exists('grant', $value) ? self::fromCborSignedActAsGrant($value['grant']) : null,
+            'signed' => array_key_exists('signed', $value) ? $value['signed'] : null,
+        ));
+    }
+
+    public static function encodeActAsPresentation($value)
+    {
+        return CBOR::encode(self::toCborActAsPresentation($value));
+    }
+
+    public static function decodeActAsPresentation($bytes)
+    {
+        return self::fromCborActAsPresentation(CBOR::decode($bytes));
+    }
+
+    public static function toCborActAsPresentation($value)
+    {
+        $out = array();
+        $field = $value instanceof ActAsPresentation ? $value->grantHash : (is_array($value) && array_key_exists('grant_hash', $value) ? $value['grant_hash'] : null);
+        $out['grant_hash'] = CBOR::bytes($field);
+        $field = $value instanceof ActAsPresentation ? $value->audience : (is_array($value) && array_key_exists('audience', $value) ? $value['audience'] : null);
+        $out['audience'] = self::toCborApplicationRef($field);
+        $field = $value instanceof ActAsPresentation ? $value->requestDigest : (is_array($value) && array_key_exists('request_digest', $value) ? $value['request_digest'] : null);
+        $out['request_digest'] = CBOR::bytes($field);
+        $field = $value instanceof ActAsPresentation ? $value->presentedAt : (is_array($value) && array_key_exists('presented_at', $value) ? $value['presented_at'] : null);
+        $out['presented_at'] = $field;
+        $field = $value instanceof ActAsPresentation ? $value->nonce : (is_array($value) && array_key_exists('nonce', $value) ? $value['nonce'] : null);
+        $out['nonce'] = CBOR::bytes($field);
+        return $out;
+    }
+
+    public static function fromCborActAsPresentation($value)
+    {
+        return new ActAsPresentation(array(
+            'grant_hash' => array_key_exists('grant_hash', $value) ? $value['grant_hash'] : null,
+            'audience' => array_key_exists('audience', $value) ? self::fromCborApplicationRef($value['audience']) : null,
+            'request_digest' => array_key_exists('request_digest', $value) ? $value['request_digest'] : null,
+            'presented_at' => array_key_exists('presented_at', $value) ? $value['presented_at'] : null,
+            'nonce' => array_key_exists('nonce', $value) ? $value['nonce'] : null,
+        ));
+    }
+
+    public static function encodeSignedActAsPresentation($value)
+    {
+        return CBOR::encode(self::toCborSignedActAsPresentation($value));
+    }
+
+    public static function decodeSignedActAsPresentation($bytes)
+    {
+        return self::fromCborSignedActAsPresentation(CBOR::decode($bytes));
+    }
+
+    public static function toCborSignedActAsPresentation($value)
+    {
+        $out = array();
+        $field = $value instanceof SignedActAsPresentation ? $value->presentation : (is_array($value) && array_key_exists('presentation', $value) ? $value['presentation'] : null);
+        $out['presentation'] = CBOR::bytes($field);
+        $field = $value instanceof SignedActAsPresentation ? $value->proof : (is_array($value) && array_key_exists('proof', $value) ? $value['proof'] : null);
+        $out['proof'] = self::toCborGranteeProof($field);
+        return $out;
+    }
+
+    public static function fromCborSignedActAsPresentation($value)
+    {
+        return new SignedActAsPresentation(array(
+            'presentation' => array_key_exists('presentation', $value) ? $value['presentation'] : null,
+            'proof' => array_key_exists('proof', $value) ? self::fromCborGranteeProof($value['proof']) : null,
+        ));
+    }
+
+    public static function encodeActAsCredential($value)
+    {
+        return CBOR::encode(self::toCborActAsCredential($value));
+    }
+
+    public static function decodeActAsCredential($bytes)
+    {
+        return self::fromCborActAsCredential(CBOR::decode($bytes));
+    }
+
+    public static function toCborActAsCredential($value)
+    {
+        $out = array();
+        $field = $value instanceof ActAsCredential ? $value->grant : (is_array($value) && array_key_exists('grant', $value) ? $value['grant'] : null);
+        $out['grant'] = self::toCborSignedActAsGrant($field);
+        $field = $value instanceof ActAsCredential ? $value->presentation : (is_array($value) && array_key_exists('presentation', $value) ? $value['presentation'] : null);
+        $out['presentation'] = self::toCborSignedActAsPresentation($field);
+        return $out;
+    }
+
+    public static function fromCborActAsCredential($value)
+    {
+        return new ActAsCredential(array(
+            'grant' => array_key_exists('grant', $value) ? self::fromCborSignedActAsGrant($value['grant']) : null,
+            'presentation' => array_key_exists('presentation', $value) ? self::fromCborSignedActAsPresentation($value['presentation']) : null,
+        ));
+    }
+
+    public static function encodeActAsGrantRevocation($value)
+    {
+        return CBOR::encode(self::toCborActAsGrantRevocation($value));
+    }
+
+    public static function decodeActAsGrantRevocation($bytes)
+    {
+        return self::fromCborActAsGrantRevocation(CBOR::decode($bytes));
+    }
+
+    public static function toCborActAsGrantRevocation($value)
+    {
+        $out = array();
+        $field = $value instanceof ActAsGrantRevocation ? $value->grantId : (is_array($value) && array_key_exists('grant_id', $value) ? $value['grant_id'] : null);
+        $out['grant_id'] = $field;
+        $field = $value instanceof ActAsGrantRevocation ? $value->userId : (is_array($value) && array_key_exists('user_id', $value) ? $value['user_id'] : null);
+        $out['user_id'] = $field;
+        $field = $value instanceof ActAsGrantRevocation ? $value->subjectDomain : (is_array($value) && array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null);
+        $out['subject_domain'] = $field;
+        $field = $value instanceof ActAsGrantRevocation ? $value->revokedAt : (is_array($value) && array_key_exists('revoked_at', $value) ? $value['revoked_at'] : null);
+        $out['revoked_at'] = $field;
+        return $out;
+    }
+
+    public static function fromCborActAsGrantRevocation($value)
+    {
+        return new ActAsGrantRevocation(array(
+            'grant_id' => array_key_exists('grant_id', $value) ? $value['grant_id'] : null,
+            'user_id' => array_key_exists('user_id', $value) ? $value['user_id'] : null,
+            'subject_domain' => array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null,
+            'revoked_at' => array_key_exists('revoked_at', $value) ? $value['revoked_at'] : null,
+        ));
+    }
+
+    public static function encodeSignedActAsGrantRevocation($value)
+    {
+        return CBOR::encode(self::toCborSignedActAsGrantRevocation($value));
+    }
+
+    public static function decodeSignedActAsGrantRevocation($bytes)
+    {
+        return self::fromCborSignedActAsGrantRevocation(CBOR::decode($bytes));
+    }
+
+    public static function toCborSignedActAsGrantRevocation($value)
+    {
+        $out = array();
+        $field = $value instanceof SignedActAsGrantRevocation ? $value->revocation : (is_array($value) && array_key_exists('revocation', $value) ? $value['revocation'] : null);
+        $out['revocation'] = CBOR::bytes($field);
+        $field = $value instanceof SignedActAsGrantRevocation ? $value->signatures : (is_array($value) && array_key_exists('signatures', $value) ? $value['signatures'] : null);
+        $out['signatures'] = array_map(function ($item) { return self::toCborClaimSignature($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborSignedActAsGrantRevocation($value)
+    {
+        return new SignedActAsGrantRevocation(array(
+            'revocation' => array_key_exists('revocation', $value) ? $value['revocation'] : null,
+            'signatures' => array_key_exists('signatures', $value) ? array_map(function ($item) { return self::fromCborClaimSignature($item); }, $value['signatures'] === null ? array() : $value['signatures']) : null,
+        ));
+    }
+
+    public static function encodeGetActAsGrantRevocationsRequest($value)
+    {
+        return CBOR::encode(self::toCborGetActAsGrantRevocationsRequest($value));
+    }
+
+    public static function decodeGetActAsGrantRevocationsRequest($bytes)
+    {
+        return self::fromCborGetActAsGrantRevocationsRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborGetActAsGrantRevocationsRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof GetActAsGrantRevocationsRequest ? $value->grantIds : (is_array($value) && array_key_exists('grant_ids', $value) ? $value['grant_ids'] : null);
+        $out['grant_ids'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborGetActAsGrantRevocationsRequest($value)
+    {
+        return new GetActAsGrantRevocationsRequest(array(
+            'grant_ids' => array_key_exists('grant_ids', $value) ? array_map(function ($item) { return $item; }, $value['grant_ids'] === null ? array() : $value['grant_ids']) : null,
+        ));
+    }
+
+    public static function encodeGetActAsGrantRevocationsResponse($value)
+    {
+        return CBOR::encode(self::toCborGetActAsGrantRevocationsResponse($value));
+    }
+
+    public static function decodeGetActAsGrantRevocationsResponse($bytes)
+    {
+        return self::fromCborGetActAsGrantRevocationsResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborGetActAsGrantRevocationsResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof GetActAsGrantRevocationsResponse ? $value->revocations : (is_array($value) && array_key_exists('revocations', $value) ? $value['revocations'] : null);
+        $out['revocations'] = array_map(function ($item) { return self::toCborSignedActAsGrantRevocation($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborGetActAsGrantRevocationsResponse($value)
+    {
+        return new GetActAsGrantRevocationsResponse(array(
+            'revocations' => array_key_exists('revocations', $value) ? array_map(function ($item) { return self::fromCborSignedActAsGrantRevocation($item); }, $value['revocations'] === null ? array() : $value['revocations']) : null,
+        ));
+    }
+
+    public static function encodeRpActAsRefreshRequest($value)
+    {
+        return CBOR::encode(self::toCborRpActAsRefreshRequest($value));
+    }
+
+    public static function decodeRpActAsRefreshRequest($bytes)
+    {
+        return self::fromCborRpActAsRefreshRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRpActAsRefreshRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RpActAsRefreshRequest ? $value->subjectDomain : (is_array($value) && array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null);
+        $out['subject_domain'] = $field;
+        $field = $value instanceof RpActAsRefreshRequest ? $value->request : (is_array($value) && array_key_exists('request', $value) ? $value['request'] : null);
+        $out['request'] = self::toCborSignedActAsRefreshRequest($field);
+        return $out;
+    }
+
+    public static function fromCborRpActAsRefreshRequest($value)
+    {
+        return new RpActAsRefreshRequest(array(
+            'subject_domain' => array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null,
+            'request' => array_key_exists('request', $value) ? self::fromCborSignedActAsRefreshRequest($value['request']) : null,
+        ));
+    }
+
+    public static function encodeRpResolveActAsRevocationsRequest($value)
+    {
+        return CBOR::encode(self::toCborRpResolveActAsRevocationsRequest($value));
+    }
+
+    public static function decodeRpResolveActAsRevocationsRequest($bytes)
+    {
+        return self::fromCborRpResolveActAsRevocationsRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRpResolveActAsRevocationsRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RpResolveActAsRevocationsRequest ? $value->subjectDomain : (is_array($value) && array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null);
+        $out['subject_domain'] = $field;
+        $field = $value instanceof RpResolveActAsRevocationsRequest ? $value->grantIds : (is_array($value) && array_key_exists('grant_ids', $value) ? $value['grant_ids'] : null);
+        $out['grant_ids'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborRpResolveActAsRevocationsRequest($value)
+    {
+        return new RpResolveActAsRevocationsRequest(array(
+            'subject_domain' => array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null,
+            'grant_ids' => array_key_exists('grant_ids', $value) ? array_map(function ($item) { return $item; }, $value['grant_ids'] === null ? array() : $value['grant_ids']) : null,
+        ));
+    }
+
+    public static function encodeBrowserActAsInspectRequest($value)
+    {
+        return CBOR::encode(self::toCborBrowserActAsInspectRequest($value));
+    }
+
+    public static function decodeBrowserActAsInspectRequest($bytes)
+    {
+        return self::fromCborBrowserActAsInspectRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborBrowserActAsInspectRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof BrowserActAsInspectRequest ? $value->signedRequest : (is_array($value) && array_key_exists('signed_request', $value) ? $value['signed_request'] : null);
+        $out['signed_request'] = $field;
+        return $out;
+    }
+
+    public static function fromCborBrowserActAsInspectRequest($value)
+    {
+        return new BrowserActAsInspectRequest(array(
+            'signed_request' => array_key_exists('signed_request', $value) ? $value['signed_request'] : null,
+        ));
+    }
+
+    public static function encodeBrowserActAsScopeEntry($value)
+    {
+        return CBOR::encode(self::toCborBrowserActAsScopeEntry($value));
+    }
+
+    public static function decodeBrowserActAsScopeEntry($bytes)
+    {
+        return self::fromCborBrowserActAsScopeEntry(CBOR::decode($bytes));
+    }
+
+    public static function toCborBrowserActAsScopeEntry($value)
+    {
+        $out = array();
+        $field = $value instanceof BrowserActAsScopeEntry ? $value->scope : (is_array($value) && array_key_exists('scope', $value) ? $value['scope'] : null);
+        $out['scope'] = $field;
+        $field = $value instanceof BrowserActAsScopeEntry ? $value->description : (is_array($value) && array_key_exists('description', $value) ? $value['description'] : null);
+        if ($field !== null) {
+            $out['description'] = $field;
+        }
+        $field = $value instanceof BrowserActAsScopeEntry ? $value->removedByPolicy : (is_array($value) && array_key_exists('removed_by_policy', $value) ? $value['removed_by_policy'] : null);
+        $out['removed_by_policy'] = $field;
+        return $out;
+    }
+
+    public static function fromCborBrowserActAsScopeEntry($value)
+    {
+        return new BrowserActAsScopeEntry(array(
+            'scope' => array_key_exists('scope', $value) ? $value['scope'] : null,
+            'description' => array_key_exists('description', $value) ? $value['description'] : null,
+            'removed_by_policy' => array_key_exists('removed_by_policy', $value) ? $value['removed_by_policy'] : null,
+        ));
+    }
+
+    public static function encodeBrowserActAsParty($value)
+    {
+        return CBOR::encode(self::toCborBrowserActAsParty($value));
+    }
+
+    public static function decodeBrowserActAsParty($bytes)
+    {
+        return self::fromCborBrowserActAsParty(CBOR::decode($bytes));
+    }
+
+    public static function toCborBrowserActAsParty($value)
+    {
+        $out = array();
+        $field = $value instanceof BrowserActAsParty ? $value->domain : (is_array($value) && array_key_exists('domain', $value) ? $value['domain'] : null);
+        if ($field !== null) {
+            $out['domain'] = $field;
+        }
+        $field = $value instanceof BrowserActAsParty ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        if ($field !== null) {
+            $out['application_id'] = $field;
+        }
+        $field = $value instanceof BrowserActAsParty ? $value->subjectUserId : (is_array($value) && array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null);
+        if ($field !== null) {
+            $out['subject_user_id'] = $field;
+        }
+        $field = $value instanceof BrowserActAsParty ? $value->handle : (is_array($value) && array_key_exists('handle', $value) ? $value['handle'] : null);
+        if ($field !== null) {
+            $out['handle'] = $field;
+        }
+        $field = $value instanceof BrowserActAsParty ? $value->localRpName : (is_array($value) && array_key_exists('local_rp_name', $value) ? $value['local_rp_name'] : null);
+        if ($field !== null) {
+            $out['local_rp_name'] = $field;
+        }
+        $field = $value instanceof BrowserActAsParty ? $value->localRpFingerprint : (is_array($value) && array_key_exists('local_rp_fingerprint', $value) ? $value['local_rp_fingerprint'] : null);
+        if ($field !== null) {
+            $out['local_rp_fingerprint'] = $field;
+        }
+        $field = $value instanceof BrowserActAsParty ? $value->ownDomain : (is_array($value) && array_key_exists('own_domain', $value) ? $value['own_domain'] : null);
+        $out['own_domain'] = $field;
+        $field = $value instanceof BrowserActAsParty ? $value->userHasHistory : (is_array($value) && array_key_exists('user_has_history', $value) ? $value['user_has_history'] : null);
+        $out['user_has_history'] = $field;
+        $field = $value instanceof BrowserActAsParty ? $value->domainKeyPinned : (is_array($value) && array_key_exists('domain_key_pinned', $value) ? $value['domain_key_pinned'] : null);
+        $out['domain_key_pinned'] = $field;
+        $field = $value instanceof BrowserActAsParty ? $value->operatorTrusted : (is_array($value) && array_key_exists('operator_trusted', $value) ? $value['operator_trusted'] : null);
+        $out['operator_trusted'] = $field;
+        return $out;
+    }
+
+    public static function fromCborBrowserActAsParty($value)
+    {
+        return new BrowserActAsParty(array(
+            'domain' => array_key_exists('domain', $value) ? $value['domain'] : null,
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
+            'subject_user_id' => array_key_exists('subject_user_id', $value) ? $value['subject_user_id'] : null,
+            'handle' => array_key_exists('handle', $value) ? $value['handle'] : null,
+            'local_rp_name' => array_key_exists('local_rp_name', $value) ? $value['local_rp_name'] : null,
+            'local_rp_fingerprint' => array_key_exists('local_rp_fingerprint', $value) ? $value['local_rp_fingerprint'] : null,
+            'own_domain' => array_key_exists('own_domain', $value) ? $value['own_domain'] : null,
+            'user_has_history' => array_key_exists('user_has_history', $value) ? $value['user_has_history'] : null,
+            'domain_key_pinned' => array_key_exists('domain_key_pinned', $value) ? $value['domain_key_pinned'] : null,
+            'operator_trusted' => array_key_exists('operator_trusted', $value) ? $value['operator_trusted'] : null,
+        ));
+    }
+
+    public static function encodeBrowserActAsInspectResponse($value)
+    {
+        return CBOR::encode(self::toCborBrowserActAsInspectResponse($value));
+    }
+
+    public static function decodeBrowserActAsInspectResponse($bytes)
+    {
+        return self::fromCborBrowserActAsInspectResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborBrowserActAsInspectResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof BrowserActAsInspectResponse ? $value->grantee : (is_array($value) && array_key_exists('grantee', $value) ? $value['grantee'] : null);
+        $out['grantee'] = self::toCborGranteeRef($field);
+        $field = $value instanceof BrowserActAsInspectResponse ? $value->granteeParty : (is_array($value) && array_key_exists('grantee_party', $value) ? $value['grantee_party'] : null);
+        $out['grantee_party'] = self::toCborBrowserActAsParty($field);
+        $field = $value instanceof BrowserActAsInspectResponse ? $value->audience : (is_array($value) && array_key_exists('audience', $value) ? $value['audience'] : null);
+        $out['audience'] = self::toCborApplicationRef($field);
+        $field = $value instanceof BrowserActAsInspectResponse ? $value->audienceParty : (is_array($value) && array_key_exists('audience_party', $value) ? $value['audience_party'] : null);
+        $out['audience_party'] = self::toCborBrowserActAsParty($field);
+        $field = $value instanceof BrowserActAsInspectResponse ? $value->entries : (is_array($value) && array_key_exists('entries', $value) ? $value['entries'] : null);
+        $out['entries'] = array_map(function ($item) { return self::toCborBrowserActAsScopeEntry($item); }, $field === null ? array() : $field);
+        $field = $value instanceof BrowserActAsInspectResponse ? $value->language : (is_array($value) && array_key_exists('language', $value) ? $value['language'] : null);
+        if ($field !== null) {
+            $out['language'] = $field;
+        }
+        $field = $value instanceof BrowserActAsInspectResponse ? $value->defaultLifetimeSeconds : (is_array($value) && array_key_exists('default_lifetime_seconds', $value) ? $value['default_lifetime_seconds'] : null);
+        $out['default_lifetime_seconds'] = $field;
+        $field = $value instanceof BrowserActAsInspectResponse ? $value->maxLifetimeSeconds : (is_array($value) && array_key_exists('max_lifetime_seconds', $value) ? $value['max_lifetime_seconds'] : null);
+        $out['max_lifetime_seconds'] = $field;
+        $field = $value instanceof BrowserActAsInspectResponse ? $value->defaultRenewalWindowSeconds : (is_array($value) && array_key_exists('default_renewal_window_seconds', $value) ? $value['default_renewal_window_seconds'] : null);
+        $out['default_renewal_window_seconds'] = $field;
+        $field = $value instanceof BrowserActAsInspectResponse ? $value->maxRenewalWindowSeconds : (is_array($value) && array_key_exists('max_renewal_window_seconds', $value) ? $value['max_renewal_window_seconds'] : null);
+        $out['max_renewal_window_seconds'] = $field;
+        return $out;
+    }
+
+    public static function fromCborBrowserActAsInspectResponse($value)
+    {
+        return new BrowserActAsInspectResponse(array(
+            'grantee' => array_key_exists('grantee', $value) ? self::fromCborGranteeRef($value['grantee']) : null,
+            'grantee_party' => array_key_exists('grantee_party', $value) ? self::fromCborBrowserActAsParty($value['grantee_party']) : null,
+            'audience' => array_key_exists('audience', $value) ? self::fromCborApplicationRef($value['audience']) : null,
+            'audience_party' => array_key_exists('audience_party', $value) ? self::fromCborBrowserActAsParty($value['audience_party']) : null,
+            'entries' => array_key_exists('entries', $value) ? array_map(function ($item) { return self::fromCborBrowserActAsScopeEntry($item); }, $value['entries'] === null ? array() : $value['entries']) : null,
+            'language' => array_key_exists('language', $value) ? $value['language'] : null,
+            'default_lifetime_seconds' => array_key_exists('default_lifetime_seconds', $value) ? $value['default_lifetime_seconds'] : null,
+            'max_lifetime_seconds' => array_key_exists('max_lifetime_seconds', $value) ? $value['max_lifetime_seconds'] : null,
+            'default_renewal_window_seconds' => array_key_exists('default_renewal_window_seconds', $value) ? $value['default_renewal_window_seconds'] : null,
+            'max_renewal_window_seconds' => array_key_exists('max_renewal_window_seconds', $value) ? $value['max_renewal_window_seconds'] : null,
+        ));
+    }
+
+    public static function encodeBrowserActAsCompleteRequest($value)
+    {
+        return CBOR::encode(self::toCborBrowserActAsCompleteRequest($value));
+    }
+
+    public static function decodeBrowserActAsCompleteRequest($bytes)
+    {
+        return self::fromCborBrowserActAsCompleteRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborBrowserActAsCompleteRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof BrowserActAsCompleteRequest ? $value->signedRequest : (is_array($value) && array_key_exists('signed_request', $value) ? $value['signed_request'] : null);
+        $out['signed_request'] = $field;
+        $field = $value instanceof BrowserActAsCompleteRequest ? $value->approvedScope : (is_array($value) && array_key_exists('approved_scope', $value) ? $value['approved_scope'] : null);
+        $out['approved_scope'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        $field = $value instanceof BrowserActAsCompleteRequest ? $value->lifetimeSeconds : (is_array($value) && array_key_exists('lifetime_seconds', $value) ? $value['lifetime_seconds'] : null);
+        $out['lifetime_seconds'] = $field;
+        $field = $value instanceof BrowserActAsCompleteRequest ? $value->renewalWindowSeconds : (is_array($value) && array_key_exists('renewal_window_seconds', $value) ? $value['renewal_window_seconds'] : null);
+        $out['renewal_window_seconds'] = $field;
+        return $out;
+    }
+
+    public static function fromCborBrowserActAsCompleteRequest($value)
+    {
+        return new BrowserActAsCompleteRequest(array(
+            'signed_request' => array_key_exists('signed_request', $value) ? $value['signed_request'] : null,
+            'approved_scope' => array_key_exists('approved_scope', $value) ? array_map(function ($item) { return $item; }, $value['approved_scope'] === null ? array() : $value['approved_scope']) : null,
+            'lifetime_seconds' => array_key_exists('lifetime_seconds', $value) ? $value['lifetime_seconds'] : null,
+            'renewal_window_seconds' => array_key_exists('renewal_window_seconds', $value) ? $value['renewal_window_seconds'] : null,
+        ));
+    }
+
+    public static function encodeBrowserActAsCompleteResponse($value)
+    {
+        return CBOR::encode(self::toCborBrowserActAsCompleteResponse($value));
+    }
+
+    public static function decodeBrowserActAsCompleteResponse($bytes)
+    {
+        return self::fromCborBrowserActAsCompleteResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborBrowserActAsCompleteResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof BrowserActAsCompleteResponse ? $value->redirectUrl : (is_array($value) && array_key_exists('redirect_url', $value) ? $value['redirect_url'] : null);
+        $out['redirect_url'] = $field;
+        return $out;
+    }
+
+    public static function fromCborBrowserActAsCompleteResponse($value)
+    {
+        return new BrowserActAsCompleteResponse(array(
+            'redirect_url' => array_key_exists('redirect_url', $value) ? $value['redirect_url'] : null,
+        ));
+    }
+
+    public static function encodeActAsGrantSummary($value)
+    {
+        return CBOR::encode(self::toCborActAsGrantSummary($value));
+    }
+
+    public static function decodeActAsGrantSummary($bytes)
+    {
+        return self::fromCborActAsGrantSummary(CBOR::decode($bytes));
+    }
+
+    public static function toCborActAsGrantSummary($value)
+    {
+        $out = array();
+        $field = $value instanceof ActAsGrantSummary ? $value->grantId : (is_array($value) && array_key_exists('grant_id', $value) ? $value['grant_id'] : null);
+        $out['grant_id'] = $field;
+        $field = $value instanceof ActAsGrantSummary ? $value->grantee : (is_array($value) && array_key_exists('grantee', $value) ? $value['grantee'] : null);
+        $out['grantee'] = self::toCborGranteeRef($field);
+        $field = $value instanceof ActAsGrantSummary ? $value->audience : (is_array($value) && array_key_exists('audience', $value) ? $value['audience'] : null);
+        $out['audience'] = self::toCborApplicationRef($field);
+        $field = $value instanceof ActAsGrantSummary ? $value->approvedScope : (is_array($value) && array_key_exists('approved_scope', $value) ? $value['approved_scope'] : null);
+        $out['approved_scope'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        $field = $value instanceof ActAsGrantSummary ? $value->issuedAt : (is_array($value) && array_key_exists('issued_at', $value) ? $value['issued_at'] : null);
+        $out['issued_at'] = $field;
+        $field = $value instanceof ActAsGrantSummary ? $value->expiresAt : (is_array($value) && array_key_exists('expires_at', $value) ? $value['expires_at'] : null);
+        $out['expires_at'] = $field;
+        $field = $value instanceof ActAsGrantSummary ? $value->renewableUntil : (is_array($value) && array_key_exists('renewable_until', $value) ? $value['renewable_until'] : null);
+        $out['renewable_until'] = $field;
+        $field = $value instanceof ActAsGrantSummary ? $value->revokedAt : (is_array($value) && array_key_exists('revoked_at', $value) ? $value['revoked_at'] : null);
+        if ($field !== null) {
+            $out['revoked_at'] = $field;
+        }
+        return $out;
+    }
+
+    public static function fromCborActAsGrantSummary($value)
+    {
+        return new ActAsGrantSummary(array(
+            'grant_id' => array_key_exists('grant_id', $value) ? $value['grant_id'] : null,
+            'grantee' => array_key_exists('grantee', $value) ? self::fromCborGranteeRef($value['grantee']) : null,
+            'audience' => array_key_exists('audience', $value) ? self::fromCborApplicationRef($value['audience']) : null,
+            'approved_scope' => array_key_exists('approved_scope', $value) ? array_map(function ($item) { return $item; }, $value['approved_scope'] === null ? array() : $value['approved_scope']) : null,
+            'issued_at' => array_key_exists('issued_at', $value) ? $value['issued_at'] : null,
+            'expires_at' => array_key_exists('expires_at', $value) ? $value['expires_at'] : null,
+            'renewable_until' => array_key_exists('renewable_until', $value) ? $value['renewable_until'] : null,
+            'revoked_at' => array_key_exists('revoked_at', $value) ? $value['revoked_at'] : null,
+        ));
+    }
+
+    public static function encodeListActAsGrantsResponse($value)
+    {
+        return CBOR::encode(self::toCborListActAsGrantsResponse($value));
+    }
+
+    public static function decodeListActAsGrantsResponse($bytes)
+    {
+        return self::fromCborListActAsGrantsResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborListActAsGrantsResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof ListActAsGrantsResponse ? $value->grants : (is_array($value) && array_key_exists('grants', $value) ? $value['grants'] : null);
+        $out['grants'] = array_map(function ($item) { return self::toCborActAsGrantSummary($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborListActAsGrantsResponse($value)
+    {
+        return new ListActAsGrantsResponse(array(
+            'grants' => array_key_exists('grants', $value) ? array_map(function ($item) { return self::fromCborActAsGrantSummary($item); }, $value['grants'] === null ? array() : $value['grants']) : null,
+        ));
+    }
+
+    public static function encodeRevokeActAsGrantRequest($value)
+    {
+        return CBOR::encode(self::toCborRevokeActAsGrantRequest($value));
+    }
+
+    public static function decodeRevokeActAsGrantRequest($bytes)
+    {
+        return self::fromCborRevokeActAsGrantRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRevokeActAsGrantRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RevokeActAsGrantRequest ? $value->grantId : (is_array($value) && array_key_exists('grant_id', $value) ? $value['grant_id'] : null);
+        $out['grant_id'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRevokeActAsGrantRequest($value)
+    {
+        return new RevokeActAsGrantRequest(array(
+            'grant_id' => array_key_exists('grant_id', $value) ? $value['grant_id'] : null,
+        ));
+    }
+
+    public static function encodeRevokeActAsGrantResponse($value)
+    {
+        return CBOR::encode(self::toCborRevokeActAsGrantResponse($value));
+    }
+
+    public static function decodeRevokeActAsGrantResponse($bytes)
+    {
+        return self::fromCborRevokeActAsGrantResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborRevokeActAsGrantResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof RevokeActAsGrantResponse ? $value->revokedAt : (is_array($value) && array_key_exists('revoked_at', $value) ? $value['revoked_at'] : null);
+        $out['revoked_at'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRevokeActAsGrantResponse($value)
+    {
+        return new RevokeActAsGrantResponse(array(
+            'revoked_at' => array_key_exists('revoked_at', $value) ? $value['revoked_at'] : null,
+        ));
+    }
+
 }

@@ -25,7 +25,11 @@
 //     userDomain: 'example.com',
 //     now: DateTime.now().toUtc()));
 // // App: persist begun.pending (e.g. in a server-side session), then
-// // redirect the browser to begun.redirect.redirectUrl.
+// // redirect the browser to begun.redirect.redirectUrl. beginLocalLogin
+// // discovers the browser host from the `https=` value of
+// // `_linkkeys_apis.<domain>` (one DNS TXT lookup; inject a resolver with
+// // BeginLocalLoginConfig.dns). It falls back to `https://<domain>` when
+// // discovery fails.
 //
 // // On callback (app's HTTP handler received `arrivedUrl` with an
 // // `encrypted_token=` query parameter):
@@ -66,13 +70,19 @@
 //     reading `/etc/resolv.conf`; LAN resolver spoofing is an accepted,
 //     documented tradeoff for this mode. Inject a hardened `DnsResolver` if
 //     your deployment needs more.
+//   * `beginLocalLogin` uses the `_linkkeys_apis` `https=` endpoint as the
+//     browser host only. `PendingLogin.userDomain` stays the identity
+//     domain, so verification never binds to the discovered host
+//     (`browser.dart`).
 library;
 
 import 'identity.dart';
 import 'local_rp.dart';
 import 'wire/codec.dart';
 
-export 'begin.dart';
+export 'act_as.dart' hide refreshActAsGrantForTesting;
+export 'begin.dart' hide parseIdentityInput, validateCallbackScheme;
+export 'browser.dart';
 export 'claims.dart'
     show
         ClaimSpec,
@@ -120,6 +130,7 @@ export 'rpc/address_policy.dart';
 export 'rpc/rpc_client.dart' show DomainEndpoint, discoverDomainEndpoint;
 export 'rpc/std_transport.dart';
 export 'rpc/transport.dart';
+export 'wire/act_as_wire.dart';
 export 'wire/types.dart';
 
 /// `check_expirations(identity, now) -> ExpirationStatus` (design doc, "SDK

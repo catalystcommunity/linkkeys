@@ -1,7 +1,5 @@
 package community.catalyst.linkkeys.localrp;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -9,6 +7,7 @@ import java.util.List;
 
 import community.catalyst.linkkeys.localrp.Identity.LocalRpKeyMaterial;
 import community.catalyst.linkkeys.localrp.crypto.Crypto;
+import community.catalyst.linkkeys.localrp.dns.DnsResolver;
 import community.catalyst.linkkeys.localrp.wire.Cbor;
 import community.catalyst.linkkeys.localrp.wire.Types.LocalRpLoginRequest;
 import community.catalyst.linkkeys.localrp.wire.Types.SignedLocalRpLoginRequest;
@@ -16,10 +15,17 @@ import community.catalyst.linkkeys.localrp.wire.Types.SignedLocalRpLoginRequest;
 /**
  * {@code begin_local_login} (design doc: "SDK API Shape", "Flow" steps 4-6).
  *
- * <p>Pure/offline: no network access happens here. It generates a fresh
- * nonce/state, builds and signs a {@code LocalRpLoginRequest} around the
- * identity's already-signed descriptor, and returns a redirect URL plus the
- * pending-login state the app must persist and treat as single-use.
+ * <p>It generates a fresh nonce/state, builds and signs a
+ * {@code LocalRpLoginRequest} around the identity's already-signed
+ * descriptor, and returns a redirect URL plus the pending-login state the
+ * app must persist and treat as single-use.
+ *
+ * <p>The signing work is pure/offline. The one network touch is a DNS TXT
+ * lookup of {@code _linkkeys_apis.<userDomain>} to discover the
+ * browser-facing HTTPS endpoint (the identity domain is a trust domain, not
+ * necessarily the host serving the login routes &mdash; see {@link Browser}).
+ * The resolver is injectable via {@link BeginLocalLoginConfig#dns}; on any
+ * discovery failure the redirect falls back to {@code https://<userDomain>}.
  */
 public final class Begin {
     private Begin() {}
@@ -43,6 +49,14 @@ public final class Begin {
         public List<String> requiredClaims;
         public Duration requestLifetime;
         public final Instant now;
+        /**
+         * The DNS TXT lookup seam for browser endpoint discovery
+         * ({@code _linkkeys_apis.<userDomain>}, its {@code https=} endpoint).
+         * {@code null} (the default) selects
+         * {@link LinkKeysLocalRp#defaultDnsResolver()}, the same default as
+         * {@code Complete.CompleteLocalLoginConfig.dns}.
+         */
+        public DnsResolver dns;
 
         public BeginLocalLoginConfig(LocalRpKeyMaterial keyMaterial, String callbackUrl, String userDomain, Instant now) {
             this.keyMaterial = keyMaterial;
@@ -112,16 +126,16 @@ public final class Begin {
 
     public record BeginResult(LocalLoginRedirect redirect, PendingLogin pending) {}
 
-    private static void validateCallbackScheme(String url) {
+    static void validateCallbackScheme(String url) {
         if (!(url.startsWith("http://") || url.startsWith("https://"))) {
             throw new SdkException(
                     SdkException.Kind.INVALID_INPUT, "callback_url must be http:// or https://, got: " + url);
         }
     }
 
-    private record IdentityInput(String username, String domain) {}
+    record IdentityInput(String username, String domain) {}
 
-    private static IdentityInput parseIdentityInput(String value) {
+    static IdentityInput parseIdentityInput(String value) {
         String identity = value == null ? "" : value.trim();
         if (!identity.matches("[\\x00-\\x7F]+") || identity.chars().filter(c -> c == '@').count() > 1) invalidIdentity();
         int separator = identity.indexOf('@');
@@ -161,6 +175,12 @@ public final class Begin {
      * and signs a {@code LocalRpLoginRequest} around the identity's
      * descriptor, and returns the full redirect URL plus the pending-login
      * state.
+     *
+     * <p>The redirect host comes from {@code _linkkeys_apis.<userDomain>}
+     * discovery ({@link Browser#resolveBrowserBase}), with a fallback to the
+     * identity domain itself. {@link PendingLogin#userDomain()} stays the
+     * identity domain &mdash; verification is bound to it, never to the
+     * discovered service host.
      */
     public static BeginResult beginLocalLogin(BeginLocalLoginConfig config) {
         validateCallbackScheme(config.callbackUrl);
@@ -188,10 +208,16 @@ public final class Begin {
 
         String encoded = Encoding.signedLocalRpLoginRequestToUrlParam(signed);
 
-        // Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>".
-        String redirectUrl = "https://" + identity.domain() + "/auth/local-rp?signed_request=" + encoded;
+        // Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>"
+        // -- mirrors the existing GET /auth/authorize?signed_request=... shape.
+        // The host comes from `_linkkeys_apis.<userDomain>` discovery (with a
+        // fallback to the identity domain itself); PendingLogin.userDomain
+        // stays the identity domain -- verification is bound to it, never to
+        // the discovered service host.
+        DnsResolver dns = config.dns != null ? config.dns : LinkKeysLocalRp.defaultDnsResolver();
+        String redirectUrl = Browser.resolveBrowserEndpoint(dns, identity.domain(), Browser.BROWSER_ROUTE_LOCAL_RP, encoded);
         if (identity.username() != null) {
-            redirectUrl += "&username=" + URLEncoder.encode(identity.username(), StandardCharsets.UTF_8).replace("+", "%20");
+            redirectUrl = Browser.appendQueryParam(redirectUrl, "username", identity.username());
         }
 
         return new BeginResult(

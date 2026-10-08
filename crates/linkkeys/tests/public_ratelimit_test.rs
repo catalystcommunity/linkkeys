@@ -1,6 +1,6 @@
 //! Black-box tests for `services::public_ratelimit`: bounded abuse controls
 //! for the ANONYMOUS public-key read surface (domain-key, application-key,
-//! and revocation reads share this one budget). See `signing-things-request.md`,
+//! and revocation reads share this one budget). See `docs/application-keys.md`,
 //! "Public-key rate limits and DDoS protection".
 //!
 //! These tests only use the module's public API — the same surface the TCP

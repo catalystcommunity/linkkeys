@@ -56,6 +56,9 @@
  * };
  * lrp_begin_local_login(&begin_cfg, &redirect, &pending, &err);
  * // ... app: persist `pending`, redirect the browser to redirect.redirect_url ...
+ * // begin discovers the browser host from `_linkkeys_apis.<domain>` (its
+ * // https= endpoint) and falls back to https://<domain>; set
+ * // begin_cfg.dns to inject a resolver (NULL = system resolver).
  *
  * lrp_verified_login verified = {0};
  * lrp_complete_login_config complete_cfg = {
@@ -288,6 +291,12 @@ typedef struct lrp_begin_login_config {
     /* Login-request lifetime in seconds. 0 => default 300 (5 minutes). */
     int64_t request_lifetime_seconds;
     int64_t now_unix;
+    /* DNS TXT lookup seam for browser endpoint discovery
+     * (`_linkkeys_apis.<user_domain>`, its https= endpoint). NULL => the
+     * library default (system resolver via libresolv), same seam as
+     * lrp_complete_login_config.dns. Inject a fake in tests (no live DNS)
+     * or a hardened resolver in production. */
+    struct lrp_dns_resolver *dns;
 } lrp_begin_login_config;
 
 int lrp_begin_local_login(const lrp_begin_login_config *config,
@@ -349,6 +358,46 @@ typedef struct lrp_dns_resolver {
  * "Decided" section (system resolver default; LAN spoofing is an accepted,
  * documented tradeoff for this mode). */
 lrp_dns_resolver lrp_default_dns_resolver(void);
+
+/* --------------------------------------------------------------------- */
+/* Browser endpoint discovery                                            */
+/* --------------------------------------------------------------------- */
+
+/* The identity domain (the domain the user selected) is a trust and
+ * discovery domain. It is not necessarily the host that serves the browser
+ * login routes: the https= endpoint of `_linkkeys_apis.<identity-domain>`
+ * is (docs/spec/trust-and-anchors.md). lrp_begin_local_login composes the
+ * two helpers below with route LRP_BROWSER_ROUTE_LOCAL_RP; regular-RP glue
+ * can use them with LRP_BROWSER_ROUTE_AUTHORIZE. */
+
+/* Browser route for the DNS-less local-RP login flow. */
+#define LRP_BROWSER_ROUTE_LOCAL_RP "/auth/local-rp"
+/* Browser route for the regular (domain-keyed) RP login flow. */
+#define LRP_BROWSER_ROUTE_AUTHORIZE "/auth/authorize"
+
+/* Resolve identity_domain's browser-facing HTTPS base URL (e.g.
+ * "https://linkkeys.example.com" or "https://login.example.com/linkkeys")
+ * from its `_linkkeys_apis.<identity_domain>` TXT record: the first
+ * LinkKeys v1 record whose https= endpoint is a valid base (https only, a
+ * host, an optional path prefix, no userinfo/query/fragment). Invalid
+ * records and records without https= are skipped. Fails (LRP_ERR_DNS)
+ * when the lookup fails or no record yields a valid base; the caller
+ * decides the fallback. The result is a service location only — never
+ * bind trust decisions to it. Free with lrp_str_free. */
+int lrp_resolve_browser_base(lrp_dns_resolver *dns, const char *identity_domain, lrp_str *out,
+                             lrp_error *err);
+
+/* Build the full browser URL for `route` (e.g. LRP_BROWSER_ROUTE_LOCAL_RP)
+ * under browser_base, carrying signed_request as the `signed_request`
+ * query parameter. A path prefix in the base is preserved:
+ * "https://login.example.com/linkkeys" + "/auth/local-rp" =>
+ * "https://login.example.com/linkkeys/auth/local-rp?signed_request=...".
+ * The value is percent-encoded with the unreserved set; base64url (the
+ * signed_request encoding) passes through byte-identically. Fails on a
+ * non-https or otherwise invalid base, or a route without a leading '/'.
+ * Free with lrp_str_free. */
+int lrp_build_browser_endpoint(const char *browser_base, const char *route,
+                               const char *signed_request, lrp_str *out, lrp_error *err);
 
 /* --------------------------------------------------------------------- */
 /* complete_local_login                                                  */
@@ -416,6 +465,146 @@ typedef struct lrp_complete_login_config {
 
 int lrp_complete_local_login(const lrp_complete_login_config *config,
                               lrp_verified_login *out, lrp_error *err);
+
+/* --------------------------------------------------------------------- */
+/* Act-as grants (grantee side only)                                     */
+/* --------------------------------------------------------------------- */
+
+/* docs/spec/reserved/act-as-grants.md (Reserved). A user lets this local
+ * RP (the grantee) act as the user at an enrolled application (the
+ * audience). A local RP can be a grantee only after its home domain
+ * approved it. A local RP can never be an audience: a peer cannot resolve
+ * its keys through DNS. Every grantee signature is made with the
+ * identity's descriptor signing key over CBOR([tag, payload_bytes]). */
+
+/* Browser route for the act-as consent flow. */
+#define LRP_BROWSER_ROUTE_ACT_AS "/auth/act-as"
+/* Default and largest grant-request window, in seconds. */
+#define LRP_ACT_AS_DEFAULT_REQUEST_WINDOW_SECONDS 300
+#define LRP_ACT_AS_MAX_REQUEST_WINDOW_SECONDS 900
+/* Window of a refresh request, in seconds. */
+#define LRP_ACT_AS_REFRESH_WINDOW_SECONDS 300
+
+/* An enrolled application, as an application-key attestation binds it.
+ * Borrowed strings; all three are required. */
+typedef struct lrp_application_ref {
+    const char *subject_user_id;
+    const char *subject_domain;
+    const char *application_id;
+} lrp_application_ref;
+
+typedef struct lrp_act_as_redirect {
+    lrp_str redirect_url;
+} lrp_act_as_redirect;
+
+void lrp_act_as_redirect_free(lrp_act_as_redirect *r);
+
+/* State lrp_begin_act_as returns. The app persists it and passes it to
+ * lrp_complete_act_as_callback. Single-use: discard it after one callback.
+ * `nonce` is the base64url text nonce the request carried; `user_domain`
+ * is the identity domain (use it for lrp_refresh_act_as_grant). */
+typedef struct lrp_pending_act_as {
+    lrp_str nonce;
+    lrp_str user_domain;
+    lrp_str callback_url;
+} lrp_pending_act_as;
+
+void lrp_pending_act_as_free(lrp_pending_act_as *p);
+
+typedef struct lrp_begin_act_as_config {
+    const lrp_identity *identity; /* required */
+    /* Required: "user@domain" or "domain", parsed like begin_local_login. */
+    const char *user_domain;
+    /* Required: CBOR of the SignedActAsScopeSet exactly as received from
+     * the audience. It is decoded and embedded unchanged. */
+    const uint8_t *scope_set_cbor;
+    size_t scope_set_cbor_len;
+    /* Optional requested lifetime (> 0) and renewal window (>= 0). A field
+     * is sent only when its has_ flag is non-zero. */
+    int has_requested_lifetime;
+    int64_t requested_lifetime_seconds;
+    int has_requested_renewal_window;
+    int64_t requested_renewal_window_seconds;
+    const char *callback_url; /* required, http:// or https:// */
+    int64_t now_unix;
+    /* DNS seam for browser endpoint discovery. NULL => system resolver. */
+    lrp_dns_resolver *dns;
+    /* Request window in seconds. 0 => 300. Larger than 900 is refused. */
+    int64_t request_window_seconds;
+} lrp_begin_act_as_config;
+
+/* Build and sign an ActAsGrantRequest and return the browser redirect
+ * (<discovered browser base>/auth/act-as?signed_request=...) plus the
+ * pending state. Discovery and fallback match lrp_begin_local_login. */
+int lrp_begin_act_as(const lrp_begin_act_as_config *config, lrp_act_as_redirect *out_redirect,
+                     lrp_pending_act_as *out_pending, lrp_error *err);
+
+/* Read act_as_grant_id and nonce from the callback (a full URL or a bare
+ * query string). The nonce must equal pending->nonce (constant-time
+ * compare). On success *out_grant_id is the grant id (free with
+ * lrp_str_free). LRP_ERR_INVALID_INPUT for a missing or repeated
+ * parameter, LRP_ERR_VERIFICATION for a nonce mismatch. */
+int lrp_complete_act_as_callback(const lrp_pending_act_as *pending, const char *callback,
+                                 lrp_str *out_grant_id, lrp_error *err);
+
+/* A SignedActAsGrant as canonical CBOR bytes. */
+typedef struct lrp_act_as_grant {
+    lrp_bytes signed_grant_cbor;
+    /* Non-zero when the home domain made a new signature for this call. */
+    int newly_signed;
+} lrp_act_as_grant;
+
+void lrp_act_as_grant_free(lrp_act_as_grant *g);
+
+typedef struct lrp_refresh_act_as_config {
+    const lrp_identity *identity; /* required */
+    const char *user_domain;      /* required: the identity domain (or user@domain) */
+    const char *grant_id;         /* required */
+    int64_t now_unix;
+    /* Network seams. NULL => library defaults (real TCP + system resolver). */
+    lrp_transport *transport;
+    lrp_dns_resolver *dns;
+} lrp_refresh_act_as_config;
+
+/* Fetch or renew the grant: TCP CSIL-RPC ActAs/refresh-grant on the
+ * user's home domain, through the same DNS discovery and fp= pinned TLS as
+ * claim-ticket redemption. The returned grant must name grant_id and this
+ * local RP as grantee. The grant is not verified here: the audience
+ * verifies it. */
+int lrp_refresh_act_as_grant(const lrp_refresh_act_as_config *config, lrp_act_as_grant *out,
+                             lrp_error *err);
+
+typedef struct lrp_act_as_present_config {
+    const lrp_identity *identity; /* required */
+    /* Required: CBOR of the SignedActAsGrant (e.g. lrp_act_as_grant). */
+    const uint8_t *signed_grant_cbor;
+    size_t signed_grant_cbor_len;
+    lrp_application_ref audience; /* required */
+    /* The audience protocol defines the digest. May be empty. */
+    const uint8_t *request_digest;
+    size_t request_digest_len;
+    /* Required, non-empty. Use fresh random bytes per call. */
+    const uint8_t *nonce;
+    size_t nonce_len;
+    int64_t now_unix;
+} lrp_act_as_present_config;
+
+typedef struct lrp_act_as_credential {
+    /* CBOR(ActAsCredential): send this to the audience. */
+    lrp_bytes credential_cbor;
+    /* CBOR(ActAsPresentation): the signed presentation payload. */
+    lrp_bytes presentation_cbor;
+    /* SHA-256 of SignedActAsGrant.grant. */
+    uint8_t grant_hash[32];
+} lrp_act_as_credential;
+
+void lrp_act_as_credential_free(lrp_act_as_credential *c);
+
+/* Sign one presentation of the grant to the audience and return the
+ * ActAsCredential. presented_at is now_unix as whole-second RFC3339 UTC
+ * ending in "Z". */
+int lrp_act_as_present(const lrp_act_as_present_config *config, lrp_act_as_credential *out,
+                       lrp_error *err);
 
 #ifdef __cplusplus
 }

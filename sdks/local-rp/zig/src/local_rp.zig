@@ -185,7 +185,7 @@ pub fn checkExpirationsAt(expires_at: []const u8, now: i64) !ExpirationStatus {
 /// itself is not secret (an attacker already knows this protocol's nonce/
 /// state are 32 bytes), and any other length falls back to a manual
 /// constant-time accumulator rather than ever branching on byte content.
-fn timingSafeEqlBytes(a: []const u8, b: []const u8) bool {
+pub fn timingSafeEqlBytes(a: []const u8, b: []const u8) bool {
     if (a.len != b.len) return false;
     if (a.len == 32) {
         return std.crypto.utils.timingSafeEql([32]u8, a[0..32].*, b[0..32].*);

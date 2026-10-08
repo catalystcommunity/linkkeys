@@ -250,12 +250,20 @@ fn runScenario(a: std.mem.Allocator, sc: Mutators) !lrp.VerifiedLocalLogin {
     const now: i64 = try lrp.local_rp.parseTimestamp("2026-06-01T00:00:00Z");
     const key_material = try fixedKeyMaterial(a, now);
 
+    // begin's `_linkkeys_apis` browser discovery gets a canned tcp-only
+    // answer (no `https=`), so it falls back to the identity domain and
+    // never touches live DNS from this test.
+    var begin_dns = FakeDnsResolver{
+        .linkkeys_txt = "",
+        .apis_txt = "v=lk1 tcp=127.0.0.1:1",
+    };
     const begin_result = try lrp.beginLocalLogin(a, .{
         .key_material = key_material,
         .callback_url = callback_url,
         .user_domain = user_domain,
         .required_claims = sc.required_claims,
         .now = now,
+        .dns = begin_dns.resolver(),
     });
     const pending = begin_result.pending;
 

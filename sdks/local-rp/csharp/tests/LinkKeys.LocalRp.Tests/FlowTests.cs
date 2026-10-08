@@ -29,6 +29,13 @@ namespace LinkKeys.LocalRp.Tests;
 /// </summary>
 public class FlowTests
 {
+    /// <summary>Fails every TXT lookup, so <see cref="Begin.BeginLocalLogin"/> takes its identity-domain fallback offline.</summary>
+    private sealed class NoRecordsDnsResolver : LinkKeys.LocalRp.Dns.IDnsResolver
+    {
+        public IReadOnlyList<string> TxtLookup(string name) =>
+            throw new SdkException(SdkException.ErrorKind.Dns, $"no DNS in flow tests: {name}");
+    }
+
     private const string UserDomain = "example.test";
     private const string CallbackUrl = "http://localhost/callback";
     private const string DomainKeyId = "test-domain-key-1";
@@ -110,7 +117,11 @@ public class FlowTests
         var now = DateTimeOffset.UtcNow;
         var keyMaterial = FixedKeyMaterial(now);
 
-        var begun = Begin.BeginLocalLogin(new Begin.BeginLocalLoginConfig(keyMaterial, CallbackUrl, UserDomain, now));
+        // Browser endpoint discovery is out of scope here (BrowserTests covers it); fail
+        // the lookup so begin takes its https://<UserDomain> fallback without a live DNS
+        // request (and without consuming one of the rotating resolver's apis answers).
+        var begun = Begin.BeginLocalLogin(new Begin.BeginLocalLoginConfig(
+            keyMaterial, CallbackUrl, UserDomain, now, Dns: new NoRecordsDnsResolver()));
         var pending = begun.Pending;
 
         var domainSigning = Crypto.Crypto.GenerateEd25519KeyPair();

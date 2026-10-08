@@ -49,6 +49,9 @@ test {
     // only a test-time convenience mirroring the TypeScript SDK's approach.
     systemProperty 'linkkeys.conformanceDir',
         layout.projectDirectory.dir('../conformance').asFile.absolutePath
+    // Act-as grantee vectors live with the regular-RP conformance set.
+    systemProperty 'linkkeys.regularRpConformanceDir',
+        layout.projectDirectory.dir('../../regular-rp/conformance').asFile.absolutePath
 }
 
 tasks.withType(JavaCompile).configureEach {

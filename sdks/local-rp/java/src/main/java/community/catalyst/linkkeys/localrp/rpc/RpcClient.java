@@ -22,7 +22,10 @@ import community.catalyst.linkkeys.localrp.wire.Types.GetDomainKeysResponse;
 import community.catalyst.linkkeys.localrp.wire.Types.GetRevocationsRequest;
 import community.catalyst.linkkeys.localrp.wire.Types.GetRevocationsResponse;
 import community.catalyst.linkkeys.localrp.wire.Types.LocalRpTicketRedemptionResponse;
+import community.catalyst.linkkeys.localrp.wire.Types.RefreshActAsGrantRequest;
+import community.catalyst.linkkeys.localrp.wire.Types.RefreshActAsGrantResponse;
 import community.catalyst.linkkeys.localrp.wire.Types.RevocationCertificate;
+import community.catalyst.linkkeys.localrp.wire.Types.SignedActAsRefreshRequest;
 import community.catalyst.linkkeys.localrp.wire.Types.SignedLocalRpTicketRedemptionRequest;
 
 /**
@@ -191,5 +194,20 @@ public final class RpcClient {
         byte[] payload = Codec.encodeSignedLocalRpTicketRedemptionRequest(signedRequest);
         byte[] respBytes = call(transport, endpoint, "LocalRp", "redeem-claim-ticket", payload);
         return Codec.decodeLocalRpTicketRedemptionResponse(respBytes);
+    }
+
+    /**
+     * Fetch or renew an act-as grant with {@code domain}'s home domain:
+     * {@code ActAs/refresh-grant} over TCP CSIL-RPC, pinned via the domain's
+     * DNS {@code fp=} set &mdash; the same discovery and pinned transport as
+     * {@link #redeemClaimTicket}. The signed refresh request is the
+     * possession proof; the TLS layer carries no client certificate.
+     */
+    public static RefreshActAsGrantResponse refreshActAsGrant(
+            Transport transport, DnsResolver dns, String domain, SignedActAsRefreshRequest signedRequest) {
+        DomainEndpoint endpoint = discoverDomainEndpoint(dns, domain);
+        byte[] payload = Codec.encodeRefreshActAsGrantRequest(new RefreshActAsGrantRequest(signedRequest));
+        byte[] respBytes = call(transport, endpoint, "ActAs", "refresh-grant", payload);
+        return Codec.decodeRefreshActAsGrantResponse(respBytes);
     }
 }

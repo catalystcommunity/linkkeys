@@ -1,3 +1,4 @@
+using LinkKeys.LocalRp.Dns;
 using static LinkKeys.LocalRp.Wire.Types;
 
 namespace LinkKeys.LocalRp;
@@ -5,10 +6,16 @@ namespace LinkKeys.LocalRp;
 /// <summary>
 /// <c>begin_local_login</c> (design doc: "SDK API Shape", "Flow" steps 4-6).
 ///
-/// <para>Pure/offline: no network access happens here. It generates a fresh
-/// nonce/state, builds and signs a <c>LocalRpLoginRequest</c> around the identity's
-/// already-signed descriptor, and returns a redirect URL plus the pending-login state
-/// the app must persist and treat as single-use.</para>
+/// <para>It generates a fresh nonce/state, builds and signs a <c>LocalRpLoginRequest</c>
+/// around the identity's already-signed descriptor, and returns a redirect URL plus the
+/// pending-login state the app must persist and treat as single-use.</para>
+///
+/// <para>The signing work is pure/offline. The one network touch is a DNS TXT lookup of
+/// <c>_linkkeys_apis.&lt;UserDomain&gt;</c> to discover the browser-facing HTTPS endpoint
+/// (the identity domain is a trust domain, not necessarily the host serving the login
+/// routes — see <see cref="Browser"/>). The resolver is injectable via
+/// <see cref="BeginLocalLoginConfig.Dns"/>; on any discovery failure the redirect falls
+/// back to <c>https://&lt;UserDomain&gt;</c>.</para>
 /// </summary>
 public static class Begin
 {
@@ -23,6 +30,12 @@ public static class Begin
 
     /// <summary>Input to <see cref="BeginLocalLogin"/>. Big-config, single record.</summary>
     /// <param name="UserDomain">A LinkKeys login or domain. A full login adds a username hint.</param>
+    /// <param name="Dns">
+    /// The DNS TXT lookup seam for browser endpoint discovery
+    /// (<c>_linkkeys_apis.&lt;UserDomain&gt;</c>, its <c>https=</c> endpoint). <c>null</c>
+    /// (the default) selects <see cref="LinkKeysLocalRp.DefaultDnsResolver"/>, the same
+    /// default as <see cref="Complete.CompleteLocalLoginConfig.Dns"/>.
+    /// </param>
     public sealed record BeginLocalLoginConfig(
         Identity.LocalRpKeyMaterial KeyMaterial,
         string CallbackUrl,
@@ -30,7 +43,8 @@ public static class Begin
         DateTimeOffset Now,
         IReadOnlyList<string>? RequestedClaims = null,
         IReadOnlyList<string>? RequiredClaims = null,
-        TimeSpan? RequestLifetime = null);
+        TimeSpan? RequestLifetime = null,
+        IDnsResolver? Dns = null);
 
     /// <summary>The redirect URL the app should send the user's browser to. This SDK never performs the redirect itself.</summary>
     public sealed record LocalLoginRedirect(string RedirectUrl);
@@ -56,7 +70,7 @@ public static class Begin
 
     public sealed record BeginResult(LocalLoginRedirect Redirect, PendingLogin Pending);
 
-    private static void ValidateCallbackScheme(string url)
+    internal static void ValidateCallbackScheme(string url)
     {
         if (!url.StartsWith("http://", StringComparison.Ordinal) && !url.StartsWith("https://", StringComparison.Ordinal))
         {
@@ -64,9 +78,9 @@ public static class Begin
         }
     }
 
-    private sealed record IdentityInput(string? Username, string Domain);
+    internal sealed record IdentityInput(string? Username, string Domain);
 
-    private static IdentityInput ParseIdentityInput(string value)
+    internal static IdentityInput ParseIdentityInput(string value)
     {
         var identity = value?.Trim() ?? "";
         if (identity.Length == 0 || identity.Any(c => c > 127) || identity.Count(c => c == '@') > 1) InvalidIdentity();
@@ -96,6 +110,11 @@ public static class Begin
     /// doc, "SDK API Shape"). Generates a fresh nonce/state, builds and signs a
     /// <c>LocalRpLoginRequest</c> around the identity's descriptor, and returns the full
     /// redirect URL plus the pending-login state.
+    ///
+    /// <para>The redirect host comes from <c>_linkkeys_apis.&lt;UserDomain&gt;</c> discovery
+    /// (<see cref="Browser.ResolveBrowserBase"/>), with a fallback to the identity domain
+    /// itself. <see cref="PendingLogin.UserDomain"/> stays the identity domain —
+    /// verification is bound to it, never to the discovered service host.</para>
     /// </summary>
     public static BeginResult BeginLocalLogin(BeginLocalLoginConfig config)
     {
@@ -117,9 +136,14 @@ public static class Begin
 
         var encoded = UrlEncoding.SignedLocalRpLoginRequestToUrlParam(signed);
 
-        // Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>".
-        var redirectUrl = $"https://{identity.Domain}/auth/local-rp?signed_request={encoded}";
-        if (identity.Username is not null) redirectUrl += $"&username={Uri.EscapeDataString(identity.Username)}";
+        // Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>" --
+        // mirrors the existing GET /auth/authorize?signed_request=... shape. The host
+        // comes from `_linkkeys_apis.<UserDomain>` discovery (with a fallback to the
+        // identity domain itself); PendingLogin.UserDomain stays the identity domain --
+        // verification is bound to it, never to the discovered service host.
+        var dns = config.Dns ?? LinkKeysLocalRp.DefaultDnsResolver();
+        var redirectUrl = Browser.ResolveBrowserEndpoint(dns, identity.Domain, Browser.BrowserRouteLocalRp, encoded);
+        if (identity.Username is not null) redirectUrl = Browser.AppendQueryParam(redirectUrl, "username", identity.Username);
 
         return new BeginResult(
             new LocalLoginRedirect(redirectUrl),

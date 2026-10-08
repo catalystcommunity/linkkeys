@@ -1,0 +1,154 @@
+{
+  "description": "Act-as terms arithmetic. Offered terms come from the grantee's request and the domain bounds. A user's choice above the offer is invalid. Refresh returns stored bytes, renews, or fails for an expired grant.",
+  "domain_bounds": {
+    "default_lifetime_seconds": 3600,
+    "max_lifetime_seconds": 86400,
+    "max_renewal_window_seconds": 2592000
+  },
+  "issued_terms": {
+    "cases": [
+      {
+        "chosen_lifetime_seconds": 600,
+        "chosen_renewal_window_seconds": 0,
+        "expected_valid": true
+      },
+      {
+        "chosen_lifetime_seconds": 3600,
+        "chosen_renewal_window_seconds": 7200,
+        "expected_valid": true
+      },
+      {
+        "chosen_lifetime_seconds": 3601,
+        "chosen_renewal_window_seconds": 0,
+        "expected_valid": false
+      },
+      {
+        "chosen_lifetime_seconds": 3600,
+        "chosen_renewal_window_seconds": 7201,
+        "expected_valid": false
+      },
+      {
+        "chosen_lifetime_seconds": 0,
+        "chosen_renewal_window_seconds": 0,
+        "expected_valid": false
+      },
+      {
+        "chosen_lifetime_seconds": 60,
+        "chosen_renewal_window_seconds": -1,
+        "expected_valid": false
+      }
+    ],
+    "offer": {
+      "requested_lifetime_seconds": 3600,
+      "requested_renewal_window_seconds": 7200
+    }
+  },
+  "offered_terms": [
+    {
+      "expected": {
+        "default_lifetime_seconds": 3600,
+        "default_renewal_window_seconds": 0,
+        "max_lifetime_seconds": 86400,
+        "max_renewal_window_seconds": 0
+      },
+      "requested_lifetime_seconds": null,
+      "requested_renewal_window_seconds": null
+    },
+    {
+      "expected": {
+        "default_lifetime_seconds": 600,
+        "default_renewal_window_seconds": 0,
+        "max_lifetime_seconds": 600,
+        "max_renewal_window_seconds": 0
+      },
+      "requested_lifetime_seconds": 600,
+      "requested_renewal_window_seconds": null
+    },
+    {
+      "expected": {
+        "default_lifetime_seconds": 86400,
+        "default_renewal_window_seconds": 0,
+        "max_lifetime_seconds": 86400,
+        "max_renewal_window_seconds": 0
+      },
+      "requested_lifetime_seconds": 10000000,
+      "requested_renewal_window_seconds": null
+    },
+    {
+      "expected": {
+        "default_lifetime_seconds": 1800,
+        "default_renewal_window_seconds": 7200,
+        "max_lifetime_seconds": 1800,
+        "max_renewal_window_seconds": 7200
+      },
+      "requested_lifetime_seconds": 1800,
+      "requested_renewal_window_seconds": 7200
+    },
+    {
+      "expected": {
+        "default_lifetime_seconds": 3600,
+        "default_renewal_window_seconds": 2592000,
+        "max_lifetime_seconds": 86400,
+        "max_renewal_window_seconds": 2592000
+      },
+      "requested_lifetime_seconds": null,
+      "requested_renewal_window_seconds": 100000000
+    }
+  ],
+  "refresh": [
+    {
+      "expected": {
+        "decision": "stored"
+      },
+      "grant": {
+        "expires_at": "2026-10-06T13:00:00Z",
+        "issued_at": "2026-10-06T12:00:00Z",
+        "renewable_until": "2026-10-06T13:30:00Z"
+      },
+      "lifetime_seconds": 3600,
+      "name": "more_than_half_life_left",
+      "now": "2026-10-06T12:20:00Z"
+    },
+    {
+      "expected": {
+        "decision": "renew",
+        "expires_at": "2026-10-06T13:30:00Z",
+        "issued_at": "2026-10-06T12:40:00Z"
+      },
+      "grant": {
+        "expires_at": "2026-10-06T13:00:00Z",
+        "issued_at": "2026-10-06T12:00:00Z",
+        "renewable_until": "2026-10-06T13:30:00Z"
+      },
+      "lifetime_seconds": 3600,
+      "name": "after_half_life_renews_capped_at_series_end",
+      "now": "2026-10-06T12:40:00Z"
+    },
+    {
+      "expected": {
+        "decision": "stored"
+      },
+      "grant": {
+        "expires_at": "2026-10-06T13:00:00Z",
+        "issued_at": "2026-10-06T12:00:00Z",
+        "renewable_until": "2026-10-06T13:00:00Z"
+      },
+      "lifetime_seconds": 3600,
+      "name": "no_window_never_renews",
+      "now": "2026-10-06T12:50:00Z"
+    },
+    {
+      "expected": {
+        "decision": "expired"
+      },
+      "grant": {
+        "expires_at": "2026-10-06T13:00:00Z",
+        "issued_at": "2026-10-06T12:00:00Z",
+        "renewable_until": "2026-10-06T13:30:00Z"
+      },
+      "lifetime_seconds": 3600,
+      "name": "expired_grant",
+      "now": "2026-10-06T13:00:00Z"
+    }
+  ]
+}

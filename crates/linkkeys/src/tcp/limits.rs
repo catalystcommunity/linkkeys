@@ -1,5 +1,5 @@
 //! Configuration and bounded metrics for the async TCP connection server
-//! (signing-things-request.md, "Connection scalability"). Config is read once
+//! (see docs/deploying-at-scale.md). Config is read once
 //! from the environment at server startup; metrics are plain atomics with
 //! getters, matching the counter style already used in
 //! `services::public_ratelimit` and `services::pubkey_cache` — there is no
@@ -187,7 +187,7 @@ pub struct TcpMetrics {
     /// frame body that has been read off the wire but not yet decoded/handed
     /// to dispatch. Exists so a test can assert connections do not hold
     /// megabyte-scale buffers while idle, without relying on process RSS
-    /// (signing-things-request.md, connection tests: "idle connection memory
+    /// (design requirement for the connection tests: "idle connection memory
     /// measurement... assert on your own accounting").
     frame_buffer_bytes: AtomicUsize,
 }
@@ -284,8 +284,9 @@ impl TcpMetrics {
 }
 
 /// Log the effective file-descriptor limit and the configured connection
-/// limit at startup (signing-things-request.md: "Report the effective
-/// file-descriptor limit AND the connection limit at startup"). Best-effort:
+/// limit at startup (design requirement: "Report the effective
+/// file-descriptor limit AND the connection limit at startup"; see
+/// docs/deploying-at-scale.md, "File-descriptor limits"). Best-effort:
 /// a platform without `getrlimit` (non-unix) just logs the configured limit.
 pub fn report_fd_and_connection_limits(max_connections: usize) {
     // Headroom for the listening socket, the database connection pool, log

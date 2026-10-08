@@ -70,7 +70,8 @@ let (redirect, pending) = begin_local_login(BeginLocalLoginConfig::new(
 ))?;
 // Persist `pending` (it derives Serialize/Deserialize — e.g. put it in a
 // server-side session tied to the browser), then redirect the user's
-// browser to `redirect.redirect_url`.
+// browser to `redirect.redirect_url`. Redirect to it as returned; do not
+// parse or rewrite it (see "Browser endpoint discovery" below).
 
 // On callback, your app's HTTP handler receives a request whose query
 // string carries `encrypted_token=<...>`. Pass the request's full URL and
@@ -84,6 +85,48 @@ let verified = complete_local_login(CompleteLocalLoginConfig::new(
 ))?;
 // verified.user_id, verified.user_domain, verified.claims, ... — session
 // creation, local user records, and authorization are all your app's job.
+```
+
+## Browser endpoint discovery
+
+`begin_local_login` does one DNS TXT lookup. It reads
+`_linkkeys_apis.<identity-domain>` and selects the first valid LinkKeys v1
+record with an `https=` endpoint. That endpoint is the browser-facing host
+(see `docs/spec/trust-and-anchors.md`). The identity domain is a trust and
+discovery domain. It is not always the host that serves the login routes.
+
+The redirect URL is built from three parts:
+
+1. The discovered base, for example `https://login.example.com/linkkeys`.
+2. The route `/auth/local-rp` (`BROWSER_ROUTE_LOCAL_RP`).
+3. The `signed_request` query parameter (and `username` for a full login).
+
+A path prefix in the `https=` value is preserved. The base must use `https`,
+must have a host, and must not carry userinfo, a query, or a fragment.
+Records that fail these checks are skipped.
+
+Fallback rule: when the lookup fails, when no valid record carries `https=`,
+or when the discovered base is invalid, the SDK uses
+`https://<identity-domain>`. This keeps a domain that serves its browser
+routes at the apex working without a `_linkkeys_apis` record.
+
+Inject a resolver with `BeginLocalLoginConfig::dns`. `None` selects the
+system resolver (`default_dns_resolver`). Tests inject a fake resolver so
+that no live DNS request happens.
+
+`PendingLogin::user_domain` always stays the identity domain.
+`complete_local_login` binds verification to that domain, never to the
+discovered host.
+
+The helpers are exported for other glue (for example a regular RP building
+`/auth/authorize`):
+
+```rust
+use linkkeys_local_rp::{build_browser_endpoint, resolve_browser_base, BROWSER_ROUTE_AUTHORIZE};
+
+let base = resolve_browser_base(linkkeys_local_rp::default_dns_resolver(), "example.com")?;
+let url = build_browser_endpoint(&base, BROWSER_ROUTE_AUTHORIZE, &signed_request_param)?;
+# Ok::<(), linkkeys_local_rp::Error>(())
 ```
 
 ## Storage and single-use responsibilities this SDK assigns to the app
@@ -205,6 +248,78 @@ Key points:
 - Concurrent resolves for the same peer identity share one network fetch. The
   SDK coalesces them internally; you do not need to add your own locking.
 
+## Act-as grants
+
+An act-as grant lets this local RP act as a user at an enrolled application.
+The local RP is the grantee. The application is the audience. See
+`docs/spec/reserved/act-as-grants.md` for the protocol. The protocol is
+Reserved and can change.
+
+A local RP can be a grantee only. It cannot be an audience, because a peer
+cannot find a local RP's keys through DNS. A local RP can be a grantee only
+after its home domain approved it. The home domain must also allow local-RP
+grantees.
+
+The descriptor signing key signs every request and presentation. The SDK uses
+`liblinkkeys::act_as` (`GranteeSigner::LocalRp`) for each signature.
+
+```rust,no_run
+use chrono::Utc;
+use linkkeys_local_rp::{
+    begin_act_as, complete_act_as_callback, present_act_as, refresh_act_as_grant,
+    ApplicationRef, BeginActAsConfig, LocalRpKeyMaterial, RefreshActAsGrantConfig,
+};
+
+# fn demo(identity: &LocalRpKeyMaterial, scope_set_cbor: &[u8], arrived_url: &str,
+#         audience: &ApplicationRef, digest: &[u8], nonce: &[u8]) -> Result<(), linkkeys_local_rp::Error> {
+// 1. Get the signed scope set from the audience (application protocol).
+//    Send the user's browser to the home domain.
+let mut config = BeginActAsConfig::new(
+    identity,
+    "alice@example.com",
+    scope_set_cbor,
+    "http://jukebox.lan:8080/act-as/callback",
+    Utc::now(),
+);
+config.requested_lifetime_seconds = Some(3600);
+let (redirect, pending) = begin_act_as(config)?;
+// Keep `pending`. Redirect the browser to `redirect.redirect_url`.
+
+// 2. On the callback, check the nonce and read the grant id.
+let grant_id = complete_act_as_callback(&pending, arrived_url)?;
+
+// 3. Fetch the grant. Call again later to renew it.
+let refreshed = refresh_act_as_grant(RefreshActAsGrantConfig::new(
+    identity,
+    &pending.user_domain,
+    &grant_id,
+    Utc::now(),
+))?;
+
+// 4. Sign one presentation for each call to the audience.
+let presented = present_act_as(&refreshed.grant, audience, digest, Utc::now(), nonce, identity)?;
+// Send `presented.credential_cbor` with the call.
+# Ok(()) }
+```
+
+Rules:
+
+- `begin_act_as` decodes the scope set and embeds it unchanged. It finds the
+  browser host with `_linkkeys_apis` discovery, the same as
+  `begin_local_login`. If discovery fails, it uses `https://<domain>`. The
+  route is `/auth/act-as`.
+- The request window is 300 seconds by default. The maximum is 900 seconds.
+- Keep `PendingActAs` until the callback. Use it one time only.
+- `complete_act_as_callback` compares the nonce in constant time. It returns
+  an error if the nonce is different, missing, or repeated.
+- `refresh_act_as_grant` calls `ActAs/refresh-grant` on the user's home domain
+  over DNS-pinned TCP CSIL-RPC. This is the same path as claim-ticket
+  redemption. `signed` is true when the home domain signed a new grant.
+- `refresh_act_as_grant` checks that the grant names the requested grant id,
+  this local RP, and the home domain. It does not verify the home domain's
+  signature. The audience does that.
+- Use a new nonce for each presentation. The audience owns replay protection.
+
 ## Testing
 
 - `tests/conformance.rs` consumes the conformance vectors under
@@ -229,6 +344,10 @@ Key points:
   (`Refreshed`), a following call within the allowed age is served from cache
   with no further network request (`Fresh`), and an insufficient-quorum
   revocation is rejected rather than silently dropping a key.
+- `tests/act_as.rs` reproduces the exact bytes of the `local_rp_grantee`
+  case in `sdks/regular-rp/conformance/act_as_grantee_signing.json`. It also
+  tests `begin_act_as` with a fake DNS resolver, the callback nonce check,
+  and `refresh_act_as_grant` against a fake home domain.
 - `src/application_key_cache.rs` has unit tests proving the default store's
   bound: it evicts the least-recently-used entry before growing past its
   configured limit, under any sequence of inserts.

@@ -431,6 +431,30 @@ final class BrowserAuthorizationAsyncClient {
       CsilCbor.decode(csilResp),
     );
   }
+
+  Future<BrowserActAsInspectResponse> inspectActAs(
+    BrowserActAsInspectRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'BrowserAuthorization',
+      'inspect-act-as',
+      request.toCbor(),
+    );
+    return BrowserActAsInspectResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
+  Future<BrowserActAsCompleteResponse> completeActAs(
+    BrowserActAsCompleteRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'BrowserAuthorization',
+      'complete-act-as',
+      request.toCbor(),
+    );
+    return BrowserActAsCompleteResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
 }
 
 /// A typed, transport-agnostic client for the Admin service. The client owns
@@ -1076,6 +1100,26 @@ final class AccountAsyncClient {
       CsilCbor.decode(csilResp),
     );
   }
+
+  Future<ListActAsGrantsResponse> listActAsGrants(EmptyRequest request) async {
+    final csilResp = await transport.call(
+      'Account',
+      'list-act-as-grants',
+      request.toCbor(),
+    );
+    return ListActAsGrantsResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
+  Future<RevokeActAsGrantResponse> revokeActAsGrant(
+    RevokeActAsGrantRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'Account',
+      'revoke-act-as-grant',
+      request.toCbor(),
+    );
+    return RevokeActAsGrantResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
 }
 
 /// A typed, transport-agnostic client for the Attestation service. The client owns
@@ -1167,6 +1211,61 @@ final class RpAsyncClient {
       request.toCbor(),
     );
     return RpResolveApplicationKeysResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
+
+  Future<RefreshActAsGrantResponse> actAsRefreshGrant(
+    RpActAsRefreshRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'Rp',
+      'act-as-refresh-grant',
+      request.toCbor(),
+    );
+    return RefreshActAsGrantResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
+  Future<GetActAsGrantRevocationsResponse> resolveActAsRevocations(
+    RpResolveActAsRevocationsRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'Rp',
+      'resolve-act-as-revocations',
+      request.toCbor(),
+    );
+    return GetActAsGrantRevocationsResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
+}
+
+/// A typed, transport-agnostic client for the ActAs service. The client owns
+/// (de)serialization; the carrier only moves bytes.
+final class ActAsAsyncClient {
+  final AsyncCsilTransport transport;
+  const ActAsAsyncClient(this.transport);
+
+  Future<RefreshActAsGrantResponse> refreshGrant(
+    RefreshActAsGrantRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'ActAs',
+      'refresh-grant',
+      request.toCbor(),
+    );
+    return RefreshActAsGrantResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
+  Future<GetActAsGrantRevocationsResponse> getGrantRevocations(
+    GetActAsGrantRevocationsRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'ActAs',
+      'get-grant-revocations',
+      request.toCbor(),
+    );
+    return GetActAsGrantRevocationsResponse.fromCborValue(
       CsilCbor.decode(csilResp),
     );
   }

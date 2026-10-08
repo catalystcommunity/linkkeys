@@ -35,7 +35,9 @@ let redirect, pending =
   |> Result.get_ok
 in
 (* App: persist `pending` (e.g. via Begin_login.pending_login_to_fields into a
-   session), then redirect the browser to redirect.redirect_url. *)
+   session), then redirect the browser to redirect.redirect_url.
+   begin_local_login discovers the browser host from `_linkkeys_apis.<domain>`
+   (see "Browser endpoint discovery" below). *)
 
 (* On callback (app's HTTP handler received `arrived_url` with an
    `encrypted_token=` query parameter): *)
@@ -64,7 +66,7 @@ sdks/local-rp/ocaml/
                          days_from_civil/civil_from_days algorithm)
     crypto.ml            Ed25519, X25519, AES-256-GCM, ChaCha20-Poly1305, HKDF-SHA256,
                          fingerprint, suite/algorithm registries, RNG bootstrap
-    types.ml              hand-written CBOR struct codecs for the 19 CSIL types this SDK
+    types.ml              hand-written CBOR struct codecs for the CSIL types this SDK
                          touches (field order verified against every *_cbor_hex fixture)
     local_rp.ml           envelope sign/verify, sealed-box seal/open, timestamp/expiry/
                          nonce/audience/issuer checks -- the pure protocol core
@@ -77,17 +79,19 @@ sdks/local-rp/ocaml/
     tls_client.ml           SPKI Ed25519 pin-check authenticator + a hand-driven blocking
                          Tls.Engine client (see "TLS evaluation" below)
     rpc.ml                 CSIL-RPC envelope + stream framing (hand-rolled; see the filed
-                         csilgen request) + the two operations this SDK calls
+                         csilgen request) + the four operations this SDK calls
     url_params.ml           base64url-unpadded encode/decode for the two URL parameters
     identity.ml             generate_local_rp_identity + byte storage helpers
+    browser.ml              _linkkeys_apis https= discovery + browser route URL building
     begin_login.ml           begin_local_login
     complete_login.ml         complete_local_login
+    act_as.ml                act-as grants, grantee side: begin, callback, refresh, present
     error.ml                one closed error variant for this SDK's own result-returning API
     linkkeys_local_rp.ml      top-level facade (re-exports + quickstart docs)
   test/
     test_helper.ml           JSON-vector loading helpers (Yojson)
     run_tests.ml              conformance tests over all 8 vector files + TLS pin-extraction
-                            + RPC-framing + flow tests
+                            + RPC-framing + browser-discovery + flow tests
     fixtures/ed25519_cert.der  openssl-CLI-minted Ed25519 cert, used only by the TLS
                             pin-extraction test
   README.md (this file)
@@ -205,6 +209,102 @@ for a package that only ever needs TXT lookups of two fixed record names. The re
 is injectable (`Dns.resolver = { txt_lookup : string -> string list }`); a caller wanting
 DoH or another hardened resolver supplies their own value.
 
+## Browser endpoint discovery
+
+`begin_local_login` does one DNS TXT lookup. It reads
+`_linkkeys_apis.<identity domain>` and uses the `https=` value as the browser-facing
+base URL (`docs/spec/trust-and-anchors.md`). The identity domain is a trust domain. It
+is not always the host that serves the login routes.
+
+The rules are:
+
+- The first valid `v=lk1` record with an `https=` value wins.
+- A base is valid only when it uses `https`, has a hostname, and has no userinfo,
+  query, or fragment. A path prefix is allowed and is kept:
+  `https=login.example.com/linkkeys` gives
+  `https://login.example.com/linkkeys/auth/local-rp?signed_request=...`.
+- If the lookup fails, if no record has a valid `https=` value, or if the base is
+  invalid, the redirect falls back to `https://<identity domain>`.
+- `pending_login.user_domain` is always the identity domain. It is never the
+  discovered host. Verification binds to the identity domain.
+
+Inject a resolver with `Begin_login.make_config ~dns`. The default is
+`Dns.default_resolver`. A lookup failure is the resolver raising `Dns.Dns_parse_error`,
+`Unix.Unix_error`, or `Error.Sdk_error`. Any `Dns.resolver` value works, so tests can
+supply canned answers:
+
+```ocaml
+let dns : Dns.resolver =
+  { Dns.txt_lookup = (fun name ->
+      if name = "_linkkeys_apis.example.com" then [ "v=lk1 https=login.example.com/linkkeys" ]
+      else raise (Dns.Dns_parse_error ("no record for " ^ name))) }
+in
+let redirect, pending =
+  Linkkeys_local_rp.begin_local_login
+    (Linkkeys_local_rp.Begin_login.make_config ~key_material:identity
+       ~callback_url:"http://jukebox.lan:8080/auth/callback" ~user_domain:"alice@example.com"
+       ~now:(Unix.gettimeofday ()) ~dns ())
+  |> Result.get_ok
+in
+```
+
+Redirect the browser to `redirect.redirect_url` as returned. Do not parse or rewrite
+it.
+
+The helpers are public in `Browser`: `resolve_browser_base`, `build_browser_endpoint`,
+`browser_route_local_rp`, and `browser_route_authorize`. Regular-RP application glue
+can use them to build `/auth/authorize` URLs with the same discovery. This SDK does not
+depend on the `uri` opam package, so `browser.ml` validates and joins the
+`host[:port][/path]` shape by hand and rejects every other shape.
+
+## Act-as grants
+
+A user can let this local RP act as the user at an enrolled application. The local RP
+is the grantee. The application is the audience. Read
+`docs/spec/reserved/act-as-grants.md` for the protocol. The spec status is Reserved, so
+this API can change.
+
+Rules:
+
+- A local RP can be a grantee only after its home domain approved it. The home domain
+  refuses a local RP that it did not approve.
+- A local RP cannot be an audience. A peer cannot find its keys through DNS.
+- The descriptor signing key signs every request and presentation. Each proof carries
+  the signed descriptor. `signed_by_key_id` is the descriptor fingerprint.
+
+Steps:
+
+1. Get the audience's signed scope set (CBOR of `SignedActAsScopeSet`). The audience
+   application protocol supplies it. The SDK embeds it unchanged.
+2. Call `Linkkeys_local_rp.begin_act_as` with
+   `Act_as.make_begin_config ~key_material ~user_domain ~scope_set ~callback_url ~now ()`.
+   Optional arguments: `?requested_lifetime_seconds`, `?requested_renewal_window_seconds`,
+   `?dns`, and `?request_window` (default 300 seconds, maximum 900 seconds). The result
+   is a redirect to `<browser base>/auth/act-as?signed_request=...` and a
+   `pending_act_as`. Browser endpoint discovery and its fallback are the same as for
+   `begin_local_login`. The act-as route takes no username hint.
+3. Keep the `pending_act_as`. Use it one time only.
+4. The home domain sends the browser to the callback URL with `act_as_grant_id` and
+   `nonce`. Call `Linkkeys_local_rp.complete_act_as pending callback`. The argument is
+   the full callback URL or its query. The SDK compares the nonce in constant time. It
+   returns the grant id, or `Nonce_mismatch`.
+5. Call `Linkkeys_local_rp.refresh_act_as_grant` with
+   `Act_as.make_refresh_config ~key_material ~user_domain ~grant_id ~now ()` to get the
+   signed grant. The call uses `ActAs/refresh-grant` over the same pinned TCP CSIL-RPC
+   path as ticket redemption. It returns the `SignedActAsGrant` and the `signed` flag.
+   Call it again when less than one half of the grant life remains. A renewal is
+   possible only inside the renewal window that the user approved.
+6. For each call to the audience, call `Linkkeys_local_rp.present_act_as ~grant
+   ~audience ~request_digest ~now ~nonce key_material`. Send
+   `Types.Act_as_credential.to_cbor credential` with the call. `Act_as.present_bytes`
+   returns the struct and the bytes together. The audience defines `request_digest` and
+   checks replay.
+
+The tests reproduce the `local_rp_grantee` case of
+`sdks/regular-rp/conformance/act_as_grantee_signing.json` byte for byte. The refresh
+test runs a real `Tls.Engine` server in a forked child over a socketpair. It uses no
+listener and no network.
+
 ## App responsibilities
 
 - Persist the bytes from `local_rp_identity_to_bytes` with ordinary application-secret
@@ -230,6 +330,10 @@ DoH or another hardened resolver supplies their own value.
   configured nameserver; LAN resolver spoofing is an accepted, documented tradeoff for
   this mode (per the design doc). Inject a hardened resolver if your deployment needs
   more.
+- `begin_local_login` uses the `_linkkeys_apis` `https=` endpoint as the browser host
+  only. A spoofed value can only change where the browser is sent. It cannot change
+  which domain's keys verify the login, because `pending_login.user_domain` stays the
+  identity domain.
 - Private key material (`signing_private_key`, `encryption_private_key`) is never
   logged by this package. `Error.t` messages never include key material, nonces,
   tokens, tickets, or claim values.
@@ -247,7 +351,8 @@ eval "$(opam env --root "$CATALYST_TOOLS/opam" --switch catalyst)"
 cd sdks/local-rp/ocaml && dune runtest
 ```
 
-17 test cases, all green: `keys.json`, `envelopes.json` (cases + all 20 negative
+47 test cases, all green (8 of them are act-as grantee tests; 10 of them are the browser endpoint discovery tests, which
+use a fake resolver and never touch live DNS): `keys.json`, `envelopes.json` (cases + all 20 negative
 cases), `callback_box.json` (both suites' positive cases + all 13 negative cases),
 `url_params.json` (both cases + both negative cases), `dns.json` (all valid/invalid
 `_linkkeys`/`_linkkeys_apis` cases), `tickets.json`, `expirations.json`
@@ -273,7 +378,8 @@ correct wire type (CSIL `claim_value: bytes`, matching the generated Rust codec'
   LinkKeys server in this environment (none is reachable here) — see "TLS evaluation"
   above. It is real, reviewed code, not a stub, built on `tls`'s pure `Engine` module,
   but should be treated as field-untested until run against a real domain's TCP CSIL-RPC
-  endpoint.
+  endpoint. The act-as refresh test runs it against a local `Tls.Engine` server, not
+  against the reference server.
 - No csilgen OCaml target exists yet; `cbor.ml`, `types.ml`, and the envelope/framing
   half of `rpc.ml` are hand-written pending one. Request filed:
   `~/repos/catalystcommunity/csilgen/docs/csilgen-requests/ocaml-target-does-not-exist.md`

@@ -216,6 +216,14 @@ class BrowserAuthorizationClient:
         """complete"""
         return BrowserAuthorizationCompleteResponse.from_cbor(self._transport.call("BrowserAuthorization", "complete", req.to_cbor()))
 
+    def inspect_act_as(self, req: BrowserActAsInspectRequest) -> BrowserActAsInspectResponse:
+        """inspect-act-as"""
+        return BrowserActAsInspectResponse.from_cbor(self._transport.call("BrowserAuthorization", "inspect-act-as", req.to_cbor()))
+
+    def complete_act_as(self, req: BrowserActAsCompleteRequest) -> BrowserActAsCompleteResponse:
+        """complete-act-as"""
+        return BrowserActAsCompleteResponse.from_cbor(self._transport.call("BrowserAuthorization", "complete-act-as", req.to_cbor()))
+
 class AdminClient:
     """Typed client for the Admin service."""
     def __init__(self, transport: Transport):
@@ -462,6 +470,14 @@ class AccountClient:
         """enroll-application-instance"""
         return EnrollApplicationInstanceResponse.from_cbor(self._transport.call("Account", "enroll-application-instance", req.to_cbor()))
 
+    def list_act_as_grants(self, req: EmptyRequest) -> ListActAsGrantsResponse:
+        """list-act-as-grants"""
+        return ListActAsGrantsResponse.from_cbor(self._transport.call("Account", "list-act-as-grants", req.to_cbor()))
+
+    def revoke_act_as_grant(self, req: RevokeActAsGrantRequest) -> RevokeActAsGrantResponse:
+        """revoke-act-as-grant"""
+        return RevokeActAsGrantResponse.from_cbor(self._transport.call("Account", "revoke-act-as-grant", req.to_cbor()))
+
 class AttestationClient:
     """Typed client for the Attestation service."""
     def __init__(self, transport: Transport):
@@ -503,6 +519,27 @@ class RpClient:
     def resolve_application_keys(self, req: RpResolveApplicationKeysRequest) -> RpResolveApplicationKeysResponse:
         """resolve-application-keys"""
         return RpResolveApplicationKeysResponse.from_cbor(self._transport.call("Rp", "resolve-application-keys", req.to_cbor()))
+
+    def act_as_refresh_grant(self, req: RpActAsRefreshRequest) -> RefreshActAsGrantResponse:
+        """act-as-refresh-grant"""
+        return RefreshActAsGrantResponse.from_cbor(self._transport.call("Rp", "act-as-refresh-grant", req.to_cbor()))
+
+    def resolve_act_as_revocations(self, req: RpResolveActAsRevocationsRequest) -> GetActAsGrantRevocationsResponse:
+        """resolve-act-as-revocations"""
+        return GetActAsGrantRevocationsResponse.from_cbor(self._transport.call("Rp", "resolve-act-as-revocations", req.to_cbor()))
+
+class ActAsClient:
+    """Typed client for the ActAs service."""
+    def __init__(self, transport: Transport):
+        self._transport = transport
+
+    def refresh_grant(self, req: RefreshActAsGrantRequest) -> RefreshActAsGrantResponse:
+        """refresh-grant"""
+        return RefreshActAsGrantResponse.from_cbor(self._transport.call("ActAs", "refresh-grant", req.to_cbor()))
+
+    def get_grant_revocations(self, req: GetActAsGrantRevocationsRequest) -> GetActAsGrantRevocationsResponse:
+        """get-grant-revocations"""
+        return GetActAsGrantRevocationsResponse.from_cbor(self._transport.call("ActAs", "get-grant-revocations", req.to_cbor()))
 
 class LocalRpClient:
     """Typed client for the LocalRp service."""

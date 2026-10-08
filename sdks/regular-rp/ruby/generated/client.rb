@@ -255,6 +255,16 @@ class BrowserAuthorizationClient
   def complete(req)
     BrowserAuthorizationCompleteResponse.from_cbor(@transport.call("BrowserAuthorization", "complete", req.to_cbor))
   end
+
+  # inspect-act-as: -> BrowserActAsInspectResponse
+  def inspect_act_as(req)
+    BrowserActAsInspectResponse.from_cbor(@transport.call("BrowserAuthorization", "inspect-act-as", req.to_cbor))
+  end
+
+  # complete-act-as: -> BrowserActAsCompleteResponse
+  def complete_act_as(req)
+    BrowserActAsCompleteResponse.from_cbor(@transport.call("BrowserAuthorization", "complete-act-as", req.to_cbor))
+  end
 end
 
 # Typed client for the Admin service.
@@ -564,6 +574,16 @@ class AccountClient
   def enroll_application_instance(req)
     EnrollApplicationInstanceResponse.from_cbor(@transport.call("Account", "enroll-application-instance", req.to_cbor))
   end
+
+  # list-act-as-grants: -> ListActAsGrantsResponse
+  def list_act_as_grants(req)
+    ListActAsGrantsResponse.from_cbor(@transport.call("Account", "list-act-as-grants", req.to_cbor))
+  end
+
+  # revoke-act-as-grant: -> RevokeActAsGrantResponse
+  def revoke_act_as_grant(req)
+    RevokeActAsGrantResponse.from_cbor(@transport.call("Account", "revoke-act-as-grant", req.to_cbor))
+  end
 end
 
 # Typed client for the Attestation service.
@@ -617,6 +637,33 @@ class RpClient
   # resolve-application-keys: -> RpResolveApplicationKeysResponse
   def resolve_application_keys(req)
     RpResolveApplicationKeysResponse.from_cbor(@transport.call("Rp", "resolve-application-keys", req.to_cbor))
+  end
+
+  # act-as-refresh-grant: -> RefreshActAsGrantResponse
+  def act_as_refresh_grant(req)
+    RefreshActAsGrantResponse.from_cbor(@transport.call("Rp", "act-as-refresh-grant", req.to_cbor))
+  end
+
+  # resolve-act-as-revocations: -> GetActAsGrantRevocationsResponse
+  def resolve_act_as_revocations(req)
+    GetActAsGrantRevocationsResponse.from_cbor(@transport.call("Rp", "resolve-act-as-revocations", req.to_cbor))
+  end
+end
+
+# Typed client for the ActAs service.
+class ActAsClient
+  def initialize(transport)
+    @transport = transport
+  end
+
+  # refresh-grant: -> RefreshActAsGrantResponse
+  def refresh_grant(req)
+    RefreshActAsGrantResponse.from_cbor(@transport.call("ActAs", "refresh-grant", req.to_cbor))
+  end
+
+  # get-grant-revocations: -> GetActAsGrantRevocationsResponse
+  def get_grant_revocations(req)
+    GetActAsGrantRevocationsResponse.from_cbor(@transport.call("ActAs", "get-grant-revocations", req.to_cbor))
   end
 end
 

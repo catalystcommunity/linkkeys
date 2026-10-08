@@ -41,6 +41,14 @@ class TestFlow < Minitest::Test
   # Test doubles
   # ---------------------------------------------------------------
 
+  # A resolver that always fails: begin_local_login falls back to the
+  # identity domain, keeping the flow offline.
+  class OfflineDns
+    def txt_lookup(_name)
+      raise 'offline'
+    end
+  end
+
   # Canned DNS answers for exactly one domain.
   class FakeDnsResolver
     def initialize(linkkeys_txt, apis_txt)
@@ -248,10 +256,14 @@ class TestFlow < Minitest::Test
     now = Time.now.utc
     key_material = fixed_key_material(now)
 
+    # begin_local_login's browser endpoint discovery is exercised in
+    # test_browser.rb; this flow only needs `pending`, so begin gets a
+    # resolver that fails (redirect falls back to the identity domain) and
+    # the suite stays offline.
     _redirect, pending = LinkkeysLocalRp.begin_local_login(
       LinkkeysLocalRp::Begin::BeginLocalLoginConfig.new(
         key_material: key_material, callback_url: CALLBACK_URL, user_domain: USER_DOMAIN, now: now,
-        required_claims: scenario.required_claims
+        required_claims: scenario.required_claims, dns: OfflineDns.new
       )
     )
 
@@ -512,5 +524,120 @@ class TestFlow < Minitest::Test
     assert_raises(LinkkeysLocalRp::Rpc::Error) do
       run_scenario(Scenario.new(revocations_behavior: 'drop', expected_requests: 2))
     end
+  end
+
+  # ---------------------------------------------------------------
+  # Act-as refresh (ActAs/refresh-grant) against the fake IDP
+  # ---------------------------------------------------------------
+
+  def act_as_dns(addr)
+    fp = LinkkeysLocalRp::Crypto.fingerprint(domain_public_key(Time.now.getutc).public_key)
+    FakeDnsResolver.new("v=lk1 fp=#{fp}", "v=lk1 tcp=#{addr}")
+  end
+
+  # A grant as a home domain stores it. Only the identifying fields matter to
+  # the grantee; the audience checks the signature.
+  def served_act_as_grant(grant_id, fingerprint, subject_domain)
+    t = LinkkeysLocalRp::Types
+    grant = LinkkeysLocalRp::Cbor.encode(
+      'grant_id' => grant_id,
+      'user_id' => 'user-1',
+      'subject_domain' => subject_domain,
+      'grantee' => { 'local_rp_descriptor_fingerprint' => fingerprint },
+      'audience' => { 'subject_user_id' => 'audience-owner', 'subject_domain' => 'audience.test', 'application_id' => 'audience-app' },
+      'scope_set' => {
+        'scope_set' => "\xa0".b,
+        'signer_instance_id' => 'audience-inst',
+        'signatures' => [{ 'signed_by_key_id' => 'audience-key', 'signature' => ("\x00" * 64).b }]
+      },
+      'approved_scope' => ['read'],
+      'issued_at' => '2026-10-06T12:00:00Z',
+      'expires_at' => '2026-10-06T13:00:00Z',
+      'series_issued_at' => '2026-10-06T12:00:00Z',
+      'renewable_until' => '2026-10-06T13:00:00Z'
+    )
+    t::SignedActAsGrant.new(
+      grant: grant,
+      signatures: [t::ClaimSignature.new(domain: subject_domain, signed_by_key_id: DOMAIN_KEY_ID, signature: ("\x09" * 64).b)]
+    )
+  end
+
+  def test_refresh_act_as_grant_refuses_another_grant
+    t = LinkkeysLocalRp::Types
+    now = Time.utc(2026, 10, 6, 12, 40, 0)
+    key_material = fixed_key_material(now)
+    [
+      served_act_as_grant('grant-2', key_material.fingerprint, USER_DOMAIN),
+      served_act_as_grant('grant-1', 'another-local-rp', USER_DOMAIN),
+      served_act_as_grant('grant-1', key_material.fingerprint, 'other.test')
+    ].each do |served|
+      addr, thread = spawn_fake_idp(DOMAIN_SIGNING_SEED, 1) do |_s, _o, _p|
+        encode_ok_response(t::RefreshActAsGrantResponse.new(grant: served, signed: false).to_cbor)
+      end
+      assert_raises(LinkkeysLocalRp::ActAs::Error) do
+        LinkkeysLocalRp.refresh_act_as_grant(
+          key_material, USER_DOMAIN, 'grant-1', now,
+          transport: LinkkeysLocalRp::Transport::StdTransport.new, dns: act_as_dns(addr)
+        )
+      end
+      thread.join(5)
+    end
+  end
+
+  def test_refresh_act_as_grant_calls_refresh_grant_with_verifiable_request
+    t = LinkkeysLocalRp::Types
+    now = Time.utc(2026, 10, 6, 12, 40, 0)
+    key_material = fixed_key_material(now)
+    served = served_act_as_grant('grant-1', key_material.fingerprint, USER_DOMAIN)
+    seen = []
+    addr, thread = spawn_fake_idp(DOMAIN_SIGNING_SEED, 1) do |service, op, payload|
+      seen << [service, op, payload]
+      if service == 'ActAs' && op == 'refresh-grant'
+        encode_ok_response(t::RefreshActAsGrantResponse.new(grant: served, signed: true).to_cbor)
+      else
+        encode_error_response(5, "no handler for #{service}/#{op}")
+      end
+    end
+    result = LinkkeysLocalRp.refresh_act_as_grant(
+      key_material, USER_DOMAIN, 'grant-1', now,
+      transport: LinkkeysLocalRp::Transport::StdTransport.new, dns: act_as_dns(addr)
+    )
+    thread.join(5)
+
+    assert_equal true, result.signed
+    assert_equal served.to_cbor, result.grant.to_cbor
+    assert_equal 1, seen.length
+    service, op, payload = seen.first
+    assert_equal %w[ActAs refresh-grant], [service, op]
+    signed = t::RefreshActAsGrantRequest.from_cbor(payload).request
+    request = t::ActAsRefreshRequest.from_cbor(signed.request)
+    assert_equal 'grant-1', request.grant_id
+    assert_equal key_material.fingerprint, request.grantee.local_rp_descriptor_fingerprint
+    assert_equal '2026-10-06T12:40:00Z', request.requested_at
+    assert_equal '2026-10-06T12:45:00Z', request.expires_at
+    assert_equal 43, request.nonce.length
+    assert_equal key_material.fingerprint, signed.proof.signature.signed_by_key_id
+    assert_nil signed.proof.application_instance_id
+    assert_equal key_material.descriptor.to_cbor, signed.proof.local_rp_descriptor.to_cbor
+    LinkkeysLocalRp::Crypto.verify_with_algorithm(
+      LinkkeysLocalRp::Crypto::SigningAlgorithm::ED25519,
+      LinkkeysLocalRp::LocalRp.envelope_signature_input(LinkkeysLocalRp::ActAs::REFRESH_REQUEST_TAG, signed.request),
+      signed.proof.signature.signature,
+      key_material.signing_public_key
+    )
+  end
+
+  def test_refresh_act_as_grant_surfaces_server_error
+    now = Time.now.getutc
+    key_material = fixed_key_material(now)
+    addr, thread = spawn_fake_idp(DOMAIN_SIGNING_SEED, 1) { |_s, _o, _p| encode_error_response(7, 'grant store unavailable') }
+    error = assert_raises(LinkkeysLocalRp::Rpc::ServerError) do
+      LinkkeysLocalRp.refresh_act_as_grant(
+        key_material, USER_DOMAIN, 'grant-1', now,
+        transport: LinkkeysLocalRp::Transport::StdTransport.new, dns: act_as_dns(addr)
+      )
+    end
+    thread.join(5)
+    assert_equal 7, error.status
   end
 end

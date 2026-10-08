@@ -1,4 +1,4 @@
-# Device and Application Keys
+# Device Keys and Application-Key Coupling
 
 > **Status: Reserved.** Designed, not implemented. No code, no conformance
 > vectors. This WILL change. An implementation MUST NOT rely on anything here for
@@ -6,6 +6,12 @@
 >
 > Recorded so that Normative mechanisms are not designed in ways that would
 > foreclose it. Invariant I-6 is already Normative for exactly this reason.
+
+> **Application keys themselves are Normative.** Their attestation, addition,
+> renewal, revocation, and proof of possession are specified in
+> [`../application-keys.md`](../application-keys.md). This page covers only
+> what is still Reserved: device keys, the optional coupling of an application
+> key to a device key, and cascade revocation.
 
 ## The distinction this exists to preserve
 
@@ -37,7 +43,8 @@ represents the same device or application, tied to a user.
 - **Device keys** live in the device's secure enclave or best available
   equivalent; the private key never leaves the device. The domain learns only the
   public key, at enrollment.
-- **Application keys** are per-application. An application key MAY be signed by a
+- **Application keys** are per-application and are specified in
+  [`../application-keys.md`](../application-keys.md). An application key MAY be signed by a
   device key to attest "I am running on this enrolled device" — an *optional*
   coupling, present only when the application was enrolled to be coupled.
 - **Cascade revocation** is what coupling buys: revoking a lost device's

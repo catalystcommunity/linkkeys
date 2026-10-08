@@ -72,6 +72,11 @@ CALLBACK_URL = "http://localhost/callback"
 # ---------------------------------------------------------------------
 
 
+class _OfflineDns:
+    def txt_lookup(self, name: str) -> List[str]:
+        raise RuntimeError("offline")
+
+
 class FakeDnsResolver:
     """Canned DNS answers for exactly one domain."""
 
@@ -307,6 +312,10 @@ def run_scenario(scenario: Scenario):
     now = datetime.datetime.now(datetime.timezone.utc)
     key_material = _fixed_key_material(now)
 
+    # begin_local_login's browser endpoint discovery is exercised in
+    # test_browser.py; this flow only needs `pending`, so begin gets a
+    # resolver that fails (redirect falls back to the identity domain) and
+    # the suite stays offline.
     _redirect, pending = begin_local_login(
         BeginLocalLoginConfig(
             key_material=key_material,
@@ -314,6 +323,7 @@ def run_scenario(scenario: Scenario):
             user_domain=USER_DOMAIN,
             now=now,
             required_claims=scenario.required_claims,
+            dns=_OfflineDns(),
         )
     )
 
@@ -638,3 +648,137 @@ def test_get_revocations_dropped_connection_fails_closed():
     explicit error reply."""
     with pytest.raises(RpcError):
         run_scenario(Scenario(revocations_behavior="drop", expected_requests=2))
+
+
+# ---------------------------------------------------------------------
+# Act-as refresh (ActAs/refresh-grant) against the fake IDP
+# ---------------------------------------------------------------------
+
+
+def _act_as_dns(addr: str) -> FakeDnsResolver:
+    from linkkeys_local_rp import crypto
+
+    pk = _domain_public_key(datetime.datetime.now(datetime.timezone.utc)).public_key
+    return FakeDnsResolver(f"v=lk1 fp={crypto.fingerprint(pk)}", f"v=lk1 tcp={addr}")
+
+
+def _served_act_as_grant(grant_id: str, fingerprint: str, subject_domain: str):
+    """A grant as a home domain stores it. Only the identifying fields matter
+    to the grantee; the audience checks the signature."""
+    from linkkeys_local_rp.generated.types import (
+        ActAsGrant,
+        ApplicationKeySignature,
+        ApplicationRef,
+        GranteeRef,
+        SignedActAsGrant,
+        SignedActAsScopeSet,
+    )
+
+    grant = ActAsGrant(
+        grant_id=grant_id,
+        user_id="user-1",
+        subject_domain=subject_domain,
+        grantee=GranteeRef(application=None, local_rp_descriptor_fingerprint=fingerprint),
+        audience=ApplicationRef(
+            subject_user_id="audience-owner", subject_domain="audience.test", application_id="audience-app"
+        ),
+        scope_set=SignedActAsScopeSet(
+            scope_set=b"\xa0",
+            signer_instance_id="audience-inst",
+            signatures=[ApplicationKeySignature(signed_by_key_id="audience-key", signature=bytes(64))],
+        ),
+        approved_scope=["read"],
+        issued_at="2026-10-06T12:00:00Z",
+        expires_at="2026-10-06T13:00:00Z",
+        series_issued_at="2026-10-06T12:00:00Z",
+        renewable_until="2026-10-06T13:00:00Z",
+        device_fingerprint=None,
+    )
+    return SignedActAsGrant(
+        grant=grant.to_cbor(),
+        signatures=[ClaimSignature(domain=subject_domain, signed_by_key_id=DOMAIN_KEY_ID, signature=bytes([9] * 64))],
+    )
+
+
+def test_refresh_act_as_grant_calls_refresh_grant_with_verifiable_request():
+    from linkkeys_local_rp import crypto
+    from linkkeys_local_rp.act_as import ACT_AS_REFRESH_REQUEST_TAG, refresh_act_as_grant
+    from linkkeys_local_rp.generated.types import (
+        ActAsRefreshRequest,
+        RefreshActAsGrantRequest,
+        RefreshActAsGrantResponse,
+    )
+
+    now = datetime.datetime(2026, 10, 6, 12, 40, tzinfo=datetime.timezone.utc)
+    key_material = _fixed_key_material(now)
+    served = _served_act_as_grant("grant-1", key_material.fingerprint, USER_DOMAIN)
+    seen = []
+
+    def dispatch(service, op, payload):
+        seen.append((service, op, payload))
+        if (service, op) == ("ActAs", "refresh-grant"):
+            return _encode_ok_response(RefreshActAsGrantResponse(grant=served, signed=True).to_cbor())
+        return _encode_error_response(5, f"no handler for {service}/{op}")
+
+    addr = spawn_fake_idp(DOMAIN_SIGNING_SEED, 1, dispatch)
+    result = refresh_act_as_grant(
+        key_material, USER_DOMAIN, "grant-1", now, transport=StdTransport(), dns=_act_as_dns(addr)
+    )
+
+    assert result.signed is True
+    assert result.grant.to_cbor() == served.to_cbor()
+    assert len(seen) == 1
+    service, op, payload = seen[0]
+    assert (service, op) == ("ActAs", "refresh-grant")
+    signed = RefreshActAsGrantRequest.from_cbor(payload).request
+    request = ActAsRefreshRequest.from_cbor(signed.request)
+    assert request.grant_id == "grant-1"
+    assert request.grantee.local_rp_descriptor_fingerprint == key_material.fingerprint
+    assert request.requested_at == "2026-10-06T12:40:00Z"
+    assert request.expires_at == "2026-10-06T12:45:00Z"
+    assert len(request.nonce) == 43
+    assert signed.proof.signature.signed_by_key_id == key_material.fingerprint
+    assert signed.proof.application_instance_id is None
+    assert signed.proof.local_rp_descriptor.to_cbor() == key_material.descriptor.to_cbor()
+    crypto.verify_with_algorithm(
+        crypto.SigningAlgorithm.ED25519,
+        local_rp.envelope_signature_input(ACT_AS_REFRESH_REQUEST_TAG, signed.request),
+        signed.proof.signature.signature,
+        key_material.signing_public_key,
+    )
+
+
+@pytest.mark.parametrize(
+    "grant_id, fingerprint, subject_domain",
+    [
+        ("grant-2", None, USER_DOMAIN),
+        ("grant-1", "another-local-rp", USER_DOMAIN),
+        ("grant-1", None, "other.test"),
+    ],
+)
+def test_refresh_act_as_grant_refuses_another_grant(grant_id, fingerprint, subject_domain):
+    from linkkeys_local_rp.act_as import ActAsError, refresh_act_as_grant
+    from linkkeys_local_rp.generated.types import RefreshActAsGrantResponse
+
+    now = datetime.datetime(2026, 10, 6, 12, 40, tzinfo=datetime.timezone.utc)
+    key_material = _fixed_key_material(now)
+    served = _served_act_as_grant(grant_id, fingerprint or key_material.fingerprint, subject_domain)
+    addr = spawn_fake_idp(
+        DOMAIN_SIGNING_SEED,
+        1,
+        lambda s, o, p: _encode_ok_response(RefreshActAsGrantResponse(grant=served, signed=False).to_cbor()),
+    )
+    with pytest.raises(ActAsError):
+        refresh_act_as_grant(key_material, USER_DOMAIN, "grant-1", now, transport=StdTransport(), dns=_act_as_dns(addr))
+
+
+def test_refresh_act_as_grant_surfaces_server_error():
+    from linkkeys_local_rp.act_as import refresh_act_as_grant
+    from linkkeys_local_rp.rpc import ServerError
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    key_material = _fixed_key_material(now)
+    addr = spawn_fake_idp(DOMAIN_SIGNING_SEED, 1, lambda s, o, p: _encode_error_response(7, "grant store unavailable"))
+    with pytest.raises(ServerError) as excinfo:
+        refresh_act_as_grant(key_material, USER_DOMAIN, "grant-1", now, transport=StdTransport(), dns=_act_as_dns(addr))
+    assert excinfo.value.status == 7

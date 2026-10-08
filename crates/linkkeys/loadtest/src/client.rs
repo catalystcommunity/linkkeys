@@ -409,7 +409,7 @@ pub struct RequestBenchArgs {
     #[arg(long, default_value = "loadtest-data/loadtest-info.json")]
     pub info_file: PathBuf,
     /// Number of persistent connections to open once, then reuse for the
-    /// whole benchmark (signing-things-request.md: "permit SDKs to reuse
+    /// whole benchmark (design requirement: "permit SDKs to reuse
     /// persistent connections").
     #[arg(long, default_value_t = 32)]
     pub connections: u32,

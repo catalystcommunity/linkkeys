@@ -5,9 +5,14 @@ import java.nio.file.Path
 
 /** Loads the JSON vector files under `sdks/local-rp/conformance` for tests. */
 object Fixtures {
-    fun load(name: String): MiniJson.JsonValue {
-        val dir = System.getProperty("linkkeys.conformanceDir")
-            ?: error("system property linkkeys.conformanceDir is not set (run via gradle test)")
+    fun load(name: String): MiniJson.JsonValue = loadFrom("linkkeys.conformanceDir", name)
+
+    /** Loads a JSON vector file under `sdks/regular-rp/conformance` (the act-as grantee vectors live there). */
+    fun loadRegularRp(name: String): MiniJson.JsonValue = loadFrom("linkkeys.regularRpConformanceDir", name)
+
+    private fun loadFrom(property: String, name: String): MiniJson.JsonValue {
+        val dir = System.getProperty(property)
+            ?: error("system property $property is not set (run via gradle test)")
         val path = Path.of(dir, name)
         val text = try {
             Files.readString(path)

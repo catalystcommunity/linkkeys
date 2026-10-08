@@ -54,6 +54,14 @@ const String _userDomain = 'example.test';
 const String _callbackUrl = 'http://localhost/callback';
 const String _domainKeyId = 'test-domain-key-1';
 
+/// Every lookup fails: `beginLocalLogin` falls back to the identity domain
+/// without any live DNS request.
+class _NoDnsResolver implements DnsResolver {
+  @override
+  Future<List<String>> txtLookup(String name) async =>
+      throw SdkException(SdkExceptionKind.dns, 'no fake record for $name');
+}
+
 class _FakeDnsResolver implements DnsResolver {
   final String linkkeysTxt;
   final String apisTxt;
@@ -157,12 +165,15 @@ Future<VerifiedLocalLogin> _runScenario(_Scenario scenario) async {
   final now = DateTime.now().toUtc();
   final keyMaterial = await _fixedKeyMaterial(now);
 
+  // Browser endpoint discovery is not under test here; a failing resolver
+  // keeps begin hermetic (fallback to https://<userDomain>).
   final begun = await beginLocalLogin(BeginLocalLoginConfig(
     keyMaterial: keyMaterial,
     callbackUrl: _callbackUrl,
     userDomain: _userDomain,
     requiredClaims: scenario.requiredClaimsOverride,
     now: now,
+    dns: _NoDnsResolver(),
   ));
   final pending = begun.pending;
 

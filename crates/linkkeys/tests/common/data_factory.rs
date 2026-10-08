@@ -6,6 +6,7 @@
 use serde_json::Value;
 use std::collections::HashMap;
 
+use linkkeys::db::act_as::{ActAsGrantRecord, GranteeColumns};
 use linkkeys::db::models::{
     ApplicationInstance, ApplicationKey, ApplicationKeyAttestationRecord,
     ApplicationKeyRevocationRecord, AuthCredential, ClaimTypePolicy, DomainKey, GuestbookEntry,
@@ -469,6 +470,70 @@ fn extract_str(overrides: &DataMap, key: &str, default: impl Fn() -> String) -> 
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .unwrap_or_else(default)
+}
+
+/// Create an act-as grant series directly via `DbPool::insert_act_as_grant`.
+/// Storage only: `signed_grant` is placeholder bytes. A test that needs a
+/// real signed grant inserts its own record. Overrides: `user_id` (default: a fresh test
+/// user), `grant_id` (default: a new UUID), `local_rp_fingerprint` (selects a
+/// local-RP grantee; default: an application grantee), `approved_scope`
+/// (JSON array, default `["read"]`), `lifetime_seconds` (default 3600),
+/// `issued_at` (RFC3339, default now), `expires_at` (default issued_at +
+/// lifetime), `renewable_until` (default expires_at).
+#[allow(dead_code)]
+pub fn create_act_as_grant(pool: &DbPool, overrides: &DataMap) -> ActAsGrantRecord {
+    use liblinkkeys::act_as::format_time;
+    let user_id = match overrides.get("user_id").and_then(|v| v.as_str()) {
+        Some(uid) => uid.to_string(),
+        None => create_user(pool, &DataMap::new()).id,
+    };
+    let grant_id = extract_str(overrides, "grant_id", || uuid::Uuid::now_v7().to_string());
+    let grantee = match overrides
+        .get("local_rp_fingerprint")
+        .and_then(|v| v.as_str())
+    {
+        Some(fp) => GranteeColumns::LocalRp {
+            fingerprint: fp.to_string(),
+        },
+        None => GranteeColumns::Application {
+            subject_user_id: uuid::Uuid::now_v7().to_string(),
+            subject_domain: "grantee.test".to_string(),
+            application_id: format!("grantee-app-{}", rand_suffix()),
+        },
+    };
+    let approved_scope: Vec<String> = overrides
+        .get("approved_scope")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_else(|| vec!["read".to_string()]);
+    let lifetime_seconds = overrides
+        .get("lifetime_seconds")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(3600);
+    let issued_at = extract_datetime(overrides, "issued_at", chrono::Utc::now);
+    let expires_at = extract_datetime(overrides, "expires_at", || {
+        issued_at + chrono::Duration::seconds(lifetime_seconds)
+    });
+    let renewable_until = extract_datetime(overrides, "renewable_until", || expires_at);
+    let record = ActAsGrantRecord {
+        grant_id,
+        user_id,
+        grantee,
+        audience_subject_user_id: uuid::Uuid::now_v7().to_string(),
+        audience_subject_domain: "audience.test".to_string(),
+        audience_application_id: format!("audience-app-{}", rand_suffix()),
+        approved_scope,
+        lifetime_seconds,
+        series_issued_at: format_time(issued_at),
+        renewable_until: format_time(renewable_until),
+        signed_grant: b"placeholder-signed-grant".to_vec(),
+        issued_at: format_time(issued_at),
+        expires_at: format_time(expires_at),
+        revoked_at: None,
+        signed_revocation: None,
+    };
+    pool.insert_act_as_grant(&record)
+        .expect("Failed to create test act-as grant");
+    record
 }
 
 #[allow(dead_code)]

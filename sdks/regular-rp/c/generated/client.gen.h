@@ -560,6 +560,42 @@ static inline int csil_browser_authorization_complete(const CsilgenTransport *t,
     return csil_drc;
 }
 
+/* Invoke BrowserAuthorization/inspect-act-as with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_browser_authorization_inspect_act_as(const CsilgenTransport *t, const BrowserActAsInspectRequest *req,
+                        BrowserActAsInspectResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_BrowserActAsInspectRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "BrowserAuthorization", "inspect-act-as", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_BrowserActAsInspectResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
+/* Invoke BrowserAuthorization/complete-act-as with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_browser_authorization_complete_act_as(const CsilgenTransport *t, const BrowserActAsCompleteRequest *req,
+                        BrowserActAsCompleteResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_BrowserActAsCompleteRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "BrowserAuthorization", "complete-act-as", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_BrowserActAsCompleteResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
 /* Invoke Admin/list-users with a typed request and decode the typed
  * response. *resp_owner holds the response's backing storage; free it once
  * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
@@ -1622,6 +1658,42 @@ static inline int csil_account_enroll_application_instance(const CsilgenTranspor
     return csil_drc;
 }
 
+/* Invoke Account/list-act-as-grants with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_account_list_act_as_grants(const CsilgenTransport *t, const EmptyRequest *req,
+                        ListActAsGrantsResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_EmptyRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "Account", "list-act-as-grants", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_ListActAsGrantsResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
+/* Invoke Account/revoke-act-as-grant with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_account_revoke_act_as_grant(const CsilgenTransport *t, const RevokeActAsGrantRequest *req,
+                        RevokeActAsGrantResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_RevokeActAsGrantRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "Account", "revoke-act-as-grant", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_RevokeActAsGrantResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
 /* Invoke Attestation/deposit-claim with a typed request and decode the typed
  * response. *resp_owner holds the response's backing storage; free it once
  * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
@@ -1762,6 +1834,78 @@ static inline int csil_rp_resolve_application_keys(const CsilgenTransport *t, co
     free(csil_reqb);
     if (csil_rc != 0) { free(csil_respb); return csil_rc; }
     int csil_drc = csil_decode_RpResolveApplicationKeysResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
+/* Invoke Rp/act-as-refresh-grant with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_rp_act_as_refresh_grant(const CsilgenTransport *t, const RpActAsRefreshRequest *req,
+                        RefreshActAsGrantResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_RpActAsRefreshRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "Rp", "act-as-refresh-grant", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_RefreshActAsGrantResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
+/* Invoke Rp/resolve-act-as-revocations with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_rp_resolve_act_as_revocations(const CsilgenTransport *t, const RpResolveActAsRevocationsRequest *req,
+                        GetActAsGrantRevocationsResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_RpResolveActAsRevocationsRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "Rp", "resolve-act-as-revocations", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_GetActAsGrantRevocationsResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
+/* Invoke ActAs/refresh-grant with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_act_as_refresh_grant(const CsilgenTransport *t, const RefreshActAsGrantRequest *req,
+                        RefreshActAsGrantResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_RefreshActAsGrantRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "ActAs", "refresh-grant", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_RefreshActAsGrantResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
+/* Invoke ActAs/get-grant-revocations with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_act_as_get_grant_revocations(const CsilgenTransport *t, const GetActAsGrantRevocationsRequest *req,
+                        GetActAsGrantRevocationsResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_GetActAsGrantRevocationsRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "ActAs", "get-grant-revocations", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_GetActAsGrantRevocationsResponse(csil_respb, csil_respn, resp, resp_owner);
     free(csil_respb);
     return csil_drc;
 }

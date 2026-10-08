@@ -1,5 +1,5 @@
 (test
  (name run_tests)
- (libraries linkkeys_local_rp alcotest yojson)
+ (libraries linkkeys_local_rp alcotest yojson tls x509 ptime cstruct unix)
  (deps
   (glob_files_rec fixtures/*)))

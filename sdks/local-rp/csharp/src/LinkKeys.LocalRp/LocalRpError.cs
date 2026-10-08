@@ -62,6 +62,12 @@ public class LocalRpError : Exception
         /// empty claim set — is fatal.
         /// </summary>
         RequiredClaimsNotSatisfied,
+
+        /// <summary>
+        /// <c>ActAs/refresh-grant</c> returned a grant for another grant id, another
+        /// grantee, or another subject domain than the call asked for.
+        /// </summary>
+        GrantMismatch,
     }
 
     public ErrorKind Kind { get; }

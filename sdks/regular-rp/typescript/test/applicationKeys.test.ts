@@ -1,6 +1,6 @@
 // Consumer of `sdks/regular-rp/conformance/`: replays the checked-in JSON
-// vectors for application keys (signing-things-request.md, "Required tests
-// and acceptance checks" -> "Cryptographic tests") against this SDK's own
+// vectors for application keys (docs/spec/application-keys.md, §11 "Conformance
+// vectors") against this SDK's own
 // `src/applicationKeys.ts`, every positive AND negative case.
 //
 // Only `application_key_attestation.json` and `application_key_revocation.json`

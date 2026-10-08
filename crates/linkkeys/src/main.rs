@@ -29,6 +29,10 @@ async fn main() {
                 eprintln!("Application key configuration is unusable: {error}");
                 std::process::exit(1);
             }
+            if let Err(error) = linkkeys::services::act_as::validate_configuration() {
+                eprintln!("Act-as grant configuration is unusable: {error}");
+                std::process::exit(1);
+            }
 
             let db_pool = linkkeys::db::create_pool();
             let ready_flag = Arc::new(AtomicBool::new(false));

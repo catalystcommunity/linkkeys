@@ -2416,3 +2416,377 @@ public sealed record RpResolveApplicationKeysResponse
     public required string CacheStatus { get; init; }
 }
 
+public sealed record ApplicationRef
+{
+    // CBOR key: subject_user_id
+    public required string SubjectUserId { get; init; }
+    // CBOR key: subject_domain
+    public required string SubjectDomain { get; init; }
+    // CBOR key: application_id
+    public required string ApplicationId { get; init; }
+}
+
+public sealed record GranteeRef
+{
+    // CBOR key: application
+    public ApplicationRef? Application { get; init; }
+    // CBOR key: local_rp_descriptor_fingerprint
+    public string? LocalRpDescriptorFingerprint { get; init; }
+}
+
+public sealed record GranteeProof
+{
+    // CBOR key: application_instance_id
+    public string? ApplicationInstanceId { get; init; }
+    // CBOR key: local_rp_descriptor
+    public SignedLocalRpDescriptor? LocalRpDescriptor { get; init; }
+    // CBOR key: signature
+    public required ApplicationKeySignature Signature { get; init; }
+}
+
+public sealed record ActAsScopeEntry
+{
+    // CBOR key: scope
+    public required string Scope { get; init; }
+    // CBOR key: description
+    public string? Description { get; init; }
+}
+
+public sealed record ActAsScopeSet
+{
+    // CBOR key: audience
+    public required ApplicationRef Audience { get; init; }
+    // CBOR key: grantee
+    public required GranteeRef Grantee { get; init; }
+    // CBOR key: entries
+    public required System.Collections.Generic.List<ActAsScopeEntry> Entries { get; init; }
+    // CBOR key: language
+    public string? Language { get; init; }
+    // CBOR key: audience_handle_claim
+    public Claim? AudienceHandleClaim { get; init; }
+    // CBOR key: issued_at
+    public required string IssuedAt { get; init; }
+    // CBOR key: expires_at
+    public required string ExpiresAt { get; init; }
+}
+
+public sealed record SignedActAsScopeSet
+{
+    // CBOR key: scope_set
+    public required byte[] ScopeSet { get; init; }
+    // CBOR key: signer_instance_id
+    public required string SignerInstanceId { get; init; }
+    // CBOR key: signatures
+    public required System.Collections.Generic.List<ApplicationKeySignature> Signatures { get; init; }
+}
+
+public sealed record ActAsScopeSetRequest
+{
+    // CBOR key: grantee
+    public required GranteeRef Grantee { get; init; }
+    // CBOR key: scope
+    public required System.Collections.Generic.List<string> Scope { get; init; }
+    // CBOR key: locale_preferences
+    public System.Collections.Generic.List<string>? LocalePreferences { get; init; }
+}
+
+public sealed record ActAsGrant
+{
+    // CBOR key: grant_id
+    public required string GrantId { get; init; }
+    // CBOR key: user_id
+    public required string UserId { get; init; }
+    // CBOR key: subject_domain
+    public required string SubjectDomain { get; init; }
+    // CBOR key: grantee
+    public required GranteeRef Grantee { get; init; }
+    // CBOR key: audience
+    public required ApplicationRef Audience { get; init; }
+    // CBOR key: scope_set
+    public required SignedActAsScopeSet ScopeSet { get; init; }
+    // CBOR key: approved_scope
+    public required System.Collections.Generic.List<string> ApprovedScope { get; init; }
+    // CBOR key: issued_at
+    public required string IssuedAt { get; init; }
+    // CBOR key: expires_at
+    public required string ExpiresAt { get; init; }
+    // CBOR key: series_issued_at
+    public required string SeriesIssuedAt { get; init; }
+    // CBOR key: renewable_until
+    public required string RenewableUntil { get; init; }
+    // CBOR key: device_fingerprint
+    public string? DeviceFingerprint { get; init; }
+}
+
+public sealed record SignedActAsGrant
+{
+    // CBOR key: grant
+    public required byte[] Grant { get; init; }
+    // CBOR key: signatures
+    public required System.Collections.Generic.List<ClaimSignature> Signatures { get; init; }
+}
+
+public sealed record ActAsGrantRequest
+{
+    // CBOR key: grantee
+    public required GranteeRef Grantee { get; init; }
+    // CBOR key: scope_set
+    public required SignedActAsScopeSet ScopeSet { get; init; }
+    // CBOR key: requested_lifetime_seconds
+    public long? RequestedLifetimeSeconds { get; init; }
+    // CBOR key: requested_renewal_window_seconds
+    public long? RequestedRenewalWindowSeconds { get; init; }
+    // CBOR key: grantee_handle_claim
+    public Claim? GranteeHandleClaim { get; init; }
+    // CBOR key: callback_url
+    public required string CallbackUrl { get; init; }
+    // CBOR key: nonce
+    public required string Nonce { get; init; }
+    // CBOR key: requested_at
+    public required string RequestedAt { get; init; }
+    // CBOR key: expires_at
+    public required string ExpiresAt { get; init; }
+}
+
+public sealed record SignedActAsGrantRequest
+{
+    // CBOR key: request
+    public required byte[] Request { get; init; }
+    // CBOR key: proof
+    public required GranteeProof Proof { get; init; }
+}
+
+public sealed record ActAsRefreshRequest
+{
+    // CBOR key: grant_id
+    public required string GrantId { get; init; }
+    // CBOR key: grantee
+    public required GranteeRef Grantee { get; init; }
+    // CBOR key: requested_at
+    public required string RequestedAt { get; init; }
+    // CBOR key: expires_at
+    public required string ExpiresAt { get; init; }
+    // CBOR key: nonce
+    public required string Nonce { get; init; }
+}
+
+public sealed record SignedActAsRefreshRequest
+{
+    // CBOR key: request
+    public required byte[] Request { get; init; }
+    // CBOR key: proof
+    public required GranteeProof Proof { get; init; }
+}
+
+public sealed record RefreshActAsGrantRequest
+{
+    // CBOR key: request
+    public required SignedActAsRefreshRequest Request { get; init; }
+}
+
+public sealed record RefreshActAsGrantResponse
+{
+    // CBOR key: grant
+    public required SignedActAsGrant Grant { get; init; }
+    // CBOR key: signed
+    public required bool Signed { get; init; }
+}
+
+public sealed record ActAsPresentation
+{
+    // CBOR key: grant_hash
+    public required byte[] GrantHash { get; init; }
+    // CBOR key: audience
+    public required ApplicationRef Audience { get; init; }
+    // CBOR key: request_digest
+    public required byte[] RequestDigest { get; init; }
+    // CBOR key: presented_at
+    public required string PresentedAt { get; init; }
+    // CBOR key: nonce
+    public required byte[] Nonce { get; init; }
+}
+
+public sealed record SignedActAsPresentation
+{
+    // CBOR key: presentation
+    public required byte[] Presentation { get; init; }
+    // CBOR key: proof
+    public required GranteeProof Proof { get; init; }
+}
+
+public sealed record ActAsCredential
+{
+    // CBOR key: grant
+    public required SignedActAsGrant Grant { get; init; }
+    // CBOR key: presentation
+    public required SignedActAsPresentation Presentation { get; init; }
+}
+
+public sealed record ActAsGrantRevocation
+{
+    // CBOR key: grant_id
+    public required string GrantId { get; init; }
+    // CBOR key: user_id
+    public required string UserId { get; init; }
+    // CBOR key: subject_domain
+    public required string SubjectDomain { get; init; }
+    // CBOR key: revoked_at
+    public required string RevokedAt { get; init; }
+}
+
+public sealed record SignedActAsGrantRevocation
+{
+    // CBOR key: revocation
+    public required byte[] Revocation { get; init; }
+    // CBOR key: signatures
+    public required System.Collections.Generic.List<ClaimSignature> Signatures { get; init; }
+}
+
+public sealed record GetActAsGrantRevocationsRequest
+{
+    // CBOR key: grant_ids
+    public required System.Collections.Generic.List<string> GrantIds { get; init; }
+}
+
+public sealed record GetActAsGrantRevocationsResponse
+{
+    // CBOR key: revocations
+    public required System.Collections.Generic.List<SignedActAsGrantRevocation> Revocations { get; init; }
+}
+
+public sealed record RpActAsRefreshRequest
+{
+    // CBOR key: subject_domain
+    public required string SubjectDomain { get; init; }
+    // CBOR key: request
+    public required SignedActAsRefreshRequest Request { get; init; }
+}
+
+public sealed record RpResolveActAsRevocationsRequest
+{
+    // CBOR key: subject_domain
+    public required string SubjectDomain { get; init; }
+    // CBOR key: grant_ids
+    public required System.Collections.Generic.List<string> GrantIds { get; init; }
+}
+
+public sealed record BrowserActAsInspectRequest
+{
+    // CBOR key: signed_request
+    public required string SignedRequest { get; init; }
+}
+
+public sealed record BrowserActAsScopeEntry
+{
+    // CBOR key: scope
+    public required string Scope { get; init; }
+    // CBOR key: description
+    public string? Description { get; init; }
+    // CBOR key: removed_by_policy
+    public required bool RemovedByPolicy { get; init; }
+}
+
+public sealed record BrowserActAsParty
+{
+    // CBOR key: domain
+    public string? Domain { get; init; }
+    // CBOR key: application_id
+    public string? ApplicationId { get; init; }
+    // CBOR key: subject_user_id
+    public string? SubjectUserId { get; init; }
+    // CBOR key: handle
+    public string? Handle { get; init; }
+    // CBOR key: local_rp_name
+    public string? LocalRpName { get; init; }
+    // CBOR key: local_rp_fingerprint
+    public string? LocalRpFingerprint { get; init; }
+    // CBOR key: own_domain
+    public required bool OwnDomain { get; init; }
+    // CBOR key: user_has_history
+    public required bool UserHasHistory { get; init; }
+    // CBOR key: domain_key_pinned
+    public required bool DomainKeyPinned { get; init; }
+    // CBOR key: operator_trusted
+    public required bool OperatorTrusted { get; init; }
+}
+
+public sealed record BrowserActAsInspectResponse
+{
+    // CBOR key: grantee
+    public required GranteeRef Grantee { get; init; }
+    // CBOR key: grantee_party
+    public required BrowserActAsParty GranteeParty { get; init; }
+    // CBOR key: audience
+    public required ApplicationRef Audience { get; init; }
+    // CBOR key: audience_party
+    public required BrowserActAsParty AudienceParty { get; init; }
+    // CBOR key: entries
+    public required System.Collections.Generic.List<BrowserActAsScopeEntry> Entries { get; init; }
+    // CBOR key: language
+    public string? Language { get; init; }
+    // CBOR key: default_lifetime_seconds
+    public required long DefaultLifetimeSeconds { get; init; }
+    // CBOR key: max_lifetime_seconds
+    public required long MaxLifetimeSeconds { get; init; }
+    // CBOR key: default_renewal_window_seconds
+    public required long DefaultRenewalWindowSeconds { get; init; }
+    // CBOR key: max_renewal_window_seconds
+    public required long MaxRenewalWindowSeconds { get; init; }
+}
+
+public sealed record BrowserActAsCompleteRequest
+{
+    // CBOR key: signed_request
+    public required string SignedRequest { get; init; }
+    // CBOR key: approved_scope
+    public required System.Collections.Generic.List<string> ApprovedScope { get; init; }
+    // CBOR key: lifetime_seconds
+    public required long LifetimeSeconds { get; init; }
+    // CBOR key: renewal_window_seconds
+    public required long RenewalWindowSeconds { get; init; }
+}
+
+public sealed record BrowserActAsCompleteResponse
+{
+    // CBOR key: redirect_url
+    public required string RedirectUrl { get; init; }
+}
+
+public sealed record ActAsGrantSummary
+{
+    // CBOR key: grant_id
+    public required string GrantId { get; init; }
+    // CBOR key: grantee
+    public required GranteeRef Grantee { get; init; }
+    // CBOR key: audience
+    public required ApplicationRef Audience { get; init; }
+    // CBOR key: approved_scope
+    public required System.Collections.Generic.List<string> ApprovedScope { get; init; }
+    // CBOR key: issued_at
+    public required string IssuedAt { get; init; }
+    // CBOR key: expires_at
+    public required string ExpiresAt { get; init; }
+    // CBOR key: renewable_until
+    public required string RenewableUntil { get; init; }
+    // CBOR key: revoked_at
+    public string? RevokedAt { get; init; }
+}
+
+public sealed record ListActAsGrantsResponse
+{
+    // CBOR key: grants
+    public required System.Collections.Generic.List<ActAsGrantSummary> Grants { get; init; }
+}
+
+public sealed record RevokeActAsGrantRequest
+{
+    // CBOR key: grant_id
+    public required string GrantId { get; init; }
+}
+
+public sealed record RevokeActAsGrantResponse
+{
+    // CBOR key: revoked_at
+    public required string RevokedAt { get; init; }
+}
+

@@ -1,9 +1,10 @@
-# linkkeys application keys (Go)
+# linkkeys application keys and act-as grants (Go)
 
 This package gives a Go regular-RP application the ability to verify and
-cache LinkKeys application keys. Read `docs/application-keys.md` at the
-repo root first. That document explains the protocol. This file explains
-how to use the Go package.
+cache LinkKeys application keys. It also gives the grantee and audience
+sides of act-as grants (see "Act-as grants" below). Read
+`docs/application-keys.md` at the repo root first. That document explains
+the protocol. This file explains how to use the Go package.
 
 Application keys let an application, such as Tinku, sign its own messages.
 The application keeps its own private keys. The application's home domain
@@ -153,6 +154,158 @@ inside the addition or renewal request:
 challenge, err := regularrp.OpenChallenge(sealedChallengeBytes, agreePriv)
 ```
 
+## Act-as grants
+
+An act-as grant lets application C (the grantee) act as a user at
+application D (the audience). The user approves the grant. The user's home
+domain signs it. C and D enforce the scope. Read
+`docs/act-as-grants.md` and `docs/spec/reserved/act-as-grants.md` first.
+This package ports `crates/liblinkkeys/src/act_as.rs` (`actas.go`) and adds
+the RP calls (`actas_rp.go`).
+
+Use `FormatActAsTime` for every timestamp that you put in a request. It
+gives whole-second RFC3339 UTC with a trailing `Z`.
+
+### Grantee flow (application C)
+
+1. Get a signed scope set from D. Your protocol with D sets how. Do not
+   change it. A change breaks D's signature.
+2. Make a signer. An enrolled application instance uses
+   `NewApplicationGranteeSigner(instanceID, signer)`. A local RP uses
+   `NewLocalRpGranteeSigner(descriptor, fingerprint, seed)`.
+3. Sign the grant request and send the user's browser to the home domain:
+
+   ```go
+   signed, err := regularrp.SignGrantRequest(api.ActAsGrantRequest{
+   	Grantee:            grantee,
+   	ScopeSet:           scopeSetFromD,
+   	GranteeHandleClaim: handleClaim, // optional; nil when you have none
+   	CallbackUrl:        "https://c.example/act-as/callback",
+   	Nonce:              nonce, // single use; check it on the callback
+   	RequestedAt:        regularrp.FormatActAsTime(now),
+   	ExpiresAt:          regularrp.FormatActAsTime(now.Add(5 * time.Minute)),
+   }, signer)
+   link, err := regularrp.GrantRequestURL("https://home.example", signed)
+   ```
+
+   `GranteeHandleClaim` is optional. It is a signed `handle` claim from your
+   home domain about the account that enrolled your application. The consent
+   screen then shows the handle. A local RP has no account, so it cannot
+   send a handle claim.
+
+   This package has no discovery of the home domain's browser endpoint. You
+   supply the browser base URL. The URL must use https. Only a loopback
+   host can use http.
+4. The callback gets `act_as_grant_id` and `nonce`. Make sure the nonce is
+   yours. Then fetch the grant through your own RP:
+
+   ```go
+   refresh, err := regularrp.SignRefreshRequest(api.ActAsRefreshRequest{
+   	GrantId:     grantID,
+   	Grantee:     grantee,
+   	RequestedAt: regularrp.FormatActAsTime(now),
+   	ExpiresAt:   regularrp.FormatActAsTime(now.Add(5 * time.Minute)),
+   	Nonce:       freshNonce,
+   }, signer)
+   got, err := regularrp.RefreshGrant(ctx, transport, userHomeDomain, refresh)
+   ```
+
+5. For each call to D, make a credential and send it with the call:
+
+   ```go
+   credential, err := regularrp.Present(got.Grant, audienceRef, requestDigest, now, callNonce, signer)
+   ```
+
+   Use a new nonce for each call. D defines `requestDigest`.
+6. Call `RefreshGrant` again when less than half of the grant's life
+   remains. `DecideRefresh` tells you what the home domain will do. A
+   refresh that cannot renew yet returns the stored grant, with
+   `Signed == false`. An expired grant cannot be renewed. Ask the user
+   again.
+
+### Audience scope sets (application D)
+
+Sign each scope set with ALL current signing keys of your instance:
+
+```go
+scopeSet, err := regularrp.SignScopeSet(set, myInstanceID, []regularrp.ApplicationSigner{key1, key2})
+```
+
+A verifier needs one signature by a key that was valid at the set's
+`IssuedAt`. Thus the set stays valid when one key expires or is revoked.
+The list must not be empty, and a key id must not occur two times.
+
+`set.AudienceHandleClaim` is optional. It is a signed `handle` claim from
+your home domain about the account that enrolled your application. It must
+be about `set.Audience.SubjectUserId`.
+
+### Audience verification flow (application D)
+
+1. Find the keys that the credential needs:
+   - `CredentialSignerInstance` gives the grantee instance. Resolve its
+     keys with `CachedResolver`, then use `UsableKeyRefs()`. A local-RP
+     grantee needs no instance keys.
+   - `CredentialScopeSetSigner` gives your own instance that signed the
+     scope set. Resolve its keys with `CachedResolver`, then use
+     `AttestedKeyRefs()`. Do NOT use `UsableKeyRefs()` here.
+     `AttestedKeyRefs()` keeps the keys that expired or were revoked
+     since, each with its `RevokedAt`. Without them, every grant whose
+     scope set was signed before a key rotation fails.
+   - Get the signing keys of the grant's home domain from your RP
+     (`Rp/resolve-domain-keys`). Apply its revocations.
+2. Get the revocations that you hold for the grant with
+   `ResolveGrantRevocations`. It returns only revocations that verify
+   against the home domain's keys.
+3. Run the checklist:
+
+   ```go
+   verified, err := regularrp.VerifyCredential(credential, regularrp.AudienceContext{
+   	OwnApplication:            myApplicationRef, // from configuration, never from the request
+   	OwnScopeSetKeys:           myScopeSetKeys,
+   	IssuerDomainKeys:          homeDomainKeys,
+   	GranteeInstanceKeys:       granteeKeys,
+   	ExpectedRequestDigest:     digestOfThisRequest,
+   	RevokedGrantIDs:           revokedIDs,
+   	MaxPresentationAgeSeconds: 300,
+   	Now:                       time.Now(),
+   	SkewSeconds:               60,
+   	RevokedKeyPolicy:          regularrp.AcceptBeforeRevocation, // the default
+   })
+   ```
+
+   `VerifyCredential` runs the seven checks of the specification in the
+   same order as the Rust reference.
+
+   `RevokedKeyPolicy` tells how to treat a scope-set signature by a key
+   that was revoked after it signed. `AcceptBeforeRevocation` (the zero
+   value) accepts it. `RefuseRevoked` refuses it. When no signature is
+   acceptable, the error kind is `ErrActAsNoValidSignature`. Its detail
+   names each key and why it was refused.
+4. Use only `verified.ApprovedScope` in your policy. Never use the full
+   scope set.
+
+D owns replay protection. `VerifyCredential` does not remember nonces.
+Record `verified.Nonce` until `MaxPresentationAgeSeconds` plus the skew
+has passed, and refuse a nonce that you already hold.
+
+### Handle claims
+
+`VerifyHandleClaim(claim, party, domainKeys)` returns the handle when the
+claim counts:
+
+- Its type is `handle` and it is about `party.SubjectUserId`.
+- A signature by `party.SubjectDomain` verifies against `domainKeys`, the
+  signing keys of that domain. Signatures by other domains are ignored.
+- It is not revoked and not expired.
+
+A claim that does not count must not block consent. Do not show its handle.
+
+### Revocation data
+
+D also owns the freshness of its revocation data. It decides how often to
+call `ResolveGrantRevocations`. A short grant lifetime decreases the risk
+of old revocation data.
+
 ## What this package does not do
 
 It never submits an addition, renewal, or revocation request over the
@@ -192,20 +345,25 @@ gofmt -l .
   simulated RP outage, bounded eviction under a low `MaxEntries`, cache
   isolation between instances that differ in only one identifier field, and
   singleflight coalescing of concurrent resolves for one instance.
+- `actas_conformance_test.go` replays the four `act_as_*.json` files:
+  every positive, negative, and policy case of scope sets (with per-case
+  audience keys and revoked-key policy), handle claims, grant requests,
+  refresh requests, grants, revocations, and credentials; the terms
+  arithmetic; and the exact bytes that a grantee signs, for an application
+  grantee and for a local-RP grantee.
+- `actas_test.go` signs and then verifies with this package only. It tests
+  multi-signature scope sets, the refusal text, both revoked-key policies,
+  `AttestedKeyRefs`, handle claims, and `RefreshGrant` and
+  `ResolveGrantRevocations` against a fake transport.
+  No test opens a network connection.
 
 Run `go test ./... -race` for the concurrency-sensitive resolver tests. It
 passes clean.
 
 ## `tools.sh` wiring
 
-`tools.sh` has no Go SDK test target for `sdks/regular-rp/go` today (only
-`test-regular-rp-typescript` exists for this SDK family). This package does
-not add one. Per this repo's convention, the maintainer wires new `tools.sh`
-subcommands. The command a future `test-regular-rp-go` subcommand should
-run:
+From the repository root:
 
 ```sh
-cd sdks/regular-rp/go && go build ./... && go vet ./... && go test ./...
+./tools.sh test-regular-rp-go
 ```
-
-with the catalyst-tools Go on `PATH` first.

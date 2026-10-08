@@ -264,6 +264,18 @@ pub trait BrowserAuthorization {
         ctx: &Self::Context,
         input: BrowserAuthorizationCompleteRequest,
     ) -> Result<BrowserAuthorizationCompleteResponse, ServiceError>;
+    /// inspect-act-as (request/response).
+    fn inspect_act_as(
+        &self,
+        ctx: &Self::Context,
+        input: BrowserActAsInspectRequest,
+    ) -> Result<BrowserActAsInspectResponse, ServiceError>;
+    /// complete-act-as (request/response).
+    fn complete_act_as(
+        &self,
+        ctx: &Self::Context,
+        input: BrowserActAsCompleteRequest,
+    ) -> Result<BrowserActAsCompleteResponse, ServiceError>;
 }
 
 /// Admin service trait
@@ -628,6 +640,18 @@ pub trait Account {
         ctx: &Self::Context,
         input: EnrollApplicationInstanceRequest,
     ) -> Result<EnrollApplicationInstanceResponse, ServiceError>;
+    /// list-act-as-grants (request/response).
+    fn list_act_as_grants(
+        &self,
+        ctx: &Self::Context,
+        input: EmptyRequest,
+    ) -> Result<ListActAsGrantsResponse, ServiceError>;
+    /// revoke-act-as-grant (request/response).
+    fn revoke_act_as_grant(
+        &self,
+        ctx: &Self::Context,
+        input: RevokeActAsGrantRequest,
+    ) -> Result<RevokeActAsGrantResponse, ServiceError>;
 }
 
 /// Attestation service trait
@@ -686,6 +710,35 @@ pub trait Rp {
         ctx: &Self::Context,
         input: RpResolveApplicationKeysRequest,
     ) -> Result<RpResolveApplicationKeysResponse, ServiceError>;
+    /// act-as-refresh-grant (request/response).
+    fn act_as_refresh_grant(
+        &self,
+        ctx: &Self::Context,
+        input: RpActAsRefreshRequest,
+    ) -> Result<RefreshActAsGrantResponse, ServiceError>;
+    /// resolve-act-as-revocations (request/response).
+    fn resolve_act_as_revocations(
+        &self,
+        ctx: &Self::Context,
+        input: RpResolveActAsRevocationsRequest,
+    ) -> Result<GetActAsGrantRevocationsResponse, ServiceError>;
+}
+
+/// ActAs service trait
+pub trait ActAs {
+    type Context;
+    /// refresh-grant (request/response).
+    fn refresh_grant(
+        &self,
+        ctx: &Self::Context,
+        input: RefreshActAsGrantRequest,
+    ) -> Result<RefreshActAsGrantResponse, ServiceError>;
+    /// get-grant-revocations (request/response).
+    fn get_grant_revocations(
+        &self,
+        ctx: &Self::Context,
+        input: GetActAsGrantRevocationsRequest,
+    ) -> Result<GetActAsGrantRevocationsResponse, ServiceError>;
 }
 
 /// LocalRp service trait

@@ -233,5 +233,17 @@ module LinkkeysLocalRp
       resp_bytes = call(transport, endpoint, 'LocalRp', 'redeem-claim-ticket', payload)
       Types::LocalRpTicketRedemptionResponse.from_cbor(resp_bytes)
     end
+
+    # Fetch or renew an act-as grant at `domain` (the user's home domain):
+    # `ActAs/refresh-grant` over TCP CSIL-RPC, pinned via the domain's DNS
+    # `fp=` set -- the same discovery and pinned path as
+    # `redeem_claim_ticket`. The signed refresh request is the grantee's
+    # possession proof.
+    def refresh_act_as_grant(transport, dns, domain, signed_request)
+      endpoint = discover_domain_endpoint(dns, domain)
+      payload = Types::RefreshActAsGrantRequest.new(request: signed_request).to_cbor
+      resp_bytes = call(transport, endpoint, 'ActAs', 'refresh-grant', payload)
+      Types::RefreshActAsGrantResponse.from_cbor(resp_bytes)
+    end
   end
 end

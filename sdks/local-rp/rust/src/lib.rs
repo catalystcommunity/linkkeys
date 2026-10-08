@@ -37,7 +37,10 @@
 //!     Utc::now(),
 //! )).unwrap();
 //! // App: persist `pending` (e.g. in a server-side session), then redirect
-//! // the browser to `redirect.redirect_url`.
+//! // the browser to `redirect.redirect_url`. `begin_local_login` discovers
+//! // the browser host from `_linkkeys_apis.<domain>` (its `https=`
+//! // endpoint) and falls back to `https://<domain>`; set
+//! // `BeginLocalLoginConfig::dns` to inject a resolver.
 //!
 //! // On callback (app's HTTP handler received `arrived_url` with an
 //! // `encrypted_token=` query parameter whose value is `encrypted_token`):
@@ -87,10 +90,17 @@
 //!   resolver spoofing is an accepted, documented tradeoff for this mode
 //!   (matching the design doc's "Decided" section). Inject a hardened
 //!   [`DnsResolver`] if your deployment needs more.
+//! - The browser host that `begin_local_login` discovers from
+//!   `_linkkeys_apis` (see [`browser`]) is a service location only.
+//!   `PendingLogin::user_domain` stays the identity domain, and
+//!   `complete_local_login` binds verification to that domain — never to
+//!   the discovered host.
 
+pub mod act_as;
 pub mod application_key_cache;
 pub mod application_key_resolver;
 pub mod begin;
+pub mod browser;
 pub mod complete;
 pub mod dns;
 pub mod error;
@@ -98,6 +108,13 @@ pub mod identity;
 pub mod rpc;
 pub mod transport;
 
+pub use act_as::{
+    act_as_grant_request_url_param, begin_act_as, complete_act_as_callback, local_rp_grantee,
+    present_act_as, refresh_act_as_grant, sign_act_as_grant_request, sign_act_as_refresh_request,
+    ActAsPresentationCredential, ActAsRedirect, BeginActAsConfig, PendingActAs,
+    RefreshActAsGrantConfig, RefreshedActAsGrant, ACT_AS_REFRESH_REQUEST_WINDOW,
+    DEFAULT_ACT_AS_REQUEST_WINDOW, MAX_ACT_AS_REQUEST_WINDOW,
+};
 pub use application_key_cache::{
     ApplicationKeyCacheStore, BoundedInMemoryApplicationKeyCache, CachedApplicationKeys,
     InstanceKey, DEFAULT_MAX_ENTRIES,
@@ -110,6 +127,10 @@ pub use application_key_resolver::{
 pub use begin::{
     begin_local_login, BeginLocalLoginConfig, LocalLoginRedirect, PendingLogin,
     DEFAULT_LOGIN_REQUEST_LIFETIME, DEFAULT_REQUESTED_CLAIMS, DEFAULT_REQUIRED_CLAIMS,
+};
+pub use browser::{
+    build_browser_endpoint, resolve_browser_base, BROWSER_ROUTE_ACT_AS, BROWSER_ROUTE_AUTHORIZE,
+    BROWSER_ROUTE_LOCAL_RP,
 };
 pub use complete::{complete_local_login, CompleteLocalLoginConfig, VerifiedLocalLogin};
 pub use dns::DnsResolver;
@@ -124,12 +145,15 @@ pub use transport::{AddressPolicy, StdTransport, Transport};
 
 // Re-exported so app code doesn't need a direct `liblinkkeys` dependency just
 // to name these types.
+pub use liblinkkeys::act_as::ActAsError;
 pub use liblinkkeys::application_keys::{
     ApplicationKeyError, InstanceRef, KeyStatus, RejectedRecord, VerifiedApplicationKey,
     VerifiedApplicationKeySet,
 };
 pub use liblinkkeys::generated::types::{
-    ApplicationKeyAttestation, ApplicationKeyRevocation, Claim, ClaimSignature, DomainPublicKey,
+    ActAsCredential, ActAsGrantRequest, ActAsRefreshRequest, ApplicationKeyAttestation,
+    ApplicationKeyRevocation, ApplicationRef, Claim, ClaimSignature, DomainPublicKey, GranteeRef,
+    SignedActAsGrant, SignedActAsGrantRequest, SignedActAsRefreshRequest, SignedActAsScopeSet,
     SignedApplicationKeyAttestation,
 };
 pub use liblinkkeys::local_rp::{ExpirationLevel, ExpirationStatus};

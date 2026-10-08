@@ -30,7 +30,7 @@
  *
  * // Later, per login attempt:
  * const restored = localRpIdentityFromBytes(storedBytes);
- * const { redirect, pending } = beginLocalLogin({
+ * const { redirect, pending } = await beginLocalLogin({
  *   keyMaterial: restored,
  *   callbackUrl: "http://jukebox.lan:8080/auth/callback",
  *   userDomain: "example.com",
@@ -38,6 +38,11 @@
  * });
  * // App: persist `pending` (e.g. in a server-side session), then redirect
  * // the browser to `redirect.redirectUrl`.
+ * //
+ * // `beginLocalLogin` reads the `_linkkeys_apis.<domain>` TXT record and
+ * // sends the browser to its `https=` endpoint. Pass `dns` to inject a
+ * // resolver. If the lookup fails, or no record has a valid `https=`
+ * // value, the redirect falls back to `https://<domain>`.
  *
  * // On callback (app's HTTP handler received `arrivedUrl` with an
  * // `encrypted_token=` query parameter whose value is `encryptedToken`):
@@ -110,6 +115,37 @@ export {
 } from "./begin.ts";
 
 export {
+  BROWSER_ROUTE_ACT_AS,
+  BROWSER_ROUTE_AUTHORIZE,
+  BROWSER_ROUTE_LOCAL_RP,
+  buildBrowserEndpoint,
+  resolveBrowserBase,
+} from "./browser.ts";
+
+export {
+  ACT_AS_GRANT_REQUEST_TAG,
+  ACT_AS_PRESENTATION_TAG,
+  ACT_AS_REFRESH_REQUEST_TAG,
+  ACT_AS_REFRESH_WINDOW_SECONDS,
+  DEFAULT_ACT_AS_REQUEST_WINDOW_SECONDS,
+  MAX_ACT_AS_REQUEST_WINDOW_SECONDS,
+  actAsGrantHash,
+  beginActAs,
+  completeActAsCallback,
+  formatActAsTime,
+  presentActAs,
+  refreshActAsGrant,
+  signActAsGrantRequest,
+  signActAsRefreshRequest,
+  signedActAsGrantRequestToUrlParam,
+  type ActAsSigningMaterial,
+  type BeginActAsConfig,
+  type PendingActAs,
+  type PresentActAsConfig,
+  type RefreshActAsConfig,
+} from "./actAs.ts";
+
+export {
   completeLocalLogin,
   type CompleteLocalLoginConfig,
   type VerifiedLocalLogin,
@@ -132,7 +168,14 @@ export { defaultDnsResolver, defaultTransport } from "./defaults.ts";
 
 // Re-exported so app code doesn't need a direct dependency on the generated
 // module just to name these types.
-export type { Claim, ClaimSignature, DomainPublicKey } from "./generated/types.gen.ts";
+export type {
+  ActAsCredential,
+  ApplicationRef,
+  Claim,
+  ClaimSignature,
+  DomainPublicKey,
+  SignedActAsGrant,
+} from "./generated/types.gen.ts";
 
 import * as generated from "./generated/codec.gen.ts";
 import type { LocalRpKeyMaterial } from "./identity.ts";

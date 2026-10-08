@@ -991,6 +991,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "url",
  "x25519-dalek",
 ]
 
