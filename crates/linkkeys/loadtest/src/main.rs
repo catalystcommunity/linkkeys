@@ -1,6 +1,5 @@
 //! LinkKeys connection/handshake/cache/DDoS load-test harness
-//! (signing-things-request.md, "Connection scalability" and step 9 of the
-//! implementation order).
+//! (see docs/deploying-at-scale.md and docs/load-testing.md).
 //!
 //! This is a diagnostic tool, not a test suite: it drives the REAL async TCP
 //! server (`linkkeys::tcp::spawn_for_test`, the same code path

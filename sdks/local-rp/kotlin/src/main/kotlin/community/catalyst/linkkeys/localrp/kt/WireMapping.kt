@@ -2,7 +2,6 @@ package community.catalyst.linkkeys.localrp.kt
 
 import java.time.Instant
 import java.time.OffsetDateTime
-import java.time.ZoneOffset
 import java.time.format.DateTimeParseException
 import community.catalyst.linkkeys.localrp.wire.Types as JTypes
 
@@ -27,7 +26,8 @@ internal fun parseRfc3339(field: String, s: String): Instant =
 
 internal fun parseRfc3339OrNull(field: String, s: String?): Instant? = s?.let { parseRfc3339(field, it) }
 
-internal fun formatRfc3339(instant: Instant): String = instant.atOffset(ZoneOffset.UTC).toString()
+/** Always writes the seconds; `OffsetDateTime.toString()` drops them on a whole minute, which is not RFC3339. */
+internal fun formatRfc3339(instant: Instant): String = java.time.format.DateTimeFormatter.ISO_INSTANT.format(instant)
 
 /** Nullable-`ByteArray`-aware content equality, since `ByteArray?.equals` is reference equality by default. */
 private fun nullableContentEquals(a: ByteArray?, b: ByteArray?): Boolean =

@@ -1661,6 +1661,261 @@ pub const RpResolveApplicationKeysResponse = struct {
     cache_status: []const u8,
 };
 
+/// ApplicationRef is a structured data type.
+pub const ApplicationRef = struct {
+    subject_user_id: []const u8,
+    subject_domain: []const u8,
+    application_id: []const u8,
+};
+
+/// GranteeRef is a structured data type.
+pub const GranteeRef = struct {
+    application: ?ApplicationRef = null,
+    local_rp_descriptor_fingerprint: ?[]const u8 = null,
+};
+
+/// GranteeProof is a structured data type.
+pub const GranteeProof = struct {
+    application_instance_id: ?[]const u8 = null,
+    local_rp_descriptor: ?SignedLocalRpDescriptor = null,
+    signature: ApplicationKeySignature,
+};
+
+/// ActAsScopeEntry is a structured data type.
+pub const ActAsScopeEntry = struct {
+    scope: []const u8,
+    description: ?[]const u8 = null,
+};
+
+/// ActAsScopeSet is a structured data type.
+pub const ActAsScopeSet = struct {
+    audience: ApplicationRef,
+    grantee: GranteeRef,
+    entries: []ActAsScopeEntry,
+    language: ?[]const u8 = null,
+    audience_handle_claim: ?Claim = null,
+    issued_at: []const u8,
+    expires_at: []const u8,
+};
+
+/// SignedActAsScopeSet is a structured data type.
+pub const SignedActAsScopeSet = struct {
+    scope_set: []const u8,
+    signer_instance_id: []const u8,
+    signatures: []ApplicationKeySignature,
+};
+
+/// ActAsScopeSetRequest is a structured data type.
+pub const ActAsScopeSetRequest = struct {
+    grantee: GranteeRef,
+    scope: [][]const u8,
+    locale_preferences: ?[][]const u8 = null,
+};
+
+/// ActAsGrant is a structured data type.
+pub const ActAsGrant = struct {
+    grant_id: []const u8,
+    user_id: []const u8,
+    subject_domain: []const u8,
+    grantee: GranteeRef,
+    audience: ApplicationRef,
+    scope_set: SignedActAsScopeSet,
+    approved_scope: [][]const u8,
+    issued_at: []const u8,
+    expires_at: []const u8,
+    series_issued_at: []const u8,
+    renewable_until: []const u8,
+    device_fingerprint: ?[]const u8 = null,
+};
+
+/// SignedActAsGrant is a structured data type.
+pub const SignedActAsGrant = struct {
+    grant: []const u8,
+    signatures: []ClaimSignature,
+};
+
+/// ActAsGrantRequest is a structured data type.
+pub const ActAsGrantRequest = struct {
+    grantee: GranteeRef,
+    scope_set: SignedActAsScopeSet,
+    requested_lifetime_seconds: ?i64 = null,
+    requested_renewal_window_seconds: ?i64 = null,
+    grantee_handle_claim: ?Claim = null,
+    callback_url: []const u8,
+    nonce: []const u8,
+    requested_at: []const u8,
+    expires_at: []const u8,
+};
+
+/// SignedActAsGrantRequest is a structured data type.
+pub const SignedActAsGrantRequest = struct {
+    request: []const u8,
+    proof: GranteeProof,
+};
+
+/// ActAsRefreshRequest is a structured data type.
+pub const ActAsRefreshRequest = struct {
+    grant_id: []const u8,
+    grantee: GranteeRef,
+    requested_at: []const u8,
+    expires_at: []const u8,
+    nonce: []const u8,
+};
+
+/// SignedActAsRefreshRequest is a structured data type.
+pub const SignedActAsRefreshRequest = struct {
+    request: []const u8,
+    proof: GranteeProof,
+};
+
+/// RefreshActAsGrantRequest is a structured data type.
+pub const RefreshActAsGrantRequest = struct {
+    request: SignedActAsRefreshRequest,
+};
+
+/// RefreshActAsGrantResponse is a structured data type.
+pub const RefreshActAsGrantResponse = struct {
+    grant: SignedActAsGrant,
+    signed: bool,
+};
+
+/// ActAsPresentation is a structured data type.
+pub const ActAsPresentation = struct {
+    grant_hash: []const u8,
+    audience: ApplicationRef,
+    request_digest: []const u8,
+    presented_at: []const u8,
+    nonce: []const u8,
+};
+
+/// SignedActAsPresentation is a structured data type.
+pub const SignedActAsPresentation = struct {
+    presentation: []const u8,
+    proof: GranteeProof,
+};
+
+/// ActAsCredential is a structured data type.
+pub const ActAsCredential = struct {
+    grant: SignedActAsGrant,
+    presentation: SignedActAsPresentation,
+};
+
+/// ActAsGrantRevocation is a structured data type.
+pub const ActAsGrantRevocation = struct {
+    grant_id: []const u8,
+    user_id: []const u8,
+    subject_domain: []const u8,
+    revoked_at: []const u8,
+};
+
+/// SignedActAsGrantRevocation is a structured data type.
+pub const SignedActAsGrantRevocation = struct {
+    revocation: []const u8,
+    signatures: []ClaimSignature,
+};
+
+/// GetActAsGrantRevocationsRequest is a structured data type.
+pub const GetActAsGrantRevocationsRequest = struct {
+    grant_ids: [][]const u8,
+};
+
+/// GetActAsGrantRevocationsResponse is a structured data type.
+pub const GetActAsGrantRevocationsResponse = struct {
+    revocations: []SignedActAsGrantRevocation,
+};
+
+/// RpActAsRefreshRequest is a structured data type.
+pub const RpActAsRefreshRequest = struct {
+    subject_domain: []const u8,
+    request: SignedActAsRefreshRequest,
+};
+
+/// RpResolveActAsRevocationsRequest is a structured data type.
+pub const RpResolveActAsRevocationsRequest = struct {
+    subject_domain: []const u8,
+    grant_ids: [][]const u8,
+};
+
+/// BrowserActAsInspectRequest is a structured data type.
+pub const BrowserActAsInspectRequest = struct {
+    signed_request: []const u8,
+};
+
+/// BrowserActAsScopeEntry is a structured data type.
+pub const BrowserActAsScopeEntry = struct {
+    scope: []const u8,
+    description: ?[]const u8 = null,
+    removed_by_policy: bool,
+};
+
+/// BrowserActAsParty is a structured data type.
+pub const BrowserActAsParty = struct {
+    domain: ?[]const u8 = null,
+    application_id: ?[]const u8 = null,
+    subject_user_id: ?[]const u8 = null,
+    handle: ?[]const u8 = null,
+    local_rp_name: ?[]const u8 = null,
+    local_rp_fingerprint: ?[]const u8 = null,
+    own_domain: bool,
+    user_has_history: bool,
+    domain_key_pinned: bool,
+    operator_trusted: bool,
+};
+
+/// BrowserActAsInspectResponse is a structured data type.
+pub const BrowserActAsInspectResponse = struct {
+    grantee: GranteeRef,
+    grantee_party: BrowserActAsParty,
+    audience: ApplicationRef,
+    audience_party: BrowserActAsParty,
+    entries: []BrowserActAsScopeEntry,
+    language: ?[]const u8 = null,
+    default_lifetime_seconds: i64,
+    max_lifetime_seconds: i64,
+    default_renewal_window_seconds: i64,
+    max_renewal_window_seconds: i64,
+};
+
+/// BrowserActAsCompleteRequest is a structured data type.
+pub const BrowserActAsCompleteRequest = struct {
+    signed_request: []const u8,
+    approved_scope: [][]const u8,
+    lifetime_seconds: i64,
+    renewal_window_seconds: i64,
+};
+
+/// BrowserActAsCompleteResponse is a structured data type.
+pub const BrowserActAsCompleteResponse = struct {
+    redirect_url: []const u8,
+};
+
+/// ActAsGrantSummary is a structured data type.
+pub const ActAsGrantSummary = struct {
+    grant_id: []const u8,
+    grantee: GranteeRef,
+    audience: ApplicationRef,
+    approved_scope: [][]const u8,
+    issued_at: []const u8,
+    expires_at: []const u8,
+    renewable_until: []const u8,
+    revoked_at: ?[]const u8 = null,
+};
+
+/// ListActAsGrantsResponse is a structured data type.
+pub const ListActAsGrantsResponse = struct {
+    grants: []ActAsGrantSummary,
+};
+
+/// RevokeActAsGrantRequest is a structured data type.
+pub const RevokeActAsGrantRequest = struct {
+    grant_id: []const u8,
+};
+
+/// RevokeActAsGrantResponse is a structured data type.
+pub const RevokeActAsGrantResponse = struct {
+    revoked_at: []const u8,
+};
+
 /// CheckResult is a structured data type.
 pub const CheckResult = struct {
     result: bool,

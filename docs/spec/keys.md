@@ -14,7 +14,8 @@ Discovery and pinning of the domain key set is in
 | Domain encryption key | The domain | Receives encrypted material. Not published in the anchor; vouched by a signing key. |
 | User key | Custodied by the domain | Represents an identity at that domain. Never leaves the domain's custody. |
 
-Device and application keys are **Reserved** (§6).
+Application keys are specified in [`application-keys.md`](application-keys.md).
+Device keys are **Reserved** (§6).
 
 ### 1.1 Custody
 
@@ -176,12 +177,16 @@ When a key is retired — by an accepted revocation certificate, or by
 disappearing from the anchor under the pin rotation rule — an implementation MUST
 stop honoring any cached copy of it for subsequent verification.
 
-## 6. Device and application keys *(Reserved)*
+## 6. Device keys *(Reserved)*
 
 > **Reserved.** Not implemented. Will change. MUST NOT be relied on for
 > interoperability, and no conformance level includes it.
 
-The intent is that device and application keys are **not** owned by the user key.
+Application keys are Normative and specified in
+[`application-keys.md`](application-keys.md). This section covers device keys,
+and the optional coupling of an application key to a device key.
+
+The intent is that device keys are **not** owned by the user key.
 They are independent primitives that *enroll* into a partnership with a domain,
 in the way a workstation joins a directory. A device key represents that device;
 it is associated with a user through enrollment, not possessed by them.

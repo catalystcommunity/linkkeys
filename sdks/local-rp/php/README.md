@@ -52,12 +52,17 @@ sdks/local-rp/php/
                           # to)
     Transport.php                    # the TCP dial seam + AddressPolicy
     Rpc.php                           # CSIL-RPC framing + fetchDomainKeys /
-                          # redeemClaimTicket
+                          # redeemClaimTicket / refreshActAsGrant
     Encoding.php                       # base64url-unpadded URL-parameter
                           # helpers
     Identity.php                       # generateLocalRpIdentity + byte
                           # storage helpers + checkExpirations
     Begin.php                           # beginLocalLogin
+    ActAs.php                           # act-as grantee: beginActAs,
+                          # completeActAsCallback, refreshActAsGrant,
+                          # present + ActAsWire (act-as CBOR)
+    Browser.php                         # _linkkeys_apis https= discovery +
+                          # browser URL builder
     Complete.php                        # completeLocalLogin (the full
                           # verification chain)
   tests/
@@ -66,7 +71,10 @@ sdks/local-rp/php/
                           # PHPUnit -- see "Running the tests")
     conformance/            # one file per conformance vector JSON file
     fixtures/               # fake-IDP test doubles (FakeRpc.php,
-                          # tls_server.php)
+                          # tls_server.php) + a copy of
+                          # act_as_grantee_signing.json
+    ActAsTest.php            # act-as grantee vectors, begin, callback,
+                          # refresh
     FlowTest.php             # fake-IDP end-to-end flow tests
     TlsPinningTest.php        # real-certificate SPKI pin-check tests
     CborTest.php, IdentityTest.php, BeginTest.php
@@ -304,6 +312,77 @@ See `src/Crypto.php`'s class docblock for the full writeup; summary:
 - **Opening a browser / performing the HTTP redirect.** `Begin::beginLocalLogin()`
   returns a redirect URL; redirecting the actual HTTP response is the app's
   job (e.g. a Symfony/Laravel/plain-PHP `Location:` header).
+
+## Browser endpoint discovery
+
+`Begin::beginLocalLogin()` does one DNS TXT lookup of
+`_linkkeys_apis.<domain>` (the identity domain). The `https=` value of the
+first valid `v=lk1` record names the browser-facing host. The redirect URL
+uses that host. A path prefix in the `https=` value is kept. The identity
+domain stays in `PendingLogin::$userDomain`. Verification binds to the
+identity domain, never to the discovered host.
+
+Pass a `DnsResolver` as the last `BeginLocalLoginConfig` constructor
+argument (`$dns`) to inject a resolver. Omit it to use
+`new SystemDnsResolver()`.
+
+The lookup never fails the call. The redirect falls back to
+`https://<domain>` when:
+
+- the DNS lookup fails,
+- no valid record has an `https=` value, or
+- the discovered base is not valid (not `https`, no host, or it carries
+  userinfo, a query, or a fragment).
+
+The helpers are public for regular-RP glue too:
+`Browser::resolveBrowserBase($dns, $identityDomain)` returns the base, and
+`Browser::buildBrowserEndpoint($base, $route, $signedRequest)` builds the
+URL for `Browser::ROUTE_LOCAL_RP` or `Browser::ROUTE_AUTHORIZE`.
+
+## Act-as grants
+
+An act-as grant lets this app act as a user at an enrolled application (the
+audience). The user approves the grant at the user's home domain. The home
+domain signs it. The protocol is in
+[`docs/spec/reserved/act-as-grants.md`](../../../docs/spec/reserved/act-as-grants.md).
+It is Reserved and can change.
+
+A local RP can be a grantee only. A local RP can be a grantee only after its
+home domain approved it. A local RP cannot be an audience, because a peer
+cannot find its keys through DNS.
+
+The descriptor signing key signs every request and presentation. The proof
+carries the signed descriptor. `ActAsWire` (in `src/ActAs.php`) encodes the
+act-as types in canonical key order. The vectors in
+`sdks/regular-rp/conformance/act_as_grantee_signing.json` check the bytes.
+The container test run mounts only `sdks/local-rp/`, so `ActAsTest.php`
+reads a copy in `tests/fixtures/`. When the original file is present, the
+test makes sure that the copy is identical. If you change the vectors, copy
+the file again.
+
+1. Get the audience's `SignedActAsScopeSet` as CBOR bytes. The format of
+   that exchange is between this app and the audience.
+2. Call `ActAs::beginActAs(new BeginActAsConfig($keyMaterial, $userDomain,
+   $scopeSet, $callbackUrl, $now))`. Optional arguments, in order:
+   `$requestedLifetimeSeconds`, `$requestedRenewalWindowSeconds`, `$dns`,
+   and `$requestWindowSeconds` (default 300, maximum 900). It returns
+   `[$redirect, $pending]`. Keep `$pending` (`toArray()` / `fromArray()`).
+   Send the browser to `$redirect->redirectUrl`. Browser endpoint discovery
+   and its fallback are the same as for `Begin::beginLocalLogin()`. The
+   route is `/auth/act-as`.
+3. On the callback, call `ActAs::completeActAsCallback($pending, $_GET)`
+   (or the arrived URL). It compares the `nonce` in constant time and
+   returns `act_as_grant_id`. Use `$pending` one time only.
+4. Call `ActAs::refreshActAsGrant($keyMaterial, $pending->userDomain,
+   $grantId, $now)` to get the grant. It calls `ActAs/refresh-grant` over the
+   same pinned TCP path as claim-ticket redemption. It returns `grant` and
+   `signed`. Call it again when less than half of the grant's life remains.
+5. For each call to the audience, call `ActAs::present($grant, $audience,
+   $requestDigest, $now, $nonce, $keyMaterial)`. Send `credentialCbor` with
+   the call. The audience defines `$requestDigest`. Use a new random `$nonce`
+   for each call.
+
+The SDK does not verify the grant. The audience verifies it.
 
 ## Security notes
 

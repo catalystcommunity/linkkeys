@@ -6,6 +6,13 @@ import java.util.function.Function;
 
 import community.catalyst.linkkeys.localrp.wire.Cbor.Entry;
 import community.catalyst.linkkeys.localrp.wire.Cbor.Value;
+import community.catalyst.linkkeys.localrp.wire.Types.ActAsCredential;
+import community.catalyst.linkkeys.localrp.wire.Types.ActAsGrant;
+import community.catalyst.linkkeys.localrp.wire.Types.ActAsGrantRequest;
+import community.catalyst.linkkeys.localrp.wire.Types.ActAsPresentation;
+import community.catalyst.linkkeys.localrp.wire.Types.ActAsRefreshRequest;
+import community.catalyst.linkkeys.localrp.wire.Types.ApplicationKeySignature;
+import community.catalyst.linkkeys.localrp.wire.Types.ApplicationRef;
 import community.catalyst.linkkeys.localrp.wire.Types.Claim;
 import community.catalyst.linkkeys.localrp.wire.Types.ClaimSignature;
 import community.catalyst.linkkeys.localrp.wire.Types.DomainPublicKey;
@@ -13,6 +20,8 @@ import community.catalyst.linkkeys.localrp.wire.Types.EmptyRequest;
 import community.catalyst.linkkeys.localrp.wire.Types.GetDomainKeysResponse;
 import community.catalyst.linkkeys.localrp.wire.Types.GetRevocationsRequest;
 import community.catalyst.linkkeys.localrp.wire.Types.GetRevocationsResponse;
+import community.catalyst.linkkeys.localrp.wire.Types.GranteeProof;
+import community.catalyst.linkkeys.localrp.wire.Types.GranteeRef;
 import community.catalyst.linkkeys.localrp.wire.Types.LocalRpCallbackHeader;
 import community.catalyst.linkkeys.localrp.wire.Types.LocalRpCallbackPayload;
 import community.catalyst.linkkeys.localrp.wire.Types.LocalRpDescriptor;
@@ -20,7 +29,14 @@ import community.catalyst.linkkeys.localrp.wire.Types.LocalRpEncryptedCallback;
 import community.catalyst.linkkeys.localrp.wire.Types.LocalRpLoginRequest;
 import community.catalyst.linkkeys.localrp.wire.Types.LocalRpTicketRedemptionRequest;
 import community.catalyst.linkkeys.localrp.wire.Types.LocalRpTicketRedemptionResponse;
+import community.catalyst.linkkeys.localrp.wire.Types.RefreshActAsGrantRequest;
+import community.catalyst.linkkeys.localrp.wire.Types.RefreshActAsGrantResponse;
 import community.catalyst.linkkeys.localrp.wire.Types.RevocationCertificate;
+import community.catalyst.linkkeys.localrp.wire.Types.SignedActAsGrant;
+import community.catalyst.linkkeys.localrp.wire.Types.SignedActAsGrantRequest;
+import community.catalyst.linkkeys.localrp.wire.Types.SignedActAsPresentation;
+import community.catalyst.linkkeys.localrp.wire.Types.SignedActAsRefreshRequest;
+import community.catalyst.linkkeys.localrp.wire.Types.SignedActAsScopeSet;
 import community.catalyst.linkkeys.localrp.wire.Types.SignedLocalRpCallbackPayload;
 import community.catalyst.linkkeys.localrp.wire.Types.SignedLocalRpDescriptor;
 import community.catalyst.linkkeys.localrp.wire.Types.SignedLocalRpLoginRequest;
@@ -521,6 +537,309 @@ public final class Codec {
 
     public static LocalRpTicketRedemptionResponse decodeLocalRpTicketRedemptionResponse(byte[] data) {
         return decLocalRpTicketRedemptionResponse(Cbor.decode(data));
+    }
+
+    // -----------------------------------------------------------------
+    // Act-as grants (grantee side). Shapes mirror csil/linkkeys.csil
+    // "Act-as grants"; optional fields are omitted when null, exactly as
+    // the generated Rust codec does.
+    // -----------------------------------------------------------------
+
+    static Value encApplicationRef(ApplicationRef v) {
+        List<Entry> e = new ArrayList<>();
+        Cbor.putText(e, "subject_user_id", v.subjectUserId());
+        Cbor.putText(e, "subject_domain", v.subjectDomain());
+        Cbor.putText(e, "application_id", v.applicationId());
+        return Cbor.vmap(e);
+    }
+
+    static ApplicationRef decApplicationRef(Value m) {
+        return new ApplicationRef(
+                Cbor.requireText(m, "subject_user_id"),
+                Cbor.requireText(m, "subject_domain"),
+                Cbor.requireText(m, "application_id"));
+    }
+
+    public static byte[] encodeApplicationRef(ApplicationRef v) {
+        return Cbor.encode(encApplicationRef(v));
+    }
+
+    public static ApplicationRef decodeApplicationRef(byte[] data) {
+        return decApplicationRef(Cbor.decode(data));
+    }
+
+    static Value encGranteeRef(GranteeRef v) {
+        List<Entry> e = new ArrayList<>();
+        if (v.application() != null) {
+            e.add(Cbor.entry("application", encApplicationRef(v.application())));
+        }
+        Cbor.putOptText(e, "local_rp_descriptor_fingerprint", v.localRpDescriptorFingerprint());
+        return Cbor.vmap(e);
+    }
+
+    static GranteeRef decGranteeRef(Value m) {
+        Value app = Cbor.mapGet(m, "application");
+        return new GranteeRef(
+                app == null ? null : decApplicationRef(app), Cbor.optText(m, "local_rp_descriptor_fingerprint"));
+    }
+
+    static Value encApplicationKeySignature(ApplicationKeySignature v) {
+        List<Entry> e = new ArrayList<>();
+        Cbor.putText(e, "signed_by_key_id", v.signedByKeyId());
+        Cbor.putBytes(e, "signature", v.signature());
+        return Cbor.vmap(e);
+    }
+
+    static ApplicationKeySignature decApplicationKeySignature(Value m) {
+        return new ApplicationKeySignature(Cbor.requireText(m, "signed_by_key_id"), Cbor.requireBytes(m, "signature"));
+    }
+
+    static Value encGranteeProof(GranteeProof v) {
+        List<Entry> e = new ArrayList<>();
+        Cbor.putOptText(e, "application_instance_id", v.applicationInstanceId());
+        if (v.localRpDescriptor() != null) {
+            e.add(Cbor.entry("local_rp_descriptor", encSignedLocalRpDescriptor(v.localRpDescriptor())));
+        }
+        e.add(Cbor.entry("signature", encApplicationKeySignature(v.signature())));
+        return Cbor.vmap(e);
+    }
+
+    static GranteeProof decGranteeProof(Value m) {
+        Value descriptor = Cbor.mapGet(m, "local_rp_descriptor");
+        return new GranteeProof(
+                Cbor.optText(m, "application_instance_id"),
+                descriptor == null ? null : decSignedLocalRpDescriptor(descriptor),
+                decApplicationKeySignature(Cbor.require(m, "signature")));
+    }
+
+    static Value encSignedActAsScopeSet(SignedActAsScopeSet v) {
+        List<Entry> e = new ArrayList<>();
+        Cbor.putBytes(e, "scope_set", v.scopeSet());
+        Cbor.putText(e, "signer_instance_id", v.signerInstanceId());
+        e.add(Cbor.entry("signatures", encArray(v.signatures(), Codec::encApplicationKeySignature)));
+        return Cbor.vmap(e);
+    }
+
+    static SignedActAsScopeSet decSignedActAsScopeSet(Value m) {
+        List<ApplicationKeySignature> signatures =
+                decArray(Cbor.require(m, "signatures"), Codec::decApplicationKeySignature);
+        if (signatures.isEmpty()) {
+            // CSIL `signatures: [+ ApplicationKeySignature]`: at least one.
+            throw new Cbor.CborDecodeException("SignedActAsScopeSet.signatures must not be empty");
+        }
+        return new SignedActAsScopeSet(
+                Cbor.requireBytes(m, "scope_set"), Cbor.requireText(m, "signer_instance_id"), signatures);
+    }
+
+    public static byte[] encodeSignedActAsScopeSet(SignedActAsScopeSet v) {
+        return Cbor.encode(encSignedActAsScopeSet(v));
+    }
+
+    public static SignedActAsScopeSet decodeSignedActAsScopeSet(byte[] data) {
+        return decSignedActAsScopeSet(Cbor.decode(data));
+    }
+
+    static Value encSignedActAsGrant(SignedActAsGrant v) {
+        List<Entry> e = new ArrayList<>();
+        Cbor.putBytes(e, "grant", v.grant());
+        e.add(Cbor.entry("signatures", encArray(v.signatures(), Codec::encClaimSignature)));
+        return Cbor.vmap(e);
+    }
+
+    static SignedActAsGrant decSignedActAsGrant(Value m) {
+        return new SignedActAsGrant(
+                Cbor.requireBytes(m, "grant"), decArray(Cbor.require(m, "signatures"), Codec::decClaimSignature));
+    }
+
+    public static byte[] encodeSignedActAsGrant(SignedActAsGrant v) {
+        return Cbor.encode(encSignedActAsGrant(v));
+    }
+
+    public static SignedActAsGrant decodeSignedActAsGrant(byte[] data) {
+        return decSignedActAsGrant(Cbor.decode(data));
+    }
+
+    /** Decode only. A grantee never builds a grant; the home domain signs it. */
+    public static ActAsGrant decodeActAsGrant(byte[] data) {
+        Value m = Cbor.decode(data);
+        return new ActAsGrant(
+                Cbor.requireText(m, "grant_id"),
+                Cbor.requireText(m, "user_id"),
+                Cbor.requireText(m, "subject_domain"),
+                decGranteeRef(Cbor.require(m, "grantee")),
+                decApplicationRef(Cbor.require(m, "audience")),
+                decSignedActAsScopeSet(Cbor.require(m, "scope_set")),
+                Cbor.asArray(Cbor.require(m, "approved_scope")).stream().map(Cbor::asText).toList(),
+                Cbor.requireText(m, "issued_at"),
+                Cbor.requireText(m, "expires_at"),
+                Cbor.requireText(m, "series_issued_at"),
+                Cbor.requireText(m, "renewable_until"),
+                Cbor.optText(m, "device_fingerprint"));
+    }
+
+    private static Long optInt(Value m, String key) {
+        Value v = Cbor.mapGet(m, key);
+        return v == null ? null : Cbor.asInt(v);
+    }
+
+    static Value encActAsGrantRequest(ActAsGrantRequest v) {
+        // `grantee_handle_claim` is never written: it is a signed claim about
+        // the account that enrolled an application grantee. A local RP has no
+        // enrolling account, so it has no such claim.
+        List<Entry> e = new ArrayList<>();
+        e.add(Cbor.entry("grantee", encGranteeRef(v.grantee())));
+        e.add(Cbor.entry("scope_set", encSignedActAsScopeSet(v.scopeSet())));
+        if (v.requestedLifetimeSeconds() != null) {
+            e.add(Cbor.entry("requested_lifetime_seconds", Cbor.vint(v.requestedLifetimeSeconds())));
+        }
+        if (v.requestedRenewalWindowSeconds() != null) {
+            e.add(Cbor.entry("requested_renewal_window_seconds", Cbor.vint(v.requestedRenewalWindowSeconds())));
+        }
+        Cbor.putText(e, "callback_url", v.callbackUrl());
+        Cbor.putText(e, "nonce", v.nonce());
+        Cbor.putText(e, "requested_at", v.requestedAt());
+        Cbor.putText(e, "expires_at", v.expiresAt());
+        return Cbor.vmap(e);
+    }
+
+    static ActAsGrantRequest decActAsGrantRequest(Value m) {
+        return new ActAsGrantRequest(
+                decGranteeRef(Cbor.require(m, "grantee")),
+                decSignedActAsScopeSet(Cbor.require(m, "scope_set")),
+                optInt(m, "requested_lifetime_seconds"),
+                optInt(m, "requested_renewal_window_seconds"),
+                Cbor.requireText(m, "callback_url"),
+                Cbor.requireText(m, "nonce"),
+                Cbor.requireText(m, "requested_at"),
+                Cbor.requireText(m, "expires_at"));
+    }
+
+    public static byte[] encodeActAsGrantRequest(ActAsGrantRequest v) {
+        return Cbor.encode(encActAsGrantRequest(v));
+    }
+
+    public static ActAsGrantRequest decodeActAsGrantRequest(byte[] data) {
+        return decActAsGrantRequest(Cbor.decode(data));
+    }
+
+    public static byte[] encodeSignedActAsGrantRequest(SignedActAsGrantRequest v) {
+        List<Entry> e = new ArrayList<>();
+        Cbor.putBytes(e, "request", v.request());
+        e.add(Cbor.entry("proof", encGranteeProof(v.proof())));
+        return Cbor.encode(Cbor.vmap(e));
+    }
+
+    public static SignedActAsGrantRequest decodeSignedActAsGrantRequest(byte[] data) {
+        Value m = Cbor.decode(data);
+        return new SignedActAsGrantRequest(Cbor.requireBytes(m, "request"), decGranteeProof(Cbor.require(m, "proof")));
+    }
+
+    public static byte[] encodeActAsRefreshRequest(ActAsRefreshRequest v) {
+        List<Entry> e = new ArrayList<>();
+        Cbor.putText(e, "grant_id", v.grantId());
+        e.add(Cbor.entry("grantee", encGranteeRef(v.grantee())));
+        Cbor.putText(e, "requested_at", v.requestedAt());
+        Cbor.putText(e, "expires_at", v.expiresAt());
+        Cbor.putText(e, "nonce", v.nonce());
+        return Cbor.encode(Cbor.vmap(e));
+    }
+
+    public static ActAsRefreshRequest decodeActAsRefreshRequest(byte[] data) {
+        Value m = Cbor.decode(data);
+        return new ActAsRefreshRequest(
+                Cbor.requireText(m, "grant_id"),
+                decGranteeRef(Cbor.require(m, "grantee")),
+                Cbor.requireText(m, "requested_at"),
+                Cbor.requireText(m, "expires_at"),
+                Cbor.requireText(m, "nonce"));
+    }
+
+    static Value encSignedActAsRefreshRequest(SignedActAsRefreshRequest v) {
+        List<Entry> e = new ArrayList<>();
+        Cbor.putBytes(e, "request", v.request());
+        e.add(Cbor.entry("proof", encGranteeProof(v.proof())));
+        return Cbor.vmap(e);
+    }
+
+    static SignedActAsRefreshRequest decSignedActAsRefreshRequest(Value m) {
+        return new SignedActAsRefreshRequest(Cbor.requireBytes(m, "request"), decGranteeProof(Cbor.require(m, "proof")));
+    }
+
+    public static byte[] encodeSignedActAsRefreshRequest(SignedActAsRefreshRequest v) {
+        return Cbor.encode(encSignedActAsRefreshRequest(v));
+    }
+
+    public static SignedActAsRefreshRequest decodeSignedActAsRefreshRequest(byte[] data) {
+        return decSignedActAsRefreshRequest(Cbor.decode(data));
+    }
+
+    public static byte[] encodeRefreshActAsGrantRequest(RefreshActAsGrantRequest v) {
+        List<Entry> e = new ArrayList<>();
+        e.add(Cbor.entry("request", encSignedActAsRefreshRequest(v.request())));
+        return Cbor.encode(Cbor.vmap(e));
+    }
+
+    public static RefreshActAsGrantRequest decodeRefreshActAsGrantRequest(byte[] data) {
+        return new RefreshActAsGrantRequest(decSignedActAsRefreshRequest(Cbor.require(Cbor.decode(data), "request")));
+    }
+
+    public static byte[] encodeRefreshActAsGrantResponse(RefreshActAsGrantResponse v) {
+        List<Entry> e = new ArrayList<>();
+        e.add(Cbor.entry("grant", encSignedActAsGrant(v.grant())));
+        Cbor.putBool(e, "signed", v.signed());
+        return Cbor.encode(Cbor.vmap(e));
+    }
+
+    public static RefreshActAsGrantResponse decodeRefreshActAsGrantResponse(byte[] data) {
+        Value m = Cbor.decode(data);
+        return new RefreshActAsGrantResponse(
+                decSignedActAsGrant(Cbor.require(m, "grant")), Cbor.asBool(Cbor.require(m, "signed")));
+    }
+
+    public static byte[] encodeActAsPresentation(ActAsPresentation v) {
+        List<Entry> e = new ArrayList<>();
+        Cbor.putBytes(e, "grant_hash", v.grantHash());
+        e.add(Cbor.entry("audience", encApplicationRef(v.audience())));
+        Cbor.putBytes(e, "request_digest", v.requestDigest());
+        Cbor.putText(e, "presented_at", v.presentedAt());
+        Cbor.putBytes(e, "nonce", v.nonce());
+        return Cbor.encode(Cbor.vmap(e));
+    }
+
+    public static ActAsPresentation decodeActAsPresentation(byte[] data) {
+        Value m = Cbor.decode(data);
+        return new ActAsPresentation(
+                Cbor.requireBytes(m, "grant_hash"),
+                decApplicationRef(Cbor.require(m, "audience")),
+                Cbor.requireBytes(m, "request_digest"),
+                Cbor.requireText(m, "presented_at"),
+                Cbor.requireBytes(m, "nonce"));
+    }
+
+    static Value encSignedActAsPresentation(SignedActAsPresentation v) {
+        List<Entry> e = new ArrayList<>();
+        Cbor.putBytes(e, "presentation", v.presentation());
+        e.add(Cbor.entry("proof", encGranteeProof(v.proof())));
+        return Cbor.vmap(e);
+    }
+
+    static SignedActAsPresentation decSignedActAsPresentation(Value m) {
+        return new SignedActAsPresentation(
+                Cbor.requireBytes(m, "presentation"), decGranteeProof(Cbor.require(m, "proof")));
+    }
+
+    public static byte[] encodeActAsCredential(ActAsCredential v) {
+        List<Entry> e = new ArrayList<>();
+        e.add(Cbor.entry("grant", encSignedActAsGrant(v.grant())));
+        e.add(Cbor.entry("presentation", encSignedActAsPresentation(v.presentation())));
+        return Cbor.encode(Cbor.vmap(e));
+    }
+
+    public static ActAsCredential decodeActAsCredential(byte[] data) {
+        Value m = Cbor.decode(data);
+        return new ActAsCredential(
+                decSignedActAsGrant(Cbor.require(m, "grant")),
+                decSignedActAsPresentation(Cbor.require(m, "presentation")));
     }
 
     // -----------------------------------------------------------------

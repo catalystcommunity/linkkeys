@@ -9,7 +9,7 @@
 //! domain with three signing keys pays ~150-250 ms and ~57 MiB for one
 //! signing operation. Claim issuance and login assertions are rare, so this
 //! is invisible today. Application-key attestation renewal is the first
-//! *scheduled, fleet-wide* signing load (see `signing-things-request.md`,
+//! *scheduled, fleet-wide* signing load (see `docs/application-keys.md`,
 //! "Home-domain signing cost"): at scale it is roughly 1.7 cores of Argon2id
 //! and ~470 MiB of concurrent allocation. That path needs a warm signer;
 //! this module is it.
@@ -77,7 +77,7 @@ use crate::db::DbPool;
 /// Default warm-signer TTL: 15 minutes.
 ///
 /// Chosen as a middle ground: long enough that the attestation-renewal load
-/// described in `signing-things-request.md` (up to ~8.3 renewals/sec
+/// described in `docs/application-keys.md` (up to ~8.3 renewals/sec
 /// fleet-wide at a 1-hour attestation lifetime) amortizes the Argon2id cost
 /// to effectively zero, but short enough that a decrypted key is never
 /// resident for more than a small fraction of even the shortest attestation

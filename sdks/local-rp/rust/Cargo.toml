@@ -67,6 +67,16 @@ hickory-resolver = "0.26"
 # adapter owns a small runtime at this private boundary.
 tokio = { version = "1", features = ["rt-multi-thread"] }
 
+# Browser endpoint URLs (`src/browser.rs`): validating the `https=` base
+# discovered from `_linkkeys_apis` (https only, host, optional path prefix,
+# no userinfo/query/fragment) and joining base + route + `signed_request`
+# query with real URL handling instead of string concatenation
+# (sdks/local-rp/endpoint-discovery-parity.md). The standard library has no
+# URL type. `url` is already in this crate's dependency tree via
+# hickory-resolver (hickory-proto), so this adds no new crate to the lock
+# file, just another direct consumer of one already vetted here.
+url = "2"
+
 # Timestamps (issued_at/expires_at, `now` parameters, expiration checks) —
 # already the workspace's date/time library (liblinkkeys, linkkeys).
 chrono = { version = "0.4", features = ["serde"] }
@@ -83,6 +93,12 @@ serde = { version = "1.0", features = ["derive"] }
 # rather than introducing a second one.
 rand = "0.8"
 
+# Act-as nonces and the `signed_request` query value are unpadded base64url
+# (`src/act_as.rs`). Already a direct dependency of liblinkkeys at this
+# version (and of this crate's tests), so this adds no new crate to the lock
+# file.
+base64ct = { version = "1", features = ["alloc"] }
+
 [dev-dependencies]
 # Conformance-vector tests parse the checked-in JSON fixtures under
 # ../conformance/ (same crate liblinkkeys's own consumer-zero test uses).
@@ -90,6 +106,5 @@ serde_json = "1"
 # Only the conformance tests reach for these directly (to hand-verify a
 # vector's raw bytes independent of the SDK's own wrappers) — same versions
 # liblinkkeys itself already pins.
-base64ct = { version = "1", features = ["alloc"] }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 x25519-dalek = { version = "2", features = ["static_secrets"] }

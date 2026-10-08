@@ -3,8 +3,8 @@ import { render } from "solid-js/web";
 import "./styles.css";
 import { api } from "./transport";
 import { RuntimeHost, addStylesheet, loadExtensions, type ExtensionRoute } from "./host";
-import type { BrowserSessionInfo, Claim, GetUiConfigurationResponse, SettableClaimPolicy, VerifiedContactMethod } from "./generated/types.gen";
-import { authenticationFailed, authorizationHandoff, authorizationRequestIsTerminal, claimValueTooLong, cleanupOnce, currentPasswordMessage, hasBlockedRequiredClaim, inputType, loginFailureMessage, passwordLengthError, passwordManagerUsername, recoveryCompletionFailureMessage, recoveryLinkExpired, recoveryValidationFailureMessage, serviceMessage as message, standingAuthorization, transportFailed, verificationFailureMessage, withLoginContext } from "./ui-logic";
+import type { ActAsGrantSummary, BrowserActAsInspectResponse, BrowserActAsParty, BrowserSessionInfo, Claim, GetUiConfigurationResponse, SettableClaimPolicy, VerifiedContactMethod } from "./generated/types.gen";
+import { actAsGrantState, actAsHandoff, actAsRequestKey, applicationLabel, describeDuration, durationChoices, partyTitle, partyTrustNotes, authenticationFailed, authorizationHandoff, authorizationRequestIsTerminal, claimValueTooLong, cleanupOnce, currentPasswordMessage, hasBlockedRequiredClaim, inputType, loginFailureMessage, passwordLengthError, passwordManagerUsername, recoveryCompletionFailureMessage, recoveryLinkExpired, recoveryValidationFailureMessage, serviceMessage as message, standingAuthorization, transportFailed, verificationFailureMessage, withLoginContext } from "./ui-logic";
 
 type PageProps = { navigate(path: string): void; configuration: GetUiConfigurationResponse; session?: BrowserSessionInfo; refreshSession(): Promise<void>; extensionFailures?: string[] };
 
@@ -152,6 +152,108 @@ function claimText(claim: Claim): string {
   catch { return "Binary value"; }
 }
 
+
+const ActAsGateway: Component<PageProps> = (props) => {
+  const [missing, setMissing] = createSignal(false);
+  onMount(() => {
+    const handoff = actAsHandoff(window.location.hash, Boolean(props.session));
+    if (!handoff) return setMissing(true);
+    sessionStorage.setItem(actAsRequestKey, handoff.signedRequest);
+    window.history.replaceState({}, "", window.location.pathname);
+    props.navigate(handoff.path);
+  });
+  return <Show when={!missing()} fallback={<Unavailable title="This request link is invalid" detail="Return to the application and start again." />}><Loading /></Show>;
+};
+
+const ActAsPartyCard: Component<{ role: string; party: BrowserActAsParty }> = (props) => (
+  <div class="consent-claim"><p class="eyebrow">{props.role}</p><p><strong>{partyTitle(props.party)}</strong></p>
+    <ul><For each={partyTrustNotes(props.party)}>{(note) => <li>{note}</li>}</For></ul>
+    <dl>
+      <Show when={props.party.applicationId}><dt>Application</dt><dd>{props.party.applicationId}</dd></Show>
+      <Show when={props.party.handle}><dt>Account handle</dt><dd>{props.party.handle}</dd></Show>
+      <Show when={props.party.domain && props.party.localRpName}><dt>Name</dt><dd>{props.party.localRpName}</dd></Show>
+      <Show when={props.party.subjectUserId}><dt>Account ID</dt><dd><code>{props.party.subjectUserId}</code></dd></Show>
+      <Show when={props.party.localRpFingerprint}><dt>Key fingerprint</dt><dd><code>{props.party.localRpFingerprint}</code></dd></Show>
+    </dl></div>
+);
+
+const ActAsConsent: Component<PageProps> = (props) => {
+  const signedRequest = sessionStorage.getItem(actAsRequestKey) ?? "";
+  const [context, setContext] = createSignal<BrowserActAsInspectResponse>();
+  const [selected, setSelected] = createSignal<Record<string, boolean>>({});
+  const [lifetime, setLifetime] = createSignal(0);
+  const [renewal, setRenewal] = createSignal(0);
+  const [busy, setBusy] = createSignal(false);
+  const [error, setError] = createSignal("");
+  const approved = () => (context()?.entries ?? []).filter((entry) => !entry.removedByPolicy && selected()[entry.scope]).map((entry) => entry.scope);
+  onMount(async () => {
+    if (!signedRequest) return setError("This request is missing. Start again from the application.");
+    try {
+      const result = await api.browserAuthorization.inspectActAs({ signedRequest });
+      setContext(result);
+      setSelected(Object.fromEntries(result.entries.map((entry) => [entry.scope, !entry.removedByPolicy])));
+      setLifetime(result.defaultLifetimeSeconds);
+      setRenewal(result.defaultRenewalWindowSeconds);
+    } catch (cause) {
+      if (authenticationFailed(cause)) return props.navigate("/app/login?next=/app/act-as/consent");
+      sessionStorage.removeItem(actAsRequestKey);
+      setError(cause instanceof Error && cause.message ? `${cause.message}. Return to the application and start again.` : "LinkKeys could not check this request.");
+    }
+  });
+  const submit = async (event: SubmitEvent) => {
+    event.preventDefault(); setBusy(true); setError("");
+    try {
+      const result = await api.browserAuthorization.completeActAs({ signedRequest, approvedScope: approved(), lifetimeSeconds: lifetime(), renewalWindowSeconds: renewal() });
+      sessionStorage.removeItem(actAsRequestKey);
+      window.location.assign(result.redirectUrl);
+    } catch (cause) {
+      if (authenticationFailed(cause)) return props.navigate("/app/login?next=/app/act-as/consent");
+      setError(cause instanceof Error && cause.message ? cause.message : "LinkKeys could not record your decision. Try again.");
+    } finally { setBusy(false); }
+  };
+  const cancel = () => { sessionStorage.removeItem(actAsRequestKey); props.navigate("/app/act-as/cancelled"); };
+  return <main class="wrap narrow"><section class="hero"><p class="eyebrow">Act for you</p><h1>Let an application act for you</h1>
+    <Show when={context()}><p><strong>{partyTitle(context()!.granteeParty)}</strong> asks to act as you at <strong>{partyTitle(context()!.audienceParty)}</strong>.</p></Show></section>
+    <Show when={context()} fallback={<section class="card"><p role={error() ? "alert" : "status"}>{error() || "Checking the request…"}</p></section>}>
+      <form class="card" aria-busy={busy()} onSubmit={submit}>
+        <ActAsPartyCard role="Asks to act for you" party={context()!.granteeParty} />
+        <ActAsPartyCard role="Where it will act" party={context()!.audienceParty} />
+        <p class="notice">{partyTitle(context()!.audienceParty)} wrote the list below. LinkKeys does not check what each item allows. Remove any item you do not want to give.</p>
+        <For each={context()!.entries}>{(entry) => <div class="consent-claim"><label class="checkbox-label"><input type="checkbox" checked={!entry.removedByPolicy && selected()[entry.scope]} disabled={entry.removedByPolicy || busy()} onChange={(event) => setSelected((current) => ({ ...current, [entry.scope]: event.currentTarget.checked }))} /><span>{entry.description ?? entry.scope}</span></label><Show when={entry.description}><small><code>{entry.scope}</code></small></Show><Show when={entry.removedByPolicy}><small>This site does not allow this item.</small></Show></div>}</For>
+        <label><span>Allow for</span><select value={String(lifetime())} disabled={busy()} onChange={(event) => setLifetime(Number(event.currentTarget.value))}><For each={durationChoices(context()!.defaultLifetimeSeconds, context()!.maxLifetimeSeconds, false)}>{(value) => <option value={String(value)}>{describeDuration(value)}</option>}</For></select></label>
+        <Show when={context()!.maxRenewalWindowSeconds > 0}><label><span>Let the application renew without asking for</span><select value={String(renewal())} disabled={busy()} onChange={(event) => setRenewal(Number(event.currentTarget.value))}><For each={durationChoices(context()!.defaultRenewalWindowSeconds, context()!.maxRenewalWindowSeconds, true)}>{(value) => <option value={String(value)}>{describeDuration(value)}</option>}</For></select></label></Show>
+        <p class="muted">You can stop this at any time from your account page.</p>
+        <div class="button-row"><button type="submit" disabled={busy() || approved().length === 0}>{busy() ? "Continuing…" : "Allow"}</button><button class="text-button" type="button" disabled={busy()} onClick={cancel}>Cancel</button></div>
+        <Show when={approved().length === 0}><small>Select at least one item, or select Cancel.</small></Show>
+        <Show when={error()}><p class="notice bad" role="alert">{error()}</p></Show>
+      </form>
+    </Show></main>;
+};
+
+const ActAsGrantList: Component<PageProps> = (props) => {
+  const [grants, setGrants] = createSignal<ActAsGrantSummary[]>([]);
+  const [error, setError] = createSignal("");
+  const [busy, setBusy] = createSignal("");
+  const load = async () => {
+    try { setGrants((await api.account.listActAsGrants({})).grants); }
+    catch (cause) { if (authenticationFailed(cause)) props.navigate("/app/login"); else setError("Could not load the applications that act for you."); }
+  };
+  onMount(load);
+  const revoke = async (grantId: string) => {
+    setBusy(grantId); setError("");
+    try { await api.account.revokeActAsGrant({ grantId }); await load(); }
+    catch { setError("Could not stop this application. Try again."); }
+    finally { setBusy(""); }
+  };
+  const active = () => grants().filter((grant) => actAsGrantState(grant, new Date()) === "active");
+  return <section class="card"><h2>Applications that act for you</h2>
+    <Show when={active().length} fallback={<p class="muted">No application can act for you.</p>}>
+      <ul><For each={active()}>{(grant) => <li><strong>{applicationLabel(grant.grantee.application, "A local application")}</strong> can act as you at {applicationLabel(grant.audience)}: {grant.approvedScope.join(", ")}. <small>Until {new Date(grant.expiresAt).toLocaleString()}{grant.renewableUntil !== grant.expiresAt ? `, renewable until ${new Date(grant.renewableUntil).toLocaleString()}` : ""}.</small> <button class="text-button" type="button" disabled={busy() === grant.grantId} onClick={() => revoke(grant.grantId)}>{busy() === grant.grantId ? "Stopping…" : "Stop"}</button></li>}</For></ul>
+    </Show>
+    <Show when={error()}><p class="notice bad" role="alert">{error()}</p></Show>
+  </section>;
+};
+
 const Account: Component<PageProps> = (props) => {
   const [claims, setClaims] = createSignal<Claim[]>([]);
   const [contacts, setContacts] = createSignal<VerifiedContactMethod[]>([]);
@@ -243,6 +345,7 @@ const Account: Component<PageProps> = (props) => {
       </form>
       <Show when={feedbackArea() === "contacts" && status()}><p class="notice good" role="status">{status()}</p></Show><Show when={feedbackArea() === "contacts" && error()}><p class="notice bad" role="alert">{error()}</p></Show>
     </section>
+    <ActAsGrantList {...props} />
     <Show when={props.configuration.capabilities.includes("password_login")}><section class="card"><h2>Change password</h2><p id="change-password-rule">{passwordRule(props.configuration)} Changing your password signs you out on every device.</p><form id="change-password-form" name="change-password" aria-busy={busy()} onSubmit={changePassword}>
       <input class="visually-hidden" type="text" name="username" value={props.session?.user.username ?? ""} autocomplete="username" readonly />
       <label><span>Current password</span><input type="password" name="current-password" value={oldPassword()} onInput={(event) => setOldPassword(event.currentTarget.value)} autocomplete="current-password" required /></label>
@@ -405,6 +508,9 @@ const App: Component<{ configuration: GetUiConfigurationResponse }> = (props) =>
     if (current === "/app/authorize") return <AuthorizeGateway {...common} />;
     if (current === "/app/consent") return session() ? <Consent {...common} /> : <Login {...common} />;
     if (current === "/app/consent/cancelled") return <Unavailable title="Application sign-in cancelled" detail="LinkKeys did not send your profile details to the application." destination="/app/account" />;
+    if (current === "/app/act-as") return <ActAsGateway {...common} />;
+    if (current === "/app/act-as/consent") return session() ? <ActAsConsent {...common} /> : <Login {...common} />;
+    if (current === "/app/act-as/cancelled") return <Unavailable title="Request cancelled" detail="The application cannot act for you. LinkKeys sent it nothing." destination="/app/account" />;
     if (current === "/app/verify/contact") return session() ? <VerifyContact {...common} /> : <VerifySignIn navigate={navigate} />;
     if (current === "/app/admin" || current.startsWith("/app/admin/")) return session() && canAdmin() ? <Admin {...common} /> : <Unavailable title="Administration is not available" detail="Your account does not have access to this page." destination="/app/account" />;
     if (!extensionsLoaded()) return <Loading />;

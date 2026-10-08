@@ -1,5 +1,5 @@
 //! Persistence for the RP's own cache of REMOTE key material
-//! (signing-things-request.md, step 6: "RP cache" / "RP-facing operations").
+//! (docs/application-keys.md, "Caches").
 //!
 //! This is the reader side: what a regular RP server durably remembers about
 //! OTHER domains' signing keys and OTHER applications' attested keys, so a

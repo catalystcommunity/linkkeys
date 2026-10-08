@@ -439,5 +439,332 @@ module LinkkeysLocalRp
       def to_cbor = Cbor.encode(self.class.to_map(self))
       def self.from_cbor(data) = from_map(Cbor.decode(data))
     end
+
+    # ---------------------------------------------------------------
+    # Act-as grants (grantee side). The core encoder sorts map keys
+    # canonically, so the field order in each `to_map` does not change the
+    # bytes. The decoders check shapes, because these maps come from an
+    # audience or a home domain.
+    # ---------------------------------------------------------------
+
+    module ActAsShape
+      module_function
+
+      def map!(tree, name)
+        raise Cbor::DecodeError, "#{name}: expected a CBOR map" unless tree.is_a?(Hash)
+
+        tree
+      end
+
+      def text!(tree, key, optional: false)
+        v = tree[key]
+        return nil if v.nil? && optional
+        raise Cbor::DecodeError, "#{key}: expected text" unless v.is_a?(String) && v.encoding != ::Encoding::ASCII_8BIT
+
+        v
+      end
+
+      def bytes!(tree, key)
+        v = tree[key]
+        raise Cbor::DecodeError, "#{key}: expected bytes" unless v.is_a?(String) && v.encoding == ::Encoding::ASCII_8BIT
+
+        v
+      end
+
+      def int!(tree, key, optional: false)
+        v = tree[key]
+        return nil if v.nil? && optional
+        raise Cbor::DecodeError, "#{key}: expected an integer" unless v.is_a?(Integer)
+
+        v
+      end
+
+      def array!(tree, key)
+        v = tree[key]
+        raise Cbor::DecodeError, "#{key}: expected an array" unless v.is_a?(Array)
+
+        v
+      end
+    end
+
+    ApplicationRef = Struct.new(:subject_user_id, :subject_domain, :application_id, keyword_init: true) do
+      def self.to_map(v)
+        { 'subject_user_id' => v.subject_user_id, 'subject_domain' => v.subject_domain, 'application_id' => v.application_id }
+      end
+
+      def self.from_map(tree)
+        ActAsShape.map!(tree, 'ApplicationRef')
+        new(
+          subject_user_id: ActAsShape.text!(tree, 'subject_user_id'),
+          subject_domain: ActAsShape.text!(tree, 'subject_domain'),
+          application_id: ActAsShape.text!(tree, 'application_id')
+        )
+      end
+
+      def to_cbor = Cbor.encode(self.class.to_map(self))
+      def self.from_cbor(data) = from_map(Cbor.decode(data))
+    end
+
+    GranteeRef = Struct.new(:application, :local_rp_descriptor_fingerprint, keyword_init: true) do
+      def self.to_map(v)
+        m = {}
+        m['application'] = ApplicationRef.to_map(v.application) unless v.application.nil?
+        m['local_rp_descriptor_fingerprint'] = v.local_rp_descriptor_fingerprint unless v.local_rp_descriptor_fingerprint.nil?
+        m
+      end
+
+      def self.from_map(tree)
+        ActAsShape.map!(tree, 'GranteeRef')
+        new(
+          application: tree['application'].nil? ? nil : ApplicationRef.from_map(tree['application']),
+          local_rp_descriptor_fingerprint: ActAsShape.text!(tree, 'local_rp_descriptor_fingerprint', optional: true)
+        )
+      end
+
+      def to_cbor = Cbor.encode(self.class.to_map(self))
+      def self.from_cbor(data) = from_map(Cbor.decode(data))
+    end
+
+    ApplicationKeySignature = Struct.new(:signed_by_key_id, :signature, keyword_init: true) do
+      def self.to_map(v) = { 'signed_by_key_id' => v.signed_by_key_id, 'signature' => v.signature }
+
+      def self.from_map(tree)
+        ActAsShape.map!(tree, 'ApplicationKeySignature')
+        new(signed_by_key_id: ActAsShape.text!(tree, 'signed_by_key_id'), signature: ActAsShape.bytes!(tree, 'signature'))
+      end
+
+      def to_cbor = Cbor.encode(self.class.to_map(self))
+      def self.from_cbor(data) = from_map(Cbor.decode(data))
+    end
+
+    GranteeProof = Struct.new(:application_instance_id, :local_rp_descriptor, :signature, keyword_init: true) do
+      def self.to_map(v)
+        m = { 'signature' => ApplicationKeySignature.to_map(v.signature) }
+        m['application_instance_id'] = v.application_instance_id unless v.application_instance_id.nil?
+        m['local_rp_descriptor'] = SignedLocalRpDescriptor.to_map(v.local_rp_descriptor) unless v.local_rp_descriptor.nil?
+        m
+      end
+
+      def self.from_map(tree)
+        ActAsShape.map!(tree, 'GranteeProof')
+        descriptor = tree['local_rp_descriptor']
+        new(
+          application_instance_id: ActAsShape.text!(tree, 'application_instance_id', optional: true),
+          local_rp_descriptor: descriptor.nil? ? nil : SignedLocalRpDescriptor.from_map(ActAsShape.map!(descriptor, 'SignedLocalRpDescriptor')),
+          signature: ApplicationKeySignature.from_map(tree['signature'])
+        )
+      end
+
+      def to_cbor = Cbor.encode(self.class.to_map(self))
+      def self.from_cbor(data) = from_map(Cbor.decode(data))
+    end
+
+    SignedActAsScopeSet = Struct.new(:scope_set, :signer_instance_id, :signatures, keyword_init: true) do
+      def self.to_map(v)
+        {
+          'scope_set' => v.scope_set,
+          'signer_instance_id' => v.signer_instance_id,
+          'signatures' => v.signatures.map { |s| ApplicationKeySignature.to_map(s) }
+        }
+      end
+
+      def self.from_map(tree)
+        ActAsShape.map!(tree, 'SignedActAsScopeSet')
+        signatures = ActAsShape.array!(tree, 'signatures')
+        raise Cbor::DecodeError, 'signatures: expected at least one signature' if signatures.empty?
+
+        new(
+          scope_set: ActAsShape.bytes!(tree, 'scope_set'),
+          signer_instance_id: ActAsShape.text!(tree, 'signer_instance_id'),
+          signatures: signatures.map { |s| ApplicationKeySignature.from_map(s) }
+        )
+      end
+
+      def to_cbor = Cbor.encode(self.class.to_map(self))
+      def self.from_cbor(data) = from_map(Cbor.decode(data))
+    end
+
+    # The optional `grantee_handle_claim` is not modeled: it is a signed handle
+    # claim about the account that enrolled an application grantee. A local RP
+    # has no enrolling account, so it never sends one.
+    ActAsGrantRequest = Struct.new(
+      :grantee, :scope_set, :requested_lifetime_seconds, :requested_renewal_window_seconds,
+      :callback_url, :nonce, :requested_at, :expires_at,
+      keyword_init: true
+    ) do
+      def self.to_map(v)
+        m = {
+          'grantee' => GranteeRef.to_map(v.grantee),
+          'scope_set' => SignedActAsScopeSet.to_map(v.scope_set),
+          'callback_url' => v.callback_url,
+          'nonce' => v.nonce,
+          'requested_at' => v.requested_at,
+          'expires_at' => v.expires_at
+        }
+        m['requested_lifetime_seconds'] = v.requested_lifetime_seconds unless v.requested_lifetime_seconds.nil?
+        unless v.requested_renewal_window_seconds.nil?
+          m['requested_renewal_window_seconds'] = v.requested_renewal_window_seconds
+        end
+        m
+      end
+
+      def self.from_map(tree)
+        ActAsShape.map!(tree, 'ActAsGrantRequest')
+        new(
+          grantee: GranteeRef.from_map(tree['grantee']),
+          scope_set: SignedActAsScopeSet.from_map(tree['scope_set']),
+          requested_lifetime_seconds: ActAsShape.int!(tree, 'requested_lifetime_seconds', optional: true),
+          requested_renewal_window_seconds: ActAsShape.int!(tree, 'requested_renewal_window_seconds', optional: true),
+          callback_url: ActAsShape.text!(tree, 'callback_url'),
+          nonce: ActAsShape.text!(tree, 'nonce'),
+          requested_at: ActAsShape.text!(tree, 'requested_at'),
+          expires_at: ActAsShape.text!(tree, 'expires_at')
+        )
+      end
+
+      def to_cbor = Cbor.encode(self.class.to_map(self))
+      def self.from_cbor(data) = from_map(Cbor.decode(data))
+    end
+
+    # SignedActAsGrantRequest / SignedActAsRefreshRequest share one shape.
+    signed_request_body = proc do
+      def self.to_map(v) = { 'request' => v.request, 'proof' => GranteeProof.to_map(v.proof) }
+
+      def self.from_map(tree)
+        ActAsShape.map!(tree, name)
+        new(request: ActAsShape.bytes!(tree, 'request'), proof: GranteeProof.from_map(tree['proof']))
+      end
+
+      def to_cbor = Cbor.encode(self.class.to_map(self))
+      def self.from_cbor(data) = from_map(Cbor.decode(data))
+    end
+    SignedActAsGrantRequest = Struct.new(:request, :proof, keyword_init: true, &signed_request_body)
+    SignedActAsRefreshRequest = Struct.new(:request, :proof, keyword_init: true, &signed_request_body)
+
+    ActAsRefreshRequest = Struct.new(:grant_id, :grantee, :requested_at, :expires_at, :nonce, keyword_init: true) do
+      def self.to_map(v)
+        {
+          'grant_id' => v.grant_id,
+          'grantee' => GranteeRef.to_map(v.grantee),
+          'requested_at' => v.requested_at,
+          'expires_at' => v.expires_at,
+          'nonce' => v.nonce
+        }
+      end
+
+      def self.from_map(tree)
+        ActAsShape.map!(tree, 'ActAsRefreshRequest')
+        new(
+          grant_id: ActAsShape.text!(tree, 'grant_id'),
+          grantee: GranteeRef.from_map(tree['grantee']),
+          requested_at: ActAsShape.text!(tree, 'requested_at'),
+          expires_at: ActAsShape.text!(tree, 'expires_at'),
+          nonce: ActAsShape.text!(tree, 'nonce')
+        )
+      end
+
+      def to_cbor = Cbor.encode(self.class.to_map(self))
+      def self.from_cbor(data) = from_map(Cbor.decode(data))
+    end
+
+    RefreshActAsGrantRequest = Struct.new(:request, keyword_init: true) do
+      def self.to_map(v) = { 'request' => SignedActAsRefreshRequest.to_map(v.request) }
+
+      def self.from_map(tree)
+        ActAsShape.map!(tree, 'RefreshActAsGrantRequest')
+        new(request: SignedActAsRefreshRequest.from_map(tree['request']))
+      end
+
+      def to_cbor = Cbor.encode(self.class.to_map(self))
+      def self.from_cbor(data) = from_map(Cbor.decode(data))
+    end
+
+    # `grant` stays the exact CBOR(ActAsGrant) bytes the home domain signed.
+    SignedActAsGrant = Struct.new(:grant, :signatures, keyword_init: true) do
+      def self.to_map(v) = { 'grant' => v.grant, 'signatures' => v.signatures.map { |s| ClaimSignature.to_map(s) } }
+
+      def self.from_map(tree)
+        ActAsShape.map!(tree, 'SignedActAsGrant')
+        signatures = ActAsShape.array!(tree, 'signatures').map do |s|
+          ActAsShape.map!(s, 'ClaimSignature')
+          ClaimSignature.new(
+            domain: ActAsShape.text!(s, 'domain'),
+            signed_by_key_id: ActAsShape.text!(s, 'signed_by_key_id'),
+            signature: ActAsShape.bytes!(s, 'signature')
+          )
+        end
+        new(grant: ActAsShape.bytes!(tree, 'grant'), signatures: signatures)
+      end
+
+      def to_cbor = Cbor.encode(self.class.to_map(self))
+      def self.from_cbor(data) = from_map(Cbor.decode(data))
+    end
+
+    RefreshActAsGrantResponse = Struct.new(:grant, :signed, keyword_init: true) do
+      def self.to_map(v) = { 'grant' => SignedActAsGrant.to_map(v.grant), 'signed' => v.signed }
+
+      def self.from_map(tree)
+        ActAsShape.map!(tree, 'RefreshActAsGrantResponse')
+        signed = tree['signed']
+        raise Cbor::DecodeError, 'signed: expected a bool' unless [true, false].include?(signed)
+
+        new(grant: SignedActAsGrant.from_map(tree['grant']), signed: signed)
+      end
+
+      def to_cbor = Cbor.encode(self.class.to_map(self))
+      def self.from_cbor(data) = from_map(Cbor.decode(data))
+    end
+
+    ActAsPresentation = Struct.new(:grant_hash, :audience, :request_digest, :presented_at, :nonce, keyword_init: true) do
+      def self.to_map(v)
+        {
+          'grant_hash' => v.grant_hash,
+          'audience' => ApplicationRef.to_map(v.audience),
+          'request_digest' => v.request_digest,
+          'presented_at' => v.presented_at,
+          'nonce' => v.nonce
+        }
+      end
+
+      def self.from_map(tree)
+        ActAsShape.map!(tree, 'ActAsPresentation')
+        new(
+          grant_hash: ActAsShape.bytes!(tree, 'grant_hash'),
+          audience: ApplicationRef.from_map(tree['audience']),
+          request_digest: ActAsShape.bytes!(tree, 'request_digest'),
+          presented_at: ActAsShape.text!(tree, 'presented_at'),
+          nonce: ActAsShape.bytes!(tree, 'nonce')
+        )
+      end
+
+      def to_cbor = Cbor.encode(self.class.to_map(self))
+      def self.from_cbor(data) = from_map(Cbor.decode(data))
+    end
+
+    SignedActAsPresentation = Struct.new(:presentation, :proof, keyword_init: true) do
+      def self.to_map(v) = { 'presentation' => v.presentation, 'proof' => GranteeProof.to_map(v.proof) }
+
+      def self.from_map(tree)
+        ActAsShape.map!(tree, 'SignedActAsPresentation')
+        new(presentation: ActAsShape.bytes!(tree, 'presentation'), proof: GranteeProof.from_map(tree['proof']))
+      end
+
+      def to_cbor = Cbor.encode(self.class.to_map(self))
+      def self.from_cbor(data) = from_map(Cbor.decode(data))
+    end
+
+    ActAsCredential = Struct.new(:grant, :presentation, keyword_init: true) do
+      def self.to_map(v)
+        { 'grant' => SignedActAsGrant.to_map(v.grant), 'presentation' => SignedActAsPresentation.to_map(v.presentation) }
+      end
+
+      def self.from_map(tree)
+        ActAsShape.map!(tree, 'ActAsCredential')
+        new(grant: SignedActAsGrant.from_map(tree['grant']), presentation: SignedActAsPresentation.from_map(tree['presentation']))
+      end
+
+      def to_cbor = Cbor.encode(self.class.to_map(self))
+      def self.from_cbor(data) = from_map(Cbor.decode(data))
+    end
   end
 end

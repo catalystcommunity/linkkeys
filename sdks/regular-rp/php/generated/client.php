@@ -450,6 +450,20 @@ class BrowserAuthorizationClient
         return Codec::decodeBrowserAuthorizationCompleteResponse($reply);
     }
 
+    public function inspectActAs($request)
+    {
+        $payload = Codec::encodeBrowserActAsInspectRequest($request);
+        $reply = $this->transport->call('BrowserAuthorization', 'inspect-act-as', $payload);
+        return Codec::decodeBrowserActAsInspectResponse($reply);
+    }
+
+    public function completeActAs($request)
+    {
+        $payload = Codec::encodeBrowserActAsCompleteRequest($request);
+        $reply = $this->transport->call('BrowserAuthorization', 'complete-act-as', $payload);
+        return Codec::decodeBrowserActAsCompleteResponse($reply);
+    }
+
 }
 
 /**
@@ -897,6 +911,20 @@ class AccountClient
         return Codec::decodeEnrollApplicationInstanceResponse($reply);
     }
 
+    public function listActAsGrants($request)
+    {
+        $payload = Codec::encodeEmptyRequest($request);
+        $reply = $this->transport->call('Account', 'list-act-as-grants', $payload);
+        return Codec::decodeListActAsGrantsResponse($reply);
+    }
+
+    public function revokeActAsGrant($request)
+    {
+        $payload = Codec::encodeRevokeActAsGrantRequest($request);
+        $reply = $this->transport->call('Account', 'revoke-act-as-grant', $payload);
+        return Codec::decodeRevokeActAsGrantResponse($reply);
+    }
+
 }
 
 /**
@@ -985,6 +1013,51 @@ class RpClient
         $payload = Codec::encodeRpResolveApplicationKeysRequest($request);
         $reply = $this->transport->call('Rp', 'resolve-application-keys', $payload);
         return Codec::decodeRpResolveApplicationKeysResponse($reply);
+    }
+
+    public function actAsRefreshGrant($request)
+    {
+        $payload = Codec::encodeRpActAsRefreshRequest($request);
+        $reply = $this->transport->call('Rp', 'act-as-refresh-grant', $payload);
+        return Codec::decodeRefreshActAsGrantResponse($reply);
+    }
+
+    public function resolveActAsRevocations($request)
+    {
+        $payload = Codec::encodeRpResolveActAsRevocationsRequest($request);
+        $reply = $this->transport->call('Rp', 'resolve-act-as-revocations', $payload);
+        return Codec::decodeGetActAsGrantRevocationsResponse($reply);
+    }
+
+}
+
+/**
+ * The injected transport must expose call($service, $op, $payload) and return
+ * the reply payload bytes. $service and $op are the CSIL names exactly as
+ * written in the source and map verbatim onto the CSIL-RPC v1 envelope's
+ * service/op fields.
+ */
+class ActAsClient
+{
+    private $transport;
+
+    public function __construct($transport)
+    {
+        $this->transport = $transport;
+    }
+
+    public function refreshGrant($request)
+    {
+        $payload = Codec::encodeRefreshActAsGrantRequest($request);
+        $reply = $this->transport->call('ActAs', 'refresh-grant', $payload);
+        return Codec::decodeRefreshActAsGrantResponse($reply);
+    }
+
+    public function getGrantRevocations($request)
+    {
+        $payload = Codec::encodeGetActAsGrantRevocationsRequest($request);
+        $reply = $this->transport->call('ActAs', 'get-grant-revocations', $payload);
+        return Codec::decodeGetActAsGrantRevocationsResponse($reply);
     }
 
 }

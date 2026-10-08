@@ -35,7 +35,11 @@
        |> Result.get_ok
      in
      (* App: persist [pending] (e.g. via [Begin_login.pending_login_to_fields]
-        into a session), then redirect the browser to [redirect.redirect_url]. *)
+        into a session), then redirect the browser to [redirect.redirect_url].
+        [begin_local_login] discovers the browser host from the [https=] value
+        of [_linkkeys_apis.<domain>] (one DNS TXT lookup; inject a resolver
+        with [make_config ~dns]). It falls back to [https://<domain>] when
+        discovery fails. *)
 
      (* On callback (app's HTTP handler received [arrived_url] with an
         [encrypted_token=] query parameter): *)
@@ -78,7 +82,10 @@
    - The default DNS resolver is a hand-rolled UDP TXT query against the
      system's configured nameserver ([Dns.default_resolver]); LAN resolver
      spoofing is an accepted, documented tradeoff for this mode. Inject a
-     hardened DNS resolver value if your deployment needs more. *)
+     hardened DNS resolver value if your deployment needs more.
+   - [begin_local_login] uses the [_linkkeys_apis] [https=] endpoint as the
+     browser host only. [pending_login.user_domain] stays the identity
+     domain, so verification never binds to the discovered host ([Browser]). *)
 
 module Cbor = Cbor
 module Hex = Hex
@@ -92,8 +99,10 @@ module Rpc = Rpc
 module Url_params = Url_params
 module Error = Error
 module Identity = Identity
+module Browser = Browser
 module Begin_login = Begin_login
 module Complete_login = Complete_login
+module Act_as = Act_as
 
 (* Whitebox-only surface (SEC fix, "Low" finding -- restrict the public
    surface): [Local_rp], [Claims], and [Revocation] contain the granular
@@ -130,6 +139,10 @@ let fingerprint_to_string = Identity.fingerprint_to_string
 let fingerprint_from_string = Identity.fingerprint_from_string
 let begin_local_login = Begin_login.begin_local_login
 let complete_local_login = Complete_login.complete_local_login
+let begin_act_as = Act_as.begin_act_as
+let complete_act_as = Act_as.complete_act_as
+let refresh_act_as_grant = Act_as.refresh_act_as_grant
+let present_act_as = Act_as.present
 
 (* [check_expirations(identity, now) -> ExpirationStatus] (design doc,
    "SDK API Shape" / "Expiration Helper"). Thin wrapper taking the

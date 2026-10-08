@@ -444,6 +444,279 @@ public static class Codec
         DecLocalRpTicketRedemptionResponse(Cbor.Decode(data));
 
     // -----------------------------------------------------------------
+    // Act-as grants (grantee side). Shapes mirror csil/linkkeys.csil "Act-as
+    // grants"; optional fields are omitted when null, exactly as the generated
+    // Rust codec does.
+    // -----------------------------------------------------------------
+
+    private static Cbor.Value EncApplicationRef(ApplicationRef v)
+    {
+        var e = new List<Cbor.Entry>();
+        Cbor.PutText(e, "subject_user_id", v.SubjectUserId);
+        Cbor.PutText(e, "subject_domain", v.SubjectDomain);
+        Cbor.PutText(e, "application_id", v.ApplicationId);
+        return Cbor.VMapOf(e);
+    }
+
+    private static ApplicationRef DecApplicationRef(Cbor.Value m) => new(
+        Cbor.RequireText(m, "subject_user_id"),
+        Cbor.RequireText(m, "subject_domain"),
+        Cbor.RequireText(m, "application_id"));
+
+    private static Cbor.Value EncGranteeRef(GranteeRef v)
+    {
+        var e = new List<Cbor.Entry>();
+        if (v.Application is not null) e.Add(Cbor.EntryOf("application", EncApplicationRef(v.Application)));
+        Cbor.PutOptText(e, "local_rp_descriptor_fingerprint", v.LocalRpDescriptorFingerprint);
+        return Cbor.VMapOf(e);
+    }
+
+    private static GranteeRef DecGranteeRef(Cbor.Value m)
+    {
+        var app = Cbor.MapGet(m, "application");
+        return new GranteeRef(app is null ? null : DecApplicationRef(app), Cbor.OptText(m, "local_rp_descriptor_fingerprint"));
+    }
+
+    private static Cbor.Value EncApplicationKeySignature(ApplicationKeySignature v)
+    {
+        var e = new List<Cbor.Entry>();
+        Cbor.PutText(e, "signed_by_key_id", v.SignedByKeyId);
+        Cbor.PutBytes(e, "signature", v.Signature);
+        return Cbor.VMapOf(e);
+    }
+
+    private static ApplicationKeySignature DecApplicationKeySignature(Cbor.Value m) =>
+        new(Cbor.RequireText(m, "signed_by_key_id"), Cbor.RequireBytes(m, "signature"));
+
+    private static Cbor.Value EncGranteeProof(GranteeProof v)
+    {
+        var e = new List<Cbor.Entry>();
+        Cbor.PutOptText(e, "application_instance_id", v.ApplicationInstanceId);
+        if (v.LocalRpDescriptor is not null) e.Add(Cbor.EntryOf("local_rp_descriptor", EncSignedLocalRpDescriptor(v.LocalRpDescriptor)));
+        e.Add(Cbor.EntryOf("signature", EncApplicationKeySignature(v.Signature)));
+        return Cbor.VMapOf(e);
+    }
+
+    private static GranteeProof DecGranteeProof(Cbor.Value m)
+    {
+        var descriptor = Cbor.MapGet(m, "local_rp_descriptor");
+        return new GranteeProof(
+            Cbor.OptText(m, "application_instance_id"),
+            descriptor is null ? null : DecSignedLocalRpDescriptor(descriptor),
+            DecApplicationKeySignature(Cbor.Require(m, "signature")));
+    }
+
+    private static Cbor.Value EncSignedActAsScopeSet(SignedActAsScopeSet v)
+    {
+        var e = new List<Cbor.Entry>();
+        Cbor.PutBytes(e, "scope_set", v.ScopeSet);
+        Cbor.PutText(e, "signer_instance_id", v.SignerInstanceId);
+        e.Add(Cbor.EntryOf("signatures", EncArray(v.Signatures, EncApplicationKeySignature)));
+        return Cbor.VMapOf(e);
+    }
+
+    private static SignedActAsScopeSet DecSignedActAsScopeSet(Cbor.Value m)
+    {
+        var signatures = DecArray(Cbor.Require(m, "signatures"), DecApplicationKeySignature);
+        if (signatures.Count == 0) throw new Cbor.CborDecodeException("SignedActAsScopeSet.signatures is empty");
+        return new SignedActAsScopeSet(
+            Cbor.RequireBytes(m, "scope_set"), Cbor.RequireText(m, "signer_instance_id"), signatures);
+    }
+
+    public static byte[] EncodeSignedActAsScopeSet(SignedActAsScopeSet v) => Cbor.Encode(EncSignedActAsScopeSet(v));
+
+    public static SignedActAsScopeSet DecodeSignedActAsScopeSet(byte[] data) => DecSignedActAsScopeSet(Cbor.Decode(data));
+
+    private static Cbor.Value EncSignedActAsGrant(SignedActAsGrant v)
+    {
+        var e = new List<Cbor.Entry>();
+        Cbor.PutBytes(e, "grant", v.Grant);
+        e.Add(Cbor.EntryOf("signatures", EncArray(v.Signatures, EncClaimSignature)));
+        return Cbor.VMapOf(e);
+    }
+
+    private static SignedActAsGrant DecSignedActAsGrant(Cbor.Value m) =>
+        new(Cbor.RequireBytes(m, "grant"), DecArray(Cbor.Require(m, "signatures"), DecClaimSignature));
+
+    public static byte[] EncodeSignedActAsGrant(SignedActAsGrant v) => Cbor.Encode(EncSignedActAsGrant(v));
+
+    public static SignedActAsGrant DecodeSignedActAsGrant(byte[] data) => DecSignedActAsGrant(Cbor.Decode(data));
+
+    /// <summary>Decode only. A grantee never builds a grant; the home domain signs it.</summary>
+    public static ActAsGrant DecodeActAsGrant(byte[] data)
+    {
+        var m = Cbor.Decode(data);
+        return new ActAsGrant(
+            Cbor.RequireText(m, "grant_id"),
+            Cbor.RequireText(m, "user_id"),
+            Cbor.RequireText(m, "subject_domain"),
+            DecGranteeRef(Cbor.Require(m, "grantee")),
+            DecApplicationRef(Cbor.Require(m, "audience")),
+            DecSignedActAsScopeSet(Cbor.Require(m, "scope_set")),
+            Cbor.AsArray(Cbor.Require(m, "approved_scope")).Select(Cbor.AsText).ToList(),
+            Cbor.RequireText(m, "issued_at"),
+            Cbor.RequireText(m, "expires_at"),
+            Cbor.RequireText(m, "series_issued_at"),
+            Cbor.RequireText(m, "renewable_until"),
+            Cbor.OptText(m, "device_fingerprint"));
+    }
+
+    private static long? OptInt(Cbor.Value m, string key)
+    {
+        var v = Cbor.MapGet(m, key);
+        return v is null ? null : Cbor.AsInt(v);
+    }
+
+    public static byte[] EncodeActAsGrantRequest(ActAsGrantRequest v)
+    {
+        var e = new List<Cbor.Entry>
+        {
+            Cbor.EntryOf("grantee", EncGranteeRef(v.Grantee)),
+            Cbor.EntryOf("scope_set", EncSignedActAsScopeSet(v.ScopeSet)),
+        };
+        if (v.RequestedLifetimeSeconds is long lifetime) e.Add(Cbor.EntryOf("requested_lifetime_seconds", Cbor.VInteger(lifetime)));
+        if (v.RequestedRenewalWindowSeconds is long window) e.Add(Cbor.EntryOf("requested_renewal_window_seconds", Cbor.VInteger(window)));
+        Cbor.PutText(e, "callback_url", v.CallbackUrl);
+        Cbor.PutText(e, "nonce", v.Nonce);
+        Cbor.PutText(e, "requested_at", v.RequestedAt);
+        Cbor.PutText(e, "expires_at", v.ExpiresAt);
+        return Cbor.Encode(Cbor.VMapOf(e));
+    }
+
+    public static ActAsGrantRequest DecodeActAsGrantRequest(byte[] data)
+    {
+        var m = Cbor.Decode(data);
+        return new ActAsGrantRequest(
+            DecGranteeRef(Cbor.Require(m, "grantee")),
+            DecSignedActAsScopeSet(Cbor.Require(m, "scope_set")),
+            OptInt(m, "requested_lifetime_seconds"),
+            OptInt(m, "requested_renewal_window_seconds"),
+            Cbor.RequireText(m, "callback_url"),
+            Cbor.RequireText(m, "nonce"),
+            Cbor.RequireText(m, "requested_at"),
+            Cbor.RequireText(m, "expires_at"));
+    }
+
+    public static byte[] EncodeSignedActAsGrantRequest(SignedActAsGrantRequest v)
+    {
+        var e = new List<Cbor.Entry>();
+        Cbor.PutBytes(e, "request", v.Request);
+        e.Add(Cbor.EntryOf("proof", EncGranteeProof(v.Proof)));
+        return Cbor.Encode(Cbor.VMapOf(e));
+    }
+
+    public static SignedActAsGrantRequest DecodeSignedActAsGrantRequest(byte[] data)
+    {
+        var m = Cbor.Decode(data);
+        return new SignedActAsGrantRequest(Cbor.RequireBytes(m, "request"), DecGranteeProof(Cbor.Require(m, "proof")));
+    }
+
+    public static byte[] EncodeActAsRefreshRequest(ActAsRefreshRequest v)
+    {
+        var e = new List<Cbor.Entry>();
+        Cbor.PutText(e, "grant_id", v.GrantId);
+        e.Add(Cbor.EntryOf("grantee", EncGranteeRef(v.Grantee)));
+        Cbor.PutText(e, "requested_at", v.RequestedAt);
+        Cbor.PutText(e, "expires_at", v.ExpiresAt);
+        Cbor.PutText(e, "nonce", v.Nonce);
+        return Cbor.Encode(Cbor.VMapOf(e));
+    }
+
+    public static ActAsRefreshRequest DecodeActAsRefreshRequest(byte[] data)
+    {
+        var m = Cbor.Decode(data);
+        return new ActAsRefreshRequest(
+            Cbor.RequireText(m, "grant_id"),
+            DecGranteeRef(Cbor.Require(m, "grantee")),
+            Cbor.RequireText(m, "requested_at"),
+            Cbor.RequireText(m, "expires_at"),
+            Cbor.RequireText(m, "nonce"));
+    }
+
+    private static Cbor.Value EncSignedActAsRefreshRequest(SignedActAsRefreshRequest v)
+    {
+        var e = new List<Cbor.Entry>();
+        Cbor.PutBytes(e, "request", v.Request);
+        e.Add(Cbor.EntryOf("proof", EncGranteeProof(v.Proof)));
+        return Cbor.VMapOf(e);
+    }
+
+    private static SignedActAsRefreshRequest DecSignedActAsRefreshRequest(Cbor.Value m) =>
+        new(Cbor.RequireBytes(m, "request"), DecGranteeProof(Cbor.Require(m, "proof")));
+
+    public static byte[] EncodeSignedActAsRefreshRequest(SignedActAsRefreshRequest v) => Cbor.Encode(EncSignedActAsRefreshRequest(v));
+
+    public static SignedActAsRefreshRequest DecodeSignedActAsRefreshRequest(byte[] data) =>
+        DecSignedActAsRefreshRequest(Cbor.Decode(data));
+
+    public static byte[] EncodeRefreshActAsGrantRequest(RefreshActAsGrantRequest v) =>
+        Cbor.Encode(Cbor.VMapOf([Cbor.EntryOf("request", EncSignedActAsRefreshRequest(v.Request))]));
+
+    public static RefreshActAsGrantRequest DecodeRefreshActAsGrantRequest(byte[] data) =>
+        new(DecSignedActAsRefreshRequest(Cbor.Require(Cbor.Decode(data), "request")));
+
+    public static byte[] EncodeRefreshActAsGrantResponse(RefreshActAsGrantResponse v)
+    {
+        var e = new List<Cbor.Entry> { Cbor.EntryOf("grant", EncSignedActAsGrant(v.Grant)) };
+        Cbor.PutBool(e, "signed", v.Signed);
+        return Cbor.Encode(Cbor.VMapOf(e));
+    }
+
+    public static RefreshActAsGrantResponse DecodeRefreshActAsGrantResponse(byte[] data)
+    {
+        var m = Cbor.Decode(data);
+        return new RefreshActAsGrantResponse(DecSignedActAsGrant(Cbor.Require(m, "grant")), Cbor.AsBool(Cbor.Require(m, "signed")));
+    }
+
+    public static byte[] EncodeActAsPresentation(ActAsPresentation v)
+    {
+        var e = new List<Cbor.Entry>();
+        Cbor.PutBytes(e, "grant_hash", v.GrantHash);
+        e.Add(Cbor.EntryOf("audience", EncApplicationRef(v.Audience)));
+        Cbor.PutBytes(e, "request_digest", v.RequestDigest);
+        Cbor.PutText(e, "presented_at", v.PresentedAt);
+        Cbor.PutBytes(e, "nonce", v.Nonce);
+        return Cbor.Encode(Cbor.VMapOf(e));
+    }
+
+    public static ActAsPresentation DecodeActAsPresentation(byte[] data)
+    {
+        var m = Cbor.Decode(data);
+        return new ActAsPresentation(
+            Cbor.RequireBytes(m, "grant_hash"),
+            DecApplicationRef(Cbor.Require(m, "audience")),
+            Cbor.RequireBytes(m, "request_digest"),
+            Cbor.RequireText(m, "presented_at"),
+            Cbor.RequireBytes(m, "nonce"));
+    }
+
+    private static Cbor.Value EncSignedActAsPresentation(SignedActAsPresentation v)
+    {
+        var e = new List<Cbor.Entry>();
+        Cbor.PutBytes(e, "presentation", v.Presentation);
+        e.Add(Cbor.EntryOf("proof", EncGranteeProof(v.Proof)));
+        return Cbor.VMapOf(e);
+    }
+
+    private static SignedActAsPresentation DecSignedActAsPresentation(Cbor.Value m) =>
+        new(Cbor.RequireBytes(m, "presentation"), DecGranteeProof(Cbor.Require(m, "proof")));
+
+    public static byte[] EncodeActAsCredential(ActAsCredential v) =>
+        Cbor.Encode(Cbor.VMapOf(
+        [
+            Cbor.EntryOf("grant", EncSignedActAsGrant(v.Grant)),
+            Cbor.EntryOf("presentation", EncSignedActAsPresentation(v.Presentation)),
+        ]));
+
+    public static ActAsCredential DecodeActAsCredential(byte[] data)
+    {
+        var m = Cbor.Decode(data);
+        return new ActAsCredential(
+            DecSignedActAsGrant(Cbor.Require(m, "grant")),
+            DecSignedActAsPresentation(Cbor.Require(m, "presentation")));
+    }
+
+    // -----------------------------------------------------------------
     // Array helpers
     // -----------------------------------------------------------------
 

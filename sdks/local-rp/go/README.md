@@ -145,6 +145,55 @@ writes, or local user authorization."* Concretely, the app owns:
 - **Sessions, local user records, authorization decisions**: entirely the
   app's, using the verified facts this SDK returns.
 
+## Act-as grants
+
+An act-as grant lets this local RP act as a user at an enrolled
+application. The local RP is the grantee. The application is the audience.
+Read `docs/spec/reserved/act-as-grants.md` for the full protocol. The
+protocol is Reserved and can change.
+
+Rules:
+
+- A local RP can be a grantee only after the user's home domain approved
+  it. The home domain refuses a request from a local RP that it did not
+  approve.
+- A local RP cannot be an audience. A peer cannot find the keys of a local
+  RP through DNS.
+- The descriptor signing key signs every request and presentation. Each
+  proof carries the signed descriptor.
+
+Steps:
+
+1. Get the signed scope set (`SignedActAsScopeSet` CBOR) from the audience.
+   The audience protocol defines how. Do not change the bytes.
+2. Call `BeginActAs`. Give the key material, the user's login or domain,
+   the scope set bytes, the callback URL, and `Now`. You can also give a
+   requested lifetime, a requested renewal window, a request window
+   (default 300 s, maximum 900 s), and a DNS resolver. Persist the returned
+   `PendingActAs`. Send the browser to `RedirectURL`. The SDK finds the
+   browser host with the same discovery and fallback as `BeginLocalLogin`.
+3. When the browser comes back, call `CompleteActAsCallback` with the
+   pending state and the callback URL or query. It compares the nonce in
+   constant time and returns the grant id. Discard the pending state after
+   one attempt.
+4. Call `RefreshActAsGrant` with the key material, `PendingActAs.UserDomain`,
+   and the grant id. It calls `ActAs/refresh-grant` on the home domain over
+   the same DNS-pinned TCP connection as claim-ticket redemption. It
+   returns the `SignedActAsGrant` and `signed` (true when the home domain
+   signed a new grant during this call). Call it again when less than one
+   half of the grant life remains. An expired grant cannot be renewed: ask
+   the user again.
+5. For each call to the audience, call `PresentActAs` with the grant, the
+   audience `ApplicationRef`, the request digest, `Now`, and a fresh nonce.
+   Send the returned `ActAsCredential` CBOR to the audience. The audience
+   defines the request digest and does replay protection.
+
+`RefreshActAsGrant` decodes the returned grant. It refuses the grant when
+the grant id is not the requested id, when the grantee is not this local
+RP, or when the subject domain is not the user's home domain (ASCII case
+is ignored). The SDK does not verify the home-domain signature on the
+grant. The audience verifies it.
+
 ## Security notes
 
 - **Key storage**: the private key fields inside `LocalRpKeyMaterial` don't
@@ -206,6 +255,12 @@ writes, or local user authorization."* Concretely, the app owns:
   happy path plus one test per verification-chain failure (wrong audience,
   wrong issuer, nonce mismatch, expired callback, DNS pin mismatch, revoked
   signing key, tampered claim signature).
+- `actas_test.go` reproduces the `local_rp_grantee` bytes of
+  `sdks/regular-rp/conformance/act_as_grantee_signing.json` (grant request,
+  `url_param`, refresh request, credential). It also tests `BeginActAs`
+  discovery and fallback with a fake resolver, the callback nonce check,
+  and `RefreshActAsGrant` against the fake IDP (including a grant for
+  another grant id, grantee, or subject domain).
 
 Run with `go test ./...` (or `go test ./... -race` — the fake-IDP tests are
 race-clean). `go vet ./...` is also clean.

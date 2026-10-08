@@ -181,6 +181,12 @@ class BrowserAuthorizationClient(private val transport: Transport) {
     fun complete(request: BrowserAuthorizationCompleteRequest): BrowserAuthorizationCompleteResponse {
         return decode<BrowserAuthorizationCompleteResponse>(transport.call("BrowserAuthorization", "complete", encode(request)))
     }
+    fun inspectActAs(request: BrowserActAsInspectRequest): BrowserActAsInspectResponse {
+        return decode<BrowserActAsInspectResponse>(transport.call("BrowserAuthorization", "inspect-act-as", encode(request)))
+    }
+    fun completeActAs(request: BrowserActAsCompleteRequest): BrowserActAsCompleteResponse {
+        return decode<BrowserActAsCompleteResponse>(transport.call("BrowserAuthorization", "complete-act-as", encode(request)))
+    }
 }
 
 /** Typed client for the Admin service. The client owns (de)serialization;
@@ -368,6 +374,12 @@ class AccountClient(private val transport: Transport) {
     fun enrollApplicationInstance(request: EnrollApplicationInstanceRequest): EnrollApplicationInstanceResponse {
         return decode<EnrollApplicationInstanceResponse>(transport.call("Account", "enroll-application-instance", encode(request)))
     }
+    fun listActAsGrants(request: EmptyRequest): ListActAsGrantsResponse {
+        return decode<ListActAsGrantsResponse>(transport.call("Account", "list-act-as-grants", encode(request)))
+    }
+    fun revokeActAsGrant(request: RevokeActAsGrantRequest): RevokeActAsGrantResponse {
+        return decode<RevokeActAsGrantResponse>(transport.call("Account", "revoke-act-as-grant", encode(request)))
+    }
 }
 
 /** Typed client for the Attestation service. The client owns (de)serialization;
@@ -401,6 +413,23 @@ class RpClient(private val transport: Transport) {
     }
     fun resolveApplicationKeys(request: RpResolveApplicationKeysRequest): RpResolveApplicationKeysResponse {
         return decode<RpResolveApplicationKeysResponse>(transport.call("Rp", "resolve-application-keys", encode(request)))
+    }
+    fun actAsRefreshGrant(request: RpActAsRefreshRequest): RefreshActAsGrantResponse {
+        return decode<RefreshActAsGrantResponse>(transport.call("Rp", "act-as-refresh-grant", encode(request)))
+    }
+    fun resolveActAsRevocations(request: RpResolveActAsRevocationsRequest): GetActAsGrantRevocationsResponse {
+        return decode<GetActAsGrantRevocationsResponse>(transport.call("Rp", "resolve-act-as-revocations", encode(request)))
+    }
+}
+
+/** Typed client for the ActAs service. The client owns (de)serialization;
+ * the carrier only moves bytes. */
+class ActAsClient(private val transport: Transport) {
+    fun refreshGrant(request: RefreshActAsGrantRequest): RefreshActAsGrantResponse {
+        return decode<RefreshActAsGrantResponse>(transport.call("ActAs", "refresh-grant", encode(request)))
+    }
+    fun getGrantRevocations(request: GetActAsGrantRevocationsRequest): GetActAsGrantRevocationsResponse {
+        return decode<GetActAsGrantRevocationsResponse>(transport.call("ActAs", "get-grant-revocations", encode(request)))
     }
 }
 

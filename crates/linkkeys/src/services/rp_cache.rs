@@ -1,6 +1,5 @@
 //! The relying party's persistent cache of remote key material
-//! (signing-things-request.md, "RP cache" / "RP-facing operations" /
-//! "Public-key caches").
+//! (docs/application-keys.md, "Caches").
 //!
 //! An application asks ITS OWN RP server for cached peer keys. The RP does
 //! the discovery, the fetch, the verification, and the caching; the
@@ -577,7 +576,10 @@ async fn fetch_remote_revocations_inner(
 /// from this), and it exists only because changing `fetch_domain_keys`'s
 /// signature would ripple across its other 8 call sites, which is out of
 /// scope here.
-async fn discover(net: &Net, domain: &str) -> Result<(String, String, Vec<String>), String> {
+pub(crate) async fn discover(
+    net: &Net,
+    domain: &str,
+) -> Result<(String, String, Vec<String>), String> {
     let dns_name = liblinkkeys::dns::linkkeys_dns_name(domain);
     let txts = net
         .dns

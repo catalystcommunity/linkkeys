@@ -2846,3 +2846,436 @@ data class RpResolveApplicationKeysResponse(
     val cacheStatus: String
 )
 
+/** ApplicationRef record. */
+data class ApplicationRef(
+    // wire key: subject_user_id
+    val subjectUserId: String,
+    // wire key: subject_domain
+    val subjectDomain: String,
+    // wire key: application_id
+    val applicationId: String
+)
+
+/** GranteeRef record. */
+data class GranteeRef(
+    val application: ApplicationRef? = null,
+    // wire key: local_rp_descriptor_fingerprint
+    val localRpDescriptorFingerprint: String? = null
+)
+
+/** GranteeProof record. */
+data class GranteeProof(
+    // wire key: application_instance_id
+    val applicationInstanceId: String? = null,
+    // wire key: local_rp_descriptor
+    val localRpDescriptor: SignedLocalRpDescriptor? = null,
+    val signature: ApplicationKeySignature
+)
+
+/** ActAsScopeEntry record. */
+data class ActAsScopeEntry(
+    val scope: String,
+    val description: String? = null
+)
+
+/** ActAsScopeSet record. */
+data class ActAsScopeSet(
+    val audience: ApplicationRef,
+    val grantee: GranteeRef,
+    val entries: List<ActAsScopeEntry>,
+    val language: String? = null,
+    // wire key: audience_handle_claim
+    val audienceHandleClaim: Claim? = null,
+    // wire key: issued_at
+    val issuedAt: String,
+    // wire key: expires_at
+    val expiresAt: String
+)
+
+/** SignedActAsScopeSet record. */
+data class SignedActAsScopeSet(
+    // wire key: scope_set
+    val scopeSet: ByteArray,
+    // wire key: signer_instance_id
+    val signerInstanceId: String,
+    val signatures: List<ApplicationKeySignature>
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is SignedActAsScopeSet) return false
+        if (!scopeSet.contentEquals(other.scopeSet)) return false
+        if (signerInstanceId != other.signerInstanceId) return false
+        if (signatures != other.signatures) return false
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = scopeSet.contentHashCode()
+        result = 31 * result + signerInstanceId.hashCode()
+        result = 31 * result + signatures.hashCode()
+        return result
+    }
+}
+
+/** ActAsScopeSetRequest record. */
+data class ActAsScopeSetRequest(
+    val grantee: GranteeRef,
+    val scope: List<String>,
+    // wire key: locale_preferences
+    val localePreferences: List<String>? = null
+)
+
+/** ActAsGrant record. */
+data class ActAsGrant(
+    // wire key: grant_id
+    val grantId: String,
+    // wire key: user_id
+    val userId: String,
+    // wire key: subject_domain
+    val subjectDomain: String,
+    val grantee: GranteeRef,
+    val audience: ApplicationRef,
+    // wire key: scope_set
+    val scopeSet: SignedActAsScopeSet,
+    // wire key: approved_scope
+    val approvedScope: List<String>,
+    // wire key: issued_at
+    val issuedAt: String,
+    // wire key: expires_at
+    val expiresAt: String,
+    // wire key: series_issued_at
+    val seriesIssuedAt: String,
+    // wire key: renewable_until
+    val renewableUntil: String,
+    // wire key: device_fingerprint
+    val deviceFingerprint: String? = null
+)
+
+/** SignedActAsGrant record. */
+data class SignedActAsGrant(
+    val grant: ByteArray,
+    val signatures: List<ClaimSignature>
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is SignedActAsGrant) return false
+        if (!grant.contentEquals(other.grant)) return false
+        if (signatures != other.signatures) return false
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = grant.contentHashCode()
+        result = 31 * result + signatures.hashCode()
+        return result
+    }
+}
+
+/** ActAsGrantRequest record. */
+data class ActAsGrantRequest(
+    val grantee: GranteeRef,
+    // wire key: scope_set
+    val scopeSet: SignedActAsScopeSet,
+    // wire key: requested_lifetime_seconds
+    val requestedLifetimeSeconds: Long? = null,
+    // wire key: requested_renewal_window_seconds
+    val requestedRenewalWindowSeconds: Long? = null,
+    // wire key: grantee_handle_claim
+    val granteeHandleClaim: Claim? = null,
+    // wire key: callback_url
+    val callbackUrl: String,
+    val nonce: String,
+    // wire key: requested_at
+    val requestedAt: String,
+    // wire key: expires_at
+    val expiresAt: String
+)
+
+/** SignedActAsGrantRequest record. */
+data class SignedActAsGrantRequest(
+    val request: ByteArray,
+    val proof: GranteeProof
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is SignedActAsGrantRequest) return false
+        if (!request.contentEquals(other.request)) return false
+        if (proof != other.proof) return false
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = request.contentHashCode()
+        result = 31 * result + proof.hashCode()
+        return result
+    }
+}
+
+/** ActAsRefreshRequest record. */
+data class ActAsRefreshRequest(
+    // wire key: grant_id
+    val grantId: String,
+    val grantee: GranteeRef,
+    // wire key: requested_at
+    val requestedAt: String,
+    // wire key: expires_at
+    val expiresAt: String,
+    val nonce: String
+)
+
+/** SignedActAsRefreshRequest record. */
+data class SignedActAsRefreshRequest(
+    val request: ByteArray,
+    val proof: GranteeProof
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is SignedActAsRefreshRequest) return false
+        if (!request.contentEquals(other.request)) return false
+        if (proof != other.proof) return false
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = request.contentHashCode()
+        result = 31 * result + proof.hashCode()
+        return result
+    }
+}
+
+/** RefreshActAsGrantRequest record. */
+data class RefreshActAsGrantRequest(
+    val request: SignedActAsRefreshRequest
+)
+
+/** RefreshActAsGrantResponse record. */
+data class RefreshActAsGrantResponse(
+    val grant: SignedActAsGrant,
+    val signed: Boolean
+)
+
+/** ActAsPresentation record. */
+data class ActAsPresentation(
+    // wire key: grant_hash
+    val grantHash: ByteArray,
+    val audience: ApplicationRef,
+    // wire key: request_digest
+    val requestDigest: ByteArray,
+    // wire key: presented_at
+    val presentedAt: String,
+    val nonce: ByteArray
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is ActAsPresentation) return false
+        if (!grantHash.contentEquals(other.grantHash)) return false
+        if (audience != other.audience) return false
+        if (!requestDigest.contentEquals(other.requestDigest)) return false
+        if (presentedAt != other.presentedAt) return false
+        if (!nonce.contentEquals(other.nonce)) return false
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = grantHash.contentHashCode()
+        result = 31 * result + audience.hashCode()
+        result = 31 * result + requestDigest.contentHashCode()
+        result = 31 * result + presentedAt.hashCode()
+        result = 31 * result + nonce.contentHashCode()
+        return result
+    }
+}
+
+/** SignedActAsPresentation record. */
+data class SignedActAsPresentation(
+    val presentation: ByteArray,
+    val proof: GranteeProof
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is SignedActAsPresentation) return false
+        if (!presentation.contentEquals(other.presentation)) return false
+        if (proof != other.proof) return false
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = presentation.contentHashCode()
+        result = 31 * result + proof.hashCode()
+        return result
+    }
+}
+
+/** ActAsCredential record. */
+data class ActAsCredential(
+    val grant: SignedActAsGrant,
+    val presentation: SignedActAsPresentation
+)
+
+/** ActAsGrantRevocation record. */
+data class ActAsGrantRevocation(
+    // wire key: grant_id
+    val grantId: String,
+    // wire key: user_id
+    val userId: String,
+    // wire key: subject_domain
+    val subjectDomain: String,
+    // wire key: revoked_at
+    val revokedAt: String
+)
+
+/** SignedActAsGrantRevocation record. */
+data class SignedActAsGrantRevocation(
+    val revocation: ByteArray,
+    val signatures: List<ClaimSignature>
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is SignedActAsGrantRevocation) return false
+        if (!revocation.contentEquals(other.revocation)) return false
+        if (signatures != other.signatures) return false
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = revocation.contentHashCode()
+        result = 31 * result + signatures.hashCode()
+        return result
+    }
+}
+
+/** GetActAsGrantRevocationsRequest record. */
+data class GetActAsGrantRevocationsRequest(
+    // wire key: grant_ids
+    val grantIds: List<String>
+)
+
+/** GetActAsGrantRevocationsResponse record. */
+data class GetActAsGrantRevocationsResponse(
+    val revocations: List<SignedActAsGrantRevocation>
+)
+
+/** RpActAsRefreshRequest record. */
+data class RpActAsRefreshRequest(
+    // wire key: subject_domain
+    val subjectDomain: String,
+    val request: SignedActAsRefreshRequest
+)
+
+/** RpResolveActAsRevocationsRequest record. */
+data class RpResolveActAsRevocationsRequest(
+    // wire key: subject_domain
+    val subjectDomain: String,
+    // wire key: grant_ids
+    val grantIds: List<String>
+)
+
+/** BrowserActAsInspectRequest record. */
+data class BrowserActAsInspectRequest(
+    // wire key: signed_request
+    val signedRequest: String
+)
+
+/** BrowserActAsScopeEntry record. */
+data class BrowserActAsScopeEntry(
+    val scope: String,
+    val description: String? = null,
+    // wire key: removed_by_policy
+    val removedByPolicy: Boolean
+)
+
+/** BrowserActAsParty record. */
+data class BrowserActAsParty(
+    val domain: String? = null,
+    // wire key: application_id
+    val applicationId: String? = null,
+    // wire key: subject_user_id
+    val subjectUserId: String? = null,
+    val handle: String? = null,
+    // wire key: local_rp_name
+    val localRpName: String? = null,
+    // wire key: local_rp_fingerprint
+    val localRpFingerprint: String? = null,
+    // wire key: own_domain
+    val ownDomain: Boolean,
+    // wire key: user_has_history
+    val userHasHistory: Boolean,
+    // wire key: domain_key_pinned
+    val domainKeyPinned: Boolean,
+    // wire key: operator_trusted
+    val operatorTrusted: Boolean
+)
+
+/** BrowserActAsInspectResponse record. */
+data class BrowserActAsInspectResponse(
+    val grantee: GranteeRef,
+    // wire key: grantee_party
+    val granteeParty: BrowserActAsParty,
+    val audience: ApplicationRef,
+    // wire key: audience_party
+    val audienceParty: BrowserActAsParty,
+    val entries: List<BrowserActAsScopeEntry>,
+    val language: String? = null,
+    // wire key: default_lifetime_seconds
+    val defaultLifetimeSeconds: Long,
+    // wire key: max_lifetime_seconds
+    val maxLifetimeSeconds: Long,
+    // wire key: default_renewal_window_seconds
+    val defaultRenewalWindowSeconds: Long,
+    // wire key: max_renewal_window_seconds
+    val maxRenewalWindowSeconds: Long
+)
+
+/** BrowserActAsCompleteRequest record. */
+data class BrowserActAsCompleteRequest(
+    // wire key: signed_request
+    val signedRequest: String,
+    // wire key: approved_scope
+    val approvedScope: List<String>,
+    // wire key: lifetime_seconds
+    val lifetimeSeconds: Long,
+    // wire key: renewal_window_seconds
+    val renewalWindowSeconds: Long
+)
+
+/** BrowserActAsCompleteResponse record. */
+data class BrowserActAsCompleteResponse(
+    // wire key: redirect_url
+    val redirectUrl: String
+)
+
+/** ActAsGrantSummary record. */
+data class ActAsGrantSummary(
+    // wire key: grant_id
+    val grantId: String,
+    val grantee: GranteeRef,
+    val audience: ApplicationRef,
+    // wire key: approved_scope
+    val approvedScope: List<String>,
+    // wire key: issued_at
+    val issuedAt: String,
+    // wire key: expires_at
+    val expiresAt: String,
+    // wire key: renewable_until
+    val renewableUntil: String,
+    // wire key: revoked_at
+    val revokedAt: String? = null
+)
+
+/** ListActAsGrantsResponse record. */
+data class ListActAsGrantsResponse(
+    val grants: List<ActAsGrantSummary>
+)
+
+/** RevokeActAsGrantRequest record. */
+data class RevokeActAsGrantRequest(
+    // wire key: grant_id
+    val grantId: String
+)
+
+/** RevokeActAsGrantResponse record. */
+data class RevokeActAsGrantResponse(
+    // wire key: revoked_at
+    val revokedAt: String
+)
+

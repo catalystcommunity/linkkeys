@@ -28,6 +28,7 @@ import net from "node:net";
 import tls from "node:tls";
 import test from "node:test";
 
+import { ACT_AS_REFRESH_REQUEST_TAG, refreshActAsGrant } from "../src/actAs.ts";
 import { beginLocalLogin } from "../src/begin.ts";
 import { signClaim, ClaimError, type ClaimSigner } from "../src/claims.ts";
 import {
@@ -35,6 +36,7 @@ import {
   derivePublicKeyFromX25519PrivateKey,
   fingerprint,
   signEd25519,
+  verifyEd25519,
 } from "../src/crypto.ts";
 import type { DnsResolver } from "../src/dns.ts";
 import { localRpEncryptedCallbackToUrlParam } from "../src/encoding.ts";
@@ -51,6 +53,7 @@ import {
   LocalRpError,
   buildLocalRpCallbackPayload,
   buildLocalRpDescriptor,
+  envelopeSignatureInput,
   sealLocalRpCallback,
   signLocalRpCallbackPayload,
   signLocalRpDescriptor,
@@ -86,6 +89,14 @@ class TestTransport implements Transport {
     });
   }
 }
+
+/**
+ * `beginLocalLogin`'s browser endpoint discovery is exercised in
+ * browser.test.ts; these flow tests only need `pending`, so begin gets a
+ * resolver that fails (redirect falls back to the identity domain) and the
+ * suite stays offline.
+ */
+const OFFLINE_DNS: DnsResolver = { txtLookup: async () => { throw new Error("offline"); } };
 
 /** Canned DNS answers for exactly one domain. */
 class FakeDnsResolver implements DnsResolver {
@@ -263,12 +274,13 @@ async function runScenario(scenario: Scenario): Promise<VerifiedLocalLogin> {
   const now = new Date();
   const keyMaterial = fixedKeyMaterial(now);
 
-  const { pending } = beginLocalLogin({
+  const { pending } = await beginLocalLogin({
     keyMaterial,
     callbackUrl: CALLBACK_URL,
     userDomain: USER_DOMAIN,
     requiredClaims: scenario.requiredClaims,
     now,
+    dns: OFFLINE_DNS,
   });
 
   const domainKey = domainPublicKey(now);
@@ -478,14 +490,15 @@ test("tampered claim signature is rejected", async () => {
 // the login, not some unrelated failure earlier in the chain.
 // ---------------------------------------------------------------------
 
-test("PendingLogin.requiredClaims round-trips through JSON", () => {
+test("PendingLogin.requiredClaims round-trips through JSON", async () => {
   const keyMaterial = fixedKeyMaterial(new Date());
-  const { pending } = beginLocalLogin({
+  const { pending } = await beginLocalLogin({
     keyMaterial,
     callbackUrl: CALLBACK_URL,
     userDomain: USER_DOMAIN,
     requiredClaims: ["handle", "email"],
     now: new Date(),
+    dns: OFFLINE_DNS,
   });
   assert.deepEqual(pending.requiredClaims, ["handle", "email"]);
   const roundTripped = JSON.parse(JSON.stringify(pending));
@@ -566,5 +579,132 @@ test("[hostile IDP 5] a quorum-verified revocation certificate for the callback'
   await assert.rejects(
     runScenario({ extraDomainKeys: [siblingA, siblingB], revocations: [cert] }),
     LocalRpError,
+  );
+});
+
+// ---------------------------------------------------------------------
+// Act-as refresh (ActAs/refresh-grant) against the fake IDP
+// ---------------------------------------------------------------------
+
+async function withActAsIdp<T>(
+  dispatch: Dispatch,
+  run: (transport: Transport, dns: DnsResolver) => Promise<T>,
+): Promise<T> {
+  const { addr, close } = await spawnFakeIdp(DOMAIN_SIGNING_SEED, dispatch);
+  try {
+    const fp = fingerprint(derivePublicKeyFromEd25519PrivateKey(DOMAIN_SIGNING_SEED));
+    const dns = new FakeDnsResolver(`v=lk1 fp=${fp}`, `v=lk1 tcp=${addr}`);
+    return await run(new TestTransport(), dns);
+  } finally {
+    close();
+  }
+}
+
+/** A grant as a home domain stores it. Only the identifying fields matter
+ * to the grantee; the audience checks the signature. */
+function servedActAsGrant(grantId: string, fingerprint: string, subjectDomain: string) {
+  return {
+    grant: generated.toActAsGrantCbor({
+      grantId,
+      userId: "user-1",
+      subjectDomain,
+      grantee: { localRpDescriptorFingerprint: fingerprint },
+      audience: { subjectUserId: "audience-owner", subjectDomain: "audience.test", applicationId: "audience-app" },
+      scopeSet: {
+        scopeSet: new Uint8Array([0xa0]),
+        signerInstanceId: "audience-inst",
+        signatures: [{ signedByKeyId: "audience-key", signature: new Uint8Array(64) }],
+      },
+      approvedScope: ["read"],
+      issuedAt: "2026-10-06T12:00:00Z",
+      expiresAt: "2026-10-06T13:00:00Z",
+      seriesIssuedAt: "2026-10-06T12:00:00Z",
+      renewableUntil: "2026-10-06T13:00:00Z",
+    }),
+    signatures: [{ domain: subjectDomain, signedByKeyId: DOMAIN_KEY_ID, signature: new Uint8Array(64).fill(9) }],
+  };
+}
+
+test("refreshActAsGrant calls ActAs/refresh-grant with a verifiable signed request", async () => {
+  const now = new Date("2026-10-06T12:40:00Z");
+  const keyMaterial = fixedKeyMaterial(now);
+  const servedGrant = servedActAsGrant("grant-1", keyMaterial.fingerprint, USER_DOMAIN);
+  const seen: Array<{ service: string; op: string; payload: Uint8Array }> = [];
+  const result = await withActAsIdp(
+    (service, op, payload) => {
+      seen.push({ service, op, payload });
+      if (service === "ActAs" && op === "refresh-grant") {
+        return RpcResponse.ok(
+          "RefreshActAsGrantResponse",
+          generated.toRefreshActAsGrantResponseCbor({ grant: servedGrant, signed: true }),
+        );
+      }
+      return RpcResponse.transportError(Status.UnknownServiceOrOp, `no handler for ${service}/${op}`);
+    },
+    (transport, dns) => refreshActAsGrant({ keyMaterial, userDomain: USER_DOMAIN, grantId: "grant-1", now, transport, dns }),
+  );
+
+  assert.equal(result.signed, true);
+  assert.deepEqual(
+    Buffer.from(generated.toSignedActAsGrantCbor(result.grant)),
+    Buffer.from(generated.toSignedActAsGrantCbor(servedGrant)),
+  );
+
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0]!.service, "ActAs");
+  assert.equal(seen[0]!.op, "refresh-grant");
+  const signed = generated.fromRefreshActAsGrantRequestCbor(seen[0]!.payload).request;
+  const request = generated.fromActAsRefreshRequestCbor(signed.request);
+  assert.equal(request.grantId, "grant-1");
+  assert.equal(request.grantee.localRpDescriptorFingerprint, keyMaterial.fingerprint);
+  assert.equal(request.requestedAt, "2026-10-06T12:40:00Z");
+  assert.equal(request.expiresAt, "2026-10-06T12:45:00Z");
+  assert.match(request.nonce, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(signed.proof.signature.signedByKeyId, keyMaterial.fingerprint);
+  assert.equal(signed.proof.applicationInstanceId, undefined);
+  assert.deepEqual(
+    Buffer.from(generated.toSignedLocalRpDescriptorCbor(signed.proof.localRpDescriptor!)),
+    Buffer.from(generated.toSignedLocalRpDescriptorCbor(keyMaterial.descriptor)),
+  );
+  assert.ok(
+    verifyEd25519(
+      envelopeSignatureInput(ACT_AS_REFRESH_REQUEST_TAG, signed.request),
+      signed.proof.signature.signature,
+      keyMaterial.signingPublicKey,
+    ),
+  );
+});
+
+test("refreshActAsGrant refuses a grant for another grant id, grantee, or domain", async () => {
+  const now = new Date("2026-10-06T12:40:00Z");
+  const keyMaterial = fixedKeyMaterial(now);
+  for (const served of [
+    servedActAsGrant("grant-2", keyMaterial.fingerprint, USER_DOMAIN),
+    servedActAsGrant("grant-1", "another-local-rp", USER_DOMAIN),
+    servedActAsGrant("grant-1", keyMaterial.fingerprint, "other.test"),
+  ]) {
+    await assert.rejects(
+      withActAsIdp(
+        () =>
+          RpcResponse.ok(
+            "RefreshActAsGrantResponse",
+            generated.toRefreshActAsGrantResponseCbor({ grant: served, signed: false }),
+          ),
+        (transport, dns) => refreshActAsGrant({ keyMaterial, userDomain: USER_DOMAIN, grantId: "grant-1", now, transport, dns }),
+      ),
+      (e: unknown) => e instanceof LocalRpError && e.code === "grant-mismatch",
+    );
+  }
+});
+
+test("refreshActAsGrant surfaces a server error status", async () => {
+  const now = new Date();
+  const keyMaterial = fixedKeyMaterial(now);
+  await assert.rejects(
+    withActAsIdp(
+      () => RpcResponse.transportError(Status.Unavailable, "grant store unavailable"),
+      (transport, dns) => refreshActAsGrant({ keyMaterial, userDomain: USER_DOMAIN, grantId: "grant-1", now, transport, dns }),
+    ),
+    (e: unknown) => e instanceof RpcServerError && e.status === Status.Unavailable,
   );
 });

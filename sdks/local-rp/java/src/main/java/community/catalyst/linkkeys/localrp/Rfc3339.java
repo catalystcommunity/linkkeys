@@ -2,7 +2,6 @@ package community.catalyst.linkkeys.localrp;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
 
 /**
@@ -22,7 +21,12 @@ final class Rfc3339 {
         }
     }
 
+    /**
+     * Always writes the seconds. {@code OffsetDateTime.toString()} drops them
+     * when seconds and nanoseconds are both zero ({@code ...T12:05Z}), which
+     * is not valid RFC3339 and which the server refuses.
+     */
     static String format(Instant instant) {
-        return instant.atOffset(ZoneOffset.UTC).toString();
+        return java.time.format.DateTimeFormatter.ISO_INSTANT.format(instant);
     }
 }

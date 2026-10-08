@@ -590,6 +590,11 @@ final class LocalRpError extends \RuntimeException
      * review", item 3).
      */
     public const REQUIRED_CLAIMS_NOT_SATISFIED = 'required_claims_not_satisfied';
+    /**
+     * `ActAs/refresh-grant` returned a grant for another grant id, another
+     * grantee, or another subject domain than the call asked for.
+     */
+    public const GRANT_MISMATCH = 'grant_mismatch';
 
     public string $kind;
     public ?string $detail;

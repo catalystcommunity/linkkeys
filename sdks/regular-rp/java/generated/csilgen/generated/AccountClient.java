@@ -64,4 +64,12 @@ public final class AccountClient {
     public EnrollApplicationInstanceResponse enrollApplicationInstance(EnrollApplicationInstanceRequest req) throws ClientException {
         return CsilCbor.decodeEnrollApplicationInstanceResponse(transport.call("Account", "enroll-application-instance", CsilCbor.encodeEnrollApplicationInstanceRequest(req)));
     }
+
+    public ListActAsGrantsResponse listActAsGrants(EmptyRequest req) throws ClientException {
+        return CsilCbor.decodeListActAsGrantsResponse(transport.call("Account", "list-act-as-grants", CsilCbor.encodeEmptyRequest(req)));
+    }
+
+    public RevokeActAsGrantResponse revokeActAsGrant(RevokeActAsGrantRequest req) throws ClientException {
+        return CsilCbor.decodeRevokeActAsGrantResponse(transport.call("Account", "revoke-act-as-grant", CsilCbor.encodeRevokeActAsGrantRequest(req)));
+    }
 }

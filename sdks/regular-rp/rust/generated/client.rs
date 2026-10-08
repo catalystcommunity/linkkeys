@@ -556,6 +556,34 @@ impl<T: Transport> BrowserAuthorizationClient<T> {
         decode_browser_authorization_complete_response(&csil_resp)
             .map_err(|e| ClientError::Transport(e.to_string()))
     }
+
+    /// inspect-act-as (request/response).
+    pub fn inspect_act_as(
+        &self,
+        req: BrowserActAsInspectRequest,
+    ) -> Result<BrowserActAsInspectResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "BrowserAuthorization",
+            "inspect-act-as",
+            &encode_browser_act_as_inspect_request(&req),
+        )?;
+        decode_browser_act_as_inspect_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
+    /// complete-act-as (request/response).
+    pub fn complete_act_as(
+        &self,
+        req: BrowserActAsCompleteRequest,
+    ) -> Result<BrowserActAsCompleteResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "BrowserAuthorization",
+            "complete-act-as",
+            &encode_browser_act_as_complete_request(&req),
+        )?;
+        decode_browser_act_as_complete_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
 }
 
 /// Typed client for the Admin service.
@@ -1333,6 +1361,32 @@ impl<T: Transport> AccountClient<T> {
         decode_enroll_application_instance_response(&csil_resp)
             .map_err(|e| ClientError::Transport(e.to_string()))
     }
+
+    /// list-act-as-grants (request/response).
+    pub fn list_act_as_grants(
+        &self,
+        req: EmptyRequest,
+    ) -> Result<ListActAsGrantsResponse, ClientError> {
+        let csil_resp =
+            self.transport
+                .call("Account", "list-act-as-grants", &encode_empty_request(&req))?;
+        decode_list_act_as_grants_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
+    /// revoke-act-as-grant (request/response).
+    pub fn revoke_act_as_grant(
+        &self,
+        req: RevokeActAsGrantRequest,
+    ) -> Result<RevokeActAsGrantResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "Account",
+            "revoke-act-as-grant",
+            &encode_revoke_act_as_grant_request(&req),
+        )?;
+        decode_revoke_act_as_grant_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
 }
 
 /// Typed client for the Attestation service.
@@ -1442,6 +1496,74 @@ impl<T: Transport> RpClient<T> {
             &encode_rp_resolve_application_keys_request(&req),
         )?;
         decode_rp_resolve_application_keys_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
+    /// act-as-refresh-grant (request/response).
+    pub fn act_as_refresh_grant(
+        &self,
+        req: RpActAsRefreshRequest,
+    ) -> Result<RefreshActAsGrantResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "Rp",
+            "act-as-refresh-grant",
+            &encode_rp_act_as_refresh_request(&req),
+        )?;
+        decode_refresh_act_as_grant_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
+    /// resolve-act-as-revocations (request/response).
+    pub fn resolve_act_as_revocations(
+        &self,
+        req: RpResolveActAsRevocationsRequest,
+    ) -> Result<GetActAsGrantRevocationsResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "Rp",
+            "resolve-act-as-revocations",
+            &encode_rp_resolve_act_as_revocations_request(&req),
+        )?;
+        decode_get_act_as_grant_revocations_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+}
+
+/// Typed client for the ActAs service.
+pub struct ActAsClient<T: Transport> {
+    #[allow(dead_code)]
+    transport: T,
+}
+
+impl<T: Transport> ActAsClient<T> {
+    pub fn new(transport: T) -> Self {
+        Self { transport }
+    }
+
+    /// refresh-grant (request/response).
+    pub fn refresh_grant(
+        &self,
+        req: RefreshActAsGrantRequest,
+    ) -> Result<RefreshActAsGrantResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "ActAs",
+            "refresh-grant",
+            &encode_refresh_act_as_grant_request(&req),
+        )?;
+        decode_refresh_act_as_grant_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
+    /// get-grant-revocations (request/response).
+    pub fn get_grant_revocations(
+        &self,
+        req: GetActAsGrantRevocationsRequest,
+    ) -> Result<GetActAsGrantRevocationsResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "ActAs",
+            "get-grant-revocations",
+            &encode_get_act_as_grant_revocations_request(&req),
+        )?;
+        decode_get_act_as_grant_revocations_response(&csil_resp)
             .map_err(|e| ClientError::Transport(e.to_string()))
     }
 }

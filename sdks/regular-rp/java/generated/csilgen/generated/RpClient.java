@@ -40,4 +40,12 @@ public final class RpClient {
     public RpResolveApplicationKeysResponse resolveApplicationKeys(RpResolveApplicationKeysRequest req) throws ClientException {
         return CsilCbor.decodeRpResolveApplicationKeysResponse(transport.call("Rp", "resolve-application-keys", CsilCbor.encodeRpResolveApplicationKeysRequest(req)));
     }
+
+    public RefreshActAsGrantResponse actAsRefreshGrant(RpActAsRefreshRequest req) throws ClientException {
+        return CsilCbor.decodeRefreshActAsGrantResponse(transport.call("Rp", "act-as-refresh-grant", CsilCbor.encodeRpActAsRefreshRequest(req)));
+    }
+
+    public GetActAsGrantRevocationsResponse resolveActAsRevocations(RpResolveActAsRevocationsRequest req) throws ClientException {
+        return CsilCbor.decodeGetActAsGrantRevocationsResponse(transport.call("Rp", "resolve-act-as-revocations", CsilCbor.encodeRpResolveActAsRevocationsRequest(req)));
+    }
 }

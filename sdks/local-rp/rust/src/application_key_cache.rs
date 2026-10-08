@@ -1,5 +1,5 @@
 //! A bounded, pluggable cache for verified remote application-key material
-//! (`signing-things-request.md`, "Public-key caches" -> "DNS-less RP cache":
+//! (design requirement for a DNS-less RP cache:
 //! "It keeps its cache in application-controlled storage through an SDK
 //! interface. The SDK must provide a safe bounded default for applications
 //! that do not supply a persistent store.").

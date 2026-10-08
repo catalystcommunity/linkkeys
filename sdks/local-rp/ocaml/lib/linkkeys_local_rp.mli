@@ -11,7 +11,9 @@
 
    Exposed: the intended app-facing API -- [generate_local_rp_identity],
    the byte storage helpers, [begin_local_login], [complete_local_login],
-   [check_expirations] -- plus the network seams ([Transport.t],
+   [check_expirations], the act-as grantee calls ([Act_as]) -- plus [Browser] (the [_linkkeys_apis] [https=]
+   discovery + route-URL helpers [begin_local_login] composes, reusable by
+   regular-RP glue), the network seams ([Transport.t],
    [Dns.resolver]) an app may need to inject a fake (tests) or a hardened
    resolver (production), [Rpc]/[Tls_client] (documented, reusable
    building blocks for a custom RPC client alongside this SDK -- see
@@ -34,8 +36,10 @@ module Rpc = Rpc
 module Url_params = Url_params
 module Error = Error
 module Identity = Identity
+module Browser = Browser
 module Begin_login = Begin_login
 module Complete_login = Complete_login
+module Act_as = Act_as
 
 val generate_local_rp_identity : Identity.config -> (Identity.key_material, Error.t) result
 val local_rp_identity_to_bytes : Identity.key_material -> string
@@ -48,6 +52,21 @@ val fingerprint_to_string : string -> string
 val fingerprint_from_string : string -> (string, Error.t) result
 val begin_local_login : Begin_login.config -> (Begin_login.local_login_redirect * Begin_login.pending_login, Error.t) result
 val complete_local_login : Complete_login.config -> (Complete_login.verified_local_login, Error.t) result
+
+(* Act-as grants, grantee side only ([Act_as]). A local RP can be a grantee
+   after its home domain approved it. It cannot be an audience. *)
+val begin_act_as : Act_as.begin_config -> (Act_as.act_as_redirect * Act_as.pending_act_as, Error.t) result
+val complete_act_as : Act_as.pending_act_as -> string -> (string, Error.t) result
+val refresh_act_as_grant : Act_as.refresh_config -> (Types.Signed_act_as_grant.t * bool, Error.t) result
+
+val present_act_as :
+  grant:Types.Signed_act_as_grant.t ->
+  audience:Types.Application_ref.t ->
+  request_digest:string ->
+  now:float ->
+  nonce:string ->
+  Identity.key_material ->
+  Types.Act_as_credential.t
 
 (* Re-exported (as manifest type equations, not copies -- these ARE
    [Local_rp.expiration_level]/[Local_rp.expiration_status]) purely so

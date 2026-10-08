@@ -38,6 +38,10 @@
 #include "test_util.h"
 #include "time_util.h"
 
+static int bytes_equal(const uint8_t *a, size_t a_len, const uint8_t *b, size_t b_len) {
+    return a_len == b_len && (a_len == 0 || memcmp(a, b, a_len) == 0);
+}
+
 #define FLOW_DOMAIN "conformance-flow.test"
 #define FLOW_KEY_ID "domain-key-1"
 #define FLOW_USER_ID "user-1"
@@ -79,6 +83,13 @@ typedef struct {
     uint8_t sibling_priv[2][32];
     uint8_t sibling_pub[2][32];
     int sibling_keys_count; /* 0 or 2 */
+
+    /* ActAs/refresh-grant: the SignedActAsGrant CBOR to return (borrowed),
+     * a server-error switch, and where to copy the request payload the
+     * client sent (written by the server thread, read after join). */
+    const lrp_bytes *act_as_grant;
+    int act_as_server_error;
+    lrp_bytes *act_as_captured_payload;
 } flow_server;
 
 static X509 *make_self_signed_cert(EVP_PKEY *pkey) {
@@ -408,6 +419,38 @@ static void build_redeem_response(const flow_server *srv, lrp_bytes *out) {
                               srv->omit_claims, out);
 }
 
+/* ActAs/refresh-grant: copy the request payload for the test, then answer
+ * RefreshActAsGrantResponse { grant, signed: true } or a server error. */
+static void build_act_as_refresh_response(const flow_server *srv, const cbor_value *request,
+                                          lrp_bytes *out) {
+    const cbor_value *payload = cbor_map_get(request, "payload");
+    if (srv->act_as_captured_payload != NULL && payload != NULL && payload->type == CBOR_T_TAG &&
+        payload->tag_inner != NULL && payload->tag_inner->type == CBOR_T_BYTES) {
+        lrp_error ignore = {0};
+        cbor_as_bytes(payload->tag_inner, srv->act_as_captured_payload, &ignore);
+    }
+    cbor_buf b;
+    cbor_buf_init(&b);
+    if (srv->act_as_server_error) {
+        cbor_write_map_header(&b, 3);
+        cbor_write_text_cstr(&b, "v");
+        cbor_write_uint(&b, 1);
+        cbor_write_text_cstr(&b, "status");
+        cbor_write_uint(&b, 2);
+        cbor_write_text_cstr(&b, "error");
+        cbor_write_text_cstr(&b, "simulated refresh-grant failure");
+        *out = cbor_buf_release(&b);
+        return;
+    }
+    cbor_write_map_header(&b, 2);
+    cbor_write_text_cstr(&b, "grant");
+    cbor_write_raw(&b, srv->act_as_grant->data, srv->act_as_grant->len);
+    cbor_write_text_cstr(&b, "signed");
+    cbor_write_bool(&b, 1);
+    encode_rpc_response_ok(b.data, b.len, out);
+    cbor_buf_free(&b);
+}
+
 static void handle_one_request(const flow_server *srv, SSL *ssl) {
     lrp_bytes frame = {0};
     if (srv_read_frame(ssl, &frame) != 0) return;
@@ -447,6 +490,9 @@ static void handle_one_request(const flow_server *srv, SSL *ssl) {
     } else if (service.data != NULL && op.data != NULL && strcmp(service.data, "LocalRp") == 0 &&
                strcmp(op.data, "redeem-claim-ticket") == 0) {
         build_redeem_response(srv, &resp);
+    } else if (service.data != NULL && op.data != NULL && strcmp(service.data, "ActAs") == 0 &&
+               strcmp(op.data, "refresh-grant") == 0 && srv->act_as_grant != NULL) {
+        build_act_as_refresh_response(srv, root, &resp);
     } else {
         cbor_buf b;
         cbor_buf_init(&b);
@@ -493,6 +539,22 @@ typedef struct {
     char domain_txt[256];   /* _linkkeys.<domain> answer */
     char apis_txt[256];     /* _linkkeys_apis.<domain> answer */
 } fake_dns_ctx;
+
+/* A resolver whose every lookup fails. begin_local_login's `_linkkeys_apis`
+ * browser discovery then falls back to the identity domain, and no test in
+ * this file performs a live DNS request from the begin step. */
+static int failing_txt_lookup(lrp_dns_resolver *self, const char *name, lrp_txt_records *out,
+                              lrp_error *err) {
+    (void)self;
+    out->entries = NULL;
+    out->count = 0;
+    if (err != NULL) {
+        err->code = LRP_ERR_DNS;
+        snprintf(err->message, sizeof(err->message), "fake SERVFAIL for %s", name);
+    }
+    return -1;
+}
+static lrp_dns_resolver failing_begin_dns = {NULL, failing_txt_lookup};
 
 static int fake_txt_lookup(lrp_dns_resolver *self, const char *name, lrp_txt_records *out,
                             lrp_error *err) {
@@ -743,6 +805,7 @@ static int setup_login(const char *app_name, const char *const *required_claims,
     begin_cfg.required_claims = required_claims;
     begin_cfg.required_claims_count = required_claims_count;
     begin_cfg.now_unix = lrp_wall_clock_now();
+    begin_cfg.dns = &failing_begin_dns;
     int rc = lrp_begin_local_login(&begin_cfg, &redirect, out_pending, &err);
     lrp_login_redirect_free(&redirect);
     if (rc != 0) lrp_identity_free(out_identity);
@@ -1022,6 +1085,7 @@ static void test_flow_happy_path(void) {
     begin_cfg.callback_url = "http://127.0.0.1:9999/callback";
     begin_cfg.user_domain = FLOW_DOMAIN;
     begin_cfg.now_unix = lrp_wall_clock_now();
+    begin_cfg.dns = &failing_begin_dns;
     T_CHECK(lrp_begin_local_login(&begin_cfg, &redirect, &pending, &err) == 0,
              "flow: begin_local_login succeeds");
     T_CHECK(strstr(redirect.redirect_url.data, "https://" FLOW_DOMAIN "/auth/local-rp?signed_request=") ==
@@ -1171,6 +1235,7 @@ static void test_begin_rejects_non_http_scheme(void) {
     begin_cfg.callback_url = "myapp://callback";
     begin_cfg.user_domain = "example.com";
     begin_cfg.now_unix = lrp_wall_clock_now();
+    begin_cfg.dns = &failing_begin_dns;
     lrp_error berr = {0};
     int rc = lrp_begin_local_login(&begin_cfg, &redirect, &pending, &berr);
     T_CHECK(rc != 0 && berr.code == LRP_ERR_INVALID_INPUT,
@@ -1193,6 +1258,7 @@ static void test_begin_parses_identity_input(void) {
     config.callback_url = "http://localhost/callback";
     config.user_domain = "Alice+work@ID.Example.TEST";
     config.now_unix = lrp_wall_clock_now();
+    config.dns = &failing_begin_dns;
     lrp_login_redirect redirect = {0};
     lrp_pending_login pending = {0};
     T_CHECK(lrp_begin_local_login(&config, &redirect, &pending, &err) == 0,
@@ -1215,7 +1281,150 @@ static void test_begin_parses_identity_input(void) {
     lrp_identity_free(&identity);
 }
 
+/* --------------------------------------------------------------------- */
+/* Act-as refresh over the pinned fake IDP                                */
+/* --------------------------------------------------------------------- */
+
+static void free_cbor(cbor_value *v) {
+    if (v == NULL) return;
+    cbor_value_free(v);
+    free(v);
+}
+
+/* The captured RefreshActAsGrantRequest must hold a refresh request for
+ * `grant_id` that verifies with the signing key of the descriptor in its
+ * own proof, and that descriptor must be the identity's. */
+static int captured_refresh_verifies(const lrp_bytes *payload, const lrp_identity *id,
+                                     const char *grant_id) {
+    lrp_error err = {0};
+    cbor_value *root = NULL, *req = NULL, *desc = NULL;
+    lrp_bytes request = {0}, desc_bytes = {0}, sig = {0}, pub = {0}, input = {0};
+    lrp_str got_grant_id = {0}, key_id = {0};
+    const cbor_value *signed_req = NULL, *proof = NULL;
+    int ok = payload->data != NULL && cbor_decode(payload->data, payload->len, &root, &err) == 0;
+    if (ok) {
+        signed_req = cbor_map_get(root, "request");
+        proof = cbor_map_get(signed_req, "proof");
+    }
+    ok = ok && cbor_get_bytes(signed_req, "request", &request, &err) == 0 &&
+         cbor_decode(request.data, request.len, &req, &err) == 0 &&
+         cbor_get_text(req, "grant_id", &got_grant_id, &err) == 0 &&
+         strcmp(got_grant_id.data, grant_id) == 0 &&
+         cbor_get_bytes(cbor_map_get(proof, "local_rp_descriptor"), "descriptor", &desc_bytes,
+                        &err) == 0 &&
+         bytes_equal(desc_bytes.data, desc_bytes.len, id->descriptor_cbor.data,
+                     id->descriptor_cbor.len) &&
+         cbor_decode(desc_bytes.data, desc_bytes.len, &desc, &err) == 0 &&
+         cbor_get_bytes(desc, "signing_public_key", &pub, &err) == 0 && pub.len == 32 &&
+         cbor_get_text(cbor_map_get(proof, "signature"), "signed_by_key_id", &key_id, &err) == 0 &&
+         strcmp(key_id.data, id->fingerprint) == 0 &&
+         cbor_get_bytes(cbor_map_get(proof, "signature"), "signature", &sig, &err) == 0 &&
+         lrp_envelope_signature_input("linkkeys-act-as-refresh-request-v1alpha", request.data,
+                                      request.len, &input, &err) == 0 &&
+         lrp_ed25519_verify(pub.data, input.data, input.len, sig.data, sig.len, &err) == 0;
+    free_cbor(root);
+    free_cbor(req);
+    free_cbor(desc);
+    lrp_bytes_free(&request);
+    lrp_bytes_free(&desc_bytes);
+    lrp_bytes_free(&sig);
+    lrp_bytes_free(&pub);
+    lrp_bytes_free(&input);
+    lrp_str_free(&got_grant_id);
+    lrp_str_free(&key_id);
+    return ok;
+}
+
+/* Runs one refresh against a fresh fake IDP. Returns the call's rc. */
+static int run_refresh(const lrp_identity *id, const lrp_bytes *grant, int server_error,
+                       const char *user_domain, const char *grant_id, lrp_act_as_grant *out,
+                       lrp_bytes *captured, lrp_error *err) {
+    flow_fixture fx;
+    memset(&fx, 0, sizeof(fx));
+    fx.srv.act_as_grant = grant;
+    fx.srv.act_as_server_error = server_error;
+    fx.srv.act_as_captured_payload = captured;
+    if (start_flow_fixture(&fx, 1) != 0) return -2;
+    lrp_transport transport = lrp_default_transport(LRP_ADDRESS_PERMISSIVE);
+    lrp_refresh_act_as_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.identity = id;
+    cfg.user_domain = user_domain;
+    cfg.grant_id = grant_id;
+    cfg.now_unix = lrp_wall_clock_now();
+    cfg.transport = &transport;
+    cfg.dns = &fx.dns;
+    int rc = lrp_refresh_act_as_grant(&cfg, out, err);
+    stop_flow_fixture(&fx);
+    return rc;
+}
+
+static void test_act_as_refresh(void) {
+    json_value *vec = t_act_as_load_vectors();
+    lrp_identity id;
+    t_act_as_vector_identity(vec, &id);
+    const json_value *cases = json_get(vec, "cases");
+    const json_value *local = NULL;
+    for (size_t i = 0; i < json_len(cases); i++) {
+        const char *name = json_str(json_get(json_at(cases, i), "name"));
+        if (name != NULL && strcmp(name, "local_rp_grantee") == 0) local = json_at(cases, i);
+    }
+    lrp_bytes grant =
+        t_hex_field(json_get(json_get(local, "presentation"), "inputs"), "grant_signed_cbor_hex");
+    lrp_error err = {0};
+    lrp_act_as_grant out = {0};
+    lrp_bytes captured = {0};
+
+    /* Happy path: the vector's grant (grant-1, home.conformance.example). */
+    int rc = run_refresh(&id, &grant, 0, "Home.Conformance.Example", "grant-1", &out, &captured,
+                         &err);
+    T_CHECK(rc == 0, "act-as refresh: succeeds against the pinned fake IDP");
+    T_CHECK(rc == 0 && out.newly_signed == 1 &&
+                bytes_equal(out.signed_grant_cbor.data, out.signed_grant_cbor.len, grant.data,
+                            grant.len),
+            "act-as refresh: returns the grant bytes and the signed flag");
+    T_CHECK(captured_refresh_verifies(&captured, &id, "grant-1"),
+            "act-as refresh: ActAs/refresh-grant payload verifies with the descriptor key");
+    lrp_act_as_grant_free(&out);
+    lrp_bytes_free(&captured);
+
+    /* A grant for another grant id is refused. */
+    rc = run_refresh(&id, &grant, 0, "home.conformance.example", "grant-other", &out, &captured,
+                     &err);
+    T_CHECK(rc != 0 && err.code == LRP_ERR_VERIFICATION && out.signed_grant_cbor.data == NULL,
+            "act-as refresh: grant for another grant id is refused");
+    lrp_bytes_free(&captured);
+
+    /* A grant from another subject domain is refused. */
+    rc = run_refresh(&id, &grant, 0, "other.example", "grant-1", &out, &captured, &err);
+    T_CHECK(rc != 0 && err.code == LRP_ERR_VERIFICATION,
+            "act-as refresh: grant for another subject domain is refused");
+    lrp_bytes_free(&captured);
+
+    /* A grant for another grantee is refused. */
+    lrp_identity other;
+    lrp_generate_identity_config gen_cfg = {.app_name = "Other RP", .now_unix = lrp_wall_clock_now()};
+    lrp_generate_local_rp_identity(&gen_cfg, &other, &err);
+    rc = run_refresh(&other, &grant, 0, "home.conformance.example", "grant-1", &out, &captured,
+                     &err);
+    T_CHECK(rc != 0 && err.code == LRP_ERR_VERIFICATION,
+            "act-as refresh: grant for another grantee is refused");
+    lrp_bytes_free(&captured);
+    lrp_identity_free(&other);
+
+    /* A transport error status surfaces as a server error. */
+    rc = run_refresh(&id, &grant, 1, "home.conformance.example", "grant-1", &out, &captured, &err);
+    T_CHECK(rc != 0 && err.code == LRP_ERR_SERVER && out.signed_grant_cbor.data == NULL,
+            "act-as refresh: server error status surfaces");
+    lrp_bytes_free(&captured);
+
+    lrp_bytes_free(&grant);
+    lrp_identity_free(&id);
+    json_free(vec);
+}
+
 int run_flow_tests(void) {
+    test_act_as_refresh();
     test_begin_rejects_non_http_scheme();
     test_begin_parses_identity_input();
     test_flow_happy_path();

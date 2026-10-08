@@ -79,6 +79,10 @@ func cborBytesVal(b []byte) cborItem {
 	return append(cborHead(2, uint64(len(b))), b...)
 }
 
+// cborNull is the CBOR null (simple value 22): the wire form of a Rust
+// `None` in a signed tuple.
+var cborNull = cborItem{0xf6}
+
 // cborTuple encodes a definite-length CBOR array (major type 4) of the given
 // pre-encoded items, in order — the wire shape of every Rust tuple this SDK
 // needs to reproduce (`(tag, payload)`, `(tag, ...fields)`, etc).

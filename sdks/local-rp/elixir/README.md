@@ -53,16 +53,22 @@ sdks/local-rp/elixir/
                             # redeem_claim_ticket
       encoding.ex                      # base64url-unpadded URL-parameter
                             # helpers
+      browser.ex                        # _linkkeys_apis https= discovery +
+                            # browser route URL building
       timeutil.ex                        # RFC3339 parse/format
       identity.ex                          # generate_local_rp_identity +
                             # byte storage helpers
       begin.ex                              # begin_local_login
       complete.ex                            # complete_local_login (the full
                             # verification chain)
+      act_as.ex                              # act-as grants, grantee side
   test/
     support/vectors.ex        # conformance-vector JSON loader (uses :json)
     conformance_*_test.exs    # one file per conformance vector JSON file
     flow_test.exs              # fake-IDP end-to-end flow tests
+    begin_test.exs             # identity-input parsing in begin_local_login
+    browser_test.exs           # browser endpoint discovery (fake resolver)
+    act_as_test.exs            # act-as vectors, begin URL, callback nonce
 ```
 
 ## No csilgen Elixir target (yet)
@@ -92,11 +98,13 @@ That's the exact command — no setup step, no dependency install, no
 environment variables required (`mix.exs` declares zero deps, and OTP's
 `:ssl` application is started automatically by `test/test_helper.exs`).
 
-Test counts as of this writing: **54 passed** — 29 conformance-vector tests
+Test counts as of this writing: **67 passed** — 29 conformance-vector tests
 (one file per `sdks/local-rp/conformance/*.json`, positive and negative
 cases) + 16 flow tests (happy path + 8 single-step failure modes + 7
 hostile-IDP identity/revocation-binding tests) + 9 TLS pin-extraction tests
-(`test/tls_test.exs`, fixture-based, `openssl`-independent). No skips, no
+(`test/tls_test.exs`, fixture-based, `openssl`-independent) + 2 begin
+identity-input tests + 11 browser endpoint discovery tests
+(`test/browser_test.exs`, fake resolver, no live DNS). No skips, no
 `@tag :skip` triggered, as long as `openssl` is on `PATH` (see "Flow tests
 and openssl" below) — and even without it, only the 16 flow tests skip;
 everything else (including TLS pin extraction) still runs.
@@ -255,6 +263,130 @@ identity = LocalRp.local_rp_identity_from_bytes(stored_bytes)
 # creation, local user records, and authorization are all your app's job.
 ```
 
+## Browser endpoint discovery
+
+`begin_local_login/1` does one DNS TXT lookup. It reads
+`_linkkeys_apis.<identity domain>` and uses the `https=` value as the
+browser-facing base URL (`docs/spec/trust-and-anchors.md`). The identity
+domain is a trust domain. It is not always the host that serves the login
+routes.
+
+The rules are:
+
+- The first valid `v=lk1` record with an `https=` value wins.
+- A base is valid only when it uses `https`, has a host, and has no
+  userinfo, query, or fragment. A path prefix is allowed and is kept:
+  `https=login.example.com/linkkeys` gives
+  `https://login.example.com/linkkeys/auth/local-rp?signed_request=...`.
+- If the lookup fails, if no record has a valid `https=` value, or if the
+  base is invalid, the redirect falls back to `https://<identity domain>`.
+- `PendingLogin.user_domain` is always the identity domain. It is never the
+  discovered host. Verification binds to the identity domain.
+
+Inject a resolver with the `:dns` key. The default is
+`&LinkkeysLocalRp.Dns.system_resolver/1`. Any 1-arity function of the
+`t:LinkkeysLocalRp.Dns.resolver/0` shape works, so tests can supply canned
+answers:
+
+```elixir
+dns = fn
+  "_linkkeys_apis.example.com" -> {:ok, ["v=lk1 https=login.example.com/linkkeys"]}
+  name -> {:error, {:no_record, name}}
+end
+
+{redirect, pending} =
+  LocalRp.begin_local_login(
+    key_material: identity,
+    callback_url: "http://jukebox.lan:8080/auth/callback",
+    user_domain: "alice@example.com",
+    now: DateTime.utc_now(),
+    dns: dns
+  )
+```
+
+Redirect the browser to `redirect.redirect_url` as returned. Do not parse
+or rewrite it.
+
+The helpers are public in `LinkkeysLocalRp.Browser`:
+`resolve_browser_base/2`, `build_browser_endpoint/3`,
+`browser_route_local_rp/0`, and `browser_route_authorize/0`. Regular-RP
+application glue can use them to build `/auth/authorize` URLs with the
+same discovery.
+
+## Act-as grants
+
+An act-as grant lets this local RP act as a user at an enrolled
+application. The local RP is the grantee. The application is the audience.
+The specification is `docs/spec/reserved/act-as-grants.md`. It is Reserved
+and can change.
+
+A local RP can be a grantee only. It cannot be an audience, because a peer
+cannot find its keys through DNS. The user's home domain accepts a local-RP
+grantee only after the home domain approved that local RP. Do a normal
+`begin_local_login/1` approval first.
+
+The local RP signs each request with its descriptor signing key. Each proof
+carries the signed descriptor.
+
+```elixir
+alias LinkkeysLocalRp.ActAs.PendingActAs
+
+# 1. Get the signed scope set from the audience (application protocol).
+#    Keep the CBOR bytes exactly as you received them.
+{redirect, pending} =
+  LinkkeysLocalRp.begin_act_as(
+    key_material: identity,
+    user_domain: "alice@example.com",
+    scope_set: signed_scope_set_cbor,
+    callback_url: "http://jukebox.lan:8080/act-as/callback",
+    requested_lifetime_seconds: 3600,
+    now: DateTime.utc_now()
+  )
+
+# 2. Persist PendingActAs.to_map(pending). Send the browser to
+#    redirect.redirect_url (route /auth/act-as).
+
+# 3. On the callback, check the nonce and read the grant id.
+{:ok, grant_id} = LinkkeysLocalRp.complete_act_as(pending, arrived_url)
+
+# 4. Fetch the grant. Use the same call later to renew it.
+{:ok, {grant, _newly_signed}} =
+  LinkkeysLocalRp.refresh_act_as_grant(
+    key_material: identity,
+    user_domain: pending.user_domain,
+    grant_id: grant_id,
+    now: DateTime.utc_now()
+  )
+
+# 5. For each call to the audience, sign one presentation.
+{_credential, credential_cbor} =
+  LinkkeysLocalRp.present_act_as(
+    grant: grant,
+    audience: audience_ref,
+    request_digest: digest,
+    nonce: :crypto.strong_rand_bytes(16),
+    now: DateTime.utc_now(),
+    key_material: identity
+  )
+```
+
+Rules:
+
+- `begin_act_as/1` finds the browser host with the same discovery and
+  fallback as `begin_local_login/1`. The request window is 300 seconds by
+  default. The maximum is 900 seconds.
+- `complete_act_as/2` accepts the callback URL, its query string, or a map
+  of its query parameters. It compares the nonce in constant time. Use the
+  pending state one time only.
+- `refresh_act_as_grant/1` calls `ActAs/refresh-grant` on the home domain.
+  It uses the same DNS-pinned TCP CSIL-RPC path as the claim-ticket
+  redemption. The home domain renews a grant only when less than one half
+  of its life remains. Refresh at that time.
+- `present_act_as/1` binds the SHA-256 of the grant bytes, the audience,
+  your request digest, the time, and your nonce. The audience defines the
+  request digest and the replay rules.
+- The SDK does not verify the grant. The audience verifies it.
+
 ## API return-value convention
 
 Fallible protocol operations return `{:ok, result}` / `{:error, reason}`
@@ -275,8 +407,9 @@ socket} | {:error, term})` and `(name -> {:ok, [String.t()]} | {:error,
 term})` respectively) — the idiomatic Elixir shape for a swappable
 capability — rather than behaviours or protocols. Any function of the
 right arity/shape can be injected via the `:transport` / `:dns` keys in
-`complete_local_login/1`'s config; `LinkkeysLocalRp.Transport.dial/1` and
-`LinkkeysLocalRp.Dns.system_resolver/1` are the OTP-backed defaults.
+`complete_local_login/1`'s config (and `:dns` in `begin_local_login/1`'s);
+`LinkkeysLocalRp.Transport.dial/1` and `LinkkeysLocalRp.Dns.system_resolver/1`
+are the OTP-backed defaults.
 
 ## Security notes
 
@@ -309,6 +442,10 @@ right arity/shape can be injected via the `:transport` / `:dns` keys in
   `:inet_res`. LAN resolver spoofing is an accepted, documented tradeoff
   for this mode (the design doc's "Decided" section). Inject a hardened
   resolver function (e.g. a DoH client) if your deployment needs more.
+  `begin_local_login/1` uses the same resolver for browser endpoint
+  discovery. A spoofed `https=` value can only change where the browser is
+  sent. It cannot change which domain's keys verify the login, because
+  `PendingLogin.user_domain` stays the identity domain.
 - **Address policy**: the default transport (`LinkkeysLocalRp.Transport.dial/1`)
   dials whatever address DNS returns, including private/loopback/LAN
   addresses — that is the entire point of this mode. Pass `opts:

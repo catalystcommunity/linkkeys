@@ -42,6 +42,7 @@ namespace LinkKeys.LocalRp.Tests.TestUtil;
 public sealed class FakeIdp : IDisposable
 {
     private readonly List<Process> _processes = [];
+    private readonly List<Task<byte[]>> _received = [];
 
     /// <summary>The loopback ports allocated for each pre-spawned single-shot server, in call order.</summary>
     public IReadOnlyList<int> Ports { get; }
@@ -57,8 +58,15 @@ public sealed class FakeIdp : IDisposable
     /// <paramref name="domainSeed"/> and preloaded with that call's exact framed
     /// CSIL-RPC response bytes. Blocks until every spawned server is confirmed
     /// listening.
+    ///
+    /// <para>With <paramref name="captureRequests"/>, each server's stdin stays open after
+    /// the response is written. <c>s_server</c> closes the connection as soon as its stdin
+    /// reaches EOF, before it reads the client's request; with stdin open it reads the
+    /// request, writes it to stdout (see <see cref="ReceivedBytes"/>), and exits when the
+    /// client closes.</para>
     /// </summary>
-    public static FakeIdp Start(string domain, byte[] domainSeed, IReadOnlyList<byte[]> framedResponses)
+    public static FakeIdp Start(
+        string domain, byte[] domainSeed, IReadOnlyList<byte[]> framedResponses, bool captureRequests = false)
     {
         var (certPath, keyPath) = CertFixtures.GenerateDomainTlsCert(domain, domainSeed);
         var fakeIdp = new FakeIdp(AllocatePorts(framedResponses.Count));
@@ -87,7 +95,14 @@ public sealed class FakeIdp : IDisposable
                 try
                 {
                     await proc.StandardInput.BaseStream.WriteAsync(response);
-                    proc.StandardInput.BaseStream.Close();
+                    if (captureRequests)
+                    {
+                        await proc.StandardInput.BaseStream.FlushAsync();
+                    }
+                    else
+                    {
+                        proc.StandardInput.BaseStream.Close();
+                    }
                 }
                 catch (IOException)
                 {
@@ -96,7 +111,14 @@ public sealed class FakeIdp : IDisposable
                 }
             });
             // Drain stdout/stderr so the child process never blocks on a full pipe buffer.
-            _ = proc.StandardOutput.ReadToEndAsync();
+            // `s_server` writes the bytes it received from the client to stdout, so
+            // stdout is kept (as raw bytes) for tests that inspect the request.
+            fakeIdp._received.Add(Task.Run(async () =>
+            {
+                using var received = new MemoryStream();
+                await proc.StandardOutput.BaseStream.CopyToAsync(received);
+                return received.ToArray();
+            }));
             _ = proc.StandardError.ReadToEndAsync();
         }
 
@@ -106,6 +128,21 @@ public sealed class FakeIdp : IDisposable
         }
 
         return fakeIdp;
+    }
+
+    /// <summary>
+    /// The raw bytes the client sent to the <paramref name="index"/>-th server (the framed
+    /// CSIL-RPC request), available once that server's single connection has closed.
+    /// Needs <c>captureRequests: true</c> in <see cref="Start"/>.
+    /// </summary>
+    public byte[] ReceivedBytes(int index, TimeSpan timeout)
+    {
+        if (!_received[index].Wait(timeout))
+        {
+            throw new TimeoutException($"fake IDP server {index} never closed its connection");
+        }
+
+        return _received[index].Result;
     }
 
     private static List<int> AllocatePorts(int count)

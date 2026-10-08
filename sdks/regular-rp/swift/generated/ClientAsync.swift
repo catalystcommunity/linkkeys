@@ -297,6 +297,16 @@ public struct BrowserAuthorizationAsyncClient {
         return try BrowserAuthorizationCompleteResponse.fromCbor(csilResp)
     }
 
+    public func inspectActAs(_ request: BrowserActAsInspectRequest) async throws -> BrowserActAsInspectResponse {
+        let csilResp = try await transport.call(service: "BrowserAuthorization", op: "inspect-act-as", request: request.toCbor())
+        return try BrowserActAsInspectResponse.fromCbor(csilResp)
+    }
+
+    public func completeActAs(_ request: BrowserActAsCompleteRequest) async throws -> BrowserActAsCompleteResponse {
+        let csilResp = try await transport.call(service: "BrowserAuthorization", op: "complete-act-as", request: request.toCbor())
+        return try BrowserActAsCompleteResponse.fromCbor(csilResp)
+    }
+
 }
 
 /// AdminAsyncClient is a typed client for the Admin service. The client owns
@@ -612,6 +622,16 @@ public struct AccountAsyncClient {
         return try EnrollApplicationInstanceResponse.fromCbor(csilResp)
     }
 
+    public func listActAsGrants(_ request: EmptyRequest) async throws -> ListActAsGrantsResponse {
+        let csilResp = try await transport.call(service: "Account", op: "list-act-as-grants", request: request.toCbor())
+        return try ListActAsGrantsResponse.fromCbor(csilResp)
+    }
+
+    public func revokeActAsGrant(_ request: RevokeActAsGrantRequest) async throws -> RevokeActAsGrantResponse {
+        let csilResp = try await transport.call(service: "Account", op: "revoke-act-as-grant", request: request.toCbor())
+        return try RevokeActAsGrantResponse.fromCbor(csilResp)
+    }
+
 }
 
 /// AttestationAsyncClient is a typed client for the Attestation service. The client owns
@@ -670,6 +690,36 @@ public struct RpAsyncClient {
     public func resolveApplicationKeys(_ request: RpResolveApplicationKeysRequest) async throws -> RpResolveApplicationKeysResponse {
         let csilResp = try await transport.call(service: "Rp", op: "resolve-application-keys", request: request.toCbor())
         return try RpResolveApplicationKeysResponse.fromCbor(csilResp)
+    }
+
+    public func actAsRefreshGrant(_ request: RpActAsRefreshRequest) async throws -> RefreshActAsGrantResponse {
+        let csilResp = try await transport.call(service: "Rp", op: "act-as-refresh-grant", request: request.toCbor())
+        return try RefreshActAsGrantResponse.fromCbor(csilResp)
+    }
+
+    public func resolveActAsRevocations(_ request: RpResolveActAsRevocationsRequest) async throws -> GetActAsGrantRevocationsResponse {
+        let csilResp = try await transport.call(service: "Rp", op: "resolve-act-as-revocations", request: request.toCbor())
+        return try GetActAsGrantRevocationsResponse.fromCbor(csilResp)
+    }
+
+}
+
+/// ActAsAsyncClient is a typed client for the ActAs service. The client owns
+/// (de)serialization; the carrier only moves bytes.
+public struct ActAsAsyncClient {
+    public let transport: AsyncCsilTransport
+    public init(transport: AsyncCsilTransport) {
+        self.transport = transport
+    }
+
+    public func refreshGrant(_ request: RefreshActAsGrantRequest) async throws -> RefreshActAsGrantResponse {
+        let csilResp = try await transport.call(service: "ActAs", op: "refresh-grant", request: request.toCbor())
+        return try RefreshActAsGrantResponse.fromCbor(csilResp)
+    }
+
+    public func getGrantRevocations(_ request: GetActAsGrantRevocationsRequest) async throws -> GetActAsGrantRevocationsResponse {
+        let csilResp = try await transport.call(service: "ActAs", op: "get-grant-revocations", request: request.toCbor())
+        return try GetActAsGrantRevocationsResponse.fromCbor(csilResp)
     }
 
 }

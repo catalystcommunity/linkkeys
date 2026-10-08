@@ -2,12 +2,21 @@ defmodule LinkkeysLocalRp.Begin do
   @moduledoc """
   `begin_local_login` (design doc: "SDK API Shape", "Flow" steps 4-6).
 
-  Pure/offline: no network access happens here. It generates a fresh
-  nonce/state, builds and signs a `LocalRpLoginRequest` around the
-  identity's already-signed descriptor, and returns a redirect URL plus
-  the pending-login state the app must persist and treat as single-use.
+  It generates a fresh nonce/state, builds and signs a `LocalRpLoginRequest`
+  around the identity's already-signed descriptor, and returns a redirect
+  URL plus the pending-login state the app must persist and treat as
+  single-use.
+
+  The signing work is pure/offline. The one network touch is a DNS TXT
+  lookup of `_linkkeys_apis.<user_domain>` to discover the browser-facing
+  HTTPS endpoint (the identity domain is a trust domain, not necessarily
+  the host serving the login routes — see `LinkkeysLocalRp.Browser`). The
+  resolver is injectable via the `:dns` config key; on any discovery
+  failure the redirect falls back to `https://<user_domain>`.
   """
 
+  alias LinkkeysLocalRp.Browser
+  alias LinkkeysLocalRp.Dns
   alias LinkkeysLocalRp.Encoding
   alias LinkkeysLocalRp.Identity.LocalRpKeyMaterial
   alias LinkkeysLocalRp.LocalRp
@@ -78,13 +87,17 @@ defmodule LinkkeysLocalRp.Begin do
     end
   end
 
-  defp validate_callback_scheme!(url) do
+  @doc false
+  def validate_callback_scheme!(url) do
     if not (String.starts_with?(url, "http://") or String.starts_with?(url, "https://")) do
       raise BeginLoginError, message: "callback_url must be http:// or https://, got: #{inspect(url)}"
     end
   end
 
-  defp parse_identity_input!(value) do
+  @doc false
+  # Shared with `LinkkeysLocalRp.ActAs.begin_act_as/1`: one parser for a
+  # `user@domain` or `domain` identity input. Returns `{username | nil, domain}`.
+  def parse_identity_input!(value) do
     identity = String.trim(value)
     parts = String.split(identity, "@")
     ascii = String.to_charlist(identity) |> Enum.all?(&(&1 <= 127))
@@ -140,6 +153,15 @@ defmodule LinkkeysLocalRp.Begin do
   - `:requested_claims` (optional, defaults to #{inspect(@default_requested_claims)})
   - `:required_claims` (optional, defaults to #{inspect(@default_required_claims)})
   - `:request_lifetime_seconds` (optional, defaults to #{@default_login_request_lifetime_seconds})
+  - `:dns` (optional, `t:LinkkeysLocalRp.Dns.resolver/0`; defaults to
+    `&LinkkeysLocalRp.Dns.system_resolver/1`, same as `complete_local_login/1`).
+    Used for browser endpoint discovery: the `https=` endpoint of
+    `_linkkeys_apis.<user_domain>`.
+
+  The redirect host comes from `_linkkeys_apis.<user_domain>` discovery
+  (`LinkkeysLocalRp.Browser.resolve_browser_endpoint/4`), with a fallback to
+  the identity domain itself. `PendingLogin.user_domain` stays the identity
+  domain — verification is bound to it, never to the discovered service host.
   """
   def begin_local_login(config) do
     config = Map.new(config)
@@ -147,6 +169,7 @@ defmodule LinkkeysLocalRp.Begin do
     callback_url = Map.fetch!(config, :callback_url)
     user_domain = Map.fetch!(config, :user_domain)
     now = Map.fetch!(config, :now)
+    dns = Map.get(config, :dns) || (&Dns.system_resolver/1)
 
     validate_callback_scheme!(callback_url)
 
@@ -181,8 +204,24 @@ defmodule LinkkeysLocalRp.Begin do
 
     # Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>"
     # — mirrors the existing GET /auth/authorize?signed_request=... shape.
-    redirect_url = "https://#{domain}/auth/local-rp?signed_request=#{encoded}"
-    redirect_url = if username, do: redirect_url <> "&username=" <> URI.encode_www_form(username), else: redirect_url
+    # The host comes from `_linkkeys_apis.<domain>` discovery (with a
+    # fallback to the identity domain itself); `PendingLogin.user_domain`
+    # stays the identity domain.
+    redirect_url =
+      case Browser.resolve_browser_endpoint(dns, domain, Browser.browser_route_local_rp(), encoded) do
+        {:ok, url} -> url
+        {:error, reason} -> raise BeginLoginError, message: "browser endpoint could not be built: #{inspect(reason)}"
+      end
+
+    redirect_url =
+      if username do
+        redirect_url
+        |> URI.new!()
+        |> URI.append_query(URI.encode_query(%{"username" => username}))
+        |> URI.to_string()
+      else
+        redirect_url
+      end
 
     {
       %LocalLoginRedirect{redirect_url: redirect_url},

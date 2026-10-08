@@ -1,16 +1,25 @@
 //! `beginLocalLogin` (design doc: "SDK API Shape", "Flow" steps 4-6).
 //! Mirrors `sdks/local-rp/rust/src/begin.rs` / `sdks/local-rp/go/begin.go`.
 //!
-//! Pure/offline: no network access happens here. It generates a fresh
-//! nonce/state, builds and signs a `LocalRpLoginRequest` around the
-//! identity's already-signed descriptor, and returns a redirect URL plus
-//! the pending-login state the app must persist and treat as single-use.
+//! It generates a fresh nonce/state, builds and signs a `LocalRpLoginRequest`
+//! around the identity's already-signed descriptor, and returns a redirect
+//! URL plus the pending-login state the app must persist and treat as
+//! single-use.
+//!
+//! The signing work is pure/offline. The one network touch is a DNS TXT
+//! lookup of `_linkkeys_apis.<user_domain>` to discover the browser-facing
+//! HTTPS endpoint (the identity domain is a trust domain, not necessarily
+//! the host serving the login routes — see `browser.zig`). The resolver is
+//! injectable via `BeginLocalLoginConfig.dns`; on any discovery failure the
+//! redirect falls back to `https://<user_domain>`.
 
 const std = @import("std");
 const identity = @import("identity.zig");
 const local_rp = @import("local_rp.zig");
 const encoding = @import("encoding.zig");
 const xcrypto = @import("crypto.zig");
+const dnsmod = @import("dns.zig");
+const browser = @import("browser.zig");
 
 /// Default requested claims when the caller doesn't specify any (design
 /// doc, "Default Claim Set"): a usable "identity" out of the box with zero
@@ -48,6 +57,12 @@ pub const BeginLocalLoginConfig = struct {
     /// `default_login_request_lifetime_seconds` when zero.
     request_lifetime_seconds: i64 = 0,
     now: i64,
+    /// The DNS TXT lookup seam for browser endpoint discovery
+    /// (`_linkkeys_apis.<user_domain>`, its `https=` endpoint). Defaults to
+    /// the system resolver (`dns.SystemDnsResolver`) when null, same seam
+    /// as `CompleteLocalLoginConfig.dns`. Inject a fake in tests (no live
+    /// DNS) or a hardened resolver in production.
+    dns: ?dnsmod.DnsResolver = null,
 };
 
 /// The redirect URL the app should send the user's browser to. The SDK
@@ -83,12 +98,12 @@ pub const BeginLocalLoginResult = struct {
     pending: PendingLogin,
 };
 
-fn validateCallbackScheme(url: []const u8) !void {
+pub fn validateCallbackScheme(url: []const u8) !void {
     if (std.mem.startsWith(u8, url, "http://") or std.mem.startsWith(u8, url, "https://")) return;
     return error.InvalidCallbackScheme;
 }
 
-const IdentityInput = struct {
+pub const IdentityInput = struct {
     username: ?[]const u8,
     domain: []const u8,
 };
@@ -97,7 +112,7 @@ fn invalidIdentity() error{InvalidInput} {
     return error.InvalidInput;
 }
 
-fn parseIdentityInput(allocator: std.mem.Allocator, value: []const u8) !IdentityInput {
+pub fn parseIdentityInput(allocator: std.mem.Allocator, value: []const u8) !IdentityInput {
     const input = std.mem.trim(u8, value, " \t\r\n");
     if (input.len == 0) return invalidIdentity();
     var at: ?usize = null;
@@ -198,16 +213,54 @@ pub fn beginLocalLogin(allocator: std.mem.Allocator, config: BeginLocalLoginConf
 
     // Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>"
     // — mirrors the existing GET /auth/authorize?signed_request=... shape.
+    // The host comes from `_linkkeys_apis.<user_domain>` discovery (with a
+    // fallback to the identity domain itself); `PendingLogin.user_domain`
+    // stays the identity domain — verification is bound to it, never to the
+    // discovered service host.
+    var system_resolver: dnsmod.SystemDnsResolver = undefined;
+    const resolver: ?dnsmod.DnsResolver = config.dns orelse blk: {
+        // No nameserver at all is a discovery failure like any other: the
+        // composition falls back to the identity domain.
+        system_resolver = dnsmod.SystemDnsResolver.init() catch break :blk null;
+        break :blk system_resolver.resolver();
+    };
+    const endpoint = try browser.resolveBrowserEndpoint(allocator, resolver, identity_input.domain, browser.browser_route_local_rp, encoded);
+    // The endpoint's query is exactly `signed_request=<value>` (no
+    // fragment), so appending one more encoded pair is well-formed.
     var username_buffer: [192]u8 = undefined;
     const redirect_url = if (identity_input.username) |username|
-        try std.fmt.allocPrint(allocator, "https://{s}/auth/local-rp?signed_request={s}&username={s}", .{ identity_input.domain, encoded, percentEncodeUsername(username, &username_buffer) })
+        try std.fmt.allocPrint(allocator, "{s}&username={s}", .{ endpoint, percentEncodeUsername(username, &username_buffer) })
     else
-        try std.fmt.allocPrint(allocator, "https://{s}/auth/local-rp?signed_request={s}", .{ identity_input.domain, encoded });
+        endpoint;
 
     return .{
         .redirect = .{ .redirect_url = redirect_url },
         .pending = .{ .nonce = nonce_owned, .state = state_owned, .user_domain = identity_input.domain, .callback_url = config.callback_url, .required_claims = required_claims },
     };
+}
+
+// ---------------------------------------------------------------------
+// Tests. Every test injects a `browser.FakeDnsResolver` (canned answers or
+// a hard failure) — no test here performs a live DNS request.
+// ---------------------------------------------------------------------
+
+const FakeDnsResolver = browser.FakeDnsResolver;
+const test_domain = "ident.example.test";
+
+fn testKeyMaterial(a: std.mem.Allocator, now: i64) !identity.LocalRpKeyMaterial {
+    return identity.generateLocalRpIdentity(a, .{ .app_name = "Test App", .now = now });
+}
+
+fn beginWith(a: std.mem.Allocator, fake: *FakeDnsResolver) !BeginLocalLoginResult {
+    const now: i64 = try local_rp.parseTimestamp("2026-08-17T12:00:00Z");
+    const km = try testKeyMaterial(a, now);
+    return beginLocalLogin(a, .{
+        .key_material = km,
+        .callback_url = "http://app.lan:8080/cb",
+        .user_domain = test_domain,
+        .now = now,
+        .dns = fake.resolver(),
+    });
 }
 
 test "beginLocalLogin rejects non-http(s) callback schemes" {
@@ -216,13 +269,15 @@ test "beginLocalLogin rejects non-http(s) callback schemes" {
     const a = arena.allocator();
 
     const now: i64 = try local_rp.parseTimestamp("2026-01-01T00:00:00Z");
-    const km = try identity.generateLocalRpIdentity(a, .{ .app_name = "Test App", .now = now });
+    const km = try testKeyMaterial(a, now);
+    var failing = FakeDnsResolver.failing();
 
     try std.testing.expectError(error.InvalidCallbackScheme, beginLocalLogin(a, .{
         .key_material = km,
         .callback_url = "myapp://callback",
         .user_domain = "example.com",
         .now = now,
+        .dns = failing.resolver(),
     }));
 }
 
@@ -232,13 +287,15 @@ test "beginLocalLogin produces a redirect URL and single-use pending state" {
     const a = arena.allocator();
 
     const now: i64 = try local_rp.parseTimestamp("2026-01-01T00:00:00Z");
-    const km = try identity.generateLocalRpIdentity(a, .{ .app_name = "Test App", .now = now });
+    const km = try testKeyMaterial(a, now);
+    var failing = FakeDnsResolver.failing();
 
     const result = try beginLocalLogin(a, .{
         .key_material = km,
         .callback_url = "http://jukebox.lan:8080/auth/callback",
         .user_domain = "example.com",
         .now = now,
+        .dns = failing.resolver(),
     });
 
     try std.testing.expect(std.mem.startsWith(u8, result.redirect.redirect_url, "https://example.com/auth/local-rp?signed_request="));
@@ -254,12 +311,14 @@ test "beginLocalLogin parses identity input" {
     defer arena.deinit();
     const a = arena.allocator();
     const now: i64 = try local_rp.parseTimestamp("2026-01-01T00:00:00Z");
-    const km = try identity.generateLocalRpIdentity(a, .{ .app_name = "Test App", .now = now });
-    const result = try beginLocalLogin(a, .{ .key_material = km, .callback_url = "http://localhost/callback", .user_domain = "Alice+work@ID.Example.TEST", .now = now });
+    const km = try testKeyMaterial(a, now);
+    var failing = FakeDnsResolver.failing();
+    const result = try beginLocalLogin(a, .{ .key_material = km, .callback_url = "http://localhost/callback", .user_domain = "Alice+work@ID.Example.TEST", .now = now, .dns = failing.resolver() });
+    try std.testing.expect(std.mem.startsWith(u8, result.redirect.redirect_url, "https://id.example.test/auth/local-rp?signed_request="));
     try std.testing.expect(std.mem.endsWith(u8, result.redirect.redirect_url, "&username=Alice%2Bwork"));
     try std.testing.expectEqualStrings("id.example.test", result.pending.user_domain);
     for ([_][]const u8{ "alice", "alice@@example.test", "https://example.test", "alice@example.test:+443" }) |input| {
-        try std.testing.expectError(error.InvalidInput, beginLocalLogin(a, .{ .key_material = km, .callback_url = "http://localhost/callback", .user_domain = input, .now = now }));
+        try std.testing.expectError(error.InvalidInput, beginLocalLogin(a, .{ .key_material = km, .callback_url = "http://localhost/callback", .user_domain = input, .now = now, .dns = failing.resolver() }));
     }
 }
 
@@ -269,7 +328,8 @@ test "beginLocalLogin retains caller-supplied required claims in the pending sta
     const a = arena.allocator();
 
     const now: i64 = try local_rp.parseTimestamp("2026-01-01T00:00:00Z");
-    const km = try identity.generateLocalRpIdentity(a, .{ .app_name = "Test App", .now = now });
+    const km = try testKeyMaterial(a, now);
+    var failing = FakeDnsResolver.failing();
 
     const custom_required = [_][]const u8{ "email", "handle" };
     const result = try beginLocalLogin(a, .{
@@ -278,6 +338,7 @@ test "beginLocalLogin retains caller-supplied required claims in the pending sta
         .user_domain = "example.com",
         .required_claims = &custom_required,
         .now = now,
+        .dns = failing.resolver(),
     });
 
     try std.testing.expectEqual(@as(usize, 2), result.pending.required_claims.len);
@@ -291,7 +352,8 @@ test "PendingLogin.required_claims round-trips through JSON (the app's own seria
     const a = arena.allocator();
 
     const now: i64 = try local_rp.parseTimestamp("2026-01-01T00:00:00Z");
-    const km = try identity.generateLocalRpIdentity(a, .{ .app_name = "Test App", .now = now });
+    const km = try testKeyMaterial(a, now);
+    var failing = FakeDnsResolver.failing();
 
     const custom_required = [_][]const u8{ "email", "handle" };
     const result = try beginLocalLogin(a, .{
@@ -300,6 +362,7 @@ test "PendingLogin.required_claims round-trips through JSON (the app's own seria
         .user_domain = "example.com",
         .required_claims = &custom_required,
         .now = now,
+        .dns = failing.resolver(),
     });
 
     const json_bytes = try std.json.stringifyAlloc(a, result.pending, .{});
@@ -310,4 +373,105 @@ test "PendingLogin.required_claims round-trips through JSON (the app's own seria
     try std.testing.expectEqualStrings("email", parsed.value.required_claims[0]);
     try std.testing.expectEqualStrings("handle", parsed.value.required_claims[1]);
     try std.testing.expectEqualStrings(result.pending.user_domain, parsed.value.user_domain);
+}
+
+// ---------------------------------------------------------------------
+// Browser endpoint discovery (parity with sdks/local-rp/go/browser_test.go)
+// ---------------------------------------------------------------------
+
+// Case 1: a valid https= host is used for the redirect instead of the
+// identity domain. Case 8: PendingLogin.user_domain stays the identity
+// domain — verification stays bound to it, not to the service host.
+test "beginLocalLogin uses the discovered https host" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var fake = FakeDnsResolver{ .apis_txts = &.{"v=lk1 tcp=linkkeys.ident.example.test https=linkkeys.ident.example.test"} };
+    const result = try beginWith(a, &fake);
+    try std.testing.expect(std.mem.startsWith(u8, result.redirect.redirect_url, "https://linkkeys.ident.example.test/auth/local-rp?signed_request="));
+    try std.testing.expect(!std.mem.startsWith(u8, result.redirect.redirect_url, "https://" ++ test_domain ++ "/"));
+    try std.testing.expectEqualStrings(test_domain, result.pending.user_domain);
+}
+
+// Case 2: an https= value with a path prefix preserves that prefix.
+test "beginLocalLogin preserves an https= path prefix" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var fake = FakeDnsResolver{ .apis_txts = &.{"v=lk1 https=login.example.test/linkkeys"} };
+    const result = try beginWith(a, &fake);
+    try std.testing.expect(std.mem.startsWith(u8, result.redirect.redirect_url, "https://login.example.test/linkkeys/auth/local-rp?signed_request="));
+}
+
+// Case 3: a record with only tcp= falls back to the identity domain.
+test "beginLocalLogin falls back to the identity domain on a tcp-only record" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var fake = FakeDnsResolver{ .apis_txts = &.{"v=lk1 tcp=linkkeys.ident.example.test"} };
+    const result = try beginWith(a, &fake);
+    try std.testing.expect(std.mem.startsWith(u8, result.redirect.redirect_url, "https://" ++ test_domain ++ "/auth/local-rp?signed_request="));
+}
+
+// Case 4: a DNS lookup error falls back to the identity domain.
+test "beginLocalLogin falls back to the identity domain on a DNS error" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var failing = FakeDnsResolver.failing();
+    const result = try beginWith(a, &failing);
+    try std.testing.expect(std.mem.startsWith(u8, result.redirect.redirect_url, "https://" ++ test_domain ++ "/auth/local-rp?signed_request="));
+}
+
+// Cases 5 + 6: invalid TXT records are ignored, and across several records
+// the FIRST valid record with https= is selected.
+test "beginLocalLogin selects the first valid https= record across records" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var fake = FakeDnsResolver{ .apis_txts = &.{
+        "not a linkkeys record",
+        "v=lk2 https=wrong-version.example.test",
+        "v=lk1 tcp=tcp-only.example.test",
+        "v=lk1 https=first.example.test",
+        "v=lk1 https=second.example.test",
+    } };
+    const result = try beginWith(a, &fake);
+    try std.testing.expect(std.mem.startsWith(u8, result.redirect.redirect_url, "https://first.example.test/auth/local-rp?signed_request="));
+}
+
+// Case 7: signed_request rides the discovered URL unchanged — it decodes to
+// the signed login request whose fields match this login.
+test "beginLocalLogin signed_request survives the discovered URL" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var fake = FakeDnsResolver{ .apis_txts = &.{"v=lk1 https=login.example.test/linkkeys"} };
+    const result = try beginWith(a, &fake);
+
+    const uri = try std.Uri.parse(result.redirect.redirect_url);
+    const query = switch (uri.query.?) {
+        .raw, .percent_encoded => |s| s,
+    };
+    try std.testing.expect(std.mem.startsWith(u8, query, "signed_request="));
+    const param = query["signed_request=".len..];
+    try std.testing.expect(std.mem.indexOfScalar(u8, param, '&') == null);
+
+    const signed = try encoding.signedLocalRpLoginRequestFromUrlParam(a, param);
+    const request = try @import("types.zig").decodeLocalRpLoginRequest(a, signed.request);
+    try std.testing.expectEqualStrings("http://app.lan:8080/cb", request.callback_url);
+    try std.testing.expectEqualSlices(u8, result.pending.nonce, request.nonce);
+}
+
+// Case 9: a config literal that omits `dns` compiles unchanged and defaults
+// to the system resolver. The default path is not executed here — that
+// would be a live DNS request.
+test "BeginLocalLoginConfig without a resolver still compiles" {
+    const config = BeginLocalLoginConfig{
+        .key_material = undefined,
+        .callback_url = "http://app.lan:8080/cb",
+        .user_domain = test_domain,
+        .now = 0,
+    };
+    try std.testing.expect(config.dns == null);
 }

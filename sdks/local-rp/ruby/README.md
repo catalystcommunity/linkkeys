@@ -53,6 +53,11 @@ sdks/local-rp/ruby/
       identity.rb                # generate_local_rp_identity + byte
                                  # storage helpers
       begin.rb                   # begin_local_login
+      act_as.rb                  # act-as grantee: begin_act_as,
+                                 # complete_act_as_callback,
+                                 # refresh_act_as_grant, present
+      browser.rb                 # _linkkeys_apis https= discovery + browser
+                                 # URL builder
       complete.rb                 # complete_local_login (the full
                                  # verification chain)
       local_rp.rb                  # pure protocol helpers (envelope
@@ -77,7 +82,8 @@ sdks/local-rp/ruby/
                                  # talks to)
       transport.rb                     # the TCP dial seam + AddressPolicy
       rpc.rb                            # hand-rolled CSIL-RPC framing +
-                                 # fetch_domain_keys / redeem_claim_ticket
+                                 # fetch_domain_keys / redeem_claim_ticket /
+                                 # refresh_act_as_grant
       url_params.rb                     # base64url-unpadded URL-parameter
                                  # helpers (named to avoid colliding with
                                  # Ruby's built-in `Encoding` class)
@@ -88,6 +94,7 @@ sdks/local-rp/ruby/
     test_conformance_*.rb          # one file per conformance vector JSON
                                  # file
     test_flow.rb                    # fake-IDP end-to-end flow tests
+    test_act_as.rb                  # act-as grantee vectors, begin, callback
     run_all.rb                       # loads and runs every test_*.rb file
 ```
 
@@ -140,6 +147,7 @@ redirect, pending = LinkkeysLocalRp.begin_local_login(
     callback_url: "http://jukebox.lan:8080/auth/callback",
     user_domain: "alice@example.com",
     now: Time.now.utc
+    # dns: my_dns_resolver  # optional; defaults to Dns::SystemDnsResolver.new
   )
 )
 # App: persist `pending` (e.g. pending.to_h into a session), then redirect
@@ -175,6 +183,76 @@ verified = LinkkeysLocalRp.complete_local_login(
   responding to `#dial(host_port) -> socket-like` /
   `#txt_lookup(name) -> Array<String>` respectively — inject your own for
   testing or hardened DNS (e.g. a DoH client).
+
+## Browser endpoint discovery
+
+`begin_local_login` does one DNS TXT lookup of `_linkkeys_apis.<domain>`
+(the identity domain). The `https=` value of the first valid `v=lk1` record
+names the browser-facing host. The redirect URL uses that host. A path
+prefix in the `https=` value is kept. The identity domain stays in
+`pending.user_domain`. Verification binds to the identity domain, never to
+the discovered host.
+
+Pass `dns:` to inject a resolver object that responds to
+`txt_lookup(name) -> Array<String>`. Omit it to use
+`Dns::SystemDnsResolver.new`.
+
+The lookup never fails the call. The redirect falls back to
+`https://<domain>` when:
+
+- the DNS lookup fails,
+- no valid record has an `https=` value, or
+- the discovered base is not valid (not `https`, no host, or it carries
+  userinfo, a query, or a fragment).
+
+The helpers are exported for regular-RP glue too:
+`LinkkeysLocalRp.resolve_browser_base(dns, identity_domain)` returns the
+base, and `LinkkeysLocalRp.build_browser_endpoint(base, route,
+signed_request)` builds the URL for `Browser::BROWSER_ROUTE_LOCAL_RP` or
+`Browser::BROWSER_ROUTE_AUTHORIZE`.
+
+## Act-as grants
+
+An act-as grant lets this app act as a user at an enrolled application (the
+audience). The user approves the grant at the user's home domain. The home
+domain signs it. The protocol is in
+[`docs/spec/reserved/act-as-grants.md`](../../../docs/spec/reserved/act-as-grants.md).
+It is Reserved and can change.
+
+A local RP can be a grantee only. A local RP can be a grantee only after its
+home domain approved it. A local RP cannot be an audience, because a peer
+cannot find its keys through DNS.
+
+The descriptor signing key signs every request and presentation. The proof
+carries the signed descriptor. The act-as types are hand-written in
+`types.rb`. The conformance vectors in
+`sdks/regular-rp/conformance/act_as_grantee_signing.json` check their bytes.
+
+1. Get the audience's `SignedActAsScopeSet` as CBOR bytes. The format of
+   that exchange is between this app and the audience.
+2. Call `LinkkeysLocalRp.begin_act_as(ActAs::BeginActAsConfig.new(
+   key_material:, user_domain:, scope_set:, callback_url:, now:))`.
+   Optional fields: `requested_lifetime_seconds`,
+   `requested_renewal_window_seconds`, `dns`, and `request_window_seconds`
+   (default 300, maximum 900). It returns `[redirect, pending]`. Keep
+   `pending` (`to_h` / `from_h`). Send the browser to
+   `redirect.redirect_url`. Browser endpoint discovery and its fallback are
+   the same as for `begin_local_login`. The route is `/auth/act-as`.
+3. On the callback, call
+   `LinkkeysLocalRp.complete_act_as_callback(pending, arrived_url)`. It
+   compares the `nonce` in constant time and returns `act_as_grant_id`. Use
+   `pending` one time only.
+4. Call `LinkkeysLocalRp.refresh_act_as_grant(key_material,
+   pending.user_domain, grant_id, now)` to get the grant. It calls
+   `ActAs/refresh-grant` over the same pinned TCP path as claim-ticket
+   redemption. It returns `grant` and `signed`. Call it again when less than
+   half of the grant's life remains.
+5. For each call to the audience, call
+   `LinkkeysLocalRp.present_act_as(grant, audience, request_digest, now,
+   nonce, key_material)`. Send `credential_cbor` with the call. The audience
+   defines `request_digest`. Use a new random `nonce` for each call.
+
+The SDK does not verify the grant. The audience verifies it.
 
 ## Security notes
 

@@ -2370,6 +2370,363 @@ and encode_rp_resolve_application_keys_response (v : rp_resolve_application_keys
          Some (Cbor.Text "home_domain_key_revocations", (Cbor.Array (List.map (fun csil_e -> (encode_revocation_certificate csil_e)) v.home_domain_key_revocations)));
        ])
 
+and encode_application_ref (v : application_ref) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "application_id", (Cbor.Text v.application_id));
+         Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
+         Some (Cbor.Text "subject_user_id", (Cbor.Text v.subject_user_id));
+       ])
+
+and encode_grantee_ref (v : grantee_ref) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         (match v.application with Some csil_x -> Some (Cbor.Text "application", (encode_application_ref csil_x)) | None -> None);
+         (match v.local_rp_descriptor_fingerprint with Some csil_x -> Some (Cbor.Text "local_rp_descriptor_fingerprint", (Cbor.Text csil_x)) | None -> None);
+       ])
+
+and encode_grantee_proof (v : grantee_proof) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "signature", (encode_application_key_signature v.signature));
+         (match v.local_rp_descriptor with Some csil_x -> Some (Cbor.Text "local_rp_descriptor", (encode_signed_local_rp_descriptor csil_x)) | None -> None);
+         (match v.application_instance_id with Some csil_x -> Some (Cbor.Text "application_instance_id", (Cbor.Text csil_x)) | None -> None);
+       ])
+
+and encode_act_as_scope_entry (v : act_as_scope_entry) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "scope", (Cbor.Text v.scope));
+         (match v.description with Some csil_x -> Some (Cbor.Text "description", (Cbor.Text csil_x)) | None -> None);
+       ])
+
+and encode_act_as_scope_set (v : act_as_scope_set) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "entries", (Cbor.Array (List.map (fun csil_e -> (encode_act_as_scope_entry csil_e)) v.entries)));
+         Some (Cbor.Text "grantee", (encode_grantee_ref v.grantee));
+         Some (Cbor.Text "audience", (encode_application_ref v.audience));
+         (match v.language with Some csil_x -> Some (Cbor.Text "language", (Cbor.Text csil_x)) | None -> None);
+         Some (Cbor.Text "issued_at", (Cbor.Text v.issued_at));
+         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         (match v.audience_handle_claim with Some csil_x -> Some (Cbor.Text "audience_handle_claim", (encode_claim csil_x)) | None -> None);
+       ])
+
+and encode_signed_act_as_scope_set (v : signed_act_as_scope_set) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "scope_set", (Cbor.Bytes v.scope_set));
+         Some (Cbor.Text "signatures", (Cbor.Array (List.map (fun csil_e -> (encode_application_key_signature csil_e)) v.signatures)));
+         Some (Cbor.Text "signer_instance_id", (Cbor.Text v.signer_instance_id));
+       ])
+
+and encode_act_as_scope_set_request (v : act_as_scope_set_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "scope", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.scope)));
+         Some (Cbor.Text "grantee", (encode_grantee_ref v.grantee));
+         (match v.locale_preferences with Some csil_x -> Some (Cbor.Text "locale_preferences", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) csil_x))) | None -> None);
+       ])
+
+and encode_act_as_grant (v : act_as_grant) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "grantee", (encode_grantee_ref v.grantee));
+         Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
+         Some (Cbor.Text "audience", (encode_application_ref v.audience));
+         Some (Cbor.Text "grant_id", (Cbor.Text v.grant_id));
+         Some (Cbor.Text "issued_at", (Cbor.Text v.issued_at));
+         Some (Cbor.Text "scope_set", (encode_signed_act_as_scope_set v.scope_set));
+         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "approved_scope", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.approved_scope)));
+         Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
+         Some (Cbor.Text "renewable_until", (Cbor.Text v.renewable_until));
+         Some (Cbor.Text "series_issued_at", (Cbor.Text v.series_issued_at));
+         (match v.device_fingerprint with Some csil_x -> Some (Cbor.Text "device_fingerprint", (Cbor.Text csil_x)) | None -> None);
+       ])
+
+and encode_signed_act_as_grant (v : signed_act_as_grant) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "grant", (Cbor.Bytes v.grant));
+         Some (Cbor.Text "signatures", (Cbor.Array (List.map (fun csil_e -> (encode_claim_signature csil_e)) v.signatures)));
+       ])
+
+and encode_act_as_grant_request (v : act_as_grant_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "nonce", (Cbor.Text v.nonce));
+         Some (Cbor.Text "grantee", (encode_grantee_ref v.grantee));
+         Some (Cbor.Text "scope_set", (encode_signed_act_as_scope_set v.scope_set));
+         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "callback_url", (Cbor.Text v.callback_url));
+         Some (Cbor.Text "requested_at", (Cbor.Text v.requested_at));
+         (match v.grantee_handle_claim with Some csil_x -> Some (Cbor.Text "grantee_handle_claim", (encode_claim csil_x)) | None -> None);
+         (match v.requested_lifetime_seconds with Some csil_x -> Some (Cbor.Text "requested_lifetime_seconds", (Cbor.int64 csil_x)) | None -> None);
+         (match v.requested_renewal_window_seconds with Some csil_x -> Some (Cbor.Text "requested_renewal_window_seconds", (Cbor.int64 csil_x)) | None -> None);
+       ])
+
+and encode_signed_act_as_grant_request (v : signed_act_as_grant_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "proof", (encode_grantee_proof v.proof));
+         Some (Cbor.Text "request", (Cbor.Bytes v.request));
+       ])
+
+and encode_act_as_refresh_request (v : act_as_refresh_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "nonce", (Cbor.Text v.nonce));
+         Some (Cbor.Text "grantee", (encode_grantee_ref v.grantee));
+         Some (Cbor.Text "grant_id", (Cbor.Text v.grant_id));
+         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "requested_at", (Cbor.Text v.requested_at));
+       ])
+
+and encode_signed_act_as_refresh_request (v : signed_act_as_refresh_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "proof", (encode_grantee_proof v.proof));
+         Some (Cbor.Text "request", (Cbor.Bytes v.request));
+       ])
+
+and encode_refresh_act_as_grant_request (v : refresh_act_as_grant_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "request", (encode_signed_act_as_refresh_request v.request));
+       ])
+
+and encode_refresh_act_as_grant_response (v : refresh_act_as_grant_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "grant", (encode_signed_act_as_grant v.grant));
+         Some (Cbor.Text "signed", (Cbor.Bool v.signed));
+       ])
+
+and encode_act_as_presentation (v : act_as_presentation) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "nonce", (Cbor.Bytes v.nonce));
+         Some (Cbor.Text "audience", (encode_application_ref v.audience));
+         Some (Cbor.Text "grant_hash", (Cbor.Bytes v.grant_hash));
+         Some (Cbor.Text "presented_at", (Cbor.Text v.presented_at));
+         Some (Cbor.Text "request_digest", (Cbor.Bytes v.request_digest));
+       ])
+
+and encode_signed_act_as_presentation (v : signed_act_as_presentation) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "proof", (encode_grantee_proof v.proof));
+         Some (Cbor.Text "presentation", (Cbor.Bytes v.presentation));
+       ])
+
+and encode_act_as_credential (v : act_as_credential) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "grant", (encode_signed_act_as_grant v.grant));
+         Some (Cbor.Text "presentation", (encode_signed_act_as_presentation v.presentation));
+       ])
+
+and encode_act_as_grant_revocation (v : act_as_grant_revocation) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
+         Some (Cbor.Text "grant_id", (Cbor.Text v.grant_id));
+         Some (Cbor.Text "revoked_at", (Cbor.Text v.revoked_at));
+         Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
+       ])
+
+and encode_signed_act_as_grant_revocation (v : signed_act_as_grant_revocation) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "revocation", (Cbor.Bytes v.revocation));
+         Some (Cbor.Text "signatures", (Cbor.Array (List.map (fun csil_e -> (encode_claim_signature csil_e)) v.signatures)));
+       ])
+
+and encode_get_act_as_grant_revocations_request (v : get_act_as_grant_revocations_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "grant_ids", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.grant_ids)));
+       ])
+
+and encode_get_act_as_grant_revocations_response (v : get_act_as_grant_revocations_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "revocations", (Cbor.Array (List.map (fun csil_e -> (encode_signed_act_as_grant_revocation csil_e)) v.revocations)));
+       ])
+
+and encode_rp_act_as_refresh_request (v : rp_act_as_refresh_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "request", (encode_signed_act_as_refresh_request v.request));
+         Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
+       ])
+
+and encode_rp_resolve_act_as_revocations_request (v : rp_resolve_act_as_revocations_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "grant_ids", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.grant_ids)));
+         Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
+       ])
+
+and encode_browser_act_as_inspect_request (v : browser_act_as_inspect_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "signed_request", (Cbor.Text v.signed_request));
+       ])
+
+and encode_browser_act_as_scope_entry (v : browser_act_as_scope_entry) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "scope", (Cbor.Text v.scope));
+         (match v.description with Some csil_x -> Some (Cbor.Text "description", (Cbor.Text csil_x)) | None -> None);
+         Some (Cbor.Text "removed_by_policy", (Cbor.Bool v.removed_by_policy));
+       ])
+
+and encode_browser_act_as_party (v : browser_act_as_party) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         (match v.domain with Some csil_x -> Some (Cbor.Text "domain", (Cbor.Text csil_x)) | None -> None);
+         (match v.handle with Some csil_x -> Some (Cbor.Text "handle", (Cbor.Text csil_x)) | None -> None);
+         Some (Cbor.Text "own_domain", (Cbor.Bool v.own_domain));
+         (match v.local_rp_name with Some csil_x -> Some (Cbor.Text "local_rp_name", (Cbor.Text csil_x)) | None -> None);
+         (match v.application_id with Some csil_x -> Some (Cbor.Text "application_id", (Cbor.Text csil_x)) | None -> None);
+         (match v.subject_user_id with Some csil_x -> Some (Cbor.Text "subject_user_id", (Cbor.Text csil_x)) | None -> None);
+         Some (Cbor.Text "operator_trusted", (Cbor.Bool v.operator_trusted));
+         Some (Cbor.Text "user_has_history", (Cbor.Bool v.user_has_history));
+         Some (Cbor.Text "domain_key_pinned", (Cbor.Bool v.domain_key_pinned));
+         (match v.local_rp_fingerprint with Some csil_x -> Some (Cbor.Text "local_rp_fingerprint", (Cbor.Text csil_x)) | None -> None);
+       ])
+
+and encode_browser_act_as_inspect_response (v : browser_act_as_inspect_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "entries", (Cbor.Array (List.map (fun csil_e -> (encode_browser_act_as_scope_entry csil_e)) v.entries)));
+         Some (Cbor.Text "grantee", (encode_grantee_ref v.grantee));
+         Some (Cbor.Text "audience", (encode_application_ref v.audience));
+         (match v.language with Some csil_x -> Some (Cbor.Text "language", (Cbor.Text csil_x)) | None -> None);
+         Some (Cbor.Text "grantee_party", (encode_browser_act_as_party v.grantee_party));
+         Some (Cbor.Text "audience_party", (encode_browser_act_as_party v.audience_party));
+         Some (Cbor.Text "max_lifetime_seconds", (Cbor.int64 v.max_lifetime_seconds));
+         Some (Cbor.Text "default_lifetime_seconds", (Cbor.int64 v.default_lifetime_seconds));
+         Some (Cbor.Text "max_renewal_window_seconds", (Cbor.int64 v.max_renewal_window_seconds));
+         Some (Cbor.Text "default_renewal_window_seconds", (Cbor.int64 v.default_renewal_window_seconds));
+       ])
+
+and encode_browser_act_as_complete_request (v : browser_act_as_complete_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "approved_scope", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.approved_scope)));
+         Some (Cbor.Text "signed_request", (Cbor.Text v.signed_request));
+         Some (Cbor.Text "lifetime_seconds", (Cbor.int64 v.lifetime_seconds));
+         Some (Cbor.Text "renewal_window_seconds", (Cbor.int64 v.renewal_window_seconds));
+       ])
+
+and encode_browser_act_as_complete_response (v : browser_act_as_complete_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "redirect_url", (Cbor.Text v.redirect_url));
+       ])
+
+and encode_act_as_grant_summary (v : act_as_grant_summary) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "grantee", (encode_grantee_ref v.grantee));
+         Some (Cbor.Text "audience", (encode_application_ref v.audience));
+         Some (Cbor.Text "grant_id", (Cbor.Text v.grant_id));
+         Some (Cbor.Text "issued_at", (Cbor.Text v.issued_at));
+         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         (match v.revoked_at with Some csil_x -> Some (Cbor.Text "revoked_at", (Cbor.Text csil_x)) | None -> None);
+         Some (Cbor.Text "approved_scope", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.approved_scope)));
+         Some (Cbor.Text "renewable_until", (Cbor.Text v.renewable_until));
+       ])
+
+and encode_list_act_as_grants_response (v : list_act_as_grants_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "grants", (Cbor.Array (List.map (fun csil_e -> (encode_act_as_grant_summary csil_e)) v.grants)));
+       ])
+
+and encode_revoke_act_as_grant_request (v : revoke_act_as_grant_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "grant_id", (Cbor.Text v.grant_id));
+       ])
+
+and encode_revoke_act_as_grant_response (v : revoke_act_as_grant_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "revoked_at", (Cbor.Text v.revoked_at));
+       ])
+
 let rec decode_check_value (csil_c : Cbor.t) : check_value =
   match csil_c with
   | Cbor.Array [ csil_idx; csil_v ] -> (match Cbor.to_i64 csil_idx with 0L -> Text (Cbor.to_text csil_v) | 1L -> Int (Cbor.to_i64 csil_v) | 2L -> Float (Cbor.to_float csil_v) | csil_n -> failwith (Printf.sprintf "csilgen: unknown union variant %Ld" csil_n))
@@ -5930,6 +6287,533 @@ and decode_rp_resolve_application_keys_response (csil_c : Cbor.t) : rp_resolve_a
       }
   | _ -> failwith "csilgen: expected map for rp_resolve_application_keys_response"
 
+and decode_application_ref (csil_c : Cbor.t) : application_ref =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        application_id = (Cbor.to_text (csil_req "application_id"));
+        subject_domain = (Cbor.to_text (csil_req "subject_domain"));
+        subject_user_id = (Cbor.to_text (csil_req "subject_user_id"));
+      }
+  | _ -> failwith "csilgen: expected map for application_ref"
+
+and decode_grantee_ref (csil_c : Cbor.t) : grantee_ref =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        application = (match csil_field "application" with Some csil_v -> Some (decode_application_ref csil_v) | None -> None);
+        local_rp_descriptor_fingerprint = (match csil_field "local_rp_descriptor_fingerprint" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+      }
+  | _ -> failwith "csilgen: expected map for grantee_ref"
+
+and decode_grantee_proof (csil_c : Cbor.t) : grantee_proof =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        signature = (decode_application_key_signature (csil_req "signature"));
+        local_rp_descriptor = (match csil_field "local_rp_descriptor" with Some csil_v -> Some (decode_signed_local_rp_descriptor csil_v) | None -> None);
+        application_instance_id = (match csil_field "application_instance_id" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+      }
+  | _ -> failwith "csilgen: expected map for grantee_proof"
+
+and decode_act_as_scope_entry (csil_c : Cbor.t) : act_as_scope_entry =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        scope = (Cbor.to_text (csil_req "scope"));
+        description = (match csil_field "description" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+      }
+  | _ -> failwith "csilgen: expected map for act_as_scope_entry"
+
+and decode_act_as_scope_set (csil_c : Cbor.t) : act_as_scope_set =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        entries = (match (csil_req "entries") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_act_as_scope_entry csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        grantee = (decode_grantee_ref (csil_req "grantee"));
+        audience = (decode_application_ref (csil_req "audience"));
+        language = (match csil_field "language" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        issued_at = (Cbor.to_text (csil_req "issued_at"));
+        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        audience_handle_claim = (match csil_field "audience_handle_claim" with Some csil_v -> Some (decode_claim csil_v) | None -> None);
+      }
+  | _ -> failwith "csilgen: expected map for act_as_scope_set"
+
+and decode_signed_act_as_scope_set (csil_c : Cbor.t) : signed_act_as_scope_set =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        scope_set = (Cbor.to_bytes (csil_req "scope_set"));
+        signatures = (match (csil_req "signatures") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_application_key_signature csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        signer_instance_id = (Cbor.to_text (csil_req "signer_instance_id"));
+      }
+  | _ -> failwith "csilgen: expected map for signed_act_as_scope_set"
+
+and decode_act_as_scope_set_request (csil_c : Cbor.t) : act_as_scope_set_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        scope = (match (csil_req "scope") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        grantee = (decode_grantee_ref (csil_req "grantee"));
+        locale_preferences = (match csil_field "locale_preferences" with Some csil_v -> Some (match csil_v with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array") | None -> None);
+      }
+  | _ -> failwith "csilgen: expected map for act_as_scope_set_request"
+
+and decode_act_as_grant (csil_c : Cbor.t) : act_as_grant =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        grantee = (decode_grantee_ref (csil_req "grantee"));
+        user_id = (Cbor.to_text (csil_req "user_id"));
+        audience = (decode_application_ref (csil_req "audience"));
+        grant_id = (Cbor.to_text (csil_req "grant_id"));
+        issued_at = (Cbor.to_text (csil_req "issued_at"));
+        scope_set = (decode_signed_act_as_scope_set (csil_req "scope_set"));
+        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        approved_scope = (match (csil_req "approved_scope") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        subject_domain = (Cbor.to_text (csil_req "subject_domain"));
+        renewable_until = (Cbor.to_text (csil_req "renewable_until"));
+        series_issued_at = (Cbor.to_text (csil_req "series_issued_at"));
+        device_fingerprint = (match csil_field "device_fingerprint" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+      }
+  | _ -> failwith "csilgen: expected map for act_as_grant"
+
+and decode_signed_act_as_grant (csil_c : Cbor.t) : signed_act_as_grant =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        grant = (Cbor.to_bytes (csil_req "grant"));
+        signatures = (match (csil_req "signatures") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_claim_signature csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+      }
+  | _ -> failwith "csilgen: expected map for signed_act_as_grant"
+
+and decode_act_as_grant_request (csil_c : Cbor.t) : act_as_grant_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        nonce = (Cbor.to_text (csil_req "nonce"));
+        grantee = (decode_grantee_ref (csil_req "grantee"));
+        scope_set = (decode_signed_act_as_scope_set (csil_req "scope_set"));
+        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        callback_url = (Cbor.to_text (csil_req "callback_url"));
+        requested_at = (Cbor.to_text (csil_req "requested_at"));
+        grantee_handle_claim = (match csil_field "grantee_handle_claim" with Some csil_v -> Some (decode_claim csil_v) | None -> None);
+        requested_lifetime_seconds = (match csil_field "requested_lifetime_seconds" with Some csil_v -> Some (Cbor.to_i64 csil_v) | None -> None);
+        requested_renewal_window_seconds = (match csil_field "requested_renewal_window_seconds" with Some csil_v -> Some (Cbor.to_i64 csil_v) | None -> None);
+      }
+  | _ -> failwith "csilgen: expected map for act_as_grant_request"
+
+and decode_signed_act_as_grant_request (csil_c : Cbor.t) : signed_act_as_grant_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        proof = (decode_grantee_proof (csil_req "proof"));
+        request = (Cbor.to_bytes (csil_req "request"));
+      }
+  | _ -> failwith "csilgen: expected map for signed_act_as_grant_request"
+
+and decode_act_as_refresh_request (csil_c : Cbor.t) : act_as_refresh_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        nonce = (Cbor.to_text (csil_req "nonce"));
+        grantee = (decode_grantee_ref (csil_req "grantee"));
+        grant_id = (Cbor.to_text (csil_req "grant_id"));
+        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        requested_at = (Cbor.to_text (csil_req "requested_at"));
+      }
+  | _ -> failwith "csilgen: expected map for act_as_refresh_request"
+
+and decode_signed_act_as_refresh_request (csil_c : Cbor.t) : signed_act_as_refresh_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        proof = (decode_grantee_proof (csil_req "proof"));
+        request = (Cbor.to_bytes (csil_req "request"));
+      }
+  | _ -> failwith "csilgen: expected map for signed_act_as_refresh_request"
+
+and decode_refresh_act_as_grant_request (csil_c : Cbor.t) : refresh_act_as_grant_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        request = (decode_signed_act_as_refresh_request (csil_req "request"));
+      }
+  | _ -> failwith "csilgen: expected map for refresh_act_as_grant_request"
+
+and decode_refresh_act_as_grant_response (csil_c : Cbor.t) : refresh_act_as_grant_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        grant = (decode_signed_act_as_grant (csil_req "grant"));
+        signed = (Cbor.to_bool (csil_req "signed"));
+      }
+  | _ -> failwith "csilgen: expected map for refresh_act_as_grant_response"
+
+and decode_act_as_presentation (csil_c : Cbor.t) : act_as_presentation =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        nonce = (Cbor.to_bytes (csil_req "nonce"));
+        audience = (decode_application_ref (csil_req "audience"));
+        grant_hash = (Cbor.to_bytes (csil_req "grant_hash"));
+        presented_at = (Cbor.to_text (csil_req "presented_at"));
+        request_digest = (Cbor.to_bytes (csil_req "request_digest"));
+      }
+  | _ -> failwith "csilgen: expected map for act_as_presentation"
+
+and decode_signed_act_as_presentation (csil_c : Cbor.t) : signed_act_as_presentation =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        proof = (decode_grantee_proof (csil_req "proof"));
+        presentation = (Cbor.to_bytes (csil_req "presentation"));
+      }
+  | _ -> failwith "csilgen: expected map for signed_act_as_presentation"
+
+and decode_act_as_credential (csil_c : Cbor.t) : act_as_credential =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        grant = (decode_signed_act_as_grant (csil_req "grant"));
+        presentation = (decode_signed_act_as_presentation (csil_req "presentation"));
+      }
+  | _ -> failwith "csilgen: expected map for act_as_credential"
+
+and decode_act_as_grant_revocation (csil_c : Cbor.t) : act_as_grant_revocation =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        user_id = (Cbor.to_text (csil_req "user_id"));
+        grant_id = (Cbor.to_text (csil_req "grant_id"));
+        revoked_at = (Cbor.to_text (csil_req "revoked_at"));
+        subject_domain = (Cbor.to_text (csil_req "subject_domain"));
+      }
+  | _ -> failwith "csilgen: expected map for act_as_grant_revocation"
+
+and decode_signed_act_as_grant_revocation (csil_c : Cbor.t) : signed_act_as_grant_revocation =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        revocation = (Cbor.to_bytes (csil_req "revocation"));
+        signatures = (match (csil_req "signatures") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_claim_signature csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+      }
+  | _ -> failwith "csilgen: expected map for signed_act_as_grant_revocation"
+
+and decode_get_act_as_grant_revocations_request (csil_c : Cbor.t) : get_act_as_grant_revocations_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        grant_ids = (match (csil_req "grant_ids") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+      }
+  | _ -> failwith "csilgen: expected map for get_act_as_grant_revocations_request"
+
+and decode_get_act_as_grant_revocations_response (csil_c : Cbor.t) : get_act_as_grant_revocations_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        revocations = (match (csil_req "revocations") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_signed_act_as_grant_revocation csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+      }
+  | _ -> failwith "csilgen: expected map for get_act_as_grant_revocations_response"
+
+and decode_rp_act_as_refresh_request (csil_c : Cbor.t) : rp_act_as_refresh_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        request = (decode_signed_act_as_refresh_request (csil_req "request"));
+        subject_domain = (Cbor.to_text (csil_req "subject_domain"));
+      }
+  | _ -> failwith "csilgen: expected map for rp_act_as_refresh_request"
+
+and decode_rp_resolve_act_as_revocations_request (csil_c : Cbor.t) : rp_resolve_act_as_revocations_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        grant_ids = (match (csil_req "grant_ids") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        subject_domain = (Cbor.to_text (csil_req "subject_domain"));
+      }
+  | _ -> failwith "csilgen: expected map for rp_resolve_act_as_revocations_request"
+
+and decode_browser_act_as_inspect_request (csil_c : Cbor.t) : browser_act_as_inspect_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        signed_request = (Cbor.to_text (csil_req "signed_request"));
+      }
+  | _ -> failwith "csilgen: expected map for browser_act_as_inspect_request"
+
+and decode_browser_act_as_scope_entry (csil_c : Cbor.t) : browser_act_as_scope_entry =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        scope = (Cbor.to_text (csil_req "scope"));
+        description = (match csil_field "description" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        removed_by_policy = (Cbor.to_bool (csil_req "removed_by_policy"));
+      }
+  | _ -> failwith "csilgen: expected map for browser_act_as_scope_entry"
+
+and decode_browser_act_as_party (csil_c : Cbor.t) : browser_act_as_party =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        domain = (match csil_field "domain" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        handle = (match csil_field "handle" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        own_domain = (Cbor.to_bool (csil_req "own_domain"));
+        local_rp_name = (match csil_field "local_rp_name" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        application_id = (match csil_field "application_id" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        subject_user_id = (match csil_field "subject_user_id" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        operator_trusted = (Cbor.to_bool (csil_req "operator_trusted"));
+        user_has_history = (Cbor.to_bool (csil_req "user_has_history"));
+        domain_key_pinned = (Cbor.to_bool (csil_req "domain_key_pinned"));
+        local_rp_fingerprint = (match csil_field "local_rp_fingerprint" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+      }
+  | _ -> failwith "csilgen: expected map for browser_act_as_party"
+
+and decode_browser_act_as_inspect_response (csil_c : Cbor.t) : browser_act_as_inspect_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        entries = (match (csil_req "entries") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_browser_act_as_scope_entry csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        grantee = (decode_grantee_ref (csil_req "grantee"));
+        audience = (decode_application_ref (csil_req "audience"));
+        language = (match csil_field "language" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        grantee_party = (decode_browser_act_as_party (csil_req "grantee_party"));
+        audience_party = (decode_browser_act_as_party (csil_req "audience_party"));
+        max_lifetime_seconds = (Cbor.to_i64 (csil_req "max_lifetime_seconds"));
+        default_lifetime_seconds = (Cbor.to_i64 (csil_req "default_lifetime_seconds"));
+        max_renewal_window_seconds = (Cbor.to_i64 (csil_req "max_renewal_window_seconds"));
+        default_renewal_window_seconds = (Cbor.to_i64 (csil_req "default_renewal_window_seconds"));
+      }
+  | _ -> failwith "csilgen: expected map for browser_act_as_inspect_response"
+
+and decode_browser_act_as_complete_request (csil_c : Cbor.t) : browser_act_as_complete_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        approved_scope = (match (csil_req "approved_scope") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        signed_request = (Cbor.to_text (csil_req "signed_request"));
+        lifetime_seconds = (Cbor.to_i64 (csil_req "lifetime_seconds"));
+        renewal_window_seconds = (Cbor.to_i64 (csil_req "renewal_window_seconds"));
+      }
+  | _ -> failwith "csilgen: expected map for browser_act_as_complete_request"
+
+and decode_browser_act_as_complete_response (csil_c : Cbor.t) : browser_act_as_complete_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        redirect_url = (Cbor.to_text (csil_req "redirect_url"));
+      }
+  | _ -> failwith "csilgen: expected map for browser_act_as_complete_response"
+
+and decode_act_as_grant_summary (csil_c : Cbor.t) : act_as_grant_summary =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        grantee = (decode_grantee_ref (csil_req "grantee"));
+        audience = (decode_application_ref (csil_req "audience"));
+        grant_id = (Cbor.to_text (csil_req "grant_id"));
+        issued_at = (Cbor.to_text (csil_req "issued_at"));
+        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        revoked_at = (match csil_field "revoked_at" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        approved_scope = (match (csil_req "approved_scope") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        renewable_until = (Cbor.to_text (csil_req "renewable_until"));
+      }
+  | _ -> failwith "csilgen: expected map for act_as_grant_summary"
+
+and decode_list_act_as_grants_response (csil_c : Cbor.t) : list_act_as_grants_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        grants = (match (csil_req "grants") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_act_as_grant_summary csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+      }
+  | _ -> failwith "csilgen: expected map for list_act_as_grants_response"
+
+and decode_revoke_act_as_grant_request (csil_c : Cbor.t) : revoke_act_as_grant_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        grant_id = (Cbor.to_text (csil_req "grant_id"));
+      }
+  | _ -> failwith "csilgen: expected map for revoke_act_as_grant_request"
+
+and decode_revoke_act_as_grant_response (csil_c : Cbor.t) : revoke_act_as_grant_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        revoked_at = (Cbor.to_text (csil_req "revoked_at"));
+      }
+  | _ -> failwith "csilgen: expected map for revoke_act_as_grant_response"
+
 let encode_check_value_bytes (v : check_value) : bytes = Cbor.encode (encode_check_value v)
 let decode_check_value_bytes (b : bytes) : check_value =
   match Cbor.decode b with Ok c -> decode_check_value c | Error e -> failwith e
@@ -6909,3 +7793,139 @@ let decode_rp_resolve_application_keys_request_bytes (b : bytes) : rp_resolve_ap
 let encode_rp_resolve_application_keys_response_bytes (v : rp_resolve_application_keys_response) : bytes = Cbor.encode (encode_rp_resolve_application_keys_response v)
 let decode_rp_resolve_application_keys_response_bytes (b : bytes) : rp_resolve_application_keys_response =
   match Cbor.decode b with Ok c -> decode_rp_resolve_application_keys_response c | Error e -> failwith e
+
+let encode_application_ref_bytes (v : application_ref) : bytes = Cbor.encode (encode_application_ref v)
+let decode_application_ref_bytes (b : bytes) : application_ref =
+  match Cbor.decode b with Ok c -> decode_application_ref c | Error e -> failwith e
+
+let encode_grantee_ref_bytes (v : grantee_ref) : bytes = Cbor.encode (encode_grantee_ref v)
+let decode_grantee_ref_bytes (b : bytes) : grantee_ref =
+  match Cbor.decode b with Ok c -> decode_grantee_ref c | Error e -> failwith e
+
+let encode_grantee_proof_bytes (v : grantee_proof) : bytes = Cbor.encode (encode_grantee_proof v)
+let decode_grantee_proof_bytes (b : bytes) : grantee_proof =
+  match Cbor.decode b with Ok c -> decode_grantee_proof c | Error e -> failwith e
+
+let encode_act_as_scope_entry_bytes (v : act_as_scope_entry) : bytes = Cbor.encode (encode_act_as_scope_entry v)
+let decode_act_as_scope_entry_bytes (b : bytes) : act_as_scope_entry =
+  match Cbor.decode b with Ok c -> decode_act_as_scope_entry c | Error e -> failwith e
+
+let encode_act_as_scope_set_bytes (v : act_as_scope_set) : bytes = Cbor.encode (encode_act_as_scope_set v)
+let decode_act_as_scope_set_bytes (b : bytes) : act_as_scope_set =
+  match Cbor.decode b with Ok c -> decode_act_as_scope_set c | Error e -> failwith e
+
+let encode_signed_act_as_scope_set_bytes (v : signed_act_as_scope_set) : bytes = Cbor.encode (encode_signed_act_as_scope_set v)
+let decode_signed_act_as_scope_set_bytes (b : bytes) : signed_act_as_scope_set =
+  match Cbor.decode b with Ok c -> decode_signed_act_as_scope_set c | Error e -> failwith e
+
+let encode_act_as_scope_set_request_bytes (v : act_as_scope_set_request) : bytes = Cbor.encode (encode_act_as_scope_set_request v)
+let decode_act_as_scope_set_request_bytes (b : bytes) : act_as_scope_set_request =
+  match Cbor.decode b with Ok c -> decode_act_as_scope_set_request c | Error e -> failwith e
+
+let encode_act_as_grant_bytes (v : act_as_grant) : bytes = Cbor.encode (encode_act_as_grant v)
+let decode_act_as_grant_bytes (b : bytes) : act_as_grant =
+  match Cbor.decode b with Ok c -> decode_act_as_grant c | Error e -> failwith e
+
+let encode_signed_act_as_grant_bytes (v : signed_act_as_grant) : bytes = Cbor.encode (encode_signed_act_as_grant v)
+let decode_signed_act_as_grant_bytes (b : bytes) : signed_act_as_grant =
+  match Cbor.decode b with Ok c -> decode_signed_act_as_grant c | Error e -> failwith e
+
+let encode_act_as_grant_request_bytes (v : act_as_grant_request) : bytes = Cbor.encode (encode_act_as_grant_request v)
+let decode_act_as_grant_request_bytes (b : bytes) : act_as_grant_request =
+  match Cbor.decode b with Ok c -> decode_act_as_grant_request c | Error e -> failwith e
+
+let encode_signed_act_as_grant_request_bytes (v : signed_act_as_grant_request) : bytes = Cbor.encode (encode_signed_act_as_grant_request v)
+let decode_signed_act_as_grant_request_bytes (b : bytes) : signed_act_as_grant_request =
+  match Cbor.decode b with Ok c -> decode_signed_act_as_grant_request c | Error e -> failwith e
+
+let encode_act_as_refresh_request_bytes (v : act_as_refresh_request) : bytes = Cbor.encode (encode_act_as_refresh_request v)
+let decode_act_as_refresh_request_bytes (b : bytes) : act_as_refresh_request =
+  match Cbor.decode b with Ok c -> decode_act_as_refresh_request c | Error e -> failwith e
+
+let encode_signed_act_as_refresh_request_bytes (v : signed_act_as_refresh_request) : bytes = Cbor.encode (encode_signed_act_as_refresh_request v)
+let decode_signed_act_as_refresh_request_bytes (b : bytes) : signed_act_as_refresh_request =
+  match Cbor.decode b with Ok c -> decode_signed_act_as_refresh_request c | Error e -> failwith e
+
+let encode_refresh_act_as_grant_request_bytes (v : refresh_act_as_grant_request) : bytes = Cbor.encode (encode_refresh_act_as_grant_request v)
+let decode_refresh_act_as_grant_request_bytes (b : bytes) : refresh_act_as_grant_request =
+  match Cbor.decode b with Ok c -> decode_refresh_act_as_grant_request c | Error e -> failwith e
+
+let encode_refresh_act_as_grant_response_bytes (v : refresh_act_as_grant_response) : bytes = Cbor.encode (encode_refresh_act_as_grant_response v)
+let decode_refresh_act_as_grant_response_bytes (b : bytes) : refresh_act_as_grant_response =
+  match Cbor.decode b with Ok c -> decode_refresh_act_as_grant_response c | Error e -> failwith e
+
+let encode_act_as_presentation_bytes (v : act_as_presentation) : bytes = Cbor.encode (encode_act_as_presentation v)
+let decode_act_as_presentation_bytes (b : bytes) : act_as_presentation =
+  match Cbor.decode b with Ok c -> decode_act_as_presentation c | Error e -> failwith e
+
+let encode_signed_act_as_presentation_bytes (v : signed_act_as_presentation) : bytes = Cbor.encode (encode_signed_act_as_presentation v)
+let decode_signed_act_as_presentation_bytes (b : bytes) : signed_act_as_presentation =
+  match Cbor.decode b with Ok c -> decode_signed_act_as_presentation c | Error e -> failwith e
+
+let encode_act_as_credential_bytes (v : act_as_credential) : bytes = Cbor.encode (encode_act_as_credential v)
+let decode_act_as_credential_bytes (b : bytes) : act_as_credential =
+  match Cbor.decode b with Ok c -> decode_act_as_credential c | Error e -> failwith e
+
+let encode_act_as_grant_revocation_bytes (v : act_as_grant_revocation) : bytes = Cbor.encode (encode_act_as_grant_revocation v)
+let decode_act_as_grant_revocation_bytes (b : bytes) : act_as_grant_revocation =
+  match Cbor.decode b with Ok c -> decode_act_as_grant_revocation c | Error e -> failwith e
+
+let encode_signed_act_as_grant_revocation_bytes (v : signed_act_as_grant_revocation) : bytes = Cbor.encode (encode_signed_act_as_grant_revocation v)
+let decode_signed_act_as_grant_revocation_bytes (b : bytes) : signed_act_as_grant_revocation =
+  match Cbor.decode b with Ok c -> decode_signed_act_as_grant_revocation c | Error e -> failwith e
+
+let encode_get_act_as_grant_revocations_request_bytes (v : get_act_as_grant_revocations_request) : bytes = Cbor.encode (encode_get_act_as_grant_revocations_request v)
+let decode_get_act_as_grant_revocations_request_bytes (b : bytes) : get_act_as_grant_revocations_request =
+  match Cbor.decode b with Ok c -> decode_get_act_as_grant_revocations_request c | Error e -> failwith e
+
+let encode_get_act_as_grant_revocations_response_bytes (v : get_act_as_grant_revocations_response) : bytes = Cbor.encode (encode_get_act_as_grant_revocations_response v)
+let decode_get_act_as_grant_revocations_response_bytes (b : bytes) : get_act_as_grant_revocations_response =
+  match Cbor.decode b with Ok c -> decode_get_act_as_grant_revocations_response c | Error e -> failwith e
+
+let encode_rp_act_as_refresh_request_bytes (v : rp_act_as_refresh_request) : bytes = Cbor.encode (encode_rp_act_as_refresh_request v)
+let decode_rp_act_as_refresh_request_bytes (b : bytes) : rp_act_as_refresh_request =
+  match Cbor.decode b with Ok c -> decode_rp_act_as_refresh_request c | Error e -> failwith e
+
+let encode_rp_resolve_act_as_revocations_request_bytes (v : rp_resolve_act_as_revocations_request) : bytes = Cbor.encode (encode_rp_resolve_act_as_revocations_request v)
+let decode_rp_resolve_act_as_revocations_request_bytes (b : bytes) : rp_resolve_act_as_revocations_request =
+  match Cbor.decode b with Ok c -> decode_rp_resolve_act_as_revocations_request c | Error e -> failwith e
+
+let encode_browser_act_as_inspect_request_bytes (v : browser_act_as_inspect_request) : bytes = Cbor.encode (encode_browser_act_as_inspect_request v)
+let decode_browser_act_as_inspect_request_bytes (b : bytes) : browser_act_as_inspect_request =
+  match Cbor.decode b with Ok c -> decode_browser_act_as_inspect_request c | Error e -> failwith e
+
+let encode_browser_act_as_scope_entry_bytes (v : browser_act_as_scope_entry) : bytes = Cbor.encode (encode_browser_act_as_scope_entry v)
+let decode_browser_act_as_scope_entry_bytes (b : bytes) : browser_act_as_scope_entry =
+  match Cbor.decode b with Ok c -> decode_browser_act_as_scope_entry c | Error e -> failwith e
+
+let encode_browser_act_as_party_bytes (v : browser_act_as_party) : bytes = Cbor.encode (encode_browser_act_as_party v)
+let decode_browser_act_as_party_bytes (b : bytes) : browser_act_as_party =
+  match Cbor.decode b with Ok c -> decode_browser_act_as_party c | Error e -> failwith e
+
+let encode_browser_act_as_inspect_response_bytes (v : browser_act_as_inspect_response) : bytes = Cbor.encode (encode_browser_act_as_inspect_response v)
+let decode_browser_act_as_inspect_response_bytes (b : bytes) : browser_act_as_inspect_response =
+  match Cbor.decode b with Ok c -> decode_browser_act_as_inspect_response c | Error e -> failwith e
+
+let encode_browser_act_as_complete_request_bytes (v : browser_act_as_complete_request) : bytes = Cbor.encode (encode_browser_act_as_complete_request v)
+let decode_browser_act_as_complete_request_bytes (b : bytes) : browser_act_as_complete_request =
+  match Cbor.decode b with Ok c -> decode_browser_act_as_complete_request c | Error e -> failwith e
+
+let encode_browser_act_as_complete_response_bytes (v : browser_act_as_complete_response) : bytes = Cbor.encode (encode_browser_act_as_complete_response v)
+let decode_browser_act_as_complete_response_bytes (b : bytes) : browser_act_as_complete_response =
+  match Cbor.decode b with Ok c -> decode_browser_act_as_complete_response c | Error e -> failwith e
+
+let encode_act_as_grant_summary_bytes (v : act_as_grant_summary) : bytes = Cbor.encode (encode_act_as_grant_summary v)
+let decode_act_as_grant_summary_bytes (b : bytes) : act_as_grant_summary =
+  match Cbor.decode b with Ok c -> decode_act_as_grant_summary c | Error e -> failwith e
+
+let encode_list_act_as_grants_response_bytes (v : list_act_as_grants_response) : bytes = Cbor.encode (encode_list_act_as_grants_response v)
+let decode_list_act_as_grants_response_bytes (b : bytes) : list_act_as_grants_response =
+  match Cbor.decode b with Ok c -> decode_list_act_as_grants_response c | Error e -> failwith e
+
+let encode_revoke_act_as_grant_request_bytes (v : revoke_act_as_grant_request) : bytes = Cbor.encode (encode_revoke_act_as_grant_request v)
+let decode_revoke_act_as_grant_request_bytes (b : bytes) : revoke_act_as_grant_request =
+  match Cbor.decode b with Ok c -> decode_revoke_act_as_grant_request c | Error e -> failwith e
+
+let encode_revoke_act_as_grant_response_bytes (v : revoke_act_as_grant_response) : bytes = Cbor.encode (encode_revoke_act_as_grant_response v)
+let decode_revoke_act_as_grant_response_bytes (b : bytes) : revoke_act_as_grant_response =
+  match Cbor.decode b with Ok c -> decode_revoke_act_as_grant_response c | Error e -> failwith e

@@ -11,8 +11,16 @@ NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
 KEY_MATERIAL = generate_local_rp_identity(GenerateLocalRpIdentityConfig(app_name="Test App", now=NOW))
 
 
+class OfflineDns:
+    """Discovery is exercised in test_browser.py; a resolver that fails keeps
+    the redirect on the identity domain and keeps this test offline."""
+
+    def txt_lookup(self, name: str):
+        raise RuntimeError("offline")
+
+
 def begin(identity: str):
-    return begin_local_login(BeginLocalLoginConfig(KEY_MATERIAL, "http://localhost/callback", identity, NOW))
+    return begin_local_login(BeginLocalLoginConfig(KEY_MATERIAL, "http://localhost/callback", identity, NOW, dns=OfflineDns()))
 
 
 def test_full_login_adds_username_hint_and_bare_domain_does_not():

@@ -37,6 +37,11 @@ redirect, pending = begin_local_login(BeginLocalLoginConfig(
 ))
 # App: persist `pending` (e.g. pending.to_dict() into a session), then
 # redirect the browser to redirect.redirect_url.
+#
+# begin_local_login reads the `_linkkeys_apis.<domain>` TXT record and sends
+# the browser to its `https=` endpoint. Pass `dns=` to inject a resolver. If
+# the lookup fails, or no record has a valid `https=` value, the redirect
+# falls back to `https://<domain>`.
 
 # On callback (app's HTTP handler received `arrived_url` with an
 # `encrypted_token=` query parameter):
@@ -78,6 +83,29 @@ Security notes
   this mode. Inject a hardened `DnsResolver` if your deployment needs more.
 """
 
+from .act_as import (
+    ACT_AS_GRANT_REQUEST_TAG,
+    ACT_AS_PRESENTATION_TAG,
+    ACT_AS_REFRESH_REQUEST_TAG,
+    ACT_AS_REFRESH_WINDOW_SECONDS,
+    DEFAULT_ACT_AS_REQUEST_WINDOW_SECONDS,
+    MAX_ACT_AS_REQUEST_WINDOW_SECONDS,
+    ActAsError,
+    ActAsPresentationResult,
+    ActAsRedirect,
+    ActAsRefreshResult,
+    BeginActAsConfig,
+    PendingActAs,
+    act_as_grant_hash,
+    begin_act_as,
+    complete_act_as_callback,
+    format_act_as_time,
+    present_act_as,
+    refresh_act_as_grant,
+    sign_act_as_grant_request,
+    sign_act_as_refresh_request,
+    signed_act_as_grant_request_to_url_param,
+)
 from .begin import (
     DEFAULT_LOGIN_REQUEST_LIFETIME,
     DEFAULT_REQUESTED_CLAIMS,
@@ -87,6 +115,14 @@ from .begin import (
     LocalLoginRedirect,
     PendingLogin,
     begin_local_login,
+)
+from .browser import (
+    BROWSER_ROUTE_ACT_AS,
+    BROWSER_ROUTE_AUTHORIZE,
+    BROWSER_ROUTE_LOCAL_RP,
+    BrowserEndpointError,
+    build_browser_endpoint,
+    resolve_browser_base,
 )
 from .complete import (
     CompleteLoginError,
@@ -119,7 +155,14 @@ from .transport import AddressPolicy, StdTransport, Transport
 
 # Re-exported so app code doesn't need to import the generated package
 # directly just to name these types.
-from .generated.types import Claim, ClaimSignature, DomainPublicKey  # noqa: E402
+from .generated.types import (  # noqa: E402
+    ActAsCredential,
+    ApplicationRef,
+    Claim,
+    ClaimSignature,
+    DomainPublicKey,
+    SignedActAsGrant,
+)
 
 __all__ = [
     "generate_local_rp_identity",
@@ -141,6 +184,36 @@ __all__ = [
     "DEFAULT_REQUESTED_CLAIMS",
     "DEFAULT_REQUIRED_CLAIMS",
     "DEFAULT_LOGIN_REQUEST_LIFETIME",
+    "BROWSER_ROUTE_LOCAL_RP",
+    "BROWSER_ROUTE_AUTHORIZE",
+    "BROWSER_ROUTE_ACT_AS",
+    "begin_act_as",
+    "BeginActAsConfig",
+    "ActAsRedirect",
+    "PendingActAs",
+    "complete_act_as_callback",
+    "refresh_act_as_grant",
+    "ActAsRefreshResult",
+    "present_act_as",
+    "ActAsPresentationResult",
+    "sign_act_as_grant_request",
+    "sign_act_as_refresh_request",
+    "signed_act_as_grant_request_to_url_param",
+    "act_as_grant_hash",
+    "format_act_as_time",
+    "ActAsError",
+    "ACT_AS_GRANT_REQUEST_TAG",
+    "ACT_AS_REFRESH_REQUEST_TAG",
+    "ACT_AS_PRESENTATION_TAG",
+    "ACT_AS_REFRESH_WINDOW_SECONDS",
+    "DEFAULT_ACT_AS_REQUEST_WINDOW_SECONDS",
+    "MAX_ACT_AS_REQUEST_WINDOW_SECONDS",
+    "ActAsCredential",
+    "ApplicationRef",
+    "SignedActAsGrant",
+    "BrowserEndpointError",
+    "resolve_browser_base",
+    "build_browser_endpoint",
     "complete_local_login",
     "VerifiedLocalLogin",
     "check_expirations",

@@ -155,3 +155,53 @@ describe("browser UI decisions", () => {
     expect(calls).toBe(1);
   });
 });
+
+describe("act-as helpers", () => {
+  it("takes the signed request from the hand-off fragment", async () => {
+    const { actAsHandoff } = await import("./ui-logic");
+    expect(actAsHandoff("#request=abc", true)).toEqual({ signedRequest: "abc", path: "/app/act-as/consent" });
+    expect(actAsHandoff("#request=abc", false)?.path).toBe("/app/login?next=/app/act-as/consent");
+    expect(actAsHandoff("", true)).toBeUndefined();
+  });
+
+  it("describes durations in whole units", async () => {
+    const { describeDuration } = await import("./ui-logic");
+    expect(describeDuration(0)).toBe("none");
+    expect(describeDuration(3600)).toBe("1 hour");
+    expect(describeDuration(7200)).toBe("2 hours");
+    expect(describeDuration(90)).toBe("90 seconds");
+    expect(describeDuration(2_592_000)).toBe("30 days");
+  });
+
+  it("never offers a duration above the maximum", async () => {
+    const { durationChoices } = await import("./ui-logic");
+    const choices = durationChoices(1800, 3600, false);
+    expect(Math.max(...choices)).toBe(3600);
+    expect(choices).toContain(1800);
+    expect(choices).not.toContain(0);
+    expect(durationChoices(0, 0, true)).toEqual([0]);
+    expect(durationChoices(600, 600, false)).toEqual([300, 600]);
+  });
+
+  it("classifies grants for the account list", async () => {
+    const { actAsGrantState } = await import("./ui-logic");
+    const now = new Date("2026-10-06T12:00:00Z");
+    expect(actAsGrantState({ expiresAt: "2026-10-06T13:00:00Z", renewableUntil: "2026-10-06T13:00:00Z" }, now)).toBe("active");
+    expect(actAsGrantState({ expiresAt: "2026-10-06T11:00:00Z", renewableUntil: "2026-10-06T11:00:00Z" }, now)).toBe("expired");
+    // An expired grant cannot be renewed, so an open renewal window does not keep it active.
+    expect(actAsGrantState({ expiresAt: "2026-10-06T11:00:00Z", renewableUntil: "2026-10-07T11:00:00Z" }, now)).toBe("expired");
+    expect(actAsGrantState({ expiresAt: "2026-10-06T13:00:00Z", renewableUntil: "2026-10-06T13:00:00Z", revokedAt: "2026-10-06T11:30:00Z" }, now)).toBe("revoked");
+  });
+});
+
+describe("act-as parties", () => {
+  it("names the domain first and warns about a new party", async () => {
+    const { partyTitle, partyTrustNotes } = await import("./ui-logic");
+    const base = { ownDomain: false, userHasHistory: false, domainKeyPinned: false, operatorTrusted: false };
+    expect(partyTitle({ domain: "drive.example", localRpName: "x" })).toBe("drive.example");
+    expect(partyTitle({ localRpName: "Desk App" })).toBe("Desk App");
+    expect(partyTrustNotes({ ...base, domain: "drive.example" })).toEqual(["New to you and to this site. Check the name carefully."]);
+    expect(partyTrustNotes({ ...base, domain: "drive.example", userHasHistory: true, domainKeyPinned: true })).toEqual(["You have used this before.", "This site has seen this domain before."]);
+    expect(partyTrustNotes({ ...base, operatorTrusted: true })).toEqual(["This site's operator approved this application."]);
+  });
+});

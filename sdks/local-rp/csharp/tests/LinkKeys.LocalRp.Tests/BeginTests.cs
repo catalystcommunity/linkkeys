@@ -1,8 +1,24 @@
+using LinkKeys.LocalRp.Dns;
+
 namespace LinkKeys.LocalRp.Tests;
 
-/// <summary>Unit tests for <see cref="Begin"/> (mirrors the Rust/Go/Java SDKs' own begin-module tests).</summary>
+/// <summary>
+/// Unit tests for <see cref="Begin"/> (mirrors the Rust/Go/Java SDKs' own begin-module
+/// tests). Every config here injects <see cref="NoDns"/>, a resolver that fails every
+/// lookup, so begin takes its documented fallback (<c>https://&lt;identity domain&gt;</c>)
+/// and no test performs a live DNS request. Discovery itself is covered by
+/// <see cref="BrowserTests"/>.
+/// </summary>
 public class BeginTests
 {
+    private sealed class FailingDnsResolver : IDnsResolver
+    {
+        public IReadOnlyList<string> TxtLookup(string name) =>
+            throw new SdkException(SdkException.ErrorKind.Dns, $"no DNS in unit tests: {name}");
+    }
+
+    private static readonly IDnsResolver NoDns = new FailingDnsResolver();
+
     private static Identity.LocalRpKeyMaterial Material() =>
         Identity.GenerateLocalRpIdentity(new Identity.GenerateLocalRpIdentityConfig("Test App", DateTimeOffset.UtcNow));
 
@@ -11,7 +27,7 @@ public class BeginTests
     {
         var m = Material();
         var result = Begin.BeginLocalLogin(
-            new Begin.BeginLocalLoginConfig(m, "http://localhost:8080/callback", "example.com", DateTimeOffset.UtcNow));
+            new Begin.BeginLocalLoginConfig(m, "http://localhost:8080/callback", "example.com", DateTimeOffset.UtcNow, Dns: NoDns));
 
         Assert.StartsWith("https://example.com/auth/local-rp?signed_request=", result.Redirect.RedirectUrl);
         Assert.Equal("example.com", result.Pending.UserDomain);
@@ -32,7 +48,7 @@ public class BeginTests
     {
         var m = Material();
         var config = new Begin.BeginLocalLoginConfig(
-            m, "http://localhost/callback", "example.com", DateTimeOffset.UtcNow, RequiredClaims: ["email", "handle"]);
+            m, "http://localhost/callback", "example.com", DateTimeOffset.UtcNow, RequiredClaims: ["email", "handle"], Dns: NoDns);
         var result = Begin.BeginLocalLogin(config);
         Assert.Equal(["email", "handle"], result.Pending.RequiredClaims);
     }
@@ -42,13 +58,13 @@ public class BeginTests
     {
         var m = Material();
         var result = Begin.BeginLocalLogin(
-            new Begin.BeginLocalLoginConfig(m, "http://localhost/callback", "Alice+work@ID.Example.TEST", DateTimeOffset.UtcNow));
+            new Begin.BeginLocalLoginConfig(m, "http://localhost/callback", "Alice+work@ID.Example.TEST", DateTimeOffset.UtcNow, Dns: NoDns));
         Assert.EndsWith("&username=Alice%2Bwork", result.Redirect.RedirectUrl);
         Assert.Equal("id.example.test", result.Pending.UserDomain);
         foreach (var input in new[] { "alice", "alice@@example.test", "https://example.test" })
         {
             Assert.Throws<SdkException>(() => Begin.BeginLocalLogin(
-                new Begin.BeginLocalLoginConfig(m, "http://localhost/callback", input, DateTimeOffset.UtcNow)));
+                new Begin.BeginLocalLoginConfig(m, "http://localhost/callback", input, DateTimeOffset.UtcNow, Dns: NoDns)));
         }
     }
 
@@ -66,7 +82,7 @@ public class BeginTests
     {
         var m = Material();
         var config = new Begin.BeginLocalLoginConfig(
-            m, "http://localhost/callback", "example.com", DateTimeOffset.UtcNow, RequiredClaims: ["email", "handle"]);
+            m, "http://localhost/callback", "example.com", DateTimeOffset.UtcNow, RequiredClaims: ["email", "handle"], Dns: NoDns);
         var result = Begin.BeginLocalLogin(config);
 
         var json = System.Text.Json.JsonSerializer.Serialize(result.Pending);
@@ -88,7 +104,7 @@ public class BeginTests
     {
         var m = Material();
         Assert.Throws<SdkException>(() => Begin.BeginLocalLogin(
-            new Begin.BeginLocalLoginConfig(m, "myapp://callback", "example.com", DateTimeOffset.UtcNow)));
+            new Begin.BeginLocalLoginConfig(m, "myapp://callback", "example.com", DateTimeOffset.UtcNow, Dns: NoDns)));
     }
 
     [Fact]
@@ -96,7 +112,7 @@ public class BeginTests
     {
         var m = Material();
         Assert.Throws<SdkException>(() => Begin.BeginLocalLogin(
-            new Begin.BeginLocalLoginConfig(m, "http://localhost/callback", "", DateTimeOffset.UtcNow)));
+            new Begin.BeginLocalLoginConfig(m, "http://localhost/callback", "", DateTimeOffset.UtcNow, Dns: NoDns)));
     }
 
     [Fact]
@@ -104,9 +120,9 @@ public class BeginTests
     {
         var m = Material();
         var r1 = Begin.BeginLocalLogin(
-            new Begin.BeginLocalLoginConfig(m, "http://localhost/callback", "example.com", DateTimeOffset.UtcNow));
+            new Begin.BeginLocalLoginConfig(m, "http://localhost/callback", "example.com", DateTimeOffset.UtcNow, Dns: NoDns));
         var r2 = Begin.BeginLocalLogin(
-            new Begin.BeginLocalLoginConfig(m, "http://localhost/callback", "example.com", DateTimeOffset.UtcNow));
+            new Begin.BeginLocalLoginConfig(m, "http://localhost/callback", "example.com", DateTimeOffset.UtcNow, Dns: NoDns));
         Assert.NotEqual(r1.Pending.Nonce, r2.Pending.Nonce);
         Assert.NotEqual(r1.Pending.State, r2.Pending.State);
     }

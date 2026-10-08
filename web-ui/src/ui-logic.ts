@@ -149,3 +149,69 @@ export function cleanupOnce(): (cleanup: void | (() => void)) => void {
     cleanup();
   };
 }
+
+// ---------------------------------------------------------------------------
+// Act-as grants
+// ---------------------------------------------------------------------------
+
+export const actAsRequestKey = "linkkeys-act-as-request";
+
+/** Takes the signed request from the `/app/act-as#request=` hand-off. */
+export function actAsHandoff(fragment: string, hasSession: boolean): { signedRequest: string; path: string } | undefined {
+  const signedRequest = new URLSearchParams(fragment.replace(/^#/, "")).get("request");
+  if (!signedRequest) return undefined;
+  return { signedRequest, path: hasSession ? "/app/act-as/consent" : "/app/login?next=/app/act-as/consent" };
+}
+
+/** A whole-unit, human description of a number of seconds. */
+export function describeDuration(seconds: number): string {
+  if (seconds <= 0) return "none";
+  const units: [number, string][] = [[86_400, "day"], [3_600, "hour"], [60, "minute"], [1, "second"]];
+  for (const [size, name] of units) {
+    if (seconds % size === 0) {
+      const count = seconds / size;
+      return `${count} ${name}${count === 1 ? "" : "s"}`;
+    }
+  }
+  return `${seconds} seconds`;
+}
+
+/** Choices for a duration field: common steps up to the maximum, plus the
+ * default and the maximum themselves. Never above the maximum. */
+export function durationChoices(defaultSeconds: number, maxSeconds: number, allowZero: boolean): number[] {
+  const steps = [300, 900, 1_800, 3_600, 4 * 3_600, 8 * 3_600, 86_400, 7 * 86_400, 30 * 86_400];
+  const values = new Set<number>(steps.filter((s) => s <= maxSeconds));
+  if (allowZero) values.add(0);
+  if (defaultSeconds >= 0 && defaultSeconds <= maxSeconds) values.add(defaultSeconds);
+  if (maxSeconds > 0) values.add(maxSeconds);
+  return [...values].filter((v) => allowZero || v > 0).sort((a, b) => a - b);
+}
+
+/** One line that names an application reference for a person. */
+export function applicationLabel(reference: { applicationId: string; subjectDomain: string } | undefined, fallback = "an application"): string {
+  return reference ? `${reference.applicationId} (${reference.subjectDomain})` : fallback;
+}
+
+/** The state of a grant in the user's list. The home domain cannot renew a
+ * grant after its current expiry, so a renewal window that is still open
+ * does not keep an expired grant active. */
+export function actAsGrantState(grant: { expiresAt: string; revokedAt?: string }, now: Date): "revoked" | "expired" | "active" {
+  if (grant.revokedAt) return "revoked";
+  return Date.parse(grant.expiresAt) <= now.getTime() ? "expired" : "active";
+}
+
+/** The short name a person reads first for one consent-screen party. */
+export function partyTitle(party: { domain?: string; localRpName?: string }): string {
+  return party.domain ?? party.localRpName ?? "An application";
+}
+
+/** Plain sentences for a party's trust signals, strongest first. */
+export function partyTrustNotes(party: { ownDomain: boolean; userHasHistory: boolean; domainKeyPinned: boolean; operatorTrusted: boolean; domain?: string }): string[] {
+  const notes: string[] = [];
+  if (party.ownDomain) notes.push("This is this site's own domain.");
+  if (party.userHasHistory) notes.push("You have used this before.");
+  if (party.domain && party.domainKeyPinned && !party.ownDomain) notes.push("This site has seen this domain before.");
+  if (party.operatorTrusted) notes.push(party.domain ? "This site's operator trusts this domain." : "This site's operator approved this application.");
+  if (notes.length === 0) notes.push("New to you and to this site. Check the name carefully.");
+  return notes;
+}

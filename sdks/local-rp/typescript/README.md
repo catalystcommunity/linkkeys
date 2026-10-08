@@ -48,11 +48,12 @@ const storedBytes = localRpIdentityToBytes(identity);
 
 // Later, per login attempt:
 const restored = localRpIdentityFromBytes(storedBytes);
-const { redirect, pending } = beginLocalLogin({
+const { redirect, pending } = await beginLocalLogin({
   keyMaterial: restored,
   callbackUrl: "http://jukebox.lan:8080/auth/callback",
   userDomain: "alice@example.com", // a full login prefills alice; a bare domain only selects the IDP
   now: new Date(),
+  // dns: myDnsResolver, // optional; defaults to the system resolver
 });
 // Persist `pending` (it's plain JSON-serializable data — put it in a
 // server-side session tied to the browser), then redirect the user's
@@ -92,6 +93,69 @@ database writes, or local user authorization."* Concretely, the app owns:
   performs an HTTP redirect, opens a browser, or otherwise assumes how your
   app is shaped (server-rendered web app, LAN web UI, desktop app driving an
   embedded browser view, etc.).
+
+## Browser endpoint discovery
+
+`beginLocalLogin` is `async`. It does one DNS TXT lookup of
+`_linkkeys_apis.<domain>` (the identity domain). The `https=` value of the
+first valid `v=lk1` record names the browser-facing host. The redirect URL
+uses that host. A path prefix in the `https=` value is kept. The identity
+domain stays in `pending.userDomain`. Verification binds to the identity
+domain, never to the discovered host.
+
+Pass `dns` to inject a `DnsResolver`. Omit it to use the system resolver
+(`defaultDnsResolver()`).
+
+The lookup never fails the call. The redirect falls back to
+`https://<domain>` when:
+
+- the DNS lookup fails,
+- no valid record has an `https=` value, or
+- the discovered base is not valid (not `https`, no host, or it carries
+  userinfo, a query, or a fragment).
+
+The helpers are exported for regular-RP glue too: `resolveBrowserBase(dns,
+identityDomain)` returns the base, and `buildBrowserEndpoint(base, route,
+signedRequest)` builds the URL for `BROWSER_ROUTE_LOCAL_RP` or
+`BROWSER_ROUTE_AUTHORIZE`.
+
+## Act-as grants
+
+An act-as grant lets this app act as a user at an enrolled application (the
+audience). The user approves the grant at the user's home domain. The home
+domain signs it. The protocol is in
+[`docs/spec/reserved/act-as-grants.md`](../../../docs/spec/reserved/act-as-grants.md).
+It is Reserved and can change.
+
+A local RP can be a grantee only. A local RP can be a grantee only after its
+home domain approved it. A local RP cannot be an audience, because a peer
+cannot find its keys through DNS.
+
+The descriptor signing key signs every request and presentation. The proof
+carries the signed descriptor.
+
+1. Get the audience's `SignedActAsScopeSet` as CBOR bytes. The format of
+   that exchange is between this app and the audience.
+2. Call `beginActAs({ keyMaterial, userDomain, scopeSet, callbackUrl, now })`.
+   Optional fields: `requestedLifetimeSeconds`,
+   `requestedRenewalWindowSeconds`, `dns`, and `requestWindowSeconds`
+   (default 300, maximum 900). Keep the returned `pending`. Send the browser
+   to `redirect.redirectUrl`. Browser endpoint discovery and its fallback are
+   the same as for `beginLocalLogin`. The route is `/auth/act-as`.
+3. On the callback, call `completeActAsCallback(pending, arrivedUrl)`. It
+   compares the `nonce` in constant time and returns `act_as_grant_id`. Use
+   `pending` one time only.
+4. Call `refreshActAsGrant({ keyMaterial, userDomain: pending.userDomain,
+   grantId, now })` to get the grant. It calls `ActAs/refresh-grant` over the
+   same pinned TCP path as claim-ticket redemption. It returns
+   `{ grant, signed }`. Call it again when less than half of the grant's life
+   remains.
+5. For each call to the audience, call `presentActAs({ grant, audience,
+   requestDigest, now, nonce, keyMaterial })`. Send `credentialCbor` with the
+   call. The audience defines `requestDigest`. Use a new random `nonce` for
+   each call.
+
+The SDK does not verify the grant. The audience verifies it.
 
 ## Security notes
 

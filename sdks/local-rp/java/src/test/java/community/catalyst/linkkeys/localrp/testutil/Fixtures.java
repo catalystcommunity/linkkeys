@@ -11,9 +11,18 @@ public final class Fixtures {
     private Fixtures() {}
 
     public static MiniJson.JsonValue load(String name) {
-        String dir = System.getProperty("linkkeys.conformanceDir");
+        return loadFrom("linkkeys.conformanceDir", name);
+    }
+
+    /** Loads {@code sdks/regular-rp/conformance/*.json} (the act-as grantee vectors live there). */
+    public static MiniJson.JsonValue loadRegularRp(String name) {
+        return loadFrom("linkkeys.regularRpConformanceDir", name);
+    }
+
+    private static MiniJson.JsonValue loadFrom(String property, String name) {
+        String dir = System.getProperty(property);
         if (dir == null) {
-            throw new IllegalStateException("system property linkkeys.conformanceDir is not set (run via gradle test)");
+            throw new IllegalStateException("system property " + property + " is not set (run via gradle test)");
         }
         Path path = Path.of(dir, name);
         try {

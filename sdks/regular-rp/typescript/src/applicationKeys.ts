@@ -177,9 +177,10 @@ export function verifyAttestationSignature(
 
 /** One application public key as the verifying side knows it, built from an
  * attested record (mirrors `application_keys::ApplicationKeyRef`, the
- * subset this module needs — always built from an ALREADY-attested key, so
- * `revokedAt` starts unset here; revocation is layered on separately by
- * `verifyApplicationKeySet`). */
+ * subset this module needs). `attestedKeyRef` leaves `revokedAt` unset;
+ * `verifyApplicationKeySet` layers revocation on separately. A caller that
+ * already knows a revocation instant (for example, the act-as checks in
+ * `actAs.ts`) can set it. */
 export interface ApplicationKeyRef {
   keyId: string;
   keyUsage: string;
@@ -188,6 +189,8 @@ export interface ApplicationKeyRef {
   fingerprint: string;
   createdAt: string;
   expiresAt: string;
+  /** When the key stopped being valid. An unparsable value means invalid. */
+  revokedAt?: string;
 }
 
 function wasValidAt(key: ApplicationKeyRef, at: Date): boolean {
@@ -195,6 +198,10 @@ function wasValidAt(key: ApplicationKeyRef, at: Date): boolean {
   const expires = Date.parse(key.expiresAt);
   if (Number.isFinite(created) && created > at.getTime()) return false;
   if (!Number.isFinite(expires) || expires <= at.getTime()) return false;
+  if (key.revokedAt !== undefined) {
+    const revoked = Date.parse(key.revokedAt);
+    if (!Number.isFinite(revoked) || revoked <= at.getTime()) return false;
+  }
   return true;
 }
 

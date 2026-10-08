@@ -1433,3 +1433,234 @@ end
 # revocations_checked_at [String]
 # cache_status [String]
 RpResolveApplicationKeysResponse = Data.define(:subject_user_id, :subject_domain, :application_id, :instance_id, :application_keys, :application_key_revocations, :home_domain_keys, :home_domain_key_revocations, :fetched_at, :revocations_checked_at, :cache_status)
+
+# subject_user_id [String]
+# subject_domain [String]
+# application_id [String]
+ApplicationRef = Data.define(:subject_user_id, :subject_domain, :application_id)
+
+# application [ApplicationRef]
+# local_rp_descriptor_fingerprint [String]
+GranteeRef = Data.define(:application, :local_rp_descriptor_fingerprint) do
+  def initialize(application: nil, local_rp_descriptor_fingerprint: nil)
+    super
+  end
+end
+
+# application_instance_id [String]
+# local_rp_descriptor [SignedLocalRpDescriptor]
+# signature [ApplicationKeySignature]
+GranteeProof = Data.define(:application_instance_id, :local_rp_descriptor, :signature) do
+  def initialize(signature:, application_instance_id: nil, local_rp_descriptor: nil)
+    super
+  end
+end
+
+# scope [String]
+# description [String]
+ActAsScopeEntry = Data.define(:scope, :description) do
+  def initialize(scope:, description: nil)
+    super
+  end
+end
+
+# audience [ApplicationRef]
+# grantee [GranteeRef]
+# entries [Array<ActAsScopeEntry>]
+# language [String]
+# audience_handle_claim [Claim]
+# issued_at [String]
+# expires_at [String]
+ActAsScopeSet = Data.define(:audience, :grantee, :entries, :language, :audience_handle_claim, :issued_at, :expires_at) do
+  def initialize(audience:, grantee:, entries:, issued_at:, expires_at:, language: nil, audience_handle_claim: nil)
+    super
+  end
+end
+
+# scope_set [String]
+# signer_instance_id [String]
+# signatures [Array<ApplicationKeySignature>]
+SignedActAsScopeSet = Data.define(:scope_set, :signer_instance_id, :signatures)
+
+# grantee [GranteeRef]
+# scope [Array<String>]
+# locale_preferences [Array<String>]
+ActAsScopeSetRequest = Data.define(:grantee, :scope, :locale_preferences) do
+  def initialize(grantee:, scope:, locale_preferences: nil)
+    super
+  end
+end
+
+# grant_id [String]
+# user_id [String]
+# subject_domain [String]
+# grantee [GranteeRef]
+# audience [ApplicationRef]
+# scope_set [SignedActAsScopeSet]
+# approved_scope [Array<String>]
+# issued_at [String]
+# expires_at [String]
+# series_issued_at [String]
+# renewable_until [String]
+# device_fingerprint [String]
+ActAsGrant = Data.define(:grant_id, :user_id, :subject_domain, :grantee, :audience, :scope_set, :approved_scope, :issued_at, :expires_at, :series_issued_at, :renewable_until, :device_fingerprint) do
+  def initialize(grant_id:, user_id:, subject_domain:, grantee:, audience:, scope_set:, approved_scope:, issued_at:, expires_at:, series_issued_at:, renewable_until:, device_fingerprint: nil)
+    super
+  end
+end
+
+# grant [String]
+# signatures [Array<ClaimSignature>]
+SignedActAsGrant = Data.define(:grant, :signatures)
+
+# grantee [GranteeRef]
+# scope_set [SignedActAsScopeSet]
+# requested_lifetime_seconds [Integer]
+# requested_renewal_window_seconds [Integer]
+# grantee_handle_claim [Claim]
+# callback_url [String]
+# nonce [String]
+# requested_at [String]
+# expires_at [String]
+ActAsGrantRequest = Data.define(:grantee, :scope_set, :requested_lifetime_seconds, :requested_renewal_window_seconds, :grantee_handle_claim, :callback_url, :nonce, :requested_at, :expires_at) do
+  def initialize(grantee:, scope_set:, callback_url:, nonce:, requested_at:, expires_at:, requested_lifetime_seconds: nil, requested_renewal_window_seconds: nil, grantee_handle_claim: nil)
+    super
+  end
+end
+
+# request [String]
+# proof [GranteeProof]
+SignedActAsGrantRequest = Data.define(:request, :proof)
+
+# grant_id [String]
+# grantee [GranteeRef]
+# requested_at [String]
+# expires_at [String]
+# nonce [String]
+ActAsRefreshRequest = Data.define(:grant_id, :grantee, :requested_at, :expires_at, :nonce)
+
+# request [String]
+# proof [GranteeProof]
+SignedActAsRefreshRequest = Data.define(:request, :proof)
+
+# request [SignedActAsRefreshRequest]
+RefreshActAsGrantRequest = Data.define(:request)
+
+# grant [SignedActAsGrant]
+# signed [Boolean]
+RefreshActAsGrantResponse = Data.define(:grant, :signed)
+
+# grant_hash [String]
+# audience [ApplicationRef]
+# request_digest [String]
+# presented_at [String]
+# nonce [String]
+ActAsPresentation = Data.define(:grant_hash, :audience, :request_digest, :presented_at, :nonce)
+
+# presentation [String]
+# proof [GranteeProof]
+SignedActAsPresentation = Data.define(:presentation, :proof)
+
+# grant [SignedActAsGrant]
+# presentation [SignedActAsPresentation]
+ActAsCredential = Data.define(:grant, :presentation)
+
+# grant_id [String]
+# user_id [String]
+# subject_domain [String]
+# revoked_at [String]
+ActAsGrantRevocation = Data.define(:grant_id, :user_id, :subject_domain, :revoked_at)
+
+# revocation [String]
+# signatures [Array<ClaimSignature>]
+SignedActAsGrantRevocation = Data.define(:revocation, :signatures)
+
+# grant_ids [Array<String>]
+GetActAsGrantRevocationsRequest = Data.define(:grant_ids)
+
+# revocations [Array<SignedActAsGrantRevocation>]
+GetActAsGrantRevocationsResponse = Data.define(:revocations)
+
+# subject_domain [String]
+# request [SignedActAsRefreshRequest]
+RpActAsRefreshRequest = Data.define(:subject_domain, :request)
+
+# subject_domain [String]
+# grant_ids [Array<String>]
+RpResolveActAsRevocationsRequest = Data.define(:subject_domain, :grant_ids)
+
+# signed_request [String]
+BrowserActAsInspectRequest = Data.define(:signed_request)
+
+# scope [String]
+# description [String]
+# removed_by_policy [Boolean]
+BrowserActAsScopeEntry = Data.define(:scope, :description, :removed_by_policy) do
+  def initialize(scope:, removed_by_policy:, description: nil)
+    super
+  end
+end
+
+# domain [String]
+# application_id [String]
+# subject_user_id [String]
+# handle [String]
+# local_rp_name [String]
+# local_rp_fingerprint [String]
+# own_domain [Boolean]
+# user_has_history [Boolean]
+# domain_key_pinned [Boolean]
+# operator_trusted [Boolean]
+BrowserActAsParty = Data.define(:domain, :application_id, :subject_user_id, :handle, :local_rp_name, :local_rp_fingerprint, :own_domain, :user_has_history, :domain_key_pinned, :operator_trusted) do
+  def initialize(own_domain:, user_has_history:, domain_key_pinned:, operator_trusted:, domain: nil, application_id: nil, subject_user_id: nil, handle: nil, local_rp_name: nil, local_rp_fingerprint: nil)
+    super
+  end
+end
+
+# grantee [GranteeRef]
+# grantee_party [BrowserActAsParty]
+# audience [ApplicationRef]
+# audience_party [BrowserActAsParty]
+# entries [Array<BrowserActAsScopeEntry>]
+# language [String]
+# default_lifetime_seconds [Integer]
+# max_lifetime_seconds [Integer]
+# default_renewal_window_seconds [Integer]
+# max_renewal_window_seconds [Integer]
+BrowserActAsInspectResponse = Data.define(:grantee, :grantee_party, :audience, :audience_party, :entries, :language, :default_lifetime_seconds, :max_lifetime_seconds, :default_renewal_window_seconds, :max_renewal_window_seconds) do
+  def initialize(grantee:, grantee_party:, audience:, audience_party:, entries:, default_lifetime_seconds:, max_lifetime_seconds:, default_renewal_window_seconds:, max_renewal_window_seconds:, language: nil)
+    super
+  end
+end
+
+# signed_request [String]
+# approved_scope [Array<String>]
+# lifetime_seconds [Integer]
+# renewal_window_seconds [Integer]
+BrowserActAsCompleteRequest = Data.define(:signed_request, :approved_scope, :lifetime_seconds, :renewal_window_seconds)
+
+# redirect_url [String]
+BrowserActAsCompleteResponse = Data.define(:redirect_url)
+
+# grant_id [String]
+# grantee [GranteeRef]
+# audience [ApplicationRef]
+# approved_scope [Array<String>]
+# issued_at [String]
+# expires_at [String]
+# renewable_until [String]
+# revoked_at [String]
+ActAsGrantSummary = Data.define(:grant_id, :grantee, :audience, :approved_scope, :issued_at, :expires_at, :renewable_until, :revoked_at) do
+  def initialize(grant_id:, grantee:, audience:, approved_scope:, issued_at:, expires_at:, renewable_until:, revoked_at: nil)
+    super
+  end
+end
+
+# grants [Array<ActAsGrantSummary>]
+ListActAsGrantsResponse = Data.define(:grants)
+
+# grant_id [String]
+RevokeActAsGrantRequest = Data.define(:grant_id)
+
+# revoked_at [String]
+RevokeActAsGrantResponse = Data.define(:revoked_at)

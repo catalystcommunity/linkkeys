@@ -1065,3 +1065,195 @@ and rp_resolve_application_keys_response = {
   revocations_checked_at : string;
   cache_status : string;
 }
+
+and application_ref = {
+  subject_user_id : string;
+  subject_domain : string;
+  application_id : string;
+}
+
+and grantee_ref = {
+  application : application_ref option;
+  local_rp_descriptor_fingerprint : string option;
+}
+
+and grantee_proof = {
+  application_instance_id : string option;
+  local_rp_descriptor : signed_local_rp_descriptor option;
+  signature : application_key_signature;
+}
+
+and act_as_scope_entry = { scope : string; description : string option }
+
+and act_as_scope_set = {
+  audience : application_ref;
+  grantee : grantee_ref;
+  entries : act_as_scope_entry list;
+  language : string option;
+  audience_handle_claim : claim option;
+  issued_at : string;
+  expires_at : string;
+}
+
+and signed_act_as_scope_set = {
+  scope_set : bytes;
+  signer_instance_id : string;
+  signatures : application_key_signature list;
+}
+
+and act_as_scope_set_request = {
+  grantee : grantee_ref;
+  scope : string list;
+  locale_preferences : string list option;
+}
+
+and act_as_grant = {
+  grant_id : string;
+  user_id : string;
+  subject_domain : string;
+  grantee : grantee_ref;
+  audience : application_ref;
+  scope_set : signed_act_as_scope_set;
+  approved_scope : string list;
+  issued_at : string;
+  expires_at : string;
+  series_issued_at : string;
+  renewable_until : string;
+  device_fingerprint : string option;
+}
+
+and signed_act_as_grant = { grant : bytes; signatures : claim_signature list }
+
+and act_as_grant_request = {
+  grantee : grantee_ref;
+  scope_set : signed_act_as_scope_set;
+  requested_lifetime_seconds : int64 option;
+  requested_renewal_window_seconds : int64 option;
+  grantee_handle_claim : claim option;
+  callback_url : string;
+  nonce : string;
+  requested_at : string;
+  expires_at : string;
+}
+
+and signed_act_as_grant_request = { request : bytes; proof : grantee_proof }
+
+and act_as_refresh_request = {
+  grant_id : string;
+  grantee : grantee_ref;
+  requested_at : string;
+  expires_at : string;
+  nonce : string;
+}
+
+and signed_act_as_refresh_request = { request : bytes; proof : grantee_proof }
+and refresh_act_as_grant_request = { request : signed_act_as_refresh_request }
+
+and refresh_act_as_grant_response = {
+  grant : signed_act_as_grant;
+  signed : bool;
+}
+
+and act_as_presentation = {
+  grant_hash : bytes;
+  audience : application_ref;
+  request_digest : bytes;
+  presented_at : string;
+  nonce : bytes;
+}
+
+and signed_act_as_presentation = {
+  presentation : bytes;
+  proof : grantee_proof;
+}
+
+and act_as_credential = {
+  grant : signed_act_as_grant;
+  presentation : signed_act_as_presentation;
+}
+
+and act_as_grant_revocation = {
+  grant_id : string;
+  user_id : string;
+  subject_domain : string;
+  revoked_at : string;
+}
+
+and signed_act_as_grant_revocation = {
+  revocation : bytes;
+  signatures : claim_signature list;
+}
+
+and get_act_as_grant_revocations_request = { grant_ids : string list }
+
+and get_act_as_grant_revocations_response = {
+  revocations : signed_act_as_grant_revocation list;
+}
+
+and rp_act_as_refresh_request = {
+  subject_domain : string;
+  request : signed_act_as_refresh_request;
+}
+
+and rp_resolve_act_as_revocations_request = {
+  subject_domain : string;
+  grant_ids : string list;
+}
+
+and browser_act_as_inspect_request = { signed_request : string }
+
+and browser_act_as_scope_entry = {
+  scope : string;
+  description : string option;
+  removed_by_policy : bool;
+}
+
+and browser_act_as_party = {
+  domain : string option;
+  application_id : string option;
+  subject_user_id : string option;
+  handle : string option;
+  local_rp_name : string option;
+  local_rp_fingerprint : string option;
+  own_domain : bool;
+  user_has_history : bool;
+  domain_key_pinned : bool;
+  operator_trusted : bool;
+}
+
+and browser_act_as_inspect_response = {
+  grantee : grantee_ref;
+  grantee_party : browser_act_as_party;
+  audience : application_ref;
+  audience_party : browser_act_as_party;
+  entries : browser_act_as_scope_entry list;
+  language : string option;
+  default_lifetime_seconds : int64;
+  max_lifetime_seconds : int64;
+  default_renewal_window_seconds : int64;
+  max_renewal_window_seconds : int64;
+}
+
+and browser_act_as_complete_request = {
+  signed_request : string;
+  approved_scope : string list;
+  lifetime_seconds : int64;
+  renewal_window_seconds : int64;
+}
+
+and browser_act_as_complete_response = { redirect_url : string }
+
+and act_as_grant_summary = {
+  grant_id : string;
+  grantee : grantee_ref;
+  audience : application_ref;
+  approved_scope : string list;
+  issued_at : string;
+  expires_at : string;
+  renewable_until : string;
+  revoked_at : string option;
+}
+
+and list_act_as_grants_response = { grants : act_as_grant_summary list }
+and revoke_act_as_grant_request = { grant_id : string }
+and revoke_act_as_grant_response = { revoked_at : string }

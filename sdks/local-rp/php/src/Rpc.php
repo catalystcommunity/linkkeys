@@ -8,6 +8,8 @@ use Csilgen\Generated\DomainPublicKey;
 use Csilgen\Generated\EmptyRequest;
 use Csilgen\Generated\GetRevocationsRequest;
 use Csilgen\Generated\LocalRpTicketRedemptionResponse;
+use Csilgen\Generated\RefreshActAsGrantResponse;
+use Csilgen\Generated\SignedActAsRefreshRequest;
 use Csilgen\Generated\SignedLocalRpTicketRedemptionRequest;
 
 /**
@@ -302,6 +304,21 @@ final class Rpc
         $payload = Wire::encodeSignedLocalRpTicketRedemptionRequest($signedRequest);
         $respBytes = self::call($transport, $endpoint, 'LocalRp', 'redeem-claim-ticket', $payload);
         return Wire::decodeLocalRpTicketRedemptionResponse($respBytes);
+    }
+
+    /**
+     * Fetch or renew an act-as grant at `$domain` (the user's home domain):
+     * `ActAs/refresh-grant` over TCP CSIL-RPC, pinned via the domain's DNS
+     * `fp=` set — the same discovery and pinned path as
+     * {@see self::redeemClaimTicket}. The signed refresh request is the
+     * grantee's possession proof.
+     */
+    public static function refreshActAsGrant(Transport $transport, DnsResolver $dns, string $domain, SignedActAsRefreshRequest $signedRequest): RefreshActAsGrantResponse
+    {
+        $endpoint = self::discoverDomainEndpoint($dns, $domain);
+        $payload = ActAsWire::encodeRefreshActAsGrantRequest($signedRequest);
+        $respBytes = self::call($transport, $endpoint, 'ActAs', 'refresh-grant', $payload);
+        return ActAsWire::decodeRefreshActAsGrantResponse($respBytes);
     }
 }
 

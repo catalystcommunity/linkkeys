@@ -167,6 +167,10 @@ public sealed class BrowserAuthorizationClient(ICsilTransport transport)
         Codec.Decode<BrowserAuthorizationInspectResponse>(transport.Call("BrowserAuthorization", "inspect", Codec.Encode(browserAuthorizationInspectRequest)));
     public BrowserAuthorizationCompleteResponse Complete(BrowserAuthorizationCompleteRequest browserAuthorizationCompleteRequest) =>
         Codec.Decode<BrowserAuthorizationCompleteResponse>(transport.Call("BrowserAuthorization", "complete", Codec.Encode(browserAuthorizationCompleteRequest)));
+    public BrowserActAsInspectResponse InspectActAs(BrowserActAsInspectRequest browserActAsInspectRequest) =>
+        Codec.Decode<BrowserActAsInspectResponse>(transport.Call("BrowserAuthorization", "inspect-act-as", Codec.Encode(browserActAsInspectRequest)));
+    public BrowserActAsCompleteResponse CompleteActAs(BrowserActAsCompleteRequest browserActAsCompleteRequest) =>
+        Codec.Decode<BrowserActAsCompleteResponse>(transport.Call("BrowserAuthorization", "complete-act-as", Codec.Encode(browserActAsCompleteRequest)));
 }
 
 /// <summary>Typed RPC client for the Admin service. The client owns
@@ -297,6 +301,10 @@ public sealed class AccountClient(ICsilTransport transport)
         Codec.Decode<ConfirmContactVerificationResponse>(transport.Call("Account", "confirm-contact-verification", Codec.Encode(confirmContactVerificationRequest)));
     public EnrollApplicationInstanceResponse EnrollApplicationInstance(EnrollApplicationInstanceRequest enrollApplicationInstanceRequest) =>
         Codec.Decode<EnrollApplicationInstanceResponse>(transport.Call("Account", "enroll-application-instance", Codec.Encode(enrollApplicationInstanceRequest)));
+    public ListActAsGrantsResponse ListActAsGrants(EmptyRequest emptyRequest) =>
+        Codec.Decode<ListActAsGrantsResponse>(transport.Call("Account", "list-act-as-grants", Codec.Encode(emptyRequest)));
+    public RevokeActAsGrantResponse RevokeActAsGrant(RevokeActAsGrantRequest revokeActAsGrantRequest) =>
+        Codec.Decode<RevokeActAsGrantResponse>(transport.Call("Account", "revoke-act-as-grant", Codec.Encode(revokeActAsGrantRequest)));
 }
 
 /// <summary>Typed RPC client for the Attestation service. The client owns
@@ -325,6 +333,20 @@ public sealed class RpClient(ICsilTransport transport)
         Codec.Decode<RpResolveDomainKeysResponse>(transport.Call("Rp", "resolve-domain-keys", Codec.Encode(rpResolveDomainKeysRequest)));
     public RpResolveApplicationKeysResponse ResolveApplicationKeys(RpResolveApplicationKeysRequest rpResolveApplicationKeysRequest) =>
         Codec.Decode<RpResolveApplicationKeysResponse>(transport.Call("Rp", "resolve-application-keys", Codec.Encode(rpResolveApplicationKeysRequest)));
+    public RefreshActAsGrantResponse ActAsRefreshGrant(RpActAsRefreshRequest rpActAsRefreshRequest) =>
+        Codec.Decode<RefreshActAsGrantResponse>(transport.Call("Rp", "act-as-refresh-grant", Codec.Encode(rpActAsRefreshRequest)));
+    public GetActAsGrantRevocationsResponse ResolveActAsRevocations(RpResolveActAsRevocationsRequest rpResolveActAsRevocationsRequest) =>
+        Codec.Decode<GetActAsGrantRevocationsResponse>(transport.Call("Rp", "resolve-act-as-revocations", Codec.Encode(rpResolveActAsRevocationsRequest)));
+}
+
+/// <summary>Typed RPC client for the ActAs service. The client owns
+/// (de)serialization via the generated codec; the transport only moves bytes.</summary>
+public sealed class ActAsClient(ICsilTransport transport)
+{
+    public RefreshActAsGrantResponse RefreshGrant(RefreshActAsGrantRequest refreshActAsGrantRequest) =>
+        Codec.Decode<RefreshActAsGrantResponse>(transport.Call("ActAs", "refresh-grant", Codec.Encode(refreshActAsGrantRequest)));
+    public GetActAsGrantRevocationsResponse GetGrantRevocations(GetActAsGrantRevocationsRequest getActAsGrantRevocationsRequest) =>
+        Codec.Decode<GetActAsGrantRevocationsResponse>(transport.Call("ActAs", "get-grant-revocations", Codec.Encode(getActAsGrantRevocationsRequest)));
 }
 
 /// <summary>Typed RPC client for the LocalRp service. The client owns

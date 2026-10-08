@@ -166,6 +166,12 @@ object CsilCbor {
         throw CborError("invalid UTF-8 text string")
     }
 
+    // PREALLOC_LIMIT bounds the elements a decoded array or map reserves before it reads
+    // them. The declared length is checked against the remaining input, but one input
+    // byte can become a much larger value, so reserving the full declared length lets a
+    // small frame reserve a large multiple of its size at every nesting level.
+    private const val PREALLOC_LIMIT = 1024
+
     private fun dec(cur: Cursor, depth: Int): CborValue {
         if (depth > 64) throw CborError("CBOR nesting limit exceeded")
         if (cur.pos >= cur.b.size) throw CborError("unexpected end of CBOR input")
@@ -221,14 +227,14 @@ object CsilCbor {
             4 -> {
                 if (arg > (cur.b.size - cur.pos).toULong()) throw CborError("array length exceeds remaining input")
                 val n = arg.toInt()
-                val items = ArrayList<CborValue>(n)
+                val items = ArrayList<CborValue>(minOf(n, PREALLOC_LIMIT))
                 repeat(n) { items.add(dec(cur, depth + 1)) }
                 CborValue.CArray(items)
             }
             5 -> {
                 if (arg > (cur.b.size - cur.pos).toULong()) throw CborError("map length exceeds remaining input")
                 val n = arg.toInt()
-                val entries = ArrayList<Pair<CborValue, CborValue>>(n)
+                val entries = ArrayList<Pair<CborValue, CborValue>>(minOf(n, PREALLOC_LIMIT))
                 repeat(n) {
                     val k = dec(cur, depth + 1)
                     val value = dec(cur, depth + 1)
@@ -5859,6 +5865,822 @@ fun rpResolveApplicationKeysResponseFromCborValue(cbor: CborValue): RpResolveApp
 /** Decode CSIL CBOR bytes into a RpResolveApplicationKeysResponse. */
 fun rpResolveApplicationKeysResponseFromCbor(bytes: ByteArray): RpResolveApplicationKeysResponse = rpResolveApplicationKeysResponseFromCborValue(CsilCbor.decode(bytes))
 
+/** The CBOR value tree for a ApplicationRef (deep, canonical key order). */
+fun ApplicationRef.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("application_id") to CborValue.CText(this.applicationId))
+    csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
+    csilEntries.add(CborValue.CText("subject_user_id") to CborValue.CText(this.subjectUserId))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a ApplicationRef to canonical CSIL CBOR bytes. */
+fun ApplicationRef.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a ApplicationRef from a decoded CBOR value tree. */
+fun applicationRefFromCborValue(cbor: CborValue): ApplicationRef {
+    val subjectUserId = CsilCbor.asText(CsilCbor.require(cbor, "subject_user_id"))
+    val subjectDomain = CsilCbor.asText(CsilCbor.require(cbor, "subject_domain"))
+    val applicationId = CsilCbor.asText(CsilCbor.require(cbor, "application_id"))
+    return ApplicationRef(subjectUserId = subjectUserId, subjectDomain = subjectDomain, applicationId = applicationId)
+}
+
+/** Decode CSIL CBOR bytes into a ApplicationRef. */
+fun applicationRefFromCbor(bytes: ByteArray): ApplicationRef = applicationRefFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a GranteeRef (deep, canonical key order). */
+fun GranteeRef.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    this.application?.let { csilV -> csilEntries.add(CborValue.CText("application") to csilV.toCborValue()) }
+    this.localRpDescriptorFingerprint?.let { csilV -> csilEntries.add(CborValue.CText("local_rp_descriptor_fingerprint") to CborValue.CText(csilV)) }
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a GranteeRef to canonical CSIL CBOR bytes. */
+fun GranteeRef.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a GranteeRef from a decoded CBOR value tree. */
+fun granteeRefFromCborValue(cbor: CborValue): GranteeRef {
+    val application = CsilCbor.mapGet(cbor, "application")?.let { csilV -> applicationRefFromCborValue(csilV) }
+    val localRpDescriptorFingerprint = CsilCbor.mapGet(cbor, "local_rp_descriptor_fingerprint")?.let { csilV -> CsilCbor.asText(csilV) }
+    return GranteeRef(application = application, localRpDescriptorFingerprint = localRpDescriptorFingerprint)
+}
+
+/** Decode CSIL CBOR bytes into a GranteeRef. */
+fun granteeRefFromCbor(bytes: ByteArray): GranteeRef = granteeRefFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a GranteeProof (deep, canonical key order). */
+fun GranteeProof.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("signature") to this.signature.toCborValue())
+    this.localRpDescriptor?.let { csilV -> csilEntries.add(CborValue.CText("local_rp_descriptor") to csilV.toCborValue()) }
+    this.applicationInstanceId?.let { csilV -> csilEntries.add(CborValue.CText("application_instance_id") to CborValue.CText(csilV)) }
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a GranteeProof to canonical CSIL CBOR bytes. */
+fun GranteeProof.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a GranteeProof from a decoded CBOR value tree. */
+fun granteeProofFromCborValue(cbor: CborValue): GranteeProof {
+    val applicationInstanceId = CsilCbor.mapGet(cbor, "application_instance_id")?.let { csilV -> CsilCbor.asText(csilV) }
+    val localRpDescriptor = CsilCbor.mapGet(cbor, "local_rp_descriptor")?.let { csilV -> signedLocalRpDescriptorFromCborValue(csilV) }
+    val signature = applicationKeySignatureFromCborValue(CsilCbor.require(cbor, "signature"))
+    return GranteeProof(applicationInstanceId = applicationInstanceId, localRpDescriptor = localRpDescriptor, signature = signature)
+}
+
+/** Decode CSIL CBOR bytes into a GranteeProof. */
+fun granteeProofFromCbor(bytes: ByteArray): GranteeProof = granteeProofFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a ActAsScopeEntry (deep, canonical key order). */
+fun ActAsScopeEntry.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("scope") to CborValue.CText(this.scope))
+    this.description?.let { csilV -> csilEntries.add(CborValue.CText("description") to CborValue.CText(csilV)) }
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a ActAsScopeEntry to canonical CSIL CBOR bytes. */
+fun ActAsScopeEntry.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a ActAsScopeEntry from a decoded CBOR value tree. */
+fun actAsScopeEntryFromCborValue(cbor: CborValue): ActAsScopeEntry {
+    val scope = CsilCbor.asText(CsilCbor.require(cbor, "scope"))
+    val description = CsilCbor.mapGet(cbor, "description")?.let { csilV -> CsilCbor.asText(csilV) }
+    return ActAsScopeEntry(scope = scope, description = description)
+}
+
+/** Decode CSIL CBOR bytes into a ActAsScopeEntry. */
+fun actAsScopeEntryFromCbor(bytes: ByteArray): ActAsScopeEntry = actAsScopeEntryFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a ActAsScopeSet (deep, canonical key order). */
+fun ActAsScopeSet.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("entries") to CborValue.CArray((this.entries).map { csilE -> csilE.toCborValue() }))
+    csilEntries.add(CborValue.CText("grantee") to this.grantee.toCborValue())
+    csilEntries.add(CborValue.CText("audience") to this.audience.toCborValue())
+    this.language?.let { csilV -> csilEntries.add(CborValue.CText("language") to CborValue.CText(csilV)) }
+    csilEntries.add(CborValue.CText("issued_at") to CborValue.CText(this.issuedAt))
+    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    this.audienceHandleClaim?.let { csilV -> csilEntries.add(CborValue.CText("audience_handle_claim") to csilV.toCborValue()) }
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a ActAsScopeSet to canonical CSIL CBOR bytes. */
+fun ActAsScopeSet.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a ActAsScopeSet from a decoded CBOR value tree. */
+fun actAsScopeSetFromCborValue(cbor: CborValue): ActAsScopeSet {
+    val audience = applicationRefFromCborValue(CsilCbor.require(cbor, "audience"))
+    val grantee = granteeRefFromCborValue(CsilCbor.require(cbor, "grantee"))
+    val entries = CsilCbor.asArray(CsilCbor.require(cbor, "entries")).map { csilE -> actAsScopeEntryFromCborValue(csilE) }
+    val language = CsilCbor.mapGet(cbor, "language")?.let { csilV -> CsilCbor.asText(csilV) }
+    val audienceHandleClaim = CsilCbor.mapGet(cbor, "audience_handle_claim")?.let { csilV -> claimFromCborValue(csilV) }
+    val issuedAt = CsilCbor.asText(CsilCbor.require(cbor, "issued_at"))
+    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    return ActAsScopeSet(audience = audience, grantee = grantee, entries = entries, language = language, audienceHandleClaim = audienceHandleClaim, issuedAt = issuedAt, expiresAt = expiresAt)
+}
+
+/** Decode CSIL CBOR bytes into a ActAsScopeSet. */
+fun actAsScopeSetFromCbor(bytes: ByteArray): ActAsScopeSet = actAsScopeSetFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a SignedActAsScopeSet (deep, canonical key order). */
+fun SignedActAsScopeSet.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("scope_set") to CborValue.CBytes(this.scopeSet))
+    csilEntries.add(CborValue.CText("signatures") to CborValue.CArray((this.signatures).map { csilE -> csilE.toCborValue() }))
+    csilEntries.add(CborValue.CText("signer_instance_id") to CborValue.CText(this.signerInstanceId))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a SignedActAsScopeSet to canonical CSIL CBOR bytes. */
+fun SignedActAsScopeSet.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a SignedActAsScopeSet from a decoded CBOR value tree. */
+fun signedActAsScopeSetFromCborValue(cbor: CborValue): SignedActAsScopeSet {
+    val scopeSet = CsilCbor.asBytes(CsilCbor.require(cbor, "scope_set"))
+    val signerInstanceId = CsilCbor.asText(CsilCbor.require(cbor, "signer_instance_id"))
+    val signatures = CsilCbor.asArray(CsilCbor.require(cbor, "signatures")).map { csilE -> applicationKeySignatureFromCborValue(csilE) }
+    return SignedActAsScopeSet(scopeSet = scopeSet, signerInstanceId = signerInstanceId, signatures = signatures)
+}
+
+/** Decode CSIL CBOR bytes into a SignedActAsScopeSet. */
+fun signedActAsScopeSetFromCbor(bytes: ByteArray): SignedActAsScopeSet = signedActAsScopeSetFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a ActAsScopeSetRequest (deep, canonical key order). */
+fun ActAsScopeSetRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("scope") to CborValue.CArray((this.scope).map { csilE -> CborValue.CText(csilE) }))
+    csilEntries.add(CborValue.CText("grantee") to this.grantee.toCborValue())
+    this.localePreferences?.let { csilV -> csilEntries.add(CborValue.CText("locale_preferences") to CborValue.CArray((csilV).map { csilE -> CborValue.CText(csilE) })) }
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a ActAsScopeSetRequest to canonical CSIL CBOR bytes. */
+fun ActAsScopeSetRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a ActAsScopeSetRequest from a decoded CBOR value tree. */
+fun actAsScopeSetRequestFromCborValue(cbor: CborValue): ActAsScopeSetRequest {
+    val grantee = granteeRefFromCborValue(CsilCbor.require(cbor, "grantee"))
+    val scope = CsilCbor.asArray(CsilCbor.require(cbor, "scope")).map { csilE -> CsilCbor.asText(csilE) }
+    val localePreferences = CsilCbor.mapGet(cbor, "locale_preferences")?.let { csilV -> CsilCbor.asArray(csilV).map { csilE -> CsilCbor.asText(csilE) } }
+    return ActAsScopeSetRequest(grantee = grantee, scope = scope, localePreferences = localePreferences)
+}
+
+/** Decode CSIL CBOR bytes into a ActAsScopeSetRequest. */
+fun actAsScopeSetRequestFromCbor(bytes: ByteArray): ActAsScopeSetRequest = actAsScopeSetRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a ActAsGrant (deep, canonical key order). */
+fun ActAsGrant.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("grantee") to this.grantee.toCborValue())
+    csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
+    csilEntries.add(CborValue.CText("audience") to this.audience.toCborValue())
+    csilEntries.add(CborValue.CText("grant_id") to CborValue.CText(this.grantId))
+    csilEntries.add(CborValue.CText("issued_at") to CborValue.CText(this.issuedAt))
+    csilEntries.add(CborValue.CText("scope_set") to this.scopeSet.toCborValue())
+    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("approved_scope") to CborValue.CArray((this.approvedScope).map { csilE -> CborValue.CText(csilE) }))
+    csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
+    csilEntries.add(CborValue.CText("renewable_until") to CborValue.CText(this.renewableUntil))
+    csilEntries.add(CborValue.CText("series_issued_at") to CborValue.CText(this.seriesIssuedAt))
+    this.deviceFingerprint?.let { csilV -> csilEntries.add(CborValue.CText("device_fingerprint") to CborValue.CText(csilV)) }
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a ActAsGrant to canonical CSIL CBOR bytes. */
+fun ActAsGrant.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a ActAsGrant from a decoded CBOR value tree. */
+fun actAsGrantFromCborValue(cbor: CborValue): ActAsGrant {
+    val grantId = CsilCbor.asText(CsilCbor.require(cbor, "grant_id"))
+    val userId = CsilCbor.asText(CsilCbor.require(cbor, "user_id"))
+    val subjectDomain = CsilCbor.asText(CsilCbor.require(cbor, "subject_domain"))
+    val grantee = granteeRefFromCborValue(CsilCbor.require(cbor, "grantee"))
+    val audience = applicationRefFromCborValue(CsilCbor.require(cbor, "audience"))
+    val scopeSet = signedActAsScopeSetFromCborValue(CsilCbor.require(cbor, "scope_set"))
+    val approvedScope = CsilCbor.asArray(CsilCbor.require(cbor, "approved_scope")).map { csilE -> CsilCbor.asText(csilE) }
+    val issuedAt = CsilCbor.asText(CsilCbor.require(cbor, "issued_at"))
+    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    val seriesIssuedAt = CsilCbor.asText(CsilCbor.require(cbor, "series_issued_at"))
+    val renewableUntil = CsilCbor.asText(CsilCbor.require(cbor, "renewable_until"))
+    val deviceFingerprint = CsilCbor.mapGet(cbor, "device_fingerprint")?.let { csilV -> CsilCbor.asText(csilV) }
+    return ActAsGrant(grantId = grantId, userId = userId, subjectDomain = subjectDomain, grantee = grantee, audience = audience, scopeSet = scopeSet, approvedScope = approvedScope, issuedAt = issuedAt, expiresAt = expiresAt, seriesIssuedAt = seriesIssuedAt, renewableUntil = renewableUntil, deviceFingerprint = deviceFingerprint)
+}
+
+/** Decode CSIL CBOR bytes into a ActAsGrant. */
+fun actAsGrantFromCbor(bytes: ByteArray): ActAsGrant = actAsGrantFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a SignedActAsGrant (deep, canonical key order). */
+fun SignedActAsGrant.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("grant") to CborValue.CBytes(this.grant))
+    csilEntries.add(CborValue.CText("signatures") to CborValue.CArray((this.signatures).map { csilE -> csilE.toCborValue() }))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a SignedActAsGrant to canonical CSIL CBOR bytes. */
+fun SignedActAsGrant.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a SignedActAsGrant from a decoded CBOR value tree. */
+fun signedActAsGrantFromCborValue(cbor: CborValue): SignedActAsGrant {
+    val grant = CsilCbor.asBytes(CsilCbor.require(cbor, "grant"))
+    val signatures = CsilCbor.asArray(CsilCbor.require(cbor, "signatures")).map { csilE -> claimSignatureFromCborValue(csilE) }
+    return SignedActAsGrant(grant = grant, signatures = signatures)
+}
+
+/** Decode CSIL CBOR bytes into a SignedActAsGrant. */
+fun signedActAsGrantFromCbor(bytes: ByteArray): SignedActAsGrant = signedActAsGrantFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a ActAsGrantRequest (deep, canonical key order). */
+fun ActAsGrantRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("nonce") to CborValue.CText(this.nonce))
+    csilEntries.add(CborValue.CText("grantee") to this.grantee.toCborValue())
+    csilEntries.add(CborValue.CText("scope_set") to this.scopeSet.toCborValue())
+    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("callback_url") to CborValue.CText(this.callbackUrl))
+    csilEntries.add(CborValue.CText("requested_at") to CborValue.CText(this.requestedAt))
+    this.granteeHandleClaim?.let { csilV -> csilEntries.add(CborValue.CText("grantee_handle_claim") to csilV.toCborValue()) }
+    this.requestedLifetimeSeconds?.let { csilV -> csilEntries.add(CborValue.CText("requested_lifetime_seconds") to CborValue.CInt(csilV)) }
+    this.requestedRenewalWindowSeconds?.let { csilV -> csilEntries.add(CborValue.CText("requested_renewal_window_seconds") to CborValue.CInt(csilV)) }
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a ActAsGrantRequest to canonical CSIL CBOR bytes. */
+fun ActAsGrantRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a ActAsGrantRequest from a decoded CBOR value tree. */
+fun actAsGrantRequestFromCborValue(cbor: CborValue): ActAsGrantRequest {
+    val grantee = granteeRefFromCborValue(CsilCbor.require(cbor, "grantee"))
+    val scopeSet = signedActAsScopeSetFromCborValue(CsilCbor.require(cbor, "scope_set"))
+    val requestedLifetimeSeconds = CsilCbor.mapGet(cbor, "requested_lifetime_seconds")?.let { csilV -> CsilCbor.asLong(csilV) }
+    val requestedRenewalWindowSeconds = CsilCbor.mapGet(cbor, "requested_renewal_window_seconds")?.let { csilV -> CsilCbor.asLong(csilV) }
+    val granteeHandleClaim = CsilCbor.mapGet(cbor, "grantee_handle_claim")?.let { csilV -> claimFromCborValue(csilV) }
+    val callbackUrl = CsilCbor.asText(CsilCbor.require(cbor, "callback_url"))
+    val nonce = CsilCbor.asText(CsilCbor.require(cbor, "nonce"))
+    val requestedAt = CsilCbor.asText(CsilCbor.require(cbor, "requested_at"))
+    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    return ActAsGrantRequest(grantee = grantee, scopeSet = scopeSet, requestedLifetimeSeconds = requestedLifetimeSeconds, requestedRenewalWindowSeconds = requestedRenewalWindowSeconds, granteeHandleClaim = granteeHandleClaim, callbackUrl = callbackUrl, nonce = nonce, requestedAt = requestedAt, expiresAt = expiresAt)
+}
+
+/** Decode CSIL CBOR bytes into a ActAsGrantRequest. */
+fun actAsGrantRequestFromCbor(bytes: ByteArray): ActAsGrantRequest = actAsGrantRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a SignedActAsGrantRequest (deep, canonical key order). */
+fun SignedActAsGrantRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("proof") to this.proof.toCborValue())
+    csilEntries.add(CborValue.CText("request") to CborValue.CBytes(this.request))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a SignedActAsGrantRequest to canonical CSIL CBOR bytes. */
+fun SignedActAsGrantRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a SignedActAsGrantRequest from a decoded CBOR value tree. */
+fun signedActAsGrantRequestFromCborValue(cbor: CborValue): SignedActAsGrantRequest {
+    val request = CsilCbor.asBytes(CsilCbor.require(cbor, "request"))
+    val proof = granteeProofFromCborValue(CsilCbor.require(cbor, "proof"))
+    return SignedActAsGrantRequest(request = request, proof = proof)
+}
+
+/** Decode CSIL CBOR bytes into a SignedActAsGrantRequest. */
+fun signedActAsGrantRequestFromCbor(bytes: ByteArray): SignedActAsGrantRequest = signedActAsGrantRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a ActAsRefreshRequest (deep, canonical key order). */
+fun ActAsRefreshRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("nonce") to CborValue.CText(this.nonce))
+    csilEntries.add(CborValue.CText("grantee") to this.grantee.toCborValue())
+    csilEntries.add(CborValue.CText("grant_id") to CborValue.CText(this.grantId))
+    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("requested_at") to CborValue.CText(this.requestedAt))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a ActAsRefreshRequest to canonical CSIL CBOR bytes. */
+fun ActAsRefreshRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a ActAsRefreshRequest from a decoded CBOR value tree. */
+fun actAsRefreshRequestFromCborValue(cbor: CborValue): ActAsRefreshRequest {
+    val grantId = CsilCbor.asText(CsilCbor.require(cbor, "grant_id"))
+    val grantee = granteeRefFromCborValue(CsilCbor.require(cbor, "grantee"))
+    val requestedAt = CsilCbor.asText(CsilCbor.require(cbor, "requested_at"))
+    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    val nonce = CsilCbor.asText(CsilCbor.require(cbor, "nonce"))
+    return ActAsRefreshRequest(grantId = grantId, grantee = grantee, requestedAt = requestedAt, expiresAt = expiresAt, nonce = nonce)
+}
+
+/** Decode CSIL CBOR bytes into a ActAsRefreshRequest. */
+fun actAsRefreshRequestFromCbor(bytes: ByteArray): ActAsRefreshRequest = actAsRefreshRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a SignedActAsRefreshRequest (deep, canonical key order). */
+fun SignedActAsRefreshRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("proof") to this.proof.toCborValue())
+    csilEntries.add(CborValue.CText("request") to CborValue.CBytes(this.request))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a SignedActAsRefreshRequest to canonical CSIL CBOR bytes. */
+fun SignedActAsRefreshRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a SignedActAsRefreshRequest from a decoded CBOR value tree. */
+fun signedActAsRefreshRequestFromCborValue(cbor: CborValue): SignedActAsRefreshRequest {
+    val request = CsilCbor.asBytes(CsilCbor.require(cbor, "request"))
+    val proof = granteeProofFromCborValue(CsilCbor.require(cbor, "proof"))
+    return SignedActAsRefreshRequest(request = request, proof = proof)
+}
+
+/** Decode CSIL CBOR bytes into a SignedActAsRefreshRequest. */
+fun signedActAsRefreshRequestFromCbor(bytes: ByteArray): SignedActAsRefreshRequest = signedActAsRefreshRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a RefreshActAsGrantRequest (deep, canonical key order). */
+fun RefreshActAsGrantRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("request") to this.request.toCborValue())
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a RefreshActAsGrantRequest to canonical CSIL CBOR bytes. */
+fun RefreshActAsGrantRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a RefreshActAsGrantRequest from a decoded CBOR value tree. */
+fun refreshActAsGrantRequestFromCborValue(cbor: CborValue): RefreshActAsGrantRequest {
+    val request = signedActAsRefreshRequestFromCborValue(CsilCbor.require(cbor, "request"))
+    return RefreshActAsGrantRequest(request = request)
+}
+
+/** Decode CSIL CBOR bytes into a RefreshActAsGrantRequest. */
+fun refreshActAsGrantRequestFromCbor(bytes: ByteArray): RefreshActAsGrantRequest = refreshActAsGrantRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a RefreshActAsGrantResponse (deep, canonical key order). */
+fun RefreshActAsGrantResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("grant") to this.grant.toCborValue())
+    csilEntries.add(CborValue.CText("signed") to CborValue.CBool(this.signed))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a RefreshActAsGrantResponse to canonical CSIL CBOR bytes. */
+fun RefreshActAsGrantResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a RefreshActAsGrantResponse from a decoded CBOR value tree. */
+fun refreshActAsGrantResponseFromCborValue(cbor: CborValue): RefreshActAsGrantResponse {
+    val grant = signedActAsGrantFromCborValue(CsilCbor.require(cbor, "grant"))
+    val signed = CsilCbor.asBoolean(CsilCbor.require(cbor, "signed"))
+    return RefreshActAsGrantResponse(grant = grant, signed = signed)
+}
+
+/** Decode CSIL CBOR bytes into a RefreshActAsGrantResponse. */
+fun refreshActAsGrantResponseFromCbor(bytes: ByteArray): RefreshActAsGrantResponse = refreshActAsGrantResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a ActAsPresentation (deep, canonical key order). */
+fun ActAsPresentation.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("nonce") to CborValue.CBytes(this.nonce))
+    csilEntries.add(CborValue.CText("audience") to this.audience.toCborValue())
+    csilEntries.add(CborValue.CText("grant_hash") to CborValue.CBytes(this.grantHash))
+    csilEntries.add(CborValue.CText("presented_at") to CborValue.CText(this.presentedAt))
+    csilEntries.add(CborValue.CText("request_digest") to CborValue.CBytes(this.requestDigest))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a ActAsPresentation to canonical CSIL CBOR bytes. */
+fun ActAsPresentation.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a ActAsPresentation from a decoded CBOR value tree. */
+fun actAsPresentationFromCborValue(cbor: CborValue): ActAsPresentation {
+    val grantHash = CsilCbor.asBytes(CsilCbor.require(cbor, "grant_hash"))
+    val audience = applicationRefFromCborValue(CsilCbor.require(cbor, "audience"))
+    val requestDigest = CsilCbor.asBytes(CsilCbor.require(cbor, "request_digest"))
+    val presentedAt = CsilCbor.asText(CsilCbor.require(cbor, "presented_at"))
+    val nonce = CsilCbor.asBytes(CsilCbor.require(cbor, "nonce"))
+    return ActAsPresentation(grantHash = grantHash, audience = audience, requestDigest = requestDigest, presentedAt = presentedAt, nonce = nonce)
+}
+
+/** Decode CSIL CBOR bytes into a ActAsPresentation. */
+fun actAsPresentationFromCbor(bytes: ByteArray): ActAsPresentation = actAsPresentationFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a SignedActAsPresentation (deep, canonical key order). */
+fun SignedActAsPresentation.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("proof") to this.proof.toCborValue())
+    csilEntries.add(CborValue.CText("presentation") to CborValue.CBytes(this.presentation))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a SignedActAsPresentation to canonical CSIL CBOR bytes. */
+fun SignedActAsPresentation.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a SignedActAsPresentation from a decoded CBOR value tree. */
+fun signedActAsPresentationFromCborValue(cbor: CborValue): SignedActAsPresentation {
+    val presentation = CsilCbor.asBytes(CsilCbor.require(cbor, "presentation"))
+    val proof = granteeProofFromCborValue(CsilCbor.require(cbor, "proof"))
+    return SignedActAsPresentation(presentation = presentation, proof = proof)
+}
+
+/** Decode CSIL CBOR bytes into a SignedActAsPresentation. */
+fun signedActAsPresentationFromCbor(bytes: ByteArray): SignedActAsPresentation = signedActAsPresentationFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a ActAsCredential (deep, canonical key order). */
+fun ActAsCredential.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("grant") to this.grant.toCborValue())
+    csilEntries.add(CborValue.CText("presentation") to this.presentation.toCborValue())
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a ActAsCredential to canonical CSIL CBOR bytes. */
+fun ActAsCredential.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a ActAsCredential from a decoded CBOR value tree. */
+fun actAsCredentialFromCborValue(cbor: CborValue): ActAsCredential {
+    val grant = signedActAsGrantFromCborValue(CsilCbor.require(cbor, "grant"))
+    val presentation = signedActAsPresentationFromCborValue(CsilCbor.require(cbor, "presentation"))
+    return ActAsCredential(grant = grant, presentation = presentation)
+}
+
+/** Decode CSIL CBOR bytes into a ActAsCredential. */
+fun actAsCredentialFromCbor(bytes: ByteArray): ActAsCredential = actAsCredentialFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a ActAsGrantRevocation (deep, canonical key order). */
+fun ActAsGrantRevocation.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
+    csilEntries.add(CborValue.CText("grant_id") to CborValue.CText(this.grantId))
+    csilEntries.add(CborValue.CText("revoked_at") to CborValue.CText(this.revokedAt))
+    csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a ActAsGrantRevocation to canonical CSIL CBOR bytes. */
+fun ActAsGrantRevocation.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a ActAsGrantRevocation from a decoded CBOR value tree. */
+fun actAsGrantRevocationFromCborValue(cbor: CborValue): ActAsGrantRevocation {
+    val grantId = CsilCbor.asText(CsilCbor.require(cbor, "grant_id"))
+    val userId = CsilCbor.asText(CsilCbor.require(cbor, "user_id"))
+    val subjectDomain = CsilCbor.asText(CsilCbor.require(cbor, "subject_domain"))
+    val revokedAt = CsilCbor.asText(CsilCbor.require(cbor, "revoked_at"))
+    return ActAsGrantRevocation(grantId = grantId, userId = userId, subjectDomain = subjectDomain, revokedAt = revokedAt)
+}
+
+/** Decode CSIL CBOR bytes into a ActAsGrantRevocation. */
+fun actAsGrantRevocationFromCbor(bytes: ByteArray): ActAsGrantRevocation = actAsGrantRevocationFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a SignedActAsGrantRevocation (deep, canonical key order). */
+fun SignedActAsGrantRevocation.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("revocation") to CborValue.CBytes(this.revocation))
+    csilEntries.add(CborValue.CText("signatures") to CborValue.CArray((this.signatures).map { csilE -> csilE.toCborValue() }))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a SignedActAsGrantRevocation to canonical CSIL CBOR bytes. */
+fun SignedActAsGrantRevocation.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a SignedActAsGrantRevocation from a decoded CBOR value tree. */
+fun signedActAsGrantRevocationFromCborValue(cbor: CborValue): SignedActAsGrantRevocation {
+    val revocation = CsilCbor.asBytes(CsilCbor.require(cbor, "revocation"))
+    val signatures = CsilCbor.asArray(CsilCbor.require(cbor, "signatures")).map { csilE -> claimSignatureFromCborValue(csilE) }
+    return SignedActAsGrantRevocation(revocation = revocation, signatures = signatures)
+}
+
+/** Decode CSIL CBOR bytes into a SignedActAsGrantRevocation. */
+fun signedActAsGrantRevocationFromCbor(bytes: ByteArray): SignedActAsGrantRevocation = signedActAsGrantRevocationFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a GetActAsGrantRevocationsRequest (deep, canonical key order). */
+fun GetActAsGrantRevocationsRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("grant_ids") to CborValue.CArray((this.grantIds).map { csilE -> CborValue.CText(csilE) }))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a GetActAsGrantRevocationsRequest to canonical CSIL CBOR bytes. */
+fun GetActAsGrantRevocationsRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a GetActAsGrantRevocationsRequest from a decoded CBOR value tree. */
+fun getActAsGrantRevocationsRequestFromCborValue(cbor: CborValue): GetActAsGrantRevocationsRequest {
+    val grantIds = CsilCbor.asArray(CsilCbor.require(cbor, "grant_ids")).map { csilE -> CsilCbor.asText(csilE) }
+    return GetActAsGrantRevocationsRequest(grantIds = grantIds)
+}
+
+/** Decode CSIL CBOR bytes into a GetActAsGrantRevocationsRequest. */
+fun getActAsGrantRevocationsRequestFromCbor(bytes: ByteArray): GetActAsGrantRevocationsRequest = getActAsGrantRevocationsRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a GetActAsGrantRevocationsResponse (deep, canonical key order). */
+fun GetActAsGrantRevocationsResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("revocations") to CborValue.CArray((this.revocations).map { csilE -> csilE.toCborValue() }))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a GetActAsGrantRevocationsResponse to canonical CSIL CBOR bytes. */
+fun GetActAsGrantRevocationsResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a GetActAsGrantRevocationsResponse from a decoded CBOR value tree. */
+fun getActAsGrantRevocationsResponseFromCborValue(cbor: CborValue): GetActAsGrantRevocationsResponse {
+    val revocations = CsilCbor.asArray(CsilCbor.require(cbor, "revocations")).map { csilE -> signedActAsGrantRevocationFromCborValue(csilE) }
+    return GetActAsGrantRevocationsResponse(revocations = revocations)
+}
+
+/** Decode CSIL CBOR bytes into a GetActAsGrantRevocationsResponse. */
+fun getActAsGrantRevocationsResponseFromCbor(bytes: ByteArray): GetActAsGrantRevocationsResponse = getActAsGrantRevocationsResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a RpActAsRefreshRequest (deep, canonical key order). */
+fun RpActAsRefreshRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("request") to this.request.toCborValue())
+    csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a RpActAsRefreshRequest to canonical CSIL CBOR bytes. */
+fun RpActAsRefreshRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a RpActAsRefreshRequest from a decoded CBOR value tree. */
+fun rpActAsRefreshRequestFromCborValue(cbor: CborValue): RpActAsRefreshRequest {
+    val subjectDomain = CsilCbor.asText(CsilCbor.require(cbor, "subject_domain"))
+    val request = signedActAsRefreshRequestFromCborValue(CsilCbor.require(cbor, "request"))
+    return RpActAsRefreshRequest(subjectDomain = subjectDomain, request = request)
+}
+
+/** Decode CSIL CBOR bytes into a RpActAsRefreshRequest. */
+fun rpActAsRefreshRequestFromCbor(bytes: ByteArray): RpActAsRefreshRequest = rpActAsRefreshRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a RpResolveActAsRevocationsRequest (deep, canonical key order). */
+fun RpResolveActAsRevocationsRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("grant_ids") to CborValue.CArray((this.grantIds).map { csilE -> CborValue.CText(csilE) }))
+    csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a RpResolveActAsRevocationsRequest to canonical CSIL CBOR bytes. */
+fun RpResolveActAsRevocationsRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a RpResolveActAsRevocationsRequest from a decoded CBOR value tree. */
+fun rpResolveActAsRevocationsRequestFromCborValue(cbor: CborValue): RpResolveActAsRevocationsRequest {
+    val subjectDomain = CsilCbor.asText(CsilCbor.require(cbor, "subject_domain"))
+    val grantIds = CsilCbor.asArray(CsilCbor.require(cbor, "grant_ids")).map { csilE -> CsilCbor.asText(csilE) }
+    return RpResolveActAsRevocationsRequest(subjectDomain = subjectDomain, grantIds = grantIds)
+}
+
+/** Decode CSIL CBOR bytes into a RpResolveActAsRevocationsRequest. */
+fun rpResolveActAsRevocationsRequestFromCbor(bytes: ByteArray): RpResolveActAsRevocationsRequest = rpResolveActAsRevocationsRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a BrowserActAsInspectRequest (deep, canonical key order). */
+fun BrowserActAsInspectRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("signed_request") to CborValue.CText(this.signedRequest))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a BrowserActAsInspectRequest to canonical CSIL CBOR bytes. */
+fun BrowserActAsInspectRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a BrowserActAsInspectRequest from a decoded CBOR value tree. */
+fun browserActAsInspectRequestFromCborValue(cbor: CborValue): BrowserActAsInspectRequest {
+    val signedRequest = CsilCbor.asText(CsilCbor.require(cbor, "signed_request"))
+    return BrowserActAsInspectRequest(signedRequest = signedRequest)
+}
+
+/** Decode CSIL CBOR bytes into a BrowserActAsInspectRequest. */
+fun browserActAsInspectRequestFromCbor(bytes: ByteArray): BrowserActAsInspectRequest = browserActAsInspectRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a BrowserActAsScopeEntry (deep, canonical key order). */
+fun BrowserActAsScopeEntry.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("scope") to CborValue.CText(this.scope))
+    this.description?.let { csilV -> csilEntries.add(CborValue.CText("description") to CborValue.CText(csilV)) }
+    csilEntries.add(CborValue.CText("removed_by_policy") to CborValue.CBool(this.removedByPolicy))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a BrowserActAsScopeEntry to canonical CSIL CBOR bytes. */
+fun BrowserActAsScopeEntry.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a BrowserActAsScopeEntry from a decoded CBOR value tree. */
+fun browserActAsScopeEntryFromCborValue(cbor: CborValue): BrowserActAsScopeEntry {
+    val scope = CsilCbor.asText(CsilCbor.require(cbor, "scope"))
+    val description = CsilCbor.mapGet(cbor, "description")?.let { csilV -> CsilCbor.asText(csilV) }
+    val removedByPolicy = CsilCbor.asBoolean(CsilCbor.require(cbor, "removed_by_policy"))
+    return BrowserActAsScopeEntry(scope = scope, description = description, removedByPolicy = removedByPolicy)
+}
+
+/** Decode CSIL CBOR bytes into a BrowserActAsScopeEntry. */
+fun browserActAsScopeEntryFromCbor(bytes: ByteArray): BrowserActAsScopeEntry = browserActAsScopeEntryFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a BrowserActAsParty (deep, canonical key order). */
+fun BrowserActAsParty.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    this.domain?.let { csilV -> csilEntries.add(CborValue.CText("domain") to CborValue.CText(csilV)) }
+    this.handle?.let { csilV -> csilEntries.add(CborValue.CText("handle") to CborValue.CText(csilV)) }
+    csilEntries.add(CborValue.CText("own_domain") to CborValue.CBool(this.ownDomain))
+    this.localRpName?.let { csilV -> csilEntries.add(CborValue.CText("local_rp_name") to CborValue.CText(csilV)) }
+    this.applicationId?.let { csilV -> csilEntries.add(CborValue.CText("application_id") to CborValue.CText(csilV)) }
+    this.subjectUserId?.let { csilV -> csilEntries.add(CborValue.CText("subject_user_id") to CborValue.CText(csilV)) }
+    csilEntries.add(CborValue.CText("operator_trusted") to CborValue.CBool(this.operatorTrusted))
+    csilEntries.add(CborValue.CText("user_has_history") to CborValue.CBool(this.userHasHistory))
+    csilEntries.add(CborValue.CText("domain_key_pinned") to CborValue.CBool(this.domainKeyPinned))
+    this.localRpFingerprint?.let { csilV -> csilEntries.add(CborValue.CText("local_rp_fingerprint") to CborValue.CText(csilV)) }
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a BrowserActAsParty to canonical CSIL CBOR bytes. */
+fun BrowserActAsParty.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a BrowserActAsParty from a decoded CBOR value tree. */
+fun browserActAsPartyFromCborValue(cbor: CborValue): BrowserActAsParty {
+    val domain = CsilCbor.mapGet(cbor, "domain")?.let { csilV -> CsilCbor.asText(csilV) }
+    val applicationId = CsilCbor.mapGet(cbor, "application_id")?.let { csilV -> CsilCbor.asText(csilV) }
+    val subjectUserId = CsilCbor.mapGet(cbor, "subject_user_id")?.let { csilV -> CsilCbor.asText(csilV) }
+    val handle = CsilCbor.mapGet(cbor, "handle")?.let { csilV -> CsilCbor.asText(csilV) }
+    val localRpName = CsilCbor.mapGet(cbor, "local_rp_name")?.let { csilV -> CsilCbor.asText(csilV) }
+    val localRpFingerprint = CsilCbor.mapGet(cbor, "local_rp_fingerprint")?.let { csilV -> CsilCbor.asText(csilV) }
+    val ownDomain = CsilCbor.asBoolean(CsilCbor.require(cbor, "own_domain"))
+    val userHasHistory = CsilCbor.asBoolean(CsilCbor.require(cbor, "user_has_history"))
+    val domainKeyPinned = CsilCbor.asBoolean(CsilCbor.require(cbor, "domain_key_pinned"))
+    val operatorTrusted = CsilCbor.asBoolean(CsilCbor.require(cbor, "operator_trusted"))
+    return BrowserActAsParty(domain = domain, applicationId = applicationId, subjectUserId = subjectUserId, handle = handle, localRpName = localRpName, localRpFingerprint = localRpFingerprint, ownDomain = ownDomain, userHasHistory = userHasHistory, domainKeyPinned = domainKeyPinned, operatorTrusted = operatorTrusted)
+}
+
+/** Decode CSIL CBOR bytes into a BrowserActAsParty. */
+fun browserActAsPartyFromCbor(bytes: ByteArray): BrowserActAsParty = browserActAsPartyFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a BrowserActAsInspectResponse (deep, canonical key order). */
+fun BrowserActAsInspectResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("entries") to CborValue.CArray((this.entries).map { csilE -> csilE.toCborValue() }))
+    csilEntries.add(CborValue.CText("grantee") to this.grantee.toCborValue())
+    csilEntries.add(CborValue.CText("audience") to this.audience.toCborValue())
+    this.language?.let { csilV -> csilEntries.add(CborValue.CText("language") to CborValue.CText(csilV)) }
+    csilEntries.add(CborValue.CText("grantee_party") to this.granteeParty.toCborValue())
+    csilEntries.add(CborValue.CText("audience_party") to this.audienceParty.toCborValue())
+    csilEntries.add(CborValue.CText("max_lifetime_seconds") to CborValue.CInt(this.maxLifetimeSeconds))
+    csilEntries.add(CborValue.CText("default_lifetime_seconds") to CborValue.CInt(this.defaultLifetimeSeconds))
+    csilEntries.add(CborValue.CText("max_renewal_window_seconds") to CborValue.CInt(this.maxRenewalWindowSeconds))
+    csilEntries.add(CborValue.CText("default_renewal_window_seconds") to CborValue.CInt(this.defaultRenewalWindowSeconds))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a BrowserActAsInspectResponse to canonical CSIL CBOR bytes. */
+fun BrowserActAsInspectResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a BrowserActAsInspectResponse from a decoded CBOR value tree. */
+fun browserActAsInspectResponseFromCborValue(cbor: CborValue): BrowserActAsInspectResponse {
+    val grantee = granteeRefFromCborValue(CsilCbor.require(cbor, "grantee"))
+    val granteeParty = browserActAsPartyFromCborValue(CsilCbor.require(cbor, "grantee_party"))
+    val audience = applicationRefFromCborValue(CsilCbor.require(cbor, "audience"))
+    val audienceParty = browserActAsPartyFromCborValue(CsilCbor.require(cbor, "audience_party"))
+    val entries = CsilCbor.asArray(CsilCbor.require(cbor, "entries")).map { csilE -> browserActAsScopeEntryFromCborValue(csilE) }
+    val language = CsilCbor.mapGet(cbor, "language")?.let { csilV -> CsilCbor.asText(csilV) }
+    val defaultLifetimeSeconds = CsilCbor.asLong(CsilCbor.require(cbor, "default_lifetime_seconds"))
+    val maxLifetimeSeconds = CsilCbor.asLong(CsilCbor.require(cbor, "max_lifetime_seconds"))
+    val defaultRenewalWindowSeconds = CsilCbor.asLong(CsilCbor.require(cbor, "default_renewal_window_seconds"))
+    val maxRenewalWindowSeconds = CsilCbor.asLong(CsilCbor.require(cbor, "max_renewal_window_seconds"))
+    return BrowserActAsInspectResponse(grantee = grantee, granteeParty = granteeParty, audience = audience, audienceParty = audienceParty, entries = entries, language = language, defaultLifetimeSeconds = defaultLifetimeSeconds, maxLifetimeSeconds = maxLifetimeSeconds, defaultRenewalWindowSeconds = defaultRenewalWindowSeconds, maxRenewalWindowSeconds = maxRenewalWindowSeconds)
+}
+
+/** Decode CSIL CBOR bytes into a BrowserActAsInspectResponse. */
+fun browserActAsInspectResponseFromCbor(bytes: ByteArray): BrowserActAsInspectResponse = browserActAsInspectResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a BrowserActAsCompleteRequest (deep, canonical key order). */
+fun BrowserActAsCompleteRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("approved_scope") to CborValue.CArray((this.approvedScope).map { csilE -> CborValue.CText(csilE) }))
+    csilEntries.add(CborValue.CText("signed_request") to CborValue.CText(this.signedRequest))
+    csilEntries.add(CborValue.CText("lifetime_seconds") to CborValue.CInt(this.lifetimeSeconds))
+    csilEntries.add(CborValue.CText("renewal_window_seconds") to CborValue.CInt(this.renewalWindowSeconds))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a BrowserActAsCompleteRequest to canonical CSIL CBOR bytes. */
+fun BrowserActAsCompleteRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a BrowserActAsCompleteRequest from a decoded CBOR value tree. */
+fun browserActAsCompleteRequestFromCborValue(cbor: CborValue): BrowserActAsCompleteRequest {
+    val signedRequest = CsilCbor.asText(CsilCbor.require(cbor, "signed_request"))
+    val approvedScope = CsilCbor.asArray(CsilCbor.require(cbor, "approved_scope")).map { csilE -> CsilCbor.asText(csilE) }
+    val lifetimeSeconds = CsilCbor.asLong(CsilCbor.require(cbor, "lifetime_seconds"))
+    val renewalWindowSeconds = CsilCbor.asLong(CsilCbor.require(cbor, "renewal_window_seconds"))
+    return BrowserActAsCompleteRequest(signedRequest = signedRequest, approvedScope = approvedScope, lifetimeSeconds = lifetimeSeconds, renewalWindowSeconds = renewalWindowSeconds)
+}
+
+/** Decode CSIL CBOR bytes into a BrowserActAsCompleteRequest. */
+fun browserActAsCompleteRequestFromCbor(bytes: ByteArray): BrowserActAsCompleteRequest = browserActAsCompleteRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a BrowserActAsCompleteResponse (deep, canonical key order). */
+fun BrowserActAsCompleteResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("redirect_url") to CborValue.CText(this.redirectUrl))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a BrowserActAsCompleteResponse to canonical CSIL CBOR bytes. */
+fun BrowserActAsCompleteResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a BrowserActAsCompleteResponse from a decoded CBOR value tree. */
+fun browserActAsCompleteResponseFromCborValue(cbor: CborValue): BrowserActAsCompleteResponse {
+    val redirectUrl = CsilCbor.asText(CsilCbor.require(cbor, "redirect_url"))
+    return BrowserActAsCompleteResponse(redirectUrl = redirectUrl)
+}
+
+/** Decode CSIL CBOR bytes into a BrowserActAsCompleteResponse. */
+fun browserActAsCompleteResponseFromCbor(bytes: ByteArray): BrowserActAsCompleteResponse = browserActAsCompleteResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a ActAsGrantSummary (deep, canonical key order). */
+fun ActAsGrantSummary.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("grantee") to this.grantee.toCborValue())
+    csilEntries.add(CborValue.CText("audience") to this.audience.toCborValue())
+    csilEntries.add(CborValue.CText("grant_id") to CborValue.CText(this.grantId))
+    csilEntries.add(CborValue.CText("issued_at") to CborValue.CText(this.issuedAt))
+    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    this.revokedAt?.let { csilV -> csilEntries.add(CborValue.CText("revoked_at") to CborValue.CText(csilV)) }
+    csilEntries.add(CborValue.CText("approved_scope") to CborValue.CArray((this.approvedScope).map { csilE -> CborValue.CText(csilE) }))
+    csilEntries.add(CborValue.CText("renewable_until") to CborValue.CText(this.renewableUntil))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a ActAsGrantSummary to canonical CSIL CBOR bytes. */
+fun ActAsGrantSummary.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a ActAsGrantSummary from a decoded CBOR value tree. */
+fun actAsGrantSummaryFromCborValue(cbor: CborValue): ActAsGrantSummary {
+    val grantId = CsilCbor.asText(CsilCbor.require(cbor, "grant_id"))
+    val grantee = granteeRefFromCborValue(CsilCbor.require(cbor, "grantee"))
+    val audience = applicationRefFromCborValue(CsilCbor.require(cbor, "audience"))
+    val approvedScope = CsilCbor.asArray(CsilCbor.require(cbor, "approved_scope")).map { csilE -> CsilCbor.asText(csilE) }
+    val issuedAt = CsilCbor.asText(CsilCbor.require(cbor, "issued_at"))
+    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    val renewableUntil = CsilCbor.asText(CsilCbor.require(cbor, "renewable_until"))
+    val revokedAt = CsilCbor.mapGet(cbor, "revoked_at")?.let { csilV -> CsilCbor.asText(csilV) }
+    return ActAsGrantSummary(grantId = grantId, grantee = grantee, audience = audience, approvedScope = approvedScope, issuedAt = issuedAt, expiresAt = expiresAt, renewableUntil = renewableUntil, revokedAt = revokedAt)
+}
+
+/** Decode CSIL CBOR bytes into a ActAsGrantSummary. */
+fun actAsGrantSummaryFromCbor(bytes: ByteArray): ActAsGrantSummary = actAsGrantSummaryFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a ListActAsGrantsResponse (deep, canonical key order). */
+fun ListActAsGrantsResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("grants") to CborValue.CArray((this.grants).map { csilE -> csilE.toCborValue() }))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a ListActAsGrantsResponse to canonical CSIL CBOR bytes. */
+fun ListActAsGrantsResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a ListActAsGrantsResponse from a decoded CBOR value tree. */
+fun listActAsGrantsResponseFromCborValue(cbor: CborValue): ListActAsGrantsResponse {
+    val grants = CsilCbor.asArray(CsilCbor.require(cbor, "grants")).map { csilE -> actAsGrantSummaryFromCborValue(csilE) }
+    return ListActAsGrantsResponse(grants = grants)
+}
+
+/** Decode CSIL CBOR bytes into a ListActAsGrantsResponse. */
+fun listActAsGrantsResponseFromCbor(bytes: ByteArray): ListActAsGrantsResponse = listActAsGrantsResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a RevokeActAsGrantRequest (deep, canonical key order). */
+fun RevokeActAsGrantRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("grant_id") to CborValue.CText(this.grantId))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a RevokeActAsGrantRequest to canonical CSIL CBOR bytes. */
+fun RevokeActAsGrantRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a RevokeActAsGrantRequest from a decoded CBOR value tree. */
+fun revokeActAsGrantRequestFromCborValue(cbor: CborValue): RevokeActAsGrantRequest {
+    val grantId = CsilCbor.asText(CsilCbor.require(cbor, "grant_id"))
+    return RevokeActAsGrantRequest(grantId = grantId)
+}
+
+/** Decode CSIL CBOR bytes into a RevokeActAsGrantRequest. */
+fun revokeActAsGrantRequestFromCbor(bytes: ByteArray): RevokeActAsGrantRequest = revokeActAsGrantRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a RevokeActAsGrantResponse (deep, canonical key order). */
+fun RevokeActAsGrantResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("revoked_at") to CborValue.CText(this.revokedAt))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a RevokeActAsGrantResponse to canonical CSIL CBOR bytes. */
+fun RevokeActAsGrantResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a RevokeActAsGrantResponse from a decoded CBOR value tree. */
+fun revokeActAsGrantResponseFromCborValue(cbor: CborValue): RevokeActAsGrantResponse {
+    val revokedAt = CsilCbor.asText(CsilCbor.require(cbor, "revoked_at"))
+    return RevokeActAsGrantResponse(revokedAt = revokedAt)
+}
+
+/** Decode CSIL CBOR bytes into a RevokeActAsGrantResponse. */
+fun revokeActAsGrantResponseFromCbor(bytes: ByteArray): RevokeActAsGrantResponse = revokeActAsGrantResponseFromCborValue(CsilCbor.decode(bytes))
+
 /** Encode a generated CSIL record to canonical CBOR bytes. */
 fun <T> encode(value: T): ByteArray = CsilCbor.encode(csilToCborValue(value))
 
@@ -6107,6 +6929,40 @@ private fun csilToCborValue(value: Any?): CborValue = when (value) {
     is RpResolveDomainKeysResponse -> value.toCborValue()
     is RpResolveApplicationKeysRequest -> value.toCborValue()
     is RpResolveApplicationKeysResponse -> value.toCborValue()
+    is ApplicationRef -> value.toCborValue()
+    is GranteeRef -> value.toCborValue()
+    is GranteeProof -> value.toCborValue()
+    is ActAsScopeEntry -> value.toCborValue()
+    is ActAsScopeSet -> value.toCborValue()
+    is SignedActAsScopeSet -> value.toCborValue()
+    is ActAsScopeSetRequest -> value.toCborValue()
+    is ActAsGrant -> value.toCborValue()
+    is SignedActAsGrant -> value.toCborValue()
+    is ActAsGrantRequest -> value.toCborValue()
+    is SignedActAsGrantRequest -> value.toCborValue()
+    is ActAsRefreshRequest -> value.toCborValue()
+    is SignedActAsRefreshRequest -> value.toCborValue()
+    is RefreshActAsGrantRequest -> value.toCborValue()
+    is RefreshActAsGrantResponse -> value.toCborValue()
+    is ActAsPresentation -> value.toCborValue()
+    is SignedActAsPresentation -> value.toCborValue()
+    is ActAsCredential -> value.toCborValue()
+    is ActAsGrantRevocation -> value.toCborValue()
+    is SignedActAsGrantRevocation -> value.toCborValue()
+    is GetActAsGrantRevocationsRequest -> value.toCborValue()
+    is GetActAsGrantRevocationsResponse -> value.toCborValue()
+    is RpActAsRefreshRequest -> value.toCborValue()
+    is RpResolveActAsRevocationsRequest -> value.toCborValue()
+    is BrowserActAsInspectRequest -> value.toCborValue()
+    is BrowserActAsScopeEntry -> value.toCborValue()
+    is BrowserActAsParty -> value.toCborValue()
+    is BrowserActAsInspectResponse -> value.toCborValue()
+    is BrowserActAsCompleteRequest -> value.toCborValue()
+    is BrowserActAsCompleteResponse -> value.toCborValue()
+    is ActAsGrantSummary -> value.toCborValue()
+    is ListActAsGrantsResponse -> value.toCborValue()
+    is RevokeActAsGrantRequest -> value.toCborValue()
+    is RevokeActAsGrantResponse -> value.toCborValue()
     else -> throw CborError("no CSIL CBOR codec for ${value::class}")
 }
 
@@ -6358,5 +7214,39 @@ fun csilFromCborValue(type: kotlin.reflect.KClass<*>, cbor: CborValue): Any = wh
     RpResolveDomainKeysResponse::class -> rpResolveDomainKeysResponseFromCborValue(cbor)
     RpResolveApplicationKeysRequest::class -> rpResolveApplicationKeysRequestFromCborValue(cbor)
     RpResolveApplicationKeysResponse::class -> rpResolveApplicationKeysResponseFromCborValue(cbor)
+    ApplicationRef::class -> applicationRefFromCborValue(cbor)
+    GranteeRef::class -> granteeRefFromCborValue(cbor)
+    GranteeProof::class -> granteeProofFromCborValue(cbor)
+    ActAsScopeEntry::class -> actAsScopeEntryFromCborValue(cbor)
+    ActAsScopeSet::class -> actAsScopeSetFromCborValue(cbor)
+    SignedActAsScopeSet::class -> signedActAsScopeSetFromCborValue(cbor)
+    ActAsScopeSetRequest::class -> actAsScopeSetRequestFromCborValue(cbor)
+    ActAsGrant::class -> actAsGrantFromCborValue(cbor)
+    SignedActAsGrant::class -> signedActAsGrantFromCborValue(cbor)
+    ActAsGrantRequest::class -> actAsGrantRequestFromCborValue(cbor)
+    SignedActAsGrantRequest::class -> signedActAsGrantRequestFromCborValue(cbor)
+    ActAsRefreshRequest::class -> actAsRefreshRequestFromCborValue(cbor)
+    SignedActAsRefreshRequest::class -> signedActAsRefreshRequestFromCborValue(cbor)
+    RefreshActAsGrantRequest::class -> refreshActAsGrantRequestFromCborValue(cbor)
+    RefreshActAsGrantResponse::class -> refreshActAsGrantResponseFromCborValue(cbor)
+    ActAsPresentation::class -> actAsPresentationFromCborValue(cbor)
+    SignedActAsPresentation::class -> signedActAsPresentationFromCborValue(cbor)
+    ActAsCredential::class -> actAsCredentialFromCborValue(cbor)
+    ActAsGrantRevocation::class -> actAsGrantRevocationFromCborValue(cbor)
+    SignedActAsGrantRevocation::class -> signedActAsGrantRevocationFromCborValue(cbor)
+    GetActAsGrantRevocationsRequest::class -> getActAsGrantRevocationsRequestFromCborValue(cbor)
+    GetActAsGrantRevocationsResponse::class -> getActAsGrantRevocationsResponseFromCborValue(cbor)
+    RpActAsRefreshRequest::class -> rpActAsRefreshRequestFromCborValue(cbor)
+    RpResolveActAsRevocationsRequest::class -> rpResolveActAsRevocationsRequestFromCborValue(cbor)
+    BrowserActAsInspectRequest::class -> browserActAsInspectRequestFromCborValue(cbor)
+    BrowserActAsScopeEntry::class -> browserActAsScopeEntryFromCborValue(cbor)
+    BrowserActAsParty::class -> browserActAsPartyFromCborValue(cbor)
+    BrowserActAsInspectResponse::class -> browserActAsInspectResponseFromCborValue(cbor)
+    BrowserActAsCompleteRequest::class -> browserActAsCompleteRequestFromCborValue(cbor)
+    BrowserActAsCompleteResponse::class -> browserActAsCompleteResponseFromCborValue(cbor)
+    ActAsGrantSummary::class -> actAsGrantSummaryFromCborValue(cbor)
+    ListActAsGrantsResponse::class -> listActAsGrantsResponseFromCborValue(cbor)
+    RevokeActAsGrantRequest::class -> revokeActAsGrantRequestFromCborValue(cbor)
+    RevokeActAsGrantResponse::class -> revokeActAsGrantResponseFromCborValue(cbor)
     else -> throw CborError("no CSIL CBOR codec for $type")
 }

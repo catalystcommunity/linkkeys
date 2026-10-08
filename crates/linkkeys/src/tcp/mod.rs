@@ -88,8 +88,8 @@ struct ConnectionContext {
 
 /// Event-driven TCP server: one Tokio task per connection, asynchronous
 /// rustls I/O (`tokio_rustls`), no OS thread held for a connection's
-/// lifetime. See `signing-things-request.md`, "Connection scalability", for
-/// the full design this implements.
+/// lifetime. See `docs/deploying-at-scale.md` for the
+/// operator side of this design.
 pub struct TcpServer {
     listener: tokio::net::TcpListener,
     ready_flag: Arc<AtomicBool>,
@@ -182,7 +182,7 @@ impl TcpServer {
         })
     }
 
-    /// Bounded metrics for this server instance (signing-things-request.md,
+    /// Bounded metrics for this server instance (docs/deploying-at-scale.md,
     /// "Connection and cache metrics").
     pub fn metrics(&self) -> Arc<TcpMetrics> {
         self.metrics.clone()
@@ -377,7 +377,7 @@ fn seed_dns_pin_cache_from_db(db_pool: &DbPool) {
 /// Read one length-prefixed frame body, given its length has already been
 /// read. Allocates exactly `len` bytes — never `MAX_FRAME_SIZE` — so an idle
 /// or small-message connection never holds a megabyte-scale buffer
-/// (signing-things-request.md: "`MAX_FRAME_SIZE` is a cap, not an allocation
+/// (design requirement: "`MAX_FRAME_SIZE` is a cap, not an allocation
 /// size").
 async fn read_frame_body(
     reader: &mut (impl tokio::io::AsyncRead + Unpin),
@@ -428,7 +428,7 @@ async fn handle_connection(
     let _ = stream.set_nodelay(true);
 
     // Source-IP handshake rate limit BEFORE any expensive handshake work
-    // (signing-things-request.md: "Apply a source-IP handshake rate limit
+    // (design requirement: "Apply a source-IP handshake rate limit
     // BEFORE expensive handshake work where possible"). There is no
     // forwarded-header concept at this layer — always the direct peer.
     let source_key = handshake_limiter.source_key(peer_addr, None);
@@ -1483,7 +1483,6 @@ fn dispatch(
                 claims: scoped,
             }))
         }
-        // DNS-less local RP claim-ticket redemption (dns-less-local-rp-design.md,
         // Application keys. No operation here takes an API key.
         //
         // get-application-keys and start-key-challenge are public: the first
@@ -1506,6 +1505,18 @@ fn dispatch(
             }
             dispatch_application_keys(op, &envelope.payload, db_pool)
         }
+        // Act-as grants. No operation takes an API key. refresh-grant is
+        // authenticated at the application layer by the grantee's signature;
+        // get-grant-revocations is a public read keyed by grant id. Both are
+        // anonymous at the transport layer, so both pass the public-read
+        // limiter first.
+        ("ActAs", op) => {
+            if let Err(response) = public_read_gate(recovery_source_key) {
+                return response;
+            }
+            dispatch_act_as(op, &envelope.payload, db_pool, outbound)
+        }
+        // DNS-less local RP claim-ticket redemption (dns-less-local-rp-design.md,
         // Phase 5). Unauthenticated at the transport layer like DomainKeys/Ops
         // and Attestation/deposit-claim — authentication is the application-
         // layer possession proof: the request is signed with the local RP's
@@ -2328,7 +2339,75 @@ fn dispatch_account(
                 Err(error) => service_error_response(error),
             }
         }
+        "list-act-as-grants" => match crate::services::act_as::list_for_user(db_pool, user) {
+            Ok(resp) => ok_response(liblinkkeys::generated::encode_list_act_as_grants_response(
+                &resp,
+            )),
+            Err(error) => service_error_response(error),
+        },
+        "revoke-act-as-grant" => {
+            let request = match liblinkkeys::generated::decode_revoke_act_as_grant_request(payload)
+            {
+                Ok(r) => r,
+                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+            };
+            match crate::services::act_as::revoke_for_user(
+                db_pool,
+                user,
+                &request,
+                chrono::Utc::now(),
+            ) {
+                Ok(resp) => ok_response(
+                    liblinkkeys::generated::encode_revoke_act_as_grant_response(&resp),
+                ),
+                Err(error) => service_error_response(error),
+            }
+        }
         _ => error_response(3, &format!("Unknown Account operation: {}", op)),
+    }
+}
+
+/// Dispatch an `ActAs` op. refresh-grant resolves the grantee's attested keys,
+/// which may need an onward call to the grantee's home domain, so it needs the
+/// outbound context that only the TCP carrier has.
+fn dispatch_act_as(
+    op: &str,
+    payload: &[u8],
+    db_pool: &DbPool,
+    outbound: Option<&OutboundCtx>,
+) -> Vec<u8> {
+    use liblinkkeys::generated::codec;
+    match op {
+        "refresh-grant" => {
+            let request = match codec::decode_refresh_act_as_grant_request(payload) {
+                Ok(r) => r,
+                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+            };
+            let ctx = match outbound {
+                Some(ctx) => ctx,
+                None => return error_response(4, "operation unavailable on this carrier"),
+            };
+            let keys = crate::services::act_as::CachedKeySource {
+                pool: db_pool,
+                net: ctx.net,
+                rt: ctx.rt,
+            };
+            match crate::services::act_as::refresh(db_pool, &keys, &request, chrono::Utc::now()) {
+                Ok(resp) => ok_response(codec::encode_refresh_act_as_grant_response(&resp)),
+                Err(error) => service_error_response(error),
+            }
+        }
+        "get-grant-revocations" => {
+            let request = match codec::decode_get_act_as_grant_revocations_request(payload) {
+                Ok(r) => r,
+                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+            };
+            match crate::services::act_as::get_revocations(db_pool, &request) {
+                Ok(resp) => ok_response(codec::encode_get_act_as_grant_revocations_response(&resp)),
+                Err(error) => service_error_response(error),
+            }
+        }
+        _ => error_response(3, &format!("Unknown ActAs operation: {}", op)),
     }
 }
 
@@ -2462,6 +2541,35 @@ fn dispatch_rp(
             match crate::services::rp_cache::resolve_domain_keys(db_pool, ctx.net, ctx.rt, request)
             {
                 Ok(resp) => ok_response(codec::encode_rp_resolve_domain_keys_response(&resp)),
+                Err(error) => service_error_response(error),
+            }
+        }
+        "act-as-refresh-grant" => {
+            let request = match codec::decode_rp_act_as_refresh_request(payload) {
+                Ok(r) => r,
+                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+            };
+            let ctx = match outbound {
+                Some(ctx) => ctx,
+                None => return error_response(4, "operation unavailable on this carrier"),
+            };
+            match crate::services::act_as::rp_forward_refresh(db_pool, ctx.net, ctx.rt, request) {
+                Ok(resp) => ok_response(codec::encode_refresh_act_as_grant_response(&resp)),
+                Err(error) => service_error_response(error),
+            }
+        }
+        "resolve-act-as-revocations" => {
+            let request = match codec::decode_rp_resolve_act_as_revocations_request(payload) {
+                Ok(r) => r,
+                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+            };
+            let ctx = match outbound {
+                Some(ctx) => ctx,
+                None => return error_response(4, "operation unavailable on this carrier"),
+            };
+            match crate::services::act_as::rp_resolve_revocations(db_pool, ctx.net, ctx.rt, request)
+            {
+                Ok(resp) => ok_response(codec::encode_get_act_as_grant_revocations_response(&resp)),
                 Err(error) => service_error_response(error),
             }
         }

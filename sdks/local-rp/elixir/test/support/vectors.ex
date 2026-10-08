@@ -24,6 +24,13 @@ defmodule LinkkeysLocalRp.Test.Vectors do
     path |> File.read!() |> :json.decode() |> normalize_null()
   end
 
+  @regular_rp_conformance_dir Path.expand("../../../../regular-rp/conformance", __DIR__)
+
+  @doc "Load a vector file shared with the regular-RP SDKs (`sdks/regular-rp/conformance/`), e.g. the act-as grantee vectors."
+  def load_regular_rp(name) do
+    Path.join(@regular_rp_conformance_dir, name) |> File.read!() |> :json.decode() |> normalize_null()
+  end
+
   defp normalize_null(:null), do: nil
   defp normalize_null(m) when is_map(m), do: Map.new(m, fn {k, v} -> {k, normalize_null(v)} end)
   defp normalize_null(l) when is_list(l), do: Enum.map(l, &normalize_null/1)

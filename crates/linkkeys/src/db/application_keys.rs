@@ -1,4 +1,4 @@
-//! Persistence for application-key enrollment (signing-things-request.md,
+//! Persistence for application-key enrollment (docs/application-keys.md,
 //! step 2): the application instance identity, its enrolled public keys,
 //! each key's home-domain attestation bytes, permanent sibling-signed
 //! revocation evidence, and single-use enrollment/renewal proof-of-possession

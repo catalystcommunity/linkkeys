@@ -1,5 +1,5 @@
 //! Connection-layer tests for the async TCP server
-//! (signing-things-request.md, "Connection scalability"). These exercise the
+//! (see docs/deploying-at-scale.md). These exercise the
 //! REAL listener/accept/handshake/message-loop code via
 //! `linkkeys::tcp::spawn_for_test` (see that function's doc comment) — no
 //! socket/TLS/framing bypass, unlike `dispatch_for_test`, which is for

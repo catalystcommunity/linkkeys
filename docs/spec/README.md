@@ -15,10 +15,12 @@ statement outside it, this directory wins.
 | [`trust-and-anchors.md`](trust-and-anchors.md) | Anchor discovery, the `DNS-TXT` binding, establishing the trusted key set, pinning policy | Written |
 | [`keys.md`](keys.md) | Key kinds and custody, the three-key floor, validity, vouching, revocation certificates and quorum | Written |
 | [`reserved/signing-authorities.md`](reserved/signing-authorities.md) | Web of trust | Reserved |
-| [`reserved/device-keys.md`](reserved/device-keys.md) | Device and application key enrollment, cascade revocation | Reserved |
+| [`reserved/device-keys.md`](reserved/device-keys.md) | Device key enrollment, application-key coupling, cascade revocation | Reserved |
 | [`reserved/subdomain-hierarchies.md`](reserved/subdomain-hierarchies.md) | Parent/child domain delegation | Reserved |
+| [`reserved/act-as-grants.md`](reserved/act-as-grants.md) | A user lets one application act for them at another | Reserved |
 | [`assertions.md`](assertions.md) | Handshake, negotiation, assertion format, verifier obligations, domain separation | Written |
 | [`claims.md`](claims.md) | Claim format, signed payload, multi-signer quorum, verification | Written |
+| [`application-keys.md`](application-keys.md) | Application key attestation, addition, renewal, revocation, proof of possession | Written |
 | `claim-policy.md` | Value types, signing lanes, set rules, trusted issuers, release rules | Not yet written |
 | `browser-binding.md` | Interactive authorization and consent flow (I2/R2) | Not yet written |
 | `local-rp.md` | DNS-less claim-ticket issuance and redemption (I4/R3) | Not yet written |
@@ -151,8 +153,8 @@ A device or application key proves *origin*. It is never, by itself, the
 authority for a privileged action. Authorization is always the domain's signed
 assertion.
 
-> The device and application key hierarchy this invariant governs is
-> **Reserved**. The invariant is stated here now so that no Normative mechanism
+> Application keys are Normative ([`application-keys.md`](application-keys.md))
+> and follow this invariant. Device keys are **Reserved**. The invariant is stated here now so that no Normative mechanism
 > is designed in a way that would violate it later.
 
 ### I-7 — Revocation is timestamped, never retroactive *(Normative)*
@@ -206,6 +208,8 @@ implementation today*, not what is intended.
 | Assertion redemption / userinfo release | `Identity` | Core | Normative | I1, R1 |
 | Message catalog | `I18n` | Extension | Normative | I2 |
 | Third-party claim deposit | `Attestation` | Extension | Normative | I3 |
+| Application key attestation, renewal, revocation, public read | `ApplicationKeys` | Extension | Normative | — |
+| Act-as grant refresh and revocation read | `ActAs` | Extension | **Reserved** | — |
 | DNS-less claim-ticket redemption | `LocalRp` | Extension | Normative | I4, R3 |
 | Domain administration | `Admin` | Out of scope | — | — |
 | Account self-service | `Account` | Out of scope | — | — |
@@ -234,9 +238,11 @@ normative; the delegation surface itself is this implementation's design.
 | Profiles / presentable pseudonyms | Core | **Reserved** | Implemented, but no conformance vectors. Blocked on vectors, not on design. |
 | Browser redirect and consent flow | Extension | Normative | I2, R2. |
 | Signing authorities / web of trust | Extension | **Reserved** | No implementation. Raises assurance atop I-3; never replaces it. |
-| Device keys, app keys, cascade revocation | Extension | **Reserved** | No implementation. Governed in advance by I-6. |
+| Application keys | Extension | Normative | Implemented; conformance vectors in `sdks/regular-rp/conformance/`. Initial enrollment and key-set classification stay Reserved: implemented, no vectors. |
+| Device keys, app-key coupling, cascade revocation | Extension | **Reserved** | No implementation. Governed in advance by I-6. |
 | Local authenticator agent | Extension | **Reserved** | Distinct from Local RP — see naming note below. |
 | Domain migration | Extension | **Reserved** | No implementation. |
+| Act-as grants | Extension | **Reserved** | Implemented in the server and SDKs, with conformance vectors; Reserved until reviewed in use. Scope opaque to LinkKeys; no party in the request path. |
 
 > **Naming.** *Local RP* (an installed application acting as its own relying
 > party without DNS) and *local authenticator agent* (a user-side process

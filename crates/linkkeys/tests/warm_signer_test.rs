@@ -1,5 +1,5 @@
 //! Tests for `services::warm_signer`: the warm in-memory cache of the home
-//! domain's active signing keys (see `signing-things-request.md`,
+//! domain's active signing keys (see `docs/application-keys.md`,
 //! "Home-domain signing cost").
 //!
 //! All tests share process-wide global state (the cache singleton and its

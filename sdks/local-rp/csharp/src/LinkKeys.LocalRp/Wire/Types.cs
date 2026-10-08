@@ -108,4 +108,72 @@ public static class Types
 
     public sealed record LocalRpTicketRedemptionResponse(
         string UserId, string UserDomain, IReadOnlyList<Claim> Claims, string TicketExpiresAt);
+
+    // -----------------------------------------------------------------
+    // Act-as grants (grantee side only). A local RP can be a grantee, never an
+    // audience. See docs/spec/reserved/act-as-grants.md.
+    // -----------------------------------------------------------------
+
+    public sealed record ApplicationRef(string SubjectUserId, string SubjectDomain, string ApplicationId);
+
+    /// <summary>Exactly one field is non-null. This SDK always sets <c>LocalRpDescriptorFingerprint</c>.</summary>
+    public sealed record GranteeRef(ApplicationRef? Application, string? LocalRpDescriptorFingerprint);
+
+    public sealed record ApplicationKeySignature(string SignedByKeyId, byte[] Signature);
+
+    /// <summary>Exactly one of the first two fields is non-null. This SDK always sets <c>LocalRpDescriptor</c>.</summary>
+    public sealed record GranteeProof(
+        string? ApplicationInstanceId, SignedLocalRpDescriptor? LocalRpDescriptor, ApplicationKeySignature Signature);
+
+    /// <summary>The audience's signed scope set. <c>ScopeSet</c> is the signed CBOR of an <c>ActAsScopeSet</c>, kept unchanged.</summary>
+    public sealed record SignedActAsScopeSet(
+        byte[] ScopeSet, string SignerInstanceId, IReadOnlyList<ApplicationKeySignature> Signatures);
+
+    /// <summary>A grant as the home domain signed it. <c>Grant</c> is the signed CBOR of an <see cref="ActAsGrant"/>.</summary>
+    public sealed record SignedActAsGrant(byte[] Grant, IReadOnlyList<ClaimSignature> Signatures);
+
+    public sealed record ActAsGrant(
+        string GrantId,
+        string UserId,
+        string SubjectDomain,
+        GranteeRef Grantee,
+        ApplicationRef Audience,
+        SignedActAsScopeSet ScopeSet,
+        IReadOnlyList<string> ApprovedScope,
+        string IssuedAt,
+        string ExpiresAt,
+        string SeriesIssuedAt,
+        string RenewableUntil,
+        string? DeviceFingerprint);
+
+    /// <summary>
+    /// A local RP never sends the optional <c>grantee_handle_claim</c> (it has no enrolling
+    /// account), so this record does not carry it and the encoder always omits it.
+    /// </summary>
+    public sealed record ActAsGrantRequest(
+        GranteeRef Grantee,
+        SignedActAsScopeSet ScopeSet,
+        long? RequestedLifetimeSeconds,
+        long? RequestedRenewalWindowSeconds,
+        string CallbackUrl,
+        string Nonce,
+        string RequestedAt,
+        string ExpiresAt);
+
+    public sealed record SignedActAsGrantRequest(byte[] Request, GranteeProof Proof);
+
+    public sealed record ActAsRefreshRequest(string GrantId, GranteeRef Grantee, string RequestedAt, string ExpiresAt, string Nonce);
+
+    public sealed record SignedActAsRefreshRequest(byte[] Request, GranteeProof Proof);
+
+    public sealed record RefreshActAsGrantRequest(SignedActAsRefreshRequest Request);
+
+    public sealed record RefreshActAsGrantResponse(SignedActAsGrant Grant, bool Signed);
+
+    public sealed record ActAsPresentation(
+        byte[] GrantHash, ApplicationRef Audience, byte[] RequestDigest, string PresentedAt, byte[] Nonce);
+
+    public sealed record SignedActAsPresentation(byte[] Presentation, GranteeProof Proof);
+
+    public sealed record ActAsCredential(SignedActAsGrant Grant, SignedActAsPresentation Presentation);
 }

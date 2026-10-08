@@ -21,9 +21,17 @@ public static class Fixtures
     private static string ConformanceDir([CallerFilePath] string thisFile = "") =>
         Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFile)!, "..", "..", "..", "..", "conformance"));
 
-    public static JsonElement Load(string name)
+    /// <summary>The <c>sdks/regular-rp/conformance/</c> directory (the act-as grantee vectors live there).</summary>
+    private static string RegularRpConformanceDir([CallerFilePath] string thisFile = "") =>
+        Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFile)!, "..", "..", "..", "..", "..", "regular-rp", "conformance"));
+
+    public static JsonElement Load(string name) => LoadFrom(ConformanceDir(), name);
+
+    public static JsonElement LoadRegularRp(string name) => LoadFrom(RegularRpConformanceDir(), name);
+
+    private static JsonElement LoadFrom(string dir, string name)
     {
-        var path = Path.Combine(ConformanceDir(), name);
+        var path = Path.Combine(dir, name);
         if (!File.Exists(path))
         {
             throw new FileNotFoundException($"conformance fixture not found: {path} (run the generator?)", path);

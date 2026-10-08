@@ -33,7 +33,9 @@ tests=(
   tests/CborTest.php
   tests/IdentityTest.php
   tests/BeginTest.php
+  tests/BrowserTest.php
   tests/FlowTest.php
+  tests/ActAsTest.php
   tests/TlsPinningTest.php
 )
 

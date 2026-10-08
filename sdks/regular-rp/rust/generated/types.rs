@@ -1781,3 +1781,258 @@ pub struct RpResolveApplicationKeysResponse {
     pub revocations_checked_at: String,
     pub cache_status: String,
 }
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ApplicationRef {
+    pub subject_user_id: String,
+    pub subject_domain: String,
+    pub application_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GranteeRef {
+    pub application: Option<ApplicationRef>,
+    pub local_rp_descriptor_fingerprint: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GranteeProof {
+    pub application_instance_id: Option<String>,
+    pub local_rp_descriptor: Option<SignedLocalRpDescriptor>,
+    pub signature: ApplicationKeySignature,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActAsScopeEntry {
+    pub scope: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActAsScopeSet {
+    pub audience: ApplicationRef,
+    pub grantee: GranteeRef,
+    pub entries: Vec<ActAsScopeEntry>,
+    pub language: Option<String>,
+    pub audience_handle_claim: Option<Claim>,
+    pub issued_at: String,
+    pub expires_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SignedActAsScopeSet {
+    pub scope_set: Vec<u8>,
+    pub signer_instance_id: String,
+    pub signatures: Vec<ApplicationKeySignature>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActAsScopeSetRequest {
+    pub grantee: GranteeRef,
+    pub scope: Vec<String>,
+    pub locale_preferences: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActAsGrant {
+    pub grant_id: String,
+    pub user_id: String,
+    pub subject_domain: String,
+    pub grantee: GranteeRef,
+    pub audience: ApplicationRef,
+    pub scope_set: SignedActAsScopeSet,
+    pub approved_scope: Vec<String>,
+    pub issued_at: String,
+    pub expires_at: String,
+    pub series_issued_at: String,
+    pub renewable_until: String,
+    pub device_fingerprint: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SignedActAsGrant {
+    pub grant: Vec<u8>,
+    pub signatures: Vec<ClaimSignature>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActAsGrantRequest {
+    pub grantee: GranteeRef,
+    pub scope_set: SignedActAsScopeSet,
+    pub requested_lifetime_seconds: Option<i64>,
+    pub requested_renewal_window_seconds: Option<i64>,
+    pub grantee_handle_claim: Option<Claim>,
+    pub callback_url: String,
+    pub nonce: String,
+    pub requested_at: String,
+    pub expires_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SignedActAsGrantRequest {
+    pub request: Vec<u8>,
+    pub proof: GranteeProof,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActAsRefreshRequest {
+    pub grant_id: String,
+    pub grantee: GranteeRef,
+    pub requested_at: String,
+    pub expires_at: String,
+    pub nonce: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SignedActAsRefreshRequest {
+    pub request: Vec<u8>,
+    pub proof: GranteeProof,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RefreshActAsGrantRequest {
+    pub request: SignedActAsRefreshRequest,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RefreshActAsGrantResponse {
+    pub grant: SignedActAsGrant,
+    pub signed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActAsPresentation {
+    pub grant_hash: Vec<u8>,
+    pub audience: ApplicationRef,
+    pub request_digest: Vec<u8>,
+    pub presented_at: String,
+    pub nonce: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SignedActAsPresentation {
+    pub presentation: Vec<u8>,
+    pub proof: GranteeProof,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActAsCredential {
+    pub grant: SignedActAsGrant,
+    pub presentation: SignedActAsPresentation,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActAsGrantRevocation {
+    pub grant_id: String,
+    pub user_id: String,
+    pub subject_domain: String,
+    pub revoked_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SignedActAsGrantRevocation {
+    pub revocation: Vec<u8>,
+    pub signatures: Vec<ClaimSignature>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetActAsGrantRevocationsRequest {
+    pub grant_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetActAsGrantRevocationsResponse {
+    pub revocations: Vec<SignedActAsGrantRevocation>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RpActAsRefreshRequest {
+    pub subject_domain: String,
+    pub request: SignedActAsRefreshRequest,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RpResolveActAsRevocationsRequest {
+    pub subject_domain: String,
+    pub grant_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrowserActAsInspectRequest {
+    pub signed_request: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrowserActAsScopeEntry {
+    pub scope: String,
+    pub description: Option<String>,
+    pub removed_by_policy: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrowserActAsParty {
+    pub domain: Option<String>,
+    pub application_id: Option<String>,
+    pub subject_user_id: Option<String>,
+    pub handle: Option<String>,
+    pub local_rp_name: Option<String>,
+    pub local_rp_fingerprint: Option<String>,
+    pub own_domain: bool,
+    pub user_has_history: bool,
+    pub domain_key_pinned: bool,
+    pub operator_trusted: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrowserActAsInspectResponse {
+    pub grantee: GranteeRef,
+    pub grantee_party: BrowserActAsParty,
+    pub audience: ApplicationRef,
+    pub audience_party: BrowserActAsParty,
+    pub entries: Vec<BrowserActAsScopeEntry>,
+    pub language: Option<String>,
+    pub default_lifetime_seconds: i64,
+    pub max_lifetime_seconds: i64,
+    pub default_renewal_window_seconds: i64,
+    pub max_renewal_window_seconds: i64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrowserActAsCompleteRequest {
+    pub signed_request: String,
+    pub approved_scope: Vec<String>,
+    pub lifetime_seconds: i64,
+    pub renewal_window_seconds: i64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrowserActAsCompleteResponse {
+    pub redirect_url: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActAsGrantSummary {
+    pub grant_id: String,
+    pub grantee: GranteeRef,
+    pub audience: ApplicationRef,
+    pub approved_scope: Vec<String>,
+    pub issued_at: String,
+    pub expires_at: String,
+    pub renewable_until: String,
+    pub revoked_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListActAsGrantsResponse {
+    pub grants: Vec<ActAsGrantSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RevokeActAsGrantRequest {
+    pub grant_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RevokeActAsGrantResponse {
+    pub revoked_at: String,
+}

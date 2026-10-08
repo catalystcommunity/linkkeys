@@ -521,6 +521,32 @@ pub mod pg {
         }
     }
 
+    diesel::table! {
+        act_as_grants (id) {
+            id -> Uuid,
+            user_id -> Uuid,
+            grantee_kind -> Varchar,
+            grantee_subject_user_id -> Nullable<Varchar>,
+            grantee_subject_domain -> Nullable<Varchar>,
+            grantee_application_id -> Nullable<Varchar>,
+            grantee_local_rp_fingerprint -> Nullable<Varchar>,
+            audience_subject_user_id -> Varchar,
+            audience_subject_domain -> Varchar,
+            audience_application_id -> Varchar,
+            approved_scope -> Text,
+            lifetime_seconds -> BigInt,
+            series_issued_at -> Timestamptz,
+            renewable_until -> Timestamptz,
+            signed_grant -> Binary,
+            issued_at -> Timestamptz,
+            expires_at -> Timestamptz,
+            revoked_at -> Nullable<Timestamptz>,
+            signed_revocation -> Nullable<Binary>,
+            created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+        }
+    }
+
     diesel::joinable!(user_keys -> users (user_id));
     diesel::joinable!(claims -> users (user_id));
     diesel::joinable!(claim_signatures -> claims (claim_id));
@@ -535,6 +561,7 @@ pub mod pg {
     diesel::joinable!(browser_sessions -> users (user_id));
     diesel::joinable!(user_authentication_activity -> users (user_id));
     diesel::joinable!(notification_outbox -> users (user_id));
+    diesel::joinable!(act_as_grants -> users (user_id));
     diesel::joinable!(application_instances -> users (subject_user_id));
     diesel::joinable!(application_keys -> application_instances (instance_row_id));
     diesel::joinable!(application_key_attestations -> application_keys (application_key_row_id));
@@ -581,6 +608,7 @@ pub mod pg {
         local_rp_domain_policy,
         local_rps,
         local_rp_claim_tickets,
+        act_as_grants,
     );
 }
 
@@ -1104,6 +1132,32 @@ pub mod sqlite {
         }
     }
 
+    diesel::table! {
+        act_as_grants (id) {
+            id -> Text,
+            user_id -> Text,
+            grantee_kind -> Text,
+            grantee_subject_user_id -> Nullable<Text>,
+            grantee_subject_domain -> Nullable<Text>,
+            grantee_application_id -> Nullable<Text>,
+            grantee_local_rp_fingerprint -> Nullable<Text>,
+            audience_subject_user_id -> Text,
+            audience_subject_domain -> Text,
+            audience_application_id -> Text,
+            approved_scope -> Text,
+            lifetime_seconds -> BigInt,
+            series_issued_at -> Text,
+            renewable_until -> Text,
+            signed_grant -> Binary,
+            issued_at -> Text,
+            expires_at -> Text,
+            revoked_at -> Nullable<Text>,
+            signed_revocation -> Nullable<Binary>,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
     diesel::joinable!(user_keys -> users (user_id));
     diesel::joinable!(claims -> users (user_id));
     diesel::joinable!(claim_signatures -> claims (claim_id));
@@ -1118,6 +1172,7 @@ pub mod sqlite {
     diesel::joinable!(browser_sessions -> users (user_id));
     diesel::joinable!(user_authentication_activity -> users (user_id));
     diesel::joinable!(notification_outbox -> users (user_id));
+    diesel::joinable!(act_as_grants -> users (user_id));
     diesel::joinable!(application_instances -> users (subject_user_id));
     diesel::joinable!(application_keys -> application_instances (instance_row_id));
     diesel::joinable!(application_key_attestations -> application_keys (application_key_row_id));
@@ -1164,5 +1219,6 @@ pub mod sqlite {
         local_rp_domain_policy,
         local_rps,
         local_rp_claim_tickets,
+        act_as_grants,
     );
 }

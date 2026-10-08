@@ -5,6 +5,16 @@ Future<LocalRpKeyMaterial> _material() =>
     generateLocalRpIdentity(GenerateLocalRpIdentityConfig(
         appName: 'Test App', now: DateTime.now().toUtc()));
 
+/// Hermetic resolver: every lookup fails, so `beginLocalLogin` falls back to
+/// `https://<identity domain>` without any live DNS request.
+class _NoDnsResolver implements DnsResolver {
+  @override
+  Future<List<String>> txtLookup(String name) async =>
+      throw SdkException(SdkExceptionKind.dns, 'no fake record for $name');
+}
+
+final _noDns = _NoDnsResolver();
+
 void main() {
   group('Begin', () {
     test('beginLocalLogin defaults claims and produces pending state',
@@ -15,6 +25,7 @@ void main() {
         callbackUrl: 'http://localhost:8080/callback',
         userDomain: 'example.com',
         now: DateTime.now().toUtc(),
+        dns: _noDns,
       ));
 
       expect(result.redirect.redirectUrl,
@@ -41,6 +52,7 @@ void main() {
         userDomain: 'example.com',
         requiredClaims: const ['email', 'handle'],
         now: DateTime.now().toUtc(),
+        dns: _noDns,
       ));
       expect(result.pending.requiredClaims, equals(['email', 'handle']));
 
@@ -65,6 +77,7 @@ void main() {
         userDomain: 'example.com',
         requiredClaims: const [],
         now: DateTime.now().toUtc(),
+        dns: _noDns,
       ));
       expect(result.pending.requiredClaims, isEmpty);
     });
@@ -76,6 +89,7 @@ void main() {
         callbackUrl: 'http://localhost/callback',
         userDomain: 'Alice+work@ID.Example.TEST',
         now: DateTime.now().toUtc(),
+        dns: _noDns,
       ));
       expect(result.redirect.redirectUrl, endsWith('&username=Alice%2Bwork'));
       expect(result.pending.userDomain, equals('id.example.test'));
@@ -91,6 +105,7 @@ void main() {
             callbackUrl: 'http://localhost/callback',
             userDomain: input,
             now: DateTime.now().toUtc(),
+            dns: _noDns,
           )),
           throwsA(isA<SdkException>()),
         );
@@ -105,6 +120,7 @@ void main() {
           callbackUrl: 'myapp://callback',
           userDomain: 'example.com',
           now: DateTime.now().toUtc(),
+          dns: _noDns,
         )),
         throwsA(isA<SdkException>()),
       );
@@ -118,6 +134,7 @@ void main() {
           callbackUrl: 'http://localhost/callback',
           userDomain: '',
           now: DateTime.now().toUtc(),
+          dns: _noDns,
         )),
         throwsA(isA<SdkException>()),
       );
@@ -130,12 +147,14 @@ void main() {
         callbackUrl: 'http://localhost/callback',
         userDomain: 'example.com',
         now: DateTime.now().toUtc(),
+        dns: _noDns,
       ));
       final r2 = await beginLocalLogin(BeginLocalLoginConfig(
         keyMaterial: m,
         callbackUrl: 'http://localhost/callback',
         userDomain: 'example.com',
         now: DateTime.now().toUtc(),
+        dns: _noDns,
       ));
       expect(r1.pending.nonce, isNot(equals(r2.pending.nonce)));
       expect(r1.pending.state, isNot(equals(r2.pending.state)));

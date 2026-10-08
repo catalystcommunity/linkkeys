@@ -44,6 +44,10 @@ defmodule LinkkeysLocalRp do
 
       # App: persist `pending` (e.g. PendingLogin.to_map(pending) into a
       # session), then redirect the browser to redirect.redirect_url.
+      # begin_local_login/1 discovers the browser host from the
+      # `https=` value of `_linkkeys_apis.<domain>` (one DNS TXT lookup;
+      # inject a resolver with `:dns`). It falls back to
+      # `https://<domain>` when discovery fails.
 
       # On callback (app's HTTP handler received `arrived_url` with an
       # `encrypted_token=` query parameter):
@@ -90,8 +94,13 @@ defmodule LinkkeysLocalRp do
     OTP's `:inet_res`; LAN resolver spoofing is an accepted, documented
     tradeoff for this mode. Inject a hardened resolver function if your
     deployment needs more.
+  - `begin_local_login/1` uses the `_linkkeys_apis` `https=` endpoint as
+    the browser host only. `PendingLogin.user_domain` stays the identity
+    domain, so verification never binds to the discovered host
+    (`LinkkeysLocalRp.Browser`).
   """
 
+  alias LinkkeysLocalRp.ActAs
   alias LinkkeysLocalRp.Begin
   alias LinkkeysLocalRp.Complete
   alias LinkkeysLocalRp.Identity
@@ -113,4 +122,11 @@ defmodule LinkkeysLocalRp do
 
   defdelegate begin_local_login(config), to: Begin
   defdelegate complete_local_login(config), to: Complete
+
+  # -- Act-as grants (grantee side only; see LinkkeysLocalRp.ActAs) ------
+
+  defdelegate begin_act_as(config), to: ActAs
+  defdelegate complete_act_as(pending, callback), to: ActAs
+  defdelegate refresh_act_as_grant(config), to: ActAs
+  defdelegate present_act_as(config), to: ActAs, as: :present
 end

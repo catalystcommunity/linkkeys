@@ -21,6 +21,9 @@ sdks/local-rp/python/
     __init__.py       # public API surface (re-exports)
     identity.py        # generate_local_rp_identity + byte storage helpers
     begin.py           # begin_local_login
+    act_as.py          # act-as grantee: begin_act_as, complete_act_as_callback,
+                        # refresh_act_as_grant, present_act_as
+    browser.py         # _linkkeys_apis https= discovery + browser URL builder
     complete.py         # complete_local_login (the full verification chain)
     local_rp.py         # pure protocol helpers (envelope sign/verify, callback
                         # seal/open, timestamp/expiration checks) -- mirrors
@@ -38,7 +41,7 @@ sdks/local-rp/python/
                         # every TCP peer this SDK talks to)
     transport.py            # the TCP dial seam + AddressPolicy
     rpc.py                   # CSIL-RPC framing + fetch_domain_keys /
-                        # redeem_claim_ticket
+                        # redeem_claim_ticket / refresh_act_as_grant
     encoding.py               # base64url-unpadded URL-parameter helpers
     timeutil.py                # RFC3339 parse/format shared by every module
     generated/                   # csilgen-generated CSIL types + CSIL-RPC
@@ -48,6 +51,7 @@ sdks/local-rp/python/
     conftest.py
     test_conformance_*.py    # one file per conformance vector JSON file
     test_flow.py               # fake-IDP end-to-end flow tests
+    test_act_as.py             # act-as grantee vectors, begin, callback
 ```
 
 ## Environment setup
@@ -178,6 +182,7 @@ redirect, pending = begin_local_login(BeginLocalLoginConfig(
     callback_url="http://jukebox.lan:8080/auth/callback",
     user_domain="alice@example.com", # a full login prefills alice; a bare domain only selects the IDP
     now=datetime.now(timezone.utc),
+    # dns=my_dns_resolver,  # optional; defaults to SystemDnsResolver()
 ))
 # Persist pending.to_dict() (e.g. in a server-side session tied to the
 # browser), then redirect the user's browser to redirect.redirect_url.
@@ -191,6 +196,68 @@ verified = complete_local_login(
 # verified.user_id, verified.user_domain, verified.claims, ... -- session
 # creation, local user records, and authorization are all your app's job.
 ```
+
+## Browser endpoint discovery
+
+`begin_local_login` does one DNS TXT lookup of `_linkkeys_apis.<domain>`
+(the identity domain). The `https=` value of the first valid `v=lk1` record
+names the browser-facing host. The redirect URL uses that host. A path
+prefix in the `https=` value is kept. The identity domain stays in
+`pending.user_domain`. Verification binds to the identity domain, never to
+the discovered host.
+
+Pass `dns=` to inject a `DnsResolver`. Omit it to use `SystemDnsResolver()`.
+
+The lookup never fails the call. The redirect falls back to
+`https://<domain>` when:
+
+- the DNS lookup fails,
+- no valid record has an `https=` value, or
+- the discovered base is not valid (not `https`, no host, or it carries
+  userinfo, a query, or a fragment).
+
+The helpers are exported for regular-RP glue too:
+`resolve_browser_base(dns, identity_domain)` returns the base, and
+`build_browser_endpoint(base, route, signed_request)` builds the URL for
+`BROWSER_ROUTE_LOCAL_RP` or `BROWSER_ROUTE_AUTHORIZE`.
+
+## Act-as grants
+
+An act-as grant lets this app act as a user at an enrolled application (the
+audience). The user approves the grant at the user's home domain. The home
+domain signs it. The protocol is in
+[`docs/spec/reserved/act-as-grants.md`](../../../docs/spec/reserved/act-as-grants.md).
+It is Reserved and can change.
+
+A local RP can be a grantee only. A local RP can be a grantee only after its
+home domain approved it. A local RP cannot be an audience, because a peer
+cannot find its keys through DNS.
+
+The descriptor signing key signs every request and presentation. The proof
+carries the signed descriptor.
+
+1. Get the audience's `SignedActAsScopeSet` as CBOR bytes. The format of
+   that exchange is between this app and the audience.
+2. Call `begin_act_as(BeginActAsConfig(key_material=..., user_domain=...,
+   scope_set=..., callback_url=..., now=...))`. Optional fields:
+   `requested_lifetime_seconds`, `requested_renewal_window_seconds`, `dns`,
+   and `request_window_seconds` (default 300, maximum 900). Keep the returned
+   `PendingActAs` (`to_dict()` / `from_dict()`). Send the browser to
+   `redirect.redirect_url`. Browser endpoint discovery and its fallback are
+   the same as for `begin_local_login`. The route is `/auth/act-as`.
+3. On the callback, call `complete_act_as_callback(pending, arrived_url)`.
+   It compares the `nonce` in constant time and returns `act_as_grant_id`.
+   Use `pending` one time only.
+4. Call `refresh_act_as_grant(key_material, pending.user_domain, grant_id,
+   now)` to get the grant. It calls `ActAs/refresh-grant` over the same
+   pinned TCP path as claim-ticket redemption. It returns `grant` and
+   `signed`. Call it again when less than half of the grant's life remains.
+5. For each call to the audience, call `present_act_as(grant, audience,
+   request_digest, now, nonce, key_material)`. Send `credential_cbor` with
+   the call. The audience defines `request_digest`. Use a new random `nonce`
+   for each call.
+
+The SDK does not verify the grant. The audience verifies it.
 
 ## Security notes
 

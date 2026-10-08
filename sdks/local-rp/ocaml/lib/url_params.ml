@@ -98,3 +98,13 @@ let local_rp_encrypted_callback_from_url_param (param : string) : Types.Local_rp
   let cbor_bytes = b64url_decode param in
   try Types.Local_rp_encrypted_callback.of_cbor cbor_bytes
   with Cbor.Decode_error msg -> raise (Decode_error (Printf.sprintf "CBOR decode failed: %s" msg))
+
+(* [signed_request] value for [GET /auth/act-as]: unpadded base64url of
+   CBOR(SignedActAsGrantRequest). *)
+let signed_act_as_grant_request_to_url_param (signed : Types.Signed_act_as_grant_request.t) : string =
+  b64url_encode (Types.Signed_act_as_grant_request.to_cbor signed)
+
+let signed_act_as_grant_request_from_url_param (param : string) : Types.Signed_act_as_grant_request.t =
+  let cbor_bytes = b64url_decode param in
+  try Types.Signed_act_as_grant_request.of_cbor cbor_bytes
+  with Cbor.Decode_error msg -> raise (Decode_error (Printf.sprintf "CBOR decode failed: %s" msg))

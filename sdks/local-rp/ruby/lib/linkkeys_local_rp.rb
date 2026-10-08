@@ -14,8 +14,10 @@ require_relative 'linkkeys_local_rp/tls'
 require_relative 'linkkeys_local_rp/transport'
 require_relative 'linkkeys_local_rp/rpc'
 require_relative 'linkkeys_local_rp/identity'
+require_relative 'linkkeys_local_rp/browser'
 require_relative 'linkkeys_local_rp/begin'
 require_relative 'linkkeys_local_rp/complete'
+require_relative 'linkkeys_local_rp/act_as'
 
 # linkkeys_local_rp -- Ruby SDK for LinkKeys' DNS-less local RP identity
 # mode (`dns-less-local-rp-design.md` at the repo root -- read it first;
@@ -56,6 +58,11 @@ require_relative 'linkkeys_local_rp/complete'
 # )
 # # App: persist `pending` (e.g. pending.to_h into a session), then redirect
 # # the browser to redirect.redirect_url.
+# #
+# # begin_local_login reads the `_linkkeys_apis.<domain>` TXT record and
+# # sends the browser to its `https=` endpoint. Pass `dns:` to inject a
+# # resolver. If the lookup fails, or no record has a valid `https=` value,
+# # the redirect falls back to `https://<domain>`.
 #
 # # On callback (app's HTTP handler received `arrived_url` with an
 # # `encrypted_token=` query parameter):
@@ -112,6 +119,15 @@ module LinkkeysLocalRp
 
   def begin_local_login(config) = Begin.begin_local_login(config)
 
+  # Browser endpoint discovery helpers (see Browser module docs): the
+  # identity domain's `_linkkeys_apis` `https=` base, and the browser URL
+  # for a route under it.
+  def resolve_browser_base(dns, identity_domain) = Browser.resolve_browser_base(dns, identity_domain)
+
+  def build_browser_endpoint(browser_base, route, signed_request)
+    Browser.build_browser_endpoint(browser_base, route, signed_request)
+  end
+
   def complete_local_login(key_material, pending, encrypted_token, arrived_url, now, **kwargs)
     Complete.complete_local_login(key_material, pending, encrypted_token, arrived_url, now, **kwargs)
   end
@@ -121,6 +137,17 @@ module LinkkeysLocalRp
   # identity's descriptor expires_at directly. The SDK reports facts; the
   # app decides whether to warn admins, warn users, block login, renew, or
   # ignore.
+  def begin_act_as(config) = ActAs.begin_act_as(config)
+  def complete_act_as_callback(pending, arrived) = ActAs.complete_act_as_callback(pending, arrived)
+
+  def refresh_act_as_grant(key_material, user_domain, grant_id, now, **kwargs)
+    ActAs.refresh_act_as_grant(key_material, user_domain, grant_id, now, **kwargs)
+  end
+
+  def present_act_as(grant, audience, request_digest, now, nonce, key_material)
+    ActAs.present(grant, audience, request_digest, now, nonce, key_material)
+  end
+
   def check_expirations(identity, now)
     descriptor = Types::LocalRpDescriptor.from_cbor(identity.descriptor.descriptor)
     LocalRp.check_expirations(descriptor.expires_at, now)

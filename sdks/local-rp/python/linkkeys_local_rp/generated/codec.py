@@ -6998,6 +6998,1000 @@ def _rp_resolve_application_keys_response_from_cbor(data: bytes) -> "RpResolveAp
 RpResolveApplicationKeysResponse.to_cbor = _rp_resolve_application_keys_response_to_cbor
 RpResolveApplicationKeysResponse.from_cbor = staticmethod(_rp_resolve_application_keys_response_from_cbor)
 
+def _encode_application_ref_value(v: "ApplicationRef") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["application_id"] = v.application_id
+    csil_m["subject_domain"] = v.subject_domain
+    csil_m["subject_user_id"] = v.subject_user_id
+    return csil_m
+
+def _decode_application_ref_value(tree: Any) -> "ApplicationRef":
+    tree = _csil_expect_map(tree)
+    return ApplicationRef(
+        subject_user_id=_csil_expect_text(tree["subject_user_id"]),
+        subject_domain=_csil_expect_text(tree["subject_domain"]),
+        application_id=_csil_expect_text(tree["application_id"]),
+    )
+
+
+def _application_ref_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_application_ref_value(self))
+
+
+def _application_ref_from_cbor(data: bytes) -> "ApplicationRef":
+    return _decode_application_ref_value(cbor_decode(data))
+
+
+ApplicationRef.to_cbor = _application_ref_to_cbor
+ApplicationRef.from_cbor = staticmethod(_application_ref_from_cbor)
+
+def _encode_grantee_ref_value(v: "GranteeRef") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_x = v.application
+    if csil_x is not None:
+        csil_m["application"] = _encode_application_ref_value(csil_x)
+    csil_x = v.local_rp_descriptor_fingerprint
+    if csil_x is not None:
+        csil_m["local_rp_descriptor_fingerprint"] = csil_x
+    return csil_m
+
+def _decode_grantee_ref_value(tree: Any) -> "GranteeRef":
+    tree = _csil_expect_map(tree)
+    return GranteeRef(
+        application=(None if tree.get("application") is None else _decode_application_ref_value(tree["application"])),
+        local_rp_descriptor_fingerprint=(None if tree.get("local_rp_descriptor_fingerprint") is None else _csil_expect_text(tree["local_rp_descriptor_fingerprint"])),
+    )
+
+
+def _grantee_ref_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_grantee_ref_value(self))
+
+
+def _grantee_ref_from_cbor(data: bytes) -> "GranteeRef":
+    return _decode_grantee_ref_value(cbor_decode(data))
+
+
+GranteeRef.to_cbor = _grantee_ref_to_cbor
+GranteeRef.from_cbor = staticmethod(_grantee_ref_from_cbor)
+
+def _encode_grantee_proof_value(v: "GranteeProof") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["signature"] = _encode_application_key_signature_value(v.signature)
+    csil_x = v.local_rp_descriptor
+    if csil_x is not None:
+        csil_m["local_rp_descriptor"] = _encode_signed_local_rp_descriptor_value(csil_x)
+    csil_x = v.application_instance_id
+    if csil_x is not None:
+        csil_m["application_instance_id"] = csil_x
+    return csil_m
+
+def _decode_grantee_proof_value(tree: Any) -> "GranteeProof":
+    tree = _csil_expect_map(tree)
+    return GranteeProof(
+        application_instance_id=(None if tree.get("application_instance_id") is None else _csil_expect_text(tree["application_instance_id"])),
+        local_rp_descriptor=(None if tree.get("local_rp_descriptor") is None else _decode_signed_local_rp_descriptor_value(tree["local_rp_descriptor"])),
+        signature=_decode_application_key_signature_value(tree["signature"]),
+    )
+
+
+def _grantee_proof_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_grantee_proof_value(self))
+
+
+def _grantee_proof_from_cbor(data: bytes) -> "GranteeProof":
+    return _decode_grantee_proof_value(cbor_decode(data))
+
+
+GranteeProof.to_cbor = _grantee_proof_to_cbor
+GranteeProof.from_cbor = staticmethod(_grantee_proof_from_cbor)
+
+def _encode_act_as_scope_entry_value(v: "ActAsScopeEntry") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["scope"] = v.scope
+    csil_x = v.description
+    if csil_x is not None:
+        csil_m["description"] = csil_x
+    return csil_m
+
+def _decode_act_as_scope_entry_value(tree: Any) -> "ActAsScopeEntry":
+    tree = _csil_expect_map(tree)
+    return ActAsScopeEntry(
+        scope=_csil_expect_text(tree["scope"]),
+        description=(None if tree.get("description") is None else _csil_expect_text(tree["description"])),
+    )
+
+
+def _act_as_scope_entry_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_act_as_scope_entry_value(self))
+
+
+def _act_as_scope_entry_from_cbor(data: bytes) -> "ActAsScopeEntry":
+    return _decode_act_as_scope_entry_value(cbor_decode(data))
+
+
+ActAsScopeEntry.to_cbor = _act_as_scope_entry_to_cbor
+ActAsScopeEntry.from_cbor = staticmethod(_act_as_scope_entry_from_cbor)
+
+def _encode_act_as_scope_set_value(v: "ActAsScopeSet") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["entries"] = [_encode_act_as_scope_entry_value(csil_e) for csil_e in v.entries]
+    csil_m["grantee"] = _encode_grantee_ref_value(v.grantee)
+    csil_m["audience"] = _encode_application_ref_value(v.audience)
+    csil_x = v.language
+    if csil_x is not None:
+        csil_m["language"] = csil_x
+    csil_m["issued_at"] = v.issued_at
+    csil_m["expires_at"] = v.expires_at
+    csil_x = v.audience_handle_claim
+    if csil_x is not None:
+        csil_m["audience_handle_claim"] = _encode_claim_value(csil_x)
+    return csil_m
+
+def _decode_act_as_scope_set_value(tree: Any) -> "ActAsScopeSet":
+    tree = _csil_expect_map(tree)
+    return ActAsScopeSet(
+        audience=_decode_application_ref_value(tree["audience"]),
+        grantee=_decode_grantee_ref_value(tree["grantee"]),
+        entries=[_decode_act_as_scope_entry_value(csil_e) for csil_e in _csil_expect_array(tree["entries"])],
+        language=(None if tree.get("language") is None else _csil_expect_text(tree["language"])),
+        audience_handle_claim=(None if tree.get("audience_handle_claim") is None else _decode_claim_value(tree["audience_handle_claim"])),
+        issued_at=_csil_expect_text(tree["issued_at"]),
+        expires_at=_csil_expect_text(tree["expires_at"]),
+    )
+
+
+def _act_as_scope_set_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_act_as_scope_set_value(self))
+
+
+def _act_as_scope_set_from_cbor(data: bytes) -> "ActAsScopeSet":
+    return _decode_act_as_scope_set_value(cbor_decode(data))
+
+
+ActAsScopeSet.to_cbor = _act_as_scope_set_to_cbor
+ActAsScopeSet.from_cbor = staticmethod(_act_as_scope_set_from_cbor)
+
+def _encode_signed_act_as_scope_set_value(v: "SignedActAsScopeSet") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["scope_set"] = v.scope_set
+    csil_m["signatures"] = [_encode_application_key_signature_value(csil_e) for csil_e in v.signatures]
+    csil_m["signer_instance_id"] = v.signer_instance_id
+    return csil_m
+
+def _decode_signed_act_as_scope_set_value(tree: Any) -> "SignedActAsScopeSet":
+    tree = _csil_expect_map(tree)
+    return SignedActAsScopeSet(
+        scope_set=_csil_expect_bytes(tree["scope_set"]),
+        signer_instance_id=_csil_expect_text(tree["signer_instance_id"]),
+        signatures=[_decode_application_key_signature_value(csil_e) for csil_e in _csil_expect_array(tree["signatures"])],
+    )
+
+
+def _signed_act_as_scope_set_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_signed_act_as_scope_set_value(self))
+
+
+def _signed_act_as_scope_set_from_cbor(data: bytes) -> "SignedActAsScopeSet":
+    return _decode_signed_act_as_scope_set_value(cbor_decode(data))
+
+
+SignedActAsScopeSet.to_cbor = _signed_act_as_scope_set_to_cbor
+SignedActAsScopeSet.from_cbor = staticmethod(_signed_act_as_scope_set_from_cbor)
+
+def _encode_act_as_scope_set_request_value(v: "ActAsScopeSetRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["scope"] = v.scope
+    csil_m["grantee"] = _encode_grantee_ref_value(v.grantee)
+    csil_x = v.locale_preferences
+    if csil_x is not None:
+        csil_m["locale_preferences"] = csil_x
+    return csil_m
+
+def _decode_act_as_scope_set_request_value(tree: Any) -> "ActAsScopeSetRequest":
+    tree = _csil_expect_map(tree)
+    return ActAsScopeSetRequest(
+        grantee=_decode_grantee_ref_value(tree["grantee"]),
+        scope=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["scope"])],
+        locale_preferences=(None if tree.get("locale_preferences") is None else [_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["locale_preferences"])]),
+    )
+
+
+def _act_as_scope_set_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_act_as_scope_set_request_value(self))
+
+
+def _act_as_scope_set_request_from_cbor(data: bytes) -> "ActAsScopeSetRequest":
+    return _decode_act_as_scope_set_request_value(cbor_decode(data))
+
+
+ActAsScopeSetRequest.to_cbor = _act_as_scope_set_request_to_cbor
+ActAsScopeSetRequest.from_cbor = staticmethod(_act_as_scope_set_request_from_cbor)
+
+def _encode_act_as_grant_value(v: "ActAsGrant") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["grantee"] = _encode_grantee_ref_value(v.grantee)
+    csil_m["user_id"] = v.user_id
+    csil_m["audience"] = _encode_application_ref_value(v.audience)
+    csil_m["grant_id"] = v.grant_id
+    csil_m["issued_at"] = v.issued_at
+    csil_m["scope_set"] = _encode_signed_act_as_scope_set_value(v.scope_set)
+    csil_m["expires_at"] = v.expires_at
+    csil_m["approved_scope"] = v.approved_scope
+    csil_m["subject_domain"] = v.subject_domain
+    csil_m["renewable_until"] = v.renewable_until
+    csil_m["series_issued_at"] = v.series_issued_at
+    csil_x = v.device_fingerprint
+    if csil_x is not None:
+        csil_m["device_fingerprint"] = csil_x
+    return csil_m
+
+def _decode_act_as_grant_value(tree: Any) -> "ActAsGrant":
+    tree = _csil_expect_map(tree)
+    return ActAsGrant(
+        grant_id=_csil_expect_text(tree["grant_id"]),
+        user_id=_csil_expect_text(tree["user_id"]),
+        subject_domain=_csil_expect_text(tree["subject_domain"]),
+        grantee=_decode_grantee_ref_value(tree["grantee"]),
+        audience=_decode_application_ref_value(tree["audience"]),
+        scope_set=_decode_signed_act_as_scope_set_value(tree["scope_set"]),
+        approved_scope=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["approved_scope"])],
+        issued_at=_csil_expect_text(tree["issued_at"]),
+        expires_at=_csil_expect_text(tree["expires_at"]),
+        series_issued_at=_csil_expect_text(tree["series_issued_at"]),
+        renewable_until=_csil_expect_text(tree["renewable_until"]),
+        device_fingerprint=(None if tree.get("device_fingerprint") is None else _csil_expect_text(tree["device_fingerprint"])),
+    )
+
+
+def _act_as_grant_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_act_as_grant_value(self))
+
+
+def _act_as_grant_from_cbor(data: bytes) -> "ActAsGrant":
+    return _decode_act_as_grant_value(cbor_decode(data))
+
+
+ActAsGrant.to_cbor = _act_as_grant_to_cbor
+ActAsGrant.from_cbor = staticmethod(_act_as_grant_from_cbor)
+
+def _encode_signed_act_as_grant_value(v: "SignedActAsGrant") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["grant"] = v.grant
+    csil_m["signatures"] = [_encode_claim_signature_value(csil_e) for csil_e in v.signatures]
+    return csil_m
+
+def _decode_signed_act_as_grant_value(tree: Any) -> "SignedActAsGrant":
+    tree = _csil_expect_map(tree)
+    return SignedActAsGrant(
+        grant=_csil_expect_bytes(tree["grant"]),
+        signatures=[_decode_claim_signature_value(csil_e) for csil_e in _csil_expect_array(tree["signatures"])],
+    )
+
+
+def _signed_act_as_grant_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_signed_act_as_grant_value(self))
+
+
+def _signed_act_as_grant_from_cbor(data: bytes) -> "SignedActAsGrant":
+    return _decode_signed_act_as_grant_value(cbor_decode(data))
+
+
+SignedActAsGrant.to_cbor = _signed_act_as_grant_to_cbor
+SignedActAsGrant.from_cbor = staticmethod(_signed_act_as_grant_from_cbor)
+
+def _encode_act_as_grant_request_value(v: "ActAsGrantRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["nonce"] = v.nonce
+    csil_m["grantee"] = _encode_grantee_ref_value(v.grantee)
+    csil_m["scope_set"] = _encode_signed_act_as_scope_set_value(v.scope_set)
+    csil_m["expires_at"] = v.expires_at
+    csil_m["callback_url"] = v.callback_url
+    csil_m["requested_at"] = v.requested_at
+    csil_x = v.grantee_handle_claim
+    if csil_x is not None:
+        csil_m["grantee_handle_claim"] = _encode_claim_value(csil_x)
+    csil_x = v.requested_lifetime_seconds
+    if csil_x is not None:
+        csil_m["requested_lifetime_seconds"] = csil_x
+    csil_x = v.requested_renewal_window_seconds
+    if csil_x is not None:
+        csil_m["requested_renewal_window_seconds"] = csil_x
+    return csil_m
+
+def _decode_act_as_grant_request_value(tree: Any) -> "ActAsGrantRequest":
+    tree = _csil_expect_map(tree)
+    return ActAsGrantRequest(
+        grantee=_decode_grantee_ref_value(tree["grantee"]),
+        scope_set=_decode_signed_act_as_scope_set_value(tree["scope_set"]),
+        requested_lifetime_seconds=(None if tree.get("requested_lifetime_seconds") is None else _csil_expect_int(tree["requested_lifetime_seconds"])),
+        requested_renewal_window_seconds=(None if tree.get("requested_renewal_window_seconds") is None else _csil_expect_int(tree["requested_renewal_window_seconds"])),
+        grantee_handle_claim=(None if tree.get("grantee_handle_claim") is None else _decode_claim_value(tree["grantee_handle_claim"])),
+        callback_url=_csil_expect_text(tree["callback_url"]),
+        nonce=_csil_expect_text(tree["nonce"]),
+        requested_at=_csil_expect_text(tree["requested_at"]),
+        expires_at=_csil_expect_text(tree["expires_at"]),
+    )
+
+
+def _act_as_grant_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_act_as_grant_request_value(self))
+
+
+def _act_as_grant_request_from_cbor(data: bytes) -> "ActAsGrantRequest":
+    return _decode_act_as_grant_request_value(cbor_decode(data))
+
+
+ActAsGrantRequest.to_cbor = _act_as_grant_request_to_cbor
+ActAsGrantRequest.from_cbor = staticmethod(_act_as_grant_request_from_cbor)
+
+def _encode_signed_act_as_grant_request_value(v: "SignedActAsGrantRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["proof"] = _encode_grantee_proof_value(v.proof)
+    csil_m["request"] = v.request
+    return csil_m
+
+def _decode_signed_act_as_grant_request_value(tree: Any) -> "SignedActAsGrantRequest":
+    tree = _csil_expect_map(tree)
+    return SignedActAsGrantRequest(
+        request=_csil_expect_bytes(tree["request"]),
+        proof=_decode_grantee_proof_value(tree["proof"]),
+    )
+
+
+def _signed_act_as_grant_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_signed_act_as_grant_request_value(self))
+
+
+def _signed_act_as_grant_request_from_cbor(data: bytes) -> "SignedActAsGrantRequest":
+    return _decode_signed_act_as_grant_request_value(cbor_decode(data))
+
+
+SignedActAsGrantRequest.to_cbor = _signed_act_as_grant_request_to_cbor
+SignedActAsGrantRequest.from_cbor = staticmethod(_signed_act_as_grant_request_from_cbor)
+
+def _encode_act_as_refresh_request_value(v: "ActAsRefreshRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["nonce"] = v.nonce
+    csil_m["grantee"] = _encode_grantee_ref_value(v.grantee)
+    csil_m["grant_id"] = v.grant_id
+    csil_m["expires_at"] = v.expires_at
+    csil_m["requested_at"] = v.requested_at
+    return csil_m
+
+def _decode_act_as_refresh_request_value(tree: Any) -> "ActAsRefreshRequest":
+    tree = _csil_expect_map(tree)
+    return ActAsRefreshRequest(
+        grant_id=_csil_expect_text(tree["grant_id"]),
+        grantee=_decode_grantee_ref_value(tree["grantee"]),
+        requested_at=_csil_expect_text(tree["requested_at"]),
+        expires_at=_csil_expect_text(tree["expires_at"]),
+        nonce=_csil_expect_text(tree["nonce"]),
+    )
+
+
+def _act_as_refresh_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_act_as_refresh_request_value(self))
+
+
+def _act_as_refresh_request_from_cbor(data: bytes) -> "ActAsRefreshRequest":
+    return _decode_act_as_refresh_request_value(cbor_decode(data))
+
+
+ActAsRefreshRequest.to_cbor = _act_as_refresh_request_to_cbor
+ActAsRefreshRequest.from_cbor = staticmethod(_act_as_refresh_request_from_cbor)
+
+def _encode_signed_act_as_refresh_request_value(v: "SignedActAsRefreshRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["proof"] = _encode_grantee_proof_value(v.proof)
+    csil_m["request"] = v.request
+    return csil_m
+
+def _decode_signed_act_as_refresh_request_value(tree: Any) -> "SignedActAsRefreshRequest":
+    tree = _csil_expect_map(tree)
+    return SignedActAsRefreshRequest(
+        request=_csil_expect_bytes(tree["request"]),
+        proof=_decode_grantee_proof_value(tree["proof"]),
+    )
+
+
+def _signed_act_as_refresh_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_signed_act_as_refresh_request_value(self))
+
+
+def _signed_act_as_refresh_request_from_cbor(data: bytes) -> "SignedActAsRefreshRequest":
+    return _decode_signed_act_as_refresh_request_value(cbor_decode(data))
+
+
+SignedActAsRefreshRequest.to_cbor = _signed_act_as_refresh_request_to_cbor
+SignedActAsRefreshRequest.from_cbor = staticmethod(_signed_act_as_refresh_request_from_cbor)
+
+def _encode_refresh_act_as_grant_request_value(v: "RefreshActAsGrantRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["request"] = _encode_signed_act_as_refresh_request_value(v.request)
+    return csil_m
+
+def _decode_refresh_act_as_grant_request_value(tree: Any) -> "RefreshActAsGrantRequest":
+    tree = _csil_expect_map(tree)
+    return RefreshActAsGrantRequest(
+        request=_decode_signed_act_as_refresh_request_value(tree["request"]),
+    )
+
+
+def _refresh_act_as_grant_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_refresh_act_as_grant_request_value(self))
+
+
+def _refresh_act_as_grant_request_from_cbor(data: bytes) -> "RefreshActAsGrantRequest":
+    return _decode_refresh_act_as_grant_request_value(cbor_decode(data))
+
+
+RefreshActAsGrantRequest.to_cbor = _refresh_act_as_grant_request_to_cbor
+RefreshActAsGrantRequest.from_cbor = staticmethod(_refresh_act_as_grant_request_from_cbor)
+
+def _encode_refresh_act_as_grant_response_value(v: "RefreshActAsGrantResponse") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["grant"] = _encode_signed_act_as_grant_value(v.grant)
+    csil_m["signed"] = v.signed
+    return csil_m
+
+def _decode_refresh_act_as_grant_response_value(tree: Any) -> "RefreshActAsGrantResponse":
+    tree = _csil_expect_map(tree)
+    return RefreshActAsGrantResponse(
+        grant=_decode_signed_act_as_grant_value(tree["grant"]),
+        signed=_csil_expect_bool(tree["signed"]),
+    )
+
+
+def _refresh_act_as_grant_response_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_refresh_act_as_grant_response_value(self))
+
+
+def _refresh_act_as_grant_response_from_cbor(data: bytes) -> "RefreshActAsGrantResponse":
+    return _decode_refresh_act_as_grant_response_value(cbor_decode(data))
+
+
+RefreshActAsGrantResponse.to_cbor = _refresh_act_as_grant_response_to_cbor
+RefreshActAsGrantResponse.from_cbor = staticmethod(_refresh_act_as_grant_response_from_cbor)
+
+def _encode_act_as_presentation_value(v: "ActAsPresentation") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["nonce"] = v.nonce
+    csil_m["audience"] = _encode_application_ref_value(v.audience)
+    csil_m["grant_hash"] = v.grant_hash
+    csil_m["presented_at"] = v.presented_at
+    csil_m["request_digest"] = v.request_digest
+    return csil_m
+
+def _decode_act_as_presentation_value(tree: Any) -> "ActAsPresentation":
+    tree = _csil_expect_map(tree)
+    return ActAsPresentation(
+        grant_hash=_csil_expect_bytes(tree["grant_hash"]),
+        audience=_decode_application_ref_value(tree["audience"]),
+        request_digest=_csil_expect_bytes(tree["request_digest"]),
+        presented_at=_csil_expect_text(tree["presented_at"]),
+        nonce=_csil_expect_bytes(tree["nonce"]),
+    )
+
+
+def _act_as_presentation_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_act_as_presentation_value(self))
+
+
+def _act_as_presentation_from_cbor(data: bytes) -> "ActAsPresentation":
+    return _decode_act_as_presentation_value(cbor_decode(data))
+
+
+ActAsPresentation.to_cbor = _act_as_presentation_to_cbor
+ActAsPresentation.from_cbor = staticmethod(_act_as_presentation_from_cbor)
+
+def _encode_signed_act_as_presentation_value(v: "SignedActAsPresentation") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["proof"] = _encode_grantee_proof_value(v.proof)
+    csil_m["presentation"] = v.presentation
+    return csil_m
+
+def _decode_signed_act_as_presentation_value(tree: Any) -> "SignedActAsPresentation":
+    tree = _csil_expect_map(tree)
+    return SignedActAsPresentation(
+        presentation=_csil_expect_bytes(tree["presentation"]),
+        proof=_decode_grantee_proof_value(tree["proof"]),
+    )
+
+
+def _signed_act_as_presentation_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_signed_act_as_presentation_value(self))
+
+
+def _signed_act_as_presentation_from_cbor(data: bytes) -> "SignedActAsPresentation":
+    return _decode_signed_act_as_presentation_value(cbor_decode(data))
+
+
+SignedActAsPresentation.to_cbor = _signed_act_as_presentation_to_cbor
+SignedActAsPresentation.from_cbor = staticmethod(_signed_act_as_presentation_from_cbor)
+
+def _encode_act_as_credential_value(v: "ActAsCredential") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["grant"] = _encode_signed_act_as_grant_value(v.grant)
+    csil_m["presentation"] = _encode_signed_act_as_presentation_value(v.presentation)
+    return csil_m
+
+def _decode_act_as_credential_value(tree: Any) -> "ActAsCredential":
+    tree = _csil_expect_map(tree)
+    return ActAsCredential(
+        grant=_decode_signed_act_as_grant_value(tree["grant"]),
+        presentation=_decode_signed_act_as_presentation_value(tree["presentation"]),
+    )
+
+
+def _act_as_credential_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_act_as_credential_value(self))
+
+
+def _act_as_credential_from_cbor(data: bytes) -> "ActAsCredential":
+    return _decode_act_as_credential_value(cbor_decode(data))
+
+
+ActAsCredential.to_cbor = _act_as_credential_to_cbor
+ActAsCredential.from_cbor = staticmethod(_act_as_credential_from_cbor)
+
+def _encode_act_as_grant_revocation_value(v: "ActAsGrantRevocation") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["user_id"] = v.user_id
+    csil_m["grant_id"] = v.grant_id
+    csil_m["revoked_at"] = v.revoked_at
+    csil_m["subject_domain"] = v.subject_domain
+    return csil_m
+
+def _decode_act_as_grant_revocation_value(tree: Any) -> "ActAsGrantRevocation":
+    tree = _csil_expect_map(tree)
+    return ActAsGrantRevocation(
+        grant_id=_csil_expect_text(tree["grant_id"]),
+        user_id=_csil_expect_text(tree["user_id"]),
+        subject_domain=_csil_expect_text(tree["subject_domain"]),
+        revoked_at=_csil_expect_text(tree["revoked_at"]),
+    )
+
+
+def _act_as_grant_revocation_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_act_as_grant_revocation_value(self))
+
+
+def _act_as_grant_revocation_from_cbor(data: bytes) -> "ActAsGrantRevocation":
+    return _decode_act_as_grant_revocation_value(cbor_decode(data))
+
+
+ActAsGrantRevocation.to_cbor = _act_as_grant_revocation_to_cbor
+ActAsGrantRevocation.from_cbor = staticmethod(_act_as_grant_revocation_from_cbor)
+
+def _encode_signed_act_as_grant_revocation_value(v: "SignedActAsGrantRevocation") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["revocation"] = v.revocation
+    csil_m["signatures"] = [_encode_claim_signature_value(csil_e) for csil_e in v.signatures]
+    return csil_m
+
+def _decode_signed_act_as_grant_revocation_value(tree: Any) -> "SignedActAsGrantRevocation":
+    tree = _csil_expect_map(tree)
+    return SignedActAsGrantRevocation(
+        revocation=_csil_expect_bytes(tree["revocation"]),
+        signatures=[_decode_claim_signature_value(csil_e) for csil_e in _csil_expect_array(tree["signatures"])],
+    )
+
+
+def _signed_act_as_grant_revocation_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_signed_act_as_grant_revocation_value(self))
+
+
+def _signed_act_as_grant_revocation_from_cbor(data: bytes) -> "SignedActAsGrantRevocation":
+    return _decode_signed_act_as_grant_revocation_value(cbor_decode(data))
+
+
+SignedActAsGrantRevocation.to_cbor = _signed_act_as_grant_revocation_to_cbor
+SignedActAsGrantRevocation.from_cbor = staticmethod(_signed_act_as_grant_revocation_from_cbor)
+
+def _encode_get_act_as_grant_revocations_request_value(v: "GetActAsGrantRevocationsRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["grant_ids"] = v.grant_ids
+    return csil_m
+
+def _decode_get_act_as_grant_revocations_request_value(tree: Any) -> "GetActAsGrantRevocationsRequest":
+    tree = _csil_expect_map(tree)
+    return GetActAsGrantRevocationsRequest(
+        grant_ids=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["grant_ids"])],
+    )
+
+
+def _get_act_as_grant_revocations_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_get_act_as_grant_revocations_request_value(self))
+
+
+def _get_act_as_grant_revocations_request_from_cbor(data: bytes) -> "GetActAsGrantRevocationsRequest":
+    return _decode_get_act_as_grant_revocations_request_value(cbor_decode(data))
+
+
+GetActAsGrantRevocationsRequest.to_cbor = _get_act_as_grant_revocations_request_to_cbor
+GetActAsGrantRevocationsRequest.from_cbor = staticmethod(_get_act_as_grant_revocations_request_from_cbor)
+
+def _encode_get_act_as_grant_revocations_response_value(v: "GetActAsGrantRevocationsResponse") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["revocations"] = [_encode_signed_act_as_grant_revocation_value(csil_e) for csil_e in v.revocations]
+    return csil_m
+
+def _decode_get_act_as_grant_revocations_response_value(tree: Any) -> "GetActAsGrantRevocationsResponse":
+    tree = _csil_expect_map(tree)
+    return GetActAsGrantRevocationsResponse(
+        revocations=[_decode_signed_act_as_grant_revocation_value(csil_e) for csil_e in _csil_expect_array(tree["revocations"])],
+    )
+
+
+def _get_act_as_grant_revocations_response_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_get_act_as_grant_revocations_response_value(self))
+
+
+def _get_act_as_grant_revocations_response_from_cbor(data: bytes) -> "GetActAsGrantRevocationsResponse":
+    return _decode_get_act_as_grant_revocations_response_value(cbor_decode(data))
+
+
+GetActAsGrantRevocationsResponse.to_cbor = _get_act_as_grant_revocations_response_to_cbor
+GetActAsGrantRevocationsResponse.from_cbor = staticmethod(_get_act_as_grant_revocations_response_from_cbor)
+
+def _encode_rp_act_as_refresh_request_value(v: "RpActAsRefreshRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["request"] = _encode_signed_act_as_refresh_request_value(v.request)
+    csil_m["subject_domain"] = v.subject_domain
+    return csil_m
+
+def _decode_rp_act_as_refresh_request_value(tree: Any) -> "RpActAsRefreshRequest":
+    tree = _csil_expect_map(tree)
+    return RpActAsRefreshRequest(
+        subject_domain=_csil_expect_text(tree["subject_domain"]),
+        request=_decode_signed_act_as_refresh_request_value(tree["request"]),
+    )
+
+
+def _rp_act_as_refresh_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_rp_act_as_refresh_request_value(self))
+
+
+def _rp_act_as_refresh_request_from_cbor(data: bytes) -> "RpActAsRefreshRequest":
+    return _decode_rp_act_as_refresh_request_value(cbor_decode(data))
+
+
+RpActAsRefreshRequest.to_cbor = _rp_act_as_refresh_request_to_cbor
+RpActAsRefreshRequest.from_cbor = staticmethod(_rp_act_as_refresh_request_from_cbor)
+
+def _encode_rp_resolve_act_as_revocations_request_value(v: "RpResolveActAsRevocationsRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["grant_ids"] = v.grant_ids
+    csil_m["subject_domain"] = v.subject_domain
+    return csil_m
+
+def _decode_rp_resolve_act_as_revocations_request_value(tree: Any) -> "RpResolveActAsRevocationsRequest":
+    tree = _csil_expect_map(tree)
+    return RpResolveActAsRevocationsRequest(
+        subject_domain=_csil_expect_text(tree["subject_domain"]),
+        grant_ids=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["grant_ids"])],
+    )
+
+
+def _rp_resolve_act_as_revocations_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_rp_resolve_act_as_revocations_request_value(self))
+
+
+def _rp_resolve_act_as_revocations_request_from_cbor(data: bytes) -> "RpResolveActAsRevocationsRequest":
+    return _decode_rp_resolve_act_as_revocations_request_value(cbor_decode(data))
+
+
+RpResolveActAsRevocationsRequest.to_cbor = _rp_resolve_act_as_revocations_request_to_cbor
+RpResolveActAsRevocationsRequest.from_cbor = staticmethod(_rp_resolve_act_as_revocations_request_from_cbor)
+
+def _encode_browser_act_as_inspect_request_value(v: "BrowserActAsInspectRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["signed_request"] = v.signed_request
+    return csil_m
+
+def _decode_browser_act_as_inspect_request_value(tree: Any) -> "BrowserActAsInspectRequest":
+    tree = _csil_expect_map(tree)
+    return BrowserActAsInspectRequest(
+        signed_request=_csil_expect_text(tree["signed_request"]),
+    )
+
+
+def _browser_act_as_inspect_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_browser_act_as_inspect_request_value(self))
+
+
+def _browser_act_as_inspect_request_from_cbor(data: bytes) -> "BrowserActAsInspectRequest":
+    return _decode_browser_act_as_inspect_request_value(cbor_decode(data))
+
+
+BrowserActAsInspectRequest.to_cbor = _browser_act_as_inspect_request_to_cbor
+BrowserActAsInspectRequest.from_cbor = staticmethod(_browser_act_as_inspect_request_from_cbor)
+
+def _encode_browser_act_as_scope_entry_value(v: "BrowserActAsScopeEntry") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["scope"] = v.scope
+    csil_x = v.description
+    if csil_x is not None:
+        csil_m["description"] = csil_x
+    csil_m["removed_by_policy"] = v.removed_by_policy
+    return csil_m
+
+def _decode_browser_act_as_scope_entry_value(tree: Any) -> "BrowserActAsScopeEntry":
+    tree = _csil_expect_map(tree)
+    return BrowserActAsScopeEntry(
+        scope=_csil_expect_text(tree["scope"]),
+        description=(None if tree.get("description") is None else _csil_expect_text(tree["description"])),
+        removed_by_policy=_csil_expect_bool(tree["removed_by_policy"]),
+    )
+
+
+def _browser_act_as_scope_entry_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_browser_act_as_scope_entry_value(self))
+
+
+def _browser_act_as_scope_entry_from_cbor(data: bytes) -> "BrowserActAsScopeEntry":
+    return _decode_browser_act_as_scope_entry_value(cbor_decode(data))
+
+
+BrowserActAsScopeEntry.to_cbor = _browser_act_as_scope_entry_to_cbor
+BrowserActAsScopeEntry.from_cbor = staticmethod(_browser_act_as_scope_entry_from_cbor)
+
+def _encode_browser_act_as_party_value(v: "BrowserActAsParty") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_x = v.domain
+    if csil_x is not None:
+        csil_m["domain"] = csil_x
+    csil_x = v.handle
+    if csil_x is not None:
+        csil_m["handle"] = csil_x
+    csil_m["own_domain"] = v.own_domain
+    csil_x = v.local_rp_name
+    if csil_x is not None:
+        csil_m["local_rp_name"] = csil_x
+    csil_x = v.application_id
+    if csil_x is not None:
+        csil_m["application_id"] = csil_x
+    csil_x = v.subject_user_id
+    if csil_x is not None:
+        csil_m["subject_user_id"] = csil_x
+    csil_m["operator_trusted"] = v.operator_trusted
+    csil_m["user_has_history"] = v.user_has_history
+    csil_m["domain_key_pinned"] = v.domain_key_pinned
+    csil_x = v.local_rp_fingerprint
+    if csil_x is not None:
+        csil_m["local_rp_fingerprint"] = csil_x
+    return csil_m
+
+def _decode_browser_act_as_party_value(tree: Any) -> "BrowserActAsParty":
+    tree = _csil_expect_map(tree)
+    return BrowserActAsParty(
+        domain=(None if tree.get("domain") is None else _csil_expect_text(tree["domain"])),
+        application_id=(None if tree.get("application_id") is None else _csil_expect_text(tree["application_id"])),
+        subject_user_id=(None if tree.get("subject_user_id") is None else _csil_expect_text(tree["subject_user_id"])),
+        handle=(None if tree.get("handle") is None else _csil_expect_text(tree["handle"])),
+        local_rp_name=(None if tree.get("local_rp_name") is None else _csil_expect_text(tree["local_rp_name"])),
+        local_rp_fingerprint=(None if tree.get("local_rp_fingerprint") is None else _csil_expect_text(tree["local_rp_fingerprint"])),
+        own_domain=_csil_expect_bool(tree["own_domain"]),
+        user_has_history=_csil_expect_bool(tree["user_has_history"]),
+        domain_key_pinned=_csil_expect_bool(tree["domain_key_pinned"]),
+        operator_trusted=_csil_expect_bool(tree["operator_trusted"]),
+    )
+
+
+def _browser_act_as_party_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_browser_act_as_party_value(self))
+
+
+def _browser_act_as_party_from_cbor(data: bytes) -> "BrowserActAsParty":
+    return _decode_browser_act_as_party_value(cbor_decode(data))
+
+
+BrowserActAsParty.to_cbor = _browser_act_as_party_to_cbor
+BrowserActAsParty.from_cbor = staticmethod(_browser_act_as_party_from_cbor)
+
+def _encode_browser_act_as_inspect_response_value(v: "BrowserActAsInspectResponse") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["entries"] = [_encode_browser_act_as_scope_entry_value(csil_e) for csil_e in v.entries]
+    csil_m["grantee"] = _encode_grantee_ref_value(v.grantee)
+    csil_m["audience"] = _encode_application_ref_value(v.audience)
+    csil_x = v.language
+    if csil_x is not None:
+        csil_m["language"] = csil_x
+    csil_m["grantee_party"] = _encode_browser_act_as_party_value(v.grantee_party)
+    csil_m["audience_party"] = _encode_browser_act_as_party_value(v.audience_party)
+    csil_m["max_lifetime_seconds"] = v.max_lifetime_seconds
+    csil_m["default_lifetime_seconds"] = v.default_lifetime_seconds
+    csil_m["max_renewal_window_seconds"] = v.max_renewal_window_seconds
+    csil_m["default_renewal_window_seconds"] = v.default_renewal_window_seconds
+    return csil_m
+
+def _decode_browser_act_as_inspect_response_value(tree: Any) -> "BrowserActAsInspectResponse":
+    tree = _csil_expect_map(tree)
+    return BrowserActAsInspectResponse(
+        grantee=_decode_grantee_ref_value(tree["grantee"]),
+        grantee_party=_decode_browser_act_as_party_value(tree["grantee_party"]),
+        audience=_decode_application_ref_value(tree["audience"]),
+        audience_party=_decode_browser_act_as_party_value(tree["audience_party"]),
+        entries=[_decode_browser_act_as_scope_entry_value(csil_e) for csil_e in _csil_expect_array(tree["entries"])],
+        language=(None if tree.get("language") is None else _csil_expect_text(tree["language"])),
+        default_lifetime_seconds=_csil_expect_int(tree["default_lifetime_seconds"]),
+        max_lifetime_seconds=_csil_expect_int(tree["max_lifetime_seconds"]),
+        default_renewal_window_seconds=_csil_expect_int(tree["default_renewal_window_seconds"]),
+        max_renewal_window_seconds=_csil_expect_int(tree["max_renewal_window_seconds"]),
+    )
+
+
+def _browser_act_as_inspect_response_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_browser_act_as_inspect_response_value(self))
+
+
+def _browser_act_as_inspect_response_from_cbor(data: bytes) -> "BrowserActAsInspectResponse":
+    return _decode_browser_act_as_inspect_response_value(cbor_decode(data))
+
+
+BrowserActAsInspectResponse.to_cbor = _browser_act_as_inspect_response_to_cbor
+BrowserActAsInspectResponse.from_cbor = staticmethod(_browser_act_as_inspect_response_from_cbor)
+
+def _encode_browser_act_as_complete_request_value(v: "BrowserActAsCompleteRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["approved_scope"] = v.approved_scope
+    csil_m["signed_request"] = v.signed_request
+    csil_m["lifetime_seconds"] = v.lifetime_seconds
+    csil_m["renewal_window_seconds"] = v.renewal_window_seconds
+    return csil_m
+
+def _decode_browser_act_as_complete_request_value(tree: Any) -> "BrowserActAsCompleteRequest":
+    tree = _csil_expect_map(tree)
+    return BrowserActAsCompleteRequest(
+        signed_request=_csil_expect_text(tree["signed_request"]),
+        approved_scope=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["approved_scope"])],
+        lifetime_seconds=_csil_expect_int(tree["lifetime_seconds"]),
+        renewal_window_seconds=_csil_expect_int(tree["renewal_window_seconds"]),
+    )
+
+
+def _browser_act_as_complete_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_browser_act_as_complete_request_value(self))
+
+
+def _browser_act_as_complete_request_from_cbor(data: bytes) -> "BrowserActAsCompleteRequest":
+    return _decode_browser_act_as_complete_request_value(cbor_decode(data))
+
+
+BrowserActAsCompleteRequest.to_cbor = _browser_act_as_complete_request_to_cbor
+BrowserActAsCompleteRequest.from_cbor = staticmethod(_browser_act_as_complete_request_from_cbor)
+
+def _encode_browser_act_as_complete_response_value(v: "BrowserActAsCompleteResponse") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["redirect_url"] = v.redirect_url
+    return csil_m
+
+def _decode_browser_act_as_complete_response_value(tree: Any) -> "BrowserActAsCompleteResponse":
+    tree = _csil_expect_map(tree)
+    return BrowserActAsCompleteResponse(
+        redirect_url=_csil_expect_text(tree["redirect_url"]),
+    )
+
+
+def _browser_act_as_complete_response_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_browser_act_as_complete_response_value(self))
+
+
+def _browser_act_as_complete_response_from_cbor(data: bytes) -> "BrowserActAsCompleteResponse":
+    return _decode_browser_act_as_complete_response_value(cbor_decode(data))
+
+
+BrowserActAsCompleteResponse.to_cbor = _browser_act_as_complete_response_to_cbor
+BrowserActAsCompleteResponse.from_cbor = staticmethod(_browser_act_as_complete_response_from_cbor)
+
+def _encode_act_as_grant_summary_value(v: "ActAsGrantSummary") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["grantee"] = _encode_grantee_ref_value(v.grantee)
+    csil_m["audience"] = _encode_application_ref_value(v.audience)
+    csil_m["grant_id"] = v.grant_id
+    csil_m["issued_at"] = v.issued_at
+    csil_m["expires_at"] = v.expires_at
+    csil_x = v.revoked_at
+    if csil_x is not None:
+        csil_m["revoked_at"] = csil_x
+    csil_m["approved_scope"] = v.approved_scope
+    csil_m["renewable_until"] = v.renewable_until
+    return csil_m
+
+def _decode_act_as_grant_summary_value(tree: Any) -> "ActAsGrantSummary":
+    tree = _csil_expect_map(tree)
+    return ActAsGrantSummary(
+        grant_id=_csil_expect_text(tree["grant_id"]),
+        grantee=_decode_grantee_ref_value(tree["grantee"]),
+        audience=_decode_application_ref_value(tree["audience"]),
+        approved_scope=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["approved_scope"])],
+        issued_at=_csil_expect_text(tree["issued_at"]),
+        expires_at=_csil_expect_text(tree["expires_at"]),
+        renewable_until=_csil_expect_text(tree["renewable_until"]),
+        revoked_at=(None if tree.get("revoked_at") is None else _csil_expect_text(tree["revoked_at"])),
+    )
+
+
+def _act_as_grant_summary_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_act_as_grant_summary_value(self))
+
+
+def _act_as_grant_summary_from_cbor(data: bytes) -> "ActAsGrantSummary":
+    return _decode_act_as_grant_summary_value(cbor_decode(data))
+
+
+ActAsGrantSummary.to_cbor = _act_as_grant_summary_to_cbor
+ActAsGrantSummary.from_cbor = staticmethod(_act_as_grant_summary_from_cbor)
+
+def _encode_list_act_as_grants_response_value(v: "ListActAsGrantsResponse") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["grants"] = [_encode_act_as_grant_summary_value(csil_e) for csil_e in v.grants]
+    return csil_m
+
+def _decode_list_act_as_grants_response_value(tree: Any) -> "ListActAsGrantsResponse":
+    tree = _csil_expect_map(tree)
+    return ListActAsGrantsResponse(
+        grants=[_decode_act_as_grant_summary_value(csil_e) for csil_e in _csil_expect_array(tree["grants"])],
+    )
+
+
+def _list_act_as_grants_response_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_list_act_as_grants_response_value(self))
+
+
+def _list_act_as_grants_response_from_cbor(data: bytes) -> "ListActAsGrantsResponse":
+    return _decode_list_act_as_grants_response_value(cbor_decode(data))
+
+
+ListActAsGrantsResponse.to_cbor = _list_act_as_grants_response_to_cbor
+ListActAsGrantsResponse.from_cbor = staticmethod(_list_act_as_grants_response_from_cbor)
+
+def _encode_revoke_act_as_grant_request_value(v: "RevokeActAsGrantRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["grant_id"] = v.grant_id
+    return csil_m
+
+def _decode_revoke_act_as_grant_request_value(tree: Any) -> "RevokeActAsGrantRequest":
+    tree = _csil_expect_map(tree)
+    return RevokeActAsGrantRequest(
+        grant_id=_csil_expect_text(tree["grant_id"]),
+    )
+
+
+def _revoke_act_as_grant_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_revoke_act_as_grant_request_value(self))
+
+
+def _revoke_act_as_grant_request_from_cbor(data: bytes) -> "RevokeActAsGrantRequest":
+    return _decode_revoke_act_as_grant_request_value(cbor_decode(data))
+
+
+RevokeActAsGrantRequest.to_cbor = _revoke_act_as_grant_request_to_cbor
+RevokeActAsGrantRequest.from_cbor = staticmethod(_revoke_act_as_grant_request_from_cbor)
+
+def _encode_revoke_act_as_grant_response_value(v: "RevokeActAsGrantResponse") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["revoked_at"] = v.revoked_at
+    return csil_m
+
+def _decode_revoke_act_as_grant_response_value(tree: Any) -> "RevokeActAsGrantResponse":
+    tree = _csil_expect_map(tree)
+    return RevokeActAsGrantResponse(
+        revoked_at=_csil_expect_text(tree["revoked_at"]),
+    )
+
+
+def _revoke_act_as_grant_response_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_revoke_act_as_grant_response_value(self))
+
+
+def _revoke_act_as_grant_response_from_cbor(data: bytes) -> "RevokeActAsGrantResponse":
+    return _decode_revoke_act_as_grant_response_value(cbor_decode(data))
+
+
+RevokeActAsGrantResponse.to_cbor = _revoke_act_as_grant_response_to_cbor
+RevokeActAsGrantResponse.from_cbor = staticmethod(_revoke_act_as_grant_response_from_cbor)
+
 def _encode_check_value_value(csil_v):
     if isinstance(csil_v, str):
         return [0, csil_v]

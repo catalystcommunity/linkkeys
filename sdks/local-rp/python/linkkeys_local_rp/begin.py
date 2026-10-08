@@ -1,9 +1,16 @@
 """`begin_local_login` (design doc: "SDK API Shape", "Flow" steps 4-6).
+Mirrors `sdks/local-rp/go/begin.go`.
 
-Pure/offline: no network access happens here. It generates a fresh
-nonce/state, builds and signs a `LocalRpLoginRequest` around the identity's
-already-signed descriptor, and returns a redirect URL plus the
-pending-login state the app must persist and treat as single-use.
+It generates a fresh nonce/state, builds and signs a `LocalRpLoginRequest`
+around the identity's already-signed descriptor, and returns a redirect URL
+plus the pending-login state the app must persist and treat as single-use.
+
+The signing work is pure/offline. The one network touch is a DNS TXT lookup
+of `_linkkeys_apis.<user_domain>` to discover the browser-facing HTTPS
+endpoint (the identity domain is a trust domain, not necessarily the host
+serving the login routes). The resolver is injectable via
+`BeginLocalLoginConfig.dns`; on any discovery failure the redirect falls
+back to `https://<user_domain>`.
 """
 
 from __future__ import annotations
@@ -13,9 +20,11 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import List, Optional
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from . import encoding, local_rp
+from .browser import BROWSER_ROUTE_LOCAL_RP, resolve_browser_endpoint
+from .dns import DnsResolver
 from .identity import LocalRpKeyMaterial
 from .timeutil import to_rfc3339
 
@@ -41,6 +50,11 @@ class BeginLocalLoginConfig:
 
     `user_domain` accepts a full login or a bare domain. A full login adds a
     username hint. A bare domain selects only the IDP.
+
+    `dns` is the DNS TXT lookup seam for browser endpoint discovery
+    (`_linkkeys_apis.<user_domain>`, its `https=` endpoint). Defaults to
+    `dns.SystemDnsResolver()` when `None`, same as `complete_local_login`'s
+    `dns` argument.
     """
 
     key_material: LocalRpKeyMaterial
@@ -50,6 +64,7 @@ class BeginLocalLoginConfig:
     requested_claims: Optional[List[str]] = None
     required_claims: Optional[List[str]] = None
     request_lifetime: Optional[timedelta] = None
+    dns: Optional[DnsResolver] = None
 
 
 @dataclass
@@ -103,6 +118,12 @@ class PendingLogin:
         )
 
 
+def _default_dns_resolver() -> DnsResolver:
+    from .dns import SystemDnsResolver
+
+    return SystemDnsResolver()
+
+
 def _validate_callback_scheme(url: str) -> None:
     if not (url.startswith("http://") or url.startswith("https://")):
         raise BeginLoginError(f"callback_url must be http:// or https://, got: {url!r}")
@@ -135,7 +156,11 @@ def begin_local_login(config: BeginLocalLoginConfig) -> "tuple[LocalLoginRedirec
     (design doc, "SDK API Shape"). Generates a fresh nonce/state, builds and
     signs a `LocalRpLoginRequest` (envelope + `linkkeys-local-rp-login-request-v1alpha`
     context) around the identity's descriptor, and returns the full redirect
-    URL for the user's LinkKeys domain plus the pending-login state."""
+    URL for the user's LinkKeys domain plus the pending-login state.
+
+    The redirect host comes from a `_linkkeys_apis` DNS TXT lookup (see the
+    module docs). The lookup never fails the call: on any discovery failure
+    the redirect falls back to `https://<user_domain>`."""
     _validate_callback_scheme(config.callback_url)
     username, domain = _parse_identity_input(config.user_domain)
 
@@ -166,10 +191,16 @@ def begin_local_login(config: BeginLocalLoginConfig) -> "tuple[LocalLoginRedirec
 
     # Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>"
     # — mirrors the existing GET /auth/authorize?signed_request=... shape.
-    query = {"signed_request": encoded}
+    # The host comes from `_linkkeys_apis.<user_domain>` discovery (with a
+    # fallback to the identity domain itself); `PendingLogin.user_domain`
+    # stays the identity domain — verification is bound to it, never to the
+    # discovered service host.
+    dns = config.dns if config.dns is not None else _default_dns_resolver()
+    redirect_url = resolve_browser_endpoint(dns, domain, BROWSER_ROUTE_LOCAL_RP, encoded)
     if username is not None:
-        query["username"] = username
-    redirect_url = f"https://{domain}/auth/local-rp?{urlencode(query)}"
+        parts = urlsplit(redirect_url)
+        query = parse_qsl(parts.query, keep_blank_values=True) + [("username", username)]
+        redirect_url = urlunsplit(parts._replace(query=urlencode(query)))
 
     return (
         LocalLoginRedirect(redirect_url=redirect_url),

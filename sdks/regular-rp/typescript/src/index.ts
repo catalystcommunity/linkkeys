@@ -1,3 +1,5 @@
+export * from "./actAs.ts";
+export * from "./actAsClient.ts";
 export * from "./applicationKeyCache.ts";
 export * from "./applicationKeyClient.ts";
 export * from "./applicationKeys.ts";

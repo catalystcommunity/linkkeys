@@ -176,6 +176,22 @@ static inline void *csilc_arena_alloc(CsilCodecArena *a, size_t size) {
     return p;
 }
 
+/* The most elements a decoded array or map reserves before it reads them. The
+ * declared length is checked against the remaining input, but one input byte can
+ * become a much larger value, so reserving the full declared length lets a small
+ * frame reserve a large multiple of its size at every nesting level. Past this
+ * bound, the storage doubles only as elements are actually read. */
+#define CSILC_PREALLOC_LIMIT 1024u
+
+/* A bump arena cannot resize in place, so growth copies into a fresh allocation.
+ * The abandoned block is freed with the arena; doubling keeps that waste below
+ * the final size. */
+static inline void *csilc_arena_grow(CsilCodecArena *a, const void *old, size_t used, size_t size) {
+    void *p = csilc_arena_alloc(a, size);
+    if (p && used) memcpy(p, old, used);
+    return p;
+}
+
 /* Free the whole decoded value tree (and the C arrays mapped out of it) at once. */
 static inline void csil_codec_arena_free(CsilCodecArena *a) {
     if (!a) return;
@@ -365,12 +381,19 @@ static inline int csilc_decode_value(CsilCodecArena *a, const uint8_t *b, size_t
     case 4: {
         if (arg > len - head || arg > SIZE_MAX / sizeof(csilc_value)) return -1;
         csilc_value *items = NULL;
-        if (arg) {
-            items = (csilc_value *)csilc_arena_alloc(a, (size_t)arg * sizeof(*items));
+        size_t cap = arg < CSILC_PREALLOC_LIMIT ? (size_t)arg : CSILC_PREALLOC_LIMIT;
+        if (cap) {
+            items = (csilc_value *)csilc_arena_alloc(a, cap * sizeof(*items));
             if (!items) return -1;
         }
         size_t off = head;
         for (uint64_t i = 0; i < arg; i++) {
+            if (i == cap) {
+                size_t grown = cap * 2 < (size_t)arg ? cap * 2 : (size_t)arg;
+                items = (csilc_value *)csilc_arena_grow(a, items, cap * sizeof(*items), grown * sizeof(*items));
+                if (!items) return -1;
+                cap = grown;
+            }
             size_t m = 0;
             if (csilc_decode_value(a, b + off, len - off, &items[i], &m, depth + 1)) return -1;
             off += m;
@@ -384,12 +407,19 @@ static inline int csilc_decode_value(CsilCodecArena *a, const uint8_t *b, size_t
     case 5: {
         if (arg > len - head || arg > SIZE_MAX / sizeof(csilc_pair)) return -1;
         csilc_pair *pairs = NULL;
-        if (arg) {
-            pairs = (csilc_pair *)csilc_arena_alloc(a, (size_t)arg * sizeof(*pairs));
+        size_t cap = arg < CSILC_PREALLOC_LIMIT ? (size_t)arg : CSILC_PREALLOC_LIMIT;
+        if (cap) {
+            pairs = (csilc_pair *)csilc_arena_alloc(a, cap * sizeof(*pairs));
             if (!pairs) return -1;
         }
         size_t off = head;
         for (uint64_t i = 0; i < arg; i++) {
+            if (i == cap) {
+                size_t grown = cap * 2 < (size_t)arg ? cap * 2 : (size_t)arg;
+                pairs = (csilc_pair *)csilc_arena_grow(a, pairs, cap * sizeof(*pairs), grown * sizeof(*pairs));
+                if (!pairs) return -1;
+                cap = grown;
+            }
             csilc_value *k = (csilc_value *)csilc_arena_alloc(a, sizeof(*k));
             csilc_value *v = (csilc_value *)csilc_arena_alloc(a, sizeof(*v));
             if (!k || !v) return -1;
@@ -1095,6 +1125,74 @@ static inline int csilc_enc_RpResolveApplicationKeysRequest(csilc_buf *b, const 
 static inline int csilc_dec_RpResolveApplicationKeysRequest(const csilc_value *m, CsilCodecArena *a, RpResolveApplicationKeysRequest *out);
 static inline int csilc_enc_RpResolveApplicationKeysResponse(csilc_buf *b, const RpResolveApplicationKeysResponse *v);
 static inline int csilc_dec_RpResolveApplicationKeysResponse(const csilc_value *m, CsilCodecArena *a, RpResolveApplicationKeysResponse *out);
+static inline int csilc_enc_ApplicationRef(csilc_buf *b, const ApplicationRef *v);
+static inline int csilc_dec_ApplicationRef(const csilc_value *m, CsilCodecArena *a, ApplicationRef *out);
+static inline int csilc_enc_GranteeRef(csilc_buf *b, const GranteeRef *v);
+static inline int csilc_dec_GranteeRef(const csilc_value *m, CsilCodecArena *a, GranteeRef *out);
+static inline int csilc_enc_GranteeProof(csilc_buf *b, const GranteeProof *v);
+static inline int csilc_dec_GranteeProof(const csilc_value *m, CsilCodecArena *a, GranteeProof *out);
+static inline int csilc_enc_ActAsScopeEntry(csilc_buf *b, const ActAsScopeEntry *v);
+static inline int csilc_dec_ActAsScopeEntry(const csilc_value *m, CsilCodecArena *a, ActAsScopeEntry *out);
+static inline int csilc_enc_ActAsScopeSet(csilc_buf *b, const ActAsScopeSet *v);
+static inline int csilc_dec_ActAsScopeSet(const csilc_value *m, CsilCodecArena *a, ActAsScopeSet *out);
+static inline int csilc_enc_SignedActAsScopeSet(csilc_buf *b, const SignedActAsScopeSet *v);
+static inline int csilc_dec_SignedActAsScopeSet(const csilc_value *m, CsilCodecArena *a, SignedActAsScopeSet *out);
+static inline int csilc_enc_ActAsScopeSetRequest(csilc_buf *b, const ActAsScopeSetRequest *v);
+static inline int csilc_dec_ActAsScopeSetRequest(const csilc_value *m, CsilCodecArena *a, ActAsScopeSetRequest *out);
+static inline int csilc_enc_ActAsGrant(csilc_buf *b, const ActAsGrant *v);
+static inline int csilc_dec_ActAsGrant(const csilc_value *m, CsilCodecArena *a, ActAsGrant *out);
+static inline int csilc_enc_SignedActAsGrant(csilc_buf *b, const SignedActAsGrant *v);
+static inline int csilc_dec_SignedActAsGrant(const csilc_value *m, CsilCodecArena *a, SignedActAsGrant *out);
+static inline int csilc_enc_ActAsGrantRequest(csilc_buf *b, const ActAsGrantRequest *v);
+static inline int csilc_dec_ActAsGrantRequest(const csilc_value *m, CsilCodecArena *a, ActAsGrantRequest *out);
+static inline int csilc_enc_SignedActAsGrantRequest(csilc_buf *b, const SignedActAsGrantRequest *v);
+static inline int csilc_dec_SignedActAsGrantRequest(const csilc_value *m, CsilCodecArena *a, SignedActAsGrantRequest *out);
+static inline int csilc_enc_ActAsRefreshRequest(csilc_buf *b, const ActAsRefreshRequest *v);
+static inline int csilc_dec_ActAsRefreshRequest(const csilc_value *m, CsilCodecArena *a, ActAsRefreshRequest *out);
+static inline int csilc_enc_SignedActAsRefreshRequest(csilc_buf *b, const SignedActAsRefreshRequest *v);
+static inline int csilc_dec_SignedActAsRefreshRequest(const csilc_value *m, CsilCodecArena *a, SignedActAsRefreshRequest *out);
+static inline int csilc_enc_RefreshActAsGrantRequest(csilc_buf *b, const RefreshActAsGrantRequest *v);
+static inline int csilc_dec_RefreshActAsGrantRequest(const csilc_value *m, CsilCodecArena *a, RefreshActAsGrantRequest *out);
+static inline int csilc_enc_RefreshActAsGrantResponse(csilc_buf *b, const RefreshActAsGrantResponse *v);
+static inline int csilc_dec_RefreshActAsGrantResponse(const csilc_value *m, CsilCodecArena *a, RefreshActAsGrantResponse *out);
+static inline int csilc_enc_ActAsPresentation(csilc_buf *b, const ActAsPresentation *v);
+static inline int csilc_dec_ActAsPresentation(const csilc_value *m, CsilCodecArena *a, ActAsPresentation *out);
+static inline int csilc_enc_SignedActAsPresentation(csilc_buf *b, const SignedActAsPresentation *v);
+static inline int csilc_dec_SignedActAsPresentation(const csilc_value *m, CsilCodecArena *a, SignedActAsPresentation *out);
+static inline int csilc_enc_ActAsCredential(csilc_buf *b, const ActAsCredential *v);
+static inline int csilc_dec_ActAsCredential(const csilc_value *m, CsilCodecArena *a, ActAsCredential *out);
+static inline int csilc_enc_ActAsGrantRevocation(csilc_buf *b, const ActAsGrantRevocation *v);
+static inline int csilc_dec_ActAsGrantRevocation(const csilc_value *m, CsilCodecArena *a, ActAsGrantRevocation *out);
+static inline int csilc_enc_SignedActAsGrantRevocation(csilc_buf *b, const SignedActAsGrantRevocation *v);
+static inline int csilc_dec_SignedActAsGrantRevocation(const csilc_value *m, CsilCodecArena *a, SignedActAsGrantRevocation *out);
+static inline int csilc_enc_GetActAsGrantRevocationsRequest(csilc_buf *b, const GetActAsGrantRevocationsRequest *v);
+static inline int csilc_dec_GetActAsGrantRevocationsRequest(const csilc_value *m, CsilCodecArena *a, GetActAsGrantRevocationsRequest *out);
+static inline int csilc_enc_GetActAsGrantRevocationsResponse(csilc_buf *b, const GetActAsGrantRevocationsResponse *v);
+static inline int csilc_dec_GetActAsGrantRevocationsResponse(const csilc_value *m, CsilCodecArena *a, GetActAsGrantRevocationsResponse *out);
+static inline int csilc_enc_RpActAsRefreshRequest(csilc_buf *b, const RpActAsRefreshRequest *v);
+static inline int csilc_dec_RpActAsRefreshRequest(const csilc_value *m, CsilCodecArena *a, RpActAsRefreshRequest *out);
+static inline int csilc_enc_RpResolveActAsRevocationsRequest(csilc_buf *b, const RpResolveActAsRevocationsRequest *v);
+static inline int csilc_dec_RpResolveActAsRevocationsRequest(const csilc_value *m, CsilCodecArena *a, RpResolveActAsRevocationsRequest *out);
+static inline int csilc_enc_BrowserActAsInspectRequest(csilc_buf *b, const BrowserActAsInspectRequest *v);
+static inline int csilc_dec_BrowserActAsInspectRequest(const csilc_value *m, CsilCodecArena *a, BrowserActAsInspectRequest *out);
+static inline int csilc_enc_BrowserActAsScopeEntry(csilc_buf *b, const BrowserActAsScopeEntry *v);
+static inline int csilc_dec_BrowserActAsScopeEntry(const csilc_value *m, CsilCodecArena *a, BrowserActAsScopeEntry *out);
+static inline int csilc_enc_BrowserActAsParty(csilc_buf *b, const BrowserActAsParty *v);
+static inline int csilc_dec_BrowserActAsParty(const csilc_value *m, CsilCodecArena *a, BrowserActAsParty *out);
+static inline int csilc_enc_BrowserActAsInspectResponse(csilc_buf *b, const BrowserActAsInspectResponse *v);
+static inline int csilc_dec_BrowserActAsInspectResponse(const csilc_value *m, CsilCodecArena *a, BrowserActAsInspectResponse *out);
+static inline int csilc_enc_BrowserActAsCompleteRequest(csilc_buf *b, const BrowserActAsCompleteRequest *v);
+static inline int csilc_dec_BrowserActAsCompleteRequest(const csilc_value *m, CsilCodecArena *a, BrowserActAsCompleteRequest *out);
+static inline int csilc_enc_BrowserActAsCompleteResponse(csilc_buf *b, const BrowserActAsCompleteResponse *v);
+static inline int csilc_dec_BrowserActAsCompleteResponse(const csilc_value *m, CsilCodecArena *a, BrowserActAsCompleteResponse *out);
+static inline int csilc_enc_ActAsGrantSummary(csilc_buf *b, const ActAsGrantSummary *v);
+static inline int csilc_dec_ActAsGrantSummary(const csilc_value *m, CsilCodecArena *a, ActAsGrantSummary *out);
+static inline int csilc_enc_ListActAsGrantsResponse(csilc_buf *b, const ListActAsGrantsResponse *v);
+static inline int csilc_dec_ListActAsGrantsResponse(const csilc_value *m, CsilCodecArena *a, ListActAsGrantsResponse *out);
+static inline int csilc_enc_RevokeActAsGrantRequest(csilc_buf *b, const RevokeActAsGrantRequest *v);
+static inline int csilc_dec_RevokeActAsGrantRequest(const csilc_value *m, CsilCodecArena *a, RevokeActAsGrantRequest *out);
+static inline int csilc_enc_RevokeActAsGrantResponse(csilc_buf *b, const RevokeActAsGrantResponse *v);
+static inline int csilc_dec_RevokeActAsGrantResponse(const csilc_value *m, CsilCodecArena *a, RevokeActAsGrantResponse *out);
 
 /* csilc_enc_CheckValue writes the union as a tagged sum [variant_index, value]. */
 static inline int csilc_enc_CheckValue(csilc_buf *b, const CheckValue *v) {
@@ -8913,6 +9011,1259 @@ static inline int csilc_dec_RpResolveApplicationKeysResponse(const csilc_value *
     return 0;
 }
 
+/* csilc_enc_ApplicationRef writes ApplicationRef as a canonical CBOR map. */
+static inline int csilc_enc_ApplicationRef(csilc_buf *b, const ApplicationRef *v) {
+    size_t csilc_n = 3;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "application_id", 14)) return -1;
+    if (csilc_w_text(b, (v->application_id), (v->application_id) ? strlen(v->application_id) : 0)) return -1;
+    if (csilc_w_text(b, "subject_domain", 14)) return -1;
+    if (csilc_w_text(b, (v->subject_domain), (v->subject_domain) ? strlen(v->subject_domain) : 0)) return -1;
+    if (csilc_w_text(b, "subject_user_id", 15)) return -1;
+    if (csilc_w_text(b, (v->subject_user_id), (v->subject_user_id) ? strlen(v->subject_user_id) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_ApplicationRef reads ApplicationRef from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_ApplicationRef(const csilc_value *m, CsilCodecArena *a, ApplicationRef *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "application_id");
+    if (!csilc_get_text(csilc_f, &(out->application_id))) return -1;
+    csilc_f = csilc_map_get(m, "subject_domain");
+    if (!csilc_get_text(csilc_f, &(out->subject_domain))) return -1;
+    csilc_f = csilc_map_get(m, "subject_user_id");
+    if (!csilc_get_text(csilc_f, &(out->subject_user_id))) return -1;
+    return 0;
+}
+
+/* csilc_enc_GranteeRef writes GranteeRef as a canonical CBOR map. */
+static inline int csilc_enc_GranteeRef(csilc_buf *b, const GranteeRef *v) {
+    size_t csilc_n = 0;
+    if (v->application) csilc_n++;
+    if (v->local_rp_descriptor_fingerprint) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (v->application) {
+        if (csilc_w_text(b, "application", 11)) return -1;
+        if (csilc_enc_ApplicationRef(b, &((*v->application)))) return -1;
+    }
+    if (v->local_rp_descriptor_fingerprint) {
+        if (csilc_w_text(b, "local_rp_descriptor_fingerprint", 31)) return -1;
+        if (csilc_w_text(b, (v->local_rp_descriptor_fingerprint), (v->local_rp_descriptor_fingerprint) ? strlen(v->local_rp_descriptor_fingerprint) : 0)) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_GranteeRef reads GranteeRef from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_GranteeRef(const csilc_value *m, CsilCodecArena *a, GranteeRef *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "application");
+    out->application = NULL;
+    if (csilc_f) {
+        ApplicationRef *csilc_p = (ApplicationRef *)csilc_arena_alloc(a, sizeof(ApplicationRef));
+        if (!csilc_p) return -1;
+        if (csilc_dec_ApplicationRef(csilc_f, a, &((*csilc_p)))) return -1;
+        out->application = csilc_p;
+    }
+    csilc_f = csilc_map_get(m, "local_rp_descriptor_fingerprint");
+    out->local_rp_descriptor_fingerprint = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    return 0;
+}
+
+/* csilc_enc_GranteeProof writes GranteeProof as a canonical CBOR map. */
+static inline int csilc_enc_GranteeProof(csilc_buf *b, const GranteeProof *v) {
+    size_t csilc_n = 1;
+    if (v->local_rp_descriptor) csilc_n++;
+    if (v->application_instance_id) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "signature", 9)) return -1;
+    if (csilc_enc_ApplicationKeySignature(b, &(v->signature))) return -1;
+    if (v->local_rp_descriptor) {
+        if (csilc_w_text(b, "local_rp_descriptor", 19)) return -1;
+        if (csilc_enc_SignedLocalRpDescriptor(b, &((*v->local_rp_descriptor)))) return -1;
+    }
+    if (v->application_instance_id) {
+        if (csilc_w_text(b, "application_instance_id", 23)) return -1;
+        if (csilc_w_text(b, (v->application_instance_id), (v->application_instance_id) ? strlen(v->application_instance_id) : 0)) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_GranteeProof reads GranteeProof from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_GranteeProof(const csilc_value *m, CsilCodecArena *a, GranteeProof *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "signature");
+    if (csilc_dec_ApplicationKeySignature(csilc_f, a, &(out->signature))) return -1;
+    csilc_f = csilc_map_get(m, "local_rp_descriptor");
+    out->local_rp_descriptor = NULL;
+    if (csilc_f) {
+        SignedLocalRpDescriptor *csilc_p = (SignedLocalRpDescriptor *)csilc_arena_alloc(a, sizeof(SignedLocalRpDescriptor));
+        if (!csilc_p) return -1;
+        if (csilc_dec_SignedLocalRpDescriptor(csilc_f, a, &((*csilc_p)))) return -1;
+        out->local_rp_descriptor = csilc_p;
+    }
+    csilc_f = csilc_map_get(m, "application_instance_id");
+    out->application_instance_id = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    return 0;
+}
+
+/* csilc_enc_ActAsScopeEntry writes ActAsScopeEntry as a canonical CBOR map. */
+static inline int csilc_enc_ActAsScopeEntry(csilc_buf *b, const ActAsScopeEntry *v) {
+    size_t csilc_n = 1;
+    if (v->description) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "scope", 5)) return -1;
+    if (csilc_w_text(b, (v->scope), (v->scope) ? strlen(v->scope) : 0)) return -1;
+    if (v->description) {
+        if (csilc_w_text(b, "description", 11)) return -1;
+        if (csilc_w_text(b, (v->description), (v->description) ? strlen(v->description) : 0)) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_ActAsScopeEntry reads ActAsScopeEntry from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_ActAsScopeEntry(const csilc_value *m, CsilCodecArena *a, ActAsScopeEntry *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "scope");
+    if (!csilc_get_text(csilc_f, &(out->scope))) return -1;
+    csilc_f = csilc_map_get(m, "description");
+    out->description = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    return 0;
+}
+
+/* csilc_enc_ActAsScopeSet writes ActAsScopeSet as a canonical CBOR map. */
+static inline int csilc_enc_ActAsScopeSet(csilc_buf *b, const ActAsScopeSet *v) {
+    size_t csilc_n = 5;
+    if (v->language) csilc_n++;
+    if (v->audience_handle_claim) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "entries", 7)) return -1;
+    if (csilc_w_array_head(b, v->entries_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->entries_count; csilc_i++) {
+        if (csilc_enc_ActAsScopeEntry(b, &(v->entries[csilc_i]))) return -1;
+    }
+    if (csilc_w_text(b, "grantee", 7)) return -1;
+    if (csilc_enc_GranteeRef(b, &(v->grantee))) return -1;
+    if (csilc_w_text(b, "audience", 8)) return -1;
+    if (csilc_enc_ApplicationRef(b, &(v->audience))) return -1;
+    if (v->language) {
+        if (csilc_w_text(b, "language", 8)) return -1;
+        if (csilc_w_text(b, (v->language), (v->language) ? strlen(v->language) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "issued_at", 9)) return -1;
+    if (csilc_w_text(b, (v->issued_at), (v->issued_at) ? strlen(v->issued_at) : 0)) return -1;
+    if (csilc_w_text(b, "expires_at", 10)) return -1;
+    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (v->audience_handle_claim) {
+        if (csilc_w_text(b, "audience_handle_claim", 21)) return -1;
+        if (csilc_enc_Claim(b, &((*v->audience_handle_claim)))) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_ActAsScopeSet reads ActAsScopeSet from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_ActAsScopeSet(const csilc_value *m, CsilCodecArena *a, ActAsScopeSet *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "entries");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->entries_count = csilc_f->as.array.count;
+    out->entries = NULL;
+    if (out->entries_count) {
+        out->entries = (ActAsScopeEntry *)csilc_arena_alloc(a, out->entries_count * sizeof(ActAsScopeEntry));
+        if (!out->entries) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->entries_count; csilc_i++) {
+            if (csilc_dec_ActAsScopeEntry(&csilc_f->as.array.items[csilc_i], a, &(out->entries[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "grantee");
+    if (csilc_dec_GranteeRef(csilc_f, a, &(out->grantee))) return -1;
+    csilc_f = csilc_map_get(m, "audience");
+    if (csilc_dec_ApplicationRef(csilc_f, a, &(out->audience))) return -1;
+    csilc_f = csilc_map_get(m, "language");
+    out->language = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "issued_at");
+    if (!csilc_get_text(csilc_f, &(out->issued_at))) return -1;
+    csilc_f = csilc_map_get(m, "expires_at");
+    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    csilc_f = csilc_map_get(m, "audience_handle_claim");
+    out->audience_handle_claim = NULL;
+    if (csilc_f) {
+        Claim *csilc_p = (Claim *)csilc_arena_alloc(a, sizeof(Claim));
+        if (!csilc_p) return -1;
+        if (csilc_dec_Claim(csilc_f, a, &((*csilc_p)))) return -1;
+        out->audience_handle_claim = csilc_p;
+    }
+    return 0;
+}
+
+/* csilc_enc_SignedActAsScopeSet writes SignedActAsScopeSet as a canonical CBOR map. */
+static inline int csilc_enc_SignedActAsScopeSet(csilc_buf *b, const SignedActAsScopeSet *v) {
+    size_t csilc_n = 3;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "scope_set", 9)) return -1;
+    if (csilc_w_bytes(b, (v->scope_set).data, (v->scope_set).len)) return -1;
+    if (csilc_w_text(b, "signatures", 10)) return -1;
+    if (csilc_w_array_head(b, v->signatures_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->signatures_count; csilc_i++) {
+        if (csilc_enc_ApplicationKeySignature(b, &(v->signatures[csilc_i]))) return -1;
+    }
+    if (csilc_w_text(b, "signer_instance_id", 18)) return -1;
+    if (csilc_w_text(b, (v->signer_instance_id), (v->signer_instance_id) ? strlen(v->signer_instance_id) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_SignedActAsScopeSet reads SignedActAsScopeSet from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_SignedActAsScopeSet(const csilc_value *m, CsilCodecArena *a, SignedActAsScopeSet *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "scope_set");
+    if (!csilc_get_bytes(csilc_f, &(out->scope_set).data, &(out->scope_set).len)) return -1;
+    csilc_f = csilc_map_get(m, "signatures");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->signatures_count = csilc_f->as.array.count;
+    out->signatures = NULL;
+    if (out->signatures_count) {
+        out->signatures = (ApplicationKeySignature *)csilc_arena_alloc(a, out->signatures_count * sizeof(ApplicationKeySignature));
+        if (!out->signatures) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->signatures_count; csilc_i++) {
+            if (csilc_dec_ApplicationKeySignature(&csilc_f->as.array.items[csilc_i], a, &(out->signatures[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "signer_instance_id");
+    if (!csilc_get_text(csilc_f, &(out->signer_instance_id))) return -1;
+    return 0;
+}
+
+/* csilc_enc_ActAsScopeSetRequest writes ActAsScopeSetRequest as a canonical CBOR map. */
+static inline int csilc_enc_ActAsScopeSetRequest(csilc_buf *b, const ActAsScopeSetRequest *v) {
+    size_t csilc_n = 2;
+    if (v->locale_preferences_count) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "scope", 5)) return -1;
+    if (csilc_w_array_head(b, v->scope_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->scope_count; csilc_i++) {
+        if (csilc_w_text(b, (v->scope[csilc_i]), (v->scope[csilc_i]) ? strlen(v->scope[csilc_i]) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "grantee", 7)) return -1;
+    if (csilc_enc_GranteeRef(b, &(v->grantee))) return -1;
+    if (v->locale_preferences_count) {
+        if (csilc_w_text(b, "locale_preferences", 18)) return -1;
+        if (csilc_w_array_head(b, v->locale_preferences_count)) return -1;
+        for (size_t csilc_i = 0; csilc_i < v->locale_preferences_count; csilc_i++) {
+            if (csilc_w_text(b, (v->locale_preferences[csilc_i]), (v->locale_preferences[csilc_i]) ? strlen(v->locale_preferences[csilc_i]) : 0)) return -1;
+        }
+    }
+    return 0;
+}
+
+/* csilc_dec_ActAsScopeSetRequest reads ActAsScopeSetRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_ActAsScopeSetRequest(const csilc_value *m, CsilCodecArena *a, ActAsScopeSetRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "scope");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->scope_count = csilc_f->as.array.count;
+    out->scope = NULL;
+    if (out->scope_count) {
+        out->scope = (char * *)csilc_arena_alloc(a, out->scope_count * sizeof(char *));
+        if (!out->scope) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->scope_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->scope[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "grantee");
+    if (csilc_dec_GranteeRef(csilc_f, a, &(out->grantee))) return -1;
+    csilc_f = csilc_map_get(m, "locale_preferences");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->locale_preferences_count = csilc_f->as.array.count;
+    out->locale_preferences = NULL;
+    if (out->locale_preferences_count) {
+        out->locale_preferences = (char * *)csilc_arena_alloc(a, out->locale_preferences_count * sizeof(char *));
+        if (!out->locale_preferences) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->locale_preferences_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->locale_preferences[csilc_i]))) return -1;
+        }
+    }
+    return 0;
+}
+
+/* csilc_enc_ActAsGrant writes ActAsGrant as a canonical CBOR map. */
+static inline int csilc_enc_ActAsGrant(csilc_buf *b, const ActAsGrant *v) {
+    size_t csilc_n = 11;
+    if (v->device_fingerprint) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "grantee", 7)) return -1;
+    if (csilc_enc_GranteeRef(b, &(v->grantee))) return -1;
+    if (csilc_w_text(b, "user_id", 7)) return -1;
+    if (csilc_w_text(b, (v->user_id), (v->user_id) ? strlen(v->user_id) : 0)) return -1;
+    if (csilc_w_text(b, "audience", 8)) return -1;
+    if (csilc_enc_ApplicationRef(b, &(v->audience))) return -1;
+    if (csilc_w_text(b, "grant_id", 8)) return -1;
+    if (csilc_w_text(b, (v->grant_id), (v->grant_id) ? strlen(v->grant_id) : 0)) return -1;
+    if (csilc_w_text(b, "issued_at", 9)) return -1;
+    if (csilc_w_text(b, (v->issued_at), (v->issued_at) ? strlen(v->issued_at) : 0)) return -1;
+    if (csilc_w_text(b, "scope_set", 9)) return -1;
+    if (csilc_enc_SignedActAsScopeSet(b, &(v->scope_set))) return -1;
+    if (csilc_w_text(b, "expires_at", 10)) return -1;
+    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_text(b, "approved_scope", 14)) return -1;
+    if (csilc_w_array_head(b, v->approved_scope_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->approved_scope_count; csilc_i++) {
+        if (csilc_w_text(b, (v->approved_scope[csilc_i]), (v->approved_scope[csilc_i]) ? strlen(v->approved_scope[csilc_i]) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "subject_domain", 14)) return -1;
+    if (csilc_w_text(b, (v->subject_domain), (v->subject_domain) ? strlen(v->subject_domain) : 0)) return -1;
+    if (csilc_w_text(b, "renewable_until", 15)) return -1;
+    if (csilc_w_text(b, (v->renewable_until), (v->renewable_until) ? strlen(v->renewable_until) : 0)) return -1;
+    if (csilc_w_text(b, "series_issued_at", 16)) return -1;
+    if (csilc_w_text(b, (v->series_issued_at), (v->series_issued_at) ? strlen(v->series_issued_at) : 0)) return -1;
+    if (v->device_fingerprint) {
+        if (csilc_w_text(b, "device_fingerprint", 18)) return -1;
+        if (csilc_w_text(b, (v->device_fingerprint), (v->device_fingerprint) ? strlen(v->device_fingerprint) : 0)) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_ActAsGrant reads ActAsGrant from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_ActAsGrant(const csilc_value *m, CsilCodecArena *a, ActAsGrant *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "grantee");
+    if (csilc_dec_GranteeRef(csilc_f, a, &(out->grantee))) return -1;
+    csilc_f = csilc_map_get(m, "user_id");
+    if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
+    csilc_f = csilc_map_get(m, "audience");
+    if (csilc_dec_ApplicationRef(csilc_f, a, &(out->audience))) return -1;
+    csilc_f = csilc_map_get(m, "grant_id");
+    if (!csilc_get_text(csilc_f, &(out->grant_id))) return -1;
+    csilc_f = csilc_map_get(m, "issued_at");
+    if (!csilc_get_text(csilc_f, &(out->issued_at))) return -1;
+    csilc_f = csilc_map_get(m, "scope_set");
+    if (csilc_dec_SignedActAsScopeSet(csilc_f, a, &(out->scope_set))) return -1;
+    csilc_f = csilc_map_get(m, "expires_at");
+    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    csilc_f = csilc_map_get(m, "approved_scope");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->approved_scope_count = csilc_f->as.array.count;
+    out->approved_scope = NULL;
+    if (out->approved_scope_count) {
+        out->approved_scope = (char * *)csilc_arena_alloc(a, out->approved_scope_count * sizeof(char *));
+        if (!out->approved_scope) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->approved_scope_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->approved_scope[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "subject_domain");
+    if (!csilc_get_text(csilc_f, &(out->subject_domain))) return -1;
+    csilc_f = csilc_map_get(m, "renewable_until");
+    if (!csilc_get_text(csilc_f, &(out->renewable_until))) return -1;
+    csilc_f = csilc_map_get(m, "series_issued_at");
+    if (!csilc_get_text(csilc_f, &(out->series_issued_at))) return -1;
+    csilc_f = csilc_map_get(m, "device_fingerprint");
+    out->device_fingerprint = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    return 0;
+}
+
+/* csilc_enc_SignedActAsGrant writes SignedActAsGrant as a canonical CBOR map. */
+static inline int csilc_enc_SignedActAsGrant(csilc_buf *b, const SignedActAsGrant *v) {
+    size_t csilc_n = 2;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "grant", 5)) return -1;
+    if (csilc_w_bytes(b, (v->grant).data, (v->grant).len)) return -1;
+    if (csilc_w_text(b, "signatures", 10)) return -1;
+    if (csilc_w_array_head(b, v->signatures_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->signatures_count; csilc_i++) {
+        if (csilc_enc_ClaimSignature(b, &(v->signatures[csilc_i]))) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_SignedActAsGrant reads SignedActAsGrant from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_SignedActAsGrant(const csilc_value *m, CsilCodecArena *a, SignedActAsGrant *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "grant");
+    if (!csilc_get_bytes(csilc_f, &(out->grant).data, &(out->grant).len)) return -1;
+    csilc_f = csilc_map_get(m, "signatures");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->signatures_count = csilc_f->as.array.count;
+    out->signatures = NULL;
+    if (out->signatures_count) {
+        out->signatures = (ClaimSignature *)csilc_arena_alloc(a, out->signatures_count * sizeof(ClaimSignature));
+        if (!out->signatures) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->signatures_count; csilc_i++) {
+            if (csilc_dec_ClaimSignature(&csilc_f->as.array.items[csilc_i], a, &(out->signatures[csilc_i]))) return -1;
+        }
+    }
+    return 0;
+}
+
+/* csilc_enc_ActAsGrantRequest writes ActAsGrantRequest as a canonical CBOR map. */
+static inline int csilc_enc_ActAsGrantRequest(csilc_buf *b, const ActAsGrantRequest *v) {
+    size_t csilc_n = 6;
+    if (v->grantee_handle_claim) csilc_n++;
+    if (v->requested_lifetime_seconds) csilc_n++;
+    if (v->requested_renewal_window_seconds) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "nonce", 5)) return -1;
+    if (csilc_w_text(b, (v->nonce), (v->nonce) ? strlen(v->nonce) : 0)) return -1;
+    if (csilc_w_text(b, "grantee", 7)) return -1;
+    if (csilc_enc_GranteeRef(b, &(v->grantee))) return -1;
+    if (csilc_w_text(b, "scope_set", 9)) return -1;
+    if (csilc_enc_SignedActAsScopeSet(b, &(v->scope_set))) return -1;
+    if (csilc_w_text(b, "expires_at", 10)) return -1;
+    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_text(b, "callback_url", 12)) return -1;
+    if (csilc_w_text(b, (v->callback_url), (v->callback_url) ? strlen(v->callback_url) : 0)) return -1;
+    if (csilc_w_text(b, "requested_at", 12)) return -1;
+    if (csilc_w_text(b, (v->requested_at), (v->requested_at) ? strlen(v->requested_at) : 0)) return -1;
+    if (v->grantee_handle_claim) {
+        if (csilc_w_text(b, "grantee_handle_claim", 20)) return -1;
+        if (csilc_enc_Claim(b, &((*v->grantee_handle_claim)))) return -1;
+    }
+    if (v->requested_lifetime_seconds) {
+        if (csilc_w_text(b, "requested_lifetime_seconds", 26)) return -1;
+        if (csilc_w_int(b, (int64_t)((*v->requested_lifetime_seconds)))) return -1;
+    }
+    if (v->requested_renewal_window_seconds) {
+        if (csilc_w_text(b, "requested_renewal_window_seconds", 32)) return -1;
+        if (csilc_w_int(b, (int64_t)((*v->requested_renewal_window_seconds)))) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_ActAsGrantRequest reads ActAsGrantRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_ActAsGrantRequest(const csilc_value *m, CsilCodecArena *a, ActAsGrantRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "nonce");
+    if (!csilc_get_text(csilc_f, &(out->nonce))) return -1;
+    csilc_f = csilc_map_get(m, "grantee");
+    if (csilc_dec_GranteeRef(csilc_f, a, &(out->grantee))) return -1;
+    csilc_f = csilc_map_get(m, "scope_set");
+    if (csilc_dec_SignedActAsScopeSet(csilc_f, a, &(out->scope_set))) return -1;
+    csilc_f = csilc_map_get(m, "expires_at");
+    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    csilc_f = csilc_map_get(m, "callback_url");
+    if (!csilc_get_text(csilc_f, &(out->callback_url))) return -1;
+    csilc_f = csilc_map_get(m, "requested_at");
+    if (!csilc_get_text(csilc_f, &(out->requested_at))) return -1;
+    csilc_f = csilc_map_get(m, "grantee_handle_claim");
+    out->grantee_handle_claim = NULL;
+    if (csilc_f) {
+        Claim *csilc_p = (Claim *)csilc_arena_alloc(a, sizeof(Claim));
+        if (!csilc_p) return -1;
+        if (csilc_dec_Claim(csilc_f, a, &((*csilc_p)))) return -1;
+        out->grantee_handle_claim = csilc_p;
+    }
+    csilc_f = csilc_map_get(m, "requested_lifetime_seconds");
+    out->requested_lifetime_seconds = NULL;
+    if (csilc_f) {
+        int64_t *csilc_p = (int64_t *)csilc_arena_alloc(a, sizeof(int64_t));
+        if (!csilc_p) return -1;
+        if (!csilc_as_i64(csilc_f, &((*csilc_p)))) return -1;
+        out->requested_lifetime_seconds = csilc_p;
+    }
+    csilc_f = csilc_map_get(m, "requested_renewal_window_seconds");
+    out->requested_renewal_window_seconds = NULL;
+    if (csilc_f) {
+        int64_t *csilc_p = (int64_t *)csilc_arena_alloc(a, sizeof(int64_t));
+        if (!csilc_p) return -1;
+        if (!csilc_as_i64(csilc_f, &((*csilc_p)))) return -1;
+        out->requested_renewal_window_seconds = csilc_p;
+    }
+    return 0;
+}
+
+/* csilc_enc_SignedActAsGrantRequest writes SignedActAsGrantRequest as a canonical CBOR map. */
+static inline int csilc_enc_SignedActAsGrantRequest(csilc_buf *b, const SignedActAsGrantRequest *v) {
+    size_t csilc_n = 2;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "proof", 5)) return -1;
+    if (csilc_enc_GranteeProof(b, &(v->proof))) return -1;
+    if (csilc_w_text(b, "request", 7)) return -1;
+    if (csilc_w_bytes(b, (v->request).data, (v->request).len)) return -1;
+    return 0;
+}
+
+/* csilc_dec_SignedActAsGrantRequest reads SignedActAsGrantRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_SignedActAsGrantRequest(const csilc_value *m, CsilCodecArena *a, SignedActAsGrantRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "proof");
+    if (csilc_dec_GranteeProof(csilc_f, a, &(out->proof))) return -1;
+    csilc_f = csilc_map_get(m, "request");
+    if (!csilc_get_bytes(csilc_f, &(out->request).data, &(out->request).len)) return -1;
+    return 0;
+}
+
+/* csilc_enc_ActAsRefreshRequest writes ActAsRefreshRequest as a canonical CBOR map. */
+static inline int csilc_enc_ActAsRefreshRequest(csilc_buf *b, const ActAsRefreshRequest *v) {
+    size_t csilc_n = 5;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "nonce", 5)) return -1;
+    if (csilc_w_text(b, (v->nonce), (v->nonce) ? strlen(v->nonce) : 0)) return -1;
+    if (csilc_w_text(b, "grantee", 7)) return -1;
+    if (csilc_enc_GranteeRef(b, &(v->grantee))) return -1;
+    if (csilc_w_text(b, "grant_id", 8)) return -1;
+    if (csilc_w_text(b, (v->grant_id), (v->grant_id) ? strlen(v->grant_id) : 0)) return -1;
+    if (csilc_w_text(b, "expires_at", 10)) return -1;
+    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_text(b, "requested_at", 12)) return -1;
+    if (csilc_w_text(b, (v->requested_at), (v->requested_at) ? strlen(v->requested_at) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_ActAsRefreshRequest reads ActAsRefreshRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_ActAsRefreshRequest(const csilc_value *m, CsilCodecArena *a, ActAsRefreshRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "nonce");
+    if (!csilc_get_text(csilc_f, &(out->nonce))) return -1;
+    csilc_f = csilc_map_get(m, "grantee");
+    if (csilc_dec_GranteeRef(csilc_f, a, &(out->grantee))) return -1;
+    csilc_f = csilc_map_get(m, "grant_id");
+    if (!csilc_get_text(csilc_f, &(out->grant_id))) return -1;
+    csilc_f = csilc_map_get(m, "expires_at");
+    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    csilc_f = csilc_map_get(m, "requested_at");
+    if (!csilc_get_text(csilc_f, &(out->requested_at))) return -1;
+    return 0;
+}
+
+/* csilc_enc_SignedActAsRefreshRequest writes SignedActAsRefreshRequest as a canonical CBOR map. */
+static inline int csilc_enc_SignedActAsRefreshRequest(csilc_buf *b, const SignedActAsRefreshRequest *v) {
+    size_t csilc_n = 2;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "proof", 5)) return -1;
+    if (csilc_enc_GranteeProof(b, &(v->proof))) return -1;
+    if (csilc_w_text(b, "request", 7)) return -1;
+    if (csilc_w_bytes(b, (v->request).data, (v->request).len)) return -1;
+    return 0;
+}
+
+/* csilc_dec_SignedActAsRefreshRequest reads SignedActAsRefreshRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_SignedActAsRefreshRequest(const csilc_value *m, CsilCodecArena *a, SignedActAsRefreshRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "proof");
+    if (csilc_dec_GranteeProof(csilc_f, a, &(out->proof))) return -1;
+    csilc_f = csilc_map_get(m, "request");
+    if (!csilc_get_bytes(csilc_f, &(out->request).data, &(out->request).len)) return -1;
+    return 0;
+}
+
+/* csilc_enc_RefreshActAsGrantRequest writes RefreshActAsGrantRequest as a canonical CBOR map. */
+static inline int csilc_enc_RefreshActAsGrantRequest(csilc_buf *b, const RefreshActAsGrantRequest *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "request", 7)) return -1;
+    if (csilc_enc_SignedActAsRefreshRequest(b, &(v->request))) return -1;
+    return 0;
+}
+
+/* csilc_dec_RefreshActAsGrantRequest reads RefreshActAsGrantRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RefreshActAsGrantRequest(const csilc_value *m, CsilCodecArena *a, RefreshActAsGrantRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "request");
+    if (csilc_dec_SignedActAsRefreshRequest(csilc_f, a, &(out->request))) return -1;
+    return 0;
+}
+
+/* csilc_enc_RefreshActAsGrantResponse writes RefreshActAsGrantResponse as a canonical CBOR map. */
+static inline int csilc_enc_RefreshActAsGrantResponse(csilc_buf *b, const RefreshActAsGrantResponse *v) {
+    size_t csilc_n = 2;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "grant", 5)) return -1;
+    if (csilc_enc_SignedActAsGrant(b, &(v->grant))) return -1;
+    if (csilc_w_text(b, "signed", 6)) return -1;
+    if (csilc_w_bool(b, (v->signed_))) return -1;
+    return 0;
+}
+
+/* csilc_dec_RefreshActAsGrantResponse reads RefreshActAsGrantResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RefreshActAsGrantResponse(const csilc_value *m, CsilCodecArena *a, RefreshActAsGrantResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "grant");
+    if (csilc_dec_SignedActAsGrant(csilc_f, a, &(out->grant))) return -1;
+    csilc_f = csilc_map_get(m, "signed");
+    if (!csilc_as_bool(csilc_f, &(out->signed_))) return -1;
+    return 0;
+}
+
+/* csilc_enc_ActAsPresentation writes ActAsPresentation as a canonical CBOR map. */
+static inline int csilc_enc_ActAsPresentation(csilc_buf *b, const ActAsPresentation *v) {
+    size_t csilc_n = 5;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "nonce", 5)) return -1;
+    if (csilc_w_bytes(b, (v->nonce).data, (v->nonce).len)) return -1;
+    if (csilc_w_text(b, "audience", 8)) return -1;
+    if (csilc_enc_ApplicationRef(b, &(v->audience))) return -1;
+    if (csilc_w_text(b, "grant_hash", 10)) return -1;
+    if (csilc_w_bytes(b, (v->grant_hash).data, (v->grant_hash).len)) return -1;
+    if (csilc_w_text(b, "presented_at", 12)) return -1;
+    if (csilc_w_text(b, (v->presented_at), (v->presented_at) ? strlen(v->presented_at) : 0)) return -1;
+    if (csilc_w_text(b, "request_digest", 14)) return -1;
+    if (csilc_w_bytes(b, (v->request_digest).data, (v->request_digest).len)) return -1;
+    return 0;
+}
+
+/* csilc_dec_ActAsPresentation reads ActAsPresentation from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_ActAsPresentation(const csilc_value *m, CsilCodecArena *a, ActAsPresentation *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "nonce");
+    if (!csilc_get_bytes(csilc_f, &(out->nonce).data, &(out->nonce).len)) return -1;
+    csilc_f = csilc_map_get(m, "audience");
+    if (csilc_dec_ApplicationRef(csilc_f, a, &(out->audience))) return -1;
+    csilc_f = csilc_map_get(m, "grant_hash");
+    if (!csilc_get_bytes(csilc_f, &(out->grant_hash).data, &(out->grant_hash).len)) return -1;
+    csilc_f = csilc_map_get(m, "presented_at");
+    if (!csilc_get_text(csilc_f, &(out->presented_at))) return -1;
+    csilc_f = csilc_map_get(m, "request_digest");
+    if (!csilc_get_bytes(csilc_f, &(out->request_digest).data, &(out->request_digest).len)) return -1;
+    return 0;
+}
+
+/* csilc_enc_SignedActAsPresentation writes SignedActAsPresentation as a canonical CBOR map. */
+static inline int csilc_enc_SignedActAsPresentation(csilc_buf *b, const SignedActAsPresentation *v) {
+    size_t csilc_n = 2;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "proof", 5)) return -1;
+    if (csilc_enc_GranteeProof(b, &(v->proof))) return -1;
+    if (csilc_w_text(b, "presentation", 12)) return -1;
+    if (csilc_w_bytes(b, (v->presentation).data, (v->presentation).len)) return -1;
+    return 0;
+}
+
+/* csilc_dec_SignedActAsPresentation reads SignedActAsPresentation from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_SignedActAsPresentation(const csilc_value *m, CsilCodecArena *a, SignedActAsPresentation *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "proof");
+    if (csilc_dec_GranteeProof(csilc_f, a, &(out->proof))) return -1;
+    csilc_f = csilc_map_get(m, "presentation");
+    if (!csilc_get_bytes(csilc_f, &(out->presentation).data, &(out->presentation).len)) return -1;
+    return 0;
+}
+
+/* csilc_enc_ActAsCredential writes ActAsCredential as a canonical CBOR map. */
+static inline int csilc_enc_ActAsCredential(csilc_buf *b, const ActAsCredential *v) {
+    size_t csilc_n = 2;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "grant", 5)) return -1;
+    if (csilc_enc_SignedActAsGrant(b, &(v->grant))) return -1;
+    if (csilc_w_text(b, "presentation", 12)) return -1;
+    if (csilc_enc_SignedActAsPresentation(b, &(v->presentation))) return -1;
+    return 0;
+}
+
+/* csilc_dec_ActAsCredential reads ActAsCredential from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_ActAsCredential(const csilc_value *m, CsilCodecArena *a, ActAsCredential *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "grant");
+    if (csilc_dec_SignedActAsGrant(csilc_f, a, &(out->grant))) return -1;
+    csilc_f = csilc_map_get(m, "presentation");
+    if (csilc_dec_SignedActAsPresentation(csilc_f, a, &(out->presentation))) return -1;
+    return 0;
+}
+
+/* csilc_enc_ActAsGrantRevocation writes ActAsGrantRevocation as a canonical CBOR map. */
+static inline int csilc_enc_ActAsGrantRevocation(csilc_buf *b, const ActAsGrantRevocation *v) {
+    size_t csilc_n = 4;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "user_id", 7)) return -1;
+    if (csilc_w_text(b, (v->user_id), (v->user_id) ? strlen(v->user_id) : 0)) return -1;
+    if (csilc_w_text(b, "grant_id", 8)) return -1;
+    if (csilc_w_text(b, (v->grant_id), (v->grant_id) ? strlen(v->grant_id) : 0)) return -1;
+    if (csilc_w_text(b, "revoked_at", 10)) return -1;
+    if (csilc_w_text(b, (v->revoked_at), (v->revoked_at) ? strlen(v->revoked_at) : 0)) return -1;
+    if (csilc_w_text(b, "subject_domain", 14)) return -1;
+    if (csilc_w_text(b, (v->subject_domain), (v->subject_domain) ? strlen(v->subject_domain) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_ActAsGrantRevocation reads ActAsGrantRevocation from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_ActAsGrantRevocation(const csilc_value *m, CsilCodecArena *a, ActAsGrantRevocation *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "user_id");
+    if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
+    csilc_f = csilc_map_get(m, "grant_id");
+    if (!csilc_get_text(csilc_f, &(out->grant_id))) return -1;
+    csilc_f = csilc_map_get(m, "revoked_at");
+    if (!csilc_get_text(csilc_f, &(out->revoked_at))) return -1;
+    csilc_f = csilc_map_get(m, "subject_domain");
+    if (!csilc_get_text(csilc_f, &(out->subject_domain))) return -1;
+    return 0;
+}
+
+/* csilc_enc_SignedActAsGrantRevocation writes SignedActAsGrantRevocation as a canonical CBOR map. */
+static inline int csilc_enc_SignedActAsGrantRevocation(csilc_buf *b, const SignedActAsGrantRevocation *v) {
+    size_t csilc_n = 2;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "revocation", 10)) return -1;
+    if (csilc_w_bytes(b, (v->revocation).data, (v->revocation).len)) return -1;
+    if (csilc_w_text(b, "signatures", 10)) return -1;
+    if (csilc_w_array_head(b, v->signatures_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->signatures_count; csilc_i++) {
+        if (csilc_enc_ClaimSignature(b, &(v->signatures[csilc_i]))) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_SignedActAsGrantRevocation reads SignedActAsGrantRevocation from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_SignedActAsGrantRevocation(const csilc_value *m, CsilCodecArena *a, SignedActAsGrantRevocation *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "revocation");
+    if (!csilc_get_bytes(csilc_f, &(out->revocation).data, &(out->revocation).len)) return -1;
+    csilc_f = csilc_map_get(m, "signatures");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->signatures_count = csilc_f->as.array.count;
+    out->signatures = NULL;
+    if (out->signatures_count) {
+        out->signatures = (ClaimSignature *)csilc_arena_alloc(a, out->signatures_count * sizeof(ClaimSignature));
+        if (!out->signatures) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->signatures_count; csilc_i++) {
+            if (csilc_dec_ClaimSignature(&csilc_f->as.array.items[csilc_i], a, &(out->signatures[csilc_i]))) return -1;
+        }
+    }
+    return 0;
+}
+
+/* csilc_enc_GetActAsGrantRevocationsRequest writes GetActAsGrantRevocationsRequest as a canonical CBOR map. */
+static inline int csilc_enc_GetActAsGrantRevocationsRequest(csilc_buf *b, const GetActAsGrantRevocationsRequest *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "grant_ids", 9)) return -1;
+    if (csilc_w_array_head(b, v->grant_ids_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->grant_ids_count; csilc_i++) {
+        if (csilc_w_text(b, (v->grant_ids[csilc_i]), (v->grant_ids[csilc_i]) ? strlen(v->grant_ids[csilc_i]) : 0)) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_GetActAsGrantRevocationsRequest reads GetActAsGrantRevocationsRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_GetActAsGrantRevocationsRequest(const csilc_value *m, CsilCodecArena *a, GetActAsGrantRevocationsRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "grant_ids");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->grant_ids_count = csilc_f->as.array.count;
+    out->grant_ids = NULL;
+    if (out->grant_ids_count) {
+        out->grant_ids = (char * *)csilc_arena_alloc(a, out->grant_ids_count * sizeof(char *));
+        if (!out->grant_ids) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->grant_ids_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->grant_ids[csilc_i]))) return -1;
+        }
+    }
+    return 0;
+}
+
+/* csilc_enc_GetActAsGrantRevocationsResponse writes GetActAsGrantRevocationsResponse as a canonical CBOR map. */
+static inline int csilc_enc_GetActAsGrantRevocationsResponse(csilc_buf *b, const GetActAsGrantRevocationsResponse *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "revocations", 11)) return -1;
+    if (csilc_w_array_head(b, v->revocations_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->revocations_count; csilc_i++) {
+        if (csilc_enc_SignedActAsGrantRevocation(b, &(v->revocations[csilc_i]))) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_GetActAsGrantRevocationsResponse reads GetActAsGrantRevocationsResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_GetActAsGrantRevocationsResponse(const csilc_value *m, CsilCodecArena *a, GetActAsGrantRevocationsResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "revocations");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->revocations_count = csilc_f->as.array.count;
+    out->revocations = NULL;
+    if (out->revocations_count) {
+        out->revocations = (SignedActAsGrantRevocation *)csilc_arena_alloc(a, out->revocations_count * sizeof(SignedActAsGrantRevocation));
+        if (!out->revocations) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->revocations_count; csilc_i++) {
+            if (csilc_dec_SignedActAsGrantRevocation(&csilc_f->as.array.items[csilc_i], a, &(out->revocations[csilc_i]))) return -1;
+        }
+    }
+    return 0;
+}
+
+/* csilc_enc_RpActAsRefreshRequest writes RpActAsRefreshRequest as a canonical CBOR map. */
+static inline int csilc_enc_RpActAsRefreshRequest(csilc_buf *b, const RpActAsRefreshRequest *v) {
+    size_t csilc_n = 2;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "request", 7)) return -1;
+    if (csilc_enc_SignedActAsRefreshRequest(b, &(v->request))) return -1;
+    if (csilc_w_text(b, "subject_domain", 14)) return -1;
+    if (csilc_w_text(b, (v->subject_domain), (v->subject_domain) ? strlen(v->subject_domain) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_RpActAsRefreshRequest reads RpActAsRefreshRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RpActAsRefreshRequest(const csilc_value *m, CsilCodecArena *a, RpActAsRefreshRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "request");
+    if (csilc_dec_SignedActAsRefreshRequest(csilc_f, a, &(out->request))) return -1;
+    csilc_f = csilc_map_get(m, "subject_domain");
+    if (!csilc_get_text(csilc_f, &(out->subject_domain))) return -1;
+    return 0;
+}
+
+/* csilc_enc_RpResolveActAsRevocationsRequest writes RpResolveActAsRevocationsRequest as a canonical CBOR map. */
+static inline int csilc_enc_RpResolveActAsRevocationsRequest(csilc_buf *b, const RpResolveActAsRevocationsRequest *v) {
+    size_t csilc_n = 2;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "grant_ids", 9)) return -1;
+    if (csilc_w_array_head(b, v->grant_ids_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->grant_ids_count; csilc_i++) {
+        if (csilc_w_text(b, (v->grant_ids[csilc_i]), (v->grant_ids[csilc_i]) ? strlen(v->grant_ids[csilc_i]) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "subject_domain", 14)) return -1;
+    if (csilc_w_text(b, (v->subject_domain), (v->subject_domain) ? strlen(v->subject_domain) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_RpResolveActAsRevocationsRequest reads RpResolveActAsRevocationsRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RpResolveActAsRevocationsRequest(const csilc_value *m, CsilCodecArena *a, RpResolveActAsRevocationsRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "grant_ids");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->grant_ids_count = csilc_f->as.array.count;
+    out->grant_ids = NULL;
+    if (out->grant_ids_count) {
+        out->grant_ids = (char * *)csilc_arena_alloc(a, out->grant_ids_count * sizeof(char *));
+        if (!out->grant_ids) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->grant_ids_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->grant_ids[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "subject_domain");
+    if (!csilc_get_text(csilc_f, &(out->subject_domain))) return -1;
+    return 0;
+}
+
+/* csilc_enc_BrowserActAsInspectRequest writes BrowserActAsInspectRequest as a canonical CBOR map. */
+static inline int csilc_enc_BrowserActAsInspectRequest(csilc_buf *b, const BrowserActAsInspectRequest *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "signed_request", 14)) return -1;
+    if (csilc_w_text(b, (v->signed_request), (v->signed_request) ? strlen(v->signed_request) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_BrowserActAsInspectRequest reads BrowserActAsInspectRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_BrowserActAsInspectRequest(const csilc_value *m, CsilCodecArena *a, BrowserActAsInspectRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "signed_request");
+    if (!csilc_get_text(csilc_f, &(out->signed_request))) return -1;
+    return 0;
+}
+
+/* csilc_enc_BrowserActAsScopeEntry writes BrowserActAsScopeEntry as a canonical CBOR map. */
+static inline int csilc_enc_BrowserActAsScopeEntry(csilc_buf *b, const BrowserActAsScopeEntry *v) {
+    size_t csilc_n = 2;
+    if (v->description) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "scope", 5)) return -1;
+    if (csilc_w_text(b, (v->scope), (v->scope) ? strlen(v->scope) : 0)) return -1;
+    if (v->description) {
+        if (csilc_w_text(b, "description", 11)) return -1;
+        if (csilc_w_text(b, (v->description), (v->description) ? strlen(v->description) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "removed_by_policy", 17)) return -1;
+    if (csilc_w_bool(b, (v->removed_by_policy))) return -1;
+    return 0;
+}
+
+/* csilc_dec_BrowserActAsScopeEntry reads BrowserActAsScopeEntry from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_BrowserActAsScopeEntry(const csilc_value *m, CsilCodecArena *a, BrowserActAsScopeEntry *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "scope");
+    if (!csilc_get_text(csilc_f, &(out->scope))) return -1;
+    csilc_f = csilc_map_get(m, "description");
+    out->description = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "removed_by_policy");
+    if (!csilc_as_bool(csilc_f, &(out->removed_by_policy))) return -1;
+    return 0;
+}
+
+/* csilc_enc_BrowserActAsParty writes BrowserActAsParty as a canonical CBOR map. */
+static inline int csilc_enc_BrowserActAsParty(csilc_buf *b, const BrowserActAsParty *v) {
+    size_t csilc_n = 4;
+    if (v->domain) csilc_n++;
+    if (v->handle) csilc_n++;
+    if (v->local_rp_name) csilc_n++;
+    if (v->application_id) csilc_n++;
+    if (v->subject_user_id) csilc_n++;
+    if (v->local_rp_fingerprint) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (v->domain) {
+        if (csilc_w_text(b, "domain", 6)) return -1;
+        if (csilc_w_text(b, (v->domain), (v->domain) ? strlen(v->domain) : 0)) return -1;
+    }
+    if (v->handle) {
+        if (csilc_w_text(b, "handle", 6)) return -1;
+        if (csilc_w_text(b, (v->handle), (v->handle) ? strlen(v->handle) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "own_domain", 10)) return -1;
+    if (csilc_w_bool(b, (v->own_domain))) return -1;
+    if (v->local_rp_name) {
+        if (csilc_w_text(b, "local_rp_name", 13)) return -1;
+        if (csilc_w_text(b, (v->local_rp_name), (v->local_rp_name) ? strlen(v->local_rp_name) : 0)) return -1;
+    }
+    if (v->application_id) {
+        if (csilc_w_text(b, "application_id", 14)) return -1;
+        if (csilc_w_text(b, (v->application_id), (v->application_id) ? strlen(v->application_id) : 0)) return -1;
+    }
+    if (v->subject_user_id) {
+        if (csilc_w_text(b, "subject_user_id", 15)) return -1;
+        if (csilc_w_text(b, (v->subject_user_id), (v->subject_user_id) ? strlen(v->subject_user_id) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "operator_trusted", 16)) return -1;
+    if (csilc_w_bool(b, (v->operator_trusted))) return -1;
+    if (csilc_w_text(b, "user_has_history", 16)) return -1;
+    if (csilc_w_bool(b, (v->user_has_history))) return -1;
+    if (csilc_w_text(b, "domain_key_pinned", 17)) return -1;
+    if (csilc_w_bool(b, (v->domain_key_pinned))) return -1;
+    if (v->local_rp_fingerprint) {
+        if (csilc_w_text(b, "local_rp_fingerprint", 20)) return -1;
+        if (csilc_w_text(b, (v->local_rp_fingerprint), (v->local_rp_fingerprint) ? strlen(v->local_rp_fingerprint) : 0)) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_BrowserActAsParty reads BrowserActAsParty from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_BrowserActAsParty(const csilc_value *m, CsilCodecArena *a, BrowserActAsParty *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "domain");
+    out->domain = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "handle");
+    out->handle = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "own_domain");
+    if (!csilc_as_bool(csilc_f, &(out->own_domain))) return -1;
+    csilc_f = csilc_map_get(m, "local_rp_name");
+    out->local_rp_name = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "application_id");
+    out->application_id = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "subject_user_id");
+    out->subject_user_id = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "operator_trusted");
+    if (!csilc_as_bool(csilc_f, &(out->operator_trusted))) return -1;
+    csilc_f = csilc_map_get(m, "user_has_history");
+    if (!csilc_as_bool(csilc_f, &(out->user_has_history))) return -1;
+    csilc_f = csilc_map_get(m, "domain_key_pinned");
+    if (!csilc_as_bool(csilc_f, &(out->domain_key_pinned))) return -1;
+    csilc_f = csilc_map_get(m, "local_rp_fingerprint");
+    out->local_rp_fingerprint = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    return 0;
+}
+
+/* csilc_enc_BrowserActAsInspectResponse writes BrowserActAsInspectResponse as a canonical CBOR map. */
+static inline int csilc_enc_BrowserActAsInspectResponse(csilc_buf *b, const BrowserActAsInspectResponse *v) {
+    size_t csilc_n = 9;
+    if (v->language) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "entries", 7)) return -1;
+    if (csilc_w_array_head(b, v->entries_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->entries_count; csilc_i++) {
+        if (csilc_enc_BrowserActAsScopeEntry(b, &(v->entries[csilc_i]))) return -1;
+    }
+    if (csilc_w_text(b, "grantee", 7)) return -1;
+    if (csilc_enc_GranteeRef(b, &(v->grantee))) return -1;
+    if (csilc_w_text(b, "audience", 8)) return -1;
+    if (csilc_enc_ApplicationRef(b, &(v->audience))) return -1;
+    if (v->language) {
+        if (csilc_w_text(b, "language", 8)) return -1;
+        if (csilc_w_text(b, (v->language), (v->language) ? strlen(v->language) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "grantee_party", 13)) return -1;
+    if (csilc_enc_BrowserActAsParty(b, &(v->grantee_party))) return -1;
+    if (csilc_w_text(b, "audience_party", 14)) return -1;
+    if (csilc_enc_BrowserActAsParty(b, &(v->audience_party))) return -1;
+    if (csilc_w_text(b, "max_lifetime_seconds", 20)) return -1;
+    if (csilc_w_int(b, (int64_t)(v->max_lifetime_seconds))) return -1;
+    if (csilc_w_text(b, "default_lifetime_seconds", 24)) return -1;
+    if (csilc_w_int(b, (int64_t)(v->default_lifetime_seconds))) return -1;
+    if (csilc_w_text(b, "max_renewal_window_seconds", 26)) return -1;
+    if (csilc_w_int(b, (int64_t)(v->max_renewal_window_seconds))) return -1;
+    if (csilc_w_text(b, "default_renewal_window_seconds", 30)) return -1;
+    if (csilc_w_int(b, (int64_t)(v->default_renewal_window_seconds))) return -1;
+    return 0;
+}
+
+/* csilc_dec_BrowserActAsInspectResponse reads BrowserActAsInspectResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_BrowserActAsInspectResponse(const csilc_value *m, CsilCodecArena *a, BrowserActAsInspectResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "entries");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->entries_count = csilc_f->as.array.count;
+    out->entries = NULL;
+    if (out->entries_count) {
+        out->entries = (BrowserActAsScopeEntry *)csilc_arena_alloc(a, out->entries_count * sizeof(BrowserActAsScopeEntry));
+        if (!out->entries) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->entries_count; csilc_i++) {
+            if (csilc_dec_BrowserActAsScopeEntry(&csilc_f->as.array.items[csilc_i], a, &(out->entries[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "grantee");
+    if (csilc_dec_GranteeRef(csilc_f, a, &(out->grantee))) return -1;
+    csilc_f = csilc_map_get(m, "audience");
+    if (csilc_dec_ApplicationRef(csilc_f, a, &(out->audience))) return -1;
+    csilc_f = csilc_map_get(m, "language");
+    out->language = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "grantee_party");
+    if (csilc_dec_BrowserActAsParty(csilc_f, a, &(out->grantee_party))) return -1;
+    csilc_f = csilc_map_get(m, "audience_party");
+    if (csilc_dec_BrowserActAsParty(csilc_f, a, &(out->audience_party))) return -1;
+    csilc_f = csilc_map_get(m, "max_lifetime_seconds");
+    if (!csilc_as_i64(csilc_f, &(out->max_lifetime_seconds))) return -1;
+    csilc_f = csilc_map_get(m, "default_lifetime_seconds");
+    if (!csilc_as_i64(csilc_f, &(out->default_lifetime_seconds))) return -1;
+    csilc_f = csilc_map_get(m, "max_renewal_window_seconds");
+    if (!csilc_as_i64(csilc_f, &(out->max_renewal_window_seconds))) return -1;
+    csilc_f = csilc_map_get(m, "default_renewal_window_seconds");
+    if (!csilc_as_i64(csilc_f, &(out->default_renewal_window_seconds))) return -1;
+    return 0;
+}
+
+/* csilc_enc_BrowserActAsCompleteRequest writes BrowserActAsCompleteRequest as a canonical CBOR map. */
+static inline int csilc_enc_BrowserActAsCompleteRequest(csilc_buf *b, const BrowserActAsCompleteRequest *v) {
+    size_t csilc_n = 4;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "approved_scope", 14)) return -1;
+    if (csilc_w_array_head(b, v->approved_scope_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->approved_scope_count; csilc_i++) {
+        if (csilc_w_text(b, (v->approved_scope[csilc_i]), (v->approved_scope[csilc_i]) ? strlen(v->approved_scope[csilc_i]) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "signed_request", 14)) return -1;
+    if (csilc_w_text(b, (v->signed_request), (v->signed_request) ? strlen(v->signed_request) : 0)) return -1;
+    if (csilc_w_text(b, "lifetime_seconds", 16)) return -1;
+    if (csilc_w_int(b, (int64_t)(v->lifetime_seconds))) return -1;
+    if (csilc_w_text(b, "renewal_window_seconds", 22)) return -1;
+    if (csilc_w_int(b, (int64_t)(v->renewal_window_seconds))) return -1;
+    return 0;
+}
+
+/* csilc_dec_BrowserActAsCompleteRequest reads BrowserActAsCompleteRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_BrowserActAsCompleteRequest(const csilc_value *m, CsilCodecArena *a, BrowserActAsCompleteRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "approved_scope");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->approved_scope_count = csilc_f->as.array.count;
+    out->approved_scope = NULL;
+    if (out->approved_scope_count) {
+        out->approved_scope = (char * *)csilc_arena_alloc(a, out->approved_scope_count * sizeof(char *));
+        if (!out->approved_scope) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->approved_scope_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->approved_scope[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "signed_request");
+    if (!csilc_get_text(csilc_f, &(out->signed_request))) return -1;
+    csilc_f = csilc_map_get(m, "lifetime_seconds");
+    if (!csilc_as_i64(csilc_f, &(out->lifetime_seconds))) return -1;
+    csilc_f = csilc_map_get(m, "renewal_window_seconds");
+    if (!csilc_as_i64(csilc_f, &(out->renewal_window_seconds))) return -1;
+    return 0;
+}
+
+/* csilc_enc_BrowserActAsCompleteResponse writes BrowserActAsCompleteResponse as a canonical CBOR map. */
+static inline int csilc_enc_BrowserActAsCompleteResponse(csilc_buf *b, const BrowserActAsCompleteResponse *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "redirect_url", 12)) return -1;
+    if (csilc_w_text(b, (v->redirect_url), (v->redirect_url) ? strlen(v->redirect_url) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_BrowserActAsCompleteResponse reads BrowserActAsCompleteResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_BrowserActAsCompleteResponse(const csilc_value *m, CsilCodecArena *a, BrowserActAsCompleteResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "redirect_url");
+    if (!csilc_get_text(csilc_f, &(out->redirect_url))) return -1;
+    return 0;
+}
+
+/* csilc_enc_ActAsGrantSummary writes ActAsGrantSummary as a canonical CBOR map. */
+static inline int csilc_enc_ActAsGrantSummary(csilc_buf *b, const ActAsGrantSummary *v) {
+    size_t csilc_n = 7;
+    if (v->revoked_at) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "grantee", 7)) return -1;
+    if (csilc_enc_GranteeRef(b, &(v->grantee))) return -1;
+    if (csilc_w_text(b, "audience", 8)) return -1;
+    if (csilc_enc_ApplicationRef(b, &(v->audience))) return -1;
+    if (csilc_w_text(b, "grant_id", 8)) return -1;
+    if (csilc_w_text(b, (v->grant_id), (v->grant_id) ? strlen(v->grant_id) : 0)) return -1;
+    if (csilc_w_text(b, "issued_at", 9)) return -1;
+    if (csilc_w_text(b, (v->issued_at), (v->issued_at) ? strlen(v->issued_at) : 0)) return -1;
+    if (csilc_w_text(b, "expires_at", 10)) return -1;
+    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (v->revoked_at) {
+        if (csilc_w_text(b, "revoked_at", 10)) return -1;
+        if (csilc_w_text(b, (v->revoked_at), (v->revoked_at) ? strlen(v->revoked_at) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "approved_scope", 14)) return -1;
+    if (csilc_w_array_head(b, v->approved_scope_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->approved_scope_count; csilc_i++) {
+        if (csilc_w_text(b, (v->approved_scope[csilc_i]), (v->approved_scope[csilc_i]) ? strlen(v->approved_scope[csilc_i]) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "renewable_until", 15)) return -1;
+    if (csilc_w_text(b, (v->renewable_until), (v->renewable_until) ? strlen(v->renewable_until) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_ActAsGrantSummary reads ActAsGrantSummary from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_ActAsGrantSummary(const csilc_value *m, CsilCodecArena *a, ActAsGrantSummary *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "grantee");
+    if (csilc_dec_GranteeRef(csilc_f, a, &(out->grantee))) return -1;
+    csilc_f = csilc_map_get(m, "audience");
+    if (csilc_dec_ApplicationRef(csilc_f, a, &(out->audience))) return -1;
+    csilc_f = csilc_map_get(m, "grant_id");
+    if (!csilc_get_text(csilc_f, &(out->grant_id))) return -1;
+    csilc_f = csilc_map_get(m, "issued_at");
+    if (!csilc_get_text(csilc_f, &(out->issued_at))) return -1;
+    csilc_f = csilc_map_get(m, "expires_at");
+    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    csilc_f = csilc_map_get(m, "revoked_at");
+    out->revoked_at = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "approved_scope");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->approved_scope_count = csilc_f->as.array.count;
+    out->approved_scope = NULL;
+    if (out->approved_scope_count) {
+        out->approved_scope = (char * *)csilc_arena_alloc(a, out->approved_scope_count * sizeof(char *));
+        if (!out->approved_scope) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->approved_scope_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->approved_scope[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "renewable_until");
+    if (!csilc_get_text(csilc_f, &(out->renewable_until))) return -1;
+    return 0;
+}
+
+/* csilc_enc_ListActAsGrantsResponse writes ListActAsGrantsResponse as a canonical CBOR map. */
+static inline int csilc_enc_ListActAsGrantsResponse(csilc_buf *b, const ListActAsGrantsResponse *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "grants", 6)) return -1;
+    if (csilc_w_array_head(b, v->grants_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->grants_count; csilc_i++) {
+        if (csilc_enc_ActAsGrantSummary(b, &(v->grants[csilc_i]))) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_ListActAsGrantsResponse reads ListActAsGrantsResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_ListActAsGrantsResponse(const csilc_value *m, CsilCodecArena *a, ListActAsGrantsResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "grants");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->grants_count = csilc_f->as.array.count;
+    out->grants = NULL;
+    if (out->grants_count) {
+        out->grants = (ActAsGrantSummary *)csilc_arena_alloc(a, out->grants_count * sizeof(ActAsGrantSummary));
+        if (!out->grants) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->grants_count; csilc_i++) {
+            if (csilc_dec_ActAsGrantSummary(&csilc_f->as.array.items[csilc_i], a, &(out->grants[csilc_i]))) return -1;
+        }
+    }
+    return 0;
+}
+
+/* csilc_enc_RevokeActAsGrantRequest writes RevokeActAsGrantRequest as a canonical CBOR map. */
+static inline int csilc_enc_RevokeActAsGrantRequest(csilc_buf *b, const RevokeActAsGrantRequest *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "grant_id", 8)) return -1;
+    if (csilc_w_text(b, (v->grant_id), (v->grant_id) ? strlen(v->grant_id) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_RevokeActAsGrantRequest reads RevokeActAsGrantRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RevokeActAsGrantRequest(const csilc_value *m, CsilCodecArena *a, RevokeActAsGrantRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "grant_id");
+    if (!csilc_get_text(csilc_f, &(out->grant_id))) return -1;
+    return 0;
+}
+
+/* csilc_enc_RevokeActAsGrantResponse writes RevokeActAsGrantResponse as a canonical CBOR map. */
+static inline int csilc_enc_RevokeActAsGrantResponse(csilc_buf *b, const RevokeActAsGrantResponse *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "revoked_at", 10)) return -1;
+    if (csilc_w_text(b, (v->revoked_at), (v->revoked_at) ? strlen(v->revoked_at) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_RevokeActAsGrantResponse reads RevokeActAsGrantResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RevokeActAsGrantResponse(const csilc_value *m, CsilCodecArena *a, RevokeActAsGrantResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "revoked_at");
+    if (!csilc_get_text(csilc_f, &(out->revoked_at))) return -1;
+    return 0;
+}
+
 /* Encode a CheckValue to CBOR. On success *out is a malloc'd buffer of
  * *out_len bytes the caller frees with free(); returns non-zero on failure. */
 static inline int csil_encode_CheckValue(const CheckValue *v, uint8_t **out, size_t *out_len) {
@@ -14590,6 +15941,788 @@ static inline int csil_decode_RpResolveApplicationKeysResponse(const uint8_t *in
     const csilc_value *root;
     if (csilc_decode(in, len, &a, &root)) return -1;
     if (csilc_dec_RpResolveApplicationKeysResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ApplicationRef to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ApplicationRef(const ApplicationRef *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ApplicationRef(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ApplicationRef. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ApplicationRef(const uint8_t *in, size_t len, ApplicationRef *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ApplicationRef(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a GranteeRef to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_GranteeRef(const GranteeRef *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_GranteeRef(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a GranteeRef. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_GranteeRef(const uint8_t *in, size_t len, GranteeRef *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_GranteeRef(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a GranteeProof to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_GranteeProof(const GranteeProof *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_GranteeProof(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a GranteeProof. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_GranteeProof(const uint8_t *in, size_t len, GranteeProof *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_GranteeProof(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ActAsScopeEntry to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ActAsScopeEntry(const ActAsScopeEntry *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ActAsScopeEntry(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ActAsScopeEntry. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ActAsScopeEntry(const uint8_t *in, size_t len, ActAsScopeEntry *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ActAsScopeEntry(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ActAsScopeSet to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ActAsScopeSet(const ActAsScopeSet *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ActAsScopeSet(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ActAsScopeSet. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ActAsScopeSet(const uint8_t *in, size_t len, ActAsScopeSet *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ActAsScopeSet(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SignedActAsScopeSet to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SignedActAsScopeSet(const SignedActAsScopeSet *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SignedActAsScopeSet(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SignedActAsScopeSet. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SignedActAsScopeSet(const uint8_t *in, size_t len, SignedActAsScopeSet *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SignedActAsScopeSet(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ActAsScopeSetRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ActAsScopeSetRequest(const ActAsScopeSetRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ActAsScopeSetRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ActAsScopeSetRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ActAsScopeSetRequest(const uint8_t *in, size_t len, ActAsScopeSetRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ActAsScopeSetRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ActAsGrant to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ActAsGrant(const ActAsGrant *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ActAsGrant(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ActAsGrant. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ActAsGrant(const uint8_t *in, size_t len, ActAsGrant *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ActAsGrant(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SignedActAsGrant to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SignedActAsGrant(const SignedActAsGrant *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SignedActAsGrant(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SignedActAsGrant. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SignedActAsGrant(const uint8_t *in, size_t len, SignedActAsGrant *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SignedActAsGrant(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ActAsGrantRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ActAsGrantRequest(const ActAsGrantRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ActAsGrantRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ActAsGrantRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ActAsGrantRequest(const uint8_t *in, size_t len, ActAsGrantRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ActAsGrantRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SignedActAsGrantRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SignedActAsGrantRequest(const SignedActAsGrantRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SignedActAsGrantRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SignedActAsGrantRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SignedActAsGrantRequest(const uint8_t *in, size_t len, SignedActAsGrantRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SignedActAsGrantRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ActAsRefreshRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ActAsRefreshRequest(const ActAsRefreshRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ActAsRefreshRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ActAsRefreshRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ActAsRefreshRequest(const uint8_t *in, size_t len, ActAsRefreshRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ActAsRefreshRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SignedActAsRefreshRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SignedActAsRefreshRequest(const SignedActAsRefreshRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SignedActAsRefreshRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SignedActAsRefreshRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SignedActAsRefreshRequest(const uint8_t *in, size_t len, SignedActAsRefreshRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SignedActAsRefreshRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RefreshActAsGrantRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RefreshActAsGrantRequest(const RefreshActAsGrantRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RefreshActAsGrantRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RefreshActAsGrantRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RefreshActAsGrantRequest(const uint8_t *in, size_t len, RefreshActAsGrantRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RefreshActAsGrantRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RefreshActAsGrantResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RefreshActAsGrantResponse(const RefreshActAsGrantResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RefreshActAsGrantResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RefreshActAsGrantResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RefreshActAsGrantResponse(const uint8_t *in, size_t len, RefreshActAsGrantResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RefreshActAsGrantResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ActAsPresentation to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ActAsPresentation(const ActAsPresentation *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ActAsPresentation(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ActAsPresentation. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ActAsPresentation(const uint8_t *in, size_t len, ActAsPresentation *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ActAsPresentation(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SignedActAsPresentation to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SignedActAsPresentation(const SignedActAsPresentation *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SignedActAsPresentation(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SignedActAsPresentation. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SignedActAsPresentation(const uint8_t *in, size_t len, SignedActAsPresentation *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SignedActAsPresentation(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ActAsCredential to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ActAsCredential(const ActAsCredential *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ActAsCredential(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ActAsCredential. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ActAsCredential(const uint8_t *in, size_t len, ActAsCredential *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ActAsCredential(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ActAsGrantRevocation to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ActAsGrantRevocation(const ActAsGrantRevocation *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ActAsGrantRevocation(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ActAsGrantRevocation. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ActAsGrantRevocation(const uint8_t *in, size_t len, ActAsGrantRevocation *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ActAsGrantRevocation(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SignedActAsGrantRevocation to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SignedActAsGrantRevocation(const SignedActAsGrantRevocation *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SignedActAsGrantRevocation(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SignedActAsGrantRevocation. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SignedActAsGrantRevocation(const uint8_t *in, size_t len, SignedActAsGrantRevocation *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SignedActAsGrantRevocation(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a GetActAsGrantRevocationsRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_GetActAsGrantRevocationsRequest(const GetActAsGrantRevocationsRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_GetActAsGrantRevocationsRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a GetActAsGrantRevocationsRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_GetActAsGrantRevocationsRequest(const uint8_t *in, size_t len, GetActAsGrantRevocationsRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_GetActAsGrantRevocationsRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a GetActAsGrantRevocationsResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_GetActAsGrantRevocationsResponse(const GetActAsGrantRevocationsResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_GetActAsGrantRevocationsResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a GetActAsGrantRevocationsResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_GetActAsGrantRevocationsResponse(const uint8_t *in, size_t len, GetActAsGrantRevocationsResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_GetActAsGrantRevocationsResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RpActAsRefreshRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RpActAsRefreshRequest(const RpActAsRefreshRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RpActAsRefreshRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RpActAsRefreshRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RpActAsRefreshRequest(const uint8_t *in, size_t len, RpActAsRefreshRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RpActAsRefreshRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RpResolveActAsRevocationsRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RpResolveActAsRevocationsRequest(const RpResolveActAsRevocationsRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RpResolveActAsRevocationsRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RpResolveActAsRevocationsRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RpResolveActAsRevocationsRequest(const uint8_t *in, size_t len, RpResolveActAsRevocationsRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RpResolveActAsRevocationsRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a BrowserActAsInspectRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_BrowserActAsInspectRequest(const BrowserActAsInspectRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_BrowserActAsInspectRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a BrowserActAsInspectRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_BrowserActAsInspectRequest(const uint8_t *in, size_t len, BrowserActAsInspectRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_BrowserActAsInspectRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a BrowserActAsScopeEntry to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_BrowserActAsScopeEntry(const BrowserActAsScopeEntry *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_BrowserActAsScopeEntry(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a BrowserActAsScopeEntry. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_BrowserActAsScopeEntry(const uint8_t *in, size_t len, BrowserActAsScopeEntry *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_BrowserActAsScopeEntry(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a BrowserActAsParty to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_BrowserActAsParty(const BrowserActAsParty *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_BrowserActAsParty(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a BrowserActAsParty. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_BrowserActAsParty(const uint8_t *in, size_t len, BrowserActAsParty *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_BrowserActAsParty(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a BrowserActAsInspectResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_BrowserActAsInspectResponse(const BrowserActAsInspectResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_BrowserActAsInspectResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a BrowserActAsInspectResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_BrowserActAsInspectResponse(const uint8_t *in, size_t len, BrowserActAsInspectResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_BrowserActAsInspectResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a BrowserActAsCompleteRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_BrowserActAsCompleteRequest(const BrowserActAsCompleteRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_BrowserActAsCompleteRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a BrowserActAsCompleteRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_BrowserActAsCompleteRequest(const uint8_t *in, size_t len, BrowserActAsCompleteRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_BrowserActAsCompleteRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a BrowserActAsCompleteResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_BrowserActAsCompleteResponse(const BrowserActAsCompleteResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_BrowserActAsCompleteResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a BrowserActAsCompleteResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_BrowserActAsCompleteResponse(const uint8_t *in, size_t len, BrowserActAsCompleteResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_BrowserActAsCompleteResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ActAsGrantSummary to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ActAsGrantSummary(const ActAsGrantSummary *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ActAsGrantSummary(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ActAsGrantSummary. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ActAsGrantSummary(const uint8_t *in, size_t len, ActAsGrantSummary *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ActAsGrantSummary(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ListActAsGrantsResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ListActAsGrantsResponse(const ListActAsGrantsResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ListActAsGrantsResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ListActAsGrantsResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ListActAsGrantsResponse(const uint8_t *in, size_t len, ListActAsGrantsResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ListActAsGrantsResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RevokeActAsGrantRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RevokeActAsGrantRequest(const RevokeActAsGrantRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RevokeActAsGrantRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RevokeActAsGrantRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RevokeActAsGrantRequest(const uint8_t *in, size_t len, RevokeActAsGrantRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RevokeActAsGrantRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RevokeActAsGrantResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RevokeActAsGrantResponse(const RevokeActAsGrantResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RevokeActAsGrantResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RevokeActAsGrantResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RevokeActAsGrantResponse(const uint8_t *in, size_t len, RevokeActAsGrantResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RevokeActAsGrantResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
     *owner = a;
     return 0;
 }

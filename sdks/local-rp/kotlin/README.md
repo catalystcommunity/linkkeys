@@ -123,7 +123,9 @@ val begun = beginLocalLogin(
     now = Instant.now(),
 )
 // App: persist begun.pending (e.g. in a server-side session), then redirect
-// the browser to begun.redirect.redirectUrl.
+// the browser to begun.redirect.redirectUrl. Do not parse or rewrite that
+// URL: beginLocalLogin already discovered the browser-facing host (see
+// "Browser endpoint discovery" below).
 
 // On callback (app's HTTP handler received `arrivedUrl` with an
 // `encrypted_token=` query parameter):
@@ -145,13 +147,111 @@ Kotlin parameter with the design doc's documented default -- there is no
 builder, and no fluent `request.requestClaim(...).requestClaim(...)` chain
 (design doc: "Avoid fluent examples as the primary docs").
 
+## Browser endpoint discovery
+
+`beginLocalLogin` performs one DNS TXT lookup. It reads
+`_linkkeys_apis.<identity domain>` and selects the first valid LinkKeys v1
+record with an `https=` endpoint. It builds the redirect URL from that
+endpoint, the `/auth/local-rp` route, and the `signed_request` parameter. A
+path prefix in `https=` stays in the URL. The Java SDK implements the
+discovery (`Browser.java`); this package exposes it.
+
+The identity domain is a trust domain. It is not always the host that serves
+the browser login routes. `docs/spec/trust-and-anchors.md` defines `https=`
+as the browser-facing endpoint.
+
+The fallback rule: when the lookup fails, when no valid record carries
+`https=`, or when the discovered base is not a valid
+`https://host[:port][/path]` URL, the SDK uses `https://<identity domain>`.
+The SDK never selects a non-HTTPS scheme.
+
+`PendingLogin.userDomain` always holds the identity domain, never the
+discovered host. `completeLocalLogin` binds verification to that identity
+domain.
+
+Inject a resolver through the `dns` parameter of `beginLocalLogin`. A Kotlin
+lambda SAM-converts to `DnsResolver`. Omit the parameter to use
+`defaultDnsResolver()`, the same default `completeLocalLogin` uses. Unit
+tests must inject a resolver; the default performs a live DNS request.
+
+```kotlin
+val begun = beginLocalLogin(
+    identity = reloaded,
+    callbackUrl = "http://jukebox.lan:8080/auth/callback",
+    userDomain = "alice@example.com",
+    now = Instant.now(),
+    dns = DnsResolver { name -> myTxtLookup(name) },   // optional
+)
+```
+
+Two helpers expose the building blocks for application glue that needs them
+(for example, regular-RP code that builds `/auth/authorize` URLs):
+
+- `resolveBrowserBase(identityDomain, dns)` returns the browser base URL, or
+  throws `LocalRpException.Network` (kind `DNS`) when no record yields a
+  valid base.
+- `buildBrowserEndpoint(base, route, signedRequest)` joins the base, a route
+  (`BrowserRoutes.LOCAL_RP` or `BrowserRoutes.AUTHORIZE`), and the
+  `signed_request` query parameter with `java.net.URI`.
+
+## Act-as grants
+
+An act-as grant lets this local RP act as a user at an enrolled application.
+The local RP is the grantee. The application is the audience. The user's home
+domain signs the grant. The protocol is in
+`docs/spec/reserved/act-as-grants.md`. That specification is Reserved, so this
+API can change. These functions wrap the Java SDK's `ActAs` class.
+
+A local RP can be a grantee only after its home domain approved it. The home
+domain policy for local RPs must also not be `disabled`. A local RP cannot be
+an audience, because a peer cannot find its keys through DNS. This SDK has no
+audience-side check.
+
+1. Get a signed scope set (the CBOR of `SignedActAsScopeSet`) from the
+   audience. The audience defines that exchange. Then call `beginActAs`. It
+   signs the request with the descriptor signing key and returns the redirect
+   URL and a `PendingActAs`. The redirect URL uses the `/auth/act-as` route
+   and the same browser endpoint discovery and fallback as `beginLocalLogin`.
+   The request window is 300 seconds by default. The maximum is 900 seconds.
+2. Keep the `PendingActAs`. Use it one time only. When the browser comes back
+   to your callback, call `completeActAsCallback(pending, arrivedUrl)`. It
+   compares the `nonce` parameter with the pending nonce in constant time and
+   returns the `act_as_grant_id`. A different nonce is a
+   `LocalRpException.Protocol` of kind `NONCE_MISMATCH`.
+3. Call `refreshActAsGrant` with the grant id and `pending.userDomain`. It
+   calls `ActAs/refresh-grant` over the same pinned TCP CSIL-RPC path as
+   claim-ticket redemption. It returns a `RefreshedActAsGrant`. Call it again
+   when less than half of the grant life remains.
+   `SignedActAsGrant.decodeUnverified()` reads `expiresAt`. It does not verify
+   the grant.
+4. For each call to the audience, call `presentActAs` with a fresh nonce.
+   Send `ActAsCredential.bytes` to the audience.
+
+```kotlin
+val begun = beginActAs(identity, "alice@example.com", scopeSetCbor,
+    "http://jukebox.lan:8080/act-as/callback", Instant.now(), requestedLifetimeSeconds = 3600)
+// Persist begun.pending; redirect the browser to begun.redirectUrl.
+
+val grantId = completeActAsCallback(pending, arrivedUrl)
+val refreshed = refreshActAsGrant(identity, pending.userDomain, grantId, Instant.now())
+val credential = presentActAs(refreshed.grant, audience, requestDigest, Instant.now(), nonce, identity)
+send(credential.bytes)
+```
+
+`signActAsGrantRequest` and `signActAsRefreshRequest` sign with explicit
+values. The tests use them to check the bytes against the `local_rp_grantee`
+case of `sdks/regular-rp/conformance/act_as_grantee_signing.json`.
+
 ## Project layout
 
 ```
 src/main/kotlin/community/catalyst/linkkeys/localrp/kt/
   LocalRpIdentity.kt   generateLocalRpIdentity + byte/hex storage helpers
-  Login.kt             beginLocalLogin, PendingLogin, LocalLoginRedirect
+  Login.kt             beginLocalLogin, PendingLogin, LocalLoginRedirect,
+                        resolveBrowserBase, buildBrowserEndpoint, BrowserRoutes
   CompleteLogin.kt      completeLocalLogin, VerifiedLocalLogin (the full verification chain)
+  ActAs.kt              act-as grants, grantee side: beginActAs, completeActAsCallback,
+                        refreshActAsGrant, presentActAs
   Expiration.kt         checkExpirations, ExpirationStatus, ExpirationLevel
   Seams.kt              Transport / DnsResolver seams, AddressPolicy, defaults
   Errors.kt              LocalRpException sealed hierarchy + the Java-exception translation boundary
@@ -164,6 +264,8 @@ src/test/kotlin/community/catalyst/linkkeys/localrp/kt/
   *ConformanceTest.kt    one test class per sdks/local-rp/conformance/*.json file
   FlowTest.kt             end-to-end test against a real (fake-identity) TLS+CSIL-RPC IDP
   BeginTest.kt, IdentityTest.kt   SDK-surface unit tests
+  BrowserTest.kt         browser endpoint discovery through the wrapper, with a fake resolver (no live DNS)
+  ActAsTest.kt           act-as grantee vectors, begin URL, callback nonce, refresh via the fake IDP
 ```
 
 ## Error handling
@@ -241,6 +343,10 @@ user authorization (design doc). Concretely:
   an accepted, documented tradeoff for this mode (design doc, "Decided").
   Inject a hardened `DnsResolver` (a Kotlin lambda SAM-converts to the
   underlying Java functional interface) if your deployment needs more.
+- The browser host that `beginLocalLogin` discovers from `_linkkeys_apis` is
+  a service location only. It carries no authority. The SDK binds
+  verification to the identity domain in `PendingLogin`, never to the
+  discovered host.
 - `LocalRpException` messages never carry key material, nonces, tokens,
   tickets, or claim values (see "Error handling" above).
 - `RevocationCertificate.revokedAt` (in the `protocol` sub-package) is
@@ -292,6 +398,10 @@ This exercises, through this package's own public API only:
   expired payload, DNS pin mismatch, revoked signing key, tampered claim
   signature)
 - `Begin`/`Identity` surface-level unit tests
+- browser endpoint discovery in `beginLocalLogin` with a fake `DnsResolver`
+  (`BrowserTest`): discovered host, path prefix, tcp-only and DNS-error
+  fallback, invalid-record skipping, first-valid-record selection,
+  `signed_request` round-trip, identity-domain retention
 
 Nothing outside `sdks/local-rp/kotlin/` is modified by this project; the
 dependency on `../java` (via `settings.gradle`'s `includeBuild`) is read-only.

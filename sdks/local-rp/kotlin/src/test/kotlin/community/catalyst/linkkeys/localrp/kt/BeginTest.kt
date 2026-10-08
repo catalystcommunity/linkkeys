@@ -7,10 +7,28 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** Unit tests for [beginLocalLogin] (mirrors the Java/Rust/Go SDKs' own begin module tests). */
+/**
+ * Unit tests for [beginLocalLogin] (mirrors the Java/Rust/Go SDKs' own begin
+ * module tests). Every call here injects [noDns], a resolver that fails every
+ * lookup, so begin takes its documented fallback (`https://<identity domain>`)
+ * and no test performs a live DNS request. Discovery itself is covered by
+ * [BrowserTest].
+ */
 class BeginTest {
 
+    private val noDns = DnsResolver { name -> throw LocalRpException.Network(NetworkErrorKind.DNS, "no DNS in unit tests: $name") }
+
     private fun material(): LocalRpIdentity = generateLocalRpIdentity(appName = "Test App", now = Instant.now())
+
+    private fun beginLocalLogin(
+        identity: LocalRpIdentity,
+        callbackUrl: String,
+        userDomain: String,
+        now: Instant,
+        requiredClaims: List<String> = DefaultClaims.REQUIRED,
+    ): BeginLoginResult = community.catalyst.linkkeys.localrp.kt.beginLocalLogin(
+        identity, callbackUrl, userDomain, now, requiredClaims = requiredClaims, dns = noDns,
+    )
 
     @Test
     fun beginDefaultsClaimsAndProducesPendingState() {
@@ -86,13 +104,14 @@ class BeginTest {
     @Test
     fun beginHonorsExplicitClaimsAndLifetime() {
         val m = material()
-        val result = beginLocalLogin(
+        val result = community.catalyst.linkkeys.localrp.kt.beginLocalLogin(
             identity = m,
             callbackUrl = "http://localhost/callback",
             userDomain = "example.com",
             now = Instant.now(),
             requestedClaims = listOf("email"),
             requiredClaims = listOf("email"),
+            dns = noDns,
         )
         assertTrue(result.redirect.redirectUrl.isNotEmpty())
     }

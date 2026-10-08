@@ -192,6 +192,12 @@ public final class CsilCbor {
         }
     }
 
+    /** Bounds the elements a decoded array or map reserves before it reads
+     * them. The declared length is checked against the remaining input, but one input
+     * byte can become a much larger value, so reserving the full declared length lets a
+     * small frame reserve a large multiple of its size at every nesting level. */
+    private static final int PREALLOC_LIMIT = 1024;
+
     private static CborValue dec(byte[] b, int[] pos, int depth) {
         if (depth > 64) {
             throw new CsilCborException("csil cbor: nesting limit exceeded");
@@ -260,7 +266,7 @@ public final class CsilCbor {
                     throw new CsilCborException("csil cbor: array length exceeds remaining input");
                 }
                 int n = (int) arg;
-                List<CborValue> items = new ArrayList<>(n);
+                List<CborValue> items = new ArrayList<>(Math.min(n, PREALLOC_LIMIT));
                 for (int i = 0; i < n; i++) {
                     items.add(dec(b, pos, depth + 1));
                 }
@@ -271,7 +277,7 @@ public final class CsilCbor {
                     throw new CsilCborException("csil cbor: map length exceeds remaining input");
                 }
                 int n = (int) arg;
-                List<CborEntry> entries = new ArrayList<>(n);
+                List<CborEntry> entries = new ArrayList<>(Math.min(n, PREALLOC_LIMIT));
                 for (int i = 0; i < n; i++) {
                     CborValue k = dec(b, pos, depth + 1);
                     CborValue val = dec(b, pos, depth + 1);
@@ -6482,6 +6488,948 @@ public final class CsilCbor {
 
     public static RpResolveApplicationKeysResponse decodeRpResolveApplicationKeysResponse(byte[] data) {
         return decRpResolveApplicationKeysResponse(decode(data));
+    }
+
+    static CborValue encApplicationRef(ApplicationRef v) {
+        List<CborEntry> csilEntries = new ArrayList<>(3);
+        csilEntries.add(new CborEntry(new CborText("application_id"), new CborText(v.applicationId())));
+        csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
+        csilEntries.add(new CborEntry(new CborText("subject_user_id"), new CborText(v.subjectUserId())));
+        return new CborMap(csilEntries);
+    }
+
+    static ApplicationRef decApplicationRef(CborValue csilRoot) {
+        String subjectUserId = asText(require(csilRoot, "subject_user_id"));
+        String subjectDomain = asText(require(csilRoot, "subject_domain"));
+        String applicationId = asText(require(csilRoot, "application_id"));
+        return new ApplicationRef(subjectUserId, subjectDomain, applicationId);
+    }
+
+    public static byte[] encodeApplicationRef(ApplicationRef v) {
+        return encode(encApplicationRef(v));
+    }
+
+    public static ApplicationRef decodeApplicationRef(byte[] data) {
+        return decApplicationRef(decode(data));
+    }
+
+    static CborValue encGranteeRef(GranteeRef v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        if (v.application() != null) {
+            csilEntries.add(new CborEntry(new CborText("application"), encApplicationRef(v.application())));
+        }
+        if (v.localRpDescriptorFingerprint() != null) {
+            csilEntries.add(new CborEntry(new CborText("local_rp_descriptor_fingerprint"), new CborText(v.localRpDescriptorFingerprint())));
+        }
+        return new CborMap(csilEntries);
+    }
+
+    static GranteeRef decGranteeRef(CborValue csilRoot) {
+        ApplicationRef application;
+        {
+            CborValue csilField = mapGet(csilRoot, "application");
+            application = csilField != null ? decApplicationRef(csilField) : null;
+        }
+        String localRpDescriptorFingerprint;
+        {
+            CborValue csilField = mapGet(csilRoot, "local_rp_descriptor_fingerprint");
+            localRpDescriptorFingerprint = csilField != null ? asText(csilField) : null;
+        }
+        return new GranteeRef(application, localRpDescriptorFingerprint);
+    }
+
+    public static byte[] encodeGranteeRef(GranteeRef v) {
+        return encode(encGranteeRef(v));
+    }
+
+    public static GranteeRef decodeGranteeRef(byte[] data) {
+        return decGranteeRef(decode(data));
+    }
+
+    static CborValue encGranteeProof(GranteeProof v) {
+        List<CborEntry> csilEntries = new ArrayList<>(3);
+        csilEntries.add(new CborEntry(new CborText("signature"), encApplicationKeySignature(v.signature())));
+        if (v.localRpDescriptor() != null) {
+            csilEntries.add(new CborEntry(new CborText("local_rp_descriptor"), encSignedLocalRpDescriptor(v.localRpDescriptor())));
+        }
+        if (v.applicationInstanceId() != null) {
+            csilEntries.add(new CborEntry(new CborText("application_instance_id"), new CborText(v.applicationInstanceId())));
+        }
+        return new CborMap(csilEntries);
+    }
+
+    static GranteeProof decGranteeProof(CborValue csilRoot) {
+        String applicationInstanceId;
+        {
+            CborValue csilField = mapGet(csilRoot, "application_instance_id");
+            applicationInstanceId = csilField != null ? asText(csilField) : null;
+        }
+        SignedLocalRpDescriptor localRpDescriptor;
+        {
+            CborValue csilField = mapGet(csilRoot, "local_rp_descriptor");
+            localRpDescriptor = csilField != null ? decSignedLocalRpDescriptor(csilField) : null;
+        }
+        ApplicationKeySignature signature = decApplicationKeySignature(require(csilRoot, "signature"));
+        return new GranteeProof(applicationInstanceId, localRpDescriptor, signature);
+    }
+
+    public static byte[] encodeGranteeProof(GranteeProof v) {
+        return encode(encGranteeProof(v));
+    }
+
+    public static GranteeProof decodeGranteeProof(byte[] data) {
+        return decGranteeProof(decode(data));
+    }
+
+    static CborValue encActAsScopeEntry(ActAsScopeEntry v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("scope"), new CborText(v.scope())));
+        if (v.description() != null) {
+            csilEntries.add(new CborEntry(new CborText("description"), new CborText(v.description())));
+        }
+        return new CborMap(csilEntries);
+    }
+
+    static ActAsScopeEntry decActAsScopeEntry(CborValue csilRoot) {
+        String scope = asText(require(csilRoot, "scope"));
+        String description;
+        {
+            CborValue csilField = mapGet(csilRoot, "description");
+            description = csilField != null ? asText(csilField) : null;
+        }
+        return new ActAsScopeEntry(scope, description);
+    }
+
+    public static byte[] encodeActAsScopeEntry(ActAsScopeEntry v) {
+        return encode(encActAsScopeEntry(v));
+    }
+
+    public static ActAsScopeEntry decodeActAsScopeEntry(byte[] data) {
+        return decActAsScopeEntry(decode(data));
+    }
+
+    static CborValue encActAsScopeSet(ActAsScopeSet v) {
+        List<CborEntry> csilEntries = new ArrayList<>(7);
+        csilEntries.add(new CborEntry(new CborText("entries"), encArray(v.entries(), csilElem0 -> encActAsScopeEntry(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("grantee"), encGranteeRef(v.grantee())));
+        csilEntries.add(new CborEntry(new CborText("audience"), encApplicationRef(v.audience())));
+        if (v.language() != null) {
+            csilEntries.add(new CborEntry(new CborText("language"), new CborText(v.language())));
+        }
+        csilEntries.add(new CborEntry(new CborText("issued_at"), new CborText(v.issuedAt())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        if (v.audienceHandleClaim() != null) {
+            csilEntries.add(new CborEntry(new CborText("audience_handle_claim"), encClaim(v.audienceHandleClaim())));
+        }
+        return new CborMap(csilEntries);
+    }
+
+    static ActAsScopeSet decActAsScopeSet(CborValue csilRoot) {
+        ApplicationRef audience = decApplicationRef(require(csilRoot, "audience"));
+        GranteeRef grantee = decGranteeRef(require(csilRoot, "grantee"));
+        List<ActAsScopeEntry> entries = decArray(require(csilRoot, "entries"), csilE0 -> decActAsScopeEntry(csilE0));
+        String language;
+        {
+            CborValue csilField = mapGet(csilRoot, "language");
+            language = csilField != null ? asText(csilField) : null;
+        }
+        Claim audienceHandleClaim;
+        {
+            CborValue csilField = mapGet(csilRoot, "audience_handle_claim");
+            audienceHandleClaim = csilField != null ? decClaim(csilField) : null;
+        }
+        String issuedAt = asText(require(csilRoot, "issued_at"));
+        String expiresAt = asText(require(csilRoot, "expires_at"));
+        return new ActAsScopeSet(audience, grantee, entries, language, audienceHandleClaim, issuedAt, expiresAt);
+    }
+
+    public static byte[] encodeActAsScopeSet(ActAsScopeSet v) {
+        return encode(encActAsScopeSet(v));
+    }
+
+    public static ActAsScopeSet decodeActAsScopeSet(byte[] data) {
+        return decActAsScopeSet(decode(data));
+    }
+
+    static CborValue encSignedActAsScopeSet(SignedActAsScopeSet v) {
+        List<CborEntry> csilEntries = new ArrayList<>(3);
+        csilEntries.add(new CborEntry(new CborText("scope_set"), new CborBytes(v.scopeSet())));
+        csilEntries.add(new CborEntry(new CborText("signatures"), encArray(v.signatures(), csilElem0 -> encApplicationKeySignature(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("signer_instance_id"), new CborText(v.signerInstanceId())));
+        return new CborMap(csilEntries);
+    }
+
+    static SignedActAsScopeSet decSignedActAsScopeSet(CborValue csilRoot) {
+        byte[] scopeSet = asBytes(require(csilRoot, "scope_set"));
+        String signerInstanceId = asText(require(csilRoot, "signer_instance_id"));
+        List<ApplicationKeySignature> signatures = decArray(require(csilRoot, "signatures"), csilE0 -> decApplicationKeySignature(csilE0));
+        return new SignedActAsScopeSet(scopeSet, signerInstanceId, signatures);
+    }
+
+    public static byte[] encodeSignedActAsScopeSet(SignedActAsScopeSet v) {
+        return encode(encSignedActAsScopeSet(v));
+    }
+
+    public static SignedActAsScopeSet decodeSignedActAsScopeSet(byte[] data) {
+        return decSignedActAsScopeSet(decode(data));
+    }
+
+    static CborValue encActAsScopeSetRequest(ActAsScopeSetRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(3);
+        csilEntries.add(new CborEntry(new CborText("scope"), encArray(v.scope(), csilElem0 -> new CborText(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("grantee"), encGranteeRef(v.grantee())));
+        if (v.localePreferences() != null) {
+            csilEntries.add(new CborEntry(new CborText("locale_preferences"), encArray(v.localePreferences(), csilElem0 -> new CborText(csilElem0))));
+        }
+        return new CborMap(csilEntries);
+    }
+
+    static ActAsScopeSetRequest decActAsScopeSetRequest(CborValue csilRoot) {
+        GranteeRef grantee = decGranteeRef(require(csilRoot, "grantee"));
+        List<String> scope = decArray(require(csilRoot, "scope"), csilE0 -> asText(csilE0));
+        List<String> localePreferences;
+        {
+            CborValue csilField = mapGet(csilRoot, "locale_preferences");
+            localePreferences = csilField != null ? decArray(csilField, csilE0 -> asText(csilE0)) : null;
+        }
+        return new ActAsScopeSetRequest(grantee, scope, localePreferences);
+    }
+
+    public static byte[] encodeActAsScopeSetRequest(ActAsScopeSetRequest v) {
+        return encode(encActAsScopeSetRequest(v));
+    }
+
+    public static ActAsScopeSetRequest decodeActAsScopeSetRequest(byte[] data) {
+        return decActAsScopeSetRequest(decode(data));
+    }
+
+    static CborValue encActAsGrant(ActAsGrant v) {
+        List<CborEntry> csilEntries = new ArrayList<>(12);
+        csilEntries.add(new CborEntry(new CborText("grantee"), encGranteeRef(v.grantee())));
+        csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
+        csilEntries.add(new CborEntry(new CborText("audience"), encApplicationRef(v.audience())));
+        csilEntries.add(new CborEntry(new CborText("grant_id"), new CborText(v.grantId())));
+        csilEntries.add(new CborEntry(new CborText("issued_at"), new CborText(v.issuedAt())));
+        csilEntries.add(new CborEntry(new CborText("scope_set"), encSignedActAsScopeSet(v.scopeSet())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("approved_scope"), encArray(v.approvedScope(), csilElem0 -> new CborText(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
+        csilEntries.add(new CborEntry(new CborText("renewable_until"), new CborText(v.renewableUntil())));
+        csilEntries.add(new CborEntry(new CborText("series_issued_at"), new CborText(v.seriesIssuedAt())));
+        if (v.deviceFingerprint() != null) {
+            csilEntries.add(new CborEntry(new CborText("device_fingerprint"), new CborText(v.deviceFingerprint())));
+        }
+        return new CborMap(csilEntries);
+    }
+
+    static ActAsGrant decActAsGrant(CborValue csilRoot) {
+        String grantId = asText(require(csilRoot, "grant_id"));
+        String userId = asText(require(csilRoot, "user_id"));
+        String subjectDomain = asText(require(csilRoot, "subject_domain"));
+        GranteeRef grantee = decGranteeRef(require(csilRoot, "grantee"));
+        ApplicationRef audience = decApplicationRef(require(csilRoot, "audience"));
+        SignedActAsScopeSet scopeSet = decSignedActAsScopeSet(require(csilRoot, "scope_set"));
+        List<String> approvedScope = decArray(require(csilRoot, "approved_scope"), csilE0 -> asText(csilE0));
+        String issuedAt = asText(require(csilRoot, "issued_at"));
+        String expiresAt = asText(require(csilRoot, "expires_at"));
+        String seriesIssuedAt = asText(require(csilRoot, "series_issued_at"));
+        String renewableUntil = asText(require(csilRoot, "renewable_until"));
+        String deviceFingerprint;
+        {
+            CborValue csilField = mapGet(csilRoot, "device_fingerprint");
+            deviceFingerprint = csilField != null ? asText(csilField) : null;
+        }
+        return new ActAsGrant(grantId, userId, subjectDomain, grantee, audience, scopeSet, approvedScope, issuedAt, expiresAt, seriesIssuedAt, renewableUntil, deviceFingerprint);
+    }
+
+    public static byte[] encodeActAsGrant(ActAsGrant v) {
+        return encode(encActAsGrant(v));
+    }
+
+    public static ActAsGrant decodeActAsGrant(byte[] data) {
+        return decActAsGrant(decode(data));
+    }
+
+    static CborValue encSignedActAsGrant(SignedActAsGrant v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("grant"), new CborBytes(v.grant())));
+        csilEntries.add(new CborEntry(new CborText("signatures"), encArray(v.signatures(), csilElem0 -> encClaimSignature(csilElem0))));
+        return new CborMap(csilEntries);
+    }
+
+    static SignedActAsGrant decSignedActAsGrant(CborValue csilRoot) {
+        byte[] grant = asBytes(require(csilRoot, "grant"));
+        List<ClaimSignature> signatures = decArray(require(csilRoot, "signatures"), csilE0 -> decClaimSignature(csilE0));
+        return new SignedActAsGrant(grant, signatures);
+    }
+
+    public static byte[] encodeSignedActAsGrant(SignedActAsGrant v) {
+        return encode(encSignedActAsGrant(v));
+    }
+
+    public static SignedActAsGrant decodeSignedActAsGrant(byte[] data) {
+        return decSignedActAsGrant(decode(data));
+    }
+
+    static CborValue encActAsGrantRequest(ActAsGrantRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(9);
+        csilEntries.add(new CborEntry(new CborText("nonce"), new CborText(v.nonce())));
+        csilEntries.add(new CborEntry(new CborText("grantee"), encGranteeRef(v.grantee())));
+        csilEntries.add(new CborEntry(new CborText("scope_set"), encSignedActAsScopeSet(v.scopeSet())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("callback_url"), new CborText(v.callbackUrl())));
+        csilEntries.add(new CborEntry(new CborText("requested_at"), new CborText(v.requestedAt())));
+        if (v.granteeHandleClaim() != null) {
+            csilEntries.add(new CborEntry(new CborText("grantee_handle_claim"), encClaim(v.granteeHandleClaim())));
+        }
+        if (v.requestedLifetimeSeconds() != null) {
+            csilEntries.add(new CborEntry(new CborText("requested_lifetime_seconds"), new CborInt(v.requestedLifetimeSeconds())));
+        }
+        if (v.requestedRenewalWindowSeconds() != null) {
+            csilEntries.add(new CborEntry(new CborText("requested_renewal_window_seconds"), new CborInt(v.requestedRenewalWindowSeconds())));
+        }
+        return new CborMap(csilEntries);
+    }
+
+    static ActAsGrantRequest decActAsGrantRequest(CborValue csilRoot) {
+        GranteeRef grantee = decGranteeRef(require(csilRoot, "grantee"));
+        SignedActAsScopeSet scopeSet = decSignedActAsScopeSet(require(csilRoot, "scope_set"));
+        Long requestedLifetimeSeconds;
+        {
+            CborValue csilField = mapGet(csilRoot, "requested_lifetime_seconds");
+            requestedLifetimeSeconds = csilField != null ? asI64(csilField) : null;
+        }
+        Long requestedRenewalWindowSeconds;
+        {
+            CborValue csilField = mapGet(csilRoot, "requested_renewal_window_seconds");
+            requestedRenewalWindowSeconds = csilField != null ? asI64(csilField) : null;
+        }
+        Claim granteeHandleClaim;
+        {
+            CborValue csilField = mapGet(csilRoot, "grantee_handle_claim");
+            granteeHandleClaim = csilField != null ? decClaim(csilField) : null;
+        }
+        String callbackUrl = asText(require(csilRoot, "callback_url"));
+        String nonce = asText(require(csilRoot, "nonce"));
+        String requestedAt = asText(require(csilRoot, "requested_at"));
+        String expiresAt = asText(require(csilRoot, "expires_at"));
+        return new ActAsGrantRequest(grantee, scopeSet, requestedLifetimeSeconds, requestedRenewalWindowSeconds, granteeHandleClaim, callbackUrl, nonce, requestedAt, expiresAt);
+    }
+
+    public static byte[] encodeActAsGrantRequest(ActAsGrantRequest v) {
+        return encode(encActAsGrantRequest(v));
+    }
+
+    public static ActAsGrantRequest decodeActAsGrantRequest(byte[] data) {
+        return decActAsGrantRequest(decode(data));
+    }
+
+    static CborValue encSignedActAsGrantRequest(SignedActAsGrantRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("proof"), encGranteeProof(v.proof())));
+        csilEntries.add(new CborEntry(new CborText("request"), new CborBytes(v.request())));
+        return new CborMap(csilEntries);
+    }
+
+    static SignedActAsGrantRequest decSignedActAsGrantRequest(CborValue csilRoot) {
+        byte[] request = asBytes(require(csilRoot, "request"));
+        GranteeProof proof = decGranteeProof(require(csilRoot, "proof"));
+        return new SignedActAsGrantRequest(request, proof);
+    }
+
+    public static byte[] encodeSignedActAsGrantRequest(SignedActAsGrantRequest v) {
+        return encode(encSignedActAsGrantRequest(v));
+    }
+
+    public static SignedActAsGrantRequest decodeSignedActAsGrantRequest(byte[] data) {
+        return decSignedActAsGrantRequest(decode(data));
+    }
+
+    static CborValue encActAsRefreshRequest(ActAsRefreshRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(5);
+        csilEntries.add(new CborEntry(new CborText("nonce"), new CborText(v.nonce())));
+        csilEntries.add(new CborEntry(new CborText("grantee"), encGranteeRef(v.grantee())));
+        csilEntries.add(new CborEntry(new CborText("grant_id"), new CborText(v.grantId())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("requested_at"), new CborText(v.requestedAt())));
+        return new CborMap(csilEntries);
+    }
+
+    static ActAsRefreshRequest decActAsRefreshRequest(CborValue csilRoot) {
+        String grantId = asText(require(csilRoot, "grant_id"));
+        GranteeRef grantee = decGranteeRef(require(csilRoot, "grantee"));
+        String requestedAt = asText(require(csilRoot, "requested_at"));
+        String expiresAt = asText(require(csilRoot, "expires_at"));
+        String nonce = asText(require(csilRoot, "nonce"));
+        return new ActAsRefreshRequest(grantId, grantee, requestedAt, expiresAt, nonce);
+    }
+
+    public static byte[] encodeActAsRefreshRequest(ActAsRefreshRequest v) {
+        return encode(encActAsRefreshRequest(v));
+    }
+
+    public static ActAsRefreshRequest decodeActAsRefreshRequest(byte[] data) {
+        return decActAsRefreshRequest(decode(data));
+    }
+
+    static CborValue encSignedActAsRefreshRequest(SignedActAsRefreshRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("proof"), encGranteeProof(v.proof())));
+        csilEntries.add(new CborEntry(new CborText("request"), new CborBytes(v.request())));
+        return new CborMap(csilEntries);
+    }
+
+    static SignedActAsRefreshRequest decSignedActAsRefreshRequest(CborValue csilRoot) {
+        byte[] request = asBytes(require(csilRoot, "request"));
+        GranteeProof proof = decGranteeProof(require(csilRoot, "proof"));
+        return new SignedActAsRefreshRequest(request, proof);
+    }
+
+    public static byte[] encodeSignedActAsRefreshRequest(SignedActAsRefreshRequest v) {
+        return encode(encSignedActAsRefreshRequest(v));
+    }
+
+    public static SignedActAsRefreshRequest decodeSignedActAsRefreshRequest(byte[] data) {
+        return decSignedActAsRefreshRequest(decode(data));
+    }
+
+    static CborValue encRefreshActAsGrantRequest(RefreshActAsGrantRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("request"), encSignedActAsRefreshRequest(v.request())));
+        return new CborMap(csilEntries);
+    }
+
+    static RefreshActAsGrantRequest decRefreshActAsGrantRequest(CborValue csilRoot) {
+        SignedActAsRefreshRequest request = decSignedActAsRefreshRequest(require(csilRoot, "request"));
+        return new RefreshActAsGrantRequest(request);
+    }
+
+    public static byte[] encodeRefreshActAsGrantRequest(RefreshActAsGrantRequest v) {
+        return encode(encRefreshActAsGrantRequest(v));
+    }
+
+    public static RefreshActAsGrantRequest decodeRefreshActAsGrantRequest(byte[] data) {
+        return decRefreshActAsGrantRequest(decode(data));
+    }
+
+    static CborValue encRefreshActAsGrantResponse(RefreshActAsGrantResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("grant"), encSignedActAsGrant(v.grant())));
+        csilEntries.add(new CborEntry(new CborText("signed"), new CborBool(v.signed())));
+        return new CborMap(csilEntries);
+    }
+
+    static RefreshActAsGrantResponse decRefreshActAsGrantResponse(CborValue csilRoot) {
+        SignedActAsGrant grant = decSignedActAsGrant(require(csilRoot, "grant"));
+        boolean signed = asBool(require(csilRoot, "signed"));
+        return new RefreshActAsGrantResponse(grant, signed);
+    }
+
+    public static byte[] encodeRefreshActAsGrantResponse(RefreshActAsGrantResponse v) {
+        return encode(encRefreshActAsGrantResponse(v));
+    }
+
+    public static RefreshActAsGrantResponse decodeRefreshActAsGrantResponse(byte[] data) {
+        return decRefreshActAsGrantResponse(decode(data));
+    }
+
+    static CborValue encActAsPresentation(ActAsPresentation v) {
+        List<CborEntry> csilEntries = new ArrayList<>(5);
+        csilEntries.add(new CborEntry(new CborText("nonce"), new CborBytes(v.nonce())));
+        csilEntries.add(new CborEntry(new CborText("audience"), encApplicationRef(v.audience())));
+        csilEntries.add(new CborEntry(new CborText("grant_hash"), new CborBytes(v.grantHash())));
+        csilEntries.add(new CborEntry(new CborText("presented_at"), new CborText(v.presentedAt())));
+        csilEntries.add(new CborEntry(new CborText("request_digest"), new CborBytes(v.requestDigest())));
+        return new CborMap(csilEntries);
+    }
+
+    static ActAsPresentation decActAsPresentation(CborValue csilRoot) {
+        byte[] grantHash = asBytes(require(csilRoot, "grant_hash"));
+        ApplicationRef audience = decApplicationRef(require(csilRoot, "audience"));
+        byte[] requestDigest = asBytes(require(csilRoot, "request_digest"));
+        String presentedAt = asText(require(csilRoot, "presented_at"));
+        byte[] nonce = asBytes(require(csilRoot, "nonce"));
+        return new ActAsPresentation(grantHash, audience, requestDigest, presentedAt, nonce);
+    }
+
+    public static byte[] encodeActAsPresentation(ActAsPresentation v) {
+        return encode(encActAsPresentation(v));
+    }
+
+    public static ActAsPresentation decodeActAsPresentation(byte[] data) {
+        return decActAsPresentation(decode(data));
+    }
+
+    static CborValue encSignedActAsPresentation(SignedActAsPresentation v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("proof"), encGranteeProof(v.proof())));
+        csilEntries.add(new CborEntry(new CborText("presentation"), new CborBytes(v.presentation())));
+        return new CborMap(csilEntries);
+    }
+
+    static SignedActAsPresentation decSignedActAsPresentation(CborValue csilRoot) {
+        byte[] presentation = asBytes(require(csilRoot, "presentation"));
+        GranteeProof proof = decGranteeProof(require(csilRoot, "proof"));
+        return new SignedActAsPresentation(presentation, proof);
+    }
+
+    public static byte[] encodeSignedActAsPresentation(SignedActAsPresentation v) {
+        return encode(encSignedActAsPresentation(v));
+    }
+
+    public static SignedActAsPresentation decodeSignedActAsPresentation(byte[] data) {
+        return decSignedActAsPresentation(decode(data));
+    }
+
+    static CborValue encActAsCredential(ActAsCredential v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("grant"), encSignedActAsGrant(v.grant())));
+        csilEntries.add(new CborEntry(new CborText("presentation"), encSignedActAsPresentation(v.presentation())));
+        return new CborMap(csilEntries);
+    }
+
+    static ActAsCredential decActAsCredential(CborValue csilRoot) {
+        SignedActAsGrant grant = decSignedActAsGrant(require(csilRoot, "grant"));
+        SignedActAsPresentation presentation = decSignedActAsPresentation(require(csilRoot, "presentation"));
+        return new ActAsCredential(grant, presentation);
+    }
+
+    public static byte[] encodeActAsCredential(ActAsCredential v) {
+        return encode(encActAsCredential(v));
+    }
+
+    public static ActAsCredential decodeActAsCredential(byte[] data) {
+        return decActAsCredential(decode(data));
+    }
+
+    static CborValue encActAsGrantRevocation(ActAsGrantRevocation v) {
+        List<CborEntry> csilEntries = new ArrayList<>(4);
+        csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
+        csilEntries.add(new CborEntry(new CborText("grant_id"), new CborText(v.grantId())));
+        csilEntries.add(new CborEntry(new CborText("revoked_at"), new CborText(v.revokedAt())));
+        csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
+        return new CborMap(csilEntries);
+    }
+
+    static ActAsGrantRevocation decActAsGrantRevocation(CborValue csilRoot) {
+        String grantId = asText(require(csilRoot, "grant_id"));
+        String userId = asText(require(csilRoot, "user_id"));
+        String subjectDomain = asText(require(csilRoot, "subject_domain"));
+        String revokedAt = asText(require(csilRoot, "revoked_at"));
+        return new ActAsGrantRevocation(grantId, userId, subjectDomain, revokedAt);
+    }
+
+    public static byte[] encodeActAsGrantRevocation(ActAsGrantRevocation v) {
+        return encode(encActAsGrantRevocation(v));
+    }
+
+    public static ActAsGrantRevocation decodeActAsGrantRevocation(byte[] data) {
+        return decActAsGrantRevocation(decode(data));
+    }
+
+    static CborValue encSignedActAsGrantRevocation(SignedActAsGrantRevocation v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("revocation"), new CborBytes(v.revocation())));
+        csilEntries.add(new CborEntry(new CborText("signatures"), encArray(v.signatures(), csilElem0 -> encClaimSignature(csilElem0))));
+        return new CborMap(csilEntries);
+    }
+
+    static SignedActAsGrantRevocation decSignedActAsGrantRevocation(CborValue csilRoot) {
+        byte[] revocation = asBytes(require(csilRoot, "revocation"));
+        List<ClaimSignature> signatures = decArray(require(csilRoot, "signatures"), csilE0 -> decClaimSignature(csilE0));
+        return new SignedActAsGrantRevocation(revocation, signatures);
+    }
+
+    public static byte[] encodeSignedActAsGrantRevocation(SignedActAsGrantRevocation v) {
+        return encode(encSignedActAsGrantRevocation(v));
+    }
+
+    public static SignedActAsGrantRevocation decodeSignedActAsGrantRevocation(byte[] data) {
+        return decSignedActAsGrantRevocation(decode(data));
+    }
+
+    static CborValue encGetActAsGrantRevocationsRequest(GetActAsGrantRevocationsRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("grant_ids"), encArray(v.grantIds(), csilElem0 -> new CborText(csilElem0))));
+        return new CborMap(csilEntries);
+    }
+
+    static GetActAsGrantRevocationsRequest decGetActAsGrantRevocationsRequest(CborValue csilRoot) {
+        List<String> grantIds = decArray(require(csilRoot, "grant_ids"), csilE0 -> asText(csilE0));
+        return new GetActAsGrantRevocationsRequest(grantIds);
+    }
+
+    public static byte[] encodeGetActAsGrantRevocationsRequest(GetActAsGrantRevocationsRequest v) {
+        return encode(encGetActAsGrantRevocationsRequest(v));
+    }
+
+    public static GetActAsGrantRevocationsRequest decodeGetActAsGrantRevocationsRequest(byte[] data) {
+        return decGetActAsGrantRevocationsRequest(decode(data));
+    }
+
+    static CborValue encGetActAsGrantRevocationsResponse(GetActAsGrantRevocationsResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("revocations"), encArray(v.revocations(), csilElem0 -> encSignedActAsGrantRevocation(csilElem0))));
+        return new CborMap(csilEntries);
+    }
+
+    static GetActAsGrantRevocationsResponse decGetActAsGrantRevocationsResponse(CborValue csilRoot) {
+        List<SignedActAsGrantRevocation> revocations = decArray(require(csilRoot, "revocations"), csilE0 -> decSignedActAsGrantRevocation(csilE0));
+        return new GetActAsGrantRevocationsResponse(revocations);
+    }
+
+    public static byte[] encodeGetActAsGrantRevocationsResponse(GetActAsGrantRevocationsResponse v) {
+        return encode(encGetActAsGrantRevocationsResponse(v));
+    }
+
+    public static GetActAsGrantRevocationsResponse decodeGetActAsGrantRevocationsResponse(byte[] data) {
+        return decGetActAsGrantRevocationsResponse(decode(data));
+    }
+
+    static CborValue encRpActAsRefreshRequest(RpActAsRefreshRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("request"), encSignedActAsRefreshRequest(v.request())));
+        csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
+        return new CborMap(csilEntries);
+    }
+
+    static RpActAsRefreshRequest decRpActAsRefreshRequest(CborValue csilRoot) {
+        String subjectDomain = asText(require(csilRoot, "subject_domain"));
+        SignedActAsRefreshRequest request = decSignedActAsRefreshRequest(require(csilRoot, "request"));
+        return new RpActAsRefreshRequest(subjectDomain, request);
+    }
+
+    public static byte[] encodeRpActAsRefreshRequest(RpActAsRefreshRequest v) {
+        return encode(encRpActAsRefreshRequest(v));
+    }
+
+    public static RpActAsRefreshRequest decodeRpActAsRefreshRequest(byte[] data) {
+        return decRpActAsRefreshRequest(decode(data));
+    }
+
+    static CborValue encRpResolveActAsRevocationsRequest(RpResolveActAsRevocationsRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("grant_ids"), encArray(v.grantIds(), csilElem0 -> new CborText(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
+        return new CborMap(csilEntries);
+    }
+
+    static RpResolveActAsRevocationsRequest decRpResolveActAsRevocationsRequest(CborValue csilRoot) {
+        String subjectDomain = asText(require(csilRoot, "subject_domain"));
+        List<String> grantIds = decArray(require(csilRoot, "grant_ids"), csilE0 -> asText(csilE0));
+        return new RpResolveActAsRevocationsRequest(subjectDomain, grantIds);
+    }
+
+    public static byte[] encodeRpResolveActAsRevocationsRequest(RpResolveActAsRevocationsRequest v) {
+        return encode(encRpResolveActAsRevocationsRequest(v));
+    }
+
+    public static RpResolveActAsRevocationsRequest decodeRpResolveActAsRevocationsRequest(byte[] data) {
+        return decRpResolveActAsRevocationsRequest(decode(data));
+    }
+
+    static CborValue encBrowserActAsInspectRequest(BrowserActAsInspectRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("signed_request"), new CborText(v.signedRequest())));
+        return new CborMap(csilEntries);
+    }
+
+    static BrowserActAsInspectRequest decBrowserActAsInspectRequest(CborValue csilRoot) {
+        String signedRequest = asText(require(csilRoot, "signed_request"));
+        return new BrowserActAsInspectRequest(signedRequest);
+    }
+
+    public static byte[] encodeBrowserActAsInspectRequest(BrowserActAsInspectRequest v) {
+        return encode(encBrowserActAsInspectRequest(v));
+    }
+
+    public static BrowserActAsInspectRequest decodeBrowserActAsInspectRequest(byte[] data) {
+        return decBrowserActAsInspectRequest(decode(data));
+    }
+
+    static CborValue encBrowserActAsScopeEntry(BrowserActAsScopeEntry v) {
+        List<CborEntry> csilEntries = new ArrayList<>(3);
+        csilEntries.add(new CborEntry(new CborText("scope"), new CborText(v.scope())));
+        if (v.description() != null) {
+            csilEntries.add(new CborEntry(new CborText("description"), new CborText(v.description())));
+        }
+        csilEntries.add(new CborEntry(new CborText("removed_by_policy"), new CborBool(v.removedByPolicy())));
+        return new CborMap(csilEntries);
+    }
+
+    static BrowserActAsScopeEntry decBrowserActAsScopeEntry(CborValue csilRoot) {
+        String scope = asText(require(csilRoot, "scope"));
+        String description;
+        {
+            CborValue csilField = mapGet(csilRoot, "description");
+            description = csilField != null ? asText(csilField) : null;
+        }
+        boolean removedByPolicy = asBool(require(csilRoot, "removed_by_policy"));
+        return new BrowserActAsScopeEntry(scope, description, removedByPolicy);
+    }
+
+    public static byte[] encodeBrowserActAsScopeEntry(BrowserActAsScopeEntry v) {
+        return encode(encBrowserActAsScopeEntry(v));
+    }
+
+    public static BrowserActAsScopeEntry decodeBrowserActAsScopeEntry(byte[] data) {
+        return decBrowserActAsScopeEntry(decode(data));
+    }
+
+    static CborValue encBrowserActAsParty(BrowserActAsParty v) {
+        List<CborEntry> csilEntries = new ArrayList<>(10);
+        if (v.domain() != null) {
+            csilEntries.add(new CborEntry(new CborText("domain"), new CborText(v.domain())));
+        }
+        if (v.handle() != null) {
+            csilEntries.add(new CborEntry(new CborText("handle"), new CborText(v.handle())));
+        }
+        csilEntries.add(new CborEntry(new CborText("own_domain"), new CborBool(v.ownDomain())));
+        if (v.localRpName() != null) {
+            csilEntries.add(new CborEntry(new CborText("local_rp_name"), new CborText(v.localRpName())));
+        }
+        if (v.applicationId() != null) {
+            csilEntries.add(new CborEntry(new CborText("application_id"), new CborText(v.applicationId())));
+        }
+        if (v.subjectUserId() != null) {
+            csilEntries.add(new CborEntry(new CborText("subject_user_id"), new CborText(v.subjectUserId())));
+        }
+        csilEntries.add(new CborEntry(new CborText("operator_trusted"), new CborBool(v.operatorTrusted())));
+        csilEntries.add(new CborEntry(new CborText("user_has_history"), new CborBool(v.userHasHistory())));
+        csilEntries.add(new CborEntry(new CborText("domain_key_pinned"), new CborBool(v.domainKeyPinned())));
+        if (v.localRpFingerprint() != null) {
+            csilEntries.add(new CborEntry(new CborText("local_rp_fingerprint"), new CborText(v.localRpFingerprint())));
+        }
+        return new CborMap(csilEntries);
+    }
+
+    static BrowserActAsParty decBrowserActAsParty(CborValue csilRoot) {
+        String domain;
+        {
+            CborValue csilField = mapGet(csilRoot, "domain");
+            domain = csilField != null ? asText(csilField) : null;
+        }
+        String applicationId;
+        {
+            CborValue csilField = mapGet(csilRoot, "application_id");
+            applicationId = csilField != null ? asText(csilField) : null;
+        }
+        String subjectUserId;
+        {
+            CborValue csilField = mapGet(csilRoot, "subject_user_id");
+            subjectUserId = csilField != null ? asText(csilField) : null;
+        }
+        String handle;
+        {
+            CborValue csilField = mapGet(csilRoot, "handle");
+            handle = csilField != null ? asText(csilField) : null;
+        }
+        String localRpName;
+        {
+            CborValue csilField = mapGet(csilRoot, "local_rp_name");
+            localRpName = csilField != null ? asText(csilField) : null;
+        }
+        String localRpFingerprint;
+        {
+            CborValue csilField = mapGet(csilRoot, "local_rp_fingerprint");
+            localRpFingerprint = csilField != null ? asText(csilField) : null;
+        }
+        boolean ownDomain = asBool(require(csilRoot, "own_domain"));
+        boolean userHasHistory = asBool(require(csilRoot, "user_has_history"));
+        boolean domainKeyPinned = asBool(require(csilRoot, "domain_key_pinned"));
+        boolean operatorTrusted = asBool(require(csilRoot, "operator_trusted"));
+        return new BrowserActAsParty(domain, applicationId, subjectUserId, handle, localRpName, localRpFingerprint, ownDomain, userHasHistory, domainKeyPinned, operatorTrusted);
+    }
+
+    public static byte[] encodeBrowserActAsParty(BrowserActAsParty v) {
+        return encode(encBrowserActAsParty(v));
+    }
+
+    public static BrowserActAsParty decodeBrowserActAsParty(byte[] data) {
+        return decBrowserActAsParty(decode(data));
+    }
+
+    static CborValue encBrowserActAsInspectResponse(BrowserActAsInspectResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(10);
+        csilEntries.add(new CborEntry(new CborText("entries"), encArray(v.entries(), csilElem0 -> encBrowserActAsScopeEntry(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("grantee"), encGranteeRef(v.grantee())));
+        csilEntries.add(new CborEntry(new CborText("audience"), encApplicationRef(v.audience())));
+        if (v.language() != null) {
+            csilEntries.add(new CborEntry(new CborText("language"), new CborText(v.language())));
+        }
+        csilEntries.add(new CborEntry(new CborText("grantee_party"), encBrowserActAsParty(v.granteeParty())));
+        csilEntries.add(new CborEntry(new CborText("audience_party"), encBrowserActAsParty(v.audienceParty())));
+        csilEntries.add(new CborEntry(new CborText("max_lifetime_seconds"), new CborInt(v.maxLifetimeSeconds())));
+        csilEntries.add(new CborEntry(new CborText("default_lifetime_seconds"), new CborInt(v.defaultLifetimeSeconds())));
+        csilEntries.add(new CborEntry(new CborText("max_renewal_window_seconds"), new CborInt(v.maxRenewalWindowSeconds())));
+        csilEntries.add(new CborEntry(new CborText("default_renewal_window_seconds"), new CborInt(v.defaultRenewalWindowSeconds())));
+        return new CborMap(csilEntries);
+    }
+
+    static BrowserActAsInspectResponse decBrowserActAsInspectResponse(CborValue csilRoot) {
+        GranteeRef grantee = decGranteeRef(require(csilRoot, "grantee"));
+        BrowserActAsParty granteeParty = decBrowserActAsParty(require(csilRoot, "grantee_party"));
+        ApplicationRef audience = decApplicationRef(require(csilRoot, "audience"));
+        BrowserActAsParty audienceParty = decBrowserActAsParty(require(csilRoot, "audience_party"));
+        List<BrowserActAsScopeEntry> entries = decArray(require(csilRoot, "entries"), csilE0 -> decBrowserActAsScopeEntry(csilE0));
+        String language;
+        {
+            CborValue csilField = mapGet(csilRoot, "language");
+            language = csilField != null ? asText(csilField) : null;
+        }
+        long defaultLifetimeSeconds = asI64(require(csilRoot, "default_lifetime_seconds"));
+        long maxLifetimeSeconds = asI64(require(csilRoot, "max_lifetime_seconds"));
+        long defaultRenewalWindowSeconds = asI64(require(csilRoot, "default_renewal_window_seconds"));
+        long maxRenewalWindowSeconds = asI64(require(csilRoot, "max_renewal_window_seconds"));
+        return new BrowserActAsInspectResponse(grantee, granteeParty, audience, audienceParty, entries, language, defaultLifetimeSeconds, maxLifetimeSeconds, defaultRenewalWindowSeconds, maxRenewalWindowSeconds);
+    }
+
+    public static byte[] encodeBrowserActAsInspectResponse(BrowserActAsInspectResponse v) {
+        return encode(encBrowserActAsInspectResponse(v));
+    }
+
+    public static BrowserActAsInspectResponse decodeBrowserActAsInspectResponse(byte[] data) {
+        return decBrowserActAsInspectResponse(decode(data));
+    }
+
+    static CborValue encBrowserActAsCompleteRequest(BrowserActAsCompleteRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(4);
+        csilEntries.add(new CborEntry(new CborText("approved_scope"), encArray(v.approvedScope(), csilElem0 -> new CborText(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("signed_request"), new CborText(v.signedRequest())));
+        csilEntries.add(new CborEntry(new CborText("lifetime_seconds"), new CborInt(v.lifetimeSeconds())));
+        csilEntries.add(new CborEntry(new CborText("renewal_window_seconds"), new CborInt(v.renewalWindowSeconds())));
+        return new CborMap(csilEntries);
+    }
+
+    static BrowserActAsCompleteRequest decBrowserActAsCompleteRequest(CborValue csilRoot) {
+        String signedRequest = asText(require(csilRoot, "signed_request"));
+        List<String> approvedScope = decArray(require(csilRoot, "approved_scope"), csilE0 -> asText(csilE0));
+        long lifetimeSeconds = asI64(require(csilRoot, "lifetime_seconds"));
+        long renewalWindowSeconds = asI64(require(csilRoot, "renewal_window_seconds"));
+        return new BrowserActAsCompleteRequest(signedRequest, approvedScope, lifetimeSeconds, renewalWindowSeconds);
+    }
+
+    public static byte[] encodeBrowserActAsCompleteRequest(BrowserActAsCompleteRequest v) {
+        return encode(encBrowserActAsCompleteRequest(v));
+    }
+
+    public static BrowserActAsCompleteRequest decodeBrowserActAsCompleteRequest(byte[] data) {
+        return decBrowserActAsCompleteRequest(decode(data));
+    }
+
+    static CborValue encBrowserActAsCompleteResponse(BrowserActAsCompleteResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("redirect_url"), new CborText(v.redirectUrl())));
+        return new CborMap(csilEntries);
+    }
+
+    static BrowserActAsCompleteResponse decBrowserActAsCompleteResponse(CborValue csilRoot) {
+        String redirectUrl = asText(require(csilRoot, "redirect_url"));
+        return new BrowserActAsCompleteResponse(redirectUrl);
+    }
+
+    public static byte[] encodeBrowserActAsCompleteResponse(BrowserActAsCompleteResponse v) {
+        return encode(encBrowserActAsCompleteResponse(v));
+    }
+
+    public static BrowserActAsCompleteResponse decodeBrowserActAsCompleteResponse(byte[] data) {
+        return decBrowserActAsCompleteResponse(decode(data));
+    }
+
+    static CborValue encActAsGrantSummary(ActAsGrantSummary v) {
+        List<CborEntry> csilEntries = new ArrayList<>(8);
+        csilEntries.add(new CborEntry(new CborText("grantee"), encGranteeRef(v.grantee())));
+        csilEntries.add(new CborEntry(new CborText("audience"), encApplicationRef(v.audience())));
+        csilEntries.add(new CborEntry(new CborText("grant_id"), new CborText(v.grantId())));
+        csilEntries.add(new CborEntry(new CborText("issued_at"), new CborText(v.issuedAt())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        if (v.revokedAt() != null) {
+            csilEntries.add(new CborEntry(new CborText("revoked_at"), new CborText(v.revokedAt())));
+        }
+        csilEntries.add(new CborEntry(new CborText("approved_scope"), encArray(v.approvedScope(), csilElem0 -> new CborText(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("renewable_until"), new CborText(v.renewableUntil())));
+        return new CborMap(csilEntries);
+    }
+
+    static ActAsGrantSummary decActAsGrantSummary(CborValue csilRoot) {
+        String grantId = asText(require(csilRoot, "grant_id"));
+        GranteeRef grantee = decGranteeRef(require(csilRoot, "grantee"));
+        ApplicationRef audience = decApplicationRef(require(csilRoot, "audience"));
+        List<String> approvedScope = decArray(require(csilRoot, "approved_scope"), csilE0 -> asText(csilE0));
+        String issuedAt = asText(require(csilRoot, "issued_at"));
+        String expiresAt = asText(require(csilRoot, "expires_at"));
+        String renewableUntil = asText(require(csilRoot, "renewable_until"));
+        String revokedAt;
+        {
+            CborValue csilField = mapGet(csilRoot, "revoked_at");
+            revokedAt = csilField != null ? asText(csilField) : null;
+        }
+        return new ActAsGrantSummary(grantId, grantee, audience, approvedScope, issuedAt, expiresAt, renewableUntil, revokedAt);
+    }
+
+    public static byte[] encodeActAsGrantSummary(ActAsGrantSummary v) {
+        return encode(encActAsGrantSummary(v));
+    }
+
+    public static ActAsGrantSummary decodeActAsGrantSummary(byte[] data) {
+        return decActAsGrantSummary(decode(data));
+    }
+
+    static CborValue encListActAsGrantsResponse(ListActAsGrantsResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("grants"), encArray(v.grants(), csilElem0 -> encActAsGrantSummary(csilElem0))));
+        return new CborMap(csilEntries);
+    }
+
+    static ListActAsGrantsResponse decListActAsGrantsResponse(CborValue csilRoot) {
+        List<ActAsGrantSummary> grants = decArray(require(csilRoot, "grants"), csilE0 -> decActAsGrantSummary(csilE0));
+        return new ListActAsGrantsResponse(grants);
+    }
+
+    public static byte[] encodeListActAsGrantsResponse(ListActAsGrantsResponse v) {
+        return encode(encListActAsGrantsResponse(v));
+    }
+
+    public static ListActAsGrantsResponse decodeListActAsGrantsResponse(byte[] data) {
+        return decListActAsGrantsResponse(decode(data));
+    }
+
+    static CborValue encRevokeActAsGrantRequest(RevokeActAsGrantRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("grant_id"), new CborText(v.grantId())));
+        return new CborMap(csilEntries);
+    }
+
+    static RevokeActAsGrantRequest decRevokeActAsGrantRequest(CborValue csilRoot) {
+        String grantId = asText(require(csilRoot, "grant_id"));
+        return new RevokeActAsGrantRequest(grantId);
+    }
+
+    public static byte[] encodeRevokeActAsGrantRequest(RevokeActAsGrantRequest v) {
+        return encode(encRevokeActAsGrantRequest(v));
+    }
+
+    public static RevokeActAsGrantRequest decodeRevokeActAsGrantRequest(byte[] data) {
+        return decRevokeActAsGrantRequest(decode(data));
+    }
+
+    static CborValue encRevokeActAsGrantResponse(RevokeActAsGrantResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("revoked_at"), new CborText(v.revokedAt())));
+        return new CborMap(csilEntries);
+    }
+
+    static RevokeActAsGrantResponse decRevokeActAsGrantResponse(CborValue csilRoot) {
+        String revokedAt = asText(require(csilRoot, "revoked_at"));
+        return new RevokeActAsGrantResponse(revokedAt);
+    }
+
+    public static byte[] encodeRevokeActAsGrantResponse(RevokeActAsGrantResponse v) {
+        return encode(encRevokeActAsGrantResponse(v));
+    }
+
+    public static RevokeActAsGrantResponse decodeRevokeActAsGrantResponse(byte[] data) {
+        return decRevokeActAsGrantResponse(decode(data));
     }
 
     static CborValue encCheckValue(CheckValue v) {

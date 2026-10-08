@@ -50,9 +50,55 @@ Runs, in one `test` step:
 - `tests/flow.zig`: `beginLocalLogin`/`completeLocalLogin` end to end
   against a fake IDP — see "TLS evaluation outcome" below for why this runs
   over a plaintext transport rather than real pinned TLS
+- `tests/act_as.zig`: act-as grantee support. It checks the exact bytes in
+  `sdks/regular-rp/conformance/act_as_grantee_signing.json` (case
+  `local_rp_grantee`), `beginActAs` URL discovery and fallback, the
+  callback nonce check, and `refreshActAsGrant` against a fake IDP
 
-As of this writing: **63/63 tests pass** (41 in-module unit tests, 14
-conformance-vector tests, 8 flow tests) in a clean build (~8s).
+As of this writing: **108/108 tests pass** (66 in-module unit tests, 18
+conformance-vector tests, 15 flow tests, 9 act-as tests) in a clean build. No test
+performs a live DNS request: every `beginLocalLogin` call in the suite
+injects a fake resolver (`browser.FakeDnsResolver`).
+
+## Browser endpoint discovery
+
+`beginLocalLogin` does one DNS TXT lookup. It reads
+`_linkkeys_apis.<identity-domain>` and selects the first valid LinkKeys v1
+record with an `https=` endpoint. That endpoint is the browser-facing host
+(see `docs/spec/trust-and-anchors.md`). The identity domain is a trust and
+discovery domain. It is not always the host that serves the login routes.
+
+The redirect URL is built from three parts:
+
+1. The discovered base, for example `https://login.example.com/linkkeys`.
+2. The route `/auth/local-rp` (`browser_route_local_rp`).
+3. The `signed_request` query parameter (and `username` for a full login).
+
+A path prefix in the `https=` value is preserved. The base must use `https`,
+must have a host, and must not carry userinfo, a query, or a fragment.
+Records that fail these checks are skipped. The URL is parsed and emitted
+with `std.Uri`.
+
+Fallback rule: when the lookup fails, when no valid record carries `https=`,
+or when the discovered base is invalid, the SDK uses
+`https://<identity-domain>`. This keeps a domain that serves its browser
+routes at the apex working without a `_linkkeys_apis` record.
+
+Inject a resolver with `BeginLocalLoginConfig.dns`. `null` selects the
+system resolver (`dns.SystemDnsResolver`). Tests inject a fake resolver so
+that no live DNS request happens.
+
+`PendingLogin.user_domain` always stays the identity domain.
+`completeLocalLogin` binds verification to that domain, never to the
+discovered host.
+
+The helpers are exported for other glue (for example a regular RP building
+`/auth/authorize`):
+
+```zig
+const base = try lrp.resolveBrowserBase(allocator, my_dns_resolver.resolver(), "example.com");
+const url = try lrp.buildBrowserEndpoint(allocator, base, lrp.browser_route_authorize, signed_request_param);
+```
 
 ## No csilgen Zig target — hand-written wire codec
 
@@ -162,7 +208,9 @@ const result = try lrp.beginLocalLogin(allocator, .{
 });
 // Persist `result.pending` (a plain struct — put it in a server-side
 // session tied to the browser), then redirect the user's browser to
-// result.redirect.redirect_url.
+// result.redirect.redirect_url. Redirect to it as returned; do not parse
+// or rewrite it (see "Browser endpoint discovery" above). Set `.dns` to
+// inject a resolver; null selects the system resolver.
 
 // On callback, your app's HTTP handler receives a request whose query
 // string carries `encrypted_token=<...>`. Pass the request's full URL and
@@ -249,6 +297,52 @@ database writes, or local user authorization."* Concretely, the app owns:
   SDK perform many outbound DNS/TCP calls to attacker-chosen targets (an
   SSRF/DoS amplification vector) before any signature is actually checked.
 
+## Act-as grants
+
+An act-as grant lets this local RP (the grantee) act as a user at an
+enrolled application (the audience). The user approves the grant at the
+user's home domain. The home domain signs it. See
+`docs/spec/reserved/act-as-grants.md`.
+
+Rules:
+
+- A local RP can be a grantee only after its home domain approved it. The
+  home domain refuses a request from a local RP that it did not approve.
+- A local RP cannot be an audience. A peer cannot find its keys through DNS.
+- The descriptor signing key signs every grantee message. The proof carries
+  the signed descriptor.
+- A local RP has no enrolling account. A grant request never sends
+  `grantee_handle_claim`.
+- The SDK copies the audience's `SignedActAsScopeSet` (`scope_set` bytes,
+  `signer_instance_id`, and the `signatures` array) into the request
+  without a change. It does not verify the audience signatures.
+
+Steps (`src/act_as.zig`):
+
+1. Get the audience's signed scope set (CBOR of `SignedActAsScopeSet`)
+   through the audience's own protocol.
+2. Call `beginActAs`. It signs an `ActAsGrantRequest` and returns the
+   redirect `<browser base>/auth/act-as?signed_request=...` and a
+   `PendingActAs`. The browser base comes from `_linkkeys_apis` discovery,
+   with a fallback to `https://<domain>`. The request window is 300 seconds
+   by default and 900 seconds at most. Keep `PendingActAs` for one callback.
+3. When the browser comes back, call `completeActAsCallback` with the
+   callback URL or query. It compares the `nonce` with the pending nonce in
+   constant time and returns `act_as_grant_id`.
+4. Call `refreshActAsGrant` to get the grant (`ActAs/refresh-grant` on the
+   user's home domain, through the same discovery and `SecureDial` path as
+   claim-ticket redemption). The SDK refuses a returned grant unless its
+   `grant_id`, its local-RP grantee fingerprint, and its `subject_domain`
+   match the request. The SDK does not verify the home domain's signature;
+   the audience does. Call it again when less than half of the grant's life
+   remains.
+5. For each call to the audience, call `presentActAs`. It signs an
+   `ActAsPresentation` and returns the `ActAsCredential` and its CBOR.
+
+`refreshActAsGrant` needs a pinned-TLS `SecureDial`, as
+`completeLocalLogin` does. The default fails closed (see "TLS evaluation
+outcome").
+
 ## Layout
 
 ```text
@@ -265,12 +359,15 @@ sdks/local-rp/zig/
     encoding.zig                base64url URL-param helpers
     identity.zig               generateLocalRpIdentity, byte storage helpers
     begin.zig                  beginLocalLogin
+    browser.zig                _linkkeys_apis https= discovery + browser URL building
     complete.zig                completeLocalLogin (full verification chain)
     rpc.zig                    CSIL-RPC envelope + stream framing + fetch/redeem
     transport.zig               Transport seam + default TCP dialer
+    act_as.zig                  act-as grantee: begin, callback, refresh, present
     tls_pin.zig                 SPKI pin-extraction logic (+ openssl fixture)
     root.zig                   module entry point / flat re-exports
   tests/
     conformance.zig            every sdks/local-rp/conformance/*.json vector
     flow.zig                   end-to-end begin/complete against a fake IDP
+    act_as.zig                 act-as grantee vectors, begin, callback, refresh
 ```

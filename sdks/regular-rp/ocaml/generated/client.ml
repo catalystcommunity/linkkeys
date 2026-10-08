@@ -188,6 +188,16 @@ module Browser_authorization = struct
     match c.call ~service:"BrowserAuthorization" ~op:"complete" ~payload:(Codec.encode_browser_authorization_complete_request_bytes req) with
     | Ok payload -> Ok (Codec.decode_browser_authorization_complete_response_bytes payload)
     | Error _ as e -> e
+
+  let inspect_act_as (c : client) (req : browser_act_as_inspect_request) : (browser_act_as_inspect_response, string) result =
+    match c.call ~service:"BrowserAuthorization" ~op:"inspect-act-as" ~payload:(Codec.encode_browser_act_as_inspect_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_browser_act_as_inspect_response_bytes payload)
+    | Error _ as e -> e
+
+  let complete_act_as (c : client) (req : browser_act_as_complete_request) : (browser_act_as_complete_response, string) result =
+    match c.call ~service:"BrowserAuthorization" ~op:"complete-act-as" ~payload:(Codec.encode_browser_act_as_complete_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_browser_act_as_complete_response_bytes payload)
+    | Error _ as e -> e
 end
 
 module Admin = struct
@@ -487,6 +497,16 @@ module Account = struct
     match c.call ~service:"Account" ~op:"enroll-application-instance" ~payload:(Codec.encode_enroll_application_instance_request_bytes req) with
     | Ok payload -> Ok (Codec.decode_enroll_application_instance_response_bytes payload)
     | Error _ as e -> e
+
+  let list_act_as_grants (c : client) (req : empty_request) : (list_act_as_grants_response, string) result =
+    match c.call ~service:"Account" ~op:"list-act-as-grants" ~payload:(Codec.encode_empty_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_list_act_as_grants_response_bytes payload)
+    | Error _ as e -> e
+
+  let revoke_act_as_grant (c : client) (req : revoke_act_as_grant_request) : (revoke_act_as_grant_response, string) result =
+    match c.call ~service:"Account" ~op:"revoke-act-as-grant" ~payload:(Codec.encode_revoke_act_as_grant_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_revoke_act_as_grant_response_bytes payload)
+    | Error _ as e -> e
 end
 
 module Attestation = struct
@@ -530,6 +550,28 @@ module Rp = struct
   let resolve_application_keys (c : client) (req : rp_resolve_application_keys_request) : (rp_resolve_application_keys_response, string) result =
     match c.call ~service:"Rp" ~op:"resolve-application-keys" ~payload:(Codec.encode_rp_resolve_application_keys_request_bytes req) with
     | Ok payload -> Ok (Codec.decode_rp_resolve_application_keys_response_bytes payload)
+    | Error _ as e -> e
+
+  let act_as_refresh_grant (c : client) (req : rp_act_as_refresh_request) : (refresh_act_as_grant_response, string) result =
+    match c.call ~service:"Rp" ~op:"act-as-refresh-grant" ~payload:(Codec.encode_rp_act_as_refresh_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_refresh_act_as_grant_response_bytes payload)
+    | Error _ as e -> e
+
+  let resolve_act_as_revocations (c : client) (req : rp_resolve_act_as_revocations_request) : (get_act_as_grant_revocations_response, string) result =
+    match c.call ~service:"Rp" ~op:"resolve-act-as-revocations" ~payload:(Codec.encode_rp_resolve_act_as_revocations_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_get_act_as_grant_revocations_response_bytes payload)
+    | Error _ as e -> e
+end
+
+module Act_as = struct
+  let refresh_grant (c : client) (req : refresh_act_as_grant_request) : (refresh_act_as_grant_response, string) result =
+    match c.call ~service:"ActAs" ~op:"refresh-grant" ~payload:(Codec.encode_refresh_act_as_grant_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_refresh_act_as_grant_response_bytes payload)
+    | Error _ as e -> e
+
+  let get_grant_revocations (c : client) (req : get_act_as_grant_revocations_request) : (get_act_as_grant_revocations_response, string) result =
+    match c.call ~service:"ActAs" ~op:"get-grant-revocations" ~payload:(Codec.encode_get_act_as_grant_revocations_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_get_act_as_grant_revocations_response_bytes payload)
     | Error _ as e -> e
 end
 

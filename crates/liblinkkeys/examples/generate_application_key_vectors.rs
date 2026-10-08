@@ -1,6 +1,6 @@
 //! Generates the cross-language conformance vectors for application keys
-//! (signing-things-request.md, "Required tests and acceptance checks" ->
-//! "Cryptographic tests") checked into `sdks/regular-rp/conformance/`.
+//! (docs/spec/application-keys.md, §11 "Conformance
+//! vectors") checked into `sdks/regular-rp/conformance/`.
 //!
 //! Application keys are a REGULAR-RP concern (an application instance enrolls
 //! and renews keys through its regular RP or reads them anonymously as a

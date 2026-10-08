@@ -46,6 +46,8 @@ import * as generated from "./generated/codec.gen.ts";
 import type {
   DomainPublicKey,
   LocalRpTicketRedemptionResponse,
+  RefreshActAsGrantResponse,
+  SignedActAsRefreshRequest,
   SignedLocalRpTicketRedemptionRequest,
 } from "./generated/types.gen.ts";
 import { RpcRequest, RpcResponse, Status, statusName, statusIsOk } from "./vendor/csilgen-transport/index.ts";
@@ -427,6 +429,24 @@ export async function redeemClaimTicket(
   const payload = generated.toSignedLocalRpTicketRedemptionRequestCbor(signedRequest);
   const respBytes = await call(transport, endpoint, "LocalRp", "redeem-claim-ticket", payload);
   return generated.fromLocalRpTicketRedemptionResponseCbor(respBytes);
+}
+
+/**
+ * Fetch or renew an act-as grant at `domain` (the user's home domain):
+ * `ActAs/refresh-grant` over TCP CSIL-RPC, pinned via the domain's DNS
+ * `fp=` set — the same discovery and pinned path as `redeemClaimTicket`.
+ * The signed refresh request is the grantee's possession proof.
+ */
+export async function refreshActAsGrant(
+  transport: Transport,
+  dns: DnsResolver,
+  domain: string,
+  signedRequest: SignedActAsRefreshRequest,
+): Promise<RefreshActAsGrantResponse> {
+  const endpoint = await discoverDomainEndpoint(dns, domain);
+  const payload = generated.toRefreshActAsGrantRequestCbor({ request: signedRequest });
+  const respBytes = await call(transport, endpoint, "ActAs", "refresh-grant", payload);
+  return generated.fromRefreshActAsGrantResponseCbor(respBytes);
 }
 
 export { Status };

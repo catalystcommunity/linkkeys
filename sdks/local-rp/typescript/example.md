@@ -895,50 +895,31 @@ This is a different DNS lookup from anything above: it resolves the
 server, so the browser knows where to go for step 2 of the flow. Browsers
 reach this over ordinary WebPKI TLS — DNS `fp=` pinning only applies to the
 TCP protocol, not this HTTPS redirect target
-(`docs/DEPLOYING-RP.md`: "`https=` is the browser-adjacent API base"). This
-reuses `SystemDnsResolver` (exported) for the actual lookup and inlines the
-small amount of `_linkkeys_apis` parsing that isn't exported
-(`src/dnsRecords.ts`'s `parseLinkkeysApisTxt`).
+(`docs/spec/trust-and-anchors.md`: "`https=` is the browser-facing
+endpoint"). The SDK exports the discovery helpers (`resolveBrowserBase`,
+`buildBrowserEndpoint`, `BROWSER_ROUTE_AUTHORIZE`) so this file is a thin
+wrapper that adds the fallback policy.
 
 ```ts
-// Resolve the HTTPS API base of the IDP the *user* is logging into (not the
-// app's own RP — that endpoint is pinned config, see rpcTransport.ts). This
-// is the redirect target for `/auth/authorize`; browsers reach it over
+// Resolve the HTTPS browser base of the IDP the *user* is logging into (not
+// the app's own RP — that endpoint is pinned config, see rpcTransport.ts).
+// This is the redirect target for `/auth/authorize`; browsers reach it over
 // ordinary WebPKI TLS; DNS TXT `fp=` pinning is not needed here (that pin
-// only applies to the TCP protocol — see DEPLOYING-RP.md's "Gateway" and
-// "DNS" sections: `https=` is "the browser-adjacent API base").
-//
-// Reuses `SystemDnsResolver` from @linkkeys/local-rp (exported) for the TXT
-// lookup itself; the `_linkkeys_apis` record parsing is inlined (~10 lines)
-// because `parseLinkkeysApisTxt` lives in the SDK's `src/dnsRecords.ts`,
-// which is not re-exported from the package's public entry point.
+// only applies to the TCP protocol).
 
-import { SystemDnsResolver, type DnsResolver } from "@linkkeys/local-rp";
-
-/** Parse the `https=` field out of a `_linkkeys_apis` TXT record string. */
-function parseHttpsBase(txt: string): string | undefined {
-  const parts = txt.split(/\s+/).filter((p) => p.length > 0);
-  if (!parts.some((p) => p === "v=lk1")) return undefined;
-  const httpsPart = parts.find((p) => p.startsWith("https="));
-  return httpsPart ? `https://${httpsPart.slice("https=".length)}` : undefined;
-}
+import { SystemDnsResolver, resolveBrowserBase, type DnsResolver } from "@linkkeys/local-rp";
 
 /**
- * Resolve `domain`'s HTTPS API base via its `_linkkeys_apis` DNS TXT record,
- * falling back to `https://{domain}` if no usable record is found — matching
- * `demoappsite/src/main.rs`'s `resolve_api_base`.
+ * Resolve `domain`'s browser-facing HTTPS base via its `_linkkeys_apis` DNS
+ * TXT record, falling back to `https://{domain}` if no usable record is
+ * found — the same fallback rule `beginLocalLogin` applies.
  */
 export async function resolveIdpApiBase(domain: string, dns: DnsResolver = new SystemDnsResolver()): Promise<string> {
   try {
-    const txts = await dns.txtLookup(`_linkkeys_apis.${domain}`);
-    for (const txt of txts) {
-      const base = parseHttpsBase(txt);
-      if (base) return base;
-    }
+    return await resolveBrowserBase(dns, domain);
   } catch {
-    // Fall through to the direct fallback below.
+    return `https://${domain}`;
   }
-  return `https://${domain}`;
 }
 ```
 
@@ -973,6 +954,7 @@ import http from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { decryptToken, fetchUserInfo, signRequest, verifyAssertion } from "./rpProtocol.ts";
 import type { RpServerConfig } from "./rpcTransport.ts";
+import { BROWSER_ROUTE_AUTHORIZE, buildBrowserEndpoint } from "@linkkeys/local-rp";
 import { resolveIdpApiBase } from "./resolveIdpBase.ts";
 
 function requireEnv(name: string): string {
@@ -1124,8 +1106,9 @@ async function handleLogin(req: IncomingMessage, res: ServerResponse): Promise<v
   // 2. Redirect the browser to the IDP's login form. The auth_state cookie
   // is how /callback later learns which domain/nonce this attempt was for —
   // the callback URL itself carries only `encrypted_token`.
-  const target = new URL("/auth/authorize", apiBase);
-  target.searchParams.set("signed_request", signed.signedRequest);
+  // buildBrowserEndpoint keeps a path prefix from `https=` (a plain
+  // `new URL("/auth/authorize", apiBase)` would drop it).
+  const target = new URL(buildBrowserEndpoint(apiBase, BROWSER_ROUTE_AUTHORIZE, signed.signedRequest));
   if (userHint) target.searchParams.set("username", userHint);
 
   res.writeHead(302, {

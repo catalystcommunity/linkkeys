@@ -10,9 +10,18 @@ class TestBegin < Minitest::Test
     )
   end
 
+  # Discovery is exercised in test_browser.rb; a resolver that fails keeps
+  # the redirect on the identity domain and keeps this test offline.
+  class OfflineDns
+    def txt_lookup(_name)
+      raise 'offline'
+    end
+  end
+
   def begin_login(identity)
     LinkkeysLocalRp.begin_local_login(LinkkeysLocalRp::Begin::BeginLocalLoginConfig.new(
-      key_material: @material, callback_url: 'http://localhost/callback', user_domain: identity, now: @now
+      key_material: @material, callback_url: 'http://localhost/callback', user_domain: identity, now: @now,
+      dns: OfflineDns.new
     ))
   end
 

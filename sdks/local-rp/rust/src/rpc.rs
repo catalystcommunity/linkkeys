@@ -22,7 +22,8 @@ use liblinkkeys::dns::{
 use liblinkkeys::generated::types::{
     DomainPublicKey, EmptyRequest, GetApplicationKeysRequest, GetApplicationKeysResponse,
     GetDomainKeysResponse, GetRevocationsRequest, GetRevocationsResponse,
-    LocalRpTicketRedemptionResponse, SignedLocalRpTicketRedemptionRequest,
+    LocalRpTicketRedemptionResponse, RefreshActAsGrantRequest, RefreshActAsGrantResponse,
+    SignedActAsRefreshRequest, SignedLocalRpTicketRedemptionRequest,
 };
 use std::io::{Read, Write};
 use std::sync::Arc;
@@ -246,7 +247,7 @@ pub fn fetch_domain_keys(
 
 /// Fetch `instance`'s application-key attestations and revocations from its
 /// home domain: the anonymous `ApplicationKeys/get-application-keys` read
-/// (`signing-things-request.md`, "Public key reads" — "The request has no API
+/// (`docs/application-keys.md`, "The public read"; design requirement: "The request has no API
 /// key and does not require a client certificate. It does not mean that the
 /// response is untrusted."), pinned to the domain's DNS `fp=` set exactly
 /// like [`fetch_domain_keys`]. This function does no verification of its
@@ -303,4 +304,24 @@ pub fn redeem_claim_ticket(
     )?;
     liblinkkeys::generated::decode_local_rp_ticket_redemption_response(&resp_bytes)
         .map_err(|e| Error::Decode(format!("redeem-claim-ticket response: {e}")))
+}
+
+/// Fetch or renew an act-as grant with `domain`'s home domain:
+/// `ActAs/refresh-grant` over TCP CSIL-RPC, pinned via the domain's DNS `fp=`
+/// set exactly like [`redeem_claim_ticket`]. The signed refresh request is
+/// the possession proof; the transport carries no client certificate.
+pub fn refresh_act_as_grant(
+    transport: &dyn Transport,
+    dns: &dyn DnsResolver,
+    domain: &str,
+    signed_request: SignedActAsRefreshRequest,
+) -> Result<RefreshActAsGrantResponse, Error> {
+    let endpoint = discover_domain_endpoint(dns, domain)?;
+    let payload =
+        liblinkkeys::generated::encode_refresh_act_as_grant_request(&RefreshActAsGrantRequest {
+            request: signed_request,
+        });
+    let resp_bytes = call(transport, &endpoint, "ActAs", "refresh-grant", payload)?;
+    liblinkkeys::generated::decode_refresh_act_as_grant_response(&resp_bytes)
+        .map_err(|e| Error::Decode(format!("refresh-grant response: {e}")))
 }

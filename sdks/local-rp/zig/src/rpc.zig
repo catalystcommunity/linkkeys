@@ -324,6 +324,16 @@ pub fn redeemClaimTicket(allocator: std.mem.Allocator, transport: transportmod.T
     return types.decodeLocalRpTicketRedemptionResponse(allocator, resp_bytes);
 }
 
+/// Calls `service`/`op` on `domain`'s IDP over TCP CSIL-RPC through the
+/// same DNS discovery (`fp=` pin set + `tcp=` endpoint) and `SecureDial`
+/// path as `redeemClaimTicket`. Returns the success payload bytes; a
+/// non-Ok status becomes the matching `error.Rpc*`. `act_as.zig` uses this
+/// for `ActAs/refresh-grant`.
+pub fn callDomain(allocator: std.mem.Allocator, transport: transportmod.Transport, secure_dial: SecureDial, dns: dnsmod.DnsResolver, domain: []const u8, service: []const u8, op: []const u8, payload: []const u8) ![]const u8 {
+    const endpoint = try discoverDomainEndpoint(allocator, dns, domain);
+    return call(allocator, transport, secure_dial, endpoint, service, op, payload);
+}
+
 test "RpcRequest/RpcResponse envelope round trip" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

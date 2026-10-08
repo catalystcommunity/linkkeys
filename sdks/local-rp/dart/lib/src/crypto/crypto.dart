@@ -98,6 +98,12 @@ class Crypto {
     return Hex.encode(hash.bytes);
   }
 
+  /// Raw `sha256(data)` digest (32 bytes).
+  static Future<Uint8List> sha256(List<int> data) async {
+    final hash = await _sha256.hash(data);
+    return Uint8List.fromList(hash.bytes);
+  }
+
   /// CSPRNG bytes (`dart:math` `Random.secure()`, the Dart-stdlib equivalent
   /// of `OsRng`/`rand::random`). Synchronous: `Random.secure()` is a plain
   /// stdlib facility, not part of `cryptography_plus`.

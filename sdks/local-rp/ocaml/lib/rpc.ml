@@ -211,3 +211,15 @@ let redeem_claim_ticket (transport : Transport.t) (dns : Dns.resolver) ~(now : f
   let resp_bytes = call transport endpoint ~now "LocalRp" "redeem-claim-ticket" payload in
   try Types.Local_rp_ticket_redemption_response.of_cbor resp_bytes
   with Cbor.Decode_error msg -> Error.raise_ (Error.Decode_failed (Printf.sprintf "redeem-claim-ticket response: %s" msg))
+
+(* Fetch or renew an act-as grant at [domain] (the user's home domain):
+   [ActAs/refresh-grant] over TCP CSIL-RPC, discovered and pinned exactly
+   like [redeem_claim_ticket]. The signed refresh request is the grantee's
+   proof; the transport is unauthenticated TLS. *)
+let refresh_act_as_grant (transport : Transport.t) (dns : Dns.resolver) ~(now : float) (domain : string)
+    (signed_request : Types.Signed_act_as_refresh_request.t) : Types.Refresh_act_as_grant_response.t =
+  let endpoint = discover_domain_endpoint dns domain in
+  let payload = Types.Refresh_act_as_grant_request.to_cbor { request = signed_request } in
+  let resp_bytes = call transport endpoint ~now "ActAs" "refresh-grant" payload in
+  try Types.Refresh_act_as_grant_response.of_cbor resp_bytes
+  with Cbor.Decode_error msg -> Error.raise_ (Error.Decode_failed (Printf.sprintf "refresh-grant response: %s" msg))

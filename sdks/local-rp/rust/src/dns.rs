@@ -80,8 +80,8 @@ impl SystemDnsResolver {
     }
 }
 
-impl DnsResolver for SystemDnsResolver {
-    fn txt_lookup(&self, name: &str) -> Result<Vec<String>, DnsLookupError> {
+impl SystemDnsResolver {
+    fn lookup_blocking(&self, name: &str) -> Result<Vec<String>, DnsLookupError> {
         let state = self.get()?;
         let lookup = state
             .runtime
@@ -95,6 +95,24 @@ impl DnsResolver for SystemDnsResolver {
     }
 }
 
+impl DnsResolver for SystemDnsResolver {
+    fn txt_lookup(&self, name: &str) -> Result<Vec<String>, DnsLookupError> {
+        // `Runtime::block_on` panics on a thread that already drives a Tokio
+        // runtime. `begin_local_login` and `begin_act_as` look up DNS, so an
+        // application can call them from an async handler. Run the lookup on
+        // its own thread there.
+        if tokio::runtime::Handle::try_current().is_err() {
+            return self.lookup_blocking(name);
+        }
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| self.lookup_blocking(name))
+                .join()
+                .unwrap_or_else(|_| Err(DnsLookupError::Lookup(format!("{name}: lookup panicked"))))
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -104,6 +122,19 @@ mod tests {
         let resolver = SystemDnsResolver::new();
         let result =
             resolver.txt_lookup("_linkkeys.this-domain-does-not-exist-linkkeys-sdk-test.invalid");
+        assert!(result.is_err());
+    }
+
+    /// An application can call the SDK from an async handler. The lookup
+    /// must not panic there with "Cannot start a runtime from within a
+    /// runtime".
+    #[test]
+    fn system_resolver_works_inside_a_tokio_runtime() {
+        let resolver = SystemDnsResolver::new();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let result = runtime.block_on(async {
+            resolver.txt_lookup("_linkkeys.this-domain-does-not-exist-linkkeys-sdk-test.invalid")
+        });
         assert!(result.is_err());
     }
 }

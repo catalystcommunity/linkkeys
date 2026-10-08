@@ -14,6 +14,8 @@ int main(void) {
 
     run_conformance_tests();
     run_flow_tests();
+    run_browser_tests();
+    run_act_as_tests();
 
     printf("\n==== %ld passed, %ld failed ====\n", g_test_pass, g_test_fail);
     return g_test_fail > 0 ? 1 : 0;

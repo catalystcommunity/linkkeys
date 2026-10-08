@@ -1,6 +1,6 @@
 //! Bounded, coalescing, in-process cache of already-encoded CBOR response
 //! bytes, sitting in front of the home-domain public key reads (see
-//! "Home-domain response cache" in `signing-things-request.md`).
+//! "Home-domain response cache" in `docs/application-keys.md`).
 //!
 //! Caching here is load-bearing, not an optimization: it keeps repeated
 //! home-domain reads out of normal peer message verification and protects the

@@ -3,6 +3,10 @@ defmodule LinkkeysLocalRp.BeginTest do
 
   alias LinkkeysLocalRp.Begin
 
+  # Hermetic resolver: every lookup fails, so begin_local_login falls back
+  # to `https://<identity domain>` without any live DNS request.
+  defp no_dns, do: fn _name -> {:error, :no_fake_record} end
+
   setup do
     now = ~U[2026-01-01 00:00:00Z]
     material = LinkkeysLocalRp.generate_local_rp_identity(app_name: "Test App", now: now)
@@ -15,7 +19,8 @@ defmodule LinkkeysLocalRp.BeginTest do
         key_material: material,
         callback_url: "http://localhost/callback",
         user_domain: "Alice+work@ID.Example.TEST",
-        now: now
+        now: now,
+        dns: no_dns()
       )
 
     assert String.ends_with?(redirect.redirect_url, "&username=Alice%2Bwork")
@@ -26,7 +31,8 @@ defmodule LinkkeysLocalRp.BeginTest do
         key_material: material,
         callback_url: "http://localhost/callback",
         user_domain: "example.test",
-        now: now
+        now: now,
+        dns: no_dns()
       )
 
     refute String.contains?(bare.redirect_url, "username=")
@@ -39,7 +45,8 @@ defmodule LinkkeysLocalRp.BeginTest do
           key_material: material,
           callback_url: "http://localhost/callback",
           user_domain: identity,
-          now: now
+          now: now,
+          dns: no_dns()
         )
       end
     end

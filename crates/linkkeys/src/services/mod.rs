@@ -1,4 +1,5 @@
 pub mod account;
+pub mod act_as;
 pub mod admin;
 pub mod application_keys;
 pub mod attestation;

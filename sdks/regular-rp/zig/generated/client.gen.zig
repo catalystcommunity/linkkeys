@@ -468,6 +468,28 @@ pub const BrowserAuthorizationClient = struct {
         defer alloc.free(csil_respb);
         try codec.decode_BrowserAuthorizationCompleteResponse(alloc, csil_respb, out);
     }
+
+    /// Invoke BrowserAuthorization/inspect-act-as with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn inspect_act_as(self: BrowserAuthorizationClient, alloc: std.mem.Allocator, req: *const types.BrowserActAsInspectRequest, out: *types.BrowserActAsInspectResponse) anyerror!void {
+        const csil_reqb = try codec.encode_BrowserActAsInspectRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "BrowserAuthorization", "inspect-act-as", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_BrowserActAsInspectResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke BrowserAuthorization/complete-act-as with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn complete_act_as(self: BrowserAuthorizationClient, alloc: std.mem.Allocator, req: *const types.BrowserActAsCompleteRequest, out: *types.BrowserActAsCompleteResponse) anyerror!void {
+        const csil_reqb = try codec.encode_BrowserActAsCompleteRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "BrowserAuthorization", "complete-act-as", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_BrowserActAsCompleteResponse(alloc, csil_respb, out);
+    }
 };
 
 /// AdminClient is a typed client for the Admin service over a CsilgenTransport.
@@ -1135,6 +1157,28 @@ pub const AccountClient = struct {
         defer alloc.free(csil_respb);
         try codec.decode_EnrollApplicationInstanceResponse(alloc, csil_respb, out);
     }
+
+    /// Invoke Account/list-act-as-grants with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn list_act_as_grants(self: AccountClient, alloc: std.mem.Allocator, req: *const types.EmptyRequest, out: *types.ListActAsGrantsResponse) anyerror!void {
+        const csil_reqb = try codec.encode_EmptyRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Account", "list-act-as-grants", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_ListActAsGrantsResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke Account/revoke-act-as-grant with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn revoke_act_as_grant(self: AccountClient, alloc: std.mem.Allocator, req: *const types.RevokeActAsGrantRequest, out: *types.RevokeActAsGrantResponse) anyerror!void {
+        const csil_reqb = try codec.encode_RevokeActAsGrantRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Account", "revoke-act-as-grant", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_RevokeActAsGrantResponse(alloc, csil_respb, out);
+    }
 };
 
 /// AttestationClient is a typed client for the Attestation service over a CsilgenTransport.
@@ -1240,6 +1284,59 @@ pub const RpClient = struct {
         const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Rp", "resolve-application-keys", csil_reqb);
         defer alloc.free(csil_respb);
         try codec.decode_RpResolveApplicationKeysResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke Rp/act-as-refresh-grant with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn act_as_refresh_grant(self: RpClient, alloc: std.mem.Allocator, req: *const types.RpActAsRefreshRequest, out: *types.RefreshActAsGrantResponse) anyerror!void {
+        const csil_reqb = try codec.encode_RpActAsRefreshRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Rp", "act-as-refresh-grant", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_RefreshActAsGrantResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke Rp/resolve-act-as-revocations with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn resolve_act_as_revocations(self: RpClient, alloc: std.mem.Allocator, req: *const types.RpResolveActAsRevocationsRequest, out: *types.GetActAsGrantRevocationsResponse) anyerror!void {
+        const csil_reqb = try codec.encode_RpResolveActAsRevocationsRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Rp", "resolve-act-as-revocations", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_GetActAsGrantRevocationsResponse(alloc, csil_respb, out);
+    }
+};
+
+/// ActAsClient is a typed client for the ActAs service over a CsilgenTransport.
+pub const ActAsClient = struct {
+    transport: CsilgenTransport,
+
+    pub fn init(transport: CsilgenTransport) ActAsClient {
+        return .{ .transport = transport };
+    }
+
+    /// Invoke ActAs/refresh-grant with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn refresh_grant(self: ActAsClient, alloc: std.mem.Allocator, req: *const types.RefreshActAsGrantRequest, out: *types.RefreshActAsGrantResponse) anyerror!void {
+        const csil_reqb = try codec.encode_RefreshActAsGrantRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "ActAs", "refresh-grant", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_RefreshActAsGrantResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke ActAs/get-grant-revocations with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn get_grant_revocations(self: ActAsClient, alloc: std.mem.Allocator, req: *const types.GetActAsGrantRevocationsRequest, out: *types.GetActAsGrantRevocationsResponse) anyerror!void {
+        const csil_reqb = try codec.encode_GetActAsGrantRevocationsRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "ActAs", "get-grant-revocations", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_GetActAsGrantRevocationsResponse(alloc, csil_respb, out);
     }
 };
 

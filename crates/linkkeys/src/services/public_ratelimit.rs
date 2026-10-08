@@ -1,6 +1,5 @@
 //! Bounded abuse controls for the ANONYMOUS public-key read surface (SEC-05
-//! sibling; see `signing-things-request.md`, "Public-key rate limits and DDoS
-//! protection").
+//! sibling; see `docs/application-keys.md`, "Abuse controls").
 //!
 //! `DomainKeys/get-domain-keys`, `DomainKeys/get-revocations`, and the
 //! application-key read all serve public material to unauthenticated callers.
@@ -49,7 +48,7 @@ const DEFAULT_BURST: u64 = 100;
 // The present handler (`crates/linkkeys/src/services/domain_keys.rs` and its
 // siblings) is cheap: one indexed query, one recent-revocation check, and a
 // small CBOR encode — no signing, no private-key decryption, no outbound DNS
-// (see signing-things-request.md, "Cost of public reads"). 2000 requests/sec
+// (see docs/application-keys.md, "Cost and the warm signer"). 2000 requests/sec
 // is comfortably inside what a modest host can sustain for that shape of
 // work while still bounding worst-case aggregate load; a 2x burst absorbs a
 // short spike without an unbounded queue forming in front of it.

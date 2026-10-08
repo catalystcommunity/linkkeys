@@ -10,18 +10,36 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
-/** Unit tests for {@link Begin} (mirrors the Rust/Go SDKs' own {@code begin} module tests). */
+import community.catalyst.linkkeys.localrp.dns.DnsResolver;
+
+/**
+ * Unit tests for {@link Begin} (mirrors the Rust/Go SDKs' own {@code begin}
+ * module tests). Every config here injects {@link #NO_DNS}, a resolver that
+ * fails every lookup, so begin takes its documented fallback
+ * ({@code https://<identity domain>}) and no test performs a live DNS
+ * request. Discovery itself is covered by {@link BrowserTest}.
+ */
 class BeginTest {
+
+    private static final DnsResolver NO_DNS = name -> {
+        throw new SdkException(SdkException.Kind.DNS, "no DNS in unit tests: " + name);
+    };
 
     private static Identity.LocalRpKeyMaterial material() {
         return Identity.generateLocalRpIdentity(new Identity.GenerateLocalRpIdentityConfig("Test App", Instant.now()));
+    }
+
+    private static Begin.BeginLocalLoginConfig config(Identity.LocalRpKeyMaterial m, String callbackUrl, String userDomain) {
+        Begin.BeginLocalLoginConfig config = new Begin.BeginLocalLoginConfig(m, callbackUrl, userDomain, Instant.now());
+        config.dns = NO_DNS;
+        return config;
     }
 
     @Test
     void beginDefaultsClaimsAndProducesPendingState() {
         Identity.LocalRpKeyMaterial m = material();
         Begin.BeginResult result = Begin.beginLocalLogin(
-                new Begin.BeginLocalLoginConfig(m, "http://localhost:8080/callback", "example.com", Instant.now()));
+                config(m, "http://localhost:8080/callback", "example.com"));
 
         assertTrue(result.redirect().redirectUrl().startsWith("https://example.com/auth/local-rp?signed_request="));
         assertEquals("example.com", result.pending().userDomain());
@@ -36,19 +54,19 @@ class BeginTest {
         assertThrows(
                 SdkException.class,
                 () -> Begin.beginLocalLogin(
-                        new Begin.BeginLocalLoginConfig(m, "myapp://callback", "example.com", Instant.now())));
+                        config(m, "myapp://callback", "example.com")));
     }
 
     @Test
     void beginParsesIdentityInput() {
         Identity.LocalRpKeyMaterial m = material();
         Begin.BeginResult result = Begin.beginLocalLogin(
-                new Begin.BeginLocalLoginConfig(m, "http://localhost/callback", "Alice+work@ID.Example.TEST", Instant.now()));
+                config(m, "http://localhost/callback", "Alice+work@ID.Example.TEST"));
         assertTrue(result.redirect().redirectUrl().endsWith("&username=Alice%2Bwork"));
         assertEquals("id.example.test", result.pending().userDomain());
         for (String input : List.of("alice", "alice@@example.test", "https://example.test")) {
             assertThrows(SdkException.class, () -> Begin.beginLocalLogin(
-                    new Begin.BeginLocalLoginConfig(m, "http://localhost/callback", input, Instant.now())));
+                    config(m, "http://localhost/callback", input)));
         }
     }
 
@@ -58,14 +76,14 @@ class BeginTest {
         assertThrows(
                 SdkException.class,
                 () -> Begin.beginLocalLogin(
-                        new Begin.BeginLocalLoginConfig(m, "http://localhost/callback", "", Instant.now())));
+                        config(m, "http://localhost/callback", "")));
     }
 
     @Test
     void beginDefaultsRequiredClaimsOnPendingLogin() {
         Identity.LocalRpKeyMaterial m = material();
         Begin.BeginResult result = Begin.beginLocalLogin(
-                new Begin.BeginLocalLoginConfig(m, "http://localhost:8080/callback", "example.com", Instant.now()));
+                config(m, "http://localhost:8080/callback", "example.com"));
         assertEquals(Begin.DEFAULT_REQUIRED_CLAIMS, result.pending().requiredClaims());
     }
 
@@ -73,7 +91,7 @@ class BeginTest {
     void pendingLoginRoundTripsThroughItsByteSerializeForm() {
         Identity.LocalRpKeyMaterial m = material();
         Begin.BeginLocalLoginConfig config =
-                new Begin.BeginLocalLoginConfig(m, "http://localhost:8080/callback", "example.com", Instant.now());
+                config(m, "http://localhost:8080/callback", "example.com");
         config.requiredClaims = java.util.List.of("handle", "email");
         Begin.PendingLogin pending = Begin.beginLocalLogin(config).pending();
 
@@ -92,9 +110,9 @@ class BeginTest {
     void beginTwoCallsNeverReuseNonceOrState() {
         Identity.LocalRpKeyMaterial m = material();
         Begin.BeginResult r1 = Begin.beginLocalLogin(
-                new Begin.BeginLocalLoginConfig(m, "http://localhost/callback", "example.com", Instant.now()));
+                config(m, "http://localhost/callback", "example.com"));
         Begin.BeginResult r2 = Begin.beginLocalLogin(
-                new Begin.BeginLocalLoginConfig(m, "http://localhost/callback", "example.com", Instant.now()));
+                config(m, "http://localhost/callback", "example.com"));
         assertNotEquals(
                 java.util.Arrays.toString(r1.pending().nonce()), java.util.Arrays.toString(r2.pending().nonce()));
         assertNotEquals(

@@ -204,4 +204,20 @@ public static class RpcClient
         var respBytes = Call(transport, endpoint, "LocalRp", "redeem-claim-ticket", payload);
         return Codec.DecodeLocalRpTicketRedemptionResponse(respBytes);
     }
+
+    /// <summary>
+    /// Fetch or renew an act-as grant with <paramref name="domain"/>'s home domain:
+    /// <c>ActAs/refresh-grant</c> over TCP CSIL-RPC, pinned via the domain's DNS
+    /// <c>fp=</c> set — the same discovery and pinned transport as
+    /// <see cref="RedeemClaimTicket"/>. The signed refresh request is the possession
+    /// proof; the TLS layer carries no client certificate.
+    /// </summary>
+    public static RefreshActAsGrantResponse RefreshActAsGrant(
+        ITransport transport, IDnsResolver dns, string domain, SignedActAsRefreshRequest signedRequest)
+    {
+        var endpoint = DiscoverDomainEndpoint(dns, domain);
+        var payload = Codec.EncodeRefreshActAsGrantRequest(new RefreshActAsGrantRequest(signedRequest));
+        var respBytes = Call(transport, endpoint, "ActAs", "refresh-grant", payload);
+        return Codec.DecodeRefreshActAsGrantResponse(respBytes);
+    }
 }

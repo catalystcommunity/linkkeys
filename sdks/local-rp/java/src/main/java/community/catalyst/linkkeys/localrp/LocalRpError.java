@@ -55,6 +55,11 @@ public class LocalRpError extends RuntimeException {
          * (missing entirely, or the claim set was empty).
          */
         REQUIRED_CLAIMS_NOT_SATISFIED,
+        /**
+         * {@code ActAs/refresh-grant} returned a grant for another grant id,
+         * another grantee, or another subject domain than the call asked for.
+         */
+        GRANT_MISMATCH,
     }
 
     private final Kind kind;

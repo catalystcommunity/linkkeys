@@ -170,6 +170,13 @@ fn cbor_read_arg(b: &[u8], pos: &mut usize, low: u8) -> Result<u64, CsilCborErro
     Ok(v)
 }
 
+/// The most elements a decoded array or map reserves before it reads them. The
+/// declared length is checked against the remaining input, but one input byte can
+/// become a much larger value, so reserving the full declared length lets a small
+/// frame reserve a large multiple of its size at every nesting level. Past this
+/// bound, the vector grows only as elements are actually read.
+const CSIL_CBOR_PREALLOC_LIMIT: usize = 1024;
+
 fn cbor_dec(b: &[u8], pos: &mut usize, depth: usize) -> Result<CsilCborValue, CsilCborError> {
     if depth > 64 {
         return Err(CsilCborError(
@@ -253,7 +260,7 @@ fn cbor_dec(b: &[u8], pos: &mut usize, depth: usize) -> Result<CsilCborValue, Cs
                 ));
             }
             let n = arg as usize;
-            let mut items = Vec::with_capacity(n);
+            let mut items = Vec::with_capacity(n.min(CSIL_CBOR_PREALLOC_LIMIT));
             for _ in 0..n {
                 items.push(cbor_dec(b, pos, depth + 1)?);
             }
@@ -266,7 +273,7 @@ fn cbor_dec(b: &[u8], pos: &mut usize, depth: usize) -> Result<CsilCborValue, Cs
                 ));
             }
             let n = arg as usize;
-            let mut entries = Vec::with_capacity(n);
+            let mut entries = Vec::with_capacity(n.min(CSIL_CBOR_PREALLOC_LIMIT));
             for _ in 0..n {
                 let k = cbor_dec(b, pos, depth + 1)?;
                 let val = cbor_dec(b, pos, depth + 1)?;
@@ -12405,6 +12412,1970 @@ pub fn decode_rp_resolve_application_keys_response(
 ) -> Result<RpResolveApplicationKeysResponse, CsilCborError> {
     let csil_root = cbor_decode(csil_data)?;
     csil_dec_rp_resolve_application_keys_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ApplicationRef.
+fn csil_enc_application_ref(csil_v: &ApplicationRef) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
+    csil_entries.push((
+        cbor_text("application_id"),
+        cbor_text(&csil_v.application_id),
+    ));
+    csil_entries.push((
+        cbor_text("subject_domain"),
+        cbor_text(&csil_v.subject_domain),
+    ));
+    csil_entries.push((
+        cbor_text("subject_user_id"),
+        cbor_text(&csil_v.subject_user_id),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ApplicationRef from a decoded CBOR value tree.
+fn csil_dec_application_ref(csil_root: &CsilCborValue) -> Result<ApplicationRef, CsilCborError> {
+    let subject_user_id = {
+        let csil_field = cbor_require(csil_root, "subject_user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let subject_domain = {
+        let csil_field = cbor_require(csil_root, "subject_domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let application_id = {
+        let csil_field = cbor_require(csil_root, "application_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(ApplicationRef {
+        subject_user_id,
+        subject_domain,
+        application_id,
+    })
+}
+
+/// Encode a ApplicationRef to canonical CSIL CBOR bytes.
+pub fn encode_application_ref(csil_v: &ApplicationRef) -> Vec<u8> {
+    cbor_encode(&csil_enc_application_ref(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ApplicationRef.
+pub fn decode_application_ref(csil_data: &[u8]) -> Result<ApplicationRef, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_application_ref(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a GranteeRef.
+fn csil_enc_grantee_ref(csil_v: &GranteeRef) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    if let Some(csil_inner) = &csil_v.application {
+        csil_entries.push((
+            cbor_text("application"),
+            csil_enc_application_ref(csil_inner),
+        ));
+    }
+    if let Some(csil_inner) = &csil_v.local_rp_descriptor_fingerprint {
+        csil_entries.push((
+            cbor_text("local_rp_descriptor_fingerprint"),
+            cbor_text(csil_inner),
+        ));
+    }
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a GranteeRef from a decoded CBOR value tree.
+fn csil_dec_grantee_ref(csil_root: &CsilCborValue) -> Result<GranteeRef, CsilCborError> {
+    let application = match cbor_map_get(csil_root, "application") {
+        Some(csil_field) => {
+            let csil_decode = csil_dec_application_ref;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let local_rp_descriptor_fingerprint =
+        match cbor_map_get(csil_root, "local_rp_descriptor_fingerprint") {
+            Some(csil_field) => {
+                let csil_decode = cbor_as_text;
+                Some(csil_decode(csil_field)?)
+            }
+            None => None,
+        };
+    Ok(GranteeRef {
+        application,
+        local_rp_descriptor_fingerprint,
+    })
+}
+
+/// Encode a GranteeRef to canonical CSIL CBOR bytes.
+pub fn encode_grantee_ref(csil_v: &GranteeRef) -> Vec<u8> {
+    cbor_encode(&csil_enc_grantee_ref(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a GranteeRef.
+pub fn decode_grantee_ref(csil_data: &[u8]) -> Result<GranteeRef, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_grantee_ref(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a GranteeProof.
+fn csil_enc_grantee_proof(csil_v: &GranteeProof) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
+    csil_entries.push((
+        cbor_text("signature"),
+        csil_enc_application_key_signature(&csil_v.signature),
+    ));
+    if let Some(csil_inner) = &csil_v.local_rp_descriptor {
+        csil_entries.push((
+            cbor_text("local_rp_descriptor"),
+            csil_enc_signed_local_rp_descriptor(csil_inner),
+        ));
+    }
+    if let Some(csil_inner) = &csil_v.application_instance_id {
+        csil_entries.push((cbor_text("application_instance_id"), cbor_text(csil_inner)));
+    }
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a GranteeProof from a decoded CBOR value tree.
+fn csil_dec_grantee_proof(csil_root: &CsilCborValue) -> Result<GranteeProof, CsilCborError> {
+    let application_instance_id = match cbor_map_get(csil_root, "application_instance_id") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let local_rp_descriptor = match cbor_map_get(csil_root, "local_rp_descriptor") {
+        Some(csil_field) => {
+            let csil_decode = csil_dec_signed_local_rp_descriptor;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let signature = {
+        let csil_field = cbor_require(csil_root, "signature")?;
+        let csil_decode = csil_dec_application_key_signature;
+        csil_decode(csil_field)?
+    };
+    Ok(GranteeProof {
+        application_instance_id,
+        local_rp_descriptor,
+        signature,
+    })
+}
+
+/// Encode a GranteeProof to canonical CSIL CBOR bytes.
+pub fn encode_grantee_proof(csil_v: &GranteeProof) -> Vec<u8> {
+    cbor_encode(&csil_enc_grantee_proof(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a GranteeProof.
+pub fn decode_grantee_proof(csil_data: &[u8]) -> Result<GranteeProof, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_grantee_proof(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ActAsScopeEntry.
+fn csil_enc_act_as_scope_entry(csil_v: &ActAsScopeEntry) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("scope"), cbor_text(&csil_v.scope)));
+    if let Some(csil_inner) = &csil_v.description {
+        csil_entries.push((cbor_text("description"), cbor_text(csil_inner)));
+    }
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ActAsScopeEntry from a decoded CBOR value tree.
+fn csil_dec_act_as_scope_entry(
+    csil_root: &CsilCborValue,
+) -> Result<ActAsScopeEntry, CsilCborError> {
+    let scope = {
+        let csil_field = cbor_require(csil_root, "scope")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let description = match cbor_map_get(csil_root, "description") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(ActAsScopeEntry { scope, description })
+}
+
+/// Encode a ActAsScopeEntry to canonical CSIL CBOR bytes.
+pub fn encode_act_as_scope_entry(csil_v: &ActAsScopeEntry) -> Vec<u8> {
+    cbor_encode(&csil_enc_act_as_scope_entry(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ActAsScopeEntry.
+pub fn decode_act_as_scope_entry(csil_data: &[u8]) -> Result<ActAsScopeEntry, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_act_as_scope_entry(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ActAsScopeSet.
+fn csil_enc_act_as_scope_set(csil_v: &ActAsScopeSet) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(7);
+    csil_entries.push((
+        cbor_text("entries"),
+        cbor_enc_array(&csil_v.entries, csil_enc_act_as_scope_entry),
+    ));
+    csil_entries.push((cbor_text("grantee"), csil_enc_grantee_ref(&csil_v.grantee)));
+    csil_entries.push((
+        cbor_text("audience"),
+        csil_enc_application_ref(&csil_v.audience),
+    ));
+    if let Some(csil_inner) = &csil_v.language {
+        csil_entries.push((cbor_text("language"), cbor_text(csil_inner)));
+    }
+    csil_entries.push((cbor_text("issued_at"), cbor_text(&csil_v.issued_at)));
+    csil_entries.push((cbor_text("expires_at"), cbor_text(&csil_v.expires_at)));
+    if let Some(csil_inner) = &csil_v.audience_handle_claim {
+        csil_entries.push((
+            cbor_text("audience_handle_claim"),
+            csil_enc_claim(csil_inner),
+        ));
+    }
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ActAsScopeSet from a decoded CBOR value tree.
+fn csil_dec_act_as_scope_set(csil_root: &CsilCborValue) -> Result<ActAsScopeSet, CsilCborError> {
+    let audience = {
+        let csil_field = cbor_require(csil_root, "audience")?;
+        let csil_decode = csil_dec_application_ref;
+        csil_decode(csil_field)?
+    };
+    let grantee = {
+        let csil_field = cbor_require(csil_root, "grantee")?;
+        let csil_decode = csil_dec_grantee_ref;
+        csil_decode(csil_field)?
+    };
+    let entries = {
+        let csil_field = cbor_require(csil_root, "entries")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_act_as_scope_entry);
+        csil_decode(csil_field)?
+    };
+    let language = match cbor_map_get(csil_root, "language") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let audience_handle_claim = match cbor_map_get(csil_root, "audience_handle_claim") {
+        Some(csil_field) => {
+            let csil_decode = csil_dec_claim;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let issued_at = {
+        let csil_field = cbor_require(csil_root, "issued_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let expires_at = {
+        let csil_field = cbor_require(csil_root, "expires_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(ActAsScopeSet {
+        audience,
+        grantee,
+        entries,
+        language,
+        audience_handle_claim,
+        issued_at,
+        expires_at,
+    })
+}
+
+/// Encode a ActAsScopeSet to canonical CSIL CBOR bytes.
+pub fn encode_act_as_scope_set(csil_v: &ActAsScopeSet) -> Vec<u8> {
+    cbor_encode(&csil_enc_act_as_scope_set(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ActAsScopeSet.
+pub fn decode_act_as_scope_set(csil_data: &[u8]) -> Result<ActAsScopeSet, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_act_as_scope_set(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SignedActAsScopeSet.
+fn csil_enc_signed_act_as_scope_set(csil_v: &SignedActAsScopeSet) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
+    csil_entries.push((cbor_text("scope_set"), cbor_bytes(&csil_v.scope_set)));
+    csil_entries.push((
+        cbor_text("signatures"),
+        cbor_enc_array(&csil_v.signatures, csil_enc_application_key_signature),
+    ));
+    csil_entries.push((
+        cbor_text("signer_instance_id"),
+        cbor_text(&csil_v.signer_instance_id),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SignedActAsScopeSet from a decoded CBOR value tree.
+fn csil_dec_signed_act_as_scope_set(
+    csil_root: &CsilCborValue,
+) -> Result<SignedActAsScopeSet, CsilCborError> {
+    let scope_set = {
+        let csil_field = cbor_require(csil_root, "scope_set")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let signer_instance_id = {
+        let csil_field = cbor_require(csil_root, "signer_instance_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let signatures = {
+        let csil_field = cbor_require(csil_root, "signatures")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_application_key_signature);
+        csil_decode(csil_field)?
+    };
+    Ok(SignedActAsScopeSet {
+        scope_set,
+        signer_instance_id,
+        signatures,
+    })
+}
+
+/// Encode a SignedActAsScopeSet to canonical CSIL CBOR bytes.
+pub fn encode_signed_act_as_scope_set(csil_v: &SignedActAsScopeSet) -> Vec<u8> {
+    cbor_encode(&csil_enc_signed_act_as_scope_set(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SignedActAsScopeSet.
+pub fn decode_signed_act_as_scope_set(
+    csil_data: &[u8],
+) -> Result<SignedActAsScopeSet, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_signed_act_as_scope_set(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ActAsScopeSetRequest.
+fn csil_enc_act_as_scope_set_request(csil_v: &ActAsScopeSetRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
+    csil_entries.push((
+        cbor_text("scope"),
+        cbor_enc_array(&csil_v.scope, |csil_elem| cbor_text(csil_elem)),
+    ));
+    csil_entries.push((cbor_text("grantee"), csil_enc_grantee_ref(&csil_v.grantee)));
+    if let Some(csil_inner) = &csil_v.locale_preferences {
+        csil_entries.push((
+            cbor_text("locale_preferences"),
+            cbor_enc_array(csil_inner, |csil_elem| cbor_text(csil_elem)),
+        ));
+    }
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ActAsScopeSetRequest from a decoded CBOR value tree.
+fn csil_dec_act_as_scope_set_request(
+    csil_root: &CsilCborValue,
+) -> Result<ActAsScopeSetRequest, CsilCborError> {
+    let grantee = {
+        let csil_field = cbor_require(csil_root, "grantee")?;
+        let csil_decode = csil_dec_grantee_ref;
+        csil_decode(csil_field)?
+    };
+    let scope = {
+        let csil_field = cbor_require(csil_root, "scope")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+        csil_decode(csil_field)?
+    };
+    let locale_preferences = match cbor_map_get(csil_root, "locale_preferences") {
+        Some(csil_field) => {
+            let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(ActAsScopeSetRequest {
+        grantee,
+        scope,
+        locale_preferences,
+    })
+}
+
+/// Encode a ActAsScopeSetRequest to canonical CSIL CBOR bytes.
+pub fn encode_act_as_scope_set_request(csil_v: &ActAsScopeSetRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_act_as_scope_set_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ActAsScopeSetRequest.
+pub fn decode_act_as_scope_set_request(
+    csil_data: &[u8],
+) -> Result<ActAsScopeSetRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_act_as_scope_set_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ActAsGrant.
+fn csil_enc_act_as_grant(csil_v: &ActAsGrant) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(12);
+    csil_entries.push((cbor_text("grantee"), csil_enc_grantee_ref(&csil_v.grantee)));
+    csil_entries.push((cbor_text("user_id"), cbor_text(&csil_v.user_id)));
+    csil_entries.push((
+        cbor_text("audience"),
+        csil_enc_application_ref(&csil_v.audience),
+    ));
+    csil_entries.push((cbor_text("grant_id"), cbor_text(&csil_v.grant_id)));
+    csil_entries.push((cbor_text("issued_at"), cbor_text(&csil_v.issued_at)));
+    csil_entries.push((
+        cbor_text("scope_set"),
+        csil_enc_signed_act_as_scope_set(&csil_v.scope_set),
+    ));
+    csil_entries.push((cbor_text("expires_at"), cbor_text(&csil_v.expires_at)));
+    csil_entries.push((
+        cbor_text("approved_scope"),
+        cbor_enc_array(&csil_v.approved_scope, |csil_elem| cbor_text(csil_elem)),
+    ));
+    csil_entries.push((
+        cbor_text("subject_domain"),
+        cbor_text(&csil_v.subject_domain),
+    ));
+    csil_entries.push((
+        cbor_text("renewable_until"),
+        cbor_text(&csil_v.renewable_until),
+    ));
+    csil_entries.push((
+        cbor_text("series_issued_at"),
+        cbor_text(&csil_v.series_issued_at),
+    ));
+    if let Some(csil_inner) = &csil_v.device_fingerprint {
+        csil_entries.push((cbor_text("device_fingerprint"), cbor_text(csil_inner)));
+    }
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ActAsGrant from a decoded CBOR value tree.
+fn csil_dec_act_as_grant(csil_root: &CsilCborValue) -> Result<ActAsGrant, CsilCborError> {
+    let grant_id = {
+        let csil_field = cbor_require(csil_root, "grant_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let user_id = {
+        let csil_field = cbor_require(csil_root, "user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let subject_domain = {
+        let csil_field = cbor_require(csil_root, "subject_domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let grantee = {
+        let csil_field = cbor_require(csil_root, "grantee")?;
+        let csil_decode = csil_dec_grantee_ref;
+        csil_decode(csil_field)?
+    };
+    let audience = {
+        let csil_field = cbor_require(csil_root, "audience")?;
+        let csil_decode = csil_dec_application_ref;
+        csil_decode(csil_field)?
+    };
+    let scope_set = {
+        let csil_field = cbor_require(csil_root, "scope_set")?;
+        let csil_decode = csil_dec_signed_act_as_scope_set;
+        csil_decode(csil_field)?
+    };
+    let approved_scope = {
+        let csil_field = cbor_require(csil_root, "approved_scope")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+        csil_decode(csil_field)?
+    };
+    let issued_at = {
+        let csil_field = cbor_require(csil_root, "issued_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let expires_at = {
+        let csil_field = cbor_require(csil_root, "expires_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let series_issued_at = {
+        let csil_field = cbor_require(csil_root, "series_issued_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let renewable_until = {
+        let csil_field = cbor_require(csil_root, "renewable_until")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let device_fingerprint = match cbor_map_get(csil_root, "device_fingerprint") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(ActAsGrant {
+        grant_id,
+        user_id,
+        subject_domain,
+        grantee,
+        audience,
+        scope_set,
+        approved_scope,
+        issued_at,
+        expires_at,
+        series_issued_at,
+        renewable_until,
+        device_fingerprint,
+    })
+}
+
+/// Encode a ActAsGrant to canonical CSIL CBOR bytes.
+pub fn encode_act_as_grant(csil_v: &ActAsGrant) -> Vec<u8> {
+    cbor_encode(&csil_enc_act_as_grant(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ActAsGrant.
+pub fn decode_act_as_grant(csil_data: &[u8]) -> Result<ActAsGrant, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_act_as_grant(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SignedActAsGrant.
+fn csil_enc_signed_act_as_grant(csil_v: &SignedActAsGrant) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("grant"), cbor_bytes(&csil_v.grant)));
+    csil_entries.push((
+        cbor_text("signatures"),
+        cbor_enc_array(&csil_v.signatures, csil_enc_claim_signature),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SignedActAsGrant from a decoded CBOR value tree.
+fn csil_dec_signed_act_as_grant(
+    csil_root: &CsilCborValue,
+) -> Result<SignedActAsGrant, CsilCborError> {
+    let grant = {
+        let csil_field = cbor_require(csil_root, "grant")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let signatures = {
+        let csil_field = cbor_require(csil_root, "signatures")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_claim_signature);
+        csil_decode(csil_field)?
+    };
+    Ok(SignedActAsGrant { grant, signatures })
+}
+
+/// Encode a SignedActAsGrant to canonical CSIL CBOR bytes.
+pub fn encode_signed_act_as_grant(csil_v: &SignedActAsGrant) -> Vec<u8> {
+    cbor_encode(&csil_enc_signed_act_as_grant(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SignedActAsGrant.
+pub fn decode_signed_act_as_grant(csil_data: &[u8]) -> Result<SignedActAsGrant, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_signed_act_as_grant(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ActAsGrantRequest.
+fn csil_enc_act_as_grant_request(csil_v: &ActAsGrantRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(9);
+    csil_entries.push((cbor_text("nonce"), cbor_text(&csil_v.nonce)));
+    csil_entries.push((cbor_text("grantee"), csil_enc_grantee_ref(&csil_v.grantee)));
+    csil_entries.push((
+        cbor_text("scope_set"),
+        csil_enc_signed_act_as_scope_set(&csil_v.scope_set),
+    ));
+    csil_entries.push((cbor_text("expires_at"), cbor_text(&csil_v.expires_at)));
+    csil_entries.push((cbor_text("callback_url"), cbor_text(&csil_v.callback_url)));
+    csil_entries.push((cbor_text("requested_at"), cbor_text(&csil_v.requested_at)));
+    if let Some(csil_inner) = &csil_v.grantee_handle_claim {
+        csil_entries.push((
+            cbor_text("grantee_handle_claim"),
+            csil_enc_claim(csil_inner),
+        ));
+    }
+    if let Some(csil_inner) = &csil_v.requested_lifetime_seconds {
+        csil_entries.push((
+            cbor_text("requested_lifetime_seconds"),
+            cbor_int(*csil_inner),
+        ));
+    }
+    if let Some(csil_inner) = &csil_v.requested_renewal_window_seconds {
+        csil_entries.push((
+            cbor_text("requested_renewal_window_seconds"),
+            cbor_int(*csil_inner),
+        ));
+    }
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ActAsGrantRequest from a decoded CBOR value tree.
+fn csil_dec_act_as_grant_request(
+    csil_root: &CsilCborValue,
+) -> Result<ActAsGrantRequest, CsilCborError> {
+    let grantee = {
+        let csil_field = cbor_require(csil_root, "grantee")?;
+        let csil_decode = csil_dec_grantee_ref;
+        csil_decode(csil_field)?
+    };
+    let scope_set = {
+        let csil_field = cbor_require(csil_root, "scope_set")?;
+        let csil_decode = csil_dec_signed_act_as_scope_set;
+        csil_decode(csil_field)?
+    };
+    let requested_lifetime_seconds = match cbor_map_get(csil_root, "requested_lifetime_seconds") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_i64;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let requested_renewal_window_seconds =
+        match cbor_map_get(csil_root, "requested_renewal_window_seconds") {
+            Some(csil_field) => {
+                let csil_decode = cbor_as_i64;
+                Some(csil_decode(csil_field)?)
+            }
+            None => None,
+        };
+    let grantee_handle_claim = match cbor_map_get(csil_root, "grantee_handle_claim") {
+        Some(csil_field) => {
+            let csil_decode = csil_dec_claim;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let callback_url = {
+        let csil_field = cbor_require(csil_root, "callback_url")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let nonce = {
+        let csil_field = cbor_require(csil_root, "nonce")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let requested_at = {
+        let csil_field = cbor_require(csil_root, "requested_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let expires_at = {
+        let csil_field = cbor_require(csil_root, "expires_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(ActAsGrantRequest {
+        grantee,
+        scope_set,
+        requested_lifetime_seconds,
+        requested_renewal_window_seconds,
+        grantee_handle_claim,
+        callback_url,
+        nonce,
+        requested_at,
+        expires_at,
+    })
+}
+
+/// Encode a ActAsGrantRequest to canonical CSIL CBOR bytes.
+pub fn encode_act_as_grant_request(csil_v: &ActAsGrantRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_act_as_grant_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ActAsGrantRequest.
+pub fn decode_act_as_grant_request(csil_data: &[u8]) -> Result<ActAsGrantRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_act_as_grant_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SignedActAsGrantRequest.
+fn csil_enc_signed_act_as_grant_request(csil_v: &SignedActAsGrantRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("proof"), csil_enc_grantee_proof(&csil_v.proof)));
+    csil_entries.push((cbor_text("request"), cbor_bytes(&csil_v.request)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SignedActAsGrantRequest from a decoded CBOR value tree.
+fn csil_dec_signed_act_as_grant_request(
+    csil_root: &CsilCborValue,
+) -> Result<SignedActAsGrantRequest, CsilCborError> {
+    let request = {
+        let csil_field = cbor_require(csil_root, "request")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let proof = {
+        let csil_field = cbor_require(csil_root, "proof")?;
+        let csil_decode = csil_dec_grantee_proof;
+        csil_decode(csil_field)?
+    };
+    Ok(SignedActAsGrantRequest { request, proof })
+}
+
+/// Encode a SignedActAsGrantRequest to canonical CSIL CBOR bytes.
+pub fn encode_signed_act_as_grant_request(csil_v: &SignedActAsGrantRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_signed_act_as_grant_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SignedActAsGrantRequest.
+pub fn decode_signed_act_as_grant_request(
+    csil_data: &[u8],
+) -> Result<SignedActAsGrantRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_signed_act_as_grant_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ActAsRefreshRequest.
+fn csil_enc_act_as_refresh_request(csil_v: &ActAsRefreshRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(5);
+    csil_entries.push((cbor_text("nonce"), cbor_text(&csil_v.nonce)));
+    csil_entries.push((cbor_text("grantee"), csil_enc_grantee_ref(&csil_v.grantee)));
+    csil_entries.push((cbor_text("grant_id"), cbor_text(&csil_v.grant_id)));
+    csil_entries.push((cbor_text("expires_at"), cbor_text(&csil_v.expires_at)));
+    csil_entries.push((cbor_text("requested_at"), cbor_text(&csil_v.requested_at)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ActAsRefreshRequest from a decoded CBOR value tree.
+fn csil_dec_act_as_refresh_request(
+    csil_root: &CsilCborValue,
+) -> Result<ActAsRefreshRequest, CsilCborError> {
+    let grant_id = {
+        let csil_field = cbor_require(csil_root, "grant_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let grantee = {
+        let csil_field = cbor_require(csil_root, "grantee")?;
+        let csil_decode = csil_dec_grantee_ref;
+        csil_decode(csil_field)?
+    };
+    let requested_at = {
+        let csil_field = cbor_require(csil_root, "requested_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let expires_at = {
+        let csil_field = cbor_require(csil_root, "expires_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let nonce = {
+        let csil_field = cbor_require(csil_root, "nonce")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(ActAsRefreshRequest {
+        grant_id,
+        grantee,
+        requested_at,
+        expires_at,
+        nonce,
+    })
+}
+
+/// Encode a ActAsRefreshRequest to canonical CSIL CBOR bytes.
+pub fn encode_act_as_refresh_request(csil_v: &ActAsRefreshRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_act_as_refresh_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ActAsRefreshRequest.
+pub fn decode_act_as_refresh_request(
+    csil_data: &[u8],
+) -> Result<ActAsRefreshRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_act_as_refresh_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SignedActAsRefreshRequest.
+fn csil_enc_signed_act_as_refresh_request(csil_v: &SignedActAsRefreshRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("proof"), csil_enc_grantee_proof(&csil_v.proof)));
+    csil_entries.push((cbor_text("request"), cbor_bytes(&csil_v.request)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SignedActAsRefreshRequest from a decoded CBOR value tree.
+fn csil_dec_signed_act_as_refresh_request(
+    csil_root: &CsilCborValue,
+) -> Result<SignedActAsRefreshRequest, CsilCborError> {
+    let request = {
+        let csil_field = cbor_require(csil_root, "request")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let proof = {
+        let csil_field = cbor_require(csil_root, "proof")?;
+        let csil_decode = csil_dec_grantee_proof;
+        csil_decode(csil_field)?
+    };
+    Ok(SignedActAsRefreshRequest { request, proof })
+}
+
+/// Encode a SignedActAsRefreshRequest to canonical CSIL CBOR bytes.
+pub fn encode_signed_act_as_refresh_request(csil_v: &SignedActAsRefreshRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_signed_act_as_refresh_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SignedActAsRefreshRequest.
+pub fn decode_signed_act_as_refresh_request(
+    csil_data: &[u8],
+) -> Result<SignedActAsRefreshRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_signed_act_as_refresh_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RefreshActAsGrantRequest.
+fn csil_enc_refresh_act_as_grant_request(csil_v: &RefreshActAsGrantRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("request"),
+        csil_enc_signed_act_as_refresh_request(&csil_v.request),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RefreshActAsGrantRequest from a decoded CBOR value tree.
+fn csil_dec_refresh_act_as_grant_request(
+    csil_root: &CsilCborValue,
+) -> Result<RefreshActAsGrantRequest, CsilCborError> {
+    let request = {
+        let csil_field = cbor_require(csil_root, "request")?;
+        let csil_decode = csil_dec_signed_act_as_refresh_request;
+        csil_decode(csil_field)?
+    };
+    Ok(RefreshActAsGrantRequest { request })
+}
+
+/// Encode a RefreshActAsGrantRequest to canonical CSIL CBOR bytes.
+pub fn encode_refresh_act_as_grant_request(csil_v: &RefreshActAsGrantRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_refresh_act_as_grant_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RefreshActAsGrantRequest.
+pub fn decode_refresh_act_as_grant_request(
+    csil_data: &[u8],
+) -> Result<RefreshActAsGrantRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_refresh_act_as_grant_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RefreshActAsGrantResponse.
+fn csil_enc_refresh_act_as_grant_response(csil_v: &RefreshActAsGrantResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((
+        cbor_text("grant"),
+        csil_enc_signed_act_as_grant(&csil_v.grant),
+    ));
+    csil_entries.push((cbor_text("signed"), cbor_bool(csil_v.signed)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RefreshActAsGrantResponse from a decoded CBOR value tree.
+fn csil_dec_refresh_act_as_grant_response(
+    csil_root: &CsilCborValue,
+) -> Result<RefreshActAsGrantResponse, CsilCborError> {
+    let grant = {
+        let csil_field = cbor_require(csil_root, "grant")?;
+        let csil_decode = csil_dec_signed_act_as_grant;
+        csil_decode(csil_field)?
+    };
+    let signed = {
+        let csil_field = cbor_require(csil_root, "signed")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    Ok(RefreshActAsGrantResponse { grant, signed })
+}
+
+/// Encode a RefreshActAsGrantResponse to canonical CSIL CBOR bytes.
+pub fn encode_refresh_act_as_grant_response(csil_v: &RefreshActAsGrantResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_refresh_act_as_grant_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RefreshActAsGrantResponse.
+pub fn decode_refresh_act_as_grant_response(
+    csil_data: &[u8],
+) -> Result<RefreshActAsGrantResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_refresh_act_as_grant_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ActAsPresentation.
+fn csil_enc_act_as_presentation(csil_v: &ActAsPresentation) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(5);
+    csil_entries.push((cbor_text("nonce"), cbor_bytes(&csil_v.nonce)));
+    csil_entries.push((
+        cbor_text("audience"),
+        csil_enc_application_ref(&csil_v.audience),
+    ));
+    csil_entries.push((cbor_text("grant_hash"), cbor_bytes(&csil_v.grant_hash)));
+    csil_entries.push((cbor_text("presented_at"), cbor_text(&csil_v.presented_at)));
+    csil_entries.push((
+        cbor_text("request_digest"),
+        cbor_bytes(&csil_v.request_digest),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ActAsPresentation from a decoded CBOR value tree.
+fn csil_dec_act_as_presentation(
+    csil_root: &CsilCborValue,
+) -> Result<ActAsPresentation, CsilCborError> {
+    let grant_hash = {
+        let csil_field = cbor_require(csil_root, "grant_hash")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let audience = {
+        let csil_field = cbor_require(csil_root, "audience")?;
+        let csil_decode = csil_dec_application_ref;
+        csil_decode(csil_field)?
+    };
+    let request_digest = {
+        let csil_field = cbor_require(csil_root, "request_digest")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let presented_at = {
+        let csil_field = cbor_require(csil_root, "presented_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let nonce = {
+        let csil_field = cbor_require(csil_root, "nonce")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    Ok(ActAsPresentation {
+        grant_hash,
+        audience,
+        request_digest,
+        presented_at,
+        nonce,
+    })
+}
+
+/// Encode a ActAsPresentation to canonical CSIL CBOR bytes.
+pub fn encode_act_as_presentation(csil_v: &ActAsPresentation) -> Vec<u8> {
+    cbor_encode(&csil_enc_act_as_presentation(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ActAsPresentation.
+pub fn decode_act_as_presentation(csil_data: &[u8]) -> Result<ActAsPresentation, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_act_as_presentation(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SignedActAsPresentation.
+fn csil_enc_signed_act_as_presentation(csil_v: &SignedActAsPresentation) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("proof"), csil_enc_grantee_proof(&csil_v.proof)));
+    csil_entries.push((cbor_text("presentation"), cbor_bytes(&csil_v.presentation)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SignedActAsPresentation from a decoded CBOR value tree.
+fn csil_dec_signed_act_as_presentation(
+    csil_root: &CsilCborValue,
+) -> Result<SignedActAsPresentation, CsilCborError> {
+    let presentation = {
+        let csil_field = cbor_require(csil_root, "presentation")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let proof = {
+        let csil_field = cbor_require(csil_root, "proof")?;
+        let csil_decode = csil_dec_grantee_proof;
+        csil_decode(csil_field)?
+    };
+    Ok(SignedActAsPresentation {
+        presentation,
+        proof,
+    })
+}
+
+/// Encode a SignedActAsPresentation to canonical CSIL CBOR bytes.
+pub fn encode_signed_act_as_presentation(csil_v: &SignedActAsPresentation) -> Vec<u8> {
+    cbor_encode(&csil_enc_signed_act_as_presentation(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SignedActAsPresentation.
+pub fn decode_signed_act_as_presentation(
+    csil_data: &[u8],
+) -> Result<SignedActAsPresentation, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_signed_act_as_presentation(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ActAsCredential.
+fn csil_enc_act_as_credential(csil_v: &ActAsCredential) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((
+        cbor_text("grant"),
+        csil_enc_signed_act_as_grant(&csil_v.grant),
+    ));
+    csil_entries.push((
+        cbor_text("presentation"),
+        csil_enc_signed_act_as_presentation(&csil_v.presentation),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ActAsCredential from a decoded CBOR value tree.
+fn csil_dec_act_as_credential(csil_root: &CsilCborValue) -> Result<ActAsCredential, CsilCborError> {
+    let grant = {
+        let csil_field = cbor_require(csil_root, "grant")?;
+        let csil_decode = csil_dec_signed_act_as_grant;
+        csil_decode(csil_field)?
+    };
+    let presentation = {
+        let csil_field = cbor_require(csil_root, "presentation")?;
+        let csil_decode = csil_dec_signed_act_as_presentation;
+        csil_decode(csil_field)?
+    };
+    Ok(ActAsCredential {
+        grant,
+        presentation,
+    })
+}
+
+/// Encode a ActAsCredential to canonical CSIL CBOR bytes.
+pub fn encode_act_as_credential(csil_v: &ActAsCredential) -> Vec<u8> {
+    cbor_encode(&csil_enc_act_as_credential(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ActAsCredential.
+pub fn decode_act_as_credential(csil_data: &[u8]) -> Result<ActAsCredential, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_act_as_credential(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ActAsGrantRevocation.
+fn csil_enc_act_as_grant_revocation(csil_v: &ActAsGrantRevocation) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(4);
+    csil_entries.push((cbor_text("user_id"), cbor_text(&csil_v.user_id)));
+    csil_entries.push((cbor_text("grant_id"), cbor_text(&csil_v.grant_id)));
+    csil_entries.push((cbor_text("revoked_at"), cbor_text(&csil_v.revoked_at)));
+    csil_entries.push((
+        cbor_text("subject_domain"),
+        cbor_text(&csil_v.subject_domain),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ActAsGrantRevocation from a decoded CBOR value tree.
+fn csil_dec_act_as_grant_revocation(
+    csil_root: &CsilCborValue,
+) -> Result<ActAsGrantRevocation, CsilCborError> {
+    let grant_id = {
+        let csil_field = cbor_require(csil_root, "grant_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let user_id = {
+        let csil_field = cbor_require(csil_root, "user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let subject_domain = {
+        let csil_field = cbor_require(csil_root, "subject_domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let revoked_at = {
+        let csil_field = cbor_require(csil_root, "revoked_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(ActAsGrantRevocation {
+        grant_id,
+        user_id,
+        subject_domain,
+        revoked_at,
+    })
+}
+
+/// Encode a ActAsGrantRevocation to canonical CSIL CBOR bytes.
+pub fn encode_act_as_grant_revocation(csil_v: &ActAsGrantRevocation) -> Vec<u8> {
+    cbor_encode(&csil_enc_act_as_grant_revocation(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ActAsGrantRevocation.
+pub fn decode_act_as_grant_revocation(
+    csil_data: &[u8],
+) -> Result<ActAsGrantRevocation, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_act_as_grant_revocation(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SignedActAsGrantRevocation.
+fn csil_enc_signed_act_as_grant_revocation(csil_v: &SignedActAsGrantRevocation) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("revocation"), cbor_bytes(&csil_v.revocation)));
+    csil_entries.push((
+        cbor_text("signatures"),
+        cbor_enc_array(&csil_v.signatures, csil_enc_claim_signature),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SignedActAsGrantRevocation from a decoded CBOR value tree.
+fn csil_dec_signed_act_as_grant_revocation(
+    csil_root: &CsilCborValue,
+) -> Result<SignedActAsGrantRevocation, CsilCborError> {
+    let revocation = {
+        let csil_field = cbor_require(csil_root, "revocation")?;
+        let csil_decode = cbor_as_bytes;
+        csil_decode(csil_field)?
+    };
+    let signatures = {
+        let csil_field = cbor_require(csil_root, "signatures")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_claim_signature);
+        csil_decode(csil_field)?
+    };
+    Ok(SignedActAsGrantRevocation {
+        revocation,
+        signatures,
+    })
+}
+
+/// Encode a SignedActAsGrantRevocation to canonical CSIL CBOR bytes.
+pub fn encode_signed_act_as_grant_revocation(csil_v: &SignedActAsGrantRevocation) -> Vec<u8> {
+    cbor_encode(&csil_enc_signed_act_as_grant_revocation(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SignedActAsGrantRevocation.
+pub fn decode_signed_act_as_grant_revocation(
+    csil_data: &[u8],
+) -> Result<SignedActAsGrantRevocation, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_signed_act_as_grant_revocation(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a GetActAsGrantRevocationsRequest.
+fn csil_enc_get_act_as_grant_revocations_request(
+    csil_v: &GetActAsGrantRevocationsRequest,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("grant_ids"),
+        cbor_enc_array(&csil_v.grant_ids, |csil_elem| cbor_text(csil_elem)),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a GetActAsGrantRevocationsRequest from a decoded CBOR value tree.
+fn csil_dec_get_act_as_grant_revocations_request(
+    csil_root: &CsilCborValue,
+) -> Result<GetActAsGrantRevocationsRequest, CsilCborError> {
+    let grant_ids = {
+        let csil_field = cbor_require(csil_root, "grant_ids")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+        csil_decode(csil_field)?
+    };
+    Ok(GetActAsGrantRevocationsRequest { grant_ids })
+}
+
+/// Encode a GetActAsGrantRevocationsRequest to canonical CSIL CBOR bytes.
+pub fn encode_get_act_as_grant_revocations_request(
+    csil_v: &GetActAsGrantRevocationsRequest,
+) -> Vec<u8> {
+    cbor_encode(&csil_enc_get_act_as_grant_revocations_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a GetActAsGrantRevocationsRequest.
+pub fn decode_get_act_as_grant_revocations_request(
+    csil_data: &[u8],
+) -> Result<GetActAsGrantRevocationsRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_get_act_as_grant_revocations_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a GetActAsGrantRevocationsResponse.
+fn csil_enc_get_act_as_grant_revocations_response(
+    csil_v: &GetActAsGrantRevocationsResponse,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("revocations"),
+        cbor_enc_array(&csil_v.revocations, csil_enc_signed_act_as_grant_revocation),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a GetActAsGrantRevocationsResponse from a decoded CBOR value tree.
+fn csil_dec_get_act_as_grant_revocations_response(
+    csil_root: &CsilCborValue,
+) -> Result<GetActAsGrantRevocationsResponse, CsilCborError> {
+    let revocations = {
+        let csil_field = cbor_require(csil_root, "revocations")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_signed_act_as_grant_revocation);
+        csil_decode(csil_field)?
+    };
+    Ok(GetActAsGrantRevocationsResponse { revocations })
+}
+
+/// Encode a GetActAsGrantRevocationsResponse to canonical CSIL CBOR bytes.
+pub fn encode_get_act_as_grant_revocations_response(
+    csil_v: &GetActAsGrantRevocationsResponse,
+) -> Vec<u8> {
+    cbor_encode(&csil_enc_get_act_as_grant_revocations_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a GetActAsGrantRevocationsResponse.
+pub fn decode_get_act_as_grant_revocations_response(
+    csil_data: &[u8],
+) -> Result<GetActAsGrantRevocationsResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_get_act_as_grant_revocations_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RpActAsRefreshRequest.
+fn csil_enc_rp_act_as_refresh_request(csil_v: &RpActAsRefreshRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((
+        cbor_text("request"),
+        csil_enc_signed_act_as_refresh_request(&csil_v.request),
+    ));
+    csil_entries.push((
+        cbor_text("subject_domain"),
+        cbor_text(&csil_v.subject_domain),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RpActAsRefreshRequest from a decoded CBOR value tree.
+fn csil_dec_rp_act_as_refresh_request(
+    csil_root: &CsilCborValue,
+) -> Result<RpActAsRefreshRequest, CsilCborError> {
+    let subject_domain = {
+        let csil_field = cbor_require(csil_root, "subject_domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let request = {
+        let csil_field = cbor_require(csil_root, "request")?;
+        let csil_decode = csil_dec_signed_act_as_refresh_request;
+        csil_decode(csil_field)?
+    };
+    Ok(RpActAsRefreshRequest {
+        subject_domain,
+        request,
+    })
+}
+
+/// Encode a RpActAsRefreshRequest to canonical CSIL CBOR bytes.
+pub fn encode_rp_act_as_refresh_request(csil_v: &RpActAsRefreshRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_rp_act_as_refresh_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RpActAsRefreshRequest.
+pub fn decode_rp_act_as_refresh_request(
+    csil_data: &[u8],
+) -> Result<RpActAsRefreshRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_rp_act_as_refresh_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RpResolveActAsRevocationsRequest.
+fn csil_enc_rp_resolve_act_as_revocations_request(
+    csil_v: &RpResolveActAsRevocationsRequest,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((
+        cbor_text("grant_ids"),
+        cbor_enc_array(&csil_v.grant_ids, |csil_elem| cbor_text(csil_elem)),
+    ));
+    csil_entries.push((
+        cbor_text("subject_domain"),
+        cbor_text(&csil_v.subject_domain),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RpResolveActAsRevocationsRequest from a decoded CBOR value tree.
+fn csil_dec_rp_resolve_act_as_revocations_request(
+    csil_root: &CsilCborValue,
+) -> Result<RpResolveActAsRevocationsRequest, CsilCborError> {
+    let subject_domain = {
+        let csil_field = cbor_require(csil_root, "subject_domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let grant_ids = {
+        let csil_field = cbor_require(csil_root, "grant_ids")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+        csil_decode(csil_field)?
+    };
+    Ok(RpResolveActAsRevocationsRequest {
+        subject_domain,
+        grant_ids,
+    })
+}
+
+/// Encode a RpResolveActAsRevocationsRequest to canonical CSIL CBOR bytes.
+pub fn encode_rp_resolve_act_as_revocations_request(
+    csil_v: &RpResolveActAsRevocationsRequest,
+) -> Vec<u8> {
+    cbor_encode(&csil_enc_rp_resolve_act_as_revocations_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RpResolveActAsRevocationsRequest.
+pub fn decode_rp_resolve_act_as_revocations_request(
+    csil_data: &[u8],
+) -> Result<RpResolveActAsRevocationsRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_rp_resolve_act_as_revocations_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a BrowserActAsInspectRequest.
+fn csil_enc_browser_act_as_inspect_request(csil_v: &BrowserActAsInspectRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("signed_request"),
+        cbor_text(&csil_v.signed_request),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a BrowserActAsInspectRequest from a decoded CBOR value tree.
+fn csil_dec_browser_act_as_inspect_request(
+    csil_root: &CsilCborValue,
+) -> Result<BrowserActAsInspectRequest, CsilCborError> {
+    let signed_request = {
+        let csil_field = cbor_require(csil_root, "signed_request")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(BrowserActAsInspectRequest { signed_request })
+}
+
+/// Encode a BrowserActAsInspectRequest to canonical CSIL CBOR bytes.
+pub fn encode_browser_act_as_inspect_request(csil_v: &BrowserActAsInspectRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_browser_act_as_inspect_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a BrowserActAsInspectRequest.
+pub fn decode_browser_act_as_inspect_request(
+    csil_data: &[u8],
+) -> Result<BrowserActAsInspectRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_browser_act_as_inspect_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a BrowserActAsScopeEntry.
+fn csil_enc_browser_act_as_scope_entry(csil_v: &BrowserActAsScopeEntry) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
+    csil_entries.push((cbor_text("scope"), cbor_text(&csil_v.scope)));
+    if let Some(csil_inner) = &csil_v.description {
+        csil_entries.push((cbor_text("description"), cbor_text(csil_inner)));
+    }
+    csil_entries.push((
+        cbor_text("removed_by_policy"),
+        cbor_bool(csil_v.removed_by_policy),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a BrowserActAsScopeEntry from a decoded CBOR value tree.
+fn csil_dec_browser_act_as_scope_entry(
+    csil_root: &CsilCborValue,
+) -> Result<BrowserActAsScopeEntry, CsilCborError> {
+    let scope = {
+        let csil_field = cbor_require(csil_root, "scope")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let description = match cbor_map_get(csil_root, "description") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let removed_by_policy = {
+        let csil_field = cbor_require(csil_root, "removed_by_policy")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    Ok(BrowserActAsScopeEntry {
+        scope,
+        description,
+        removed_by_policy,
+    })
+}
+
+/// Encode a BrowserActAsScopeEntry to canonical CSIL CBOR bytes.
+pub fn encode_browser_act_as_scope_entry(csil_v: &BrowserActAsScopeEntry) -> Vec<u8> {
+    cbor_encode(&csil_enc_browser_act_as_scope_entry(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a BrowserActAsScopeEntry.
+pub fn decode_browser_act_as_scope_entry(
+    csil_data: &[u8],
+) -> Result<BrowserActAsScopeEntry, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_browser_act_as_scope_entry(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a BrowserActAsParty.
+fn csil_enc_browser_act_as_party(csil_v: &BrowserActAsParty) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(10);
+    if let Some(csil_inner) = &csil_v.domain {
+        csil_entries.push((cbor_text("domain"), cbor_text(csil_inner)));
+    }
+    if let Some(csil_inner) = &csil_v.handle {
+        csil_entries.push((cbor_text("handle"), cbor_text(csil_inner)));
+    }
+    csil_entries.push((cbor_text("own_domain"), cbor_bool(csil_v.own_domain)));
+    if let Some(csil_inner) = &csil_v.local_rp_name {
+        csil_entries.push((cbor_text("local_rp_name"), cbor_text(csil_inner)));
+    }
+    if let Some(csil_inner) = &csil_v.application_id {
+        csil_entries.push((cbor_text("application_id"), cbor_text(csil_inner)));
+    }
+    if let Some(csil_inner) = &csil_v.subject_user_id {
+        csil_entries.push((cbor_text("subject_user_id"), cbor_text(csil_inner)));
+    }
+    csil_entries.push((
+        cbor_text("operator_trusted"),
+        cbor_bool(csil_v.operator_trusted),
+    ));
+    csil_entries.push((
+        cbor_text("user_has_history"),
+        cbor_bool(csil_v.user_has_history),
+    ));
+    csil_entries.push((
+        cbor_text("domain_key_pinned"),
+        cbor_bool(csil_v.domain_key_pinned),
+    ));
+    if let Some(csil_inner) = &csil_v.local_rp_fingerprint {
+        csil_entries.push((cbor_text("local_rp_fingerprint"), cbor_text(csil_inner)));
+    }
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a BrowserActAsParty from a decoded CBOR value tree.
+fn csil_dec_browser_act_as_party(
+    csil_root: &CsilCborValue,
+) -> Result<BrowserActAsParty, CsilCborError> {
+    let domain = match cbor_map_get(csil_root, "domain") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let application_id = match cbor_map_get(csil_root, "application_id") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let subject_user_id = match cbor_map_get(csil_root, "subject_user_id") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let handle = match cbor_map_get(csil_root, "handle") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let local_rp_name = match cbor_map_get(csil_root, "local_rp_name") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let local_rp_fingerprint = match cbor_map_get(csil_root, "local_rp_fingerprint") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let own_domain = {
+        let csil_field = cbor_require(csil_root, "own_domain")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    let user_has_history = {
+        let csil_field = cbor_require(csil_root, "user_has_history")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    let domain_key_pinned = {
+        let csil_field = cbor_require(csil_root, "domain_key_pinned")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    let operator_trusted = {
+        let csil_field = cbor_require(csil_root, "operator_trusted")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    Ok(BrowserActAsParty {
+        domain,
+        application_id,
+        subject_user_id,
+        handle,
+        local_rp_name,
+        local_rp_fingerprint,
+        own_domain,
+        user_has_history,
+        domain_key_pinned,
+        operator_trusted,
+    })
+}
+
+/// Encode a BrowserActAsParty to canonical CSIL CBOR bytes.
+pub fn encode_browser_act_as_party(csil_v: &BrowserActAsParty) -> Vec<u8> {
+    cbor_encode(&csil_enc_browser_act_as_party(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a BrowserActAsParty.
+pub fn decode_browser_act_as_party(csil_data: &[u8]) -> Result<BrowserActAsParty, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_browser_act_as_party(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a BrowserActAsInspectResponse.
+fn csil_enc_browser_act_as_inspect_response(csil_v: &BrowserActAsInspectResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(10);
+    csil_entries.push((
+        cbor_text("entries"),
+        cbor_enc_array(&csil_v.entries, csil_enc_browser_act_as_scope_entry),
+    ));
+    csil_entries.push((cbor_text("grantee"), csil_enc_grantee_ref(&csil_v.grantee)));
+    csil_entries.push((
+        cbor_text("audience"),
+        csil_enc_application_ref(&csil_v.audience),
+    ));
+    if let Some(csil_inner) = &csil_v.language {
+        csil_entries.push((cbor_text("language"), cbor_text(csil_inner)));
+    }
+    csil_entries.push((
+        cbor_text("grantee_party"),
+        csil_enc_browser_act_as_party(&csil_v.grantee_party),
+    ));
+    csil_entries.push((
+        cbor_text("audience_party"),
+        csil_enc_browser_act_as_party(&csil_v.audience_party),
+    ));
+    csil_entries.push((
+        cbor_text("max_lifetime_seconds"),
+        cbor_int(csil_v.max_lifetime_seconds),
+    ));
+    csil_entries.push((
+        cbor_text("default_lifetime_seconds"),
+        cbor_int(csil_v.default_lifetime_seconds),
+    ));
+    csil_entries.push((
+        cbor_text("max_renewal_window_seconds"),
+        cbor_int(csil_v.max_renewal_window_seconds),
+    ));
+    csil_entries.push((
+        cbor_text("default_renewal_window_seconds"),
+        cbor_int(csil_v.default_renewal_window_seconds),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a BrowserActAsInspectResponse from a decoded CBOR value tree.
+fn csil_dec_browser_act_as_inspect_response(
+    csil_root: &CsilCborValue,
+) -> Result<BrowserActAsInspectResponse, CsilCborError> {
+    let grantee = {
+        let csil_field = cbor_require(csil_root, "grantee")?;
+        let csil_decode = csil_dec_grantee_ref;
+        csil_decode(csil_field)?
+    };
+    let grantee_party = {
+        let csil_field = cbor_require(csil_root, "grantee_party")?;
+        let csil_decode = csil_dec_browser_act_as_party;
+        csil_decode(csil_field)?
+    };
+    let audience = {
+        let csil_field = cbor_require(csil_root, "audience")?;
+        let csil_decode = csil_dec_application_ref;
+        csil_decode(csil_field)?
+    };
+    let audience_party = {
+        let csil_field = cbor_require(csil_root, "audience_party")?;
+        let csil_decode = csil_dec_browser_act_as_party;
+        csil_decode(csil_field)?
+    };
+    let entries = {
+        let csil_field = cbor_require(csil_root, "entries")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_browser_act_as_scope_entry);
+        csil_decode(csil_field)?
+    };
+    let language = match cbor_map_get(csil_root, "language") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let default_lifetime_seconds = {
+        let csil_field = cbor_require(csil_root, "default_lifetime_seconds")?;
+        let csil_decode = cbor_as_i64;
+        csil_decode(csil_field)?
+    };
+    let max_lifetime_seconds = {
+        let csil_field = cbor_require(csil_root, "max_lifetime_seconds")?;
+        let csil_decode = cbor_as_i64;
+        csil_decode(csil_field)?
+    };
+    let default_renewal_window_seconds = {
+        let csil_field = cbor_require(csil_root, "default_renewal_window_seconds")?;
+        let csil_decode = cbor_as_i64;
+        csil_decode(csil_field)?
+    };
+    let max_renewal_window_seconds = {
+        let csil_field = cbor_require(csil_root, "max_renewal_window_seconds")?;
+        let csil_decode = cbor_as_i64;
+        csil_decode(csil_field)?
+    };
+    Ok(BrowserActAsInspectResponse {
+        grantee,
+        grantee_party,
+        audience,
+        audience_party,
+        entries,
+        language,
+        default_lifetime_seconds,
+        max_lifetime_seconds,
+        default_renewal_window_seconds,
+        max_renewal_window_seconds,
+    })
+}
+
+/// Encode a BrowserActAsInspectResponse to canonical CSIL CBOR bytes.
+pub fn encode_browser_act_as_inspect_response(csil_v: &BrowserActAsInspectResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_browser_act_as_inspect_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a BrowserActAsInspectResponse.
+pub fn decode_browser_act_as_inspect_response(
+    csil_data: &[u8],
+) -> Result<BrowserActAsInspectResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_browser_act_as_inspect_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a BrowserActAsCompleteRequest.
+fn csil_enc_browser_act_as_complete_request(csil_v: &BrowserActAsCompleteRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(4);
+    csil_entries.push((
+        cbor_text("approved_scope"),
+        cbor_enc_array(&csil_v.approved_scope, |csil_elem| cbor_text(csil_elem)),
+    ));
+    csil_entries.push((
+        cbor_text("signed_request"),
+        cbor_text(&csil_v.signed_request),
+    ));
+    csil_entries.push((
+        cbor_text("lifetime_seconds"),
+        cbor_int(csil_v.lifetime_seconds),
+    ));
+    csil_entries.push((
+        cbor_text("renewal_window_seconds"),
+        cbor_int(csil_v.renewal_window_seconds),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a BrowserActAsCompleteRequest from a decoded CBOR value tree.
+fn csil_dec_browser_act_as_complete_request(
+    csil_root: &CsilCborValue,
+) -> Result<BrowserActAsCompleteRequest, CsilCborError> {
+    let signed_request = {
+        let csil_field = cbor_require(csil_root, "signed_request")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let approved_scope = {
+        let csil_field = cbor_require(csil_root, "approved_scope")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+        csil_decode(csil_field)?
+    };
+    let lifetime_seconds = {
+        let csil_field = cbor_require(csil_root, "lifetime_seconds")?;
+        let csil_decode = cbor_as_i64;
+        csil_decode(csil_field)?
+    };
+    let renewal_window_seconds = {
+        let csil_field = cbor_require(csil_root, "renewal_window_seconds")?;
+        let csil_decode = cbor_as_i64;
+        csil_decode(csil_field)?
+    };
+    Ok(BrowserActAsCompleteRequest {
+        signed_request,
+        approved_scope,
+        lifetime_seconds,
+        renewal_window_seconds,
+    })
+}
+
+/// Encode a BrowserActAsCompleteRequest to canonical CSIL CBOR bytes.
+pub fn encode_browser_act_as_complete_request(csil_v: &BrowserActAsCompleteRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_browser_act_as_complete_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a BrowserActAsCompleteRequest.
+pub fn decode_browser_act_as_complete_request(
+    csil_data: &[u8],
+) -> Result<BrowserActAsCompleteRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_browser_act_as_complete_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a BrowserActAsCompleteResponse.
+fn csil_enc_browser_act_as_complete_response(
+    csil_v: &BrowserActAsCompleteResponse,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("redirect_url"), cbor_text(&csil_v.redirect_url)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a BrowserActAsCompleteResponse from a decoded CBOR value tree.
+fn csil_dec_browser_act_as_complete_response(
+    csil_root: &CsilCborValue,
+) -> Result<BrowserActAsCompleteResponse, CsilCborError> {
+    let redirect_url = {
+        let csil_field = cbor_require(csil_root, "redirect_url")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(BrowserActAsCompleteResponse { redirect_url })
+}
+
+/// Encode a BrowserActAsCompleteResponse to canonical CSIL CBOR bytes.
+pub fn encode_browser_act_as_complete_response(csil_v: &BrowserActAsCompleteResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_browser_act_as_complete_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a BrowserActAsCompleteResponse.
+pub fn decode_browser_act_as_complete_response(
+    csil_data: &[u8],
+) -> Result<BrowserActAsCompleteResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_browser_act_as_complete_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ActAsGrantSummary.
+fn csil_enc_act_as_grant_summary(csil_v: &ActAsGrantSummary) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(8);
+    csil_entries.push((cbor_text("grantee"), csil_enc_grantee_ref(&csil_v.grantee)));
+    csil_entries.push((
+        cbor_text("audience"),
+        csil_enc_application_ref(&csil_v.audience),
+    ));
+    csil_entries.push((cbor_text("grant_id"), cbor_text(&csil_v.grant_id)));
+    csil_entries.push((cbor_text("issued_at"), cbor_text(&csil_v.issued_at)));
+    csil_entries.push((cbor_text("expires_at"), cbor_text(&csil_v.expires_at)));
+    if let Some(csil_inner) = &csil_v.revoked_at {
+        csil_entries.push((cbor_text("revoked_at"), cbor_text(csil_inner)));
+    }
+    csil_entries.push((
+        cbor_text("approved_scope"),
+        cbor_enc_array(&csil_v.approved_scope, |csil_elem| cbor_text(csil_elem)),
+    ));
+    csil_entries.push((
+        cbor_text("renewable_until"),
+        cbor_text(&csil_v.renewable_until),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ActAsGrantSummary from a decoded CBOR value tree.
+fn csil_dec_act_as_grant_summary(
+    csil_root: &CsilCborValue,
+) -> Result<ActAsGrantSummary, CsilCborError> {
+    let grant_id = {
+        let csil_field = cbor_require(csil_root, "grant_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let grantee = {
+        let csil_field = cbor_require(csil_root, "grantee")?;
+        let csil_decode = csil_dec_grantee_ref;
+        csil_decode(csil_field)?
+    };
+    let audience = {
+        let csil_field = cbor_require(csil_root, "audience")?;
+        let csil_decode = csil_dec_application_ref;
+        csil_decode(csil_field)?
+    };
+    let approved_scope = {
+        let csil_field = cbor_require(csil_root, "approved_scope")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+        csil_decode(csil_field)?
+    };
+    let issued_at = {
+        let csil_field = cbor_require(csil_root, "issued_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let expires_at = {
+        let csil_field = cbor_require(csil_root, "expires_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let renewable_until = {
+        let csil_field = cbor_require(csil_root, "renewable_until")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let revoked_at = match cbor_map_get(csil_root, "revoked_at") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(ActAsGrantSummary {
+        grant_id,
+        grantee,
+        audience,
+        approved_scope,
+        issued_at,
+        expires_at,
+        renewable_until,
+        revoked_at,
+    })
+}
+
+/// Encode a ActAsGrantSummary to canonical CSIL CBOR bytes.
+pub fn encode_act_as_grant_summary(csil_v: &ActAsGrantSummary) -> Vec<u8> {
+    cbor_encode(&csil_enc_act_as_grant_summary(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ActAsGrantSummary.
+pub fn decode_act_as_grant_summary(csil_data: &[u8]) -> Result<ActAsGrantSummary, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_act_as_grant_summary(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ListActAsGrantsResponse.
+fn csil_enc_list_act_as_grants_response(csil_v: &ListActAsGrantsResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("grants"),
+        cbor_enc_array(&csil_v.grants, csil_enc_act_as_grant_summary),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ListActAsGrantsResponse from a decoded CBOR value tree.
+fn csil_dec_list_act_as_grants_response(
+    csil_root: &CsilCborValue,
+) -> Result<ListActAsGrantsResponse, CsilCborError> {
+    let grants = {
+        let csil_field = cbor_require(csil_root, "grants")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_act_as_grant_summary);
+        csil_decode(csil_field)?
+    };
+    Ok(ListActAsGrantsResponse { grants })
+}
+
+/// Encode a ListActAsGrantsResponse to canonical CSIL CBOR bytes.
+pub fn encode_list_act_as_grants_response(csil_v: &ListActAsGrantsResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_list_act_as_grants_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ListActAsGrantsResponse.
+pub fn decode_list_act_as_grants_response(
+    csil_data: &[u8],
+) -> Result<ListActAsGrantsResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_list_act_as_grants_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RevokeActAsGrantRequest.
+fn csil_enc_revoke_act_as_grant_request(csil_v: &RevokeActAsGrantRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("grant_id"), cbor_text(&csil_v.grant_id)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RevokeActAsGrantRequest from a decoded CBOR value tree.
+fn csil_dec_revoke_act_as_grant_request(
+    csil_root: &CsilCborValue,
+) -> Result<RevokeActAsGrantRequest, CsilCborError> {
+    let grant_id = {
+        let csil_field = cbor_require(csil_root, "grant_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(RevokeActAsGrantRequest { grant_id })
+}
+
+/// Encode a RevokeActAsGrantRequest to canonical CSIL CBOR bytes.
+pub fn encode_revoke_act_as_grant_request(csil_v: &RevokeActAsGrantRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_revoke_act_as_grant_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RevokeActAsGrantRequest.
+pub fn decode_revoke_act_as_grant_request(
+    csil_data: &[u8],
+) -> Result<RevokeActAsGrantRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_revoke_act_as_grant_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RevokeActAsGrantResponse.
+fn csil_enc_revoke_act_as_grant_response(csil_v: &RevokeActAsGrantResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("revoked_at"), cbor_text(&csil_v.revoked_at)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RevokeActAsGrantResponse from a decoded CBOR value tree.
+fn csil_dec_revoke_act_as_grant_response(
+    csil_root: &CsilCborValue,
+) -> Result<RevokeActAsGrantResponse, CsilCborError> {
+    let revoked_at = {
+        let csil_field = cbor_require(csil_root, "revoked_at")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(RevokeActAsGrantResponse { revoked_at })
+}
+
+/// Encode a RevokeActAsGrantResponse to canonical CSIL CBOR bytes.
+pub fn encode_revoke_act_as_grant_response(csil_v: &RevokeActAsGrantResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_revoke_act_as_grant_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RevokeActAsGrantResponse.
+pub fn decode_revoke_act_as_grant_response(
+    csil_data: &[u8],
+) -> Result<RevokeActAsGrantResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_revoke_act_as_grant_response(&csil_root)
 }
 
 /// Encode a CheckValue union as a tagged sum `[variant_index, value]`.

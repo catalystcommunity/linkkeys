@@ -1,14 +1,22 @@
 /* begin_local_login (design doc: "SDK API Shape", "Flow" steps 4-6).
- * Pure/offline: no network access happens here. Mirrors
- * `sdks/local-rp/rust/src/begin.rs`. */
+ * Mirrors `sdks/local-rp/rust/src/begin.rs` / `sdks/local-rp/go/begin.go`.
+ *
+ * The signing work is pure/offline. The one network touch is a DNS TXT
+ * lookup of `_linkkeys_apis.<user_domain>` to discover the browser-facing
+ * HTTPS endpoint (the identity domain is a trust domain, not necessarily
+ * the host serving the login routes — see src/browser.c). The resolver is
+ * injectable via lrp_begin_login_config.dns; on any discovery failure the
+ * redirect falls back to `https://<user_domain>`. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "browser.h"
 #include "cbor.h"
 #include "crypto.h"
 #include "encoding.h"
 #include "error.h"
+#include "identity_input.h"
 #include "local_rp.h"
 #include "time_util.h"
 
@@ -161,12 +169,6 @@ static int validate_callback_scheme(const char *url, lrp_error *err) {
     return lrp_fail(err, LRP_ERR_INVALID_INPUT, "callback_url must be http:// or https://");
 }
 
-typedef struct {
-    char username[65];
-    char domain[260];
-    int has_username;
-} parsed_identity_input;
-
 static int identity_username_char(unsigned char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
            strchr("!#$%&'*+-/=?^_`{|}~.", c) != NULL;
@@ -203,7 +205,7 @@ static int validate_identity_domain(const char *domain) {
     return 1;
 }
 
-static int parse_identity_input(const char *value, parsed_identity_input *out, lrp_error *err) {
+int lrp_parse_identity_input(const char *value, lrp_parsed_identity_input *out, lrp_error *err) {
     if (value == NULL) return lrp_fail(err, LRP_ERR_INVALID_INPUT, "identity must be a username@domain or a domain");
     while (*value == ' ' || *value == '\t' || *value == '\r' || *value == '\n') value++;
     size_t len = strlen(value);
@@ -238,23 +240,6 @@ invalid:
     return lrp_fail(err, LRP_ERR_INVALID_INPUT, "identity must be a username@domain or a domain");
 }
 
-static void percent_encode_username(const char *username, char out[193]) {
-    static const char hex[] = "0123456789ABCDEF";
-    size_t offset = 0;
-    for (const unsigned char *p = (const unsigned char *)username; *p != '\0'; p++) {
-        unsigned char c = *p;
-        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
-            c == '-' || c == '.' || c == '_' || c == '~') {
-            out[offset++] = (char)c;
-        } else {
-            out[offset++] = '%';
-            out[offset++] = hex[c >> 4];
-            out[offset++] = hex[c & 15];
-        }
-    }
-    out[offset] = '\0';
-}
-
 int lrp_begin_local_login(const lrp_begin_login_config *config, lrp_login_redirect *out_redirect,
                            lrp_pending_login *out_pending, lrp_error *err) {
     memset(out_redirect, 0, sizeof(*out_redirect));
@@ -264,8 +249,8 @@ int lrp_begin_local_login(const lrp_begin_login_config *config, lrp_login_redire
         return lrp_fail(err, LRP_ERR_INVALID_INPUT, "identity is required");
     }
     if (validate_callback_scheme(config->callback_url, err) != 0) return -1;
-    parsed_identity_input identity;
-    if (parse_identity_input(config->user_domain, &identity, err) != 0) return -1;
+    lrp_parsed_identity_input identity;
+    if (lrp_parse_identity_input(config->user_domain, &identity, err) != 0) return -1;
 
     uint8_t nonce[32], state[32];
     if (lrp_rand_bytes(nonce, 32, err) != 0) return -1;
@@ -328,22 +313,41 @@ int lrp_begin_local_login(const lrp_begin_login_config *config, lrp_login_redire
     lrp_bytes_free(&signed_request);
     if (rc != 0) return -1;
 
-    char encoded_username[193] = {0};
-    if (identity.has_username) percent_encode_username(identity.username, encoded_username);
-    size_t url_len = strlen("https://") + strlen(identity.domain) +
-                      strlen("/auth/local-rp?signed_request=") + strlen(encoded.data) +
-                      (identity.has_username ? strlen("&username=") + strlen(encoded_username) : 0) + 1;
-    char *redirect_url = (char *)malloc(url_len);
-    if (redirect_url == NULL) {
-        lrp_str_free(&encoded);
-        return lrp_fail(err, LRP_ERR_OUT_OF_MEMORY, "out of memory");
-    }
-    snprintf(redirect_url, url_len, "https://%s/auth/local-rp?signed_request=%s%s%s",
-             identity.domain, encoded.data, identity.has_username ? "&username=" : "",
-             identity.has_username ? encoded_username : "");
+    /* Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>"
+     * — mirrors the existing GET /auth/authorize?signed_request=... shape.
+     * The host comes from `_linkkeys_apis.<user_domain>` discovery (with a
+     * fallback to the identity domain itself); pending.user_domain stays
+     * the identity domain — verification is bound to it, never to the
+     * discovered service host. */
+    lrp_dns_resolver default_dns_storage = lrp_default_dns_resolver();
+    lrp_dns_resolver *dns = config->dns != NULL ? config->dns : &default_dns_storage;
+    lrp_str redirect = {0};
+    rc = lrp_resolve_browser_endpoint(dns, identity.domain, LRP_BROWSER_ROUTE_LOCAL_RP,
+                                      encoded.data, &redirect, err);
     lrp_str_free(&encoded);
+    if (rc != 0) return -1;
+    if (identity.has_username) {
+        /* The endpoint's query is exactly `signed_request=<value>` (no
+         * fragment), so appending one more encoded pair is well-formed. */
+        lrp_str encoded_username = {0};
+        if (lrp_percent_encode_query_value(identity.username, &encoded_username, err) != 0) {
+            lrp_str_free(&redirect);
+            return -1;
+        }
+        size_t url_len = strlen(redirect.data) + strlen("&username=") + strlen(encoded_username.data) + 1;
+        char *with_username = (char *)malloc(url_len);
+        if (with_username == NULL) {
+            lrp_str_free(&encoded_username);
+            lrp_str_free(&redirect);
+            return lrp_fail(err, LRP_ERR_OUT_OF_MEMORY, "out of memory");
+        }
+        snprintf(with_username, url_len, "%s&username=%s", redirect.data, encoded_username.data);
+        lrp_str_free(&encoded_username);
+        lrp_str_free(&redirect);
+        redirect.data = with_username;
+    }
 
-    out_redirect->redirect_url.data = redirect_url;
+    out_redirect->redirect_url = redirect;
 
     out_pending->nonce.data = (uint8_t *)malloc(32);
     memcpy(out_pending->nonce.data, nonce, 32);

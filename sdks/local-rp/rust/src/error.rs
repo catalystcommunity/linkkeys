@@ -49,6 +49,9 @@ pub enum Error {
     /// redemption's claims that passed signature verification. Carries the
     /// missing claim types.
     RequiredClaimsNotSatisfied(Vec<String>),
+    /// An act-as grant step failed: signing, decoding a grant, or a grant
+    /// that names another grant id, grantee, or home domain.
+    ActAs(liblinkkeys::act_as::ActAsError),
 }
 
 impl fmt::Display for Error {
@@ -76,6 +79,7 @@ impl fmt::Display for Error {
             Error::RequiredClaimsNotSatisfied(missing) => {
                 write!(f, "required claims not satisfied: {}", missing.join(", "))
             }
+            Error::ActAs(e) => write!(f, "act-as grant error: {e}"),
         }
     }
 }
@@ -91,6 +95,12 @@ impl From<liblinkkeys::local_rp::LocalRpError> for Error {
 impl From<liblinkkeys::crypto::CryptoError> for Error {
     fn from(e: liblinkkeys::crypto::CryptoError) -> Self {
         Error::Verification(liblinkkeys::local_rp::LocalRpError::from(e))
+    }
+}
+
+impl From<liblinkkeys::act_as::ActAsError> for Error {
+    fn from(e: liblinkkeys::act_as::ActAsError) -> Self {
+        Error::ActAs(e)
     }
 }
 

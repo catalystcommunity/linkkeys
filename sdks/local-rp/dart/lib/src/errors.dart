@@ -82,6 +82,10 @@ enum LocalRpErrorKind {
   /// IDP answering a redemption for a different user than the one who
   /// authenticated, must never be attributed to this login.
   redemptionIdentityMismatch,
+
+  /// `ActAs/refresh-grant` returned a grant for another grant id, another
+  /// grantee, or another subject domain than the call asked for.
+  grantMismatch,
 }
 
 class LocalRpError implements Exception {

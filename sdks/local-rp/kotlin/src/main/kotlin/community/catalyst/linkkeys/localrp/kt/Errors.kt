@@ -83,6 +83,11 @@ enum class ProtocolErrorKind {
      * claim set was empty).
      */
     REQUIRED_CLAIMS_NOT_SATISFIED,
+    /**
+     * `ActAs/refresh-grant` returned a grant for another grant id, another
+     * grantee, or another subject domain than the call asked for.
+     */
+    GRANT_MISMATCH,
 }
 
 /** Mirrors `community.catalyst.linkkeys.localrp.ClaimError.Kind` exactly. */

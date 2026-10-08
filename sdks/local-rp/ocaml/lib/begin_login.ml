@@ -1,9 +1,16 @@
 (* [begin_local_login] (design doc: "SDK API Shape", "Flow" steps 4-6).
 
-   Pure/offline: no network access happens here. It generates a fresh
-   nonce/state, builds and signs a [LocalRpLoginRequest] around the
-   identity's already-signed descriptor, and returns a redirect URL plus
-   the pending-login state the app must persist and treat as single-use. *)
+   It generates a fresh nonce/state, builds and signs a [LocalRpLoginRequest]
+   around the identity's already-signed descriptor, and returns a redirect
+   URL plus the pending-login state the app must persist and treat as
+   single-use.
+
+   The signing work is pure/offline. The one network touch is a DNS TXT
+   lookup of [_linkkeys_apis.<user_domain>] to discover the browser-facing
+   HTTPS endpoint (the identity domain is a trust domain, not necessarily
+   the host serving the login routes -- see [Browser]). The resolver is
+   injectable via [config.dns] ([make_config ~dns]); on any discovery
+   failure the redirect falls back to [https://<user_domain>]. *)
 
 (* Default requested claims when the caller doesn't specify any (design
    doc, "Default Claim Set"): a usable "identity" out of the box with zero
@@ -26,11 +33,16 @@ type config = {
   requested_claims : string list option;
   required_claims : string list option;
   request_lifetime : float option;
+  dns : Dns.resolver option;
+      (* The DNS TXT lookup seam for browser endpoint discovery
+         ([_linkkeys_apis.<user_domain>], its [https=] endpoint). Defaults
+         to [Dns.default_resolver] when [None], same as
+         [Complete_login.config.dns]. *)
 }
 
-let make_config ~key_material ~callback_url ~user_domain ~now ?requested_claims ?required_claims ?request_lifetime () :
+let make_config ~key_material ~callback_url ~user_domain ~now ?requested_claims ?required_claims ?request_lifetime ?dns () :
     config =
-  { key_material; callback_url; user_domain; now; requested_claims; required_claims; request_lifetime }
+  { key_material; callback_url; user_domain; now; requested_claims; required_claims; request_lifetime; dns }
 
 (* The redirect URL the app should send the user's browser to. The SDK
    never performs the redirect itself (design doc: "Browser-only Flow"). *)
@@ -149,25 +161,17 @@ let parse_identity_input (value : string) : string option * string =
   if not (valid_domain domain) then invalid_identity ();
   (username, String.lowercase_ascii domain)
 
-let percent_encode_query_value (value : string) : string =
-  let hex = "0123456789ABCDEF" in
-  let output = Buffer.create (String.length value) in
-  String.iter (fun c ->
-    match c with
-    | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' | '.' | '_' | '~' -> Buffer.add_char output c
-    | _ ->
-        let n = Char.code c in
-        Buffer.add_char output '%';
-        Buffer.add_char output hex.[n lsr 4];
-        Buffer.add_char output hex.[n land 15]) value;
-  Buffer.contents output
-
 (* [begin_local_login(config) -> (LocalLoginRedirect, PendingLogin)] (design
    doc, "SDK API Shape"). Generates a fresh nonce/state, builds and signs a
    [LocalRpLoginRequest] (envelope + linkkeys-local-rp-login-request-v1alpha
    context) around the identity's descriptor, and returns the full
    redirect URL for the user's LinkKeys domain plus the pending-login
-   state. *)
+   state.
+
+   The redirect host comes from [_linkkeys_apis.<user_domain>] discovery
+   ([Browser.resolve_browser_endpoint_exn], with a fallback to the identity
+   domain itself); [pending_login.user_domain] stays the identity domain --
+   verification is bound to it, never to the discovered service host. *)
 let begin_local_login_exn (config : config) : local_login_redirect * pending_login =
   validate_callback_scheme config.callback_url;
   let username, domain = parse_identity_input config.user_domain in
@@ -186,10 +190,13 @@ let begin_local_login_exn (config : config) : local_login_redirect * pending_log
   let encoded = Url_params.signed_local_rp_login_request_to_url_param signed in
   (* Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>"
      -- mirrors the existing GET /auth/authorize?signed_request=... route
-     shape. *)
+     shape. The host comes from [_linkkeys_apis.<domain>] discovery (with a
+     fallback to the identity domain itself). *)
+  let dns = match config.dns with Some d -> d | None -> Dns.default_resolver in
+  let redirect_url = Browser.resolve_browser_endpoint_exn dns domain Browser.browser_route_local_rp encoded in
   let redirect_url = match username with
-    | Some username -> Printf.sprintf "https://%s/auth/local-rp?signed_request=%s&username=%s" domain encoded (percent_encode_query_value username)
-    | None -> Printf.sprintf "https://%s/auth/local-rp?signed_request=%s" domain encoded
+    | Some username -> redirect_url ^ "&username=" ^ Browser.percent_encode_query_value username
+    | None -> redirect_url
   in
   ( { redirect_url },
     { nonce; state; user_domain = domain; callback_url = config.callback_url; required_claims } )

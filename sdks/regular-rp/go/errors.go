@@ -148,3 +148,80 @@ type RevocationError struct {
 func (e *RevocationError) Error() string {
 	return fmt.Sprintf("domain key revocation certificate has %d valid sibling signatures; %d required", e.Got, e.Need)
 }
+
+// ActAsErrorKind mirrors `liblinkkeys::act_as::ActAsError`'s variants.
+type ActAsErrorKind string
+
+const (
+	// ErrActAsDecode: an embedded CBOR payload did not decode.
+	ErrActAsDecode ActAsErrorKind = "decode"
+	// ErrActAsBadTimestamp: a timestamp field was not RFC3339.
+	ErrActAsBadTimestamp ActAsErrorKind = "bad_timestamp"
+	// ErrActAsMalformedGrantee: a GranteeRef or GranteeProof did not carry
+	// exactly one form.
+	ErrActAsMalformedGrantee ActAsErrorKind = "malformed_grantee"
+	// ErrActAsProofDoesNotMatchGrantee: the proof's form does not match the
+	// grantee's form.
+	ErrActAsProofDoesNotMatchGrantee ActAsErrorKind = "proof_does_not_match_grantee"
+	// ErrActAsUntrustedSigner: the signing key is not a valid key of the
+	// expected party.
+	ErrActAsUntrustedSigner ActAsErrorKind = "untrusted_signer"
+	// ErrActAsBadSignature: a signature did not verify.
+	ErrActAsBadSignature ActAsErrorKind = "bad_signature"
+	// ErrActAsNoValidSignature: no signature on a multi-signed structure came
+	// from an acceptable key. Detail names each signing key and why it was
+	// refused.
+	ErrActAsNoValidSignature ActAsErrorKind = "no_valid_signature"
+	// ErrActAsBadHandleClaim: a handle claim is malformed, about another
+	// account, or did not verify.
+	ErrActAsBadHandleClaim ActAsErrorKind = "bad_handle_claim"
+	// ErrActAsMismatch: a field did not equal the value the verifier
+	// expected. Field names the field.
+	ErrActAsMismatch ActAsErrorKind = "mismatch"
+	// ErrActAsBadScopeSet: a scope set is empty, too large, or repeats a
+	// scope.
+	ErrActAsBadScopeSet ActAsErrorKind = "bad_scope_set"
+	// ErrActAsBadApprovedScope: the approved scope is empty, repeats a
+	// scope, or names a scope outside the scope set.
+	ErrActAsBadApprovedScope ActAsErrorKind = "bad_approved_scope"
+	// ErrActAsRequestExpired: a request or presentation is outside its time
+	// window.
+	ErrActAsRequestExpired ActAsErrorKind = "request_expired"
+	// ErrActAsScopeSetExpired: the scope set has expired. Applies only at
+	// approval.
+	ErrActAsScopeSetExpired ActAsErrorKind = "scope_set_expired"
+	// ErrActAsGrantExpired: the grant has expired.
+	ErrActAsGrantExpired ActAsErrorKind = "grant_expired"
+	// ErrActAsGrantRevoked: the grant is revoked.
+	ErrActAsGrantRevoked ActAsErrorKind = "grant_revoked"
+	// ErrActAsBadTerms: a lifetime or renewal window is not positive, or
+	// exceeds a bound.
+	ErrActAsBadTerms ActAsErrorKind = "bad_terms"
+	// ErrActAsDeviceBindingUnsupported: the grant carries a device binding.
+	// Device keys are Reserved, so no verifier can check one yet.
+	ErrActAsDeviceBindingUnsupported ActAsErrorKind = "device_binding_unsupported"
+	// ErrActAsCrypto: a cryptographic primitive failed.
+	ErrActAsCrypto ActAsErrorKind = "crypto"
+)
+
+// ActAsError is an act-as grant verification or construction failure. Like
+// every error in this package, it carries no key material, nonce, or scope
+// value: only the kind, a field name, and a short detail.
+type ActAsError struct {
+	Kind ActAsErrorKind
+	// Field is set for ErrActAsMismatch.
+	Field string
+	// Detail is a short, non-sensitive explanation.
+	Detail string
+}
+
+func (e *ActAsError) Error() string {
+	switch {
+	case e.Kind == ErrActAsMismatch:
+		return fmt.Sprintf("act-as: %s does not match the expected value", e.Field)
+	case e.Detail != "":
+		return fmt.Sprintf("act-as: %s: %s", e.Kind, e.Detail)
+	default:
+		return fmt.Sprintf("act-as: %s", e.Kind)
+	}
+}
