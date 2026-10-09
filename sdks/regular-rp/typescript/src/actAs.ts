@@ -544,13 +544,29 @@ export type RevokedKeyPolicy = "acceptBeforeRevocation" | "refuseRevoked";
 /** The default revoked-key policy. */
 export const DEFAULT_REVOKED_KEY_POLICY: RevokedKeyPolicy = "acceptBeforeRevocation";
 
+/**
+ * The clock skew allowed between a signer and the home domain that recorded
+ * its key's creation time. Mirrors `liblinkkeys::act_as::KEY_CLOCK_SKEW_SECONDS`.
+ */
+export const ACT_AS_KEY_CLOCK_SKEW_SECONDS = 300;
+
+/** The key could vouch at `signedAtMs`, allowing the skew for a key recorded as created slightly later. */
+function validAtWithSkew(key: ApplicationKeyRef, signedAtMs: number): boolean {
+  if (keyWasValidAt(key, signedAtMs)) return true;
+  const created = parseRfc3339(key.createdAt);
+  return created !== undefined
+    && created > signedAtMs
+    && created <= signedAtMs + ACT_AS_KEY_CLOCK_SKEW_SECONDS * 1000
+    && keyWasValidAt(key, created);
+}
+
 /** Why `key` cannot vouch for something signed at `signedAtMs`, or undefined. */
 function keyRefusal(key: ApplicationKeyRef, signedAtMs: number, policy: RevokedKeyPolicy): string | undefined {
   if (key.keyUsage !== KEY_USAGE_SIGN) return "not a signing key";
   if (policy === "refuseRevoked" && key.revokedAt !== undefined) {
     return `revoked at ${key.revokedAt}; this verifier refuses revoked keys`;
   }
-  if (!keyWasValidAt(key, signedAtMs)) {
+  if (!validAtWithSkew(key, signedAtMs)) {
     return key.revokedAt !== undefined
       ? `revoked at ${key.revokedAt}, before it signed`
       : "not inside its validity window when it signed";

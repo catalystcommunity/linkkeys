@@ -397,6 +397,26 @@ pub enum RevokedKeyPolicy {
     RefuseRevoked,
 }
 
+/// The clock skew allowed between a signer and the home domain that recorded
+/// its key's creation time. A key created up to this long after a structure's
+/// signing time still counts, so an audience whose clock trails its home
+/// domain can sign right after it enrolls.
+pub const KEY_CLOCK_SKEW_SECONDS: i64 = 300;
+
+/// The key could vouch at `signed_at`, allowing [`KEY_CLOCK_SKEW_SECONDS`] for
+/// a key the home domain recorded as created slightly later.
+fn valid_at_with_skew(key: &ApplicationKeyRef, signed_at: DateTime<Utc>) -> bool {
+    if key.was_valid_at(signed_at) {
+        return true;
+    }
+    let Ok(created) = parse_time(&key.created_at) else {
+        return false;
+    };
+    created > signed_at
+        && created <= signed_at + Duration::seconds(KEY_CLOCK_SKEW_SECONDS)
+        && key.was_valid_at(created)
+}
+
 /// Why `key` cannot vouch for something signed at `signed_at`, or None.
 fn key_refusal(
     key: &ApplicationKeyRef,
@@ -411,7 +431,7 @@ fn key_refusal(
             "revoked at {revoked_at}; this verifier refuses revoked keys"
         ));
     }
-    if !key.was_valid_at(signed_at) {
+    if !valid_at_with_skew(key, signed_at) {
         return Some(match &key.revoked_at {
             Some(revoked_at) => format!("revoked at {revoked_at}, before it signed"),
             None => "not inside its validity window when it signed".into(),
