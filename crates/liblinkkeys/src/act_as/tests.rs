@@ -1172,3 +1172,33 @@ fn a_handle_claim_about_another_account_or_type_or_domain_is_refused() {
         Err(ActAsError::BadHandleClaim(_))
     ));
 }
+
+#[test]
+fn a_key_created_within_the_clock_skew_after_issued_at_counts() {
+    let w = World::new();
+    let signed = multi_signed(&w, &key("d-2"));
+    // The set is issued at 11:55. The home domain recorded the key as created
+    // later: inside the skew it counts, beyond the skew it does not.
+    let mut inside = app_key_ref(&w.d_key);
+    inside.created_at = "2026-10-06T11:59:00Z".into();
+    assert!(verify_scope_set(
+        &signed,
+        &audience_d(),
+        &[inside],
+        RevokedKeyPolicy::default()
+    )
+    .is_ok());
+    let mut beyond = app_key_ref(&w.d_key);
+    beyond.created_at = "2026-10-06T12:00:01Z".into();
+    let err = verify_scope_set(
+        &signed,
+        &audience_d(),
+        &[beyond],
+        RevokedKeyPolicy::default(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&err, ActAsError::NoValidSignature(m) if m.contains("validity window")),
+        "{err:?}"
+    );
+}

@@ -4,7 +4,7 @@ import "./styles.css";
 import { api } from "./transport";
 import { RuntimeHost, addStylesheet, loadExtensions, type ExtensionRoute } from "./host";
 import type { ActAsGrantSummary, BrowserActAsInspectResponse, BrowserActAsParty, BrowserSessionInfo, Claim, GetUiConfigurationResponse, SettableClaimPolicy, VerifiedContactMethod } from "./generated/types.gen";
-import { actAsGrantState, actAsHandoff, actAsRequestKey, applicationLabel, describeDuration, durationChoices, partyTitle, partyTrustNotes, authenticationFailed, authorizationHandoff, authorizationRequestIsTerminal, claimValueTooLong, cleanupOnce, currentPasswordMessage, hasBlockedRequiredClaim, inputType, loginFailureMessage, passwordLengthError, passwordManagerUsername, recoveryCompletionFailureMessage, recoveryLinkExpired, recoveryValidationFailureMessage, serviceMessage as message, standingAuthorization, transportFailed, verificationFailureMessage, withLoginContext } from "./ui-logic";
+import { actAsGrantState, actAsHandoff, actAsRequestKey, applicationLabel, describeDuration, durationChoices, partyHeadline, partyTitle, partyTrustNotes, authenticationFailed, authorizationHandoff, authorizationRequestIsTerminal, claimValueTooLong, cleanupOnce, currentPasswordMessage, hasBlockedRequiredClaim, inputType, loginFailureMessage, passwordLengthError, passwordManagerUsername, recoveryCompletionFailureMessage, recoveryLinkExpired, recoveryValidationFailureMessage, serviceMessage as message, standingAuthorization, transportFailed, verificationFailureMessage, withLoginContext } from "./ui-logic";
 
 type PageProps = { navigate(path: string): void; configuration: GetUiConfigurationResponse; session?: BrowserSessionInfo; refreshSession(): Promise<void>; extensionFailures?: string[] };
 
@@ -213,12 +213,12 @@ const ActAsConsent: Component<PageProps> = (props) => {
   };
   const cancel = () => { sessionStorage.removeItem(actAsRequestKey); props.navigate("/app/act-as/cancelled"); };
   return <main class="wrap narrow"><section class="hero"><p class="eyebrow">Act for you</p><h1>Let an application act for you</h1>
-    <Show when={context()}><p><strong>{partyTitle(context()!.granteeParty)}</strong> asks to act as you at <strong>{partyTitle(context()!.audienceParty)}</strong>.</p></Show></section>
+    <Show when={context()}><p><strong>{partyHeadline(context()!.granteeParty)}</strong> asks to act as you at <strong>{partyHeadline(context()!.audienceParty)}</strong>.</p></Show></section>
     <Show when={context()} fallback={<section class="card"><p role={error() ? "alert" : "status"}>{error() || "Checking the request…"}</p></section>}>
       <form class="card" aria-busy={busy()} onSubmit={submit}>
         <ActAsPartyCard role="Asks to act for you" party={context()!.granteeParty} />
         <ActAsPartyCard role="Where it will act" party={context()!.audienceParty} />
-        <p class="notice">{partyTitle(context()!.audienceParty)} wrote the list below. LinkKeys does not check what each item allows. Remove any item you do not want to give.</p>
+        <p class="notice">{partyHeadline(context()!.audienceParty)} wrote the list below. LinkKeys does not check what each item allows. Remove any item you do not want to give.</p>
         <For each={context()!.entries}>{(entry) => <div class="consent-claim"><label class="checkbox-label"><input type="checkbox" checked={!entry.removedByPolicy && selected()[entry.scope]} disabled={entry.removedByPolicy || busy()} onChange={(event) => setSelected((current) => ({ ...current, [entry.scope]: event.currentTarget.checked }))} /><span>{entry.description ?? entry.scope}</span></label><Show when={entry.description}><small><code>{entry.scope}</code></small></Show><Show when={entry.removedByPolicy}><small>This site does not allow this item.</small></Show></div>}</For>
         <label><span>Allow for</span><select value={String(lifetime())} disabled={busy()} onChange={(event) => setLifetime(Number(event.currentTarget.value))}><For each={durationChoices(context()!.defaultLifetimeSeconds, context()!.maxLifetimeSeconds, false)}>{(value) => <option value={String(value)}>{describeDuration(value)}</option>}</For></select></label>
         <Show when={context()!.maxRenewalWindowSeconds > 0}><label><span>Let the application renew without asking for</span><select value={String(renewal())} disabled={busy()} onChange={(event) => setRenewal(Number(event.currentTarget.value))}><For each={durationChoices(context()!.defaultRenewalWindowSeconds, context()!.maxRenewalWindowSeconds, true)}>{(value) => <option value={String(value)}>{describeDuration(value)}</option>}</For></select></label></Show>

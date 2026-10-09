@@ -205,3 +205,12 @@ describe("act-as parties", () => {
     expect(partyTrustNotes({ ...base, operatorTrusted: true })).toEqual(["This site's operator approved this application."]);
   });
 });
+
+describe("act-as headline", () => {
+  it("always names the application and the domain", async () => {
+    const { partyHeadline } = await import("./ui-logic");
+    expect(partyHeadline({ domain: "squizzlezig.com", applicationId: "notes" })).toBe("notes at squizzlezig.com");
+    expect(partyHeadline({ domain: "drive.example", applicationId: "sync" })).toBe("sync at drive.example");
+    expect(partyHeadline({ localRpName: "Desk App" })).toBe("Desk App");
+  });
+});

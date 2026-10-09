@@ -350,6 +350,12 @@ fn signature_vectors(w: &World) -> Value {
     key1_expired.expires_at = "2026-01-02T00:00:00Z".into();
     let mut key1_revoked_after = w.audience.key_ref();
     key1_revoked_after.revoked_at = Some("2026-10-06T12:30:00Z".into());
+    // The home domain recorded key 1 as created after the set's issued_at:
+    // 4 minutes later (inside the 5-minute skew) and 5 minutes 1 second later.
+    let mut key1_created_inside_skew = w.audience.key_ref();
+    key1_created_inside_skew.created_at = "2026-10-06T11:59:00Z".into();
+    let mut key1_created_beyond_skew = w.audience.key_ref();
+    key1_created_beyond_skew.created_at = "2026-10-06T12:00:01Z".into();
     let mut key1_revoked_before = w.audience.key_ref();
     key1_revoked_before.revoked_at = Some("2026-10-06T11:00:00Z".into());
     let only_key1 =
@@ -505,10 +511,12 @@ fn signature_vectors(w: &World) -> Value {
                 {"name": "signed_by_a_key_that_is_not_the_audiences", "signed_cbor_hex": hex(&generated::encode_signed_act_as_scope_set(&act_as::sign_scope_set(&set, AUDIENCE_INSTANCE, &[w.stranger_audience.app_signer()]).unwrap())), "expected_valid": false},
                 {"name": "verified_against_another_audience", "signed_cbor_hex": hex(&scope_set_cbor), "expected_audience": app_ref_json(&app_ref("x", "x.example", "x-app")), "expected_valid": false},
                 {"name": "only_signer_revoked_before_it_signed", "signed_cbor_hex": only_key1_cbor, "audience_keys": keys_json(std::slice::from_ref(&key1_revoked_before)), "expected_valid": false},
+                {"name": "only_signer_created_beyond_the_clock_skew", "signed_cbor_hex": only_key1_cbor, "audience_keys": keys_json(std::slice::from_ref(&key1_created_beyond_skew)), "expected_valid": false},
                 {"name": "only_signer_revoked_after_signing_with_refuse_policy", "signed_cbor_hex": only_key1_cbor, "audience_keys": keys_json(std::slice::from_ref(&key1_revoked_after)), "revoked_key_policy": "refuse_revoked", "expected_valid": false},
             ],
             "policy_cases": [
                 {"name": "one_key_expired_other_still_valid", "signed_cbor_hex": hex(&scope_set_cbor), "audience_keys": keys_json(&[key1_expired.clone(), w.audience2.key_ref()]), "revoked_key_policy": "accept_before_revocation", "expected_valid": true},
+                {"name": "only_signer_created_within_the_clock_skew", "signed_cbor_hex": only_key1_cbor, "audience_keys": keys_json(std::slice::from_ref(&key1_created_inside_skew)), "revoked_key_policy": "accept_before_revocation", "expected_valid": true},
                 {"name": "only_signer_revoked_after_signing_default_policy", "signed_cbor_hex": only_key1_cbor, "audience_keys": keys_json(std::slice::from_ref(&key1_revoked_after)), "revoked_key_policy": "accept_before_revocation", "expected_valid": true},
             ],
         },

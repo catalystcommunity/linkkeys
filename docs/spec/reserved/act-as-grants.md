@@ -148,6 +148,10 @@ Rules:
   that its revoked-key policy accepts (see "Revoked keys"). One expired or
   revoked key never invalidates the others. A later key rotation does not
   invalidate a set that a user already approved.
+- Clock skew: a key whose `created_at` is up to 300 seconds after the set's
+  `issued_at` counts as valid at `issued_at`, when it was valid at its own
+  `created_at`. The audience's clock can trail the home domain that recorded
+  the key's creation, and an audience often signs right after it enrolls.
 - A verifier MUST check signatures against all attested keys of the signing
   instance, including keys that expired or were revoked since, with their
   revocation times. A list of currently usable keys only would refuse sets

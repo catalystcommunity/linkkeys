@@ -215,3 +215,10 @@ export function partyTrustNotes(party: { ownDomain: boolean; userHasHistory: boo
   if (notes.length === 0) notes.push("New to you and to this site. Check the name carefully.");
   return notes;
 }
+
+/** The headline name of a party: the application and its domain, always in the
+ * same shape, so two applications on one domain read differently. */
+export function partyHeadline(party: { domain?: string; applicationId?: string; localRpName?: string }): string {
+  if (party.applicationId && party.domain) return `${party.applicationId} at ${party.domain}`;
+  return party.localRpName ?? party.domain ?? "An application";
+}

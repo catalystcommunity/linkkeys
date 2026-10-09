@@ -417,6 +417,27 @@ func (p RevokedKeyPolicy) String() string {
 	}
 }
 
+// KeyClockSkewSeconds is the clock skew allowed between a signer and the home
+// domain that recorded its key's creation time. Mirrors
+// `liblinkkeys::act_as::KEY_CLOCK_SKEW_SECONDS`.
+const KeyClockSkewSeconds = 300
+
+// validAtWithSkew reports whether key could vouch at signedAt, allowing
+// KeyClockSkewSeconds for a key the home domain recorded as created slightly
+// later. Mirrors `liblinkkeys::act_as::valid_at_with_skew`.
+func validAtWithSkew(key ApplicationKeyRef, signedAt time.Time) bool {
+	if key.WasValidAt(signedAt) {
+		return true
+	}
+	created, err := time.Parse(time.RFC3339Nano, key.CreatedAt)
+	if err != nil {
+		return false
+	}
+	return created.After(signedAt) &&
+		!created.After(signedAt.Add(KeyClockSkewSeconds*time.Second)) &&
+		key.WasValidAt(created)
+}
+
 // keyRefusal returns why key cannot vouch for something signed at signedAt,
 // or "" when it can. Mirrors `liblinkkeys::act_as::key_refusal`.
 func keyRefusal(key ApplicationKeyRef, signedAt time.Time, policy RevokedKeyPolicy) string {
@@ -426,7 +447,7 @@ func keyRefusal(key ApplicationKeyRef, signedAt time.Time, policy RevokedKeyPoli
 	if policy == RefuseRevoked && key.RevokedAt != nil {
 		return fmt.Sprintf("revoked at %s; this verifier refuses revoked keys", *key.RevokedAt)
 	}
-	if !key.WasValidAt(signedAt) {
+	if !validAtWithSkew(key, signedAt) {
 		if key.RevokedAt != nil {
 			return fmt.Sprintf("revoked at %s, before it signed", *key.RevokedAt)
 		}
