@@ -242,9 +242,9 @@ fn remove_my_claim_cannot_target_another_users_claim() {
 // Account creation already provisions one presentable "default" profile
 // (id == account_id, is_root=false — see `DbPool::create_user`) alongside the
 // never-leaked root anchor, so the operator must raise the cap above the
-// default of 1 before an ADDITIONAL profile can be created (mirrors
-// `web::profile_ui::identity_editor`'s `max_profiles_per_account() > 1` gate
-// on rendering the "create profile" section at all).
+// default of 1 before an ADDITIONAL profile can be created (the browser
+// app's account page also shows the "create profile" section only when
+// `max_profiles` is greater than 1).
 fn raise_profile_cap() {
     std::env::set_var("MAX_PROFILES_PER_ACCOUNT", "3");
 }
@@ -512,5 +512,129 @@ fn set_my_claim_sharing_acts_only_on_the_authenticated_caller() {
     assert!(
         bystander_prefs.is_empty(),
         "a caller's own share toggle must not affect another account's preferences"
+    );
+}
+
+// ---------------------------------------------------------------------
+// get-my-claim-settings / set-my-claim-keep-verified
+// ---------------------------------------------------------------------
+
+fn my_claim_settings(
+    pool: &linkkeys::db::DbPool,
+    api_key: &str,
+) -> liblinkkeys::generated::types::MyClaimSettingsResponse {
+    let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
+        "Account",
+        "get-my-claim-settings",
+        liblinkkeys::generated::encode_empty_request(&EmptyRequest {}),
+        Some(api_key),
+        pool,
+        None,
+    );
+    assert_eq!(
+        status, 0,
+        "a plain caller can read their own claim settings"
+    );
+    liblinkkeys::generated::decode_my_claim_settings_response(&body).expect("decode settings")
+}
+
+fn keep_verified_via_tcp(
+    pool: &linkkeys::db::DbPool,
+    api_key: &str,
+    claim_type: &str,
+    keep_verified: bool,
+) -> i32 {
+    let payload = liblinkkeys::generated::encode_set_my_claim_keep_verified_request(
+        &liblinkkeys::generated::types::SetMyClaimKeepVerifiedRequest {
+            claim_type: claim_type.to_string(),
+            keep_verified,
+        },
+    );
+    linkkeys::tcp::dispatch_for_test_authed(
+        "Account",
+        "set-my-claim-keep-verified",
+        payload,
+        Some(api_key),
+        pool,
+        None,
+    )
+    .0
+}
+
+#[test]
+fn my_claim_settings_report_the_callers_own_choices() {
+    let pool = setup();
+    user_settable_claim_type(&pool, "handle");
+    user_settable_claim_type(&pool, "website");
+    let (_user, api_key) = make_caller(&pool);
+    let (_other, other_key) = make_caller(&pool);
+
+    let before = my_claim_settings(&pool, &api_key);
+    let handle = before
+        .settings
+        .iter()
+        .find(|s| s.claim_type == "handle")
+        .expect("every user-settable type is listed");
+    assert!(!handle.shared_with_every_app);
+    let default_keep = handle.keep_verified;
+    // Another test in this binary raises MAX_PROFILES_PER_ACCOUNT, so only
+    // the floor is stable here.
+    assert!(before.max_profiles >= 1);
+    assert_eq!(
+        before.profiles.len(),
+        1,
+        "the default presentable profile is listed"
+    );
+
+    assert_eq!(share_via_tcp(&pool, &api_key, "handle", true), 0);
+    assert_eq!(
+        keep_verified_via_tcp(&pool, &api_key, "handle", !default_keep),
+        0
+    );
+
+    let after = my_claim_settings(&pool, &api_key);
+    let handle = after
+        .settings
+        .iter()
+        .find(|s| s.claim_type == "handle")
+        .unwrap();
+    assert!(handle.shared_with_every_app);
+    assert_eq!(handle.keep_verified, !default_keep);
+    let website = after
+        .settings
+        .iter()
+        .find(|s| s.claim_type == "website")
+        .unwrap();
+    assert!(!website.shared_with_every_app);
+
+    // Another caller's settings are untouched.
+    let other = my_claim_settings(&pool, &other_key);
+    let handle = other
+        .settings
+        .iter()
+        .find(|s| s.claim_type == "handle")
+        .unwrap();
+    assert!(!handle.shared_with_every_app);
+    assert_eq!(handle.keep_verified, default_keep);
+}
+
+#[test]
+fn keep_verified_is_refused_for_a_type_the_user_cannot_set() {
+    let pool = setup();
+    create_claim_policy(
+        &pool,
+        &DataMap::from([
+            ("claim_type".into(), Value::String("email_verified".into())),
+            ("user_settable".into(), Value::Bool(false)),
+        ]),
+    );
+    let (_user, api_key) = make_caller(&pool);
+    assert_ne!(
+        keep_verified_via_tcp(&pool, &api_key, "email_verified", true),
+        0
+    );
+    assert_ne!(
+        keep_verified_via_tcp(&pool, &api_key, "no_such_type", true),
+        0
     );
 }

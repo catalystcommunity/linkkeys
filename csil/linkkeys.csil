@@ -853,6 +853,11 @@ SetClaimTypeLabelResponse = {
     label: ClaimTypeLabel
 }
 
+;; Every per-locale claim name translation this domain has set.
+ListClaimTypeLabelsResponse = {
+    labels: [* ClaimTypeLabel]
+}
+
 RemoveClaimTypeLabelRequest = {
     claim_type: text,
     locale: text
@@ -1109,6 +1114,37 @@ SetMyClaimSharingRequest = {
 }
 
 SetMyClaimSharingResponse = {
+}
+
+;; The caller's OWN choices for one self-service claim type.
+;; `keep_verified`: when the caller sets a value, this domain signs it (the
+;; stored preference, else the registry's `default_auto_sign`). Only matters
+;; for a `self_signed` type. `shared_with_every_app`: a standing "*" release
+;; preference (see SetMyClaimSharingRequest).
+MyClaimSetting = {
+    claim_type: text,
+    keep_verified: bool,
+    shared_with_every_app: bool
+}
+
+;; Everything the account page needs to show the caller's own choices: one
+;; entry per user-settable claim type, the caller's presentable profiles, and
+;; the operator's profile cap (MAX_PROFILES_PER_ACCOUNT; at 1 a client hides
+;; profile management).
+MyClaimSettingsResponse = {
+    settings: [* MyClaimSetting],
+    profiles: [* Profile],
+    max_profiles: int
+}
+
+;; Set the caller's OWN "keep verified" choice for one user-settable claim
+;; type. Applies the next time the caller sets a value of that type.
+SetMyClaimKeepVerifiedRequest = {
+    claim_type: text,
+    keep_verified: bool
+}
+
+SetMyClaimKeepVerifiedResponse = {
 }
 
 ;; A presentation persona for a human account. Mirrors
@@ -1371,6 +1407,47 @@ BrowserAuthorizationCompleteRequest = {
 }
 
 BrowserAuthorizationCompleteResponse = {
+    redirect_url: text
+}
+
+;; Local-app (DNS-less local RP) sign-in through the browser app.
+;; `signed_request` is the value a local app sends to `/auth/local-rp`. The
+;; server verifies it, applies this domain's local-app admission policy, and
+;; returns either the consent screen or `admission` = "pending" (the app waits
+;; for an administrator; nothing else is disclosed).
+BrowserLocalRpInspectRequest = {
+    signed_request: text
+}
+
+BrowserLocalRpInspectResponse = {
+    ;; "consent" or "pending".
+    admission: text,
+    ;; The name the app chose for itself. It is not verified.
+    app_name: text,
+    ;; The app's key fingerprint, its only real identity.
+    fingerprint: text,
+    ;; The host the browser returns to after sign-in.
+    callback_host: text,
+    ;; When this server first saw the app.
+    ? first_seen_at: text,
+    claims: [* BrowserConsentClaim],
+    ? request_reason: text,
+    ;; True when a standing grant covers this normal sign-in.
+    ? already_consented: bool,
+    ? authorized_claims: [* text]
+}
+
+;; Same shape and rules as BrowserAuthorizationCompleteRequest. A declined
+;; required claim is an error here: no redirect is made.
+BrowserLocalRpCompleteRequest = {
+    signed_request: text,
+    authorized_claims: [* text],
+    claim_types_to_set: [* text],
+    claim_values_to_set: [* text],
+    ? use_standing_grant: bool
+}
+
+BrowserLocalRpCompleteResponse = {
     redirect_url: text
 }
 
@@ -1790,6 +1867,22 @@ SetLocalRpPolicyRequest = {
 
 SetLocalRpPolicyResponse = {
     policy: LocalRpPolicy
+}
+
+;; How long a browser sign-in stays valid on this domain, in whole hours.
+;; get-sign-in-policy returns the effective value (the default when an admin
+;; never set one) and the range an admin can choose from. A change applies to
+;; sign-ins made after it; an existing sign-in keeps its expiry. A sign-in
+;; also ends after one hour without activity, whatever this value is.
+SignInPolicy = {
+    sign_in_hours: int,
+    default_sign_in_hours: int,
+    min_sign_in_hours: int,
+    max_sign_in_hours: int
+}
+
+SetSignInPolicyRequest = {
+    sign_in_hours: int
 }
 
 ;; Admin-triggered claim-ticket cleanup (mirrors RecheckPinsRequest/Response's
@@ -2529,13 +2622,117 @@ service Recovery {
     complete-password-recovery: CompletePasswordRecoveryRequest -> CompletePasswordRecoveryResponse
 }
 
+;; Read-only previews for the admin policy page. Neither changes stored
+;; policy. preview-release-policy simulates the consent screen and release
+;; decision for a hypothetical request to `audience`; the optional temp_* fields
+;; add one rule for this preview only. `available_claims` empty means the
+;; simulated user has a value for every requested claim.
+PreviewReleasePolicyRequest = {
+    audience: text,
+    required_claims: [* text],
+    optional_claims: [* text],
+    available_claims: [* text],
+    user_choices: [* text],
+    ? temp_audience: text,
+    ? temp_claim_type: text,
+    ? temp_disposition: text
+}
+
+;; One consent-screen row. `policy` is "user", "forced_allow", or "forced_deny".
+PreviewReleaseRow = {
+    claim_type: text,
+    required: bool,
+    available: bool,
+    locked: bool,
+    policy: text,
+    default_granted: bool
+}
+
+PreviewReleasePolicyResponse = {
+    forced_allow: [* text],
+    forced_deny: [* text],
+    authorized_claims: [* text],
+    rows: [* PreviewReleaseRow]
+}
+
+;; Whether this domain, as an issuer, would sign claims about subjects of
+;; `subject_domain` under the deny lists, and (when both are set) whether
+;; `issuer_user_id` may issue `claim_type`. An absent deny list means the
+;; domain's configured list; the response returns the lists it used.
+PreviewIssuerPolicyRequest = {
+    subject_domain: text,
+    ? denied_domains: [* text],
+    ? denied_tlds: [* text],
+    ? issuer_user_id: text,
+    ? claim_type: text
+}
+
+PreviewIssuerPolicyResponse = {
+    denied_domains: [* text],
+    denied_tlds: [* text],
+    allowed: bool,
+    reason: text,
+    ? user_can_issue: bool,
+    attested_claim_ttl_seconds: int
+}
+
+;; This domain acting as an issuer for a signing request that a user of another
+;; domain brings (see SigningRequest). `signed_request` is base64url (no
+;; padding) CBOR of SignedSigningRequest. The server verifies the request
+;; against the subject domain's keys before it shows or signs anything.
+InspectSigningRequestRequest = {
+    signed_request: text
+}
+
+InspectSigningRequestResponse = {
+    subject_user_id: text,
+    subject_domain: text,
+    requested_claim_types: [* text],
+    expires_at: text,
+    ;; The requested types the caller may issue.
+    issuable_claim_types: [* text]
+}
+
+;; claim_types[i] is attested with claim_values[i]. The server re-verifies the
+;; request, signs each allowed value, and deposits it server-to-server at the
+;; subject's home domain.
+IssueForSigningRequestRequest = {
+    signed_request: text,
+    claim_types: [* text],
+    claim_values: [* text]
+}
+
+;; outcome: "deposited" (signed and delivered), "handoff" (signed, but the
+;; subject domain was unreachable; `claim_code` is base64url CBOR of the Claim
+;; for the user to add), "skipped" (not requested, or the caller may not issue
+;; it), or "failed" (signing failed; see `message`).
+IssuedClaimResult = {
+    claim_type: text,
+    outcome: text,
+    ? message: text,
+    ? claim_code: text
+}
+
+IssueForSigningRequestResponse = {
+    results: [* IssuedClaimResult]
+}
+
 ;; This service is available only through the same-origin browser carrier. It
 ;; uses the authenticated browser session and cannot use an API key.
 service BrowserAuthorization {
     inspect: BrowserAuthorizationInspectRequest -> BrowserAuthorizationInspectResponse,
     complete: BrowserAuthorizationCompleteRequest -> BrowserAuthorizationCompleteResponse,
     inspect-act-as: BrowserActAsInspectRequest -> BrowserActAsInspectResponse,
-    complete-act-as: BrowserActAsCompleteRequest -> BrowserActAsCompleteResponse
+    complete-act-as: BrowserActAsCompleteRequest -> BrowserActAsCompleteResponse,
+    inspect-local-rp: BrowserLocalRpInspectRequest -> BrowserLocalRpInspectResponse,
+    complete-local-rp: BrowserLocalRpCompleteRequest -> BrowserLocalRpCompleteResponse
+}
+
+;; Browser carrier only, like BrowserAuthorization: needs the session and the
+;; network (subject-domain keys and claim deposit).
+service BrowserIssuer {
+    inspect-signing-request: InspectSigningRequestRequest -> InspectSigningRequestResponse,
+    issue-for-signing-request: IssueForSigningRequestRequest -> IssueForSigningRequestResponse
 }
 
 service Admin {
@@ -2560,6 +2757,7 @@ service Admin {
     list-claim-types: EmptyRequest -> ListClaimTypesResponse,
     set-claim-type: SetClaimTypeRequest -> SetClaimTypeResponse,
     remove-claim-type: RemoveClaimTypeRequest -> RemoveClaimTypeResponse,
+    list-claim-type-labels: EmptyRequest -> ListClaimTypeLabelsResponse,
     set-claim-type-label: SetClaimTypeLabelRequest -> SetClaimTypeLabelResponse,
     remove-claim-type-label: RemoveClaimTypeLabelRequest -> RemoveClaimTypeLabelResponse,
     list-trusted-issuers: EmptyRequest -> ListTrustedIssuersResponse,
@@ -2572,6 +2770,8 @@ service Admin {
     approve-claim: ApproveClaimRequest -> ApproveClaimResponse,
     reject-claim: RejectClaimRequest -> RejectClaimResponse,
     admin-issue-attestation: AdminIssueAttestationRequest -> AdminIssueAttestationResponse,
+    preview-release-policy: PreviewReleasePolicyRequest -> PreviewReleasePolicyResponse,
+    preview-issuer-policy: PreviewIssuerPolicyRequest -> PreviewIssuerPolicyResponse,
     grant-relation: GrantRelationRequest -> GrantRelationResponse,
     remove-relation: RemoveRelationRequest -> RemoveRelationResponse,
     list-relations: ListRelationsRequest -> ListRelationsResponse,
@@ -2584,7 +2784,9 @@ service Admin {
     revoke-local-rp: RevokeLocalRpRequest -> RevokeLocalRpResponse,
     get-local-rp-policy: GetLocalRpPolicyRequest -> GetLocalRpPolicyResponse,
     set-local-rp-policy: SetLocalRpPolicyRequest -> SetLocalRpPolicyResponse,
-    purge-local-rp-tickets: PurgeLocalRpTicketsRequest -> PurgeLocalRpTicketsResponse
+    purge-local-rp-tickets: PurgeLocalRpTicketsRequest -> PurgeLocalRpTicketsResponse,
+    get-sign-in-policy: EmptyRequest -> SignInPolicy,
+    set-sign-in-policy: SetSignInPolicyRequest -> SignInPolicy
 }
 
 service Account {
@@ -2595,6 +2797,8 @@ service Account {
     remove-my-claim: RemoveMyClaimRequest -> RemoveMyClaimResponse,
     set-my-claim-sharing: SetMyClaimSharingRequest -> SetMyClaimSharingResponse,
     create-profile: CreateProfileRequest -> CreateProfileResponse,
+    get-my-claim-settings: EmptyRequest -> MyClaimSettingsResponse,
+    set-my-claim-keep-verified: SetMyClaimKeepVerifiedRequest -> SetMyClaimKeepVerifiedResponse,
     request-verification: RequestVerificationRequest -> RequestVerificationResponse,
     list-verified-contact-methods: EmptyRequest -> ListVerifiedContactMethodsResponse,
     revoke-verified-contact-method: RevokeVerifiedContactMethodRequest -> RevokeVerifiedContactMethodResponse,

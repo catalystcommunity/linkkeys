@@ -1,13 +1,12 @@
 //! Tests for the trusted-issuer and release-default admin surface on the
-//! `Admin` TCP service (policy-admin web UI parity, slice 2):
+//! `Admin` TCP service (slice 2):
 //! `list-trusted-issuers`, `add-trusted-issuer`, `remove-trusted-issuer`,
 //! `list-release-rules`, `set-release-rule`, `remove-release-rule`.
 //!
-//! These are a second CSIL-RPC entry point onto the exact same DB calls
-//! `web/policy_admin_ui.rs`'s handlers make
-//! (`add_issuer`/`remove_issuer`/`upsert_release`/`delete_release`), so an
-//! external controller holding an admin-relation API key can manage them
-//! without the web UI.
+//! These are the same `Admin` operations that the browser app's
+//! `/app/admin/policy` page calls. Over TCP, an external controller that
+//! holds an admin-relation API key can manage trusted issuers and release
+//! rules without the browser app.
 //!
 //! Every op requires the `admin` relation (explicit `required_relation_for_op`
 //! arm, not the `_ =>` fallthrough, mirroring

@@ -1,5 +1,6 @@
 import type { BrowserAuthorizationInspectResponse, BrowserConsentClaim } from "./generated/types.gen";
 import { CsilStatus, CsilTransportError } from "./transport";
+import { has, plural, t } from "./i18n";
 
 export function authenticationFailed(error: unknown): boolean {
   return error instanceof CsilTransportError
@@ -8,18 +9,18 @@ export function authenticationFailed(error: unknown): boolean {
 
 export function serviceMessage(error: unknown, fallback: string): string {
   return error instanceof CsilTransportError && error.status === CsilStatus.forbidden
-    ? "You do not have permission to do that."
+    ? t("app.error.no_permission")
     : fallback;
 }
 
 export function loginFailureMessage(error: unknown): string {
   if (error instanceof CsilTransportError && error.message.toLowerCase().includes("too many")) {
-    return "Too many sign-in attempts. Wait and try again.";
+    return t("app.login.too_many");
   }
   return error instanceof CsilTransportError
     && (error.status === CsilStatus.unauthenticated || error.status === CsilStatus.forbidden)
-    ? "The username or password is incorrect."
-    : "Could not sign in. Check your connection and try again.";
+    ? t("app.login.incorrect")
+    : t("app.login.connection_failed");
 }
 
 export function authorizationLoginPath(username: string): string {
@@ -49,9 +50,9 @@ export function withLoginContext(path: string, next: string, username: string): 
 }
 
 export function currentPasswordMessage(error: unknown, fallback: string): string {
-  if (rateLimited(error)) return "Too many password attempts. Wait and try again.";
+  if (rateLimited(error)) return t("app.password.too_many");
   return error instanceof CsilTransportError && error.status === CsilStatus.forbidden
-    ? "The current password is incorrect."
+    ? t("app.password.current_incorrect")
     : fallback;
 }
 
@@ -75,11 +76,11 @@ export function standingAuthorization(context: BrowserAuthorizationInspectRespon
 }
 
 export function verificationFailureMessage(error: unknown): string {
-  if (rateLimited(error)) return "Too many attempts. Wait and try again.";
+  if (rateLimited(error)) return t("app.verify_contact.too_many");
   return error instanceof CsilTransportError
     && (error.status === CsilStatus.malformedEnvelope || error.status === CsilStatus.forbidden)
-    ? "This link is invalid, expired, or belongs to another account. Sign in to the account that requested it, or ask for a new message."
-    : "LinkKeys could not check this link. Check your connection and try again.";
+    ? t("app.verify_contact.link_invalid")
+    : t("app.verify_contact.connection_failed");
 }
 
 export function passwordManagerUsername(identifier: string, domain: string): string {
@@ -111,16 +112,16 @@ export function recoveryLinkExpired(error: unknown): boolean {
 }
 
 export function recoveryValidationFailureMessage(error: unknown): string {
-  if (rateLimited(error)) return "Too many recovery attempts. Wait and try again.";
+  if (rateLimited(error)) return t("app.recovery.too_many");
   return transportFailed(error)
-    ? "LinkKeys could not check this recovery link. Check your connection and try again."
-    : "This recovery link is invalid or expired.";
+    ? t("app.recovery.connection_failed")
+    : t("app.recovery.link_invalid");
 }
 
 export function recoveryCompletionFailureMessage(error: unknown): string {
   return rateLimited(error)
-    ? "Too many recovery attempts. Wait and try again."
-    : serviceMessage(error, "Could not reset your password.");
+    ? t("app.recovery.too_many")
+    : serviceMessage(error, t("app.recovery.reset_failed"));
 }
 
 export function authorizationRequestIsTerminal(error: unknown): boolean {
@@ -132,8 +133,8 @@ export function authorizationRequestIsTerminal(error: unknown): boolean {
 }
 
 export function passwordLengthError(value: string, minCharacters: number, maxBytes: number): string {
-  if ([...value].length < minCharacters) return `Use at least ${minCharacters} characters.`;
-  if (new TextEncoder().encode(value).length > maxBytes) return "The password is too long.";
+  if ([...value].length < minCharacters) return plural("app.password.min_length", minCharacters);
+  if (new TextEncoder().encode(value).length > maxBytes) return t("app.password.too_long");
   return "";
 }
 
@@ -165,15 +166,12 @@ export function actAsHandoff(fragment: string, hasSession: boolean): { signedReq
 
 /** A whole-unit, human description of a number of seconds. */
 export function describeDuration(seconds: number): string {
-  if (seconds <= 0) return "none";
+  if (seconds <= 0) return t("app.duration.none");
   const units: [number, string][] = [[86_400, "day"], [3_600, "hour"], [60, "minute"], [1, "second"]];
   for (const [size, name] of units) {
-    if (seconds % size === 0) {
-      const count = seconds / size;
-      return `${count} ${name}${count === 1 ? "" : "s"}`;
-    }
+    if (seconds % size === 0) return plural(`app.duration.${name}`, seconds / size);
   }
-  return `${seconds} seconds`;
+  return plural("app.duration.second", seconds);
 }
 
 /** Choices for a duration field: common steps up to the maximum, plus the
@@ -188,8 +186,8 @@ export function durationChoices(defaultSeconds: number, maxSeconds: number, allo
 }
 
 /** One line that names an application reference for a person. */
-export function applicationLabel(reference: { applicationId: string; subjectDomain: string } | undefined, fallback = "an application"): string {
-  return reference ? `${reference.applicationId} (${reference.subjectDomain})` : fallback;
+export function applicationLabel(reference: { applicationId: string; subjectDomain: string } | undefined, fallback = t("app.application.fallback")): string {
+  return reference ? t("app.application.label", { application: reference.applicationId, domain: reference.subjectDomain }) : fallback;
 }
 
 /** The state of a grant in the user's list. The home domain cannot renew a
@@ -202,25 +200,25 @@ export function actAsGrantState(grant: { expiresAt: string; revokedAt?: string }
 
 /** The short name a person reads first for one consent-screen party. */
 export function partyTitle(party: { domain?: string; localRpName?: string }): string {
-  return party.domain ?? party.localRpName ?? "An application";
+  return party.domain ?? party.localRpName ?? t("app.party.unknown");
 }
 
 /** Plain sentences for a party's trust signals, strongest first. */
 export function partyTrustNotes(party: { ownDomain: boolean; userHasHistory: boolean; domainKeyPinned: boolean; operatorTrusted: boolean; domain?: string }): string[] {
   const notes: string[] = [];
-  if (party.ownDomain) notes.push("This is this site's own domain.");
-  if (party.userHasHistory) notes.push("You have used this before.");
-  if (party.domain && party.domainKeyPinned && !party.ownDomain) notes.push("This site has seen this domain before.");
-  if (party.operatorTrusted) notes.push(party.domain ? "This site's operator trusts this domain." : "This site's operator approved this application.");
-  if (notes.length === 0) notes.push("New to you and to this site. Check the name carefully.");
+  if (party.ownDomain) notes.push(t("app.party.trust.own_domain"));
+  if (party.userHasHistory) notes.push(t("app.party.trust.history"));
+  if (party.domain && party.domainKeyPinned && !party.ownDomain) notes.push(t("app.party.trust.pinned"));
+  if (party.operatorTrusted) notes.push(party.domain ? t("app.party.trust.operator_domain") : t("app.party.trust.operator_application"));
+  if (notes.length === 0) notes.push(t("app.party.trust.new"));
   return notes;
 }
 
 /** The headline name of a party: the application and its domain, always in the
  * same shape, so two applications on one domain read differently. */
 export function partyHeadline(party: { domain?: string; applicationId?: string; localRpName?: string }): string {
-  if (party.applicationId && party.domain) return `${party.applicationId} at ${party.domain}`;
-  return party.localRpName ?? party.domain ?? "An application";
+  if (party.applicationId && party.domain) return t("app.party.headline", { application: party.applicationId, domain: party.domain });
+  return party.localRpName ?? party.domain ?? t("app.party.unknown");
 }
 
 /** The site address a user types, reduced to a bare domain. Accepts a pasted
@@ -245,4 +243,33 @@ export function base64UrlUnpadded(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** What a consent screen sends: forced claims plus the person's selected
+ * ones, and inline values for authorized claims the person has no value for.
+ * `oversized` is the first inline value longer than its claim type allows. */
+export function consentDecision(claims: BrowserConsentClaim[], selected: Record<string, boolean>, values: Record<string, string>): { authorizedClaims: string[]; claimTypesToSet: string[]; claimValuesToSet: string[]; oversized?: BrowserConsentClaim } {
+  const authorizedClaims = claims.filter((claim) => claim.policy === "forced_allow" || (claim.policy === "user" && selected[claim.claimType])).map((claim) => claim.claimType);
+  const entries = claims.filter((claim) => authorizedClaims.includes(claim.claimType) && !claim.available && values[claim.claimType]?.trim());
+  return {
+    authorizedClaims,
+    claimTypesToSet: entries.map((claim) => claim.claimType),
+    claimValuesToSet: entries.map((claim) => values[claim.claimType].trim()),
+    oversized: entries.find((claim) => claimValueTooLong(values[claim.claimType].trim(), claim.maxBytes)),
+  };
+}
+
+/** The person-facing text for a refusal reason code (`/app/error?reason=`
+ * and the message of a refused local-app sign-in call). */
+export function reasonText(code: string): string {
+  const key = `app.error.reason.${code}`;
+  return /^[a-z_]+$/.test(code) && has(key) ? t(key) : t("app.error.reason.unknown");
+}
+
+/** The text for a failed local-app sign-in call: its reason code when the
+ * server sent one, otherwise a connection message. */
+export function localRpFailureMessage(error: unknown): string {
+  return error instanceof CsilTransportError && /^[a-z_]+$/.test(error.message)
+    ? reasonText(error.message)
+    : t("app.error.reason.connection");
 }

@@ -1,13 +1,12 @@
 //! Tests for the claim-type registry admin surface on the `Admin` TCP
-//! service (policy-admin web UI parity): `list-claim-types`,
+//! service: `list-claim-types`,
 //! `set-claim-type`, `remove-claim-type`, `set-claim-type-label`,
 //! `remove-claim-type-label`.
 //!
-//! These are a second CSIL-RPC entry point onto the exact same DB calls
-//! `web/policy_admin_ui.rs`'s handlers make
-//! (`upsert_policy`/`delete_policy`/`upsert_claim_label`/
-//! `delete_claim_label`), so an external controller holding an
-//! admin-relation API key can manage the registry without the web UI.
+//! These are the same `Admin` operations that the browser app's
+//! `/app/admin/policy` page calls. Over TCP, an external controller that
+//! holds an admin-relation API key can manage the registry without the
+//! browser app.
 //!
 //! Every op requires the `admin` relation (explicit `required_relation_for_op`
 //! arm, not the `_ =>` fallthrough, mirroring `tcp_local_rp_admin_test.rs`) —
@@ -457,8 +456,33 @@ fn set_claim_type_label_requires_admin_and_is_visible_via_db() {
         Some("pronombres preferidos")
     );
 
-    // The translation set over CSIL-RPC must show up through the exact same
-    // read path `render_policy_admin`'s translations table uses.
+    // The translation set over CSIL-RPC shows up in the admin listing.
+    let empty = liblinkkeys::generated::encode_empty_request(&EmptyRequest {});
+    let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
+        "Admin",
+        "list-claim-type-labels",
+        empty.clone(),
+        Some(&nonadmin_key),
+        &pool,
+        None,
+    );
+    assert_ne!(status, 0, "listing translations needs admin");
+    let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
+        "Admin",
+        "list-claim-type-labels",
+        empty,
+        Some(&admin_key),
+        &pool,
+        None,
+    );
+    assert_eq!(status, 0);
+    let listed = liblinkkeys::generated::decode_list_claim_type_labels_response(&body)
+        .expect("decode ListClaimTypeLabelsResponse");
+    assert!(listed
+        .labels
+        .iter()
+        .any(|l| l.claim_type == "pronouns" && l.locale == "es-ES" && l.label == "Pronombres"));
+
     let stored = pool
         .list_claim_labels_i18n("pronouns")
         .expect("list claim labels");

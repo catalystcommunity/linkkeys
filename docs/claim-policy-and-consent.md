@@ -9,12 +9,13 @@ strict bound on the next:
 
 | Layer | Owner | Question it answers | Where |
 |---|---|---|---|
-| Claim‑type registry | Domain admin | What may exist, who may set it, how it's signed | `/policy-admin` |
-| Claims + signing prefs | The user | My values, and which I keep signed | `/account/identity` |
-| Release / consent | The user (within admin bounds) | Who actually receives each claim | consent screen + `/account/identity` |
+| Claim‑type registry | Domain admin | What may exist, who may set it, how it's signed | `/app/admin/policy` |
+| Claims + signing prefs | The user | My values, and which I keep signed | `/app/account` |
+| Release / consent | The user (within admin bounds) | Who actually receives each claim | consent screen + `/app/account` |
 
-A non‑technical user never sees the word "sign." They fill in values and see a
-**Verified ✓** badge when the domain was able to validate and sign them.
+A non‑technical user never sees the word "sign." They fill in values, and the
+account page's **Confirmed** column shows "By <domain>" when the domain signed
+them.
 
 ---
 
@@ -67,30 +68,35 @@ same decision is reproducible from web, a future CLI, or a native agent.
 
 ---
 
-## 2. The profile / identity editor (`/account/identity`)
+## 2. The profile details on the account page (`/app/account`)
 
 What the user sees:
 
-- One card per claim type the admin marked `user_settable`: a value field, a
-  **Keep this verified** toggle (auto‑sign), a **Verified ✓ / Not verified**
-  badge, and a **Share with any domain automatically** checkbox.
+- **Profile details** lists the values the account holds and sets a value for
+  each claim type the admin marked `user_settable`.
+- **How each detail is handled** has, for each such type, a **Share with every
+  application without asking me** checkbox and, for a `self_signed` type, a
+  **Have <domain> confirm it when I change it** checkbox (auto‑sign).
+  (`Account/get-my-claim-settings`, `set-my-claim-sharing`,
+  `set-my-claim-keep-verified`.)
 - Saving a lane‑A value validates and (if auto‑sign is on) signs it immediately.
   Turning auto‑sign off stores the value **unsigned** on the next save.
 - Saving `email` starts the verification flow (an email with a confirmation
   link; the stub logs the link — see §6). Confirming signs `email` +
   `email_verified`.
 - **Profiles:** when the operator raises `MAX_PROFILES_PER_ACCOUNT` above 1, a
-  section appears to create additional pseudonymous profiles. Users never delete
+  section appears to create additional profiles. Users never delete
   a profile — that's an admin action.
 
 One active claim is kept per (subject, type): a new value revokes the prior one.
 
 ---
 
-## 3. The admin policy editor (`/policy-admin`)
+## 3. The admin policy page (`/app/admin/policy`)
 
-Gated by the `manage_claims` relation. Four sections, all guided forms (dropdowns,
-not a policy language):
+The browser app shows it to `admin` accounts. Each operation checks its own
+relation on the server. The sections use guided forms (dropdowns, not a policy
+language). The approval queue is on `/app/admin/approvals`:
 
 1. **Claim types** — view/add/edit/delete registry entries (value type, set rule,
    signing lane, flags).
@@ -167,8 +173,9 @@ Env:
    is `liblinkkeys::signing_request` + the CSIL `SigningRequest` envelope;
    `attestation::mint_signing_request` produces it (TTL `SIGNING_REQUEST_TTL_SECONDS`,
    default 2 days for non-portable-device logistics). The full loop has UIs:
-   **Request** (`/account/request-verification` → QR + base64 + file download),
-   **Issue/receive** (`/policy-admin/issue` — admin pastes a request, it's
+   **Request** (the account page's "Ask a site to confirm something about you"
+   section → a code to copy), **Issue/receive** (`/app/admin/issue`,
+   `BrowserIssuer/*` — admin pastes a request, it's
    verified against the subject's keys, the admin signs the attested claim). The
    issuer then **deposits it server-to-server** to the subject's home domain over
    the generic CBOR-RPC carrier (`POST /csil/v1/rpc` → `Attestation/deposit-claim`,
@@ -179,9 +186,8 @@ Env:
    `id`/`variant`, the status registry; vendored under `crates/csilgen-transport`
    for now, to swap for the git/published crate later), and `/csil/v1/rpc` is the
    single CBOR-RPC carrier over the web (shares `dispatch()` with TCP), so the web
-   carries the whole RPC surface without per-op routes. The identity page's
-   **Verified credentials** section runs `verify_stored_claim` live and shows
-   "signed by `<domain>` ✓" per held claim. Nothing left on the attestation track.
+   carries the whole RPC surface without per-op routes. Nothing left on the
+   attestation track.
 2. **SMTP delivery is optional.** The server reports email as an available
    channel only when the SMTP worker is ready. The SMTP and worker design is in
    [`developing/outbound-communications-and-account-recovery.md`](developing/outbound-communications-and-account-recovery.md).
@@ -191,27 +197,24 @@ Env:
    so the identity editor operates on the default profile. Raising
    `MAX_PROFILES_PER_ACCOUNT` and using extra personas needs per‑profile claim
    keying first (it currently fails closed — no leak).
-5. **CSIL claim-policy self-service is not fully extended.** Attestation deposit
-   is in CSIL, and the claim-type registry + its per-locale name translations
-   are now on the `Admin` CSIL service too (`list-claim-types`/`set-claim-type`/
-   `remove-claim-type`/`set-claim-type-label`/`remove-claim-type-label`,
-   `admin`-relation only — the same DB calls `/policy-admin`'s forms make; also
-   on the CLI as `linkkeys policy ...`). Trusted issuers, release defaults, and
-   the approval queue are still server web/DB-only flows; a later pass should
-   extend those the same way. Pure logic already lives in
-   `liblinkkeys::claim_policy`.
+5. **All claim policy is on CSIL.** The claim-type registry and its
+   translations, trusted issuers, release defaults, the approval queue, and the
+   two read-only previews (`preview-release-policy`, `preview-issuer-policy`)
+   are `Admin` operations. The browser app uses them, and so can the CLI
+   (`linkkeys policy ...`) or any API client. Pure logic lives in
+   `liblinkkeys::claim_policy` and `liblinkkeys::consent`.
 
 ---
 
 ## 7. Suggested test flow (trust IDP → apps; users choose per‑domain / any‑domain)
 
-1. As admin, open `/policy-admin`. Confirm the seeded claim types; add any you
+1. As admin, open `/app/admin/policy`. Confirm the seeded claim types; add any you
    want (e.g. `pronouns`, lane A). Optionally add a `forced_deny` rule for a
    sensitive type, or a `forced_allow` for a specific app audience.
-2. As a user, open `/account/identity`. Fill in `display_name`, `handle`, and
-   `website`. Confirm that the UI shows **Verified ✓**. Verify `email`. Get the
-   link from the configured SMTP test inbox. LinkKeys does not write action
-   links to its log. Select **Share with any domain automatically** for
+2. As a user, open `/app/account`. Fill in `display_name`, `handle`, and
+   `website`. Verify `email`. Get the link from the configured SMTP test inbox.
+   LinkKeys does not write action links to its log. Under **How each detail is
+   handled**, select **Share with every application without asking me** for
    `handle`.
 3. From a relying‑party app, start a login that requests `handle`, `display_name`,
    `email`. On the consent screen, `handle` is pre‑checked (standing "any domain"

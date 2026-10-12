@@ -45,9 +45,9 @@ pub enum Commands {
     LocalRp(LocalRpCommands),
 
     /// Claim-type registry admin commands (list/set/remove claim types and
-    /// their per-locale name translations). CSIL-RPC parity for what the
-    /// `policy-admin` web UI's registry/translation forms do, for a
-    /// controller holding an admin-relation API key.
+    /// their per-locale name translations). These are the same operations
+    /// that the browser app's `/app/admin/policy` page uses, for a
+    /// controller that holds an admin-relation API key.
     #[command(subcommand)]
     Policy(PolicyCommands),
 
@@ -405,14 +405,14 @@ pub enum LocalRpCommands {
 
 #[derive(Subcommand)]
 pub enum PolicyCommands {
-    /// List the domain's full claim-type registry (via TCP). CSIL-RPC
-    /// parity for the `policy-admin` web UI's registry table.
+    /// List the domain's full claim-type registry (via TCP). Same data as
+    /// the registry table on the browser app's `/app/admin/policy` page.
     ListClaimTypes {
         #[arg(long)]
         server: Option<String>,
     },
-    /// Create or update a claim-type definition (via TCP). CSIL-RPC parity
-    /// for the `policy-admin` web UI's "Add / edit a claim type" form.
+    /// Create or update a claim-type definition (via TCP). Same operation as
+    /// the claim-type form on the browser app's `/app/admin/policy` page.
     SetClaimType {
         /// Claim type id (e.g. "pronouns")
         claim_type: String,
@@ -468,8 +468,9 @@ pub enum PolicyCommands {
         #[arg(long)]
         server: Option<String>,
     },
-    /// List every trusted issuer across all claim types (via TCP). CSIL-RPC
-    /// parity for the `policy-admin` web UI's trusted-issuers table.
+    /// List every trusted issuer across all claim types (via TCP). Same data
+    /// as the trusted-issuers table on the browser app's `/app/admin/policy`
+    /// page.
     ListTrustedIssuers {
         #[arg(long)]
         server: Option<String>,
@@ -488,8 +489,8 @@ pub enum PolicyCommands {
         #[arg(long)]
         server: Option<String>,
     },
-    /// List every per-audience release rule (via TCP). CSIL-RPC parity for
-    /// the `policy-admin` web UI's release-rules table.
+    /// List every per-audience release rule (via TCP). Same data as the
+    /// release-rules table on the browser app's `/app/admin/policy` page.
     ListReleaseRules {
         #[arg(long)]
         server: Option<String>,
@@ -511,8 +512,8 @@ pub enum PolicyCommands {
         #[arg(long)]
         server: Option<String>,
     },
-    /// List claims queued for admin approval (via TCP). CSIL-RPC parity for
-    /// the `policy-admin` web UI's approvals table.
+    /// List claims queued for admin approval (via TCP). Same data as the
+    /// browser app's `/app/admin/approvals` page.
     ListPendingApprovals {
         #[arg(long)]
         server: Option<String>,
@@ -533,9 +534,8 @@ pub enum PolicyCommands {
         server: Option<String>,
     },
     /// Issue a signed attestation for one of this domain's own users (via
-    /// TCP). CSIL-RPC parity for the `policy-admin` web UI's "Issue an
-    /// attestation" flow — signs `claim_value` with the domain's active keys
-    /// and stores it directly for `user_id`.
+    /// TCP). Signs `claim_value` with the domain's active keys and stores it
+    /// directly for `user_id`.
     IssueAttestation {
         /// Subject user UUID (must be one of this domain's own accounts)
         user_id: String,
@@ -559,8 +559,8 @@ pub enum AccountCommands {
         server: Option<String>,
     },
     /// Set one of your OWN claim values (via TCP), subject to this domain's
-    /// set-rule / user-settable policy for the claim type. CSIL-RPC parity
-    /// for the web identity editor's "save" button.
+    /// set-rule / user-settable policy for the claim type. Same operation as
+    /// the claim "save" button on the browser app's `/app/account` page.
     SetClaim {
         claim_type: String,
         claim_value: String,
@@ -587,7 +587,8 @@ pub enum AccountCommands {
     /// claim types with ALL audiences (via TCP). This is a STANDING RELEASE
     /// PREFERENCE, not a one-off share: once turned on, matching claims are
     /// released to any relying party without a fresh consent prompt.
-    /// CSIL-RPC parity for the web identity editor's "share" toggle.
+    /// Same operation as the claim "share" toggle on the browser app's
+    /// `/app/account` page.
     ShareClaim {
         claim_type: String,
         /// Turn sharing on.
@@ -601,8 +602,9 @@ pub enum AccountCommands {
     },
     /// Mint a signing-request bundle for your OWN account (via TCP),
     /// addressed to an issuer, asking it to attest the given claim types.
-    /// CSIL-RPC parity for `/account/request-verification`; the printed
-    /// base64 is the same bundle the web QR/download offers.
+    /// Same operation as the verification request on the browser app's
+    /// `/app/account` page; the printed base64 encodes the same signed
+    /// bundle that the app gives as a code to copy.
     RequestVerification {
         /// Domain to address the request to (the would-be issuer).
         issuer_domain: String,

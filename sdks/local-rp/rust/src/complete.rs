@@ -120,7 +120,7 @@ fn parse_rfc3339(field: &'static str, s: &str) -> Result<DateTime<Utc>, Error> {
 }
 
 /// Undo the exact `?`/`&` + `encrypted_token=` suffix construction
-/// `crates/linkkeys/src/web/local_rp_ui.rs` (and `web/mod.rs`) uses to
+/// `crates/linkkeys/src/web/local_rp_browser.rs` (and `web/mod.rs`) uses to
 /// deliver the callback, so the recovered value can be compared against the
 /// signed payload's `callback_url` (Wire Precision, "URL and parameter
 /// conventions": "same name, same mechanics"). If the arrived URL doesn't

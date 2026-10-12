@@ -104,17 +104,22 @@ pub fn required_relation_for_op(service: &str, op: &str) -> Option<&'static str>
             | "get-local-rp-policy"
             | "set-local-rp-policy"
             | "purge-local-rp-tickets" => RELATION_ADMIN,
-            // Claim-type registry admin (policy-admin web UI parity): same
-            // explicit-arm treatment as the local-rp surface above — an
+            // Domain sign-in length: changes how long every sign-in lasts.
+            "get-sign-in-policy" | "set-sign-in-policy" => RELATION_ADMIN,
+            // Read-only policy previews (the policy page's test panels).
+            "preview-release-policy" | "preview-issuer-policy" => RELATION_MANAGE_CLAIMS,
+            // Claim-type registry admin (the browser app's policy page and
+            // TCP controllers): same explicit-arm treatment as the local-rp surface above — an
             // external controller with an admin-relation API key manages
             // the registry, not merely a manage_claims operator.
             "list-claim-types"
             | "set-claim-type"
             | "remove-claim-type"
+            | "list-claim-type-labels"
             | "set-claim-type-label"
             | "remove-claim-type-label" => RELATION_ADMIN,
-            // Trusted-issuer and release-default admin (policy-admin web UI
-            // parity, slice 2): same explicit-arm treatment as the
+            // Trusted-issuer and release-default admin (slice 2): same
+            // explicit-arm treatment as the
             // claim-type registry surface above.
             "list-trusted-issuers"
             | "add-trusted-issuer"
@@ -122,8 +127,8 @@ pub fn required_relation_for_op(service: &str, op: &str) -> Option<&'static str>
             | "list-release-rules"
             | "set-release-rule"
             | "remove-release-rule" => RELATION_ADMIN,
-            // Claim-approval queue and admin-issued attestations (policy-admin
-            // web UI parity, slice 3): same explicit-arm treatment as the
+            // Claim-approval queue and admin-issued attestations (slice 3):
+            // same explicit-arm treatment as the
             // trusted-issuer/release-default surface above.
             "list-pending-claim-approvals"
             | "approve-claim"

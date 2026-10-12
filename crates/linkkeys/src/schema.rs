@@ -493,6 +493,14 @@ pub mod pg {
     }
 
     diesel::table! {
+        sign_in_policy (domain) {
+            domain -> Varchar,
+            sign_in_hours -> Int4,
+            updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
         local_rps (fingerprint) {
             fingerprint -> Varchar,
             signing_public_key -> Binary,
@@ -606,6 +614,7 @@ pub mod pg {
         user_authentication_activity,
         user_release_prefs,
         local_rp_domain_policy,
+        sign_in_policy,
         local_rps,
         local_rp_claim_tickets,
         act_as_grants,
@@ -1104,6 +1113,14 @@ pub mod sqlite {
     }
 
     diesel::table! {
+        sign_in_policy (domain) {
+            domain -> Text,
+            sign_in_hours -> Integer,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
         local_rps (fingerprint) {
             fingerprint -> Text,
             signing_public_key -> Binary,
@@ -1217,6 +1234,7 @@ pub mod sqlite {
         user_authentication_activity,
         user_release_prefs,
         local_rp_domain_policy,
+        sign_in_policy,
         local_rps,
         local_rp_claim_tickets,
         act_as_grants,

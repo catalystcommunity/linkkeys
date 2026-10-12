@@ -1,17 +1,16 @@
 //! Tests for the claim-approval queue and admin-issued-attestation surface on
-//! the `Admin` TCP service (policy-admin web UI parity, slice 3):
+//! the `Admin` TCP service (slice 3):
 //! `list-pending-claim-approvals`, `approve-claim`, `reject-claim`,
 //! `admin-issue-attestation`.
 //!
-//! The first three are a second CSIL-RPC entry point onto the exact same
-//! DB/service calls `web/policy_admin_ui.rs`'s `list_pending_approvals`/
-//! `approve`/`reject` handlers make (`DbPool::list_pending_approvals`,
-//! `services::admin::approve_claim`/`reject_claim`), so an external
-//! controller holding an admin-relation API key can work the approval queue
-//! without the web UI.
+//! The first three are the same `Admin` operations that the browser app's
+//! `/app/admin/approvals` page calls (`DbPool::list_pending_approvals`,
+//! `services::admin::approve_claim`/`reject_claim`). Over TCP, an external
+//! controller that holds an admin-relation API key can work the approval
+//! queue without the browser app.
 //!
-//! `admin-issue-attestation` reuses the same signing call
-//! `web/policy_admin_ui.rs`'s `issue_sign` makes
+//! `admin-issue-attestation` uses the same signing call as the browser app's
+//! `BrowserIssuer` service
 //! (`services::attestation::issue_attested_claim`) to sign+store an attested
 //! claim directly for one of this domain's own users — see the CSIL doc
 //! comment on `AdminIssueAttestationRequest` for how this is scoped

@@ -22,6 +22,12 @@ cookie is named `__Host-linkkeys_session`. It uses `Secure`, `HttpOnly`,
 `SameSite=Lax`, and the `/` path. It has no `Domain` attribute. Session
 introspection requires the `ui_extension` relation.
 
+A sign-in ends after the domain's sign-in length, or after one hour without
+activity, whichever comes first. The sign-in length is 12 hours by default.
+An admin sets it from 1 to 720 hours on `/app/admin/settings`
+(`Admin/get-sign-in-policy`, `Admin/set-sign-in-policy`; table
+`sign_in_policy`). A change applies to sign-ins made after it.
+
 `UI_CONFIG_FILE` can define safe display values, a theme, and runtime extension
 records. LinkKeys validates IDs, host API versions, same-origin asset URLs, and
 mounted asset directories at startup. The CSIL response does not expose asset
@@ -32,13 +38,16 @@ rejects a target that resolves outside the configured root.
 The binary embeds a SolidJS host and its generated TypeScript CSIL client. The
 server supplies SPA fallback routing, strict security headers, theme assets,
 runtime extension assets, and full UI replacement. The host provides login,
-account and claim functions, application authorization and consent, email
-verification, password recovery, and core account administration.
+account and claim functions, application authorization and consent (DNS-pinned
+applications, local applications, and act-as grants), email verification,
+password recovery, and administration: accounts, policy, approvals, issuing
+claims for another domain's request, and domain settings.
 
-The older Rust pages stay available at their existing paths for one
-compatibility release after the SPA release. New integrations must use the SPA
-and CSIL path. LinkKeys can remove the older pages only in an announced
-breaking release.
+The server renders no HTML pages. The entry links that applications send
+people to (`/auth/authorize`, `/auth/act-as`, `/auth/local-rp`) verify the
+request and redirect into the app. A refused request redirects to
+`/app/error?reason=<code>`; the app shows the text for that code. A browser GET
+that fails on any other non-API path also goes to that page.
 
 ## Goals
 
@@ -216,6 +225,34 @@ An operator can mount theme files for LinkKeys to serve under
 `/_linkkeys/themes/<id>/`. A reverse proxy can also provide same-origin theme
 URLs.
 
+## Text and languages
+
+The embedded UI gets all its text from the LinkKeys message catalog. Do not
+write user-facing text in the UI source. Add a key to
+`crates/liblinkkeys/i18n/en-US.json`, then call `t("app.<area>.<name>")` from
+`web-ui/src/i18n.ts`.
+
+- UI keys start with `app.`. Claim names use `claim.<type>.label` and
+  `claim.<type>.description`. The server renders no HTML pages.
+- Write placeholders as `{name}`. Use `format` when markup, for example a bold
+  site name, must go in a placeholder.
+- Use `plural` for a counted message. Add `<key>.one` and `<key>.other`.
+- Use `claimTypeLabel` to show a claim type. It uses the domain's
+  `claim.<type>.label` when one exists.
+
+The build bundles the en-US catalog. At startup, the UI calls
+`I18n/get-translations` with the `?lang=` value and the browser languages. The
+server catalog replaces the bundled one and sets `<html lang>`. If the call
+fails, the UI uses the bundled en-US catalog and starts.
+
+`web-ui/src/i18n.test.ts` fails when the UI uses a key that en-US does not
+have, or when en-US has an `app.` key that the UI does not use. A key that the
+UI builds at runtime must start with a prefix in that test's
+`dynamicPrefixes` list.
+
+Developer messages, for example console output and extension host errors, stay
+in English.
+
 ## Runtime extensions
 
 A UI extension is a compiled ECMAScript module. LinkKeys reads its record at
@@ -376,6 +413,7 @@ Tests must cover:
 - Content Security Policy output for embedded, mounted, and reverse-proxy
   assets;
 - a production build with no development source maps or secret configuration;
+- an en-US catalog entry for every UI message key;
 - browser tests for the oldest supported mobile browser engines.
 
 Use a small test extension that does not depend on SolidJS. Add a separate

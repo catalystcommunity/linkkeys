@@ -1,22 +1,27 @@
-//! End-to-end tests of the DNS-less local RP browser routes (Phase 6 of
-//! dns-less-local-rp-design.md): `GET /auth/local-rp`, `POST /auth/local-rp`,
-//! `POST /auth/local-rp/consent`. Driven over the real Rocket routing via the
-//! in-process local client (no network socket), exactly like
+//! End-to-end tests of the DNS-less local RP sign-in through the browser app
+//! (dns-less-local-rp-design.md): `GET /auth/local-rp` hands the request to
+//! the app, which calls `BrowserAuthorization/inspect-local-rp` and
+//! `complete-local-rp`. Driven over the real Rocket routing via the
+//! in-process local client (no network socket), like
 //! `consent_http_e2e_test.rs` drives the DNS-pinned flow.
 //!
-//! The happy path additionally decrypts the callback with the local RP's own
-//! encryption key (as the SDK would) and redeems the resulting ticket over
-//! the real TCP dispatch seam (`linkkeys::tcp::dispatch_for_test`), so the
-//! whole browser-to-ticket-redemption chain is exercised, not just the HTTP
-//! surface.
+//! The happy path also decrypts the callback with the local RP's own
+//! encryption key (as the SDK would) and redeems the resulting ticket over the
+//! real TCP dispatch seam (`linkkeys::tcp::dispatch_for_test`), so the whole
+//! browser-to-ticket-redemption chain is exercised.
 
 mod common;
 
 use common::data_factory::{
     create_auth_credential, create_local_rp_with_signing_key, create_user, DataMap,
 };
+use csilgen_transport::rpc::{RpcRequest, RpcResponse};
+use csilgen_transport::Status as RpcStatus;
 use liblinkkeys::crypto::{self, AeadSuite};
-use liblinkkeys::generated::types::DomainPublicKey;
+use liblinkkeys::generated::types::{
+    BrowserLocalRpCompleteRequest, BrowserLocalRpInspectRequest, BrowserLocalRpInspectResponse,
+    DomainPublicKey, SessionPasswordLoginRequest,
+};
 use liblinkkeys::local_rp::{
     build_local_rp_descriptor, build_local_rp_login_request, sign_local_rp_descriptor,
     sign_local_rp_login_request, DEFAULT_CLOCK_SKEW_SECONDS,
@@ -32,26 +37,6 @@ const USERNAME: &str = "alice";
 const PASSWORD: &str = "correct horse battery staple";
 static PASSWORD_HASH: LazyLock<String> =
     LazyLock::new(|| linkkeys::services::password::hash_for_storage(PASSWORD).unwrap());
-
-/// Pull a hidden form field's value out of rendered HTML.
-fn hidden_field(html: &str, name: &str) -> String {
-    let marker = format!(r#"name="{}" value=""#, name);
-    let start = html
-        .find(&marker)
-        .unwrap_or_else(|| panic!("field {} present in:\n{}", name, html))
-        + marker.len();
-    let rest = &html[start..];
-    let end = rest.find('"').expect("closing quote");
-    rest[..end].to_string()
-}
-
-fn form(body: String) -> (ContentType, String) {
-    (ContentType::Form, body)
-}
-
-fn same_origin() -> Header<'static> {
-    Header::new("Origin", format!("https://{TEST_DOMAIN}"))
-}
 
 struct LocalRpFixture {
     signed_request: String,
@@ -148,7 +133,13 @@ fn seed_idp_and_user(pool: &linkkeys::db::DbPool) -> linkkeys::db::models::User 
         .expect("signing key");
 
     let mut overrides = DataMap::new();
-    overrides.insert("username".to_string(), serde_json::json!(USERNAME));
+    // A username per test: the login rate limit is per username and shared
+    // by every test in this process.
+    let username = format!(
+        "{USERNAME}-{}",
+        &uuid::Uuid::now_v7().simple().to_string()[20..]
+    );
+    overrides.insert("username".to_string(), serde_json::json!(username));
     let user = create_user(pool, &overrides);
     create_auth_credential(pool, &user.id, "password", &PASSWORD_HASH);
 
@@ -185,14 +176,163 @@ async fn build_client(pool: &linkkeys::db::DbPool) -> Client {
     Client::tracked(rocket).await.expect("rocket client")
 }
 
-fn login_password_form(sr: &str) -> String {
-    format!(
-        "username={}%40{}&password={}&signed_request={}",
-        USERNAME,
-        TEST_DOMAIN,
-        PASSWORD.replace(' ', "+"),
-        sr
+/// `GET /auth/local-rp`: always a redirect, either into the browser app or to
+/// its error page. Returns the Location.
+async fn entry(client: &Client, query: &str) -> String {
+    let resp = client
+        .get(format!("/auth/local-rp?{query}"))
+        .dispatch()
+        .await;
+    assert_eq!(
+        resp.status(),
+        Status::Found,
+        "the entry link always redirects"
+    );
+    resp.headers()
+        .get_one("Location")
+        .expect("Location header")
+        .to_string()
+}
+
+async fn rpc(client: &Client, service: &str, op: &str, payload: Vec<u8>) -> RpcResponse {
+    let resp = client
+        .post("/csil/v1/rpc")
+        .header(ContentType::new("application", "cbor"))
+        .header(Header::new("Host", TEST_DOMAIN))
+        .header(Header::new("Origin", format!("https://{TEST_DOMAIN}")))
+        .body(RpcRequest::new(service, op, payload).encode().unwrap())
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    RpcResponse::decode(&resp.into_bytes().await.unwrap()).unwrap()
+}
+
+/// Password checks are capped process-wide (`MAX_ACTIVE_PASSWORD_WORK`), and
+/// the tests in this file run in parallel, so they sign in one at a time.
+static SIGN_IN: rocket::tokio::sync::Mutex<()> = rocket::tokio::sync::Mutex::const_new(());
+
+async fn sign_in(client: &Client, user: &linkkeys::db::models::User) {
+    let _one_at_a_time = SIGN_IN.lock().await;
+    let resp = rpc(
+        client,
+        "Session",
+        "login-password",
+        liblinkkeys::generated::encode_session_password_login_request(
+            &SessionPasswordLoginRequest {
+                username: format!("{}@{TEST_DOMAIN}", user.username),
+                password: PASSWORD.to_string(),
+            },
+        ),
     )
+    .await;
+    assert_eq!(
+        resp.status,
+        RpcStatus::Ok,
+        "sign-in succeeds: {:?}",
+        resp.error
+    );
+}
+
+async fn inspect(client: &Client, sr: &str) -> RpcResponse {
+    rpc(
+        client,
+        "BrowserAuthorization",
+        "inspect-local-rp",
+        liblinkkeys::generated::encode_browser_local_rp_inspect_request(
+            &BrowserLocalRpInspectRequest {
+                signed_request: sr.to_string(),
+            },
+        ),
+    )
+    .await
+}
+
+fn inspected(resp: &RpcResponse) -> BrowserLocalRpInspectResponse {
+    assert_eq!(
+        resp.status,
+        RpcStatus::Ok,
+        "inspect failed: {:?}",
+        resp.error
+    );
+    liblinkkeys::generated::decode_browser_local_rp_inspect_response(&resp.payload).unwrap()
+}
+
+async fn complete(client: &Client, sr: &str, claims: &[&str], standing: bool) -> RpcResponse {
+    rpc(
+        client,
+        "BrowserAuthorization",
+        "complete-local-rp",
+        liblinkkeys::generated::encode_browser_local_rp_complete_request(
+            &BrowserLocalRpCompleteRequest {
+                signed_request: sr.to_string(),
+                authorized_claims: claims.iter().map(|c| c.to_string()).collect(),
+                claim_types_to_set: Vec::new(),
+                claim_values_to_set: Vec::new(),
+                use_standing_grant: standing.then_some(true),
+            },
+        ),
+    )
+    .await
+}
+
+/// A refused call: not OK, no redirect URL, and the given reason code.
+fn assert_refused(resp: &RpcResponse, reason: &str) {
+    assert_ne!(resp.status, RpcStatus::Ok, "expected a refusal ({reason})");
+    assert_eq!(resp.error.as_deref(), Some(reason));
+}
+
+fn redirect_url(resp: &RpcResponse) -> String {
+    assert_eq!(
+        resp.status,
+        RpcStatus::Ok,
+        "complete failed: {:?}",
+        resp.error
+    );
+    liblinkkeys::generated::decode_browser_local_rp_complete_response(&resp.payload)
+        .unwrap()
+        .redirect_url
+}
+
+fn approve(pool: &linkkeys::db::DbPool, fx: &LocalRpFixture, name: &str) {
+    pool.insert_local_rp(
+        &fx.fingerprint,
+        fx.signing_pk.as_ref(),
+        fx.enc_pk.as_ref(),
+        name,
+        Some("jukebox.local"),
+        linkkeys::db::local_rp::STATUS_APPROVED,
+        None,
+    )
+    .expect("insert approved local rp");
+}
+
+fn setup() -> linkkeys::db::DbPool {
+    std::env::set_var("DOMAIN_NAME", TEST_DOMAIN);
+    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
+    std::env::set_var("ENABLE_PASSWORD_AUTH", "true");
+    let pool = common::create_test_pool();
+    pool.seed_default_policies().expect("seed policies");
+    pool
+}
+
+/// Re-sign the fixture's request with a fresh nonce, state, and window.
+fn resigned(
+    fx: &LocalRpFixture,
+    flow_context: Option<liblinkkeys::generated::types::AuthFlowContext>,
+) -> String {
+    let original =
+        liblinkkeys::encoding::signed_local_rp_login_request_from_url_param(&fx.signed_request)
+            .unwrap();
+    let mut request =
+        liblinkkeys::generated::decode_local_rp_login_request(&original.request).unwrap();
+    let now = chrono::Utc::now();
+    request.nonce = rand::random::<[u8; 16]>().to_vec();
+    request.state = rand::random::<[u8; 16]>().to_vec();
+    request.issued_at = now.to_rfc3339();
+    request.expires_at = (now + chrono::Duration::minutes(5)).to_rfc3339();
+    request.flow_context = flow_context;
+    let signed = sign_local_rp_login_request(&request, &fx.signing_sk).unwrap();
+    liblinkkeys::encoding::signed_local_rp_login_request_to_url_param(&signed).unwrap()
 }
 
 // ---------------------------------------------------------------------
@@ -201,110 +341,54 @@ fn login_password_form(sr: &str) -> String {
 
 #[rocket::async_test]
 async fn approved_local_rp_happy_path_end_to_end() {
-    std::env::set_var("DOMAIN_NAME", TEST_DOMAIN);
-    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
-    std::env::set_var("ENABLE_PASSWORD_AUTH", "true");
-
-    let pool = common::create_test_pool();
-    pool.seed_default_policies().expect("seed policies");
+    let pool = setup();
     let user = seed_idp_and_user(&pool);
-
     let fx = default_fixture("http://127.0.0.1:9999/callback");
-
-    // Pre-approve the fixture's exact fingerprint/keys.
-    pool.insert_local_rp(
-        &fx.fingerprint,
-        fx.signing_pk.as_ref(),
-        fx.enc_pk.as_ref(),
-        "Test Jukebox",
-        Some("jukebox.local"),
-        linkkeys::db::local_rp::STATUS_APPROVED,
-        None,
-    )
-    .expect("insert approved local rp");
-
+    approve(&pool, &fx, "Test Jukebox");
     let client = build_client(&pool).await;
 
-    // 1. GET renders the login form for an approved fingerprint.
-    let resp = client
-        .get(format!(
-            "/auth/local-rp?signed_request={}&username=Alice%2Bwork",
-            fx.signed_request
-        ))
-        .dispatch()
-        .await;
-    assert_eq!(resp.status(), Status::Ok);
-    let body = resp.into_string().await.unwrap();
-    assert!(body.contains("Test Jukebox"), "app name shown on login");
-    assert!(
-        body.contains(r#"name="username" value="Alice+work""#),
-        "username hint prefills the local-RP login form"
-    );
-    assert!(
-        body.contains(r#"name="username" value="Alice+work" autocomplete="username""#),
-        "password managers can identify the username field"
-    );
-    assert!(
-        body.contains(r#"name="password" autocomplete="current-password""#),
-        "password managers can fill the current password"
+    // 1. The entry link hands the request to the app in the fragment and
+    //    keeps the username hint.
+    let location = entry(
+        &client,
+        &format!("signed_request={}&username=Alice%2Bwork", fx.signed_request),
+    )
+    .await;
+    assert!(location.starts_with("/app/local-rp?username=Alice%2Bwork#request="));
+    assert!(location.ends_with(&urlencoding::encode(&fx.signed_request).into_owned()));
+
+    // 2. Without a browser session the app cannot inspect the request.
+    assert_ne!(
+        inspect(&client, &fx.signed_request).await.status,
+        RpcStatus::Ok
     );
 
-    // 2. POST correct credentials => consent screen (no prior grant yet).
-    let (ct, b) = form(login_password_form(&fx.signed_request));
-    let resp = client
-        .post("/auth/local-rp")
-        .header(ct)
-        .header(Header::new("Host", TEST_DOMAIN))
-        .header(same_origin())
-        .body(b)
-        .dispatch()
-        .await;
-    assert_eq!(resp.status(), Status::Ok);
-    let consent_html = resp.into_string().await.unwrap();
-    assert!(
-        consent_html.contains("unverified") || consent_html.contains("Unverified"),
-        "consent screen carries the unverified-app warning"
-    );
-    assert!(
-        consent_html.contains(&fx.fingerprint[..16]),
-        "short fingerprint is shown"
-    );
-    assert!(consent_html.contains("127.0.0.1"), "callback host is shown");
-    let proof = hidden_field(&consent_html, "login_proof");
+    // 3. Signed in: the consent screen data, with the unverified app's
+    //    identity and callback host. No standing grant yet.
+    sign_in(&client, &user).await;
+    let screen = inspected(&inspect(&client, &fx.signed_request).await);
+    assert_eq!(screen.admission, "consent");
+    assert_eq!(screen.app_name, "Test Jukebox");
+    assert_eq!(screen.fingerprint, fx.fingerprint);
+    assert_eq!(screen.callback_host, "127.0.0.1:9999");
+    assert!(screen.first_seen_at.is_some());
+    assert_eq!(screen.claims.len(), 3);
+    assert_eq!(screen.already_consented, None);
 
-    // 3. POST consent granting everything => redirect carrying encrypted_token=.
-    let (ct, b) = form(format!(
-        "signed_request={}&login_proof={}&grant=display_name&grant=email&grant=handle",
-        fx.signed_request, proof
-    ));
-    let resp = client
-        .post("/auth/local-rp/consent")
-        .header(ct)
-        .header(Header::new("Host", TEST_DOMAIN))
-        .header(same_origin())
-        .body(b)
-        .dispatch()
-        .await;
-    assert!(
-        resp.status().class().is_redirection(),
-        "consent completes with a redirect, got {:?}",
-        resp.status()
+    // 4. Consent to everything: the redirect carries the sealed token.
+    let location = redirect_url(
+        &complete(
+            &client,
+            &fx.signed_request,
+            &["display_name", "email", "handle"],
+            false,
+        )
+        .await,
     );
-    let location = resp
-        .headers()
-        .get_one("Location")
-        .expect("redirect Location header")
-        .to_string();
-    assert!(
-        location.starts_with(&fx.callback_url),
-        "redirect targets the callback URL"
-    );
-    assert!(
-        location.contains("encrypted_token="),
-        "callback carries the sealed token"
-    );
+    assert!(location.starts_with(&fx.callback_url));
+    assert!(location.contains("encrypted_token="));
 
-    // 4. Decrypt the callback exactly as the SDK would: open the sealed box
+    // 5. Decrypt the callback exactly as the SDK would: open the sealed box
     //    with the local RP's own encryption key, verify the domain signature,
     //    cross-check the header against the payload, then check every field.
     let token = location.split("encrypted_token=").nth(1).unwrap();
@@ -316,7 +400,6 @@ async fn approved_local_rp_happy_path_end_to_end() {
         &[AeadSuite::Aes256Gcm],
     )
     .expect("open callback with the RP's encryption key");
-
     let domain_keys = pool.list_active_domain_keys().unwrap();
     let csil_keys: Vec<DomainPublicKey> = domain_keys.iter().map(Into::into).collect();
     let now = chrono::Utc::now();
@@ -329,13 +412,12 @@ async fn approved_local_rp_happy_path_end_to_end() {
     .expect("callback payload signature verifies against domain keys");
     liblinkkeys::local_rp::check_callback_header_matches_payload(&header, &payload)
         .expect("header matches payload");
-
     assert_eq!(payload.user_id, user.id);
     assert_eq!(payload.user_domain, TEST_DOMAIN);
     assert_eq!(payload.audience_fingerprint, fx.fingerprint);
     assert_eq!(payload.callback_url, fx.callback_url);
 
-    // 5. Redeem the ticket over the real TCP dispatch seam.
+    // 6. Redeem the ticket over the real TCP dispatch seam.
     let redemption_request = liblinkkeys::local_rp::build_local_rp_ticket_redemption_request(
         payload.claim_ticket.clone(),
         &fx.fingerprint,
@@ -346,13 +428,12 @@ async fn approved_local_rp_happy_path_end_to_end() {
         &fx.signing_sk,
     )
     .unwrap();
-    let redemption_bytes = liblinkkeys::generated::encode_signed_local_rp_ticket_redemption_request(
-        &signed_redemption,
-    );
     let (status, resp_bytes) = linkkeys::tcp::dispatch_for_test(
         "LocalRp",
         "redeem-claim-ticket",
-        redemption_bytes,
+        liblinkkeys::generated::encode_signed_local_rp_ticket_redemption_request(
+            &signed_redemption,
+        ),
         &pool,
         None,
     );
@@ -368,69 +449,30 @@ async fn approved_local_rp_happy_path_end_to_end() {
         );
     }
 
-    // 6. An explicit claims update reuses the provider session but always
-    //    reopens the prior choices. Closing this page sends no callback.
-    let original_signed =
-        liblinkkeys::encoding::signed_local_rp_login_request_from_url_param(&fx.signed_request)
-            .unwrap();
-    let mut update_request =
-        liblinkkeys::generated::decode_local_rp_login_request(&original_signed.request).unwrap();
-    let fresh_now = chrono::Utc::now();
-    update_request.nonce = rand::random::<[u8; 16]>().to_vec();
-    update_request.state = rand::random::<[u8; 16]>().to_vec();
-    update_request.issued_at = fresh_now.to_rfc3339();
-    update_request.expires_at = (fresh_now + chrono::Duration::minutes(5)).to_rfc3339();
-    update_request.flow_context = Some(liblinkkeys::generated::types::AuthFlowContext {
-        flow: "claims_update".to_string(),
-        prior_session: Some("local-session-1".to_string()),
-        request_reason: Some("update sharing".to_string()),
-    });
-    let update_signed = sign_local_rp_login_request(&update_request, &fx.signing_sk).unwrap();
-    let update_sr =
-        liblinkkeys::encoding::signed_local_rp_login_request_to_url_param(&update_signed).unwrap();
-    let resp = client
-        .get(format!("/auth/local-rp?signed_request={}", update_sr))
-        .dispatch()
-        .await;
-    assert_eq!(resp.status(), Status::Ok);
-    let update_html = resp.into_string().await.unwrap();
-    assert!(update_html.contains("updated request"));
-    assert!(!update_html.contains("name=\"password\""));
-
-    // 7. A normal fresh request for the approved local RP reuses the provider
-    //    session and standing grant. It completes without another form.
-    let mut fresh_request = update_request;
-    fresh_request.nonce = rand::random::<[u8; 16]>().to_vec();
-    fresh_request.state = rand::random::<[u8; 16]>().to_vec();
-    fresh_request.flow_context = None;
-    let fresh_signed = sign_local_rp_login_request(&fresh_request, &fx.signing_sk).unwrap();
-    let fresh_sr =
-        liblinkkeys::encoding::signed_local_rp_login_request_to_url_param(&fresh_signed).unwrap();
-    let resp = client
-        .get(format!("/auth/local-rp?signed_request={}", fresh_sr))
-        .dispatch()
-        .await;
-    assert!(
-        resp.status().class().is_redirection(),
-        "covered local RP request completes through SSO"
+    // 7. An explicit claims update always reopens the choices.
+    let update = resigned(
+        &fx,
+        Some(liblinkkeys::generated::types::AuthFlowContext {
+            flow: "claims_update".to_string(),
+            prior_session: Some("local-session-1".to_string()),
+            request_reason: Some("update sharing".to_string()),
+        }),
     );
+    let screen = inspected(&inspect(&client, &update).await);
+    assert_eq!(screen.already_consented, None);
+    assert_eq!(screen.request_reason.as_deref(), Some("update sharing"));
 
-    // 8. Replaying the ORIGINAL signed_request (a prior grant now covers it,
-    //    so it takes the finalize shortcut directly) must fail: the nonce was
-    //    already burned.
-    let (ct, b) = form(login_password_form(&fx.signed_request));
-    let resp = client
-        .post("/auth/local-rp")
-        .header(ct)
-        .header(Header::new("Host", TEST_DOMAIN))
-        .header(same_origin())
-        .body(b)
-        .dispatch()
-        .await;
-    let body = resp.into_string().await.unwrap();
-    assert!(
-        body.contains("already been used"),
-        "replayed signed_request must be rejected, got:\n{body}"
+    // 8. A normal fresh request is covered by the standing grant and
+    //    completes without another consent screen.
+    let fresh = resigned(&fx, None);
+    let screen = inspected(&inspect(&client, &fresh).await);
+    assert_eq!(screen.already_consented, Some(true));
+    assert!(redirect_url(&complete(&client, &fresh, &[], true).await).contains("encrypted_token="));
+
+    // 9. Replaying the original request fails: its nonce is burned.
+    assert_refused(
+        &complete(&client, &fx.signed_request, &[], true).await,
+        "replayed",
     );
 }
 
@@ -440,36 +482,23 @@ async fn approved_local_rp_happy_path_end_to_end() {
 
 #[rocket::async_test]
 async fn unknown_local_rp_under_admin_approval_goes_pending() {
-    std::env::set_var("DOMAIN_NAME", TEST_DOMAIN);
-    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
-    std::env::set_var("ENABLE_PASSWORD_AUTH", "true");
-
-    let pool = common::create_test_pool();
-    pool.seed_default_policies().expect("seed policies");
-    seed_idp_and_user(&pool);
-
+    let pool = setup();
+    let user = seed_idp_and_user(&pool);
     let fx = default_fixture("http://127.0.0.1:9999/callback");
     assert!(pool.find_local_rp(&fx.fingerprint).unwrap().is_none());
-
     let client = build_client(&pool).await;
-    let (ct, b) = form(login_password_form(&fx.signed_request));
-    let resp = client
-        .post("/auth/local-rp")
-        .header(ct)
-        .header(Header::new("Host", TEST_DOMAIN))
-        .header(same_origin())
-        .body(b)
-        .dispatch()
-        .await;
-    assert_eq!(resp.status(), Status::Ok);
+
     assert!(
-        resp.headers().get_one("Location").is_none(),
-        "no redirect for a pending RP"
+        entry(&client, &format!("signed_request={}", fx.signed_request))
+            .await
+            .starts_with("/app/local-rp#request=")
     );
-    let body = resp.into_string().await.unwrap();
+    sign_in(&client, &user).await;
+    let screen = inspected(&inspect(&client, &fx.signed_request).await);
+    assert_eq!(screen.admission, "pending");
     assert!(
-        body.contains("Waiting for approval") || body.contains("pending"),
-        "unknown RP shows a pending notice, got:\n{body}"
+        screen.claims.is_empty(),
+        "a pending app is shown nothing else"
     );
 
     let row = pool
@@ -477,6 +506,10 @@ async fn unknown_local_rp_under_admin_approval_goes_pending() {
         .unwrap()
         .expect("a pending row was created");
     assert_eq!(row.status, "pending");
+    assert_refused(
+        &complete(&client, &fx.signed_request, &["handle"], false).await,
+        "rejected",
+    );
 }
 
 // ---------------------------------------------------------------------
@@ -484,13 +517,8 @@ async fn unknown_local_rp_under_admin_approval_goes_pending() {
 // ---------------------------------------------------------------------
 
 async fn assert_rejected_no_redirect(status: &str) {
-    std::env::set_var("DOMAIN_NAME", TEST_DOMAIN);
-    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
-    std::env::set_var("ENABLE_PASSWORD_AUTH", "true");
-
-    let pool = common::create_test_pool();
-    pool.seed_default_policies().expect("seed policies");
-    seed_idp_and_user(&pool);
+    let pool = setup();
+    let user = seed_idp_and_user(&pool);
 
     let mut overrides = DataMap::new();
     overrides.insert("status".to_string(), serde_json::json!(status));
@@ -527,31 +555,20 @@ async fn assert_rejected_no_redirect(status: &str) {
 
     let client = build_client(&pool).await;
 
-    // GET rejects before ever asking for a password.
-    let resp = client
-        .get(format!("/auth/local-rp?signed_request={}", sr))
-        .dispatch()
-        .await;
-    let body = resp.into_string().await.unwrap();
-    assert!(
-        !body.contains("name=\"password\""),
-        "no login form for a {status} RP"
+    // The entry link refuses before the person is asked to sign in.
+    assert_eq!(
+        entry(&client, &format!("signed_request={sr}")).await,
+        "/app/error?reason=rejected",
+        "a {status} RP is refused at the entry link"
     );
 
-    // A POST attempt (in case the GET check were ever bypassed) also rejects
-    // with no redirect to the callback URL.
-    let (ct, b) = form(login_password_form(&sr));
-    let resp = client
-        .post("/auth/local-rp")
-        .header(ct)
-        .header(Header::new("Host", TEST_DOMAIN))
-        .header(same_origin())
-        .body(b)
-        .dispatch()
-        .await;
-    assert!(
-        resp.headers().get_one("Location").is_none(),
-        "a {status} RP must never be redirected to its callback URL"
+    // Calling the app operations directly (in case the entry check were ever
+    // bypassed) also refuses, with no redirect URL.
+    sign_in(&client, &user).await;
+    assert_refused(&inspect(&client, &sr).await, "rejected");
+    assert_refused(
+        &complete(&client, &sr, &["handle"], false).await,
+        "rejected",
     );
 }
 
@@ -571,104 +588,45 @@ async fn revoked_local_rp_rejected_no_redirect() {
 
 #[rocket::async_test]
 async fn disabled_policy_rejects_before_login() {
-    std::env::set_var("DOMAIN_NAME", TEST_DOMAIN);
-    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
-    std::env::set_var("ENABLE_PASSWORD_AUTH", "true");
-
-    let pool = common::create_test_pool();
-    pool.seed_default_policies().expect("seed policies");
+    let pool = setup();
     seed_idp_and_user(&pool);
     pool.set_local_rp_domain_policy(linkkeys::db::local_rp::POLICY_DISABLED)
         .unwrap();
-
     let fx = default_fixture("http://127.0.0.1:9999/callback");
     let client = build_client(&pool).await;
-
-    let resp = client
-        .get(format!(
-            "/auth/local-rp?signed_request={}",
-            fx.signed_request
-        ))
-        .dispatch()
-        .await;
-    let body = resp.into_string().await.unwrap();
-    assert!(
-        !body.contains("name=\"password\""),
-        "no login form when disabled"
-    );
-    assert!(
-        body.contains("does not allow") || body.contains("not allow"),
-        "disabled-policy message shown, got:\n{body}"
+    assert_eq!(
+        entry(&client, &format!("signed_request={}", fx.signed_request)).await,
+        "/app/error?reason=policy_disabled"
     );
 }
 
-/// LOW fix: the domain's admission policy is re-checked at consent submit,
-/// not just at login-render time — mirroring the per-fingerprint status
-/// recheck a few lines below it in `auth_local_rp_consent_post`. An admin
-/// disabling local-RP mode between rendering consent and the user submitting
-/// it must still block the login.
+/// The domain's admission policy is checked again when consent completes, not
+/// only when the consent screen loads. An admin disabling local-RP mode in
+/// between must still block the sign-in.
 #[rocket::async_test]
 async fn disabled_policy_between_consent_render_and_submit_rejected() {
-    std::env::set_var("DOMAIN_NAME", TEST_DOMAIN);
-    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
-    std::env::set_var("ENABLE_PASSWORD_AUTH", "true");
-
-    let pool = common::create_test_pool();
-    pool.seed_default_policies().expect("seed policies");
-    seed_idp_and_user(&pool);
-
+    let pool = setup();
+    let user = seed_idp_and_user(&pool);
     let fx = default_fixture("http://127.0.0.1:9999/callback");
-    pool.insert_local_rp(
-        &fx.fingerprint,
-        fx.signing_pk.as_ref(),
-        fx.enc_pk.as_ref(),
-        "Test Jukebox",
-        Some("jukebox.local"),
-        linkkeys::db::local_rp::STATUS_APPROVED,
-        None,
-    )
-    .expect("insert approved local rp");
-
+    approve(&pool, &fx, "Test Jukebox");
     let client = build_client(&pool).await;
 
-    // Render consent while the policy still allows local-RP mode.
-    let (ct, b) = form(login_password_form(&fx.signed_request));
-    let resp = client
-        .post("/auth/local-rp")
-        .header(ct)
-        .header(Header::new("Host", TEST_DOMAIN))
-        .header(same_origin())
-        .body(b)
-        .dispatch()
-        .await;
-    assert_eq!(resp.status(), Status::Ok);
-    let consent_html = resp.into_string().await.unwrap();
-    let proof = hidden_field(&consent_html, "login_proof");
-
-    // An admin disables local-RP mode domain-wide before the user submits.
+    sign_in(&client, &user).await;
+    assert_eq!(
+        inspected(&inspect(&client, &fx.signed_request).await).admission,
+        "consent"
+    );
     pool.set_local_rp_domain_policy(linkkeys::db::local_rp::POLICY_DISABLED)
         .unwrap();
-
-    let (ct, b) = form(format!(
-        "signed_request={}&login_proof={}&grant=display_name&grant=email&grant=handle",
-        fx.signed_request, proof
-    ));
-    let resp = client
-        .post("/auth/local-rp/consent")
-        .header(ct)
-        .header(Header::new("Host", TEST_DOMAIN))
-        .header(same_origin())
-        .body(b)
-        .dispatch()
-        .await;
-    assert!(
-        resp.headers().get_one("Location").is_none(),
-        "a disabled-policy domain must never redirect to the callback URL"
-    );
-    let body = resp.into_string().await.unwrap();
-    assert!(
-        body.contains("does not allow") || body.contains("not allow"),
-        "disabled-policy message shown, got:\n{body}"
+    assert_refused(
+        &complete(
+            &client,
+            &fx.signed_request,
+            &["display_name", "email", "handle"],
+            false,
+        )
+        .await,
+        "policy_disabled",
     );
 }
 
@@ -677,32 +635,14 @@ async fn disabled_policy_between_consent_render_and_submit_rejected() {
 // ---------------------------------------------------------------------
 
 async fn assert_bad_scheme_rejected(callback_url: &str) {
-    std::env::set_var("DOMAIN_NAME", TEST_DOMAIN);
-    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
-    std::env::set_var("ENABLE_PASSWORD_AUTH", "true");
-
-    let pool = common::create_test_pool();
-    pool.seed_default_policies().expect("seed policies");
+    let pool = setup();
     seed_idp_and_user(&pool);
-
     let fx = default_fixture(callback_url);
     let client = build_client(&pool).await;
-
-    let resp = client
-        .get(format!(
-            "/auth/local-rp?signed_request={}",
-            fx.signed_request
-        ))
-        .dispatch()
-        .await;
-    let body = resp.into_string().await.unwrap();
-    assert!(
-        !body.contains("name=\"password\""),
-        "no login form for scheme {callback_url}"
-    );
-    assert!(
-        body.contains("isn't a web page") || body.contains("web page"),
-        "friendly bad-scheme message shown, got:\n{body}"
+    assert_eq!(
+        entry(&client, &format!("signed_request={}", fx.signed_request)).await,
+        "/app/error?reason=bad_scheme",
+        "scheme {callback_url} is refused"
     );
 }
 
@@ -722,14 +662,8 @@ async fn custom_app_scheme_callback_rejected() {
 
 #[rocket::async_test]
 async fn no_common_suite_rejected() {
-    std::env::set_var("DOMAIN_NAME", TEST_DOMAIN);
-    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
-    std::env::set_var("ENABLE_PASSWORD_AUTH", "true");
-
-    let pool = common::create_test_pool();
-    pool.seed_default_policies().expect("seed policies");
+    let pool = setup();
     seed_idp_and_user(&pool);
-
     let fx = build_fixture(
         "http://127.0.0.1:9999/callback",
         vec!["made-up-suite-nobody-supports".to_string()],
@@ -737,19 +671,24 @@ async fn no_common_suite_rejected() {
         vec!["handle".to_string()],
     );
     let client = build_client(&pool).await;
+    assert_eq!(
+        entry(&client, &format!("signed_request={}", fx.signed_request)).await,
+        "/app/error?reason=no_common_suite"
+    );
+}
 
-    let resp = client
-        .get(format!(
-            "/auth/local-rp?signed_request={}",
-            fx.signed_request
-        ))
-        .dispatch()
-        .await;
-    let body = resp.into_string().await.unwrap();
-    assert!(!body.contains("name=\"password\""), "no login form");
-    assert!(
-        body.contains("could not agree") || body.contains("agree on a way"),
-        "no-common-suite message shown, got:\n{body}"
+#[rocket::async_test]
+async fn a_missing_or_damaged_request_goes_to_the_error_page() {
+    let pool = setup();
+    let client = build_client(&pool).await;
+    let resp = client.get("/auth/local-rp").dispatch().await;
+    assert_eq!(
+        resp.headers().get_one("Location"),
+        Some("/app/error?reason=malformed")
+    );
+    assert_eq!(
+        entry(&client, "signed_request=not-a-request").await,
+        "/app/error?reason=malformed"
     );
 }
 
@@ -759,13 +698,8 @@ async fn no_common_suite_rejected() {
 
 #[rocket::async_test]
 async fn declined_required_claim_is_a_hard_error() {
-    std::env::set_var("DOMAIN_NAME", TEST_DOMAIN);
-    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
-    std::env::set_var("ENABLE_PASSWORD_AUTH", "true");
-
-    let pool = common::create_test_pool();
-    pool.seed_default_policies().expect("seed policies");
-    seed_idp_and_user(&pool);
+    let pool = setup();
+    let user = seed_idp_and_user(&pool);
 
     // "ssn" is required but the user has no such claim and will not grant it.
     let fx = build_fixture(
@@ -774,52 +708,15 @@ async fn declined_required_claim_is_a_hard_error() {
         vec!["ssn".to_string()],
         vec!["ssn".to_string()],
     );
-
-    pool.insert_local_rp(
-        &fx.fingerprint,
-        fx.signing_pk.as_ref(),
-        fx.enc_pk.as_ref(),
-        "Needs SSN",
-        None,
-        linkkeys::db::local_rp::STATUS_APPROVED,
-        None,
-    )
-    .expect("insert approved local rp");
-
+    approve(&pool, &fx, "Needs SSN");
     let client = build_client(&pool).await;
-    let (ct, b) = form(login_password_form(&fx.signed_request));
-    let resp = client
-        .post("/auth/local-rp")
-        .header(ct)
-        .header(Header::new("Host", TEST_DOMAIN))
-        .header(same_origin())
-        .body(b)
-        .dispatch()
-        .await;
-    assert_eq!(resp.status(), Status::Ok);
-    let consent_html = resp.into_string().await.unwrap();
-    let proof = hidden_field(&consent_html, "login_proof");
-
-    // Submit consent WITHOUT granting the required "ssn" claim.
-    let (ct, b) = form(format!(
-        "signed_request={}&login_proof={}",
-        fx.signed_request, proof
-    ));
-    let resp = client
-        .post("/auth/local-rp/consent")
-        .header(ct)
-        .header(Header::new("Host", TEST_DOMAIN))
-        .header(same_origin())
-        .body(b)
-        .dispatch()
-        .await;
-    assert!(
-        resp.headers().get_one("Location").is_none(),
-        "a missing required claim must not redirect to the callback URL"
+    sign_in(&client, &user).await;
+    assert_eq!(
+        inspected(&inspect(&client, &fx.signed_request).await).admission,
+        "consent"
     );
-    let body = resp.into_string().await.unwrap();
-    assert!(
-        body.contains("did not share") || body.contains("needs information"),
-        "required-claim-missing message shown, got:\n{body}"
+    assert_refused(
+        &complete(&client, &fx.signed_request, &[], false).await,
+        "required_claim_missing",
     );
 }

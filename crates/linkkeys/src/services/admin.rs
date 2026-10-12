@@ -6,33 +6,36 @@ use liblinkkeys::generated::types::{
     AdminIssueAttestationRequest, AdminIssueAttestationResponse, AdminLocalRp, AdminUser,
     AdminUserClaimsRequest, AdminUserClaimsResponse, ApproveClaimRequest, ApproveClaimResponse,
     ApproveLocalRpRequest, ApproveLocalRpResponse, AuthenticateRequest, AuthenticateResponse,
-    CheckPermissionRequest, CheckPermissionResponse, Claim, ClaimApproval, ClaimTypeLabel,
-    ClaimTypePolicy, CreateUserRequest, CreateUserResponse, DeactivateUserRequest,
-    DeactivateUserResponse, DenyLocalRpRequest, DenyLocalRpResponse, GetLocalRpPolicyRequest,
-    GetLocalRpPolicyResponse, GetLocalRpRequest, GetLocalRpResponse,
+    CheckPermissionRequest, CheckPermissionResponse, Claim, ClaimApproval, ClaimRequest,
+    ClaimTypeLabel, ClaimTypePolicy, CreateUserRequest, CreateUserResponse, DeactivateUserRequest,
+    DeactivateUserResponse, DenyLocalRpRequest, DenyLocalRpResponse, EmptyRequest,
+    GetLocalRpPolicyRequest, GetLocalRpPolicyResponse, GetLocalRpRequest, GetLocalRpResponse,
     GetUserAuthenticationActivityRequest, GetUserAuthenticationActivityResponse, GetUserRequest,
-    GetUserResponse, GrantRelationRequest, GrantRelationResponse, ListClaimTypesResponse,
-    ListLocalRpsRequest, ListLocalRpsResponse, ListPendingClaimApprovalsResponse,
-    ListRelationsRequest, ListRelationsResponse, ListReleaseRulesResponse,
-    ListSettablePoliciesResponse, ListTrustedIssuersResponse, ListUserClaimsRequest,
-    ListUserClaimsResponse, ListUsersRequest, ListUsersResponse, PurgeLocalRpTicketsRequest,
+    GetUserResponse, GrantRelationRequest, GrantRelationResponse, ListClaimTypeLabelsResponse,
+    ListClaimTypesResponse, ListLocalRpsRequest, ListLocalRpsResponse,
+    ListPendingClaimApprovalsResponse, ListRelationsRequest, ListRelationsResponse,
+    ListReleaseRulesResponse, ListSettablePoliciesResponse, ListTrustedIssuersResponse,
+    ListUserClaimsRequest, ListUserClaimsResponse, ListUsersRequest, ListUsersResponse,
+    PreviewIssuerPolicyRequest, PreviewIssuerPolicyResponse, PreviewReleasePolicyRequest,
+    PreviewReleasePolicyResponse, PreviewReleaseRow, PurgeLocalRpTicketsRequest,
     PurgeLocalRpTicketsResponse, PurgeUserRequest, PurgeUserResponse, RejectClaimRequest,
     RejectClaimResponse, ReleaseRule, RemoveClaimRequest, RemoveClaimResponse,
     RemoveClaimTypeLabelRequest, RemoveClaimTypeLabelResponse, RemoveClaimTypeRequest,
     RemoveClaimTypeResponse, RemoveCredentialRequest, RemoveCredentialResponse,
     RemoveRelationRequest, RemoveRelationResponse, RemoveReleaseRuleRequest,
     RemoveReleaseRuleResponse, RemoveTrustedIssuerRequest, RemoveTrustedIssuerResponse,
-    ResetPasswordRequest, ResetPasswordResponse, RevokeDomainKeyRequest, RevokeDomainKeyResponse,
-    RevokeLocalRpRequest, RevokeLocalRpResponse, SetClaimRequest, SetClaimResponse,
-    SetClaimTypeLabelRequest, SetClaimTypeLabelResponse, SetClaimTypeRequest, SetClaimTypeResponse,
-    SetLocalRpPolicyRequest, SetLocalRpPolicyResponse, SetReleaseRuleRequest,
-    SetReleaseRuleResponse, SetUserClaimRequest, SetUserClaimResponse, SettableClaimPolicy,
-    TrustedIssuer, UpdateUserRequest, UpdateUserResponse, UserAuthenticationActivity,
+    RequestedClaim, ResetPasswordRequest, ResetPasswordResponse, RevokeDomainKeyRequest,
+    RevokeDomainKeyResponse, RevokeLocalRpRequest, RevokeLocalRpResponse, SetClaimRequest,
+    SetClaimResponse, SetClaimTypeLabelRequest, SetClaimTypeLabelResponse, SetClaimTypeRequest,
+    SetClaimTypeResponse, SetLocalRpPolicyRequest, SetLocalRpPolicyResponse, SetReleaseRuleRequest,
+    SetReleaseRuleResponse, SetSignInPolicyRequest, SetUserClaimRequest, SetUserClaimResponse,
+    SettableClaimPolicy, SignInPolicy, TrustedIssuer, UpdateUserRequest, UpdateUserResponse,
+    UserAuthenticationActivity,
 };
 
 use crate::db::models;
 use crate::db::DbPool;
-use crate::services::{auth, password};
+use crate::services::{auth, browser_session, password};
 
 fn svc_err(msg: &str) -> ServiceError {
     ServiceError {
@@ -278,9 +281,8 @@ pub fn activate_user(pool: &DbPool, user_id: &str) -> Result<AdminUser, ServiceE
 }
 
 /// CSIL-RPC entry point for [`activate_user`] (`Admin/activate-user`): the
-/// direct request/response mirror of `deactivate_user` above, reusing the
-/// same [`activate_user`] call the web UI's "Activate User" button makes
-/// (`web/admin_ui.rs`'s `admin_ui_activate_user`).
+/// direct request/response mirror of `deactivate_user` above. The browser
+/// app's admin pages (`/app/admin` and `/app/admin/users/<id>`) call this op.
 pub fn activate_user_request(
     pool: &DbPool,
     req: ActivateUserRequest,
@@ -617,9 +619,9 @@ pub fn approve_claim(pool: &DbPool, approval_id: &str, admin_id: &str) -> Result
 }
 
 /// CSIL-RPC entry point for [`approve_claim`] (`Admin/approve-claim`): the TCP
-/// dispatcher supplies `admin_id` from the caller's authenticated identity
-/// (the API key's user), the same way `web::policy_admin_ui::approve` supplies
-/// the web session's user id.
+/// dispatcher supplies `admin_id` from the caller's authenticated identity:
+/// the API key's user over TCP, or the session's user through the browser
+/// carrier.
 pub fn approve_claim_request(
     pool: &DbPool,
     req: ApproveClaimRequest,
@@ -863,7 +865,7 @@ pub fn check_permission_handler(
 //
 // Metadata drift itself (old value vs. newly reported value on a repeat
 // attempt) is detected by `crate::services::local_rp::record_login_attempt`
-// but is only `log::warn!`'d at that call site (see `web/local_rp_ui.rs`) —
+// but is only `log::warn!`'d at that call site (see `web/local_rp_browser.rs`) —
 // it is not persisted anywhere. There is deliberately no new column/table for
 // drift history in this phase (no migrations without being truly forced);
 // admins reviewing a fingerprint here see current metadata and first/last
@@ -1032,6 +1034,170 @@ pub fn set_local_rp_policy(
     Ok(SetLocalRpPolicyResponse { policy: req.policy })
 }
 
+/// Simulate the consent screen and release decision for a hypothetical
+/// request. Reads stored release rules; changes nothing.
+pub fn preview_release_policy(
+    pool: &DbPool,
+    req: PreviewReleasePolicyRequest,
+) -> Result<PreviewReleasePolicyResponse, ServiceError> {
+    use liblinkkeys::consent::{
+        compute_authorized_claims, resolve_consent_screen, DomainPolicy, PolicyDisposition,
+    };
+    let audience = req.audience.trim();
+    let mut policy = DomainPolicy::default();
+    for rule in pool
+        .list_release_policies_for_audience(audience)
+        .map_err(db_err)?
+    {
+        match rule.disposition.as_str() {
+            "forced_allow" => policy.forced_allow.push(rule.claim_type),
+            "forced_deny" => policy.forced_deny.push(rule.claim_type),
+            _ => {}
+        }
+    }
+    let temp_audience = req.temp_audience.as_deref().unwrap_or("").trim();
+    let temp_claim_type = req.temp_claim_type.as_deref().unwrap_or("").trim();
+    if !temp_audience.is_empty() && !temp_claim_type.is_empty() {
+        let applies = temp_audience == "*" || temp_audience == audience;
+        match req.temp_disposition.as_deref() {
+            Some("forced_allow") if applies => {
+                policy.forced_allow.push(temp_claim_type.to_string())
+            }
+            Some("forced_deny") if applies => policy.forced_deny.push(temp_claim_type.to_string()),
+            Some("forced_allow") | Some("forced_deny") => {}
+            _ => {
+                return Err(ServiceError {
+                    code: 400,
+                    message: "temp_disposition must be forced_allow or forced_deny".to_string(),
+                })
+            }
+        }
+    }
+    let requested = |types: &[String]| -> Vec<RequestedClaim> {
+        types
+            .iter()
+            .map(|claim_type| RequestedClaim {
+                claim_type: claim_type.clone(),
+                datatype: "string".to_string(),
+            })
+            .collect()
+    };
+    let claim_request = ClaimRequest {
+        required: requested(&req.required_claims),
+        optional: requested(&req.optional_claims),
+    };
+    let available_types = if req.available_claims.is_empty() {
+        req.required_claims
+            .iter()
+            .chain(req.optional_claims.iter())
+            .cloned()
+            .collect()
+    } else {
+        req.available_claims.clone()
+    };
+    let available: Vec<Claim> = available_types
+        .iter()
+        .map(|claim_type| Claim {
+            claim_id: format!("preview-{claim_type}"),
+            user_id: "preview-user".to_string(),
+            claim_type: claim_type.clone(),
+            claim_value: b"preview".to_vec(),
+            signatures: Vec::new(),
+            attested_at: String::new(),
+            created_at: String::new(),
+            expires_at: None,
+            revoked_at: None,
+        })
+        .collect();
+    let screen = resolve_consent_screen(&claim_request, &available, None, &policy);
+    let authorized_claims = compute_authorized_claims(&claim_request, &req.user_choices, &policy);
+    let rows = screen
+        .rows
+        .iter()
+        .map(|row| PreviewReleaseRow {
+            claim_type: row.claim_type.clone(),
+            required: row.required,
+            available: row.available,
+            locked: row.locked,
+            policy: match row.policy {
+                PolicyDisposition::User => "user",
+                PolicyDisposition::ForcedAllow => "forced_allow",
+                PolicyDisposition::ForcedDeny => "forced_deny",
+            }
+            .to_string(),
+            default_granted: row.default_granted(),
+        })
+        .collect();
+    Ok(PreviewReleasePolicyResponse {
+        forced_allow: policy.forced_allow,
+        forced_deny: policy.forced_deny,
+        authorized_claims,
+        rows,
+    })
+}
+
+/// Whether this domain would sign claims about subjects of a domain under the
+/// given deny lists, and optionally whether a user may issue a claim type.
+pub fn preview_issuer_policy(
+    pool: &DbPool,
+    req: PreviewIssuerPolicyRequest,
+) -> Result<PreviewIssuerPolicyResponse, ServiceError> {
+    let (configured_domains, configured_tlds) =
+        crate::services::attestation::configured_subject_denies();
+    let denied_domains = req.denied_domains.unwrap_or(configured_domains);
+    let denied_tlds = req.denied_tlds.unwrap_or(configured_tlds);
+    let decision = crate::services::attestation::subject_domain_policy_decision_with_denies(
+        req.subject_domain.trim(),
+        &denied_domains,
+        &denied_tlds,
+    );
+    let user_can_issue = match (
+        req.issuer_user_id.as_deref().map(str::trim),
+        req.claim_type.as_deref().map(str::trim),
+    ) {
+        (Some(user_id), Some(claim_type)) if !user_id.is_empty() && !claim_type.is_empty() => Some(
+            crate::services::attestation::user_can_issue_claim(pool, user_id, claim_type),
+        ),
+        _ => None,
+    };
+    Ok(PreviewIssuerPolicyResponse {
+        denied_domains,
+        denied_tlds,
+        allowed: decision.allowed,
+        reason: decision.reason,
+        user_can_issue,
+        attested_claim_ttl_seconds: crate::services::attestation::attested_claim_ttl_seconds(),
+    })
+}
+
+/// This domain's sign-in length: the effective hours plus the default and the
+/// range an admin can choose from.
+pub fn get_sign_in_policy(pool: &DbPool, _req: EmptyRequest) -> Result<SignInPolicy, ServiceError> {
+    sign_in_policy(pool)
+}
+
+/// Set this domain's sign-in length in hours. Out-of-range values are a 400.
+pub fn set_sign_in_policy(
+    pool: &DbPool,
+    req: SetSignInPolicyRequest,
+) -> Result<SignInPolicy, ServiceError> {
+    let hours = i32::try_from(req.sign_in_hours).map_err(|_| ServiceError {
+        code: 400,
+        message: "sign_in_hours is out of range".to_string(),
+    })?;
+    browser_session::set_sign_in_hours(pool, hours)?;
+    sign_in_policy(pool)
+}
+
+fn sign_in_policy(pool: &DbPool) -> Result<SignInPolicy, ServiceError> {
+    Ok(SignInPolicy {
+        sign_in_hours: i64::from(browser_session::sign_in_hours(pool)?),
+        default_sign_in_hours: i64::from(browser_session::DEFAULT_SIGN_IN_HOURS),
+        min_sign_in_hours: i64::from(browser_session::MIN_SIGN_IN_HOURS),
+        max_sign_in_hours: i64::from(browser_session::MAX_SIGN_IN_HOURS),
+    })
+}
+
 /// Admin-triggered claim-ticket cleanup (mirrors `recheck-pins`'s
 /// cron-friendly shape, but is a plain DB op with no outbound/DNS
 /// dependency, so it runs through the normal `admin_op!` dispatch path
@@ -1048,14 +1214,11 @@ pub fn purge_local_rp_tickets(
     })
 }
 
-// -- Claim-type registry admin (policy-admin web UI parity) --
+// -- Claim-type registry admin --
 //
-// Second entry point onto the exact same DB calls `web/policy_admin_ui.rs`'s
-// handlers (`upsert_policy`/`delete_policy`/`upsert_claim_label`/
-// `delete_claim_label`) make, so a controller holding an admin-relation API
-// key can manage the registry without the web UI. Validation mirrors those
-// handlers exactly — see the comment on each fn for which web handler it
-// reuses the behavior of.
+// The browser app's `/app/admin/policy` page calls these ops through the
+// browser carrier. A controller that holds an admin-relation API key calls
+// the same ops over TCP. Each fn validates its input before the DB call.
 
 fn claim_policy_to_csil(p: &models::ClaimTypePolicy) -> ClaimTypePolicy {
     ClaimTypePolicy {
@@ -1096,11 +1259,10 @@ pub fn list_claim_types(
     })
 }
 
-/// Create-or-update a claim-type definition. Mirrors
-/// `web::policy_admin_ui::upsert_policy` field-for-field, including its
-/// server-side validation (an unparseable `value_type`/`set_rule`/
-/// `signing_rule` would otherwise be stored and only fail at claim-set
-/// time), then calls the same `DbPool::upsert_claim_policy`.
+/// Create-or-update a claim-type definition. Validates the fields on the
+/// server (an unparseable `value_type`/`set_rule`/`signing_rule` would
+/// otherwise be stored and only fail at claim-set time), then calls
+/// `DbPool::upsert_claim_policy`.
 pub fn set_claim_type(
     pool: &DbPool,
     req: SetClaimTypeRequest,
@@ -1158,8 +1320,7 @@ pub fn set_claim_type(
     })
 }
 
-/// Delete a claim-type definition by id. Mirrors
-/// `web::policy_admin_ui::delete_policy`: delegates straight to
+/// Delete a claim-type definition by id. Delegates straight to
 /// `DbPool::delete_claim_policy` with no existence pre-check (an
 /// already-absent claim type is a no-op success there, same as here).
 pub fn remove_claim_type(
@@ -1171,10 +1332,9 @@ pub fn remove_claim_type(
     Ok(RemoveClaimTypeResponse { success: true })
 }
 
-/// Set a claim-type name translation. Mirrors
-/// `web::policy_admin_ui::upsert_claim_label` exactly: requires non-empty
+/// Set a claim-type name translation. Requires non-empty
 /// claim_type/locale/label, requires the claim type already be registered
-/// (only translate what exists), and calls the same
+/// (only translate what exists), and calls
 /// `DbPool::upsert_claim_label_i18n`.
 pub fn set_claim_type_label(
     pool: &DbPool,
@@ -1214,8 +1374,25 @@ pub fn set_claim_type_label(
     })
 }
 
-/// Delete a claim-type name translation. Mirrors
-/// `web::policy_admin_ui::delete_claim_label`: delegates straight to
+/// Every per-locale claim name translation, grouped by claim type in registry
+/// order.
+pub fn list_claim_type_labels(
+    pool: &DbPool,
+    _req: EmptyRequest,
+) -> Result<ListClaimTypeLabelsResponse, ServiceError> {
+    let mut labels = Vec::new();
+    for policy in pool.list_claim_policies().map_err(db_err)? {
+        for entry in pool
+            .list_claim_labels_i18n(&policy.claim_type)
+            .map_err(db_err)?
+        {
+            labels.push(claim_label_to_csil(&entry));
+        }
+    }
+    Ok(ListClaimTypeLabelsResponse { labels })
+}
+
+/// Delete a claim-type name translation. Delegates straight to
 /// `DbPool::delete_claim_label_i18n` with no existence pre-check.
 pub fn remove_claim_type_label(
     pool: &DbPool,
@@ -1226,17 +1403,15 @@ pub fn remove_claim_type_label(
     Ok(RemoveClaimTypeLabelResponse { success: true })
 }
 
-// -- Trusted-issuer and release-default admin (policy-admin web UI parity,
-// slice 2) --
+// -- Trusted-issuer and release-default admin (slice 2) --
 //
-// Second entry point onto the exact same DB calls `web/policy_admin_ui.rs`'s
-// handlers (`add_issuer`/`remove_issuer`/`upsert_release`/`delete_release`)
-// make, so a controller holding an admin-relation API key can manage trusted
-// issuers and per-audience release defaults without the web UI. Unlike
-// `add_issuer`, this op does not best-effort cache the issuer's domain keys —
-// that requires an async `Net` fetch the synchronous TCP dispatch path
-// doesn't have; trust is still recorded immediately and keys are cached on a
-// later deposit/refresh, same as when the web handler's fetch fails.
+// The browser app's `/app/admin/policy` page calls these ops through the
+// browser carrier. A controller that holds an admin-relation API key calls
+// the same ops over TCP to manage trusted issuers and per-audience release
+// defaults. `add-trusted-issuer` does not cache the issuer's domain keys:
+// that needs an async `Net` fetch, and the synchronous dispatch path does
+// not have one. Trust is recorded immediately, and the keys are cached on a
+// later deposit/refresh.
 
 fn trusted_issuer_to_csil(t: &models::TrustedIssuer) -> TrustedIssuer {
     TrustedIssuer {
@@ -1266,9 +1441,8 @@ pub fn list_trusted_issuers(
     })
 }
 
-/// Add a trusted issuer for a claim type. Mirrors
-/// `web::policy_admin_ui::add_issuer`'s DB call
-/// (`DbPool::add_trusted_issuer`, insert-if-absent).
+/// Add a trusted issuer for a claim type. Calls
+/// `DbPool::add_trusted_issuer` (insert-if-absent).
 pub fn add_trusted_issuer(
     pool: &DbPool,
     req: AddTrustedIssuerRequest,
@@ -1285,8 +1459,7 @@ pub fn add_trusted_issuer(
     })
 }
 
-/// Remove a trusted issuer for a claim type. Mirrors
-/// `web::policy_admin_ui::remove_issuer`: delegates straight to
+/// Remove a trusted issuer for a claim type. Delegates straight to
 /// `DbPool::remove_trusted_issuer` with no existence pre-check.
 pub fn remove_trusted_issuer(
     pool: &DbPool,
@@ -1310,11 +1483,9 @@ pub fn list_release_rules(
     })
 }
 
-/// Create-or-update a release rule. Mirrors
-/// `web::policy_admin_ui::upsert_release` exactly, including its
-/// server-side validation of `disposition` (an unparseable disposition
-/// would otherwise be stored and misapplied at consent time), then calls
-/// the same `DbPool::upsert_release_policy`.
+/// Create-or-update a release rule. Validates `disposition` on the server
+/// (an unparseable disposition would otherwise be stored and misapplied at
+/// consent time), then calls `DbPool::upsert_release_policy`.
 pub fn set_release_rule(
     pool: &DbPool,
     req: SetReleaseRuleRequest,
@@ -1338,8 +1509,7 @@ pub fn set_release_rule(
     })
 }
 
-/// Delete a release rule. Mirrors `web::policy_admin_ui::delete_release`:
-/// delegates straight to `DbPool::delete_release_policy` with no
+/// Delete a release rule. Delegates straight to `DbPool::delete_release_policy` with no
 /// existence pre-check.
 pub fn remove_release_rule(
     pool: &DbPool,
@@ -1351,14 +1521,13 @@ pub fn remove_release_rule(
 }
 
 /// Admin issues (signs) and stores an attested claim directly for one of this
-/// domain's own users — the `policy-admin` "Issue an attestation" web flow
-/// (`issue_verify` + `issue_sign`), collapsed to one CSIL-RPC call for a
-/// controller that already holds this domain's `admin` relation.
+/// domain's own users, in one CSIL-RPC call, for a controller that already
+/// holds this domain's `admin` relation.
 ///
-/// Reuses the exact signing call `issue_sign` makes
+/// Uses the same signing call as the browser app's `BrowserIssuer` service
 /// (`attestation::issue_attested_claim`, signed with the domain's active keys —
 /// the subject is always this domain, since `user_id` names one of our own
-/// accounts). Unlike the web flow, storage does not round-trip through
+/// accounts). Unlike `BrowserIssuer`, storage does not round-trip through
 /// `Attestation/deposit-claim` over the network: that path exists to let an
 /// EXTERNAL issuer deposit into a subject's home domain (and requires the
 /// signing domain to be registered as a trusted issuer of itself for this

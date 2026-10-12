@@ -3,8 +3,9 @@
 //! `revoke-domain-key`.
 //!
 //! `activate-user` is the direct request/response mirror of the existing
-//! `deactivate-user` op — it reuses `services::admin::activate_user`, the same
-//! call the `user-admin` web UI's "Activate User" button makes.
+//! `deactivate-user` op — it reuses `services::admin::activate_user`. The
+//! browser app's admin pages (`/app/admin` and `/app/admin/users/<id>`) call
+//! the same op.
 //!
 //! `purge-user` is a second CSIL-RPC entry point onto the exact same
 //! `DbPool::purge_user_tombstone` call `main.rs`'s `user purge-local` CLI

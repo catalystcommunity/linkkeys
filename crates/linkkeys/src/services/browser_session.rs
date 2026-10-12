@@ -13,11 +13,39 @@ use crate::db::{models, DbPool};
 use crate::services::auth::AuthenticationEvidence;
 
 pub const COOKIE_NAME: &str = "__Host-linkkeys_session";
-const ABSOLUTE_TTL_SECONDS: i64 = 43_200;
+/// How long a sign-in stays valid when an admin has not set a length.
+pub const DEFAULT_SIGN_IN_HOURS: i32 = 12;
+/// The shortest and longest sign-in length an admin can set (30 days).
+pub const MIN_SIGN_IN_HOURS: i32 = 1;
+pub const MAX_SIGN_IN_HOURS: i32 = 720;
 const IDLE_TTL_SECONDS: i64 = 3_600;
 
-pub fn absolute_ttl_seconds() -> i64 {
-    ABSOLUTE_TTL_SECONDS
+/// This domain's sign-in length in hours: the admin's setting, or the default.
+pub fn sign_in_hours(pool: &DbPool) -> Result<i32, ServiceError> {
+    Ok(pool
+        .get_sign_in_hours(&crate::conversions::get_domain_name())
+        .map_err(db_error)?
+        .unwrap_or(DEFAULT_SIGN_IN_HOURS))
+}
+
+/// Set this domain's sign-in length. Applies to sign-ins made after the
+/// change; a sign-in keeps the expiry it was given.
+pub fn set_sign_in_hours(pool: &DbPool, hours: i32) -> Result<(), ServiceError> {
+    if !(MIN_SIGN_IN_HOURS..=MAX_SIGN_IN_HOURS).contains(&hours) {
+        return Err(ServiceError {
+            code: 400,
+            message: format!(
+                "sign_in_hours must be from {MIN_SIGN_IN_HOURS} to {MAX_SIGN_IN_HOURS}"
+            ),
+        });
+    }
+    pool.set_sign_in_hours(&crate::conversions::get_domain_name(), hours)
+        .map_err(db_error)?;
+    Ok(())
+}
+
+fn absolute_ttl_seconds(pool: &DbPool) -> Result<i64, ServiceError> {
+    Ok(i64::from(sign_in_hours(pool)?) * 3_600)
 }
 
 pub fn idle_ttl_seconds() -> i64 {
@@ -67,7 +95,7 @@ pub fn create(
     let token = Base64UrlUnpadded::encode_string(&secret);
     let digest = token_digest(&token);
     let now = Utc::now();
-    let expires = now + chrono::Duration::seconds(absolute_ttl_seconds());
+    let expires = now + chrono::Duration::seconds(absolute_ttl_seconds(pool)?);
     let method_list = evidence
         .method_types
         .iter()
@@ -100,7 +128,7 @@ pub fn create_after_password(
     let token = Base64UrlUnpadded::encode_string(&secret);
     let digest = token_digest(&token);
     let now = Utc::now();
-    let expires = now + chrono::Duration::seconds(absolute_ttl_seconds());
+    let expires = now + chrono::Duration::seconds(absolute_ttl_seconds(pool)?);
     let method_list = evidence
         .method_types
         .iter()

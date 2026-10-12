@@ -236,6 +236,60 @@ pub fn set_signing_pref(
     Ok(())
 }
 
+/// The caller's choices for each user-settable claim type: "keep verified"
+/// (stored preference, else the registry default) and "share with every app"
+/// (a standing `*` release preference).
+pub fn my_claim_settings(
+    pool: &DbPool,
+    account_id: &str,
+) -> Result<Vec<(String, bool, bool)>, ServiceError> {
+    let prefs = pool.list_profile_prefs(account_id).map_err(db_err)?;
+    let shared: std::collections::HashSet<String> = pool
+        .list_user_release_allows(account_id, "*")
+        .map_err(db_err)?
+        .into_iter()
+        .collect();
+    Ok(list_user_settable_policies(pool)?
+        .into_iter()
+        .map(|policy| {
+            let keep_verified = prefs
+                .iter()
+                .find(|pref| pref.claim_type == policy.claim_type)
+                .map(|pref| pref.auto_sign)
+                .unwrap_or(policy.default_auto_sign);
+            let shared_with_every_app = shared.contains(&policy.claim_type);
+            (policy.claim_type, keep_verified, shared_with_every_app)
+        })
+        .collect())
+}
+
+/// Set the caller's "keep verified" choice for one claim type. Same
+/// `user_settable` gate as `set_my_claim`: a client cannot store choices for a
+/// type the admin did not open to self-service.
+pub fn set_my_claim_keep_verified(
+    pool: &DbPool,
+    account_id: &str,
+    claim_type: &str,
+    keep_verified: bool,
+) -> Result<(), ServiceError> {
+    let row = pool
+        .find_claim_policy(claim_type)
+        .map_err(db_err)?
+        .ok_or_else(|| {
+            svc_err(
+                400,
+                &liblinkkeys::claim_policy::RejectionReason::UnknownClaimType.to_string(),
+            )
+        })?;
+    if !row.user_settable {
+        return Err(svc_err(
+            403,
+            &liblinkkeys::claim_policy::RejectionReason::SetterNotAuthorized.to_string(),
+        ));
+    }
+    set_signing_pref(pool, account_id, claim_type, keep_verified)
+}
+
 /// The registry entries a user may set themselves, for the profile editor and
 /// the discovery endpoint.
 pub fn list_user_settable_policies(
@@ -275,9 +329,8 @@ pub fn remove_my_claim(
 /// same `find_claim_policy` + `user_settable` gate `set_my_claim` uses — a
 /// claim type a user can't set, they also can't pre-share; `claim_type`
 /// arrives from a client-controlled field, so the registry (not just a UI
-/// hint) is the authority. Backs both the web identity editor's "share"
-/// toggle (`web::profile_ui::set_share_submit`) and
-/// `Account/set-my-claim-sharing`.
+/// hint) is the authority. Backs `Account/set-my-claim-sharing`, which the
+/// browser app's "share" toggle on `/app/account` calls.
 pub fn set_my_claim_sharing(
     pool: &DbPool,
     account_id: &str,

@@ -105,12 +105,17 @@ pub fn subject_domain_policy_decision_with_denies(
     }
 }
 
-pub fn subject_domain_policy_decision(subject_domain: &str) -> SubjectDomainPolicyDecision {
-    subject_domain_policy_decision_with_denies(
-        subject_domain,
-        &csv_env("ATTESTATION_DENY_SUBJECT_DOMAINS"),
-        &csv_env("ATTESTATION_DENY_SUBJECT_TLDS"),
+/// The configured subject-domain deny lists: (domains, TLDs).
+pub fn configured_subject_denies() -> (Vec<String>, Vec<String>) {
+    (
+        csv_env("ATTESTATION_DENY_SUBJECT_DOMAINS"),
+        csv_env("ATTESTATION_DENY_SUBJECT_TLDS"),
     )
+}
+
+pub fn subject_domain_policy_decision(subject_domain: &str) -> SubjectDomainPolicyDecision {
+    let (domains, tlds) = configured_subject_denies();
+    subject_domain_policy_decision_with_denies(subject_domain, &domains, &tlds)
 }
 
 pub fn subject_domain_allowed(subject_domain: &str) -> bool {
