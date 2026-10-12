@@ -184,11 +184,27 @@ pub fn request_verification(
     user_id: &str,
     req: RequestVerificationRequest,
 ) -> Result<RequestVerificationResponse, ServiceError> {
-    let signed_request = attestation::mint_signing_request(
-        pool,
-        user_id,
-        &req.issuer_domain,
-        &req.requested_claim_types,
-    )?;
+    let issuer_domain = req.issuer_domain.trim();
+    if issuer_domain.is_empty() {
+        return Err(ServiceError {
+            code: 400,
+            message: "issuer_domain is required".to_string(),
+        });
+    }
+    let requested_claim_types: Vec<String> = req
+        .requested_claim_types
+        .iter()
+        .map(|claim_type| claim_type.trim())
+        .filter(|claim_type| !claim_type.is_empty())
+        .map(str::to_string)
+        .collect();
+    if requested_claim_types.is_empty() {
+        return Err(ServiceError {
+            code: 400,
+            message: "at least one requested claim type is required".to_string(),
+        });
+    }
+    let signed_request =
+        attestation::mint_signing_request(pool, user_id, issuer_domain, &requested_claim_types)?;
     Ok(RequestVerificationResponse { signed_request })
 }

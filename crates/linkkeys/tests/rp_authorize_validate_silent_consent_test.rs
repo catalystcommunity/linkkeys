@@ -51,6 +51,18 @@ fn signed_email_request(
     nonce: &str,
     claims_update: bool,
 ) -> String {
+    signed_claims_request(signing_id, sk_bytes, nonce, &[], claims_update)
+}
+
+/// Build and sign an auth request requiring `email` plus the given optional
+/// claim types.
+fn signed_claims_request(
+    signing_id: &str,
+    sk_bytes: &[u8],
+    nonce: &str,
+    optional: &[&str],
+    claims_update: bool,
+) -> String {
     let mut req = build_auth_request(
         TEST_DOMAIN,
         &format!("https://{}/cb", TEST_DOMAIN),
@@ -61,7 +73,13 @@ fn signed_email_request(
                 claim_type: "email".to_string(),
                 datatype: "email".to_string(),
             }],
-            optional: vec![],
+            optional: optional
+                .iter()
+                .map(|claim_type| RequestedClaim {
+                    claim_type: claim_type.to_string(),
+                    datatype: "text".to_string(),
+                })
+                .collect(),
         }),
         claims_update.then(|| AuthFlowContext {
             flow: "claims_update".to_string(),
@@ -282,5 +300,172 @@ async fn validate_reports_silent_consent_from_a_standing_grant() {
     )
     .await;
     assert_eq!(resp.already_consented, None);
+    assert_eq!(resp.authorized_claims, None);
+}
+
+/// Regression: a site forces release of a claim the user has no value for.
+/// The stored grant holds only claims with a value, so the forced claim is
+/// never in it. Consent must still be silent on the next sign-in, and must
+/// reopen once the user adds a value for that claim.
+#[rocket::async_test]
+async fn forced_claim_without_a_value_does_not_reopen_consent() {
+    std::env::set_var("DOMAIN_NAME", TEST_DOMAIN);
+    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
+    std::env::set_var("ENABLE_PASSWORD_AUTH", "true");
+
+    let pool = common::create_test_pool();
+    pool.seed_default_policies().expect("seed policies");
+
+    let (vk, sk) = crypto::generate_ed25519_keypair();
+    let pk = vk.as_bytes().to_vec();
+    let sk_bytes = sk.to_bytes().to_vec();
+    let enc_sk = crypto::encrypt_private_key(&sk_bytes, PASSPHRASE).unwrap();
+    let fp = crypto::fingerprint(&pk);
+    let expires = chrono::Utc::now() + chrono::Duration::days(365);
+    let signing = pool
+        .create_domain_key(&pk, &enc_sk, &fp, "ed25519", expires)
+        .expect("signing key");
+
+    let (epub, epriv) = crypto::generate_x25519_keypair();
+    let efp = crypto::fingerprint(&epub);
+    let epriv_enc = crypto::encrypt_private_key(&epriv, PASSPHRASE).unwrap();
+    let vouch = liblinkkeys::dns::sign_key_vouch(
+        &efp,
+        &expires.to_rfc3339(),
+        SigningAlgorithm::Ed25519,
+        &sk_bytes,
+    )
+    .unwrap();
+    pool.create_domain_encryption_key(&epub, &epriv_enc, &efp, &signing.id, &vouch, expires)
+        .expect("encryption key");
+
+    let mut overrides = DataMap::new();
+    overrides.insert("username".to_string(), serde_json::json!(USERNAME));
+    let user = create_user(&pool, &overrides);
+    let hash = linkkeys::services::password::hash_for_storage(PASSWORD).unwrap();
+    create_auth_credential(&pool, &user.id, "password", &hash);
+    pool.create_claim(
+        &uuid::Uuid::now_v7().to_string(),
+        &user.id,
+        "email",
+        b"a@b.com",
+        &[],
+        None,
+        chrono::Utc::now(),
+    )
+    .expect("email claim");
+
+    let caller = create_user(&pool, &DataMap::new());
+    let bearer = api_key_for(&pool, &caller.id);
+    create_relation(
+        &pool,
+        "user",
+        &caller.id,
+        "api_access",
+        "domain",
+        TEST_DOMAIN,
+    );
+
+    pool.upsert_release_policy(TEST_DOMAIN, "email", "forced_allow")
+        .expect("force email release");
+    pool.upsert_release_policy(TEST_DOMAIN, "over_21", "forced_allow")
+        .expect("force over_21 release");
+
+    let config = rocket::Config {
+        secret_key: rocket::config::SecretKey::derive_from(&[7u8; 64]),
+        ..rocket::Config::debug_default()
+    };
+    let rocket = linkkeys::web::build_rocket(
+        pool.clone(),
+        Arc::new(AtomicBool::new(true)),
+        common::net::offline_net(),
+        config,
+    );
+    let client = Client::tracked(rocket).await.expect("rocket client");
+
+    // 1. Consent once. The user has no over_21 value, so the grant holds
+    //    only email.
+    let sr_login = signed_claims_request(
+        &signing.id,
+        &sk_bytes,
+        "forced-nonce-1",
+        &["over_21"],
+        false,
+    );
+    let resp = client
+        .post("/auth/authorize")
+        .header(ContentType::Form)
+        .header(Header::new("Host", TEST_DOMAIN))
+        .header(Header::new("Origin", format!("https://{TEST_DOMAIN}")))
+        .body(format!(
+            "username={}%40{}&password={}&signed_request={}",
+            USERNAME,
+            TEST_DOMAIN,
+            PASSWORD.replace(' ', "+"),
+            sr_login
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok, "consent screen renders");
+    let proof = hidden_field(&resp.into_string().await.unwrap(), "login_proof");
+    let resp = client
+        .post("/auth/consent")
+        .header(ContentType::Form)
+        .header(Header::new("Host", TEST_DOMAIN))
+        .header(Header::new("Origin", format!("https://{TEST_DOMAIN}")))
+        .body(format!(
+            "signed_request={}&login_proof={}&grant=email",
+            sr_login, proof
+        ))
+        .dispatch()
+        .await;
+    assert!(
+        resp.status().class().is_redirection(),
+        "consent completes the login, got {:?}",
+        resp.status()
+    );
+    let grant = pool
+        .find_active_consent_grant(&user.id, TEST_DOMAIN)
+        .expect("query grant")
+        .expect("a grant was stored");
+    assert_eq!(grant.claim_types, vec!["email".to_string()]);
+
+    // 2. The next sign-ins are silent, even though over_21 is forced and
+    //    not in the grant.
+    for nonce in ["forced-nonce-2", "forced-nonce-3"] {
+        let sr = signed_claims_request(&signing.id, &sk_bytes, nonce, &["over_21"], false);
+        let resp = call_validate(&client, &bearer, &sr, Some(&user.id)).await;
+        assert_eq!(
+            resp.already_consented,
+            Some(true),
+            "a forced claim with no value must not reopen consent"
+        );
+        assert_eq!(resp.authorized_claims, Some(vec!["email".to_string()]));
+    }
+
+    // 3. The user adds an over_21 value. That value was never shown to the
+    //    user for this site, so consent must reopen.
+    pool.create_claim(
+        &uuid::Uuid::now_v7().to_string(),
+        &user.id,
+        "over_21",
+        b"true",
+        &[],
+        None,
+        chrono::Utc::now(),
+    )
+    .expect("over_21 claim");
+    let sr = signed_claims_request(
+        &signing.id,
+        &sk_bytes,
+        "forced-nonce-4",
+        &["over_21"],
+        false,
+    );
+    let resp = call_validate(&client, &bearer, &sr, Some(&user.id)).await;
+    assert_eq!(
+        resp.already_consented, None,
+        "a newly available forced claim must reopen consent"
+    );
     assert_eq!(resp.authorized_claims, None);
 }

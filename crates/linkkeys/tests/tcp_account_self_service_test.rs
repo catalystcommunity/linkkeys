@@ -362,6 +362,36 @@ fn request_verification_returns_nonempty_signed_bundle_for_caller() {
     assert_eq!(inner.requested_claim_types, vec!["age_over_21".to_string()]);
 }
 
+#[test]
+fn request_verification_rejects_a_blank_issuer_or_no_claim_types() {
+    let pool = setup();
+    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
+    create_domain_key(&pool);
+    let (_user, api_key) = make_caller(&pool);
+
+    for (issuer_domain, requested_claim_types) in [
+        ("  ", vec!["age_over_21".to_string()]),
+        ("issuer.test", vec![]),
+        ("issuer.test", vec![" ".to_string()]),
+    ] {
+        let payload = liblinkkeys::generated::encode_request_verification_request(
+            &RequestVerificationRequest {
+                issuer_domain: issuer_domain.to_string(),
+                requested_claim_types,
+            },
+        );
+        let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
+            "Account",
+            "request-verification",
+            payload,
+            Some(&api_key),
+            &pool,
+            None,
+        );
+        assert_ne!(status, 0, "an empty request must not be signed");
+    }
+}
+
 // ---------------------------------------------------------------------
 // set-my-claim-sharing
 // ---------------------------------------------------------------------

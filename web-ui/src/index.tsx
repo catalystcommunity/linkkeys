@@ -4,7 +4,8 @@ import "./styles.css";
 import { api } from "./transport";
 import { RuntimeHost, addStylesheet, loadExtensions, type ExtensionRoute } from "./host";
 import type { ActAsGrantSummary, BrowserActAsInspectResponse, BrowserActAsParty, BrowserSessionInfo, Claim, GetUiConfigurationResponse, SettableClaimPolicy, VerifiedContactMethod } from "./generated/types.gen";
-import { actAsGrantState, actAsHandoff, actAsRequestKey, applicationLabel, describeDuration, durationChoices, partyHeadline, partyTitle, partyTrustNotes, authenticationFailed, authorizationHandoff, authorizationRequestIsTerminal, claimValueTooLong, cleanupOnce, currentPasswordMessage, hasBlockedRequiredClaim, inputType, loginFailureMessage, passwordLengthError, passwordManagerUsername, recoveryCompletionFailureMessage, recoveryLinkExpired, recoveryValidationFailureMessage, serviceMessage as message, standingAuthorization, transportFailed, verificationFailureMessage, withLoginContext } from "./ui-logic";
+import { fromSigningRequestCbor, toSignedSigningRequestCbor } from "./generated/codec.gen";
+import { actAsGrantState, actAsHandoff, base64UrlUnpadded, confirmationDetails, siteDomain, actAsRequestKey, applicationLabel, describeDuration, durationChoices, partyHeadline, partyTitle, partyTrustNotes, authenticationFailed, authorizationHandoff, authorizationRequestIsTerminal, claimValueTooLong, cleanupOnce, currentPasswordMessage, hasBlockedRequiredClaim, inputType, loginFailureMessage, passwordLengthError, passwordManagerUsername, recoveryCompletionFailureMessage, recoveryLinkExpired, recoveryValidationFailureMessage, serviceMessage as message, standingAuthorization, transportFailed, verificationFailureMessage, withLoginContext } from "./ui-logic";
 
 type PageProps = { navigate(path: string): void; configuration: GetUiConfigurationResponse; session?: BrowserSessionInfo; refreshSession(): Promise<void>; extensionFailures?: string[] };
 
@@ -254,6 +255,44 @@ const ActAsGrantList: Component<PageProps> = (props) => {
   </section>;
 };
 
+const ConfirmationRequest: Component<PageProps> = (props) => {
+  const [site, setSite] = createSignal("");
+  const [details, setDetails] = createSignal("");
+  const [result, setResult] = createSignal<{ site: string; code: string; expiresAt: string }>();
+  const [status, setStatus] = createSignal("");
+  const [error, setError] = createSignal("");
+  const [busy, setBusy] = createSignal(false);
+  const create = async (event: SubmitEvent) => {
+    event.preventDefault(); setStatus(""); setError(""); setResult(undefined);
+    const issuerDomain = siteDomain(site());
+    const requestedClaimTypes = confirmationDetails(details());
+    if (!issuerDomain) return setError("Enter the address of the site, for example example.com.");
+    if (!requestedClaimTypes.length) return setError("Enter at least one thing for the site to confirm.");
+    setBusy(true);
+    try {
+      const { signedRequest } = await api.account.requestVerification({ issuerDomain, requestedClaimTypes });
+      setResult({ site: issuerDomain, code: base64UrlUnpadded(toSignedSigningRequestCbor(signedRequest)), expiresAt: fromSigningRequestCbor(signedRequest.request).expiresAt });
+    } catch (cause) {
+      if (authenticationFailed(cause)) props.navigate("/app/login");
+      else setError(message(cause, "Could not make the request. Try again."));
+    } finally { setBusy(false); }
+  };
+  const copy = async () => {
+    setStatus(""); setError("");
+    try { await navigator.clipboard.writeText(result()!.code); setStatus("The code is copied."); }
+    catch { setError("Could not copy the code. Select the text and copy it yourself."); }
+  };
+  return <section class="card"><h2>Ask a site to confirm something about you</h2><p id="confirmation-help">Some sites can confirm a fact about you, for example your age. Make a request here and give the code to that site. When the site confirms the fact, it is added to your profile details.</p>
+    <form id="confirmation-request-form" name="confirmation-request" aria-busy={busy()} onSubmit={create}>
+      <label><span>Site address</span><input type="text" name="confirmation-site" value={site()} onInput={(event) => setSite(event.currentTarget.value)} placeholder="example.com" autocomplete="off" inputmode="url" required /></label>
+      <label><span>What to confirm</span><input type="text" name="confirmation-details" value={details()} onInput={(event) => setDetails(event.currentTarget.value)} autocomplete="off" required /><small>Use the words the site gives you. Put a comma between each one.</small></label>
+      <button type="submit" disabled={busy()}>Make request</button>
+    </form>
+    <Show when={result()}>{(made) => <><p>Copy this code and paste it on <strong>{made().site}</strong>. The code works until {new Date(made().expiresAt).toLocaleString()}.</p><textarea readonly rows="4" aria-label={`Request code for ${made().site}`} value={made().code} onFocus={(event) => event.currentTarget.select()} /><button type="button" onClick={copy}>Copy code</button></>}</Show>
+    <Show when={status()}><p class="notice good" role="status">{status()}</p></Show><Show when={error()}><p class="notice bad" role="alert">{error()}</p></Show>
+  </section>;
+};
+
 const Account: Component<PageProps> = (props) => {
   const [claims, setClaims] = createSignal<Claim[]>([]);
   const [contacts, setContacts] = createSignal<VerifiedContactMethod[]>([]);
@@ -346,6 +385,7 @@ const Account: Component<PageProps> = (props) => {
       <Show when={feedbackArea() === "contacts" && status()}><p class="notice good" role="status">{status()}</p></Show><Show when={feedbackArea() === "contacts" && error()}><p class="notice bad" role="alert">{error()}</p></Show>
     </section>
     <ActAsGrantList {...props} />
+    <ConfirmationRequest {...props} />
     <Show when={props.configuration.capabilities.includes("password_login")}><section class="card"><h2>Change password</h2><p id="change-password-rule">{passwordRule(props.configuration)} Changing your password signs you out on every device.</p><form id="change-password-form" name="change-password" aria-busy={busy()} onSubmit={changePassword}>
       <input class="visually-hidden" type="text" name="username" value={props.session?.user.username ?? ""} autocomplete="username" readonly />
       <label><span>Current password</span><input type="password" name="current-password" value={oldPassword()} onInput={(event) => setOldPassword(event.currentTarget.value)} autocomplete="current-password" required /></label>

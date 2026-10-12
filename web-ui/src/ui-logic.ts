@@ -222,3 +222,27 @@ export function partyHeadline(party: { domain?: string; applicationId?: string; 
   if (party.applicationId && party.domain) return `${party.applicationId} at ${party.domain}`;
   return party.localRpName ?? party.domain ?? "An application";
 }
+
+/** The site address a user types, reduced to a bare domain. Accepts a pasted
+ * web address ("https://Example.com/path") and returns "" when the text is not
+ * a usable domain name. */
+export function siteDomain(text: string): string {
+  const host = text.trim().toLowerCase().replace(/^[a-z][a-z0-9+.-]*:\/\//, "").split(/[/?#]/, 1)[0].replace(/\.$/, "");
+  const label = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+  const labels = host.split(".");
+  return host.length <= 253 && labels.length > 1 && labels.every((part) => label.test(part)) ? host : "";
+}
+
+/** The details a user asks another site to confirm, from a comma- or
+ * line-separated list. Empty entries and repeats are removed. */
+export function confirmationDetails(text: string): string[] {
+  return [...new Set(text.split(/[,\n]/).map((part) => part.trim()).filter(Boolean))];
+}
+
+/** Base64url without padding: the text form other sites accept for a
+ * confirmation request. */
+export function base64UrlUnpadded(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
