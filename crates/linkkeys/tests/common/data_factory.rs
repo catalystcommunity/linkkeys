@@ -123,8 +123,7 @@ pub fn create_relation(
 }
 
 /// Create a claim-type registry entry directly via `DbPool::upsert_claim_policy`
-/// (the same call `services::admin::set_claim_type`/the policy-admin web UI's
-/// `upsert_policy` make). Overrides: `claim_type`, `label`, `description`,
+/// (the same call `services::admin::set_claim_type` makes). Overrides: `claim_type`, `label`, `description`,
 /// `value_type` (default `"text"`), `max_bytes` (default `33792`), `set_rule`
 /// (default `"user_self"`), `signing_rule` (default `"self_signed"`),
 /// `requires_approval`, `user_settable`, `default_auto_sign`, `suggested`
@@ -169,8 +168,7 @@ pub fn create_claim_policy(pool: &DbPool, overrides: &DataMap) -> ClaimTypePolic
 }
 
 /// Create a trusted-issuer entry directly via `DbPool::add_trusted_issuer`
-/// (the same call `services::admin::add_trusted_issuer`/the policy-admin
-/// web UI's `add_issuer` make).
+/// (the same call `services::admin::add_trusted_issuer` makes).
 #[allow(dead_code)]
 pub fn create_trusted_issuer(
     pool: &DbPool,
@@ -186,8 +184,7 @@ pub fn create_trusted_issuer(
 }
 
 /// Create a release-rule entry directly via `DbPool::upsert_release_policy`
-/// (the same call `services::admin::set_release_rule`/the policy-admin web
-/// UI's `upsert_release` make).
+/// (the same call `services::admin::set_release_rule` makes).
 #[allow(dead_code)]
 pub fn create_release_rule(
     pool: &DbPool,

@@ -651,7 +651,11 @@ equivalents) beside the existing helpers.
   LocalRpEncryptedCallback>` to the callback URL, using the existing `?`/`&`
   separator logic (`web/mod.rs` does exactly this for the DNS-pinned flow's
   `encrypted_token` parameter — same name, same mechanics).
-- Consent flows follow the existing `/auth/consent` patterns.
+- Consent flows follow the DNS-pinned flow's browser-app pattern: the begin
+  route verifies the request and redirects to `/app/local-rp#request=...`; the
+  app calls `BrowserAuthorization/inspect-local-rp` and `complete-local-rp`
+  (`crates/linkkeys/src/web/local_rp_browser.rs`). A refused request goes to
+  `/app/error?reason=<code>`.
 
 ### Service and authorization placement
 
@@ -1031,7 +1035,8 @@ revoked-RP and wrong-key rejection.
 request/descriptor/policy validation, consent UI additions (unverified-name
 warning, callback host, short fingerprint, first-seen), callback redirect with
 `encrypted_token=`, scheme validation with the friendly i18n-cataloged error
-page, pending/denied pages. All new user-facing strings go through the i18n
+page, pending/denied pages. (The pages are now in the browser app; see
+"URL and parameter conventions".) All new user-facing strings go through the i18n
 catalog.
 Done when: Rocket local-client e2e covers approved/pending/denied/bad-scheme
 paths.

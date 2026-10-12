@@ -276,6 +276,35 @@ pub trait BrowserAuthorization {
         ctx: &Self::Context,
         input: BrowserActAsCompleteRequest,
     ) -> Result<BrowserActAsCompleteResponse, ServiceError>;
+    /// inspect-local-rp (request/response).
+    fn inspect_local_rp(
+        &self,
+        ctx: &Self::Context,
+        input: BrowserLocalRpInspectRequest,
+    ) -> Result<BrowserLocalRpInspectResponse, ServiceError>;
+    /// complete-local-rp (request/response).
+    fn complete_local_rp(
+        &self,
+        ctx: &Self::Context,
+        input: BrowserLocalRpCompleteRequest,
+    ) -> Result<BrowserLocalRpCompleteResponse, ServiceError>;
+}
+
+/// BrowserIssuer service trait
+pub trait BrowserIssuer {
+    type Context;
+    /// inspect-signing-request (request/response).
+    fn inspect_signing_request(
+        &self,
+        ctx: &Self::Context,
+        input: InspectSigningRequestRequest,
+    ) -> Result<InspectSigningRequestResponse, ServiceError>;
+    /// issue-for-signing-request (request/response).
+    fn issue_for_signing_request(
+        &self,
+        ctx: &Self::Context,
+        input: IssueForSigningRequestRequest,
+    ) -> Result<IssueForSigningRequestResponse, ServiceError>;
 }
 
 /// Admin service trait
@@ -407,6 +436,12 @@ pub trait Admin {
         ctx: &Self::Context,
         input: RemoveClaimTypeRequest,
     ) -> Result<RemoveClaimTypeResponse, ServiceError>;
+    /// list-claim-type-labels (request/response).
+    fn list_claim_type_labels(
+        &self,
+        ctx: &Self::Context,
+        input: EmptyRequest,
+    ) -> Result<ListClaimTypeLabelsResponse, ServiceError>;
     /// set-claim-type-label (request/response).
     fn set_claim_type_label(
         &self,
@@ -479,6 +514,18 @@ pub trait Admin {
         ctx: &Self::Context,
         input: AdminIssueAttestationRequest,
     ) -> Result<AdminIssueAttestationResponse, ServiceError>;
+    /// preview-release-policy (request/response).
+    fn preview_release_policy(
+        &self,
+        ctx: &Self::Context,
+        input: PreviewReleasePolicyRequest,
+    ) -> Result<PreviewReleasePolicyResponse, ServiceError>;
+    /// preview-issuer-policy (request/response).
+    fn preview_issuer_policy(
+        &self,
+        ctx: &Self::Context,
+        input: PreviewIssuerPolicyRequest,
+    ) -> Result<PreviewIssuerPolicyResponse, ServiceError>;
     /// grant-relation (request/response).
     fn grant_relation(
         &self,
@@ -557,6 +604,18 @@ pub trait Admin {
         ctx: &Self::Context,
         input: PurgeLocalRpTicketsRequest,
     ) -> Result<PurgeLocalRpTicketsResponse, ServiceError>;
+    /// get-sign-in-policy (request/response).
+    fn get_sign_in_policy(
+        &self,
+        ctx: &Self::Context,
+        input: EmptyRequest,
+    ) -> Result<SignInPolicy, ServiceError>;
+    /// set-sign-in-policy (request/response).
+    fn set_sign_in_policy(
+        &self,
+        ctx: &Self::Context,
+        input: SetSignInPolicyRequest,
+    ) -> Result<SignInPolicy, ServiceError>;
 }
 
 /// Account service trait
@@ -604,6 +663,18 @@ pub trait Account {
         ctx: &Self::Context,
         input: CreateProfileRequest,
     ) -> Result<CreateProfileResponse, ServiceError>;
+    /// get-my-claim-settings (request/response).
+    fn get_my_claim_settings(
+        &self,
+        ctx: &Self::Context,
+        input: EmptyRequest,
+    ) -> Result<MyClaimSettingsResponse, ServiceError>;
+    /// set-my-claim-keep-verified (request/response).
+    fn set_my_claim_keep_verified(
+        &self,
+        ctx: &Self::Context,
+        input: SetMyClaimKeepVerifiedRequest,
+    ) -> Result<SetMyClaimKeepVerifiedResponse, ServiceError>;
     /// request-verification (request/response).
     fn request_verification(
         &self,

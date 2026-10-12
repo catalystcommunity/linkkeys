@@ -253,6 +253,7 @@ const SNAPSHOT_TABLES: &[&str] = &[
     "verified_contact_methods",
     "user_release_prefs",
     "local_rp_domain_policy",
+    "sign_in_policy",
     "local_rps",
     "local_rp_claim_tickets",
     // Act-as grants: the user's signed decisions and revocations. A restore
@@ -431,6 +432,9 @@ mod sqlite_backend {
     backup_row!(LocalRpDomainPolicyBackupRow => local_rp_domain_policy {
         domain: String, policy: String, updated_at: String,
     });
+    backup_row!(SignInPolicyBackupRow => sign_in_policy {
+        domain: String, sign_in_hours: i32, updated_at: String,
+    });
     backup_row!(LocalRpBackupRow => local_rps {
         fingerprint: String, signing_public_key: Vec<u8>, encryption_public_key: Vec<u8>,
         app_name: String, local_domain_hint: Option<String>, status: String, created_at: String,
@@ -491,6 +495,7 @@ mod sqlite_backend {
             $op!("verified_contact_methods", verified_contact_methods, VerifiedContactMethodBackupRow, $($arg)*);
             $op!("user_release_prefs", user_release_prefs, UserReleasePrefRow, $($arg)*);
             $op!("local_rp_domain_policy", local_rp_domain_policy, LocalRpDomainPolicyBackupRow, $($arg)*);
+            $op!("sign_in_policy", sign_in_policy, SignInPolicyBackupRow, $($arg)*);
             $op!("local_rps", local_rps, LocalRpBackupRow, $($arg)*);
             $op!("local_rp_claim_tickets", local_rp_claim_tickets, LocalRpClaimTicketBackupRow, $($arg)*);
             $op!("act_as_grants", act_as_grants, ActAsGrantBackupRow, $($arg)*);

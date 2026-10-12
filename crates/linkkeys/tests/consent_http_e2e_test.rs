@@ -213,10 +213,16 @@ async fn spa_consent_flow_end_to_end() {
         .get("/auth/authorize?signed_request=not-valid")
         .dispatch()
         .await;
-    assert_eq!(response.status(), Status::Ok);
-    let body = response.into_string().await.unwrap();
-    assert!(body.contains("malformed"));
-    assert!(!body.contains("name=\"password\""));
+    assert_eq!(response.status(), Status::Found);
+    assert_eq!(
+        response.headers().get_one("Location"),
+        Some("/app/error?reason=malformed")
+    );
+    let response = client.get("/auth/authorize").dispatch().await;
+    assert_eq!(
+        response.headers().get_one("Location"),
+        Some("/app/error?reason=missing")
+    );
 
     let inspect_payload = liblinkkeys::generated::encode_browser_authorization_inspect_request(
         &BrowserAuthorizationInspectRequest {
@@ -514,8 +520,10 @@ async fn spa_consent_flow_end_to_end() {
         ))
         .dispatch()
         .await;
-    assert_eq!(response.status(), Status::Ok);
-    let body = response.into_string().await.unwrap();
-    assert!(body.contains("cannot satisfy"));
-    assert!(!body.contains("name=\"password\""));
+    assert_eq!(response.status(), Status::Found);
+    assert_eq!(
+        response.headers().get_one("Location"),
+        Some("/app/error?reason=assurance"),
+        "an assurance this provider cannot meet goes to the error page"
+    );
 }

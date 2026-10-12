@@ -36,19 +36,6 @@ async fn disabled_password_auth_is_not_advertised_or_accepted() {
     let client = Client::tracked(rocket).await.expect("Rocket client");
     let origin = Header::new("Origin", "https://disabled-auth.example.test");
 
-    let response = client
-        .post("/account/login")
-        .header(ContentType::Form)
-        .header(Header::new("Host", "disabled-auth.example.test"))
-        .header(origin.clone())
-        .body(format!(
-            "username={}&password=correct-password",
-            user.username
-        ))
-        .dispatch()
-        .await;
-    assert_eq!(response.status(), rocket::http::Status::NotFound);
-
     let login = liblinkkeys::generated::types::SessionPasswordLoginRequest {
         username: user.username,
         password: "correct-password".to_string(),

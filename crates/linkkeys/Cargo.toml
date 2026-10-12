@@ -106,7 +106,6 @@ lettre = { version = "0.11", default-features = false, features = ["builder", "s
 base64ct = { version = "1", features = ["alloc"] }
 
 # QR code rendering (SVG) for the verification-request UI convenience.
-qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 
 # Utilities
 env_logger = "0.11"

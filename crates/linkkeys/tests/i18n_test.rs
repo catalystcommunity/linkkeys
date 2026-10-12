@@ -56,7 +56,7 @@ fn get_translations_defaults_to_en_us() {
     let resp = resp.unwrap();
     assert_eq!(resp.locale, "en-US");
     assert_eq!(
-        resp.messages.get("consent.cancel").map(String::as_str),
+        resp.messages.get("app.common.cancel").map(String::as_str),
         Some("Cancel")
     );
 }
@@ -70,14 +70,14 @@ fn get_translations_negotiates_via_accept_language() {
     assert_eq!(resp.locale, "en-XA");
     // en-XA mangles this key...
     assert_eq!(
-        resp.messages.get("consent.cancel").map(String::as_str),
+        resp.messages.get("app.common.cancel").map(String::as_str),
         Some("[Ĉåñĉéĺ]")
     );
     // ...but doesn't define this one, so it still falls back to en-US, never
     // missing entirely.
     assert_eq!(
-        resp.messages.get("account.title").map(String::as_str),
-        Some("Account Dashboard")
+        resp.messages.get("app.policy.title").map(String::as_str),
+        Some("Policy")
     );
 }
 

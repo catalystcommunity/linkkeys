@@ -19,9 +19,12 @@ Browser -> Demo App POST /login
                                         CSIL-RPC envelope's auth field)
   <- 302 redirect to IDP /auth/authorize?username=...&signed_request=...
 
-Browser -> IDP GET /auth/authorize  (verifies signed request, shows login form)
-Browser -> IDP POST /auth/authorize  (authenticate, encrypt token for RP)
-  <- 302 redirect to Demo App /callback?encrypted_token=...
+Browser -> IDP GET /auth/authorize  (verifies signed request, hands it to the
+                                     browser app at /app/authorize)
+Browser app -> IDP POST /csil/v1/rpc  (Session/login-password, then
+                                       BrowserAuthorization/inspect + complete:
+                                       consent, encrypt token for RP)
+  <- browser goes to Demo App /callback?encrypted_token=...
 
 Browser -> Demo App GET /callback?encrypted_token=...
   Demo App -> RP  TCP Rp/decrypt-token     (decrypt the token)

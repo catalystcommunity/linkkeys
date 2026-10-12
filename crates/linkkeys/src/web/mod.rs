@@ -1,17 +1,13 @@
-mod account_ui;
-mod admin_ui;
 mod guard;
-mod local_rp_ui;
+mod issuer;
+mod local_rp_browser;
 pub mod nonce_store;
-mod policy_admin_ui;
-mod profile_ui;
 pub mod rp;
 mod session;
 
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::form::FromForm;
 use rocket::http::{ContentType, CookieJar, Status};
-use rocket::response::content::RawHtml;
 use rocket::response::status::Custom;
 use rocket::response::{Redirect, Responder, Response};
 use rocket::{Config, Request, State};
@@ -24,7 +20,7 @@ use std::sync::Arc;
 
 use rand::Rng;
 
-use crate::conversions::{get_domain_name, html_escape};
+use crate::conversions::get_domain_name;
 use crate::db::DbPool;
 use crate::net::Net;
 use crate::services::auth::PasswordAuthenticator;
@@ -37,7 +33,7 @@ use liblinkkeys::consent::{
     DEFAULT_CONSENT_TTL_SECONDS,
 };
 use liblinkkeys::generated::types::{
-    AuthFlowContext, AuthRequest, Claim, ClaimRequest, ConsentGrant, DomainPublicKey, UserInfo,
+    AuthRequest, Claim, ClaimRequest, ConsentGrant, DomainPublicKey, UserInfo,
 };
 
 /// Wall-clock budget for a `signed_request` to be considered fresh, from
@@ -102,12 +98,16 @@ fn is_api_path(path: &str) -> bool {
 }
 
 /// Default catcher: no failure may fall through to Rocket's built-in HTML
-/// error page on an API path. API surfaces answer a CBOR `ApiError`; browser
-/// paths get the minimal HTML error page. Every 5xx that reaches here is
+/// error page on an API path. API surfaces answer a CBOR `ApiError`; a browser
+/// GET of a page goes to the browser app's error page; anything else (assets,
+/// other methods) gets the plain status text. Every 5xx that reaches here is
 /// logged — routes log their specific cause at the failure site, this is the
 /// backstop for paths that don't.
 #[rocket::catch(default)]
-fn default_catcher(status: Status, req: &rocket::Request<'_>) -> ApiErrorResponse {
+fn default_catcher(
+    status: Status,
+    req: &rocket::Request<'_>,
+) -> rocket::Either<ApiErrorResponse, Redirect> {
     use liblinkkeys::generated::types::ApiErrorCode;
     if status.code >= 500 {
         log::error!(
@@ -135,13 +135,27 @@ fn default_catcher(status: Status, req: &rocket::Request<'_>) -> ApiErrorRespons
                 "The server hit an unexpected error; the cause is in its logs.",
             ),
         };
-        api_error(status, code, message)
+        rocket::Either::Left(api_error(status, code, message))
+    } else if req.method() == rocket::http::Method::Get
+        && !req.uri().path().as_str().starts_with("/_linkkeys/")
+    {
+        // The browser app is the only HTML surface: send a person to its
+        // error page. A missing asset keeps its plain status.
+        let reason = match status.code {
+            404 => "not_found",
+            401 | 403 => "forbidden",
+            400..=499 => "bad_request",
+            _ => "internal",
+        };
+        rocket::Either::Right(Redirect::to(format!("/app/error?reason={reason}")))
     } else {
-        let page = render_error_page(&format!(
-            "Request failed ({}).",
-            status.reason().unwrap_or("error")
-        ));
-        Custom(status, (ContentType::HTML, page.0.into_bytes()))
+        rocket::Either::Left(Custom(
+            status,
+            (
+                ContentType::Plain,
+                status.reason().unwrap_or("error").as_bytes().to_vec(),
+            ),
+        ))
     }
 }
 
@@ -570,109 +584,6 @@ pub(super) fn build_consent_screen(
     screen
 }
 
-/// A relying-party self-claim with its verification status, for display and
-/// policy. `verified` means every attesting domain contributed a valid
-/// signature over a claim about *this* relying party.
-struct VerifiedRpClaim {
-    claim_type: String,
-    value: String,
-    attested_by: Vec<String>,
-    verified: bool,
-}
-
-/// Whether a missing requested claim can be supplied by the user during the
-/// consent step. Release policy still gates whether it can be released; the
-/// claim-type registry gates whether this user may create it at all.
-pub(super) fn missing_claim_user_settable(pool: &DbPool, claim_type: &str) -> bool {
-    let Ok(Some(row)) = pool.find_claim_policy(claim_type) else {
-        return false;
-    };
-    if !row.user_settable || row.signing_rule == "verified" || row.requires_approval {
-        return false;
-    }
-    matches!(row.set_rule.as_str(), "user_self" | "idp_on_request")
-}
-
-pub(super) fn input_type_for_datatype(datatype: &str) -> &'static str {
-    match datatype {
-        "email" => "email",
-        "url" => "url",
-        "date" => "date",
-        "int" | "float" | "decimal" => "number",
-        _ => "text",
-    }
-}
-
-/// The RP's request is attacker-influenced and resolving an attesting domain
-/// triggers a DNS+HTTP key fetch, so cap both the claims processed and the
-/// distinct domains fetched: a malicious RP must not be able to drive unbounded
-/// outbound requests (SSRF/amplification) during a victim's login.
-const MAX_RP_CLAIMS: usize = 16;
-const MAX_ATTESTING_DOMAINS: usize = 8;
-
-/// Verify the claims an RP asserted about itself: resolve each distinct
-/// attesting domain's keys (local DB or DNS+HTTP) at most once, then check each
-/// claim's signatures bind to `relying_party`. Unresolvable/invalid signers
-/// leave `verified = false` — the claim is still surfaced (and recorded), just
-/// not trusted. This is the hook a richer policy can branch on (e.g. treat a
-/// `government_entity` claim attested by `us.gov` differently); the prototype
-/// displays + records it. Fetches are bounded (see the constants above).
-async fn verify_relying_party_claims(
-    pool: &DbPool,
-    net: &Net,
-    relying_party: &str,
-    claims: &[liblinkkeys::generated::types::DomainClaim],
-) -> Vec<VerifiedRpClaim> {
-    use std::collections::BTreeMap;
-
-    let claims = &claims[..claims.len().min(MAX_RP_CLAIMS)];
-
-    // Distinct attesting domains across the (capped) claims, resolved once each
-    // up to a hard cap. Domains beyond the cap simply go unresolved => their
-    // claims read as unverified, which is safe.
-    let mut wanted: Vec<String> = Vec::new();
-    for c in claims {
-        for d in liblinkkeys::domain_claims::attesting_domains(c) {
-            if !wanted.contains(&d) {
-                wanted.push(d);
-            }
-        }
-    }
-    wanted.truncate(MAX_ATTESTING_DOMAINS);
-
-    let mut resolved: BTreeMap<String, Vec<DomainPublicKey>> = BTreeMap::new();
-    for d in &wanted {
-        if let Ok(keys) = rp::fetch_domain_keys(pool, net, d).await {
-            resolved.insert(d.clone(), keys);
-        }
-    }
-
-    let mut out = Vec::with_capacity(claims.len());
-    for claim in claims {
-        let signer_domains = liblinkkeys::domain_claims::attesting_domains(claim);
-        let keysets: Vec<liblinkkeys::claims::DomainKeySet> = signer_domains
-            .iter()
-            .filter_map(|d| {
-                resolved
-                    .get(d)
-                    .map(|keys| liblinkkeys::claims::DomainKeySet {
-                        domain: d.clone(),
-                        keys: keys.clone(),
-                    })
-            })
-            .collect();
-        let verified =
-            liblinkkeys::domain_claims::verify_domain_claim(claim, relying_party, &keysets).is_ok();
-        out.push(VerifiedRpClaim {
-            claim_type: claim.claim_type.clone(),
-            value: String::from_utf8_lossy(&claim.claim_value).to_string(),
-            attested_by: signer_domains,
-            verified,
-        });
-    }
-    out
-}
-
 /// Sign a consent grant for the user with **all** active domain signing keys
 /// (mirroring claim signing: multiple keys give rotation resilience while the
 /// verification quorum needs only one valid signature per domain).
@@ -768,23 +679,11 @@ fn verify_token_with_audience(
 
 // -- Landing page --
 
+/// The browser app is the only HTML surface; the bare origin opens it.
 #[rocket::get("/")]
-fn index(pool: &State<DbPool>, cookies: &CookieJar<'_>) -> RawHtml<String> {
-    let (is_logged_in, is_admin) = match account_ui::get_session_user_id(cookies, pool.inner()) {
-        Some(uid) => (true, account_ui::is_user_admin(pool.inner(), &uid)),
-        None => (false, false),
-    };
-    let nav = account_ui::build_nav("", is_admin, is_logged_in);
-    let domain = get_domain_name();
-    let content = format!(
-        r#"<h1>LinkKeys for {domain}</h1>
-<p>Find out more about LinkKeys at <a href="https://github.com/catalystcommunity/linkkeys">https://github.com/catalystcommunity/linkkeys</a> or join the discord!</p>"#,
-        domain = html_escape(&domain),
-    );
-    account_ui::layout(&format!("LinkKeys for {}", domain), &nav, &content)
+fn index() -> Redirect {
+    Redirect::found("/app")
 }
-
-// -- Healthcheck / Readiness --
 
 #[rocket::get("/healthcheck")]
 fn healthcheck() -> (ContentType, Vec<u8>) {
@@ -855,491 +754,23 @@ fn hello_get() -> Result<(ContentType, Vec<u8>), Status> {
 // The former `/v1alpha/{domain-keys,users/<id>/keys,handshake,userinfo}` HTTP
 // routes are removed: HTTPS is the browser transport, never a peer transport.
 
-// -- Auth: Browser-facing HTML login flow --
+// -- Auth: browser-app authorization completion --
 
-/// Render the login form for a verified `signed_request`. The "Logging in to
-/// X" label and the round-tripped hidden field both derive from the verified
-/// request — `signed_request` is the only field that matters on POST.
-fn render_login_form(
-    signed_request: &str,
-    relying_party: &str,
-    username: &str,
-    locale: &str,
-    error: Option<&str>,
-) -> RawHtml<String> {
-    use liblinkkeys::i18n::t;
-    let error_html = error
-        .map(|e| format!(r#"<p class="error">{}</p>"#, html_escape(e)))
-        .unwrap_or_default();
-
-    let label_html = format!(
-        r#"<p>{}</p>"#,
-        html_escape(&liblinkkeys::i18n::t_with(
-            locale,
-            "consent.subtitle",
-            &[("app", relying_party), ("domain", &get_domain_name())]
-        ))
-    );
-    let hidden_inputs = format!(
-        r#"  <input type="hidden" name="signed_request" value="{}" />"#,
-        html_escape(signed_request)
-    );
-
-    RawHtml(format!(
-        r#"<!DOCTYPE html>
-<html lang="{lang}" dir="{dir}">
-<head><title>{title}</title>
-<style>
-body {{ font-family: sans-serif; max-width: 400px; margin: 80px auto; }}
-input {{ display: block; width: 100%; padding: 8px; margin: 8px 0; box-sizing: border-box; }}
-button {{ padding: 10px 20px; margin-top: 12px; }}
-.error {{ color: red; }}
-</style>
-</head>
-<body>
-<h2>{title}</h2>
-<p>{domain_label}: <strong>{domain}</strong></p>
-{label}
-{error}
-<form method="POST" action="/auth/authorize">
-{hidden}
-  <label>{username_label}</label>
-  <input type="text" name="username" value="{username}" autocomplete="username" autofocus />
-  <label>{password_label}</label>
-  <input type="password" name="password" autocomplete="current-password" />
-  <button type="submit">{submit}</button>
-</form>
-</body>
-</html>"#,
-        lang = html_escape(locale),
-        dir = account_ui::text_direction(locale),
-        title = html_escape(t(locale, "login.title")),
-        domain_label = html_escape(t(locale, "login.domain_label")),
-        domain = html_escape(&get_domain_name()),
-        label = label_html,
-        error = error_html,
-        hidden = hidden_inputs,
-        username_label = html_escape(t(locale, "login.username_label")),
-        password_label = html_escape(t(locale, "login.password_label")),
-        submit = html_escape(t(locale, "login.submit")),
-        username = html_escape(username),
-    ))
-}
-
-// -- Login proof: cross-step binding for the two-leg consent flow --
-//
-// WHY: the consent step (POST /auth/consent) happens in a *separate* request
-// from the password step (POST /auth/authorize), so it must re-establish *which
-// authenticated user* is consenting. Trusting an ambient IDP session cookie for
-// that would open a consent-CSRF: anyone holding a victim's session cookie could
-// drive a consent POST for an attacker-chosen RP and exfiltrate the victim's
-// claims. Instead, the password step mints a short-lived token SIGNED BY THE
-// IDP's own domain key that binds (user_id, this login request's nonce). It
-// rides in a hidden form field — not a cookie — so it is not ambient: it is
-// scoped to exactly this login request (the nonce must match the re-validated
-// signed_request) and expires quickly. The IDP signature makes it unforgeable;
-// the user never sees a long-lived IDP session as a side effect of an RP login.
-// It never leaves the IDP, so it is server-internal and not part of the CSIL
-// protocol.
-
-const LOGIN_PROOF_TAG: &str = "linkkeys-login-proof-v1alpha";
-/// Lifetime of a login proof: long enough to read a consent screen, short
-/// enough to bound replay.
-const LOGIN_PROOF_TTL_SECONDS: i64 = 600;
-
-#[derive(Serialize, Deserialize)]
-struct LoginProofEnvelope {
-    payload: Vec<u8>,
-    signing_key_id: String,
-    signature: Vec<u8>,
-}
-
-/// Canonical bytes a login proof signs: a domain-separated CBOR tuple binding
-/// the authenticated user to the exact signed request, its `login_nonce`, and
-/// its `relying_party`, plus expiry. The request digest prevents an RP from
-/// reusing one nonce for two request bodies and moving a proof between them.
-fn login_proof_payload(
-    user_id: &str,
-    login_nonce: &str,
-    relying_party: &str,
-    request_binding: &str,
-    expires_at: &str,
-) -> Vec<u8> {
-    let payload = (
-        LOGIN_PROOF_TAG,
-        user_id,
-        login_nonce,
-        relying_party,
-        request_binding,
-        expires_at,
-    );
-    let mut out = Vec::new();
-    ciborium::ser::into_writer(&payload, &mut out)
-        .expect("CBOR serialization of login proof cannot fail");
-    out
-}
-
-/// Mint a base64url login proof binding `user_id` to this login request
-/// (`login_nonce`, `relying_party`, exact signed request), signed with an active
-/// domain signing key.
-pub(super) fn mint_login_proof(
-    pool: &DbPool,
-    user_id: &str,
-    login_nonce: &str,
-    relying_party: &str,
-    signed_request: &str,
-) -> Result<String, Status> {
-    use base64ct::{Base64UrlUnpadded, Encoding as _};
-
-    let domain_keys = pool
-        .list_active_domain_keys()
-        .map_err(|e| internal_error("login proof: listing domain keys", e))?;
-    let dk = pick_active_signing_key(&domain_keys)
-        .ok_or_else(|| internal_error("login proof", "no active signing key"))?;
-    let passphrase = env::var("DOMAIN_KEY_PASSPHRASE")
-        .map_err(|_| internal_error("login proof", "DOMAIN_KEY_PASSPHRASE not set"))?;
-    let sk_bytes =
-        liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, passphrase.as_bytes())
-            .map_err(|e| internal_error("login proof: decrypting domain key", e))?;
-    let algorithm =
-        liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm).ok_or_else(|| {
-            internal_error(
-                "login proof",
-                format!("unsupported algorithm {}", dk.algorithm),
-            )
-        })?;
-
-    let expires_at =
-        (chrono::Utc::now() + chrono::Duration::seconds(LOGIN_PROOF_TTL_SECONDS)).to_rfc3339();
-    let request_binding = liblinkkeys::crypto::fingerprint(signed_request.as_bytes());
-    let payload = login_proof_payload(
-        user_id,
-        login_nonce,
-        relying_party,
-        &request_binding,
-        &expires_at,
-    );
-    let signature = liblinkkeys::crypto::sign_with_algorithm(algorithm, &payload, &sk_bytes)
-        .map_err(|e| internal_error("login proof: signing", e))?;
-
-    let envelope = LoginProofEnvelope {
-        payload,
-        signing_key_id: dk.id.clone(),
-        signature,
-    };
-    let mut cbor = Vec::new();
-    ciborium::ser::into_writer(&envelope, &mut cbor)
-        .map_err(|e| internal_error("login proof: encoding envelope", e))?;
-    Ok(Base64UrlUnpadded::encode_string(&cbor))
-}
-
-/// Verify a login proof against this IDP's active signing keys; returns the
-/// bound `(user_id, login_nonce, relying_party, request_binding)` if the
-/// signature is valid, the
-/// tag matches, and it has not expired. The caller MUST additionally check
-/// returned values against the re-validated signed_request.
-pub(super) fn verify_login_proof(
-    pool: &DbPool,
-    proof: &str,
-) -> Result<(String, String, String, String), ()> {
-    use base64ct::{Base64UrlUnpadded, Encoding as _};
-
-    let cbor = Base64UrlUnpadded::decode_vec(proof).map_err(|_| ())?;
-    let envelope: LoginProofEnvelope = ciborium::de::from_reader(&cbor[..]).map_err(|_| ())?;
-
-    let domain_keys = pool.list_active_domain_keys().map_err(|_| ())?;
-    let csil_keys: Vec<DomainPublicKey> = domain_keys.iter().map(Into::into).collect();
-    let key = csil_keys
-        .iter()
-        .find(|k| k.key_id == envelope.signing_key_id)
-        .ok_or(())?;
-    liblinkkeys::assertions::check_signing_key_valid(key).map_err(|_| ())?;
-    liblinkkeys::crypto::resolve_and_verify(
-        &key.algorithm,
-        &envelope.payload,
-        &envelope.signature,
-        &key.public_key,
-    )
-    .map_err(|_| ())?;
-
-    let (tag, user_id, login_nonce, relying_party, request_binding, expires_at): (
-        String,
-        String,
-        String,
-        String,
-        String,
-        String,
-    ) = ciborium::de::from_reader(&envelope.payload[..]).map_err(|_| ())?;
-    if tag != LOGIN_PROOF_TAG {
-        return Err(());
-    }
-    let expires = chrono::DateTime::parse_from_rfc3339(&expires_at).map_err(|_| ())?;
-    if chrono::Utc::now() > expires {
-        return Err(());
-    }
-    Ok((user_id, login_nonce, relying_party, request_binding))
-}
-
-/// Render the consent screen: one row per requested claim, each showing whether
-/// it is required, its datatype, whether the user has a value, and any locked
-/// home-domain policy disposition. The signed_request and an IDP-signed login
-/// proof ride in hidden fields so the consent POST re-validates the exact same
-/// request and re-establishes the authenticated user without a session cookie.
-#[allow(clippy::too_many_arguments)]
-fn render_consent_form(
-    pool: &DbPool,
-    signed_request: &str,
-    login_proof: &str,
-    relying_party: &str,
-    flow_context: Option<&AuthFlowContext>,
-    screen: &ConsentScreen,
-    rp_claims: &[VerifiedRpClaim],
-    labels: &std::collections::HashMap<String, String>,
-    locale: &str,
-    error: Option<&str>,
-) -> RawHtml<String> {
-    use liblinkkeys::consent::PolicyDisposition;
-    use liblinkkeys::i18n::{t, t_with};
-
-    let domain = get_domain_name();
-    // The human name for a claim type: the locale-resolved label decorated onto
-    // the row by the caller, falling back to the raw type only if unknown.
-    let label_of =
-        |ct: &str| -> String { labels.get(ct).cloned().unwrap_or_else(|| ct.to_string()) };
-
-    let error_html = error
-        .map(|e| format!(r#"<p class="error">{}</p>"#, html_escape(e)))
-        .unwrap_or_default();
-
-    let flow_html = match flow_context {
-        Some(ctx) if ctx.flow == "claims_update" => {
-            let reason = ctx
-                .request_reason
-                .clone()
-                .unwrap_or_else(|| t(locale, "consent.updated_request_default_reason").to_string());
-            format!(
-                r#"<p style="background:#fff7df;border:1px solid #ead39a;padding:8px 12px;border-radius:6px;">{}</p>"#,
-                html_escape(&t_with(
-                    locale,
-                    "consent.updated_request_banner",
-                    &[("reason", &reason)]
-                )),
-            )
-        }
-        _ => String::new(),
-    };
-
-    // "About this site": the RP's self-asserted claims and whether a trusted
-    // party confirmed each.
-    let about_html = if rp_claims.is_empty() {
-        String::new()
-    } else {
-        let mut items = String::new();
-        for c in rp_claims {
-            let badge = if c.verified && !c.attested_by.is_empty() {
-                format!(
-                    r#"<span style="color:#080">✓ {}</span>"#,
-                    html_escape(&t_with(
-                        locale,
-                        "consent.confirmed_by",
-                        &[("who", &c.attested_by.join(", "))]
-                    ))
-                )
-            } else {
-                format!(
-                    r#"<span style="color:#a00">⚠ {}</span>"#,
-                    html_escape(t(locale, "consent.not_confirmed"))
-                )
-            };
-            items.push_str(&format!(
-                r#"<li><strong>{}</strong>: {} — {}</li>"#,
-                html_escape(&label_of(&c.claim_type)),
-                html_escape(&c.value),
-                badge,
-            ));
-        }
-        format!(
-            r#"<div style="background:#f6f6f6;padding:8px 12px;border-radius:6px;margin-bottom:12px;">
-<p style="margin:0 0 4px;">{about}</p>
-<ul style="margin:0;">{items}</ul>
-</div>"#,
-            about = html_escape(&t_with(
-                locale,
-                "consent.about_site",
-                &[("app", relying_party)]
-            )),
-            items = items,
-        )
-    };
-
-    let mut rows = String::new();
-    for row in &screen.rows {
-        // The checkbox VALUE stays the raw machine claim_type — that is what the
-        // consent POST matches against the request. Only the visible name is the
-        // human, locale-resolved label.
-        let ct = html_escape(&row.claim_type);
-        let name = html_escape(&label_of(&row.claim_type));
-        let need = if row.required {
-            t(locale, "consent.required")
-        } else {
-            t(locale, "consent.optional")
-        };
-        let avail = if row.available {
-            String::new()
-        } else if row.policy != PolicyDisposition::ForcedDeny
-            && missing_claim_user_settable(pool, &row.claim_type)
-        {
-            let input_type = input_type_for_datatype(&row.datatype);
-            format!(
-                r#"
-<div style="margin:6px 0 0 28px;">
-  <input type="hidden" name="claim_type_to_set" value="{ct}" />
-  <input type="{input_type}" name="claim_value_to_set" placeholder="{placeholder}" style="display:block;width:100%;max-width:320px;padding:6px 8px;box-sizing:border-box;" />
-</div>"#,
-                ct = ct,
-                input_type = input_type,
-                placeholder = html_escape(t(locale, "consent.add_value_placeholder")),
-            )
-        } else {
-            format!(
-                r#" <span style="color:#a60">({})</span>"#,
-                html_escape(t(locale, "consent.no_value"))
-            )
-        };
-
-        let control = match row.policy {
-            PolicyDisposition::ForcedAllow => format!(
-                r#"<input type="checkbox" checked disabled /> <em>{}</em>"#,
-                html_escape(&t_with(
-                    locale,
-                    "consent.forced_allow",
-                    &[("service", &domain)]
-                ))
-            ),
-            PolicyDisposition::ForcedDeny => format!(
-                r#"<input type="checkbox" disabled /> <em>{}</em>"#,
-                html_escape(&t_with(
-                    locale,
-                    "consent.forced_deny",
-                    &[("service", &domain)]
-                ))
-            ),
-            PolicyDisposition::User => {
-                let checked = if row.default_granted() { "checked" } else { "" };
-                format!(
-                    r#"<input type="checkbox" name="grant" value="{ct}" {checked} />"#,
-                    ct = ct,
-                    checked = checked,
-                )
-            }
-        };
-
-        rows.push_str(&format!(
-            r#"<li>{control} <strong>{name}</strong> <small>({need})</small>{avail}</li>"#,
-            control = control,
-            name = name,
-            need = html_escape(need),
-            avail = avail,
-        ));
-    }
-
-    RawHtml(format!(
-        r#"<!DOCTYPE html>
-<html lang="{lang}" dir="{dir}">
-<head><title>LinkKeys</title>
-<style>
-body {{ font-family: sans-serif; max-width: 480px; margin: 60px auto; }}
-ul {{ list-style: none; padding: 0; }}
-li {{ padding: 8px 0; border-bottom: 1px solid #eee; }}
-button {{ padding: 10px 20px; margin-top: 16px; }}
-.btn-cancel {{ background: none; border: none; color: #666; text-decoration: underline; cursor: pointer; margin-left: 12px; }}
-.error {{ color: red; }}
-em {{ color: #555; }}
-</style>
-</head>
-<body>
-<h2>{title}</h2>
-{about}
-{flow}
-<p>{subtitle}</p>
-{error}
-<form method="POST" action="/auth/consent">
-  <input type="hidden" name="signed_request" value="{sr}" />
-  <input type="hidden" name="login_proof" value="{proof}" />
-  <ul>
-{rows}
-  </ul>
-  <button type="submit" name="decision" value="share">{submit}</button>
-  <button type="submit" name="decision" value="cancel" class="btn-cancel" formnovalidate>{cancel}</button>
-</form>
-</body>
-</html>"#,
-        lang = html_escape(locale),
-        dir = account_ui::text_direction(locale),
-        title = html_escape(&t_with(locale, "consent.title", &[("app", relying_party)])),
-        about = about_html,
-        flow = flow_html,
-        subtitle = html_escape(&t_with(
-            locale,
-            "consent.subtitle",
-            &[("app", relying_party), ("domain", &domain)]
-        )),
-        error = error_html,
-        sr = html_escape(signed_request),
-        proof = html_escape(login_proof),
-        rows = rows,
-        submit = html_escape(t(locale, "consent.submit")),
-        cancel = html_escape(t(locale, "consent.cancel")),
-    ))
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn render_consent_with_error(
-    pool: &DbPool,
-    net: &Net,
-    signed_request: &str,
-    login_proof: &str,
-    request: &AuthRequest,
-    req: &ClaimRequest,
-    policy: &DomainPolicy,
-    user_id: &str,
-    locale: &str,
-    error: &str,
-) -> RawHtml<String> {
-    let rp_claims = match request.relying_party_claims.as_deref() {
-        Some(c) => verify_relying_party_claims(pool, net, &request.relying_party, c).await,
-        None => Vec::new(),
-    };
-    let screen = build_consent_screen(pool, user_id, &request.relying_party, req, policy);
-    let mut labels = std::collections::HashMap::new();
-    for row in &screen.rows {
-        if !labels.contains_key(&row.claim_type) {
-            if let Ok((label, _)) = pool.resolved_label(&row.claim_type, locale) {
-                labels.insert(row.claim_type.clone(), label);
-            }
-        }
-    }
-    for c in &rp_claims {
-        labels.entry(c.claim_type.clone()).or_insert_with(|| {
-            pool.resolved_label(&c.claim_type, locale)
-                .map(|(l, _)| l)
-                .unwrap_or_else(|_| c.claim_type.clone())
-        });
-    }
-    render_consent_form(
-        pool,
-        signed_request,
-        login_proof,
-        &request.relying_party,
-        request.flow_context.as_ref(),
-        &screen,
-        &rp_claims,
-        &labels,
-        locale,
-        Some(error),
-    )
-}
-
+/// Store the claim values that the user typed on the browser app's consent
+/// screen, then return the authorized claim types that the user now holds.
+///
+/// WHY: an RP can request a claim that the user does not have yet. The
+/// consent screen lets the user enter that value in the same step. Both
+/// `BrowserAuthorization/complete` and `BrowserAuthorization/complete-local-rp`
+/// call this helper, so the two flows apply the same rules:
+/// - Only values for claim types that the RP requested AND the user
+///   authorized are kept. Other submitted values are ignored.
+/// - Each value goes through `self_service::set_my_claim`, so the domain's
+///   claim policy applies exactly as it does for `Account/set-my-claim`.
+/// - A value that needs verification or admin approval fails the request,
+///   because the claim cannot be released yet.
+/// - A required, authorized claim that still has no active value fails the
+///   request.
 pub(super) fn store_inline_claim_values(
     pool: &DbPool,
     user_id: &str,
@@ -1414,41 +845,14 @@ pub(super) fn store_inline_claim_values(
         .collect())
 }
 
-async fn inspect_browser_authorization(
-    pool: &DbPool,
-    net: &Net,
-    user: &crate::db::models::User,
+/// The authentication evidence a browser session carries.
+pub(super) fn session_evidence(
     session: &crate::db::models::BrowserSession,
-    signed_request: &str,
 ) -> Result<
-    liblinkkeys::generated::types::BrowserAuthorizationInspectResponse,
+    crate::services::auth::AuthenticationEvidence,
     liblinkkeys::generated::services::ServiceError,
 > {
-    use liblinkkeys::consent::PolicyDisposition;
-    use liblinkkeys::generated::services::ServiceError;
-    use liblinkkeys::generated::types::BrowserConsentClaim;
-
-    let request = validate_signed_request(pool, net, signed_request)
-        .await
-        .map_err(|error| ServiceError {
-            code: 400,
-            message: error.user_message().to_string(),
-        })?;
-    if !user.is_active || user.is_admin_account {
-        return Err(ServiceError {
-            code: 403,
-            message: "This account cannot sign in to applications".to_string(),
-        });
-    }
-    let requirement = crate::services::auth::resolve_assurance_requirement(
-        request.authentication_requirements.as_ref(),
-        1,
-    )
-    .map_err(|_| ServiceError {
-        code: 400,
-        message: "The authentication assurance request is invalid".to_string(),
-    })?;
-    let evidence = crate::services::auth::AuthenticationEvidence {
+    Ok(crate::services::auth::AuthenticationEvidence {
         method_types: session
             .authentication_methods
             .split(',')
@@ -1457,36 +861,25 @@ async fn inspect_browser_authorization(
             .collect(),
         authenticated_at: chrono::DateTime::parse_from_rfc3339(&session.authenticated_at)
             .map(|value| value.with_timezone(&chrono::Utc))
-            .map_err(|_| ServiceError {
+            .map_err(|_| liblinkkeys::generated::services::ServiceError {
                 code: 403,
                 message: "Authentication required".to_string(),
             })?,
-    };
-    if !crate::services::auth::evidence_satisfies(&evidence, requirement) {
-        return Err(ServiceError {
-            code: 403,
-            message: "Sign in again to meet the application's security requirement".to_string(),
-        });
-    }
+    })
+}
 
-    let mut already_consented = None;
-    let mut authorized_claims = None;
-    let claims = if let Some(claim_request) = &request.requested_claims {
-        let policy = domain_policy_for(pool, &request.relying_party).map_err(|_| ServiceError {
-            code: 500,
-            message: "Could not load the release policy".to_string(),
-        })?;
-        if let Some(authorized) = silent_authorization(pool, &policy, &user.id, &request) {
-            already_consented = Some(true);
-            authorized_claims = Some(authorized);
-        }
-        build_consent_screen(
-            pool,
-            &user.id,
-            &request.relying_party,
-            claim_request,
-            &policy,
-        )
+/// The consent-screen rows for `claim_request` to `audience`, as the browser
+/// app renders them.
+pub(super) fn consent_claims(
+    pool: &DbPool,
+    user_id: &str,
+    audience: &str,
+    claim_request: &ClaimRequest,
+    policy: &DomainPolicy,
+) -> Vec<liblinkkeys::generated::types::BrowserConsentClaim> {
+    use liblinkkeys::consent::PolicyDisposition;
+    use liblinkkeys::generated::types::BrowserConsentClaim;
+    build_consent_screen(pool, user_id, audience, claim_request, policy)
         .rows
         .into_iter()
         .map(|row| {
@@ -1529,6 +922,66 @@ async fn inspect_browser_authorization(
             }
         })
         .collect()
+}
+
+async fn inspect_browser_authorization(
+    pool: &DbPool,
+    net: &Net,
+    user: &crate::db::models::User,
+    session: &crate::db::models::BrowserSession,
+    signed_request: &str,
+) -> Result<
+    liblinkkeys::generated::types::BrowserAuthorizationInspectResponse,
+    liblinkkeys::generated::services::ServiceError,
+> {
+    use liblinkkeys::generated::services::ServiceError;
+
+    let request = validate_signed_request(pool, net, signed_request)
+        .await
+        .map_err(|error| ServiceError {
+            code: 400,
+            message: error.user_message().to_string(),
+        })?;
+    if !user.is_active || user.is_admin_account {
+        return Err(ServiceError {
+            code: 403,
+            message: "This account cannot sign in to applications".to_string(),
+        });
+    }
+    let requirement = crate::services::auth::resolve_assurance_requirement(
+        request.authentication_requirements.as_ref(),
+        1,
+    )
+    .map_err(|_| ServiceError {
+        code: 400,
+        message: "The authentication assurance request is invalid".to_string(),
+    })?;
+    let evidence = session_evidence(session)?;
+    if !crate::services::auth::evidence_satisfies(&evidence, requirement) {
+        return Err(ServiceError {
+            code: 403,
+            message: "Sign in again to meet the application's security requirement".to_string(),
+        });
+    }
+
+    let mut already_consented = None;
+    let mut authorized_claims = None;
+    let claims = if let Some(claim_request) = &request.requested_claims {
+        let policy = domain_policy_for(pool, &request.relying_party).map_err(|_| ServiceError {
+            code: 500,
+            message: "Could not load the release policy".to_string(),
+        })?;
+        if let Some(authorized) = silent_authorization(pool, &policy, &user.id, &request) {
+            already_consented = Some(true);
+            authorized_claims = Some(authorized);
+        }
+        consent_claims(
+            pool,
+            &user.id,
+            &request.relying_party,
+            claim_request,
+            &policy,
+        )
     } else {
         Vec::new()
     };
@@ -1594,20 +1047,7 @@ async fn complete_browser_authorization(
         code: 400,
         message: "The authentication assurance request is invalid".to_string(),
     })?;
-    let evidence = crate::services::auth::AuthenticationEvidence {
-        method_types: session
-            .authentication_methods
-            .split(',')
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-            .collect(),
-        authenticated_at: chrono::DateTime::parse_from_rfc3339(&session.authenticated_at)
-            .map(|value| value.with_timezone(&chrono::Utc))
-            .map_err(|_| ServiceError {
-                code: 403,
-                message: "Authentication required".to_string(),
-            })?,
-    };
+    let evidence = session_evidence(session)?;
     if !crate::services::auth::evidence_satisfies(&evidence, requirement) {
         return Err(ServiceError {
             code: 403,
@@ -1688,14 +1128,6 @@ struct LoginFinalization<'a> {
     request: &'a AuthRequest,
     authorized_claims: Vec<String>,
     requested: Vec<String>,
-}
-
-async fn finalize_login(input: LoginFinalization<'_>) -> Result<Redirect, String> {
-    let relying_party = input.request.relying_party.clone();
-    finalize_login_url(input)
-        .await
-        .map(Redirect::found)
-        .map_err(|e| e.user_message(&relying_party))
 }
 
 /// Same as `finalize_login` but returns the callback redirect URL instead of a
@@ -2057,40 +1489,43 @@ struct AuthorizeQuery {
     user_hint: Option<String>,
 }
 
+/// The browser app's error page for a refused sign-in entry link. `reason` is
+/// a code the app maps to its own text (`app.error.reason.<code>`).
+fn app_error(reason: &str) -> Redirect {
+    Redirect::found(format!("/app/error?reason={reason}"))
+}
+
 #[rocket::get("/auth/authorize?<query..>")]
 async fn auth_authorize_get(
     pool: &State<DbPool>,
     net: &State<Net>,
     query: AuthorizeQuery,
-) -> Result<rocket::Either<Redirect, RawHtml<String>>, Status> {
-    // signed_request is the only accepted flow. A request without it (or one
-    // that fails verification) renders an error page, never a login form — so
-    // an attacker who can craft a URL cannot phish credentials onto a
-    // legitimate-looking page.
-    let sr = query.signed_request.as_deref().ok_or(Status::BadRequest)?;
+) -> Redirect {
+    // signed_request is the only accepted flow. A request without it, or one
+    // that fails verification, goes to an error page, never a sign-in form, so
+    // an attacker who can craft a URL cannot put a sign-in form behind it.
+    let Some(sr) = query.signed_request.as_deref() else {
+        return app_error("missing");
+    };
     let request = match validate_signed_request(pool, net, sr).await {
         Ok(request) => request,
-        Err(e) => return Ok(rocket::Either::Right(render_error_page(e.user_message()))),
+        Err(e) => return app_error(e.reason()),
     };
-    let requirement = crate::services::auth::resolve_assurance_requirement(
+    match crate::services::auth::resolve_assurance_requirement(
         request.authentication_requirements.as_ref(),
         1,
-    );
-    if requirement.is_err()
-        || !crate::services::auth::provider_can_satisfy(requirement.expect("checked above"))
-    {
-        return Ok(rocket::Either::Right(render_error_page(
-            "This provider cannot satisfy the requested authentication assurance.",
-        )));
+    ) {
+        Ok(requirement) if crate::services::auth::provider_can_satisfy(requirement) => {}
+        _ => return app_error("assurance"),
     }
     let username = query.username.as_deref().or(query.user_hint.as_deref());
     let username_query = username
         .map(|value| format!("?username={}", urlencoding::encode(value)))
         .unwrap_or_default();
-    Ok(rocket::Either::Left(Redirect::found(format!(
+    Redirect::found(format!(
         "/app/authorize{username_query}#request={}",
         urlencoding::encode(sr)
-    ))))
+    ))
 }
 
 /// Begin an act-as grant (docs/spec/reserved/act-as-grants.md). The grantee
@@ -2099,7 +1534,7 @@ async fn auth_authorize_get(
 /// it to the consent page in the URL fragment. The consent page's
 /// `inspect-act-as` call verifies everything before the user sees anything.
 #[rocket::get("/auth/act-as?<signed_request>")]
-fn auth_act_as_get(signed_request: Option<String>) -> rocket::Either<Redirect, RawHtml<String>> {
+fn auth_act_as_get(signed_request: Option<String>) -> Redirect {
     use base64ct::{Base64UrlUnpadded, Encoding};
     let decodes = signed_request.as_deref().is_some_and(|sr| {
         sr.len() <= crate::tcp::MAX_FRAME_SIZE
@@ -2111,153 +1546,12 @@ fn auth_act_as_get(signed_request: Option<String>) -> rocket::Either<Redirect, R
                 .is_some()
     });
     match signed_request {
-        Some(sr) if decodes => rocket::Either::Left(Redirect::found(format!(
-            "/app/act-as#request={}",
-            urlencoding::encode(&sr)
-        ))),
-        _ => rocket::Either::Right(render_error_page(
-            "This request is missing or damaged. Return to the application and start again.",
-        )),
+        Some(sr) if decodes => {
+            Redirect::found(format!("/app/act-as#request={}", urlencoding::encode(&sr)))
+        }
+        Some(_) => app_error("malformed"),
+        None => app_error("missing"),
     }
-}
-
-#[derive(FromForm)]
-struct AuthorizeForm {
-    username: String,
-    password: String,
-    /// The signed_request blob — the only field that matters; it carries the
-    /// verified relying_party, callback_url, and nonce.
-    signed_request: Option<String>,
-}
-
-#[rocket::post("/auth/authorize", data = "<form>")]
-#[allow(clippy::too_many_arguments)] // Rocket injects each request guard as an argument.
-async fn auth_authorize_post(
-    pool: &State<DbPool>,
-    net: &State<Net>,
-    nonces: &State<nonce_store::NonceStore>,
-    cookies: &CookieJar<'_>,
-    locale: guard::Locale,
-    source: guard::RequestSource,
-    _csrf: guard::SameOriginPost,
-    form: rocket::form::Form<AuthorizeForm>,
-) -> Result<Redirect, RawHtml<String>> {
-    if let Some(sr) = form.signed_request.as_deref() {
-        handle_signed_request_post(
-            pool,
-            net,
-            nonces,
-            cookies,
-            LoginPostContext {
-                locale: &locale.0,
-                source_key: &source.0,
-            },
-            &form,
-            sr,
-        )
-        .await
-    } else {
-        Err(render_error_page(
-            "Missing signed_request. This login flow is no longer supported.",
-        ))
-    }
-}
-
-struct LoginPostContext<'a> {
-    locale: &'a str,
-    source_key: &'a str,
-}
-
-async fn handle_signed_request_post(
-    pool: &State<DbPool>,
-    net: &State<Net>,
-    nonces: &State<nonce_store::NonceStore>,
-    cookies: &CookieJar<'_>,
-    context: LoginPostContext<'_>,
-    form: &AuthorizeForm,
-    signed_request_param: &str,
-) -> Result<Redirect, RawHtml<String>> {
-    let request = match validate_signed_request(pool, net, signed_request_param).await {
-        Ok(r) => r,
-        Err(e) => return Err(render_error_page(e.user_message())),
-    };
-
-    let render_form_error = |msg: &str| {
-        render_login_form(
-            signed_request_param,
-            &request.relying_party,
-            &form.username,
-            context.locale,
-            Some(msg),
-        )
-    };
-
-    // SEC-05: throttle online brute force, keyed by username.
-    if !crate::services::ratelimit::LOGIN_SOURCE.check(context.source_key)
-        || !crate::services::ratelimit::LOGIN
-            .check(&crate::services::auth::login_rate_limit_key(&form.username))
-    {
-        return Err(render_form_error(
-            "Too many attempts. Please wait and try again.",
-        ));
-    }
-
-    let authenticator = PasswordAuthenticator::new(pool.inner().clone());
-    let authentication = match crate::services::auth::Authenticator::authenticate_with_evidence(
-        &authenticator,
-        &form.username,
-        &form.password,
-    ) {
-        Ok(authentication) => authentication,
-        Err(_) => return Err(render_form_error("Invalid username or password.")),
-    };
-    let user = authentication.user;
-
-    // Administrator accounts administer the domain and do not "go elsewhere":
-    // they have no presentable profile and may not be presented to a relying
-    // party. Refuse before showing any consent screen.
-    if !user.is_active {
-        return Err(render_error_page("This account is not active."));
-    }
-    if user.is_admin_account {
-        return Err(render_error_page(
-            "This is an administrator account and cannot be used to sign in to applications.",
-        ));
-    }
-
-    let requirement = crate::services::auth::resolve_assurance_requirement(
-        request.authentication_requirements.as_ref(),
-        1,
-    )
-    .map_err(|_| render_error_page("The authentication assurance request is invalid."))?;
-    if !crate::services::auth::evidence_satisfies(&authentication.evidence, requirement) {
-        return Err(render_error_page(
-            "This provider cannot satisfy the requested authentication assurance.",
-        ));
-    }
-    if account_ui::establish_provider_session(
-        cookies,
-        pool.inner(),
-        &user.id,
-        &authentication.evidence,
-        authentication.credential_id.as_deref().unwrap_or_default(),
-    )
-    .is_none()
-    {
-        return Err(render_error_page("Could not create the browser session."));
-    }
-
-    proceed_authenticated_dns(
-        pool,
-        net,
-        nonces,
-        cookies,
-        context.locale,
-        &user,
-        &request,
-        signed_request_param,
-    )
-    .await
 }
 
 fn is_claims_update(request: &AuthRequest) -> bool {
@@ -2265,298 +1559,6 @@ fn is_claims_update(request: &AuthRequest) -> bool {
         .flow_context
         .as_ref()
         .is_some_and(|context| context.flow == "claims_update")
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn proceed_authenticated_dns(
-    pool: &State<DbPool>,
-    net: &State<Net>,
-    nonces: &State<nonce_store::NonceStore>,
-    cookies: &CookieJar<'_>,
-    locale: &str,
-    user: &crate::db::models::User,
-    request: &AuthRequest,
-    signed_request_param: &str,
-) -> Result<Redirect, RawHtml<String>> {
-    let browser_session_digest = cookies
-        .get(crate::services::browser_session::COOKIE_NAME)
-        .map(|cookie| crate::services::browser_session::token_digest(cookie.value()));
-    // Audience is the relying-party DOMAIN (what a verifier checks), not the
-    // full callback URL. The login-request nonce is burned inside finalize_login
-    // at token issuance — not here — so an abandoned consent screen doesn't
-    // consume a legitimate request.
-    let Ok(policy) = domain_policy_for(pool, &request.relying_party) else {
-        return Err(render_error_page(
-            "Could not load the release policy. Please try again.",
-        ));
-    };
-    match request.requested_claims.clone() {
-        // Authentication only: no claims requested, nothing to consent to.
-        None => {
-            let redirect = finalize_login(LoginFinalization {
-                pool,
-                net,
-                nonces,
-                user,
-                browser_session_digest: browser_session_digest.as_deref(),
-                api_actor_id: None,
-                api_credential_id: None,
-                request,
-                authorized_claims: vec![],
-                requested: vec![],
-            })
-            .await
-            .map_err(|m| render_error_page(&m))?;
-            account_ui::touch_provider_session(cookies, pool.inner());
-            Ok(redirect)
-        }
-        Some(req) => {
-            let requested = requested_types(&req);
-
-            // A normal login moves on when every required claim remains
-            // approved and has a value. Newly listed optional claims wait for
-            // an explicit claims_update request. That request always renders
-            // consent, including the previous choices.
-            if let Some(authorized) = silent_authorization(pool, &policy, &user.id, request) {
-                let redirect = finalize_login(LoginFinalization {
-                    pool,
-                    net,
-                    nonces,
-                    user,
-                    browser_session_digest: browser_session_digest.as_deref(),
-                    api_actor_id: None,
-                    api_credential_id: None,
-                    request,
-                    authorized_claims: authorized,
-                    requested,
-                })
-                .await
-                .map_err(|m| render_error_page(&m))?;
-                account_ui::touch_provider_session(cookies, pool.inner());
-                return Ok(redirect);
-            }
-
-            // Consent needed: mint an IDP-signed login proof binding this user
-            // to this login request, carried in the consent form so /auth/consent
-            // re-establishes the authenticated user without a session cookie.
-            let proof = match mint_login_proof(
-                pool,
-                &user.id,
-                &request.nonce,
-                &request.relying_party,
-                signed_request_param,
-            ) {
-                Ok(p) => p,
-                Err(_) => {
-                    return Err(render_error_page(
-                        "Internal server error preparing consent.",
-                    ))
-                }
-            };
-            let rp_claims = match request.relying_party_claims.as_deref() {
-                Some(c) => verify_relying_party_claims(pool, net, &request.relying_party, c).await,
-                None => Vec::new(),
-            };
-            let screen =
-                build_consent_screen(pool, &user.id, &request.relying_party, &req, &policy);
-            // Decorate each row's machine claim_type with its human,
-            // locale-resolved name for display; the checkbox values stay raw.
-            let mut labels = std::collections::HashMap::new();
-            for row in &screen.rows {
-                if !labels.contains_key(&row.claim_type) {
-                    if let Ok((label, _)) = pool.resolved_label(&row.claim_type, locale) {
-                        labels.insert(row.claim_type.clone(), label);
-                    }
-                }
-            }
-            for c in &rp_claims {
-                labels.entry(c.claim_type.clone()).or_insert_with(|| {
-                    pool.resolved_label(&c.claim_type, locale)
-                        .map(|(l, _)| l)
-                        .unwrap_or_else(|_| c.claim_type.clone())
-                });
-            }
-            Err(render_consent_form(
-                pool,
-                signed_request_param,
-                &proof,
-                &request.relying_party,
-                request.flow_context.as_ref(),
-                &screen,
-                &rp_claims,
-                &labels,
-                locale,
-                None,
-            ))
-        }
-    }
-}
-
-#[derive(FromForm)]
-struct ConsentForm {
-    /// The same signed_request the login form carried; re-validated here.
-    signed_request: String,
-    /// IDP-signed proof of the authenticated user, bound to this login request.
-    login_proof: String,
-    /// The claim types the user chose to share (one value per checked box).
-    grant: Vec<String>,
-    /// Missing claim values supplied inline on the consent screen. These are
-    /// parallel vectors because Rocket form structs cannot name dynamic fields
-    /// by arbitrary claim type. The server zips and validates them against the
-    /// signed request before storing anything.
-    claim_type_to_set: Vec<String>,
-    claim_value_to_set: Vec<String>,
-    /// Which button was pressed: `share` (default) or `cancel`. A cancel
-    /// declines the whole login and issues nothing.
-    decision: Option<String>,
-}
-
-/// Second leg of the browser consent flow. The user authenticated in the
-/// previous request; an IDP-signed login proof (not a session cookie) carries
-/// their identity, bound to this login request's nonce. We verify the proof,
-/// re-validate the signed_request, confirm the proof was minted for *this*
-/// request, apply policy, then finalize as the no-consent path does. Required
-/// claims are visible RP metadata, not an IDP override of user choice; the RP/app
-/// receives the narrowed authorized set and decides whether to reject or degrade.
-/// See the login-proof note above for the rationale.
-#[rocket::post("/auth/consent", data = "<form>")]
-async fn auth_consent_post(
-    pool: &State<DbPool>,
-    net: &State<Net>,
-    nonces: &State<nonce_store::NonceStore>,
-    cookies: &CookieJar<'_>,
-    locale: guard::Locale,
-    _csrf: guard::SameOriginPost,
-    form: rocket::form::Form<ConsentForm>,
-) -> Result<Redirect, RawHtml<String>> {
-    // The user declined the whole login. Issue nothing, consume nothing —
-    // just show a neutral notice. Checked before any verification so a cancel
-    // never depends on the request still being valid.
-    if form.decision.as_deref() == Some("cancel") {
-        use liblinkkeys::i18n::t;
-        return Err(render_notice_page(
-            &locale.0,
-            t(&locale.0, "consent.cancelled_title"),
-            t(&locale.0, "consent.cancelled_body"),
-        ));
-    }
-
-    let Ok((user_id, proof_nonce, proof_rp, proof_request)) =
-        verify_login_proof(pool, &form.login_proof)
-    else {
-        return Err(render_error_page(
-            "Your login could not be verified. Please start the login again.",
-        ));
-    };
-
-    let request = match validate_signed_request(pool, net, &form.signed_request).await {
-        Ok(r) => r,
-        Err(e) => return Err(render_error_page(e.user_message())),
-    };
-    // Bind the two legs: the proof must have been minted for this exact request
-    // — same nonce, relying party, and signed request bytes.
-    let request_binding = liblinkkeys::crypto::fingerprint(form.signed_request.as_bytes());
-    if proof_nonce != request.nonce
-        || proof_rp != request.relying_party
-        || proof_request != request_binding
-    {
-        return Err(render_error_page(
-            "This consent does not match the login request. Please start the login again.",
-        ));
-    }
-    let Some(req) = request.requested_claims.clone() else {
-        return Err(render_error_page(
-            "This login request does not request any claims.",
-        ));
-    };
-    let user = match pool.find_user_by_id(&user_id) {
-        Ok(u) => u,
-        Err(_) => return Err(render_error_page("Your account could not be found.")),
-    };
-    if !user.is_active || user.is_admin_account {
-        return Err(render_error_page(
-            "This account cannot sign in to applications.",
-        ));
-    }
-    let Some(browser_session_digest) = cookies
-        .get(crate::services::browser_session::COOKIE_NAME)
-        .map(|cookie| crate::services::browser_session::token_digest(cookie.value()))
-    else {
-        return Err(render_error_page(
-            "Your session has ended. Please start the login again.",
-        ));
-    };
-    if !crate::services::browser_session::valid_digest_for_user(
-        pool,
-        &browser_session_digest,
-        &user.id,
-    )
-    .unwrap_or(false)
-    {
-        return Err(render_error_page(
-            "Your session has ended. Please start the login again.",
-        ));
-    }
-
-    let Ok(policy) = domain_policy_for(pool, &request.relying_party) else {
-        return Err(render_error_page(
-            "Could not load the release policy. Please try again.",
-        ));
-    };
-    let authorized = compute_authorized_claims(&req, &form.grant, &policy);
-    let authorized = match store_inline_claim_values(
-        pool,
-        &user.id,
-        &req,
-        &authorized,
-        &form.claim_type_to_set,
-        &form.claim_value_to_set,
-    ) {
-        Ok(a) => a,
-        Err(e) => {
-            return Err(render_consent_with_error(
-                pool,
-                net,
-                &form.signed_request,
-                &form.login_proof,
-                &request,
-                &req,
-                &policy,
-                &user.id,
-                &locale.0,
-                &e,
-            )
-            .await)
-        }
-    };
-
-    let session_is_valid = crate::services::browser_session::valid_digest_for_user(
-        pool,
-        &browser_session_digest,
-        &user.id,
-    )
-    .unwrap_or(false);
-    if !session_is_valid {
-        return Err(render_error_page(
-            "Your session has ended. Please start the login again.",
-        ));
-    }
-    let redirect = finalize_login(LoginFinalization {
-        pool,
-        net,
-        nonces,
-        user: &user,
-        browser_session_digest: Some(&browser_session_digest),
-        api_actor_id: None,
-        api_credential_id: None,
-        request: &request,
-        authorized_claims: authorized,
-        requested: requested_types(&req),
-    })
-    .await
-    .map_err(|m| render_error_page(&m))?;
-    account_ui::touch_provider_session(cookies, pool.inner());
-    Ok(redirect)
 }
 
 /// Reasons a `signed_request` may be rejected. Each maps to a
@@ -2574,6 +1576,19 @@ pub enum ValidateAuthRequestError {
 }
 
 impl ValidateAuthRequestError {
+    /// The browser app's reason code for this refusal.
+    pub fn reason(&self) -> &'static str {
+        match self {
+            Self::Malformed => "malformed",
+            Self::KeyFetchFailed => "key_fetch_failed",
+            Self::SignatureInvalid => "signature_invalid",
+            Self::Expired => "expired",
+            Self::CallbackNotHttps => "callback_not_https",
+            Self::CallbackOffDomain => "callback_off_domain",
+            Self::CallbackUnparseable => "callback_unparseable",
+        }
+    }
+
     pub fn user_message(&self) -> &'static str {
         match self {
             Self::Malformed => "The login request was malformed.",
@@ -2661,38 +1676,6 @@ pub async fn validate_signed_request(
     }
 
     Ok(request)
-}
-
-/// Render a neutral, standalone notice page (e.g. after the user cancels a
-/// login). Carries the reader's locale for `lang`/`dir`.
-pub(super) fn render_notice_page(locale: &str, title: &str, body: &str) -> RawHtml<String> {
-    RawHtml(format!(
-        r#"<!DOCTYPE html>
-<html lang="{lang}" dir="{dir}"><head><title>{title}</title>
-<style>body {{ font-family: sans-serif; max-width: 400px; margin: 80px auto; }}</style></head>
-<body><h2>{title}</h2>
-<p>{body}</p>
-</body></html>"#,
-        lang = html_escape(locale),
-        dir = account_ui::text_direction(locale),
-        title = html_escape(title),
-        body = html_escape(body),
-    ))
-}
-
-/// Render a minimal error page (for signed_request validation failures
-/// where re-rendering the login form would be misleading or unsafe).
-pub(super) fn render_error_page(message: &str) -> RawHtml<String> {
-    RawHtml(format!(
-        r#"<!DOCTYPE html>
-<html><head><title>LinkKeys Login Error</title>
-<style>body {{ font-family: sans-serif; max-width: 400px; margin: 80px auto; }}
-.error {{ color: red; }}</style></head>
-<body><h2>LinkKeys Login</h2>
-<p class="error">{}</p>
-</body></html>"#,
-        html_escape(message)
-    ))
 }
 
 /// Encrypt a signed assertion token for a relying party.
@@ -2911,7 +1894,7 @@ async fn rpc_cbor(
     let needs_browser = request.auth.is_none()
         && (matches!(
             request.service.as_str(),
-            "Account" | "Admin" | "BrowserAuthorization"
+            "Account" | "Admin" | "BrowserAuthorization" | "BrowserIssuer"
         ) || matches!(
             (request.service.as_str(), request.op.as_str()),
             ("Session", "get-current") | ("Session", "logout")
@@ -3126,6 +2109,53 @@ async fn rpc_cbor(
                     ),
                 }
             }
+            "inspect-local-rp" => {
+                match liblinkkeys::generated::decode_browser_local_rp_inspect_request(
+                    &request.payload,
+                ) {
+                    Ok(value) => match local_rp_browser::inspect(
+                        pool,
+                        &browser_user,
+                        &browser_session,
+                        &value.signed_request,
+                    ) {
+                        Ok(value) => rpc_ok(
+                            liblinkkeys::generated::encode_browser_local_rp_inspect_response(
+                                &value,
+                            ),
+                        ),
+                        Err(error) => service_rpc_error(error),
+                    },
+                    Err(error) => rpc_error(
+                        csilgen_transport::Status::MalformedEnvelope,
+                        &format!("Invalid payload: {error}"),
+                    ),
+                }
+            }
+            "complete-local-rp" => {
+                match liblinkkeys::generated::decode_browser_local_rp_complete_request(
+                    &request.payload,
+                ) {
+                    Ok(value) => match local_rp_browser::complete(
+                        pool,
+                        nonces,
+                        &browser_user,
+                        &browser_session,
+                        value,
+                    ) {
+                        Ok(value) => rpc_ok(
+                            liblinkkeys::generated::encode_browser_local_rp_complete_response(
+                                &value,
+                            ),
+                        ),
+                        Err(error) => service_rpc_error(error),
+                    },
+                    Err(error) => rpc_error(
+                        csilgen_transport::Status::MalformedEnvelope,
+                        &format!("Invalid payload: {error}"),
+                    ),
+                }
+            }
             "inspect-act-as" => {
                 match liblinkkeys::generated::decode_browser_act_as_inspect_request(
                     &request.payload,
@@ -3220,6 +2250,56 @@ async fn rpc_cbor(
             _ => rpc_error(
                 csilgen_transport::Status::UnknownServiceOrOp,
                 "Unknown browser authorization operation",
+            ),
+        };
+        return cbor_response(response);
+    }
+
+    if request.service == "BrowserIssuer" {
+        let Some((browser_user, _)) = browser_identity else {
+            return cbor_response(rpc_error(
+                csilgen_transport::Status::Forbidden,
+                "Authentication required",
+            ));
+        };
+        let invalid = |error: String| {
+            rpc_error(
+                csilgen_transport::Status::MalformedEnvelope,
+                &format!("Invalid payload: {error}"),
+            )
+        };
+        let response = match request.op.as_str() {
+            "inspect-signing-request" => {
+                match liblinkkeys::generated::decode_inspect_signing_request_request(
+                    &request.payload,
+                ) {
+                    Ok(value) => match issuer::inspect(pool, net, &browser_user.id, value).await {
+                        Ok(value) => rpc_ok(
+                            liblinkkeys::generated::encode_inspect_signing_request_response(&value),
+                        ),
+                        Err(error) => service_rpc_error(error),
+                    },
+                    Err(error) => invalid(error.to_string()),
+                }
+            }
+            "issue-for-signing-request" => {
+                match liblinkkeys::generated::decode_issue_for_signing_request_request(
+                    &request.payload,
+                ) {
+                    Ok(value) => match issuer::issue(pool, net, &browser_user.id, value).await {
+                        Ok(value) => rpc_ok(
+                            liblinkkeys::generated::encode_issue_for_signing_request_response(
+                                &value,
+                            ),
+                        ),
+                        Err(error) => service_rpc_error(error),
+                    },
+                    Err(error) => invalid(error.to_string()),
+                }
+            }
+            _ => rpc_error(
+                csilgen_transport::Status::UnknownServiceOrOp,
+                "Unknown browser issuer operation",
             ),
         };
         return cbor_response(response);
@@ -3677,20 +2757,14 @@ fn build_rocket_with_ui(
         routes.extend(rocket::routes![
             auth_authorize_get,
             auth_act_as_get,
-            auth_authorize_post,
-            auth_consent_post,
-            local_rp_ui::auth_local_rp_get,
-            local_rp_ui::auth_local_rp_post,
-            local_rp_ui::auth_local_rp_consent_post,
-            account_ui::login_page,
-            account_ui::login_submit,
+            local_rp_browser::auth_local_rp_get,
         ]);
     }
 
     let nonce_store =
         nonce_store::NonceStore::new(db_pool.clone(), std::time::Duration::from_secs(300));
     let rp_claims_config = crate::rp_config::RpClaimsConfig::load_from_env();
-    let mut rocket_instance = rocket::custom(config)
+    rocket::custom(config)
         .mount("/", routes)
         .register("/", rocket::catchers![default_catcher])
         .attach(BrowserSecurityHeaders)
@@ -3699,70 +2773,7 @@ fn build_rocket_with_ui(
         .manage(nonce_store)
         .manage(rp_claims_config)
         .manage(ui_configuration.clone())
-        .manage(net);
-
-    // Mount server-rendered HTML UI for account self-service
-    rocket_instance = rocket_instance.mount(
-        "/",
-        rocket::routes![
-            account_ui::logout,
-            account_ui::account_dashboard,
-            account_ui::change_password_page,
-            account_ui::change_password_submit,
-            profile_ui::identity_editor,
-            profile_ui::set_claim_submit,
-            profile_ui::create_profile_submit,
-            profile_ui::verify_email,
-            profile_ui::set_share_submit,
-            profile_ui::request_verification,
-            profile_ui::request_verification_download,
-        ],
-    );
-
-    // Mount server-rendered HTML UI for user administration
-    rocket_instance = rocket_instance.mount(
-        "/",
-        rocket::routes![
-            admin_ui::admin_ui_user_list,
-            admin_ui::admin_ui_create_user_page,
-            admin_ui::admin_ui_create_user_submit,
-            admin_ui::admin_ui_user_detail,
-            admin_ui::admin_ui_update_user,
-            admin_ui::admin_ui_deactivate_user,
-            admin_ui::admin_ui_activate_user,
-            admin_ui::admin_ui_reset_password,
-            admin_ui::admin_ui_add_claim,
-            admin_ui::admin_ui_remove_claim,
-            admin_ui::admin_ui_grant_relation,
-            admin_ui::admin_ui_remove_relation,
-        ],
-    );
-
-    // Mount the admin policy editor (claim-type registry, trusted issuers,
-    // release defaults, approval queue).
-    rocket_instance = rocket_instance.mount(
-        "/",
-        rocket::routes![
-            policy_admin_ui::policy_admin,
-            policy_admin_ui::upsert_policy,
-            policy_admin_ui::delete_policy,
-            policy_admin_ui::add_issuer,
-            policy_admin_ui::remove_issuer,
-            policy_admin_ui::upsert_release,
-            policy_admin_ui::delete_release,
-            policy_admin_ui::test_release_policy,
-            policy_admin_ui::test_issuer_policy,
-            policy_admin_ui::approve,
-            policy_admin_ui::reject,
-            policy_admin_ui::issue_page,
-            policy_admin_ui::issue_verify,
-            policy_admin_ui::issue_sign,
-            policy_admin_ui::upsert_claim_label,
-            policy_admin_ui::delete_claim_label,
-        ],
-    );
-
-    rocket_instance
+        .manage(net)
 }
 
 #[cfg(test)]

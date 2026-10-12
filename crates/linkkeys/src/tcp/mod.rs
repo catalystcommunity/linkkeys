@@ -2070,9 +2070,33 @@ fn dispatch_admin(op: &str, payload: &[u8], db_pool: &DbPool, caller_id: &str) -
             admin::purge_local_rp_tickets,
             codec::encode_purge_local_rp_tickets_response
         ),
-        // Claim-type registry admin (policy-admin web UI parity): second
-        // entry point onto the exact same DB calls
-        // `web/policy_admin_ui.rs`'s handlers make.
+        "list-claim-type-labels" => admin_op!(
+            codec::decode_empty_request,
+            admin::list_claim_type_labels,
+            codec::encode_list_claim_type_labels_response
+        ),
+        "preview-release-policy" => admin_op!(
+            codec::decode_preview_release_policy_request,
+            admin::preview_release_policy,
+            codec::encode_preview_release_policy_response
+        ),
+        "preview-issuer-policy" => admin_op!(
+            codec::decode_preview_issuer_policy_request,
+            admin::preview_issuer_policy,
+            codec::encode_preview_issuer_policy_response
+        ),
+        "get-sign-in-policy" => admin_op!(
+            codec::decode_empty_request,
+            admin::get_sign_in_policy,
+            codec::encode_sign_in_policy
+        ),
+        "set-sign-in-policy" => admin_op!(
+            codec::decode_set_sign_in_policy_request,
+            admin::set_sign_in_policy,
+            codec::encode_sign_in_policy
+        ),
+        // Claim-type registry admin. The browser app's `/app/admin/policy`
+        // page reaches these same arms through the browser carrier.
         "list-claim-types" => admin_op!(
             codec::decode_empty_request,
             admin::list_claim_types,
@@ -2098,9 +2122,9 @@ fn dispatch_admin(op: &str, payload: &[u8], db_pool: &DbPool, caller_id: &str) -
             admin::remove_claim_type_label,
             codec::encode_remove_claim_type_label_response
         ),
-        // Trusted-issuer and release-default admin (policy-admin web UI
-        // parity, slice 2): second entry point onto the exact same DB calls
-        // `web/policy_admin_ui.rs`'s handlers make.
+        // Trusted-issuer and release-default admin (slice 2). The browser
+        // app's `/app/admin/policy` page reaches these same arms through the
+        // browser carrier.
         "list-trusted-issuers" => admin_op!(
             codec::decode_empty_request,
             admin::list_trusted_issuers,
@@ -2131,12 +2155,12 @@ fn dispatch_admin(op: &str, payload: &[u8], db_pool: &DbPool, caller_id: &str) -
             admin::remove_release_rule,
             codec::encode_remove_release_rule_response
         ),
-        // Claim-approval queue and admin-issued attestations (policy-admin web
-        // UI parity, slice 3): third entry point onto the exact same DB/service
-        // calls `web/policy_admin_ui.rs`'s handlers make (approve-claim and
-        // reject-claim themselves are dispatched one level up, in `dispatch`,
-        // since they need the caller's identity — see
-        // `dispatch_admin_approve_claim`/`dispatch_admin_reject_claim`).
+        // Claim-approval queue and admin-issued attestations (slice 3). The
+        // browser app's `/app/admin/approvals` page reaches these same arms
+        // through the browser carrier. approve-claim and reject-claim are
+        // dispatched one level up, in `dispatch`, because they need the
+        // caller's identity — see
+        // `dispatch_admin_approve_claim`/`dispatch_admin_reject_claim`.
         "list-pending-claim-approvals" => admin_op!(
             codec::decode_empty_request,
             admin::list_pending_claim_approvals,
@@ -2219,6 +2243,25 @@ fn dispatch_account(
                 Ok(resp) => {
                     ok_response(liblinkkeys::generated::encode_set_my_claim_sharing_response(&resp))
                 }
+                Err(e) => error_response(4, &e.message),
+            }
+        }
+        "get-my-claim-settings" => match account::get_my_claim_settings(db_pool, &user.id) {
+            Ok(resp) => ok_response(liblinkkeys::generated::encode_my_claim_settings_response(
+                &resp,
+            )),
+            Err(e) => error_response(4, &e.message),
+        },
+        "set-my-claim-keep-verified" => {
+            let request =
+                match liblinkkeys::generated::decode_set_my_claim_keep_verified_request(payload) {
+                    Ok(r) => r,
+                    Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+                };
+            match account::set_my_claim_keep_verified(db_pool, &user.id, request) {
+                Ok(resp) => ok_response(
+                    liblinkkeys::generated::encode_set_my_claim_keep_verified_response(&resp),
+                ),
                 Err(e) => error_response(4, &e.message),
             }
         }

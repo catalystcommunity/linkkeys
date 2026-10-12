@@ -60,11 +60,16 @@ async fn a_missing_or_damaged_request_gets_an_error_page() {
     let client = Client::tracked(rocket(common::create_test_pool()))
         .await
         .unwrap();
-    for path in ["/auth/act-as", "/auth/act-as?signed_request=not-cbor!!"] {
+    for (path, reason) in [
+        ("/auth/act-as", "missing"),
+        ("/auth/act-as?signed_request=not-cbor!!", "malformed"),
+    ] {
         let response = client.get(path).dispatch().await;
-        assert_eq!(response.status(), Status::Ok, "{path}");
-        let body = response.into_string().await.unwrap();
-        assert!(body.contains("missing or damaged"), "{path}");
-        assert!(!body.to_lowercase().contains("password"), "{path}");
+        assert_eq!(response.status(), Status::Found, "{path}");
+        assert_eq!(
+            response.headers().get_one("Location"),
+            Some(format!("/app/error?reason={reason}").as_str()),
+            "{path} goes to the browser app's error page"
+        );
     }
 }

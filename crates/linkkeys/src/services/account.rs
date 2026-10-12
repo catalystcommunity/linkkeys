@@ -1,9 +1,10 @@
 use liblinkkeys::generated::services::ServiceError;
 use liblinkkeys::generated::types::{
     AdminUser, ChangePasswordRequest, ChangePasswordResponse, Claim, CreateProfileRequest,
-    CreateProfileResponse, GetMyInfoResponse, RemoveMyClaimRequest, RemoveMyClaimResponse,
-    RequestVerificationRequest, RequestVerificationResponse, SetMyClaimRequest, SetMyClaimResponse,
-    SetMyClaimSharingRequest, SetMyClaimSharingResponse,
+    CreateProfileResponse, GetMyInfoResponse, MyClaimSetting, MyClaimSettingsResponse,
+    RemoveMyClaimRequest, RemoveMyClaimResponse, RequestVerificationRequest,
+    RequestVerificationResponse, SetMyClaimKeepVerifiedRequest, SetMyClaimKeepVerifiedResponse,
+    SetMyClaimRequest, SetMyClaimResponse, SetMyClaimSharingRequest, SetMyClaimSharingResponse,
 };
 
 use crate::db::DbPool;
@@ -95,9 +96,9 @@ pub fn get_my_info(pool: &DbPool, user_id: &str) -> Result<GetMyInfoResponse, Se
 /// their OWN claim values. `user_id` is the TCP dispatcher's authenticated
 /// caller, never a field on `req` — a client cannot target another user's
 /// claims through this op. Reuses the exact claim-policy evaluation
-/// `services::self_service::set_my_claim` performs for the web identity
-/// editor (`web::profile_ui::set_claim_submit`) and for
-/// `Admin/set-user-claim`.
+/// `services::self_service::set_my_claim` performs for
+/// `Admin/set-user-claim`. The browser app's `/app/account` page calls this
+/// op.
 pub fn set_my_claim(
     pool: &DbPool,
     user_id: &str,
@@ -146,9 +147,8 @@ pub fn remove_my_claim(
 /// or clears a standing release preference (pre-approval to share with ALL
 /// audiences, `"*"`) for one of their OWN claim types. `user_id` is the TCP
 /// dispatcher's authenticated caller, never a field on `req` — a client
-/// cannot pre-share another user's claim through this op. Reuses
-/// `services::self_service::set_my_claim_sharing`, the same call
-/// `web::profile_ui::set_share_submit` makes.
+/// cannot pre-share another user's claim through this op. Delegates to
+/// `services::self_service::set_my_claim_sharing`.
 pub fn set_my_claim_sharing(
     pool: &DbPool,
     user_id: &str,
@@ -158,10 +158,46 @@ pub fn set_my_claim_sharing(
     Ok(SetMyClaimSharingResponse {})
 }
 
+/// CSIL-RPC entry point for `Account/get-my-claim-settings`: the caller's own
+/// per-claim choices, presentable profiles, and the profile cap.
+pub fn get_my_claim_settings(
+    pool: &DbPool,
+    user_id: &str,
+) -> Result<MyClaimSettingsResponse, ServiceError> {
+    let settings = self_service::my_claim_settings(pool, user_id)?
+        .into_iter()
+        .map(
+            |(claim_type, keep_verified, shared_with_every_app)| MyClaimSetting {
+                claim_type,
+                keep_verified,
+                shared_with_every_app,
+            },
+        )
+        .collect();
+    let profiles = self_service::list_profiles(pool, user_id)?
+        .iter()
+        .map(Into::into)
+        .collect();
+    Ok(MyClaimSettingsResponse {
+        settings,
+        profiles,
+        max_profiles: crate::db::max_profiles_per_account(),
+    })
+}
+
+/// CSIL-RPC entry point for `Account/set-my-claim-keep-verified`.
+pub fn set_my_claim_keep_verified(
+    pool: &DbPool,
+    user_id: &str,
+    req: SetMyClaimKeepVerifiedRequest,
+) -> Result<SetMyClaimKeepVerifiedResponse, ServiceError> {
+    self_service::set_my_claim_keep_verified(pool, user_id, &req.claim_type, req.keep_verified)?;
+    Ok(SetMyClaimKeepVerifiedResponse {})
+}
+
 /// CSIL-RPC entry point for `Account/create-profile`: create an additional
-/// presentable profile for the caller's OWN account. Reuses
-/// `services::self_service::create_profile`, the same call
-/// `web::profile_ui::create_profile_submit` makes.
+/// presentable profile for the caller's OWN account. Delegates to
+/// `services::self_service::create_profile`.
 pub fn create_profile(
     pool: &DbPool,
     user_id: &str,
@@ -176,9 +212,9 @@ pub fn create_profile(
 /// CSIL-RPC entry point for `Account/request-verification`: mint a
 /// home-domain-signed signing-request bundle for the caller's OWN account,
 /// addressed to `req.issuer_domain`, asking it to attest
-/// `req.requested_claim_types`. Reuses `services::attestation::mint_signing_request`,
-/// the same call backing the web `/account/request-verification` /
-/// `/account/request-verification.bin` routes.
+/// `req.requested_claim_types`. Delegates to
+/// `services::attestation::mint_signing_request`. The browser app's
+/// `/app/account` page calls this op.
 pub fn request_verification(
     pool: &DbPool,
     user_id: &str,

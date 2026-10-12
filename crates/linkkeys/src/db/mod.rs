@@ -16,6 +16,7 @@ pub mod peer_keys;
 pub mod profiles;
 pub mod relations;
 pub mod rp_cache;
+pub mod sign_in_policy;
 pub mod user_keys;
 pub mod user_release_prefs;
 pub mod users;
@@ -4268,6 +4269,29 @@ impl DbPool {
                     .execute(&mut *conn)?;
                 Ok(())
             }
+        }
+    }
+
+    // -- Sign-in policy --
+
+    /// This domain's stored sign-in length in hours, if an admin set one.
+    pub fn get_sign_in_hours(&self, domain: &str) -> QueryResult<Option<i32>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => sign_in_policy::pg::get(&mut *pg_conn(p)?, domain),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => sign_in_policy::sqlite::get(&mut *sqlite_conn(p)?, domain),
+        }
+    }
+
+    /// Store this domain's sign-in length in hours. The caller validates the
+    /// range; the column's CHECK constraint is the backstop.
+    pub fn set_sign_in_hours(&self, domain: &str, hours: i32) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => sign_in_policy::pg::set(&mut *pg_conn(p)?, domain, hours),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => sign_in_policy::sqlite::set(&mut *sqlite_conn(p)?, domain, hours),
         }
     }
 

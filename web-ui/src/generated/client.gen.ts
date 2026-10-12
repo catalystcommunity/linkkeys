@@ -2,8 +2,8 @@
 // Source: <csil spec>
 // Target: typescript-client
 
-import type { ActivateUserRequest, ActivateUserResponse, AddApplicationKeyRequest, AddApplicationKeyResponse, AddTrustedIssuerRequest, AddTrustedIssuerResponse, AdminIssueAttestationRequest, AdminIssueAttestationResponse, AdminUserClaimsRequest, AdminUserClaimsResponse, ApproveClaimRequest, ApproveClaimResponse, ApproveLocalRpRequest, ApproveLocalRpResponse, AuthenticateRequest, AuthenticateResponse, BrowserActAsCompleteRequest, BrowserActAsCompleteResponse, BrowserActAsInspectRequest, BrowserActAsInspectResponse, BrowserAuthorizationCompleteRequest, BrowserAuthorizationCompleteResponse, BrowserAuthorizationInspectRequest, BrowserAuthorizationInspectResponse, ChangePasswordRequest, ChangePasswordResponse, CheckPermissionRequest, CheckPermissionResponse, CheckResult, CompletePasswordRecoveryRequest, CompletePasswordRecoveryResponse, ConfirmContactVerificationRequest, ConfirmContactVerificationResponse, CreateGuestbookRequest, CreateProfileRequest, CreateProfileResponse, CreateUserRequest, CreateUserResponse, DeactivateUserRequest, DeactivateUserResponse, DeleteGuestbookRequest, DeleteGuestbookResponse, DenyLocalRpRequest, DenyLocalRpResponse, DepositClaimRequest, DepositClaimResponse, EmptyRequest, EnrollApplicationInstanceRequest, EnrollApplicationInstanceResponse, GetActAsGrantRevocationsRequest, GetActAsGrantRevocationsResponse, GetApplicationKeysRequest, GetApplicationKeysResponse, GetDomainKeysResponse, GetLocalRpPolicyRequest, GetLocalRpPolicyResponse, GetLocalRpRequest, GetLocalRpResponse, GetMyInfoResponse, GetNotificationCapabilitiesResponse, GetRevocationsRequest, GetRevocationsResponse, GetUiConfigurationResponse, GetUserAuthenticationActivityRequest, GetUserAuthenticationActivityResponse, GetUserKeysRequest, GetUserKeysResponse, GetUserRequest, GetUserResponse, GrantRelationRequest, GrantRelationResponse, GuestbookEntry, GuestbookListRequest, GuestbookListResponse, HandshakeRequest, HandshakeResponse, HelloRequest, HelloResponse, IntrospectBrowserSessionRequest, IntrospectBrowserSessionResponse, ListActAsGrantsResponse, ListClaimTypesResponse, ListLocalRpsRequest, ListLocalRpsResponse, ListLocalesResponse, ListPendingClaimApprovalsResponse, ListRelationsRequest, ListRelationsResponse, ListReleaseRulesResponse, ListSettablePoliciesResponse, ListTrustedIssuersResponse, ListUserClaimsRequest, ListUserClaimsResponse, ListUsersRequest, ListUsersResponse, ListVerifiedContactMethodsResponse, LocalRpTicketRedemptionResponse, PurgeLocalRpTicketsRequest, PurgeLocalRpTicketsResponse, PurgeUserRequest, PurgeUserResponse, RecheckPinsRequest, RecheckPinsResponse, RefreshActAsGrantRequest, RefreshActAsGrantResponse, RejectClaimRequest, RejectClaimResponse, RemoveClaimRequest, RemoveClaimResponse, RemoveClaimTypeLabelRequest, RemoveClaimTypeLabelResponse, RemoveClaimTypeRequest, RemoveClaimTypeResponse, RemoveCredentialRequest, RemoveCredentialResponse, RemoveMyClaimRequest, RemoveMyClaimResponse, RemoveRelationRequest, RemoveRelationResponse, RemoveReleaseRuleRequest, RemoveReleaseRuleResponse, RemoveTrustedIssuerRequest, RemoveTrustedIssuerResponse, RenewApplicationKeyAttestationRequest, RenewApplicationKeyAttestationResponse, RequestContactVerificationRequest, RequestContactVerificationResponse, RequestPasswordRecoveryRequest, RequestPasswordRecoveryResponse, RequestVerificationRequest, RequestVerificationResponse, ResetPasswordRequest, ResetPasswordResponse, RevokeActAsGrantRequest, RevokeActAsGrantResponse, RevokeApplicationKeyRequest, RevokeApplicationKeyResponse, RevokeDomainKeyRequest, RevokeDomainKeyResponse, RevokeLocalRpRequest, RevokeLocalRpResponse, RevokeVerifiedContactMethodRequest, RevokeVerifiedContactMethodResponse, RpActAsRefreshRequest, RpDecryptRequest, RpDecryptResponse, RpIssueAttestationRequest, RpIssueAttestationResponse, RpResolveActAsRevocationsRequest, RpResolveApplicationKeysRequest, RpResolveApplicationKeysResponse, RpResolveDomainKeysRequest, RpResolveDomainKeysResponse, RpSignRequest, RpSignResponse, RpUserInfoRequest, RpVerifyRequest, RpVerifyResponse, SessionCurrentResponse, SessionLogoutResponse, SessionPasswordLoginRequest, SessionPasswordLoginResponse, SetClaimRequest, SetClaimResponse, SetClaimTypeLabelRequest, SetClaimTypeLabelResponse, SetClaimTypeRequest, SetClaimTypeResponse, SetLocalRpPolicyRequest, SetLocalRpPolicyResponse, SetMyClaimRequest, SetMyClaimResponse, SetMyClaimSharingRequest, SetMyClaimSharingResponse, SetReleaseRuleRequest, SetReleaseRuleResponse, SetUserClaimRequest, SetUserClaimResponse, SignedLocalRpTicketRedemptionRequest, SignedUserInfoRequest, StartApplicationKeyChallengeRequest, StartApplicationKeyChallengeResponse, TranslationsRequest, TranslationsResponse, UpdateGuestbookRequest, UpdateUserRequest, UpdateUserResponse, UserInfo, ValidatePasswordRecoveryRequest, ValidatePasswordRecoveryResponse } from "./types.gen.ts";
-import { fromActivateUserResponseCbor, fromAddApplicationKeyResponseCbor, fromAddTrustedIssuerResponseCbor, fromAdminIssueAttestationResponseCbor, fromAdminUserClaimsResponseCbor, fromApproveClaimResponseCbor, fromApproveLocalRpResponseCbor, fromAuthenticateResponseCbor, fromBrowserActAsCompleteResponseCbor, fromBrowserActAsInspectResponseCbor, fromBrowserAuthorizationCompleteResponseCbor, fromBrowserAuthorizationInspectResponseCbor, fromChangePasswordResponseCbor, fromCheckPermissionResponseCbor, fromCheckResultCbor, fromCompletePasswordRecoveryResponseCbor, fromConfirmContactVerificationResponseCbor, fromCreateProfileResponseCbor, fromCreateUserResponseCbor, fromDeactivateUserResponseCbor, fromDeleteGuestbookResponseCbor, fromDenyLocalRpResponseCbor, fromDepositClaimResponseCbor, fromEnrollApplicationInstanceResponseCbor, fromGetActAsGrantRevocationsResponseCbor, fromGetApplicationKeysResponseCbor, fromGetDomainKeysResponseCbor, fromGetLocalRpPolicyResponseCbor, fromGetLocalRpResponseCbor, fromGetMyInfoResponseCbor, fromGetNotificationCapabilitiesResponseCbor, fromGetRevocationsResponseCbor, fromGetUiConfigurationResponseCbor, fromGetUserAuthenticationActivityResponseCbor, fromGetUserKeysResponseCbor, fromGetUserResponseCbor, fromGrantRelationResponseCbor, fromGuestbookEntryCbor, fromGuestbookListResponseCbor, fromHandshakeResponseCbor, fromHelloResponseCbor, fromIntrospectBrowserSessionResponseCbor, fromListActAsGrantsResponseCbor, fromListClaimTypesResponseCbor, fromListLocalRpsResponseCbor, fromListLocalesResponseCbor, fromListPendingClaimApprovalsResponseCbor, fromListRelationsResponseCbor, fromListReleaseRulesResponseCbor, fromListSettablePoliciesResponseCbor, fromListTrustedIssuersResponseCbor, fromListUserClaimsResponseCbor, fromListUsersResponseCbor, fromListVerifiedContactMethodsResponseCbor, fromLocalRpTicketRedemptionResponseCbor, fromPurgeLocalRpTicketsResponseCbor, fromPurgeUserResponseCbor, fromRecheckPinsResponseCbor, fromRefreshActAsGrantResponseCbor, fromRejectClaimResponseCbor, fromRemoveClaimResponseCbor, fromRemoveClaimTypeLabelResponseCbor, fromRemoveClaimTypeResponseCbor, fromRemoveCredentialResponseCbor, fromRemoveMyClaimResponseCbor, fromRemoveRelationResponseCbor, fromRemoveReleaseRuleResponseCbor, fromRemoveTrustedIssuerResponseCbor, fromRenewApplicationKeyAttestationResponseCbor, fromRequestContactVerificationResponseCbor, fromRequestPasswordRecoveryResponseCbor, fromRequestVerificationResponseCbor, fromResetPasswordResponseCbor, fromRevokeActAsGrantResponseCbor, fromRevokeApplicationKeyResponseCbor, fromRevokeDomainKeyResponseCbor, fromRevokeLocalRpResponseCbor, fromRevokeVerifiedContactMethodResponseCbor, fromRpDecryptResponseCbor, fromRpIssueAttestationResponseCbor, fromRpResolveApplicationKeysResponseCbor, fromRpResolveDomainKeysResponseCbor, fromRpSignResponseCbor, fromRpVerifyResponseCbor, fromSessionCurrentResponseCbor, fromSessionLogoutResponseCbor, fromSessionPasswordLoginResponseCbor, fromSetClaimResponseCbor, fromSetClaimTypeLabelResponseCbor, fromSetClaimTypeResponseCbor, fromSetLocalRpPolicyResponseCbor, fromSetMyClaimResponseCbor, fromSetMyClaimSharingResponseCbor, fromSetReleaseRuleResponseCbor, fromSetUserClaimResponseCbor, fromStartApplicationKeyChallengeResponseCbor, fromTranslationsResponseCbor, fromUpdateUserResponseCbor, fromUserInfoCbor, fromValidatePasswordRecoveryResponseCbor, toActivateUserRequestCbor, toAddApplicationKeyRequestCbor, toAddTrustedIssuerRequestCbor, toAdminIssueAttestationRequestCbor, toAdminUserClaimsRequestCbor, toApproveClaimRequestCbor, toApproveLocalRpRequestCbor, toAuthenticateRequestCbor, toBrowserActAsCompleteRequestCbor, toBrowserActAsInspectRequestCbor, toBrowserAuthorizationCompleteRequestCbor, toBrowserAuthorizationInspectRequestCbor, toChangePasswordRequestCbor, toCheckPermissionRequestCbor, toCompletePasswordRecoveryRequestCbor, toConfirmContactVerificationRequestCbor, toCreateGuestbookRequestCbor, toCreateProfileRequestCbor, toCreateUserRequestCbor, toDeactivateUserRequestCbor, toDeleteGuestbookRequestCbor, toDenyLocalRpRequestCbor, toDepositClaimRequestCbor, toEmptyRequestCbor, toEnrollApplicationInstanceRequestCbor, toGetActAsGrantRevocationsRequestCbor, toGetApplicationKeysRequestCbor, toGetLocalRpPolicyRequestCbor, toGetLocalRpRequestCbor, toGetRevocationsRequestCbor, toGetUserAuthenticationActivityRequestCbor, toGetUserKeysRequestCbor, toGetUserRequestCbor, toGrantRelationRequestCbor, toGuestbookListRequestCbor, toHandshakeRequestCbor, toHelloRequestCbor, toIntrospectBrowserSessionRequestCbor, toListLocalRpsRequestCbor, toListRelationsRequestCbor, toListUserClaimsRequestCbor, toListUsersRequestCbor, toPurgeLocalRpTicketsRequestCbor, toPurgeUserRequestCbor, toRecheckPinsRequestCbor, toRefreshActAsGrantRequestCbor, toRejectClaimRequestCbor, toRemoveClaimRequestCbor, toRemoveClaimTypeLabelRequestCbor, toRemoveClaimTypeRequestCbor, toRemoveCredentialRequestCbor, toRemoveMyClaimRequestCbor, toRemoveRelationRequestCbor, toRemoveReleaseRuleRequestCbor, toRemoveTrustedIssuerRequestCbor, toRenewApplicationKeyAttestationRequestCbor, toRequestContactVerificationRequestCbor, toRequestPasswordRecoveryRequestCbor, toRequestVerificationRequestCbor, toResetPasswordRequestCbor, toRevokeActAsGrantRequestCbor, toRevokeApplicationKeyRequestCbor, toRevokeDomainKeyRequestCbor, toRevokeLocalRpRequestCbor, toRevokeVerifiedContactMethodRequestCbor, toRpActAsRefreshRequestCbor, toRpDecryptRequestCbor, toRpIssueAttestationRequestCbor, toRpResolveActAsRevocationsRequestCbor, toRpResolveApplicationKeysRequestCbor, toRpResolveDomainKeysRequestCbor, toRpSignRequestCbor, toRpUserInfoRequestCbor, toRpVerifyRequestCbor, toSessionPasswordLoginRequestCbor, toSetClaimRequestCbor, toSetClaimTypeLabelRequestCbor, toSetClaimTypeRequestCbor, toSetLocalRpPolicyRequestCbor, toSetMyClaimRequestCbor, toSetMyClaimSharingRequestCbor, toSetReleaseRuleRequestCbor, toSetUserClaimRequestCbor, toSignedLocalRpTicketRedemptionRequestCbor, toSignedUserInfoRequestCbor, toStartApplicationKeyChallengeRequestCbor, toTranslationsRequestCbor, toUpdateGuestbookRequestCbor, toUpdateUserRequestCbor, toValidatePasswordRecoveryRequestCbor } from "./codec.gen.ts";
+import type { ActivateUserRequest, ActivateUserResponse, AddApplicationKeyRequest, AddApplicationKeyResponse, AddTrustedIssuerRequest, AddTrustedIssuerResponse, AdminIssueAttestationRequest, AdminIssueAttestationResponse, AdminUserClaimsRequest, AdminUserClaimsResponse, ApproveClaimRequest, ApproveClaimResponse, ApproveLocalRpRequest, ApproveLocalRpResponse, AuthenticateRequest, AuthenticateResponse, BrowserActAsCompleteRequest, BrowserActAsCompleteResponse, BrowserActAsInspectRequest, BrowserActAsInspectResponse, BrowserAuthorizationCompleteRequest, BrowserAuthorizationCompleteResponse, BrowserAuthorizationInspectRequest, BrowserAuthorizationInspectResponse, BrowserLocalRpCompleteRequest, BrowserLocalRpCompleteResponse, BrowserLocalRpInspectRequest, BrowserLocalRpInspectResponse, ChangePasswordRequest, ChangePasswordResponse, CheckPermissionRequest, CheckPermissionResponse, CheckResult, CompletePasswordRecoveryRequest, CompletePasswordRecoveryResponse, ConfirmContactVerificationRequest, ConfirmContactVerificationResponse, CreateGuestbookRequest, CreateProfileRequest, CreateProfileResponse, CreateUserRequest, CreateUserResponse, DeactivateUserRequest, DeactivateUserResponse, DeleteGuestbookRequest, DeleteGuestbookResponse, DenyLocalRpRequest, DenyLocalRpResponse, DepositClaimRequest, DepositClaimResponse, EmptyRequest, EnrollApplicationInstanceRequest, EnrollApplicationInstanceResponse, GetActAsGrantRevocationsRequest, GetActAsGrantRevocationsResponse, GetApplicationKeysRequest, GetApplicationKeysResponse, GetDomainKeysResponse, GetLocalRpPolicyRequest, GetLocalRpPolicyResponse, GetLocalRpRequest, GetLocalRpResponse, GetMyInfoResponse, GetNotificationCapabilitiesResponse, GetRevocationsRequest, GetRevocationsResponse, GetUiConfigurationResponse, GetUserAuthenticationActivityRequest, GetUserAuthenticationActivityResponse, GetUserKeysRequest, GetUserKeysResponse, GetUserRequest, GetUserResponse, GrantRelationRequest, GrantRelationResponse, GuestbookEntry, GuestbookListRequest, GuestbookListResponse, HandshakeRequest, HandshakeResponse, HelloRequest, HelloResponse, InspectSigningRequestRequest, InspectSigningRequestResponse, IntrospectBrowserSessionRequest, IntrospectBrowserSessionResponse, IssueForSigningRequestRequest, IssueForSigningRequestResponse, ListActAsGrantsResponse, ListClaimTypeLabelsResponse, ListClaimTypesResponse, ListLocalRpsRequest, ListLocalRpsResponse, ListLocalesResponse, ListPendingClaimApprovalsResponse, ListRelationsRequest, ListRelationsResponse, ListReleaseRulesResponse, ListSettablePoliciesResponse, ListTrustedIssuersResponse, ListUserClaimsRequest, ListUserClaimsResponse, ListUsersRequest, ListUsersResponse, ListVerifiedContactMethodsResponse, LocalRpTicketRedemptionResponse, MyClaimSettingsResponse, PreviewIssuerPolicyRequest, PreviewIssuerPolicyResponse, PreviewReleasePolicyRequest, PreviewReleasePolicyResponse, PurgeLocalRpTicketsRequest, PurgeLocalRpTicketsResponse, PurgeUserRequest, PurgeUserResponse, RecheckPinsRequest, RecheckPinsResponse, RefreshActAsGrantRequest, RefreshActAsGrantResponse, RejectClaimRequest, RejectClaimResponse, RemoveClaimRequest, RemoveClaimResponse, RemoveClaimTypeLabelRequest, RemoveClaimTypeLabelResponse, RemoveClaimTypeRequest, RemoveClaimTypeResponse, RemoveCredentialRequest, RemoveCredentialResponse, RemoveMyClaimRequest, RemoveMyClaimResponse, RemoveRelationRequest, RemoveRelationResponse, RemoveReleaseRuleRequest, RemoveReleaseRuleResponse, RemoveTrustedIssuerRequest, RemoveTrustedIssuerResponse, RenewApplicationKeyAttestationRequest, RenewApplicationKeyAttestationResponse, RequestContactVerificationRequest, RequestContactVerificationResponse, RequestPasswordRecoveryRequest, RequestPasswordRecoveryResponse, RequestVerificationRequest, RequestVerificationResponse, ResetPasswordRequest, ResetPasswordResponse, RevokeActAsGrantRequest, RevokeActAsGrantResponse, RevokeApplicationKeyRequest, RevokeApplicationKeyResponse, RevokeDomainKeyRequest, RevokeDomainKeyResponse, RevokeLocalRpRequest, RevokeLocalRpResponse, RevokeVerifiedContactMethodRequest, RevokeVerifiedContactMethodResponse, RpActAsRefreshRequest, RpDecryptRequest, RpDecryptResponse, RpIssueAttestationRequest, RpIssueAttestationResponse, RpResolveActAsRevocationsRequest, RpResolveApplicationKeysRequest, RpResolveApplicationKeysResponse, RpResolveDomainKeysRequest, RpResolveDomainKeysResponse, RpSignRequest, RpSignResponse, RpUserInfoRequest, RpVerifyRequest, RpVerifyResponse, SessionCurrentResponse, SessionLogoutResponse, SessionPasswordLoginRequest, SessionPasswordLoginResponse, SetClaimRequest, SetClaimResponse, SetClaimTypeLabelRequest, SetClaimTypeLabelResponse, SetClaimTypeRequest, SetClaimTypeResponse, SetLocalRpPolicyRequest, SetLocalRpPolicyResponse, SetMyClaimKeepVerifiedRequest, SetMyClaimKeepVerifiedResponse, SetMyClaimRequest, SetMyClaimResponse, SetMyClaimSharingRequest, SetMyClaimSharingResponse, SetReleaseRuleRequest, SetReleaseRuleResponse, SetSignInPolicyRequest, SetUserClaimRequest, SetUserClaimResponse, SignInPolicy, SignedLocalRpTicketRedemptionRequest, SignedUserInfoRequest, StartApplicationKeyChallengeRequest, StartApplicationKeyChallengeResponse, TranslationsRequest, TranslationsResponse, UpdateGuestbookRequest, UpdateUserRequest, UpdateUserResponse, UserInfo, ValidatePasswordRecoveryRequest, ValidatePasswordRecoveryResponse } from "./types.gen.ts";
+import { fromActivateUserResponseCbor, fromAddApplicationKeyResponseCbor, fromAddTrustedIssuerResponseCbor, fromAdminIssueAttestationResponseCbor, fromAdminUserClaimsResponseCbor, fromApproveClaimResponseCbor, fromApproveLocalRpResponseCbor, fromAuthenticateResponseCbor, fromBrowserActAsCompleteResponseCbor, fromBrowserActAsInspectResponseCbor, fromBrowserAuthorizationCompleteResponseCbor, fromBrowserAuthorizationInspectResponseCbor, fromBrowserLocalRpCompleteResponseCbor, fromBrowserLocalRpInspectResponseCbor, fromChangePasswordResponseCbor, fromCheckPermissionResponseCbor, fromCheckResultCbor, fromCompletePasswordRecoveryResponseCbor, fromConfirmContactVerificationResponseCbor, fromCreateProfileResponseCbor, fromCreateUserResponseCbor, fromDeactivateUserResponseCbor, fromDeleteGuestbookResponseCbor, fromDenyLocalRpResponseCbor, fromDepositClaimResponseCbor, fromEnrollApplicationInstanceResponseCbor, fromGetActAsGrantRevocationsResponseCbor, fromGetApplicationKeysResponseCbor, fromGetDomainKeysResponseCbor, fromGetLocalRpPolicyResponseCbor, fromGetLocalRpResponseCbor, fromGetMyInfoResponseCbor, fromGetNotificationCapabilitiesResponseCbor, fromGetRevocationsResponseCbor, fromGetUiConfigurationResponseCbor, fromGetUserAuthenticationActivityResponseCbor, fromGetUserKeysResponseCbor, fromGetUserResponseCbor, fromGrantRelationResponseCbor, fromGuestbookEntryCbor, fromGuestbookListResponseCbor, fromHandshakeResponseCbor, fromHelloResponseCbor, fromInspectSigningRequestResponseCbor, fromIntrospectBrowserSessionResponseCbor, fromIssueForSigningRequestResponseCbor, fromListActAsGrantsResponseCbor, fromListClaimTypeLabelsResponseCbor, fromListClaimTypesResponseCbor, fromListLocalRpsResponseCbor, fromListLocalesResponseCbor, fromListPendingClaimApprovalsResponseCbor, fromListRelationsResponseCbor, fromListReleaseRulesResponseCbor, fromListSettablePoliciesResponseCbor, fromListTrustedIssuersResponseCbor, fromListUserClaimsResponseCbor, fromListUsersResponseCbor, fromListVerifiedContactMethodsResponseCbor, fromLocalRpTicketRedemptionResponseCbor, fromMyClaimSettingsResponseCbor, fromPreviewIssuerPolicyResponseCbor, fromPreviewReleasePolicyResponseCbor, fromPurgeLocalRpTicketsResponseCbor, fromPurgeUserResponseCbor, fromRecheckPinsResponseCbor, fromRefreshActAsGrantResponseCbor, fromRejectClaimResponseCbor, fromRemoveClaimResponseCbor, fromRemoveClaimTypeLabelResponseCbor, fromRemoveClaimTypeResponseCbor, fromRemoveCredentialResponseCbor, fromRemoveMyClaimResponseCbor, fromRemoveRelationResponseCbor, fromRemoveReleaseRuleResponseCbor, fromRemoveTrustedIssuerResponseCbor, fromRenewApplicationKeyAttestationResponseCbor, fromRequestContactVerificationResponseCbor, fromRequestPasswordRecoveryResponseCbor, fromRequestVerificationResponseCbor, fromResetPasswordResponseCbor, fromRevokeActAsGrantResponseCbor, fromRevokeApplicationKeyResponseCbor, fromRevokeDomainKeyResponseCbor, fromRevokeLocalRpResponseCbor, fromRevokeVerifiedContactMethodResponseCbor, fromRpDecryptResponseCbor, fromRpIssueAttestationResponseCbor, fromRpResolveApplicationKeysResponseCbor, fromRpResolveDomainKeysResponseCbor, fromRpSignResponseCbor, fromRpVerifyResponseCbor, fromSessionCurrentResponseCbor, fromSessionLogoutResponseCbor, fromSessionPasswordLoginResponseCbor, fromSetClaimResponseCbor, fromSetClaimTypeLabelResponseCbor, fromSetClaimTypeResponseCbor, fromSetLocalRpPolicyResponseCbor, fromSetMyClaimKeepVerifiedResponseCbor, fromSetMyClaimResponseCbor, fromSetMyClaimSharingResponseCbor, fromSetReleaseRuleResponseCbor, fromSetUserClaimResponseCbor, fromSignInPolicyCbor, fromStartApplicationKeyChallengeResponseCbor, fromTranslationsResponseCbor, fromUpdateUserResponseCbor, fromUserInfoCbor, fromValidatePasswordRecoveryResponseCbor, toActivateUserRequestCbor, toAddApplicationKeyRequestCbor, toAddTrustedIssuerRequestCbor, toAdminIssueAttestationRequestCbor, toAdminUserClaimsRequestCbor, toApproveClaimRequestCbor, toApproveLocalRpRequestCbor, toAuthenticateRequestCbor, toBrowserActAsCompleteRequestCbor, toBrowserActAsInspectRequestCbor, toBrowserAuthorizationCompleteRequestCbor, toBrowserAuthorizationInspectRequestCbor, toBrowserLocalRpCompleteRequestCbor, toBrowserLocalRpInspectRequestCbor, toChangePasswordRequestCbor, toCheckPermissionRequestCbor, toCompletePasswordRecoveryRequestCbor, toConfirmContactVerificationRequestCbor, toCreateGuestbookRequestCbor, toCreateProfileRequestCbor, toCreateUserRequestCbor, toDeactivateUserRequestCbor, toDeleteGuestbookRequestCbor, toDenyLocalRpRequestCbor, toDepositClaimRequestCbor, toEmptyRequestCbor, toEnrollApplicationInstanceRequestCbor, toGetActAsGrantRevocationsRequestCbor, toGetApplicationKeysRequestCbor, toGetLocalRpPolicyRequestCbor, toGetLocalRpRequestCbor, toGetRevocationsRequestCbor, toGetUserAuthenticationActivityRequestCbor, toGetUserKeysRequestCbor, toGetUserRequestCbor, toGrantRelationRequestCbor, toGuestbookListRequestCbor, toHandshakeRequestCbor, toHelloRequestCbor, toInspectSigningRequestRequestCbor, toIntrospectBrowserSessionRequestCbor, toIssueForSigningRequestRequestCbor, toListLocalRpsRequestCbor, toListRelationsRequestCbor, toListUserClaimsRequestCbor, toListUsersRequestCbor, toPreviewIssuerPolicyRequestCbor, toPreviewReleasePolicyRequestCbor, toPurgeLocalRpTicketsRequestCbor, toPurgeUserRequestCbor, toRecheckPinsRequestCbor, toRefreshActAsGrantRequestCbor, toRejectClaimRequestCbor, toRemoveClaimRequestCbor, toRemoveClaimTypeLabelRequestCbor, toRemoveClaimTypeRequestCbor, toRemoveCredentialRequestCbor, toRemoveMyClaimRequestCbor, toRemoveRelationRequestCbor, toRemoveReleaseRuleRequestCbor, toRemoveTrustedIssuerRequestCbor, toRenewApplicationKeyAttestationRequestCbor, toRequestContactVerificationRequestCbor, toRequestPasswordRecoveryRequestCbor, toRequestVerificationRequestCbor, toResetPasswordRequestCbor, toRevokeActAsGrantRequestCbor, toRevokeApplicationKeyRequestCbor, toRevokeDomainKeyRequestCbor, toRevokeLocalRpRequestCbor, toRevokeVerifiedContactMethodRequestCbor, toRpActAsRefreshRequestCbor, toRpDecryptRequestCbor, toRpIssueAttestationRequestCbor, toRpResolveActAsRevocationsRequestCbor, toRpResolveApplicationKeysRequestCbor, toRpResolveDomainKeysRequestCbor, toRpSignRequestCbor, toRpUserInfoRequestCbor, toRpVerifyRequestCbor, toSessionPasswordLoginRequestCbor, toSetClaimRequestCbor, toSetClaimTypeLabelRequestCbor, toSetClaimTypeRequestCbor, toSetLocalRpPolicyRequestCbor, toSetMyClaimKeepVerifiedRequestCbor, toSetMyClaimRequestCbor, toSetMyClaimSharingRequestCbor, toSetReleaseRuleRequestCbor, toSetSignInPolicyRequestCbor, toSetUserClaimRequestCbor, toSignedLocalRpTicketRedemptionRequestCbor, toSignedUserInfoRequestCbor, toStartApplicationKeyChallengeRequestCbor, toTranslationsRequestCbor, toUpdateGuestbookRequestCbor, toUpdateUserRequestCbor, toValidatePasswordRecoveryRequestCbor } from "./codec.gen.ts";
 
 export interface ServiceTransport {
   call(service: string, op: string, req: Uint8Array): Uint8Array;
@@ -73,6 +73,24 @@ export class AccountClient {
   createProfile(req: CreateProfileRequest): CreateProfileResponse {
     const csilResp = this.t.call("Account", "create-profile", toCreateProfileRequestCbor(req));
     return fromCreateProfileResponseCbor(csilResp);
+  }
+
+  /**
+   * @throws {ServiceError} when the API returns an error response
+   * @throws transport errors (network, timeout) raised by the transport
+   */
+  getMyClaimSettings(req: EmptyRequest): MyClaimSettingsResponse {
+    const csilResp = this.t.call("Account", "get-my-claim-settings", toEmptyRequestCbor(req));
+    return fromMyClaimSettingsResponseCbor(csilResp);
+  }
+
+  /**
+   * @throws {ServiceError} when the API returns an error response
+   * @throws transport errors (network, timeout) raised by the transport
+   */
+  setMyClaimKeepVerified(req: SetMyClaimKeepVerifiedRequest): SetMyClaimKeepVerifiedResponse {
+    const csilResp = this.t.call("Account", "set-my-claim-keep-verified", toSetMyClaimKeepVerifiedRequestCbor(req));
+    return fromSetMyClaimKeepVerifiedResponseCbor(csilResp);
   }
 
   /**
@@ -366,6 +384,15 @@ export class AdminClient {
    * @throws {ServiceError} when the API returns an error response
    * @throws transport errors (network, timeout) raised by the transport
    */
+  listClaimTypeLabels(req: EmptyRequest): ListClaimTypeLabelsResponse {
+    const csilResp = this.t.call("Admin", "list-claim-type-labels", toEmptyRequestCbor(req));
+    return fromListClaimTypeLabelsResponseCbor(csilResp);
+  }
+
+  /**
+   * @throws {ServiceError} when the API returns an error response
+   * @throws transport errors (network, timeout) raised by the transport
+   */
   setClaimTypeLabel(req: SetClaimTypeLabelRequest): SetClaimTypeLabelResponse {
     const csilResp = this.t.call("Admin", "set-claim-type-label", toSetClaimTypeLabelRequestCbor(req));
     return fromSetClaimTypeLabelResponseCbor(csilResp);
@@ -468,6 +495,24 @@ export class AdminClient {
   adminIssueAttestation(req: AdminIssueAttestationRequest): AdminIssueAttestationResponse {
     const csilResp = this.t.call("Admin", "admin-issue-attestation", toAdminIssueAttestationRequestCbor(req));
     return fromAdminIssueAttestationResponseCbor(csilResp);
+  }
+
+  /**
+   * @throws {ServiceError} when the API returns an error response
+   * @throws transport errors (network, timeout) raised by the transport
+   */
+  previewReleasePolicy(req: PreviewReleasePolicyRequest): PreviewReleasePolicyResponse {
+    const csilResp = this.t.call("Admin", "preview-release-policy", toPreviewReleasePolicyRequestCbor(req));
+    return fromPreviewReleasePolicyResponseCbor(csilResp);
+  }
+
+  /**
+   * @throws {ServiceError} when the API returns an error response
+   * @throws transport errors (network, timeout) raised by the transport
+   */
+  previewIssuerPolicy(req: PreviewIssuerPolicyRequest): PreviewIssuerPolicyResponse {
+    const csilResp = this.t.call("Admin", "preview-issuer-policy", toPreviewIssuerPolicyRequestCbor(req));
+    return fromPreviewIssuerPolicyResponseCbor(csilResp);
   }
 
   /**
@@ -586,6 +631,24 @@ export class AdminClient {
     const csilResp = this.t.call("Admin", "purge-local-rp-tickets", toPurgeLocalRpTicketsRequestCbor(req));
     return fromPurgeLocalRpTicketsResponseCbor(csilResp);
   }
+
+  /**
+   * @throws {ServiceError} when the API returns an error response
+   * @throws transport errors (network, timeout) raised by the transport
+   */
+  getSignInPolicy(req: EmptyRequest): SignInPolicy {
+    const csilResp = this.t.call("Admin", "get-sign-in-policy", toEmptyRequestCbor(req));
+    return fromSignInPolicyCbor(csilResp);
+  }
+
+  /**
+   * @throws {ServiceError} when the API returns an error response
+   * @throws transport errors (network, timeout) raised by the transport
+   */
+  setSignInPolicy(req: SetSignInPolicyRequest): SignInPolicy {
+    const csilResp = this.t.call("Admin", "set-sign-in-policy", toSetSignInPolicyRequestCbor(req));
+    return fromSignInPolicyCbor(csilResp);
+  }
 }
 
 export class ApplicationKeysClient {
@@ -687,6 +750,46 @@ export class BrowserAuthorizationClient {
   completeActAs(req: BrowserActAsCompleteRequest): BrowserActAsCompleteResponse {
     const csilResp = this.t.call("BrowserAuthorization", "complete-act-as", toBrowserActAsCompleteRequestCbor(req));
     return fromBrowserActAsCompleteResponseCbor(csilResp);
+  }
+
+  /**
+   * @throws {ServiceError} when the API returns an error response
+   * @throws transport errors (network, timeout) raised by the transport
+   */
+  inspectLocalRp(req: BrowserLocalRpInspectRequest): BrowserLocalRpInspectResponse {
+    const csilResp = this.t.call("BrowserAuthorization", "inspect-local-rp", toBrowserLocalRpInspectRequestCbor(req));
+    return fromBrowserLocalRpInspectResponseCbor(csilResp);
+  }
+
+  /**
+   * @throws {ServiceError} when the API returns an error response
+   * @throws transport errors (network, timeout) raised by the transport
+   */
+  completeLocalRp(req: BrowserLocalRpCompleteRequest): BrowserLocalRpCompleteResponse {
+    const csilResp = this.t.call("BrowserAuthorization", "complete-local-rp", toBrowserLocalRpCompleteRequestCbor(req));
+    return fromBrowserLocalRpCompleteResponseCbor(csilResp);
+  }
+}
+
+export class BrowserIssuerClient {
+  constructor(private readonly t: ServiceTransport) {}
+
+  /**
+   * @throws {ServiceError} when the API returns an error response
+   * @throws transport errors (network, timeout) raised by the transport
+   */
+  inspectSigningRequest(req: InspectSigningRequestRequest): InspectSigningRequestResponse {
+    const csilResp = this.t.call("BrowserIssuer", "inspect-signing-request", toInspectSigningRequestRequestCbor(req));
+    return fromInspectSigningRequestResponseCbor(csilResp);
+  }
+
+  /**
+   * @throws {ServiceError} when the API returns an error response
+   * @throws transport errors (network, timeout) raised by the transport
+   */
+  issueForSigningRequest(req: IssueForSigningRequestRequest): IssueForSigningRequestResponse {
+    const csilResp = this.t.call("BrowserIssuer", "issue-for-signing-request", toIssueForSigningRequestRequestCbor(req));
+    return fromIssueForSigningRequestResponseCbor(csilResp);
   }
 }
 
@@ -1050,6 +1153,7 @@ export class ApiClient {
   readonly applicationKeys: ApplicationKeysClient;
   readonly attestation: AttestationClient;
   readonly browserAuthorization: BrowserAuthorizationClient;
+  readonly browserIssuer: BrowserIssuerClient;
   readonly domainKeys: DomainKeysClient;
   readonly guestbook: GuestbookClient;
   readonly handshake: HandshakeClient;
@@ -1071,6 +1175,7 @@ export class ApiClient {
     this.applicationKeys = new ApplicationKeysClient(t);
     this.attestation = new AttestationClient(t);
     this.browserAuthorization = new BrowserAuthorizationClient(t);
+    this.browserIssuer = new BrowserIssuerClient(t);
     this.domainKeys = new DomainKeysClient(t);
     this.guestbook = new GuestbookClient(t);
     this.handshake = new HandshakeClient(t);

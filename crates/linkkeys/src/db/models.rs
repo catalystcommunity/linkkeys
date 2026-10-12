@@ -1729,6 +1729,14 @@ pub mod pg {
     // -- Local RP (DNS-less local RP identity) --
 
     #[derive(Queryable, Selectable, Insertable, AsChangeset)]
+    #[diesel(table_name = crate::schema::pg::sign_in_policy)]
+    #[diesel(primary_key(domain))]
+    pub struct SignInPolicyRow {
+        pub domain: String,
+        pub sign_in_hours: i32,
+    }
+
+    #[derive(Queryable, Selectable, Insertable, AsChangeset)]
     #[diesel(table_name = crate::schema::pg::local_rp_domain_policy)]
     #[diesel(primary_key(domain))]
     pub struct LocalRpDomainPolicyRow {
@@ -3055,6 +3063,14 @@ pub mod sqlite {
     }
 
     // -- Local RP (DNS-less local RP identity) --
+
+    #[derive(Queryable, Selectable, Insertable, AsChangeset)]
+    #[diesel(table_name = crate::schema::sqlite::sign_in_policy)]
+    #[diesel(primary_key(domain))]
+    pub struct SignInPolicyRow {
+        pub domain: String,
+        pub sign_in_hours: i32,
+    }
 
     #[derive(Queryable, Selectable, Insertable, AsChangeset)]
     #[diesel(table_name = crate::schema::sqlite::local_rp_domain_policy)]

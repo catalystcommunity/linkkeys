@@ -11,10 +11,15 @@
 mod common;
 
 use common::data_factory::{create_auth_credential, create_relation, create_user, DataMap};
+use csilgen_transport::rpc::{RpcRequest, RpcResponse};
+use csilgen_transport::Status as RpcStatus;
 use liblinkkeys::auth_request::{build_auth_request, sign_auth_request};
 use liblinkkeys::crypto::{self, SigningAlgorithm};
 use liblinkkeys::encoding::signed_auth_request_to_url_param;
-use liblinkkeys::generated::types::{AuthFlowContext, ClaimRequest, RequestedClaim};
+use liblinkkeys::generated::types::{
+    AuthFlowContext, BrowserAuthorizationCompleteRequest, ClaimRequest, RequestedClaim,
+    SessionPasswordLoginRequest,
+};
 use linkkeys::services::auth;
 use rocket::http::{ContentType, Header, Status};
 use rocket::local::asynchronous::Client;
@@ -26,15 +31,63 @@ const PASSPHRASE: &[u8] = b"test-passphrase";
 const USERNAME: &str = "alice";
 const PASSWORD: &str = "correct horse battery staple";
 
-fn hidden_field(html: &str, name: &str) -> String {
-    let marker = format!(r#"name="{}" value=""#, name);
-    let start = html
-        .find(&marker)
-        .unwrap_or_else(|| panic!("field {} present", name))
-        + marker.len();
-    let rest = &html[start..];
-    let end = rest.find('"').expect("closing quote");
-    rest[..end].to_string()
+fn envelope(service: &str, operation: &str, payload: Vec<u8>) -> Vec<u8> {
+    RpcRequest::new(service, operation, payload)
+        .encode()
+        .expect("encode RPC request")
+}
+
+async fn rpc(client: &Client, service: &str, operation: &str, payload: Vec<u8>) -> RpcResponse {
+    let response = client
+        .post("/csil/v1/rpc")
+        .header(ContentType::new("application", "cbor"))
+        .header(Header::new("Host", TEST_DOMAIN))
+        .header(Header::new("Origin", format!("https://{TEST_DOMAIN}")))
+        .body(envelope(service, operation, payload))
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Ok);
+    RpcResponse::decode(&response.into_bytes().await.expect("RPC response body"))
+        .expect("decode RPC response")
+}
+
+/// Sign in and approve `signed_request` the way the browser app does:
+/// `Session/login-password`, then `BrowserAuthorization/complete` with the
+/// claims the consent screen sends (selected plus forced-allow).
+async fn consent_once(client: &Client, signed_request: &str, authorized_claims: &[&str]) {
+    let login = rpc(
+        client,
+        "Session",
+        "login-password",
+        liblinkkeys::generated::encode_session_password_login_request(
+            &SessionPasswordLoginRequest {
+                username: format!("{USERNAME}@{TEST_DOMAIN}"),
+                password: PASSWORD.to_string(),
+            },
+        ),
+    )
+    .await;
+    assert_eq!(login.status, RpcStatus::Ok, "sign-in succeeds");
+    let complete = rpc(
+        client,
+        "BrowserAuthorization",
+        "complete",
+        liblinkkeys::generated::encode_browser_authorization_complete_request(
+            &BrowserAuthorizationCompleteRequest {
+                signed_request: signed_request.to_string(),
+                authorized_claims: authorized_claims.iter().map(|c| c.to_string()).collect(),
+                claim_types_to_set: Vec::new(),
+                claim_values_to_set: Vec::new(),
+                use_standing_grant: None,
+            },
+        ),
+    )
+    .await;
+    assert_eq!(
+        complete.status,
+        RpcStatus::Ok,
+        "consent completes the login"
+    );
 }
 
 fn api_key_for(pool: &linkkeys::db::DbPool, user_id: &str) -> String {
@@ -221,39 +274,7 @@ async fn validate_reports_silent_consent_from_a_standing_grant() {
     // 2. Drive the real browser consent flow once to create a standing grant
     //    covering `email` for (user, TEST_DOMAIN).
     let sr_login = signed_email_request(&signing.id, &sk_bytes, "validate-nonce-2", false);
-    let resp = client
-        .post("/auth/authorize")
-        .header(ContentType::Form)
-        .header(Header::new("Host", TEST_DOMAIN))
-        .header(Header::new("Origin", format!("https://{TEST_DOMAIN}")))
-        .body(format!(
-            "username={}%40{}&password={}&signed_request={}",
-            USERNAME,
-            TEST_DOMAIN,
-            PASSWORD.replace(' ', "+"),
-            sr_login
-        ))
-        .dispatch()
-        .await;
-    assert_eq!(resp.status(), Status::Ok, "consent screen renders");
-    let consent_html = resp.into_string().await.unwrap();
-    let proof = hidden_field(&consent_html, "login_proof");
-    let resp = client
-        .post("/auth/consent")
-        .header(ContentType::Form)
-        .header(Header::new("Host", TEST_DOMAIN))
-        .header(Header::new("Origin", format!("https://{TEST_DOMAIN}")))
-        .body(format!(
-            "signed_request={}&login_proof={}&grant=email",
-            sr_login, proof
-        ))
-        .dispatch()
-        .await;
-    assert!(
-        resp.status().class().is_redirection(),
-        "consent completes the login, got {:?}",
-        resp.status()
-    );
+    consent_once(&client, &sr_login, &["email"]).await;
     let grant = pool
         .find_active_consent_grant(&user.id, TEST_DOMAIN)
         .expect("query grant")
@@ -392,38 +413,7 @@ async fn forced_claim_without_a_value_does_not_reopen_consent() {
         &["over_21"],
         false,
     );
-    let resp = client
-        .post("/auth/authorize")
-        .header(ContentType::Form)
-        .header(Header::new("Host", TEST_DOMAIN))
-        .header(Header::new("Origin", format!("https://{TEST_DOMAIN}")))
-        .body(format!(
-            "username={}%40{}&password={}&signed_request={}",
-            USERNAME,
-            TEST_DOMAIN,
-            PASSWORD.replace(' ', "+"),
-            sr_login
-        ))
-        .dispatch()
-        .await;
-    assert_eq!(resp.status(), Status::Ok, "consent screen renders");
-    let proof = hidden_field(&resp.into_string().await.unwrap(), "login_proof");
-    let resp = client
-        .post("/auth/consent")
-        .header(ContentType::Form)
-        .header(Header::new("Host", TEST_DOMAIN))
-        .header(Header::new("Origin", format!("https://{TEST_DOMAIN}")))
-        .body(format!(
-            "signed_request={}&login_proof={}&grant=email",
-            sr_login, proof
-        ))
-        .dispatch()
-        .await;
-    assert!(
-        resp.status().class().is_redirection(),
-        "consent completes the login, got {:?}",
-        resp.status()
-    );
+    consent_once(&client, &sr_login, &["email", "over_21"]).await;
     let grant = pool
         .find_active_consent_grant(&user.id, TEST_DOMAIN)
         .expect("query grant")

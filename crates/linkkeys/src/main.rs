@@ -1621,7 +1621,7 @@ fn handle_relation_command(cmd: RelationCommands) {
 
 /// First 16 hex chars of a fingerprint, for compact display (design doc:
 /// "show a short prefix (first 16 hex chars) with the full value available on
-/// demand"). Mirrors `web::local_rp_ui::short_fingerprint`.
+/// demand").
 fn short_fingerprint(fp: &str) -> &str {
     &fp[..fp.len().min(16)]
 }

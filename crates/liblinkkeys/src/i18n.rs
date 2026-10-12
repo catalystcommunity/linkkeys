@@ -184,13 +184,13 @@ mod tests {
 
     #[test]
     fn t_exact_hit() {
-        assert_eq!(t(EN_US, "consent.cancel"), "Cancel");
+        assert_eq!(t(EN_US, "app.common.cancel"), "Cancel");
     }
 
     #[test]
     fn t_falls_back_to_en_us_on_missing_key() {
         // en-XA doesn't define this key.
-        assert_eq!(t("en-XA", "account.title"), "Account Dashboard");
+        assert_eq!(t("en-XA", "app.policy.title"), "Policy");
     }
 
     #[test]
@@ -199,7 +199,7 @@ mod tests {
         // a shipped "en-*" catalog (en-US, the first one registered), so it
         // resolves before falling all the way through to the final en-US tier.
         assert_eq!(best_match("en-GB").as_deref(), Some(EN_US));
-        assert_eq!(t("en-GB", "consent.cancel"), "Cancel");
+        assert_eq!(t("en-GB", "app.common.cancel"), "Cancel");
     }
 
     #[test]
@@ -209,15 +209,18 @@ mod tests {
 
     #[test]
     fn t_with_substitutes_placeholders() {
-        let out = t_with(EN_US, "consent.confirmed_by", &[("who", "todandlorna.com")]);
-        assert_eq!(out, "Confirmed by todandlorna.com");
+        let out = t_with(EN_US, "app.consent.intro", &[("app", "todandlorna.com")]);
+        assert_eq!(
+            out,
+            "todandlorna.com requests information from your profile."
+        );
     }
 
     #[test]
     fn catalog_for_en_us_is_the_full_catalog() {
         let cat = catalog_for(EN_US);
         assert_eq!(
-            cat.get("consent.cancel").map(String::as_str),
+            cat.get("app.common.cancel").map(String::as_str),
             Some("Cancel")
         );
         assert!(cat.len() >= 40);
@@ -228,14 +231,14 @@ mod tests {
         let cat = catalog_for("en-XA");
         // en-XA overrides this key...
         assert_eq!(
-            cat.get("consent.cancel").map(String::as_str),
-            translate("en-XA", "consent.cancel")
+            cat.get("app.common.cancel").map(String::as_str),
+            translate("en-XA", "app.common.cancel")
         );
         // ...but doesn't define this one, so the full catalog still has it via
         // the en-US overlay base.
         assert_eq!(
-            cat.get("account.title").map(String::as_str),
-            Some("Account Dashboard")
+            cat.get("app.policy.title").map(String::as_str),
+            Some("Policy")
         );
         // Every en-US key is present (fallback-filled), never missing.
         let en_us = catalog_for(EN_US);

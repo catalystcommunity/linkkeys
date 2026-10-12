@@ -3,6 +3,9 @@ import type { BrowserAuthorizationInspectResponse, BrowserConsentClaim } from ".
 import { CsilStatus, CsilTransportError } from "./transport";
 import {
   authenticationFailed,
+  consentDecision,
+  localRpFailureMessage,
+  reasonText,
   base64UrlUnpadded,
   confirmationDetails,
   siteDomain,
@@ -239,5 +242,32 @@ describe("confirmation requests", () => {
     expect(base64UrlUnpadded(new Uint8Array([]))).toBe("");
     expect(base64UrlUnpadded(new Uint8Array([0xfb, 0xff]))).toBe("-_8");
     expect(base64UrlUnpadded(new TextEncoder().encode("hello"))).toBe("aGVsbG8");
+  });
+});
+
+describe("consent decision", () => {
+  it("sends forced and selected claims, and inline values only for authorized claims without a value", () => {
+    const claims = [
+      claim({ claimType: "email", policy: "forced_allow", available: true }),
+      claim({ claimType: "handle", policy: "user", available: false, maxBytes: 5 }),
+      claim({ claimType: "phone", policy: "user", available: false }),
+      claim({ claimType: "ssn", policy: "forced_deny", available: true }),
+    ];
+    const decision = consentDecision(claims, { handle: true, ssn: true }, { handle: " neo ", phone: "555" });
+    expect(decision.authorizedClaims).toEqual(["email", "handle"]);
+    expect(decision.claimTypesToSet).toEqual(["handle"]);
+    expect(decision.claimValuesToSet).toEqual(["neo"]);
+    expect(decision.oversized).toBeUndefined();
+    expect(consentDecision(claims, { handle: true }, { handle: "toolong" }).oversized?.claimType).toBe("handle");
+  });
+});
+
+describe("refusal reasons", () => {
+  it("maps known reason codes and falls back for anything else", () => {
+    expect(reasonText("rejected")).toBe("This app is not allowed to sign in here.");
+    expect(reasonText("no_such_reason")).toBe(reasonText("unknown"));
+    expect(reasonText("<script>")).toBe(reasonText("unknown"));
+    expect(localRpFailureMessage(new CsilTransportError(CsilStatus.forbidden, "expired"))).toBe(reasonText("expired"));
+    expect(localRpFailureMessage(new Error("network"))).toBe(reasonText("connection"));
   });
 });
