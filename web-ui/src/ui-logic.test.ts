@@ -3,6 +3,9 @@ import type { BrowserAuthorizationInspectResponse, BrowserConsentClaim } from ".
 import { CsilStatus, CsilTransportError } from "./transport";
 import {
   authenticationFailed,
+  base64UrlUnpadded,
+  confirmationDetails,
+  siteDomain,
   authorizationHandoff,
   authorizationLoginPath,
   authorizationRequestIsTerminal,
@@ -212,5 +215,29 @@ describe("act-as headline", () => {
     expect(partyHeadline({ domain: "squizzlezig.com", applicationId: "notes" })).toBe("notes at squizzlezig.com");
     expect(partyHeadline({ domain: "drive.example", applicationId: "sync" })).toBe("sync at drive.example");
     expect(partyHeadline({ localRpName: "Desk App" })).toBe("Desk App");
+  });
+});
+
+describe("confirmation requests", () => {
+  it("reduces a typed or pasted site address to its domain", () => {
+    expect(siteDomain(" LinkIDSpec.com ")).toBe("linkidspec.com");
+    expect(siteDomain("https://linkidspec.com/attest/linkidspec?x=1")).toBe("linkidspec.com");
+    expect(siteDomain("dmv.example.")).toBe("dmv.example");
+    expect(siteDomain("localhost")).toBe("");
+    expect(siteDomain("not a site")).toBe("");
+    expect(siteDomain("bad_name.example")).toBe("");
+    expect(siteDomain("-bad.example")).toBe("");
+    expect(siteDomain("")).toBe("");
+  });
+
+  it("splits the details on commas and lines and drops blanks and repeats", () => {
+    expect(confirmationDetails("over_21, legal_name\nover_21,, ")).toEqual(["over_21", "legal_name"]);
+    expect(confirmationDetails("  ")).toEqual([]);
+  });
+
+  it("encodes bytes as unpadded base64url", () => {
+    expect(base64UrlUnpadded(new Uint8Array([]))).toBe("");
+    expect(base64UrlUnpadded(new Uint8Array([0xfb, 0xff]))).toBe("-_8");
+    expect(base64UrlUnpadded(new TextEncoder().encode("hello"))).toBe("aGVsbG8");
   });
 });

@@ -498,15 +498,23 @@ pub(crate) fn silent_authorization(
         .flatten()?;
     let prior_claims = prior.claim_types.as_slice();
     let authorized = compute_authorized_claims(req, prior_claims, policy);
-    if authorized
-        .iter()
-        .any(|claim_type| !prior.claim_types.contains(claim_type))
-        || !all_required_authorized(req, &authorized)
+    if !all_required_authorized(req, &authorized)
         || first_authorized_required_without_value(pool, user_id, req, &authorized).is_some()
     {
         return None;
     }
-    filter_authorized_to_active_values(pool, user_id, &authorized).ok()
+    // The stored grant holds only claims that had a value when the user
+    // consented. Compare against the same filtered set, or a forced-allow
+    // claim the user has no value for reopens consent on every sign-in.
+    // A claim that gains a value later is still new, so consent reopens then.
+    let active = filter_authorized_to_active_values(pool, user_id, &authorized).ok()?;
+    if active
+        .iter()
+        .any(|claim_type| !prior.claim_types.contains(claim_type))
+    {
+        return None;
+    }
+    Some(active)
 }
 
 /// Reconstruct the protocol `ConsentGrant` from a stored row for the consent
