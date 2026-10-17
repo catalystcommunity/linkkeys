@@ -8181,7 +8181,7 @@ pub fn decode_browser_authorization_inspect_request(
 
 /// Build the canonical CBOR value tree for a BrowserConsentClaim.
 fn csil_enc_browser_consent_claim(csil_v: &BrowserConsentClaim) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(10);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(11);
     csil_entries.push((cbor_text("label"), cbor_text(&csil_v.label)));
     csil_entries.push((cbor_text("policy"), cbor_text(&csil_v.policy)));
     csil_entries.push((cbor_text("datatype"), cbor_text(&csil_v.datatype)));
@@ -8194,6 +8194,9 @@ fn csil_enc_browser_consent_claim(csil_v: &BrowserConsentClaim) -> CsilCborValue
         cbor_text("default_granted"),
         cbor_bool(csil_v.default_granted),
     ));
+    if let Some(csil_inner) = &csil_v.newly_requested {
+        csil_entries.push((cbor_text("newly_requested"), cbor_bool(*csil_inner)));
+    }
     csil_entries.push((
         cbor_text("requires_approval"),
         cbor_bool(csil_v.requires_approval),
@@ -8255,6 +8258,13 @@ fn csil_dec_browser_consent_claim(
         let csil_decode = cbor_as_bool;
         csil_decode(csil_field)?
     };
+    let newly_requested = match cbor_map_get(csil_root, "newly_requested") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_bool;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
     Ok(BrowserConsentClaim {
         claim_type,
         label,
@@ -8266,6 +8276,7 @@ fn csil_dec_browser_consent_claim(
         user_settable,
         max_bytes,
         requires_approval,
+        newly_requested,
     })
 }
 
@@ -9465,7 +9476,7 @@ pub fn decode_authorize_validate_request(
 
 /// Build the canonical CBOR value tree for a AuthorizeValidateResponse.
 fn csil_enc_authorize_validate_response(csil_v: &AuthorizeValidateResponse) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(5);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(6);
     csil_entries.push((cbor_text("callback_url"), cbor_text(&csil_v.callback_url)));
     csil_entries.push((cbor_text("relying_party"), cbor_text(&csil_v.relying_party)));
     csil_entries.push((
@@ -9478,6 +9489,12 @@ fn csil_enc_authorize_validate_response(csil_v: &AuthorizeValidateResponse) -> C
     if let Some(csil_inner) = &csil_v.authorized_claims {
         csil_entries.push((
             cbor_text("authorized_claims"),
+            cbor_enc_array(csil_inner, |csil_elem| cbor_text(csil_elem)),
+        ));
+    }
+    if let Some(csil_inner) = &csil_v.newly_requested_claims {
+        csil_entries.push((
+            cbor_text("newly_requested_claims"),
             cbor_enc_array(csil_inner, |csil_elem| cbor_text(csil_elem)),
         ));
     }
@@ -9517,12 +9534,20 @@ fn csil_dec_authorize_validate_response(
         }
         None => None,
     };
+    let newly_requested_claims = match cbor_map_get(csil_root, "newly_requested_claims") {
+        Some(csil_field) => {
+            let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
     Ok(AuthorizeValidateResponse {
         relying_party,
         callback_url,
         requested_claims,
         already_consented,
         authorized_claims,
+        newly_requested_claims,
     })
 }
 

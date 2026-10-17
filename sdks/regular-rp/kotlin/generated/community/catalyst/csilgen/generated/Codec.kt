@@ -2550,6 +2550,25 @@ fun setClaimTypeLabelResponseFromCborValue(cbor: CborValue): SetClaimTypeLabelRe
 /** Decode CSIL CBOR bytes into a SetClaimTypeLabelResponse. */
 fun setClaimTypeLabelResponseFromCbor(bytes: ByteArray): SetClaimTypeLabelResponse = setClaimTypeLabelResponseFromCborValue(CsilCbor.decode(bytes))
 
+/** The CBOR value tree for a ListClaimTypeLabelsResponse (deep, canonical key order). */
+fun ListClaimTypeLabelsResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("labels") to CborValue.CArray((this.labels).map { csilE -> csilE.toCborValue() }))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a ListClaimTypeLabelsResponse to canonical CSIL CBOR bytes. */
+fun ListClaimTypeLabelsResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a ListClaimTypeLabelsResponse from a decoded CBOR value tree. */
+fun listClaimTypeLabelsResponseFromCborValue(cbor: CborValue): ListClaimTypeLabelsResponse {
+    val labels = CsilCbor.asArray(CsilCbor.require(cbor, "labels")).map { csilE -> claimTypeLabelFromCborValue(csilE) }
+    return ListClaimTypeLabelsResponse(labels = labels)
+}
+
+/** Decode CSIL CBOR bytes into a ListClaimTypeLabelsResponse. */
+fun listClaimTypeLabelsResponseFromCbor(bytes: ByteArray): ListClaimTypeLabelsResponse = listClaimTypeLabelsResponseFromCborValue(CsilCbor.decode(bytes))
+
 /** The CBOR value tree for a RemoveClaimTypeLabelRequest (deep, canonical key order). */
 fun RemoveClaimTypeLabelRequest.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
@@ -3357,6 +3376,90 @@ fun setMyClaimSharingResponseFromCborValue(cbor: CborValue): SetMyClaimSharingRe
 /** Decode CSIL CBOR bytes into a SetMyClaimSharingResponse. */
 fun setMyClaimSharingResponseFromCbor(bytes: ByteArray): SetMyClaimSharingResponse = setMyClaimSharingResponseFromCborValue(CsilCbor.decode(bytes))
 
+/** The CBOR value tree for a MyClaimSetting (deep, canonical key order). */
+fun MyClaimSetting.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("claim_type") to CborValue.CText(this.claimType))
+    csilEntries.add(CborValue.CText("keep_verified") to CborValue.CBool(this.keepVerified))
+    csilEntries.add(CborValue.CText("shared_with_every_app") to CborValue.CBool(this.sharedWithEveryApp))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a MyClaimSetting to canonical CSIL CBOR bytes. */
+fun MyClaimSetting.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a MyClaimSetting from a decoded CBOR value tree. */
+fun myClaimSettingFromCborValue(cbor: CborValue): MyClaimSetting {
+    val claimType = CsilCbor.asText(CsilCbor.require(cbor, "claim_type"))
+    val keepVerified = CsilCbor.asBoolean(CsilCbor.require(cbor, "keep_verified"))
+    val sharedWithEveryApp = CsilCbor.asBoolean(CsilCbor.require(cbor, "shared_with_every_app"))
+    return MyClaimSetting(claimType = claimType, keepVerified = keepVerified, sharedWithEveryApp = sharedWithEveryApp)
+}
+
+/** Decode CSIL CBOR bytes into a MyClaimSetting. */
+fun myClaimSettingFromCbor(bytes: ByteArray): MyClaimSetting = myClaimSettingFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a MyClaimSettingsResponse (deep, canonical key order). */
+fun MyClaimSettingsResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("profiles") to CborValue.CArray((this.profiles).map { csilE -> csilE.toCborValue() }))
+    csilEntries.add(CborValue.CText("settings") to CborValue.CArray((this.settings).map { csilE -> csilE.toCborValue() }))
+    csilEntries.add(CborValue.CText("max_profiles") to CborValue.CInt(this.maxProfiles))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a MyClaimSettingsResponse to canonical CSIL CBOR bytes. */
+fun MyClaimSettingsResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a MyClaimSettingsResponse from a decoded CBOR value tree. */
+fun myClaimSettingsResponseFromCborValue(cbor: CborValue): MyClaimSettingsResponse {
+    val settings = CsilCbor.asArray(CsilCbor.require(cbor, "settings")).map { csilE -> myClaimSettingFromCborValue(csilE) }
+    val profiles = CsilCbor.asArray(CsilCbor.require(cbor, "profiles")).map { csilE -> profileFromCborValue(csilE) }
+    val maxProfiles = CsilCbor.asLong(CsilCbor.require(cbor, "max_profiles"))
+    return MyClaimSettingsResponse(settings = settings, profiles = profiles, maxProfiles = maxProfiles)
+}
+
+/** Decode CSIL CBOR bytes into a MyClaimSettingsResponse. */
+fun myClaimSettingsResponseFromCbor(bytes: ByteArray): MyClaimSettingsResponse = myClaimSettingsResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a SetMyClaimKeepVerifiedRequest (deep, canonical key order). */
+fun SetMyClaimKeepVerifiedRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("claim_type") to CborValue.CText(this.claimType))
+    csilEntries.add(CborValue.CText("keep_verified") to CborValue.CBool(this.keepVerified))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a SetMyClaimKeepVerifiedRequest to canonical CSIL CBOR bytes. */
+fun SetMyClaimKeepVerifiedRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a SetMyClaimKeepVerifiedRequest from a decoded CBOR value tree. */
+fun setMyClaimKeepVerifiedRequestFromCborValue(cbor: CborValue): SetMyClaimKeepVerifiedRequest {
+    val claimType = CsilCbor.asText(CsilCbor.require(cbor, "claim_type"))
+    val keepVerified = CsilCbor.asBoolean(CsilCbor.require(cbor, "keep_verified"))
+    return SetMyClaimKeepVerifiedRequest(claimType = claimType, keepVerified = keepVerified)
+}
+
+/** Decode CSIL CBOR bytes into a SetMyClaimKeepVerifiedRequest. */
+fun setMyClaimKeepVerifiedRequestFromCbor(bytes: ByteArray): SetMyClaimKeepVerifiedRequest = setMyClaimKeepVerifiedRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a SetMyClaimKeepVerifiedResponse (deep, canonical key order). */
+fun SetMyClaimKeepVerifiedResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a SetMyClaimKeepVerifiedResponse to canonical CSIL CBOR bytes. */
+fun SetMyClaimKeepVerifiedResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a SetMyClaimKeepVerifiedResponse from a decoded CBOR value tree. */
+fun setMyClaimKeepVerifiedResponseFromCborValue(cbor: CborValue): SetMyClaimKeepVerifiedResponse {
+    return SetMyClaimKeepVerifiedResponse()
+}
+
+/** Decode CSIL CBOR bytes into a SetMyClaimKeepVerifiedResponse. */
+fun setMyClaimKeepVerifiedResponseFromCbor(bytes: ByteArray): SetMyClaimKeepVerifiedResponse = setMyClaimKeepVerifiedResponseFromCborValue(CsilCbor.decode(bytes))
+
 /** The CBOR value tree for a Profile (deep, canonical key order). */
 fun Profile.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
@@ -3993,6 +4096,7 @@ fun BrowserConsentClaim.toCborValue(): CborValue {
     csilEntries.add(CborValue.CText("claim_type") to CborValue.CText(this.claimType))
     csilEntries.add(CborValue.CText("user_settable") to CborValue.CBool(this.userSettable))
     csilEntries.add(CborValue.CText("default_granted") to CborValue.CBool(this.defaultGranted))
+    this.newlyRequested?.let { csilV -> csilEntries.add(CborValue.CText("newly_requested") to CborValue.CBool(csilV)) }
     csilEntries.add(CborValue.CText("requires_approval") to CborValue.CBool(this.requiresApproval))
     return CborValue.CMap(csilEntries)
 }
@@ -4012,7 +4116,8 @@ fun browserConsentClaimFromCborValue(cbor: CborValue): BrowserConsentClaim {
     val userSettable = CsilCbor.asBoolean(CsilCbor.require(cbor, "user_settable"))
     val maxBytes = CsilCbor.asLong(CsilCbor.require(cbor, "max_bytes"))
     val requiresApproval = CsilCbor.asBoolean(CsilCbor.require(cbor, "requires_approval"))
-    return BrowserConsentClaim(claimType = claimType, label = label, datatype = datatype, required = required, available = available, defaultGranted = defaultGranted, policy = policy, userSettable = userSettable, maxBytes = maxBytes, requiresApproval = requiresApproval)
+    val newlyRequested = CsilCbor.mapGet(cbor, "newly_requested")?.let { csilV -> CsilCbor.asBoolean(csilV) }
+    return BrowserConsentClaim(claimType = claimType, label = label, datatype = datatype, required = required, available = available, defaultGranted = defaultGranted, policy = policy, userSettable = userSettable, maxBytes = maxBytes, requiresApproval = requiresApproval, newlyRequested = newlyRequested)
 }
 
 /** Decode CSIL CBOR bytes into a BrowserConsentClaim. */
@@ -4090,6 +4195,106 @@ fun browserAuthorizationCompleteResponseFromCborValue(cbor: CborValue): BrowserA
 
 /** Decode CSIL CBOR bytes into a BrowserAuthorizationCompleteResponse. */
 fun browserAuthorizationCompleteResponseFromCbor(bytes: ByteArray): BrowserAuthorizationCompleteResponse = browserAuthorizationCompleteResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a BrowserLocalRpInspectRequest (deep, canonical key order). */
+fun BrowserLocalRpInspectRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("signed_request") to CborValue.CText(this.signedRequest))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a BrowserLocalRpInspectRequest to canonical CSIL CBOR bytes. */
+fun BrowserLocalRpInspectRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a BrowserLocalRpInspectRequest from a decoded CBOR value tree. */
+fun browserLocalRpInspectRequestFromCborValue(cbor: CborValue): BrowserLocalRpInspectRequest {
+    val signedRequest = CsilCbor.asText(CsilCbor.require(cbor, "signed_request"))
+    return BrowserLocalRpInspectRequest(signedRequest = signedRequest)
+}
+
+/** Decode CSIL CBOR bytes into a BrowserLocalRpInspectRequest. */
+fun browserLocalRpInspectRequestFromCbor(bytes: ByteArray): BrowserLocalRpInspectRequest = browserLocalRpInspectRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a BrowserLocalRpInspectResponse (deep, canonical key order). */
+fun BrowserLocalRpInspectResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("claims") to CborValue.CArray((this.claims).map { csilE -> csilE.toCborValue() }))
+    csilEntries.add(CborValue.CText("app_name") to CborValue.CText(this.appName))
+    csilEntries.add(CborValue.CText("admission") to CborValue.CText(this.admission))
+    csilEntries.add(CborValue.CText("fingerprint") to CborValue.CText(this.fingerprint))
+    csilEntries.add(CborValue.CText("callback_host") to CborValue.CText(this.callbackHost))
+    this.firstSeenAt?.let { csilV -> csilEntries.add(CborValue.CText("first_seen_at") to CborValue.CText(csilV)) }
+    this.requestReason?.let { csilV -> csilEntries.add(CborValue.CText("request_reason") to CborValue.CText(csilV)) }
+    this.alreadyConsented?.let { csilV -> csilEntries.add(CborValue.CText("already_consented") to CborValue.CBool(csilV)) }
+    this.authorizedClaims?.let { csilV -> csilEntries.add(CborValue.CText("authorized_claims") to CborValue.CArray((csilV).map { csilE -> CborValue.CText(csilE) })) }
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a BrowserLocalRpInspectResponse to canonical CSIL CBOR bytes. */
+fun BrowserLocalRpInspectResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a BrowserLocalRpInspectResponse from a decoded CBOR value tree. */
+fun browserLocalRpInspectResponseFromCborValue(cbor: CborValue): BrowserLocalRpInspectResponse {
+    val admission = CsilCbor.asText(CsilCbor.require(cbor, "admission"))
+    val appName = CsilCbor.asText(CsilCbor.require(cbor, "app_name"))
+    val fingerprint = CsilCbor.asText(CsilCbor.require(cbor, "fingerprint"))
+    val callbackHost = CsilCbor.asText(CsilCbor.require(cbor, "callback_host"))
+    val firstSeenAt = CsilCbor.mapGet(cbor, "first_seen_at")?.let { csilV -> CsilCbor.asText(csilV) }
+    val claims = CsilCbor.asArray(CsilCbor.require(cbor, "claims")).map { csilE -> browserConsentClaimFromCborValue(csilE) }
+    val requestReason = CsilCbor.mapGet(cbor, "request_reason")?.let { csilV -> CsilCbor.asText(csilV) }
+    val alreadyConsented = CsilCbor.mapGet(cbor, "already_consented")?.let { csilV -> CsilCbor.asBoolean(csilV) }
+    val authorizedClaims = CsilCbor.mapGet(cbor, "authorized_claims")?.let { csilV -> CsilCbor.asArray(csilV).map { csilE -> CsilCbor.asText(csilE) } }
+    return BrowserLocalRpInspectResponse(admission = admission, appName = appName, fingerprint = fingerprint, callbackHost = callbackHost, firstSeenAt = firstSeenAt, claims = claims, requestReason = requestReason, alreadyConsented = alreadyConsented, authorizedClaims = authorizedClaims)
+}
+
+/** Decode CSIL CBOR bytes into a BrowserLocalRpInspectResponse. */
+fun browserLocalRpInspectResponseFromCbor(bytes: ByteArray): BrowserLocalRpInspectResponse = browserLocalRpInspectResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a BrowserLocalRpCompleteRequest (deep, canonical key order). */
+fun BrowserLocalRpCompleteRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("signed_request") to CborValue.CText(this.signedRequest))
+    csilEntries.add(CborValue.CText("authorized_claims") to CborValue.CArray((this.authorizedClaims).map { csilE -> CborValue.CText(csilE) }))
+    csilEntries.add(CborValue.CText("claim_types_to_set") to CborValue.CArray((this.claimTypesToSet).map { csilE -> CborValue.CText(csilE) }))
+    this.useStandingGrant?.let { csilV -> csilEntries.add(CborValue.CText("use_standing_grant") to CborValue.CBool(csilV)) }
+    csilEntries.add(CborValue.CText("claim_values_to_set") to CborValue.CArray((this.claimValuesToSet).map { csilE -> CborValue.CText(csilE) }))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a BrowserLocalRpCompleteRequest to canonical CSIL CBOR bytes. */
+fun BrowserLocalRpCompleteRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a BrowserLocalRpCompleteRequest from a decoded CBOR value tree. */
+fun browserLocalRpCompleteRequestFromCborValue(cbor: CborValue): BrowserLocalRpCompleteRequest {
+    val signedRequest = CsilCbor.asText(CsilCbor.require(cbor, "signed_request"))
+    val authorizedClaims = CsilCbor.asArray(CsilCbor.require(cbor, "authorized_claims")).map { csilE -> CsilCbor.asText(csilE) }
+    val claimTypesToSet = CsilCbor.asArray(CsilCbor.require(cbor, "claim_types_to_set")).map { csilE -> CsilCbor.asText(csilE) }
+    val claimValuesToSet = CsilCbor.asArray(CsilCbor.require(cbor, "claim_values_to_set")).map { csilE -> CsilCbor.asText(csilE) }
+    val useStandingGrant = CsilCbor.mapGet(cbor, "use_standing_grant")?.let { csilV -> CsilCbor.asBoolean(csilV) }
+    return BrowserLocalRpCompleteRequest(signedRequest = signedRequest, authorizedClaims = authorizedClaims, claimTypesToSet = claimTypesToSet, claimValuesToSet = claimValuesToSet, useStandingGrant = useStandingGrant)
+}
+
+/** Decode CSIL CBOR bytes into a BrowserLocalRpCompleteRequest. */
+fun browserLocalRpCompleteRequestFromCbor(bytes: ByteArray): BrowserLocalRpCompleteRequest = browserLocalRpCompleteRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a BrowserLocalRpCompleteResponse (deep, canonical key order). */
+fun BrowserLocalRpCompleteResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("redirect_url") to CborValue.CText(this.redirectUrl))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a BrowserLocalRpCompleteResponse to canonical CSIL CBOR bytes. */
+fun BrowserLocalRpCompleteResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a BrowserLocalRpCompleteResponse from a decoded CBOR value tree. */
+fun browserLocalRpCompleteResponseFromCborValue(cbor: CborValue): BrowserLocalRpCompleteResponse {
+    val redirectUrl = CsilCbor.asText(CsilCbor.require(cbor, "redirect_url"))
+    return BrowserLocalRpCompleteResponse(redirectUrl = redirectUrl)
+}
+
+/** Decode CSIL CBOR bytes into a BrowserLocalRpCompleteResponse. */
+fun browserLocalRpCompleteResponseFromCbor(bytes: ByteArray): BrowserLocalRpCompleteResponse = browserLocalRpCompleteResponseFromCborValue(CsilCbor.decode(bytes))
 
 /** The CBOR value tree for a UiTheme (deep, canonical key order). */
 fun UiTheme.toCborValue(): CborValue {
@@ -4415,6 +4620,7 @@ fun AuthorizeValidateResponse.toCborValue(): CborValue {
     csilEntries.add(CborValue.CText("requested_claims") to CborValue.CArray((this.requestedClaims).map { csilE -> CborValue.CText(csilE) }))
     this.alreadyConsented?.let { csilV -> csilEntries.add(CborValue.CText("already_consented") to CborValue.CBool(csilV)) }
     this.authorizedClaims?.let { csilV -> csilEntries.add(CborValue.CText("authorized_claims") to CborValue.CArray((csilV).map { csilE -> CborValue.CText(csilE) })) }
+    this.newlyRequestedClaims?.let { csilV -> csilEntries.add(CborValue.CText("newly_requested_claims") to CborValue.CArray((csilV).map { csilE -> CborValue.CText(csilE) })) }
     return CborValue.CMap(csilEntries)
 }
 
@@ -4428,7 +4634,8 @@ fun authorizeValidateResponseFromCborValue(cbor: CborValue): AuthorizeValidateRe
     val requestedClaims = CsilCbor.asArray(CsilCbor.require(cbor, "requested_claims")).map { csilE -> CsilCbor.asText(csilE) }
     val alreadyConsented = CsilCbor.mapGet(cbor, "already_consented")?.let { csilV -> CsilCbor.asBoolean(csilV) }
     val authorizedClaims = CsilCbor.mapGet(cbor, "authorized_claims")?.let { csilV -> CsilCbor.asArray(csilV).map { csilE -> CsilCbor.asText(csilE) } }
-    return AuthorizeValidateResponse(relyingParty = relyingParty, callbackUrl = callbackUrl, requestedClaims = requestedClaims, alreadyConsented = alreadyConsented, authorizedClaims = authorizedClaims)
+    val newlyRequestedClaims = CsilCbor.mapGet(cbor, "newly_requested_claims")?.let { csilV -> CsilCbor.asArray(csilV).map { csilE -> CsilCbor.asText(csilE) } }
+    return AuthorizeValidateResponse(relyingParty = relyingParty, callbackUrl = callbackUrl, requestedClaims = requestedClaims, alreadyConsented = alreadyConsented, authorizedClaims = authorizedClaims, newlyRequestedClaims = newlyRequestedClaims)
 }
 
 /** Decode CSIL CBOR bytes into a AuthorizeValidateResponse. */
@@ -5131,6 +5338,50 @@ fun setLocalRpPolicyResponseFromCborValue(cbor: CborValue): SetLocalRpPolicyResp
 
 /** Decode CSIL CBOR bytes into a SetLocalRpPolicyResponse. */
 fun setLocalRpPolicyResponseFromCbor(bytes: ByteArray): SetLocalRpPolicyResponse = setLocalRpPolicyResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a SignInPolicy (deep, canonical key order). */
+fun SignInPolicy.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("sign_in_hours") to CborValue.CInt(this.signInHours))
+    csilEntries.add(CborValue.CText("max_sign_in_hours") to CborValue.CInt(this.maxSignInHours))
+    csilEntries.add(CborValue.CText("min_sign_in_hours") to CborValue.CInt(this.minSignInHours))
+    csilEntries.add(CborValue.CText("default_sign_in_hours") to CborValue.CInt(this.defaultSignInHours))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a SignInPolicy to canonical CSIL CBOR bytes. */
+fun SignInPolicy.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a SignInPolicy from a decoded CBOR value tree. */
+fun signInPolicyFromCborValue(cbor: CborValue): SignInPolicy {
+    val signInHours = CsilCbor.asLong(CsilCbor.require(cbor, "sign_in_hours"))
+    val defaultSignInHours = CsilCbor.asLong(CsilCbor.require(cbor, "default_sign_in_hours"))
+    val minSignInHours = CsilCbor.asLong(CsilCbor.require(cbor, "min_sign_in_hours"))
+    val maxSignInHours = CsilCbor.asLong(CsilCbor.require(cbor, "max_sign_in_hours"))
+    return SignInPolicy(signInHours = signInHours, defaultSignInHours = defaultSignInHours, minSignInHours = minSignInHours, maxSignInHours = maxSignInHours)
+}
+
+/** Decode CSIL CBOR bytes into a SignInPolicy. */
+fun signInPolicyFromCbor(bytes: ByteArray): SignInPolicy = signInPolicyFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a SetSignInPolicyRequest (deep, canonical key order). */
+fun SetSignInPolicyRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("sign_in_hours") to CborValue.CInt(this.signInHours))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a SetSignInPolicyRequest to canonical CSIL CBOR bytes. */
+fun SetSignInPolicyRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a SetSignInPolicyRequest from a decoded CBOR value tree. */
+fun setSignInPolicyRequestFromCborValue(cbor: CborValue): SetSignInPolicyRequest {
+    val signInHours = CsilCbor.asLong(CsilCbor.require(cbor, "sign_in_hours"))
+    return SetSignInPolicyRequest(signInHours = signInHours)
+}
+
+/** Decode CSIL CBOR bytes into a SetSignInPolicyRequest. */
+fun setSignInPolicyRequestFromCbor(bytes: ByteArray): SetSignInPolicyRequest = setSignInPolicyRequestFromCborValue(CsilCbor.decode(bytes))
 
 /** The CBOR value tree for a PurgeLocalRpTicketsRequest (deep, canonical key order). */
 fun PurgeLocalRpTicketsRequest.toCborValue(): CborValue {
@@ -6681,6 +6932,262 @@ fun revokeActAsGrantResponseFromCborValue(cbor: CborValue): RevokeActAsGrantResp
 /** Decode CSIL CBOR bytes into a RevokeActAsGrantResponse. */
 fun revokeActAsGrantResponseFromCbor(bytes: ByteArray): RevokeActAsGrantResponse = revokeActAsGrantResponseFromCborValue(CsilCbor.decode(bytes))
 
+/** The CBOR value tree for a PreviewReleasePolicyRequest (deep, canonical key order). */
+fun PreviewReleasePolicyRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("audience") to CborValue.CText(this.audience))
+    csilEntries.add(CborValue.CText("user_choices") to CborValue.CArray((this.userChoices).map { csilE -> CborValue.CText(csilE) }))
+    this.tempAudience?.let { csilV -> csilEntries.add(CborValue.CText("temp_audience") to CborValue.CText(csilV)) }
+    csilEntries.add(CborValue.CText("optional_claims") to CborValue.CArray((this.optionalClaims).map { csilE -> CborValue.CText(csilE) }))
+    csilEntries.add(CborValue.CText("required_claims") to CborValue.CArray((this.requiredClaims).map { csilE -> CborValue.CText(csilE) }))
+    this.tempClaimType?.let { csilV -> csilEntries.add(CborValue.CText("temp_claim_type") to CborValue.CText(csilV)) }
+    csilEntries.add(CborValue.CText("available_claims") to CborValue.CArray((this.availableClaims).map { csilE -> CborValue.CText(csilE) }))
+    this.tempDisposition?.let { csilV -> csilEntries.add(CborValue.CText("temp_disposition") to CborValue.CText(csilV)) }
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a PreviewReleasePolicyRequest to canonical CSIL CBOR bytes. */
+fun PreviewReleasePolicyRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a PreviewReleasePolicyRequest from a decoded CBOR value tree. */
+fun previewReleasePolicyRequestFromCborValue(cbor: CborValue): PreviewReleasePolicyRequest {
+    val audience = CsilCbor.asText(CsilCbor.require(cbor, "audience"))
+    val requiredClaims = CsilCbor.asArray(CsilCbor.require(cbor, "required_claims")).map { csilE -> CsilCbor.asText(csilE) }
+    val optionalClaims = CsilCbor.asArray(CsilCbor.require(cbor, "optional_claims")).map { csilE -> CsilCbor.asText(csilE) }
+    val availableClaims = CsilCbor.asArray(CsilCbor.require(cbor, "available_claims")).map { csilE -> CsilCbor.asText(csilE) }
+    val userChoices = CsilCbor.asArray(CsilCbor.require(cbor, "user_choices")).map { csilE -> CsilCbor.asText(csilE) }
+    val tempAudience = CsilCbor.mapGet(cbor, "temp_audience")?.let { csilV -> CsilCbor.asText(csilV) }
+    val tempClaimType = CsilCbor.mapGet(cbor, "temp_claim_type")?.let { csilV -> CsilCbor.asText(csilV) }
+    val tempDisposition = CsilCbor.mapGet(cbor, "temp_disposition")?.let { csilV -> CsilCbor.asText(csilV) }
+    return PreviewReleasePolicyRequest(audience = audience, requiredClaims = requiredClaims, optionalClaims = optionalClaims, availableClaims = availableClaims, userChoices = userChoices, tempAudience = tempAudience, tempClaimType = tempClaimType, tempDisposition = tempDisposition)
+}
+
+/** Decode CSIL CBOR bytes into a PreviewReleasePolicyRequest. */
+fun previewReleasePolicyRequestFromCbor(bytes: ByteArray): PreviewReleasePolicyRequest = previewReleasePolicyRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a PreviewReleaseRow (deep, canonical key order). */
+fun PreviewReleaseRow.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("locked") to CborValue.CBool(this.locked))
+    csilEntries.add(CborValue.CText("policy") to CborValue.CText(this.policy))
+    csilEntries.add(CborValue.CText("required") to CborValue.CBool(this.required))
+    csilEntries.add(CborValue.CText("available") to CborValue.CBool(this.available))
+    csilEntries.add(CborValue.CText("claim_type") to CborValue.CText(this.claimType))
+    csilEntries.add(CborValue.CText("default_granted") to CborValue.CBool(this.defaultGranted))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a PreviewReleaseRow to canonical CSIL CBOR bytes. */
+fun PreviewReleaseRow.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a PreviewReleaseRow from a decoded CBOR value tree. */
+fun previewReleaseRowFromCborValue(cbor: CborValue): PreviewReleaseRow {
+    val claimType = CsilCbor.asText(CsilCbor.require(cbor, "claim_type"))
+    val required = CsilCbor.asBoolean(CsilCbor.require(cbor, "required"))
+    val available = CsilCbor.asBoolean(CsilCbor.require(cbor, "available"))
+    val locked = CsilCbor.asBoolean(CsilCbor.require(cbor, "locked"))
+    val policy = CsilCbor.asText(CsilCbor.require(cbor, "policy"))
+    val defaultGranted = CsilCbor.asBoolean(CsilCbor.require(cbor, "default_granted"))
+    return PreviewReleaseRow(claimType = claimType, required = required, available = available, locked = locked, policy = policy, defaultGranted = defaultGranted)
+}
+
+/** Decode CSIL CBOR bytes into a PreviewReleaseRow. */
+fun previewReleaseRowFromCbor(bytes: ByteArray): PreviewReleaseRow = previewReleaseRowFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a PreviewReleasePolicyResponse (deep, canonical key order). */
+fun PreviewReleasePolicyResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("rows") to CborValue.CArray((this.rows).map { csilE -> csilE.toCborValue() }))
+    csilEntries.add(CborValue.CText("forced_deny") to CborValue.CArray((this.forcedDeny).map { csilE -> CborValue.CText(csilE) }))
+    csilEntries.add(CborValue.CText("forced_allow") to CborValue.CArray((this.forcedAllow).map { csilE -> CborValue.CText(csilE) }))
+    csilEntries.add(CborValue.CText("authorized_claims") to CborValue.CArray((this.authorizedClaims).map { csilE -> CborValue.CText(csilE) }))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a PreviewReleasePolicyResponse to canonical CSIL CBOR bytes. */
+fun PreviewReleasePolicyResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a PreviewReleasePolicyResponse from a decoded CBOR value tree. */
+fun previewReleasePolicyResponseFromCborValue(cbor: CborValue): PreviewReleasePolicyResponse {
+    val forcedAllow = CsilCbor.asArray(CsilCbor.require(cbor, "forced_allow")).map { csilE -> CsilCbor.asText(csilE) }
+    val forcedDeny = CsilCbor.asArray(CsilCbor.require(cbor, "forced_deny")).map { csilE -> CsilCbor.asText(csilE) }
+    val authorizedClaims = CsilCbor.asArray(CsilCbor.require(cbor, "authorized_claims")).map { csilE -> CsilCbor.asText(csilE) }
+    val rows = CsilCbor.asArray(CsilCbor.require(cbor, "rows")).map { csilE -> previewReleaseRowFromCborValue(csilE) }
+    return PreviewReleasePolicyResponse(forcedAllow = forcedAllow, forcedDeny = forcedDeny, authorizedClaims = authorizedClaims, rows = rows)
+}
+
+/** Decode CSIL CBOR bytes into a PreviewReleasePolicyResponse. */
+fun previewReleasePolicyResponseFromCbor(bytes: ByteArray): PreviewReleasePolicyResponse = previewReleasePolicyResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a PreviewIssuerPolicyRequest (deep, canonical key order). */
+fun PreviewIssuerPolicyRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    this.claimType?.let { csilV -> csilEntries.add(CborValue.CText("claim_type") to CborValue.CText(csilV)) }
+    this.deniedTlds?.let { csilV -> csilEntries.add(CborValue.CText("denied_tlds") to CborValue.CArray((csilV).map { csilE -> CborValue.CText(csilE) })) }
+    this.deniedDomains?.let { csilV -> csilEntries.add(CborValue.CText("denied_domains") to CborValue.CArray((csilV).map { csilE -> CborValue.CText(csilE) })) }
+    this.issuerUserId?.let { csilV -> csilEntries.add(CborValue.CText("issuer_user_id") to CborValue.CText(csilV)) }
+    csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a PreviewIssuerPolicyRequest to canonical CSIL CBOR bytes. */
+fun PreviewIssuerPolicyRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a PreviewIssuerPolicyRequest from a decoded CBOR value tree. */
+fun previewIssuerPolicyRequestFromCborValue(cbor: CborValue): PreviewIssuerPolicyRequest {
+    val subjectDomain = CsilCbor.asText(CsilCbor.require(cbor, "subject_domain"))
+    val deniedDomains = CsilCbor.mapGet(cbor, "denied_domains")?.let { csilV -> CsilCbor.asArray(csilV).map { csilE -> CsilCbor.asText(csilE) } }
+    val deniedTlds = CsilCbor.mapGet(cbor, "denied_tlds")?.let { csilV -> CsilCbor.asArray(csilV).map { csilE -> CsilCbor.asText(csilE) } }
+    val issuerUserId = CsilCbor.mapGet(cbor, "issuer_user_id")?.let { csilV -> CsilCbor.asText(csilV) }
+    val claimType = CsilCbor.mapGet(cbor, "claim_type")?.let { csilV -> CsilCbor.asText(csilV) }
+    return PreviewIssuerPolicyRequest(subjectDomain = subjectDomain, deniedDomains = deniedDomains, deniedTlds = deniedTlds, issuerUserId = issuerUserId, claimType = claimType)
+}
+
+/** Decode CSIL CBOR bytes into a PreviewIssuerPolicyRequest. */
+fun previewIssuerPolicyRequestFromCbor(bytes: ByteArray): PreviewIssuerPolicyRequest = previewIssuerPolicyRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a PreviewIssuerPolicyResponse (deep, canonical key order). */
+fun PreviewIssuerPolicyResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("reason") to CborValue.CText(this.reason))
+    csilEntries.add(CborValue.CText("allowed") to CborValue.CBool(this.allowed))
+    csilEntries.add(CborValue.CText("denied_tlds") to CborValue.CArray((this.deniedTlds).map { csilE -> CborValue.CText(csilE) }))
+    csilEntries.add(CborValue.CText("denied_domains") to CborValue.CArray((this.deniedDomains).map { csilE -> CborValue.CText(csilE) }))
+    this.userCanIssue?.let { csilV -> csilEntries.add(CborValue.CText("user_can_issue") to CborValue.CBool(csilV)) }
+    csilEntries.add(CborValue.CText("attested_claim_ttl_seconds") to CborValue.CInt(this.attestedClaimTtlSeconds))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a PreviewIssuerPolicyResponse to canonical CSIL CBOR bytes. */
+fun PreviewIssuerPolicyResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a PreviewIssuerPolicyResponse from a decoded CBOR value tree. */
+fun previewIssuerPolicyResponseFromCborValue(cbor: CborValue): PreviewIssuerPolicyResponse {
+    val deniedDomains = CsilCbor.asArray(CsilCbor.require(cbor, "denied_domains")).map { csilE -> CsilCbor.asText(csilE) }
+    val deniedTlds = CsilCbor.asArray(CsilCbor.require(cbor, "denied_tlds")).map { csilE -> CsilCbor.asText(csilE) }
+    val allowed = CsilCbor.asBoolean(CsilCbor.require(cbor, "allowed"))
+    val reason = CsilCbor.asText(CsilCbor.require(cbor, "reason"))
+    val userCanIssue = CsilCbor.mapGet(cbor, "user_can_issue")?.let { csilV -> CsilCbor.asBoolean(csilV) }
+    val attestedClaimTtlSeconds = CsilCbor.asLong(CsilCbor.require(cbor, "attested_claim_ttl_seconds"))
+    return PreviewIssuerPolicyResponse(deniedDomains = deniedDomains, deniedTlds = deniedTlds, allowed = allowed, reason = reason, userCanIssue = userCanIssue, attestedClaimTtlSeconds = attestedClaimTtlSeconds)
+}
+
+/** Decode CSIL CBOR bytes into a PreviewIssuerPolicyResponse. */
+fun previewIssuerPolicyResponseFromCbor(bytes: ByteArray): PreviewIssuerPolicyResponse = previewIssuerPolicyResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a InspectSigningRequestRequest (deep, canonical key order). */
+fun InspectSigningRequestRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("signed_request") to CborValue.CText(this.signedRequest))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a InspectSigningRequestRequest to canonical CSIL CBOR bytes. */
+fun InspectSigningRequestRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a InspectSigningRequestRequest from a decoded CBOR value tree. */
+fun inspectSigningRequestRequestFromCborValue(cbor: CborValue): InspectSigningRequestRequest {
+    val signedRequest = CsilCbor.asText(CsilCbor.require(cbor, "signed_request"))
+    return InspectSigningRequestRequest(signedRequest = signedRequest)
+}
+
+/** Decode CSIL CBOR bytes into a InspectSigningRequestRequest. */
+fun inspectSigningRequestRequestFromCbor(bytes: ByteArray): InspectSigningRequestRequest = inspectSigningRequestRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a InspectSigningRequestResponse (deep, canonical key order). */
+fun InspectSigningRequestResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
+    csilEntries.add(CborValue.CText("subject_user_id") to CborValue.CText(this.subjectUserId))
+    csilEntries.add(CborValue.CText("issuable_claim_types") to CborValue.CArray((this.issuableClaimTypes).map { csilE -> CborValue.CText(csilE) }))
+    csilEntries.add(CborValue.CText("requested_claim_types") to CborValue.CArray((this.requestedClaimTypes).map { csilE -> CborValue.CText(csilE) }))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a InspectSigningRequestResponse to canonical CSIL CBOR bytes. */
+fun InspectSigningRequestResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a InspectSigningRequestResponse from a decoded CBOR value tree. */
+fun inspectSigningRequestResponseFromCborValue(cbor: CborValue): InspectSigningRequestResponse {
+    val subjectUserId = CsilCbor.asText(CsilCbor.require(cbor, "subject_user_id"))
+    val subjectDomain = CsilCbor.asText(CsilCbor.require(cbor, "subject_domain"))
+    val requestedClaimTypes = CsilCbor.asArray(CsilCbor.require(cbor, "requested_claim_types")).map { csilE -> CsilCbor.asText(csilE) }
+    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    val issuableClaimTypes = CsilCbor.asArray(CsilCbor.require(cbor, "issuable_claim_types")).map { csilE -> CsilCbor.asText(csilE) }
+    return InspectSigningRequestResponse(subjectUserId = subjectUserId, subjectDomain = subjectDomain, requestedClaimTypes = requestedClaimTypes, expiresAt = expiresAt, issuableClaimTypes = issuableClaimTypes)
+}
+
+/** Decode CSIL CBOR bytes into a InspectSigningRequestResponse. */
+fun inspectSigningRequestResponseFromCbor(bytes: ByteArray): InspectSigningRequestResponse = inspectSigningRequestResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a IssueForSigningRequestRequest (deep, canonical key order). */
+fun IssueForSigningRequestRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("claim_types") to CborValue.CArray((this.claimTypes).map { csilE -> CborValue.CText(csilE) }))
+    csilEntries.add(CborValue.CText("claim_values") to CborValue.CArray((this.claimValues).map { csilE -> CborValue.CText(csilE) }))
+    csilEntries.add(CborValue.CText("signed_request") to CborValue.CText(this.signedRequest))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a IssueForSigningRequestRequest to canonical CSIL CBOR bytes. */
+fun IssueForSigningRequestRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a IssueForSigningRequestRequest from a decoded CBOR value tree. */
+fun issueForSigningRequestRequestFromCborValue(cbor: CborValue): IssueForSigningRequestRequest {
+    val signedRequest = CsilCbor.asText(CsilCbor.require(cbor, "signed_request"))
+    val claimTypes = CsilCbor.asArray(CsilCbor.require(cbor, "claim_types")).map { csilE -> CsilCbor.asText(csilE) }
+    val claimValues = CsilCbor.asArray(CsilCbor.require(cbor, "claim_values")).map { csilE -> CsilCbor.asText(csilE) }
+    return IssueForSigningRequestRequest(signedRequest = signedRequest, claimTypes = claimTypes, claimValues = claimValues)
+}
+
+/** Decode CSIL CBOR bytes into a IssueForSigningRequestRequest. */
+fun issueForSigningRequestRequestFromCbor(bytes: ByteArray): IssueForSigningRequestRequest = issueForSigningRequestRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a IssuedClaimResult (deep, canonical key order). */
+fun IssuedClaimResult.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    this.message?.let { csilV -> csilEntries.add(CborValue.CText("message") to CborValue.CText(csilV)) }
+    csilEntries.add(CborValue.CText("outcome") to CborValue.CText(this.outcome))
+    this.claimCode?.let { csilV -> csilEntries.add(CborValue.CText("claim_code") to CborValue.CText(csilV)) }
+    csilEntries.add(CborValue.CText("claim_type") to CborValue.CText(this.claimType))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a IssuedClaimResult to canonical CSIL CBOR bytes. */
+fun IssuedClaimResult.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a IssuedClaimResult from a decoded CBOR value tree. */
+fun issuedClaimResultFromCborValue(cbor: CborValue): IssuedClaimResult {
+    val claimType = CsilCbor.asText(CsilCbor.require(cbor, "claim_type"))
+    val outcome = CsilCbor.asText(CsilCbor.require(cbor, "outcome"))
+    val message = CsilCbor.mapGet(cbor, "message")?.let { csilV -> CsilCbor.asText(csilV) }
+    val claimCode = CsilCbor.mapGet(cbor, "claim_code")?.let { csilV -> CsilCbor.asText(csilV) }
+    return IssuedClaimResult(claimType = claimType, outcome = outcome, message = message, claimCode = claimCode)
+}
+
+/** Decode CSIL CBOR bytes into a IssuedClaimResult. */
+fun issuedClaimResultFromCbor(bytes: ByteArray): IssuedClaimResult = issuedClaimResultFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a IssueForSigningRequestResponse (deep, canonical key order). */
+fun IssueForSigningRequestResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("results") to CborValue.CArray((this.results).map { csilE -> csilE.toCborValue() }))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a IssueForSigningRequestResponse to canonical CSIL CBOR bytes. */
+fun IssueForSigningRequestResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a IssueForSigningRequestResponse from a decoded CBOR value tree. */
+fun issueForSigningRequestResponseFromCborValue(cbor: CborValue): IssueForSigningRequestResponse {
+    val results = CsilCbor.asArray(CsilCbor.require(cbor, "results")).map { csilE -> issuedClaimResultFromCborValue(csilE) }
+    return IssueForSigningRequestResponse(results = results)
+}
+
+/** Decode CSIL CBOR bytes into a IssueForSigningRequestResponse. */
+fun issueForSigningRequestResponseFromCbor(bytes: ByteArray): IssueForSigningRequestResponse = issueForSigningRequestResponseFromCborValue(CsilCbor.decode(bytes))
+
 /** Encode a generated CSIL record to canonical CBOR bytes. */
 fun <T> encode(value: T): ByteArray = CsilCbor.encode(csilToCborValue(value))
 
@@ -6783,6 +7290,7 @@ private fun csilToCborValue(value: Any?): CborValue = when (value) {
     is ClaimTypeLabel -> value.toCborValue()
     is SetClaimTypeLabelRequest -> value.toCborValue()
     is SetClaimTypeLabelResponse -> value.toCborValue()
+    is ListClaimTypeLabelsResponse -> value.toCborValue()
     is RemoveClaimTypeLabelRequest -> value.toCborValue()
     is RemoveClaimTypeLabelResponse -> value.toCborValue()
     is TrustedIssuer -> value.toCborValue()
@@ -6822,6 +7330,10 @@ private fun csilToCborValue(value: Any?): CborValue = when (value) {
     is RemoveMyClaimResponse -> value.toCborValue()
     is SetMyClaimSharingRequest -> value.toCborValue()
     is SetMyClaimSharingResponse -> value.toCborValue()
+    is MyClaimSetting -> value.toCborValue()
+    is MyClaimSettingsResponse -> value.toCborValue()
+    is SetMyClaimKeepVerifiedRequest -> value.toCborValue()
+    is SetMyClaimKeepVerifiedResponse -> value.toCborValue()
     is Profile -> value.toCborValue()
     is CreateProfileRequest -> value.toCborValue()
     is CreateProfileResponse -> value.toCborValue()
@@ -6856,6 +7368,10 @@ private fun csilToCborValue(value: Any?): CborValue = when (value) {
     is BrowserAuthorizationInspectResponse -> value.toCborValue()
     is BrowserAuthorizationCompleteRequest -> value.toCborValue()
     is BrowserAuthorizationCompleteResponse -> value.toCborValue()
+    is BrowserLocalRpInspectRequest -> value.toCborValue()
+    is BrowserLocalRpInspectResponse -> value.toCborValue()
+    is BrowserLocalRpCompleteRequest -> value.toCborValue()
+    is BrowserLocalRpCompleteResponse -> value.toCborValue()
     is UiTheme -> value.toCborValue()
     is UiExtension -> value.toCborValue()
     is UiDisplaySettings -> value.toCborValue()
@@ -6900,6 +7416,8 @@ private fun csilToCborValue(value: Any?): CborValue = when (value) {
     is GetLocalRpPolicyResponse -> value.toCborValue()
     is SetLocalRpPolicyRequest -> value.toCborValue()
     is SetLocalRpPolicyResponse -> value.toCborValue()
+    is SignInPolicy -> value.toCborValue()
+    is SetSignInPolicyRequest -> value.toCborValue()
     is PurgeLocalRpTicketsRequest -> value.toCborValue()
     is PurgeLocalRpTicketsResponse -> value.toCborValue()
     is TranslationsRequest -> value.toCborValue()
@@ -6963,6 +7481,16 @@ private fun csilToCborValue(value: Any?): CborValue = when (value) {
     is ListActAsGrantsResponse -> value.toCborValue()
     is RevokeActAsGrantRequest -> value.toCborValue()
     is RevokeActAsGrantResponse -> value.toCborValue()
+    is PreviewReleasePolicyRequest -> value.toCborValue()
+    is PreviewReleaseRow -> value.toCborValue()
+    is PreviewReleasePolicyResponse -> value.toCborValue()
+    is PreviewIssuerPolicyRequest -> value.toCborValue()
+    is PreviewIssuerPolicyResponse -> value.toCborValue()
+    is InspectSigningRequestRequest -> value.toCborValue()
+    is InspectSigningRequestResponse -> value.toCborValue()
+    is IssueForSigningRequestRequest -> value.toCborValue()
+    is IssuedClaimResult -> value.toCborValue()
+    is IssueForSigningRequestResponse -> value.toCborValue()
     else -> throw CborError("no CSIL CBOR codec for ${value::class}")
 }
 
@@ -7068,6 +7596,7 @@ fun csilFromCborValue(type: kotlin.reflect.KClass<*>, cbor: CborValue): Any = wh
     ClaimTypeLabel::class -> claimTypeLabelFromCborValue(cbor)
     SetClaimTypeLabelRequest::class -> setClaimTypeLabelRequestFromCborValue(cbor)
     SetClaimTypeLabelResponse::class -> setClaimTypeLabelResponseFromCborValue(cbor)
+    ListClaimTypeLabelsResponse::class -> listClaimTypeLabelsResponseFromCborValue(cbor)
     RemoveClaimTypeLabelRequest::class -> removeClaimTypeLabelRequestFromCborValue(cbor)
     RemoveClaimTypeLabelResponse::class -> removeClaimTypeLabelResponseFromCborValue(cbor)
     TrustedIssuer::class -> trustedIssuerFromCborValue(cbor)
@@ -7107,6 +7636,10 @@ fun csilFromCborValue(type: kotlin.reflect.KClass<*>, cbor: CborValue): Any = wh
     RemoveMyClaimResponse::class -> removeMyClaimResponseFromCborValue(cbor)
     SetMyClaimSharingRequest::class -> setMyClaimSharingRequestFromCborValue(cbor)
     SetMyClaimSharingResponse::class -> setMyClaimSharingResponseFromCborValue(cbor)
+    MyClaimSetting::class -> myClaimSettingFromCborValue(cbor)
+    MyClaimSettingsResponse::class -> myClaimSettingsResponseFromCborValue(cbor)
+    SetMyClaimKeepVerifiedRequest::class -> setMyClaimKeepVerifiedRequestFromCborValue(cbor)
+    SetMyClaimKeepVerifiedResponse::class -> setMyClaimKeepVerifiedResponseFromCborValue(cbor)
     Profile::class -> profileFromCborValue(cbor)
     CreateProfileRequest::class -> createProfileRequestFromCborValue(cbor)
     CreateProfileResponse::class -> createProfileResponseFromCborValue(cbor)
@@ -7141,6 +7674,10 @@ fun csilFromCborValue(type: kotlin.reflect.KClass<*>, cbor: CborValue): Any = wh
     BrowserAuthorizationInspectResponse::class -> browserAuthorizationInspectResponseFromCborValue(cbor)
     BrowserAuthorizationCompleteRequest::class -> browserAuthorizationCompleteRequestFromCborValue(cbor)
     BrowserAuthorizationCompleteResponse::class -> browserAuthorizationCompleteResponseFromCborValue(cbor)
+    BrowserLocalRpInspectRequest::class -> browserLocalRpInspectRequestFromCborValue(cbor)
+    BrowserLocalRpInspectResponse::class -> browserLocalRpInspectResponseFromCborValue(cbor)
+    BrowserLocalRpCompleteRequest::class -> browserLocalRpCompleteRequestFromCborValue(cbor)
+    BrowserLocalRpCompleteResponse::class -> browserLocalRpCompleteResponseFromCborValue(cbor)
     UiTheme::class -> uiThemeFromCborValue(cbor)
     UiExtension::class -> uiExtensionFromCborValue(cbor)
     UiDisplaySettings::class -> uiDisplaySettingsFromCborValue(cbor)
@@ -7185,6 +7722,8 @@ fun csilFromCborValue(type: kotlin.reflect.KClass<*>, cbor: CborValue): Any = wh
     GetLocalRpPolicyResponse::class -> getLocalRpPolicyResponseFromCborValue(cbor)
     SetLocalRpPolicyRequest::class -> setLocalRpPolicyRequestFromCborValue(cbor)
     SetLocalRpPolicyResponse::class -> setLocalRpPolicyResponseFromCborValue(cbor)
+    SignInPolicy::class -> signInPolicyFromCborValue(cbor)
+    SetSignInPolicyRequest::class -> setSignInPolicyRequestFromCborValue(cbor)
     PurgeLocalRpTicketsRequest::class -> purgeLocalRpTicketsRequestFromCborValue(cbor)
     PurgeLocalRpTicketsResponse::class -> purgeLocalRpTicketsResponseFromCborValue(cbor)
     TranslationsRequest::class -> translationsRequestFromCborValue(cbor)
@@ -7248,5 +7787,15 @@ fun csilFromCborValue(type: kotlin.reflect.KClass<*>, cbor: CborValue): Any = wh
     ListActAsGrantsResponse::class -> listActAsGrantsResponseFromCborValue(cbor)
     RevokeActAsGrantRequest::class -> revokeActAsGrantRequestFromCborValue(cbor)
     RevokeActAsGrantResponse::class -> revokeActAsGrantResponseFromCborValue(cbor)
+    PreviewReleasePolicyRequest::class -> previewReleasePolicyRequestFromCborValue(cbor)
+    PreviewReleaseRow::class -> previewReleaseRowFromCborValue(cbor)
+    PreviewReleasePolicyResponse::class -> previewReleasePolicyResponseFromCborValue(cbor)
+    PreviewIssuerPolicyRequest::class -> previewIssuerPolicyRequestFromCborValue(cbor)
+    PreviewIssuerPolicyResponse::class -> previewIssuerPolicyResponseFromCborValue(cbor)
+    InspectSigningRequestRequest::class -> inspectSigningRequestRequestFromCborValue(cbor)
+    InspectSigningRequestResponse::class -> inspectSigningRequestResponseFromCborValue(cbor)
+    IssueForSigningRequestRequest::class -> issueForSigningRequestRequestFromCborValue(cbor)
+    IssuedClaimResult::class -> issuedClaimResultFromCborValue(cbor)
+    IssueForSigningRequestResponse::class -> issueForSigningRequestResponseFromCborValue(cbor)
     else -> throw CborError("no CSIL CBOR codec for $type")
 }

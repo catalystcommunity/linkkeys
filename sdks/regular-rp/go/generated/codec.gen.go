@@ -6390,6 +6390,45 @@ func DecodeSetClaimTypeLabelResponse(csilData []byte) (SetClaimTypeLabelResponse
 	return csilDecSetClaimTypeLabelResponse(csilRoot)
 }
 
+// csilEncListClaimTypeLabelsResponse builds the canonical CBOR value tree for a ListClaimTypeLabelsResponse.
+func csilEncListClaimTypeLabelsResponse(csilV ListClaimTypeLabelsResponse) cborValue {
+	csilEntries := make(cborMap, 0, 1)
+	csilEntries = append(csilEntries, cborEntry{cborText("labels"), cborEncArray(csilV.Labels, func(csilElem ClaimTypeLabel) cborValue { return csilEncClaimTypeLabel(csilElem) })})
+	return csilEntries
+}
+
+// csilDecListClaimTypeLabelsResponse reconstructs a ListClaimTypeLabelsResponse from a decoded CBOR value tree.
+func csilDecListClaimTypeLabelsResponse(csilRoot cborValue) (ListClaimTypeLabelsResponse, error) {
+	var csilOut ListClaimTypeLabelsResponse
+	{
+		csilField, csilErr := cborRequire(csilRoot, "labels")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]ClaimTypeLabel, error) { return cborDecArray(csilV, csilDecClaimTypeLabel) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Labels = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeListClaimTypeLabelsResponse encodes a ListClaimTypeLabelsResponse to canonical CSIL CBOR bytes.
+func EncodeListClaimTypeLabelsResponse(csilV ListClaimTypeLabelsResponse) []byte {
+	return cborEncode(csilEncListClaimTypeLabelsResponse(csilV))
+}
+
+// DecodeListClaimTypeLabelsResponse decodes canonical CSIL CBOR bytes into a ListClaimTypeLabelsResponse.
+func DecodeListClaimTypeLabelsResponse(csilData []byte) (ListClaimTypeLabelsResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero ListClaimTypeLabelsResponse
+		return csilZero, csilErr
+	}
+	return csilDecListClaimTypeLabelsResponse(csilRoot)
+}
+
 // csilEncRemoveClaimTypeLabelRequest builds the canonical CBOR value tree for a RemoveClaimTypeLabelRequest.
 func csilEncRemoveClaimTypeLabelRequest(csilV RemoveClaimTypeLabelRequest) cborValue {
 	csilEntries := make(cborMap, 0, 2)
@@ -8293,6 +8332,210 @@ func DecodeSetMyClaimSharingResponse(csilData []byte) (SetMyClaimSharingResponse
 	return csilDecSetMyClaimSharingResponse(csilRoot)
 }
 
+// csilEncMyClaimSetting builds the canonical CBOR value tree for a MyClaimSetting.
+func csilEncMyClaimSetting(csilV MyClaimSetting) cborValue {
+	csilEntries := make(cborMap, 0, 3)
+	csilEntries = append(csilEntries, cborEntry{cborText("claim_type"), cborText(csilV.ClaimType)})
+	csilEntries = append(csilEntries, cborEntry{cborText("keep_verified"), cborBool(csilV.KeepVerified)})
+	csilEntries = append(csilEntries, cborEntry{cborText("shared_with_every_app"), cborBool(csilV.SharedWithEveryApp)})
+	return csilEntries
+}
+
+// csilDecMyClaimSetting reconstructs a MyClaimSetting from a decoded CBOR value tree.
+func csilDecMyClaimSetting(csilRoot cborValue) (MyClaimSetting, error) {
+	var csilOut MyClaimSetting
+	{
+		csilField, csilErr := cborRequire(csilRoot, "claim_type")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ClaimType = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "keep_verified")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsBool)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.KeepVerified = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "shared_with_every_app")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsBool)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SharedWithEveryApp = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeMyClaimSetting encodes a MyClaimSetting to canonical CSIL CBOR bytes.
+func EncodeMyClaimSetting(csilV MyClaimSetting) []byte {
+	return cborEncode(csilEncMyClaimSetting(csilV))
+}
+
+// DecodeMyClaimSetting decodes canonical CSIL CBOR bytes into a MyClaimSetting.
+func DecodeMyClaimSetting(csilData []byte) (MyClaimSetting, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero MyClaimSetting
+		return csilZero, csilErr
+	}
+	return csilDecMyClaimSetting(csilRoot)
+}
+
+// csilEncMyClaimSettingsResponse builds the canonical CBOR value tree for a MyClaimSettingsResponse.
+func csilEncMyClaimSettingsResponse(csilV MyClaimSettingsResponse) cborValue {
+	csilEntries := make(cborMap, 0, 3)
+	csilEntries = append(csilEntries, cborEntry{cborText("profiles"), cborEncArray(csilV.Profiles, func(csilElem Profile) cborValue { return csilEncProfile(csilElem) })})
+	csilEntries = append(csilEntries, cborEntry{cborText("settings"), cborEncArray(csilV.Settings, func(csilElem MyClaimSetting) cborValue { return csilEncMyClaimSetting(csilElem) })})
+	csilEntries = append(csilEntries, cborEntry{cborText("max_profiles"), cborInt(csilV.MaxProfiles)})
+	return csilEntries
+}
+
+// csilDecMyClaimSettingsResponse reconstructs a MyClaimSettingsResponse from a decoded CBOR value tree.
+func csilDecMyClaimSettingsResponse(csilRoot cborValue) (MyClaimSettingsResponse, error) {
+	var csilOut MyClaimSettingsResponse
+	{
+		csilField, csilErr := cborRequire(csilRoot, "settings")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]MyClaimSetting, error) { return cborDecArray(csilV, csilDecMyClaimSetting) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Settings = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "profiles")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]Profile, error) { return cborDecArray(csilV, csilDecProfile) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Profiles = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "max_profiles")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsI64)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.MaxProfiles = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeMyClaimSettingsResponse encodes a MyClaimSettingsResponse to canonical CSIL CBOR bytes.
+func EncodeMyClaimSettingsResponse(csilV MyClaimSettingsResponse) []byte {
+	return cborEncode(csilEncMyClaimSettingsResponse(csilV))
+}
+
+// DecodeMyClaimSettingsResponse decodes canonical CSIL CBOR bytes into a MyClaimSettingsResponse.
+func DecodeMyClaimSettingsResponse(csilData []byte) (MyClaimSettingsResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero MyClaimSettingsResponse
+		return csilZero, csilErr
+	}
+	return csilDecMyClaimSettingsResponse(csilRoot)
+}
+
+// csilEncSetMyClaimKeepVerifiedRequest builds the canonical CBOR value tree for a SetMyClaimKeepVerifiedRequest.
+func csilEncSetMyClaimKeepVerifiedRequest(csilV SetMyClaimKeepVerifiedRequest) cborValue {
+	csilEntries := make(cborMap, 0, 2)
+	csilEntries = append(csilEntries, cborEntry{cborText("claim_type"), cborText(csilV.ClaimType)})
+	csilEntries = append(csilEntries, cborEntry{cborText("keep_verified"), cborBool(csilV.KeepVerified)})
+	return csilEntries
+}
+
+// csilDecSetMyClaimKeepVerifiedRequest reconstructs a SetMyClaimKeepVerifiedRequest from a decoded CBOR value tree.
+func csilDecSetMyClaimKeepVerifiedRequest(csilRoot cborValue) (SetMyClaimKeepVerifiedRequest, error) {
+	var csilOut SetMyClaimKeepVerifiedRequest
+	{
+		csilField, csilErr := cborRequire(csilRoot, "claim_type")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ClaimType = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "keep_verified")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsBool)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.KeepVerified = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeSetMyClaimKeepVerifiedRequest encodes a SetMyClaimKeepVerifiedRequest to canonical CSIL CBOR bytes.
+func EncodeSetMyClaimKeepVerifiedRequest(csilV SetMyClaimKeepVerifiedRequest) []byte {
+	return cborEncode(csilEncSetMyClaimKeepVerifiedRequest(csilV))
+}
+
+// DecodeSetMyClaimKeepVerifiedRequest decodes canonical CSIL CBOR bytes into a SetMyClaimKeepVerifiedRequest.
+func DecodeSetMyClaimKeepVerifiedRequest(csilData []byte) (SetMyClaimKeepVerifiedRequest, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero SetMyClaimKeepVerifiedRequest
+		return csilZero, csilErr
+	}
+	return csilDecSetMyClaimKeepVerifiedRequest(csilRoot)
+}
+
+// csilEncSetMyClaimKeepVerifiedResponse builds the canonical CBOR value tree for a SetMyClaimKeepVerifiedResponse.
+func csilEncSetMyClaimKeepVerifiedResponse(csilV SetMyClaimKeepVerifiedResponse) cborValue {
+	csilEntries := make(cborMap, 0, 0)
+	return csilEntries
+}
+
+// csilDecSetMyClaimKeepVerifiedResponse reconstructs a SetMyClaimKeepVerifiedResponse from a decoded CBOR value tree.
+func csilDecSetMyClaimKeepVerifiedResponse(csilRoot cborValue) (SetMyClaimKeepVerifiedResponse, error) {
+	var csilOut SetMyClaimKeepVerifiedResponse
+	return csilOut, nil
+}
+
+// EncodeSetMyClaimKeepVerifiedResponse encodes a SetMyClaimKeepVerifiedResponse to canonical CSIL CBOR bytes.
+func EncodeSetMyClaimKeepVerifiedResponse(csilV SetMyClaimKeepVerifiedResponse) []byte {
+	return cborEncode(csilEncSetMyClaimKeepVerifiedResponse(csilV))
+}
+
+// DecodeSetMyClaimKeepVerifiedResponse decodes canonical CSIL CBOR bytes into a SetMyClaimKeepVerifiedResponse.
+func DecodeSetMyClaimKeepVerifiedResponse(csilData []byte) (SetMyClaimKeepVerifiedResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero SetMyClaimKeepVerifiedResponse
+		return csilZero, csilErr
+	}
+	return csilDecSetMyClaimKeepVerifiedResponse(csilRoot)
+}
+
 // csilEncProfile builds the canonical CBOR value tree for a Profile.
 func csilEncProfile(csilV Profile) cborValue {
 	csilEntries := make(cborMap, 0, 5)
@@ -9787,7 +10030,7 @@ func DecodeBrowserAuthorizationInspectRequest(csilData []byte) (BrowserAuthoriza
 
 // csilEncBrowserConsentClaim builds the canonical CBOR value tree for a BrowserConsentClaim.
 func csilEncBrowserConsentClaim(csilV BrowserConsentClaim) cborValue {
-	csilEntries := make(cborMap, 0, 10)
+	csilEntries := make(cborMap, 0, 11)
 	csilEntries = append(csilEntries, cborEntry{cborText("label"), cborText(csilV.Label)})
 	csilEntries = append(csilEntries, cborEntry{cborText("policy"), cborText(csilV.Policy)})
 	csilEntries = append(csilEntries, cborEntry{cborText("datatype"), cborText(csilV.Datatype)})
@@ -9797,6 +10040,9 @@ func csilEncBrowserConsentClaim(csilV BrowserConsentClaim) cborValue {
 	csilEntries = append(csilEntries, cborEntry{cborText("claim_type"), cborText(csilV.ClaimType)})
 	csilEntries = append(csilEntries, cborEntry{cborText("user_settable"), cborBool(csilV.UserSettable)})
 	csilEntries = append(csilEntries, cborEntry{cborText("default_granted"), cborBool(csilV.DefaultGranted)})
+	if csilV.NewlyRequested != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("newly_requested"), cborBool((*csilV.NewlyRequested))})
+	}
 	csilEntries = append(csilEntries, cborEntry{cborText("requires_approval"), cborBool(csilV.RequiresApproval)})
 	return csilEntries
 }
@@ -9913,6 +10159,13 @@ func csilDecBrowserConsentClaim(csilRoot cborValue) (BrowserConsentClaim, error)
 			return csilOut, csilErr
 		}
 		csilOut.RequiresApproval = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "newly_requested"); csilOk {
+		csilVal, csilErr := (cborAsBool)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.NewlyRequested = &csilVal
 	}
 	return csilOut, nil
 }
@@ -10137,6 +10390,298 @@ func DecodeBrowserAuthorizationCompleteResponse(csilData []byte) (BrowserAuthori
 		return csilZero, csilErr
 	}
 	return csilDecBrowserAuthorizationCompleteResponse(csilRoot)
+}
+
+// csilEncBrowserLocalRpInspectRequest builds the canonical CBOR value tree for a BrowserLocalRpInspectRequest.
+func csilEncBrowserLocalRpInspectRequest(csilV BrowserLocalRpInspectRequest) cborValue {
+	csilEntries := make(cborMap, 0, 1)
+	csilEntries = append(csilEntries, cborEntry{cborText("signed_request"), cborText(csilV.SignedRequest)})
+	return csilEntries
+}
+
+// csilDecBrowserLocalRpInspectRequest reconstructs a BrowserLocalRpInspectRequest from a decoded CBOR value tree.
+func csilDecBrowserLocalRpInspectRequest(csilRoot cborValue) (BrowserLocalRpInspectRequest, error) {
+	var csilOut BrowserLocalRpInspectRequest
+	{
+		csilField, csilErr := cborRequire(csilRoot, "signed_request")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SignedRequest = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeBrowserLocalRpInspectRequest encodes a BrowserLocalRpInspectRequest to canonical CSIL CBOR bytes.
+func EncodeBrowserLocalRpInspectRequest(csilV BrowserLocalRpInspectRequest) []byte {
+	return cborEncode(csilEncBrowserLocalRpInspectRequest(csilV))
+}
+
+// DecodeBrowserLocalRpInspectRequest decodes canonical CSIL CBOR bytes into a BrowserLocalRpInspectRequest.
+func DecodeBrowserLocalRpInspectRequest(csilData []byte) (BrowserLocalRpInspectRequest, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero BrowserLocalRpInspectRequest
+		return csilZero, csilErr
+	}
+	return csilDecBrowserLocalRpInspectRequest(csilRoot)
+}
+
+// csilEncBrowserLocalRpInspectResponse builds the canonical CBOR value tree for a BrowserLocalRpInspectResponse.
+func csilEncBrowserLocalRpInspectResponse(csilV BrowserLocalRpInspectResponse) cborValue {
+	csilEntries := make(cborMap, 0, 9)
+	csilEntries = append(csilEntries, cborEntry{cborText("claims"), cborEncArray(csilV.Claims, func(csilElem BrowserConsentClaim) cborValue { return csilEncBrowserConsentClaim(csilElem) })})
+	csilEntries = append(csilEntries, cborEntry{cborText("app_name"), cborText(csilV.AppName)})
+	csilEntries = append(csilEntries, cborEntry{cborText("admission"), cborText(csilV.Admission)})
+	csilEntries = append(csilEntries, cborEntry{cborText("fingerprint"), cborText(csilV.Fingerprint)})
+	csilEntries = append(csilEntries, cborEntry{cborText("callback_host"), cborText(csilV.CallbackHost)})
+	if csilV.FirstSeenAt != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("first_seen_at"), cborText((*csilV.FirstSeenAt))})
+	}
+	if csilV.RequestReason != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("request_reason"), cborText((*csilV.RequestReason))})
+	}
+	if csilV.AlreadyConsented != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("already_consented"), cborBool((*csilV.AlreadyConsented))})
+	}
+	if csilV.AuthorizedClaims != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("authorized_claims"), cborEncArray(csilV.AuthorizedClaims, func(csilElem string) cborValue { return cborText(csilElem) })})
+	}
+	return csilEntries
+}
+
+// csilDecBrowserLocalRpInspectResponse reconstructs a BrowserLocalRpInspectResponse from a decoded CBOR value tree.
+func csilDecBrowserLocalRpInspectResponse(csilRoot cborValue) (BrowserLocalRpInspectResponse, error) {
+	var csilOut BrowserLocalRpInspectResponse
+	{
+		csilField, csilErr := cborRequire(csilRoot, "admission")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Admission = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "app_name")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.AppName = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "fingerprint")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Fingerprint = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "callback_host")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.CallbackHost = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "first_seen_at"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.FirstSeenAt = &csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "claims")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]BrowserConsentClaim, error) {
+			return cborDecArray(csilV, csilDecBrowserConsentClaim)
+		})(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Claims = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "request_reason"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.RequestReason = &csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "already_consented"); csilOk {
+		csilVal, csilErr := (cborAsBool)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.AlreadyConsented = &csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "authorized_claims"); csilOk {
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.AuthorizedClaims = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeBrowserLocalRpInspectResponse encodes a BrowserLocalRpInspectResponse to canonical CSIL CBOR bytes.
+func EncodeBrowserLocalRpInspectResponse(csilV BrowserLocalRpInspectResponse) []byte {
+	return cborEncode(csilEncBrowserLocalRpInspectResponse(csilV))
+}
+
+// DecodeBrowserLocalRpInspectResponse decodes canonical CSIL CBOR bytes into a BrowserLocalRpInspectResponse.
+func DecodeBrowserLocalRpInspectResponse(csilData []byte) (BrowserLocalRpInspectResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero BrowserLocalRpInspectResponse
+		return csilZero, csilErr
+	}
+	return csilDecBrowserLocalRpInspectResponse(csilRoot)
+}
+
+// csilEncBrowserLocalRpCompleteRequest builds the canonical CBOR value tree for a BrowserLocalRpCompleteRequest.
+func csilEncBrowserLocalRpCompleteRequest(csilV BrowserLocalRpCompleteRequest) cborValue {
+	csilEntries := make(cborMap, 0, 5)
+	csilEntries = append(csilEntries, cborEntry{cborText("signed_request"), cborText(csilV.SignedRequest)})
+	csilEntries = append(csilEntries, cborEntry{cborText("authorized_claims"), cborEncArray(csilV.AuthorizedClaims, func(csilElem string) cborValue { return cborText(csilElem) })})
+	csilEntries = append(csilEntries, cborEntry{cborText("claim_types_to_set"), cborEncArray(csilV.ClaimTypesToSet, func(csilElem string) cborValue { return cborText(csilElem) })})
+	if csilV.UseStandingGrant != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("use_standing_grant"), cborBool((*csilV.UseStandingGrant))})
+	}
+	csilEntries = append(csilEntries, cborEntry{cborText("claim_values_to_set"), cborEncArray(csilV.ClaimValuesToSet, func(csilElem string) cborValue { return cborText(csilElem) })})
+	return csilEntries
+}
+
+// csilDecBrowserLocalRpCompleteRequest reconstructs a BrowserLocalRpCompleteRequest from a decoded CBOR value tree.
+func csilDecBrowserLocalRpCompleteRequest(csilRoot cborValue) (BrowserLocalRpCompleteRequest, error) {
+	var csilOut BrowserLocalRpCompleteRequest
+	{
+		csilField, csilErr := cborRequire(csilRoot, "signed_request")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SignedRequest = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "authorized_claims")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.AuthorizedClaims = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "claim_types_to_set")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ClaimTypesToSet = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "claim_values_to_set")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ClaimValuesToSet = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "use_standing_grant"); csilOk {
+		csilVal, csilErr := (cborAsBool)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.UseStandingGrant = &csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeBrowserLocalRpCompleteRequest encodes a BrowserLocalRpCompleteRequest to canonical CSIL CBOR bytes.
+func EncodeBrowserLocalRpCompleteRequest(csilV BrowserLocalRpCompleteRequest) []byte {
+	return cborEncode(csilEncBrowserLocalRpCompleteRequest(csilV))
+}
+
+// DecodeBrowserLocalRpCompleteRequest decodes canonical CSIL CBOR bytes into a BrowserLocalRpCompleteRequest.
+func DecodeBrowserLocalRpCompleteRequest(csilData []byte) (BrowserLocalRpCompleteRequest, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero BrowserLocalRpCompleteRequest
+		return csilZero, csilErr
+	}
+	return csilDecBrowserLocalRpCompleteRequest(csilRoot)
+}
+
+// csilEncBrowserLocalRpCompleteResponse builds the canonical CBOR value tree for a BrowserLocalRpCompleteResponse.
+func csilEncBrowserLocalRpCompleteResponse(csilV BrowserLocalRpCompleteResponse) cborValue {
+	csilEntries := make(cborMap, 0, 1)
+	csilEntries = append(csilEntries, cborEntry{cborText("redirect_url"), cborText(csilV.RedirectUrl)})
+	return csilEntries
+}
+
+// csilDecBrowserLocalRpCompleteResponse reconstructs a BrowserLocalRpCompleteResponse from a decoded CBOR value tree.
+func csilDecBrowserLocalRpCompleteResponse(csilRoot cborValue) (BrowserLocalRpCompleteResponse, error) {
+	var csilOut BrowserLocalRpCompleteResponse
+	{
+		csilField, csilErr := cborRequire(csilRoot, "redirect_url")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.RedirectUrl = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeBrowserLocalRpCompleteResponse encodes a BrowserLocalRpCompleteResponse to canonical CSIL CBOR bytes.
+func EncodeBrowserLocalRpCompleteResponse(csilV BrowserLocalRpCompleteResponse) []byte {
+	return cborEncode(csilEncBrowserLocalRpCompleteResponse(csilV))
+}
+
+// DecodeBrowserLocalRpCompleteResponse decodes canonical CSIL CBOR bytes into a BrowserLocalRpCompleteResponse.
+func DecodeBrowserLocalRpCompleteResponse(csilData []byte) (BrowserLocalRpCompleteResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero BrowserLocalRpCompleteResponse
+		return csilZero, csilErr
+	}
+	return csilDecBrowserLocalRpCompleteResponse(csilRoot)
 }
 
 // csilEncUiTheme builds the canonical CBOR value tree for a UiTheme.
@@ -10963,7 +11508,7 @@ func DecodeAuthorizeValidateRequest(csilData []byte) (AuthorizeValidateRequest, 
 
 // csilEncAuthorizeValidateResponse builds the canonical CBOR value tree for a AuthorizeValidateResponse.
 func csilEncAuthorizeValidateResponse(csilV AuthorizeValidateResponse) cborValue {
-	csilEntries := make(cborMap, 0, 5)
+	csilEntries := make(cborMap, 0, 6)
 	csilEntries = append(csilEntries, cborEntry{cborText("callback_url"), cborText(csilV.CallbackUrl)})
 	csilEntries = append(csilEntries, cborEntry{cborText("relying_party"), cborText(csilV.RelyingParty)})
 	csilEntries = append(csilEntries, cborEntry{cborText("requested_claims"), cborEncArray(csilV.RequestedClaims, func(csilElem string) cborValue { return cborText(csilElem) })})
@@ -10972,6 +11517,9 @@ func csilEncAuthorizeValidateResponse(csilV AuthorizeValidateResponse) cborValue
 	}
 	if csilV.AuthorizedClaims != nil {
 		csilEntries = append(csilEntries, cborEntry{cborText("authorized_claims"), cborEncArray(csilV.AuthorizedClaims, func(csilElem string) cborValue { return cborText(csilElem) })})
+	}
+	if csilV.NewlyRequestedClaims != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("newly_requested_claims"), cborEncArray(csilV.NewlyRequestedClaims, func(csilElem string) cborValue { return cborText(csilElem) })})
 	}
 	return csilEntries
 }
@@ -11025,6 +11573,13 @@ func csilDecAuthorizeValidateResponse(csilRoot cborValue) (AuthorizeValidateResp
 			return csilOut, csilErr
 		}
 		csilOut.AuthorizedClaims = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "newly_requested_claims"); csilOk {
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.NewlyRequestedClaims = csilVal
 	}
 	return csilOut, nil
 }
@@ -12886,6 +13441,120 @@ func DecodeSetLocalRpPolicyResponse(csilData []byte) (SetLocalRpPolicyResponse, 
 		return csilZero, csilErr
 	}
 	return csilDecSetLocalRpPolicyResponse(csilRoot)
+}
+
+// csilEncSignInPolicy builds the canonical CBOR value tree for a SignInPolicy.
+func csilEncSignInPolicy(csilV SignInPolicy) cborValue {
+	csilEntries := make(cborMap, 0, 4)
+	csilEntries = append(csilEntries, cborEntry{cborText("sign_in_hours"), cborInt(csilV.SignInHours)})
+	csilEntries = append(csilEntries, cborEntry{cborText("max_sign_in_hours"), cborInt(csilV.MaxSignInHours)})
+	csilEntries = append(csilEntries, cborEntry{cborText("min_sign_in_hours"), cborInt(csilV.MinSignInHours)})
+	csilEntries = append(csilEntries, cborEntry{cborText("default_sign_in_hours"), cborInt(csilV.DefaultSignInHours)})
+	return csilEntries
+}
+
+// csilDecSignInPolicy reconstructs a SignInPolicy from a decoded CBOR value tree.
+func csilDecSignInPolicy(csilRoot cborValue) (SignInPolicy, error) {
+	var csilOut SignInPolicy
+	{
+		csilField, csilErr := cborRequire(csilRoot, "sign_in_hours")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsI64)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SignInHours = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "default_sign_in_hours")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsI64)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.DefaultSignInHours = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "min_sign_in_hours")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsI64)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.MinSignInHours = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "max_sign_in_hours")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsI64)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.MaxSignInHours = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeSignInPolicy encodes a SignInPolicy to canonical CSIL CBOR bytes.
+func EncodeSignInPolicy(csilV SignInPolicy) []byte {
+	return cborEncode(csilEncSignInPolicy(csilV))
+}
+
+// DecodeSignInPolicy decodes canonical CSIL CBOR bytes into a SignInPolicy.
+func DecodeSignInPolicy(csilData []byte) (SignInPolicy, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero SignInPolicy
+		return csilZero, csilErr
+	}
+	return csilDecSignInPolicy(csilRoot)
+}
+
+// csilEncSetSignInPolicyRequest builds the canonical CBOR value tree for a SetSignInPolicyRequest.
+func csilEncSetSignInPolicyRequest(csilV SetSignInPolicyRequest) cborValue {
+	csilEntries := make(cborMap, 0, 1)
+	csilEntries = append(csilEntries, cborEntry{cborText("sign_in_hours"), cborInt(csilV.SignInHours)})
+	return csilEntries
+}
+
+// csilDecSetSignInPolicyRequest reconstructs a SetSignInPolicyRequest from a decoded CBOR value tree.
+func csilDecSetSignInPolicyRequest(csilRoot cborValue) (SetSignInPolicyRequest, error) {
+	var csilOut SetSignInPolicyRequest
+	{
+		csilField, csilErr := cborRequire(csilRoot, "sign_in_hours")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsI64)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SignInHours = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeSetSignInPolicyRequest encodes a SetSignInPolicyRequest to canonical CSIL CBOR bytes.
+func EncodeSetSignInPolicyRequest(csilV SetSignInPolicyRequest) []byte {
+	return cborEncode(csilEncSetSignInPolicyRequest(csilV))
+}
+
+// DecodeSetSignInPolicyRequest decodes canonical CSIL CBOR bytes into a SetSignInPolicyRequest.
+func DecodeSetSignInPolicyRequest(csilData []byte) (SetSignInPolicyRequest, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero SetSignInPolicyRequest
+		return csilZero, csilErr
+	}
+	return csilDecSetSignInPolicyRequest(csilRoot)
 }
 
 // csilEncPurgeLocalRpTicketsRequest builds the canonical CBOR value tree for a PurgeLocalRpTicketsRequest.
@@ -17440,6 +18109,776 @@ func DecodeRevokeActAsGrantResponse(csilData []byte) (RevokeActAsGrantResponse, 
 		return csilZero, csilErr
 	}
 	return csilDecRevokeActAsGrantResponse(csilRoot)
+}
+
+// csilEncPreviewReleasePolicyRequest builds the canonical CBOR value tree for a PreviewReleasePolicyRequest.
+func csilEncPreviewReleasePolicyRequest(csilV PreviewReleasePolicyRequest) cborValue {
+	csilEntries := make(cborMap, 0, 8)
+	csilEntries = append(csilEntries, cborEntry{cborText("audience"), cborText(csilV.Audience)})
+	csilEntries = append(csilEntries, cborEntry{cborText("user_choices"), cborEncArray(csilV.UserChoices, func(csilElem string) cborValue { return cborText(csilElem) })})
+	if csilV.TempAudience != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("temp_audience"), cborText((*csilV.TempAudience))})
+	}
+	csilEntries = append(csilEntries, cborEntry{cborText("optional_claims"), cborEncArray(csilV.OptionalClaims, func(csilElem string) cborValue { return cborText(csilElem) })})
+	csilEntries = append(csilEntries, cborEntry{cborText("required_claims"), cborEncArray(csilV.RequiredClaims, func(csilElem string) cborValue { return cborText(csilElem) })})
+	if csilV.TempClaimType != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("temp_claim_type"), cborText((*csilV.TempClaimType))})
+	}
+	csilEntries = append(csilEntries, cborEntry{cborText("available_claims"), cborEncArray(csilV.AvailableClaims, func(csilElem string) cborValue { return cborText(csilElem) })})
+	if csilV.TempDisposition != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("temp_disposition"), cborText((*csilV.TempDisposition))})
+	}
+	return csilEntries
+}
+
+// csilDecPreviewReleasePolicyRequest reconstructs a PreviewReleasePolicyRequest from a decoded CBOR value tree.
+func csilDecPreviewReleasePolicyRequest(csilRoot cborValue) (PreviewReleasePolicyRequest, error) {
+	var csilOut PreviewReleasePolicyRequest
+	{
+		csilField, csilErr := cborRequire(csilRoot, "audience")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Audience = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "required_claims")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.RequiredClaims = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "optional_claims")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.OptionalClaims = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "available_claims")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.AvailableClaims = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "user_choices")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.UserChoices = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "temp_audience"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.TempAudience = &csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "temp_claim_type"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.TempClaimType = &csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "temp_disposition"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.TempDisposition = &csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodePreviewReleasePolicyRequest encodes a PreviewReleasePolicyRequest to canonical CSIL CBOR bytes.
+func EncodePreviewReleasePolicyRequest(csilV PreviewReleasePolicyRequest) []byte {
+	return cborEncode(csilEncPreviewReleasePolicyRequest(csilV))
+}
+
+// DecodePreviewReleasePolicyRequest decodes canonical CSIL CBOR bytes into a PreviewReleasePolicyRequest.
+func DecodePreviewReleasePolicyRequest(csilData []byte) (PreviewReleasePolicyRequest, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero PreviewReleasePolicyRequest
+		return csilZero, csilErr
+	}
+	return csilDecPreviewReleasePolicyRequest(csilRoot)
+}
+
+// csilEncPreviewReleaseRow builds the canonical CBOR value tree for a PreviewReleaseRow.
+func csilEncPreviewReleaseRow(csilV PreviewReleaseRow) cborValue {
+	csilEntries := make(cborMap, 0, 6)
+	csilEntries = append(csilEntries, cborEntry{cborText("locked"), cborBool(csilV.Locked)})
+	csilEntries = append(csilEntries, cborEntry{cborText("policy"), cborText(csilV.Policy)})
+	csilEntries = append(csilEntries, cborEntry{cborText("required"), cborBool(csilV.Required)})
+	csilEntries = append(csilEntries, cborEntry{cborText("available"), cborBool(csilV.Available)})
+	csilEntries = append(csilEntries, cborEntry{cborText("claim_type"), cborText(csilV.ClaimType)})
+	csilEntries = append(csilEntries, cborEntry{cborText("default_granted"), cborBool(csilV.DefaultGranted)})
+	return csilEntries
+}
+
+// csilDecPreviewReleaseRow reconstructs a PreviewReleaseRow from a decoded CBOR value tree.
+func csilDecPreviewReleaseRow(csilRoot cborValue) (PreviewReleaseRow, error) {
+	var csilOut PreviewReleaseRow
+	{
+		csilField, csilErr := cborRequire(csilRoot, "claim_type")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ClaimType = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "required")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsBool)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Required = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "available")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsBool)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Available = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "locked")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsBool)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Locked = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "policy")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Policy = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "default_granted")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsBool)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.DefaultGranted = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodePreviewReleaseRow encodes a PreviewReleaseRow to canonical CSIL CBOR bytes.
+func EncodePreviewReleaseRow(csilV PreviewReleaseRow) []byte {
+	return cborEncode(csilEncPreviewReleaseRow(csilV))
+}
+
+// DecodePreviewReleaseRow decodes canonical CSIL CBOR bytes into a PreviewReleaseRow.
+func DecodePreviewReleaseRow(csilData []byte) (PreviewReleaseRow, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero PreviewReleaseRow
+		return csilZero, csilErr
+	}
+	return csilDecPreviewReleaseRow(csilRoot)
+}
+
+// csilEncPreviewReleasePolicyResponse builds the canonical CBOR value tree for a PreviewReleasePolicyResponse.
+func csilEncPreviewReleasePolicyResponse(csilV PreviewReleasePolicyResponse) cborValue {
+	csilEntries := make(cborMap, 0, 4)
+	csilEntries = append(csilEntries, cborEntry{cborText("rows"), cborEncArray(csilV.Rows, func(csilElem PreviewReleaseRow) cborValue { return csilEncPreviewReleaseRow(csilElem) })})
+	csilEntries = append(csilEntries, cborEntry{cborText("forced_deny"), cborEncArray(csilV.ForcedDeny, func(csilElem string) cborValue { return cborText(csilElem) })})
+	csilEntries = append(csilEntries, cborEntry{cborText("forced_allow"), cborEncArray(csilV.ForcedAllow, func(csilElem string) cborValue { return cborText(csilElem) })})
+	csilEntries = append(csilEntries, cborEntry{cborText("authorized_claims"), cborEncArray(csilV.AuthorizedClaims, func(csilElem string) cborValue { return cborText(csilElem) })})
+	return csilEntries
+}
+
+// csilDecPreviewReleasePolicyResponse reconstructs a PreviewReleasePolicyResponse from a decoded CBOR value tree.
+func csilDecPreviewReleasePolicyResponse(csilRoot cborValue) (PreviewReleasePolicyResponse, error) {
+	var csilOut PreviewReleasePolicyResponse
+	{
+		csilField, csilErr := cborRequire(csilRoot, "forced_allow")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ForcedAllow = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "forced_deny")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ForcedDeny = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "authorized_claims")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.AuthorizedClaims = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "rows")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]PreviewReleaseRow, error) {
+			return cborDecArray(csilV, csilDecPreviewReleaseRow)
+		})(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Rows = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodePreviewReleasePolicyResponse encodes a PreviewReleasePolicyResponse to canonical CSIL CBOR bytes.
+func EncodePreviewReleasePolicyResponse(csilV PreviewReleasePolicyResponse) []byte {
+	return cborEncode(csilEncPreviewReleasePolicyResponse(csilV))
+}
+
+// DecodePreviewReleasePolicyResponse decodes canonical CSIL CBOR bytes into a PreviewReleasePolicyResponse.
+func DecodePreviewReleasePolicyResponse(csilData []byte) (PreviewReleasePolicyResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero PreviewReleasePolicyResponse
+		return csilZero, csilErr
+	}
+	return csilDecPreviewReleasePolicyResponse(csilRoot)
+}
+
+// csilEncPreviewIssuerPolicyRequest builds the canonical CBOR value tree for a PreviewIssuerPolicyRequest.
+func csilEncPreviewIssuerPolicyRequest(csilV PreviewIssuerPolicyRequest) cborValue {
+	csilEntries := make(cborMap, 0, 5)
+	if csilV.ClaimType != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("claim_type"), cborText((*csilV.ClaimType))})
+	}
+	if csilV.DeniedTlds != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("denied_tlds"), cborEncArray(csilV.DeniedTlds, func(csilElem string) cborValue { return cborText(csilElem) })})
+	}
+	if csilV.DeniedDomains != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("denied_domains"), cborEncArray(csilV.DeniedDomains, func(csilElem string) cborValue { return cborText(csilElem) })})
+	}
+	if csilV.IssuerUserId != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("issuer_user_id"), cborText((*csilV.IssuerUserId))})
+	}
+	csilEntries = append(csilEntries, cborEntry{cborText("subject_domain"), cborText(csilV.SubjectDomain)})
+	return csilEntries
+}
+
+// csilDecPreviewIssuerPolicyRequest reconstructs a PreviewIssuerPolicyRequest from a decoded CBOR value tree.
+func csilDecPreviewIssuerPolicyRequest(csilRoot cborValue) (PreviewIssuerPolicyRequest, error) {
+	var csilOut PreviewIssuerPolicyRequest
+	{
+		csilField, csilErr := cborRequire(csilRoot, "subject_domain")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SubjectDomain = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "denied_domains"); csilOk {
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.DeniedDomains = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "denied_tlds"); csilOk {
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.DeniedTlds = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "issuer_user_id"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.IssuerUserId = &csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "claim_type"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ClaimType = &csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodePreviewIssuerPolicyRequest encodes a PreviewIssuerPolicyRequest to canonical CSIL CBOR bytes.
+func EncodePreviewIssuerPolicyRequest(csilV PreviewIssuerPolicyRequest) []byte {
+	return cborEncode(csilEncPreviewIssuerPolicyRequest(csilV))
+}
+
+// DecodePreviewIssuerPolicyRequest decodes canonical CSIL CBOR bytes into a PreviewIssuerPolicyRequest.
+func DecodePreviewIssuerPolicyRequest(csilData []byte) (PreviewIssuerPolicyRequest, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero PreviewIssuerPolicyRequest
+		return csilZero, csilErr
+	}
+	return csilDecPreviewIssuerPolicyRequest(csilRoot)
+}
+
+// csilEncPreviewIssuerPolicyResponse builds the canonical CBOR value tree for a PreviewIssuerPolicyResponse.
+func csilEncPreviewIssuerPolicyResponse(csilV PreviewIssuerPolicyResponse) cborValue {
+	csilEntries := make(cborMap, 0, 6)
+	csilEntries = append(csilEntries, cborEntry{cborText("reason"), cborText(csilV.Reason)})
+	csilEntries = append(csilEntries, cborEntry{cborText("allowed"), cborBool(csilV.Allowed)})
+	csilEntries = append(csilEntries, cborEntry{cborText("denied_tlds"), cborEncArray(csilV.DeniedTlds, func(csilElem string) cborValue { return cborText(csilElem) })})
+	csilEntries = append(csilEntries, cborEntry{cborText("denied_domains"), cborEncArray(csilV.DeniedDomains, func(csilElem string) cborValue { return cborText(csilElem) })})
+	if csilV.UserCanIssue != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("user_can_issue"), cborBool((*csilV.UserCanIssue))})
+	}
+	csilEntries = append(csilEntries, cborEntry{cborText("attested_claim_ttl_seconds"), cborInt(csilV.AttestedClaimTtlSeconds)})
+	return csilEntries
+}
+
+// csilDecPreviewIssuerPolicyResponse reconstructs a PreviewIssuerPolicyResponse from a decoded CBOR value tree.
+func csilDecPreviewIssuerPolicyResponse(csilRoot cborValue) (PreviewIssuerPolicyResponse, error) {
+	var csilOut PreviewIssuerPolicyResponse
+	{
+		csilField, csilErr := cborRequire(csilRoot, "denied_domains")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.DeniedDomains = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "denied_tlds")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.DeniedTlds = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "allowed")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsBool)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Allowed = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "reason")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Reason = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "user_can_issue"); csilOk {
+		csilVal, csilErr := (cborAsBool)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.UserCanIssue = &csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "attested_claim_ttl_seconds")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsI64)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.AttestedClaimTtlSeconds = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodePreviewIssuerPolicyResponse encodes a PreviewIssuerPolicyResponse to canonical CSIL CBOR bytes.
+func EncodePreviewIssuerPolicyResponse(csilV PreviewIssuerPolicyResponse) []byte {
+	return cborEncode(csilEncPreviewIssuerPolicyResponse(csilV))
+}
+
+// DecodePreviewIssuerPolicyResponse decodes canonical CSIL CBOR bytes into a PreviewIssuerPolicyResponse.
+func DecodePreviewIssuerPolicyResponse(csilData []byte) (PreviewIssuerPolicyResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero PreviewIssuerPolicyResponse
+		return csilZero, csilErr
+	}
+	return csilDecPreviewIssuerPolicyResponse(csilRoot)
+}
+
+// csilEncInspectSigningRequestRequest builds the canonical CBOR value tree for a InspectSigningRequestRequest.
+func csilEncInspectSigningRequestRequest(csilV InspectSigningRequestRequest) cborValue {
+	csilEntries := make(cborMap, 0, 1)
+	csilEntries = append(csilEntries, cborEntry{cborText("signed_request"), cborText(csilV.SignedRequest)})
+	return csilEntries
+}
+
+// csilDecInspectSigningRequestRequest reconstructs a InspectSigningRequestRequest from a decoded CBOR value tree.
+func csilDecInspectSigningRequestRequest(csilRoot cborValue) (InspectSigningRequestRequest, error) {
+	var csilOut InspectSigningRequestRequest
+	{
+		csilField, csilErr := cborRequire(csilRoot, "signed_request")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SignedRequest = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeInspectSigningRequestRequest encodes a InspectSigningRequestRequest to canonical CSIL CBOR bytes.
+func EncodeInspectSigningRequestRequest(csilV InspectSigningRequestRequest) []byte {
+	return cborEncode(csilEncInspectSigningRequestRequest(csilV))
+}
+
+// DecodeInspectSigningRequestRequest decodes canonical CSIL CBOR bytes into a InspectSigningRequestRequest.
+func DecodeInspectSigningRequestRequest(csilData []byte) (InspectSigningRequestRequest, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero InspectSigningRequestRequest
+		return csilZero, csilErr
+	}
+	return csilDecInspectSigningRequestRequest(csilRoot)
+}
+
+// csilEncInspectSigningRequestResponse builds the canonical CBOR value tree for a InspectSigningRequestResponse.
+func csilEncInspectSigningRequestResponse(csilV InspectSigningRequestResponse) cborValue {
+	csilEntries := make(cborMap, 0, 5)
+	csilEntries = append(csilEntries, cborEntry{cborText("expires_at"), cborText(csilV.ExpiresAt)})
+	csilEntries = append(csilEntries, cborEntry{cborText("subject_domain"), cborText(csilV.SubjectDomain)})
+	csilEntries = append(csilEntries, cborEntry{cborText("subject_user_id"), cborText(csilV.SubjectUserId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("issuable_claim_types"), cborEncArray(csilV.IssuableClaimTypes, func(csilElem string) cborValue { return cborText(csilElem) })})
+	csilEntries = append(csilEntries, cborEntry{cborText("requested_claim_types"), cborEncArray(csilV.RequestedClaimTypes, func(csilElem string) cborValue { return cborText(csilElem) })})
+	return csilEntries
+}
+
+// csilDecInspectSigningRequestResponse reconstructs a InspectSigningRequestResponse from a decoded CBOR value tree.
+func csilDecInspectSigningRequestResponse(csilRoot cborValue) (InspectSigningRequestResponse, error) {
+	var csilOut InspectSigningRequestResponse
+	{
+		csilField, csilErr := cborRequire(csilRoot, "subject_user_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SubjectUserId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "subject_domain")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SubjectDomain = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "requested_claim_types")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.RequestedClaimTypes = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "expires_at")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ExpiresAt = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "issuable_claim_types")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.IssuableClaimTypes = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeInspectSigningRequestResponse encodes a InspectSigningRequestResponse to canonical CSIL CBOR bytes.
+func EncodeInspectSigningRequestResponse(csilV InspectSigningRequestResponse) []byte {
+	return cborEncode(csilEncInspectSigningRequestResponse(csilV))
+}
+
+// DecodeInspectSigningRequestResponse decodes canonical CSIL CBOR bytes into a InspectSigningRequestResponse.
+func DecodeInspectSigningRequestResponse(csilData []byte) (InspectSigningRequestResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero InspectSigningRequestResponse
+		return csilZero, csilErr
+	}
+	return csilDecInspectSigningRequestResponse(csilRoot)
+}
+
+// csilEncIssueForSigningRequestRequest builds the canonical CBOR value tree for a IssueForSigningRequestRequest.
+func csilEncIssueForSigningRequestRequest(csilV IssueForSigningRequestRequest) cborValue {
+	csilEntries := make(cborMap, 0, 3)
+	csilEntries = append(csilEntries, cborEntry{cborText("claim_types"), cborEncArray(csilV.ClaimTypes, func(csilElem string) cborValue { return cborText(csilElem) })})
+	csilEntries = append(csilEntries, cborEntry{cborText("claim_values"), cborEncArray(csilV.ClaimValues, func(csilElem string) cborValue { return cborText(csilElem) })})
+	csilEntries = append(csilEntries, cborEntry{cborText("signed_request"), cborText(csilV.SignedRequest)})
+	return csilEntries
+}
+
+// csilDecIssueForSigningRequestRequest reconstructs a IssueForSigningRequestRequest from a decoded CBOR value tree.
+func csilDecIssueForSigningRequestRequest(csilRoot cborValue) (IssueForSigningRequestRequest, error) {
+	var csilOut IssueForSigningRequestRequest
+	{
+		csilField, csilErr := cborRequire(csilRoot, "signed_request")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SignedRequest = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "claim_types")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ClaimTypes = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "claim_values")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ClaimValues = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeIssueForSigningRequestRequest encodes a IssueForSigningRequestRequest to canonical CSIL CBOR bytes.
+func EncodeIssueForSigningRequestRequest(csilV IssueForSigningRequestRequest) []byte {
+	return cborEncode(csilEncIssueForSigningRequestRequest(csilV))
+}
+
+// DecodeIssueForSigningRequestRequest decodes canonical CSIL CBOR bytes into a IssueForSigningRequestRequest.
+func DecodeIssueForSigningRequestRequest(csilData []byte) (IssueForSigningRequestRequest, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero IssueForSigningRequestRequest
+		return csilZero, csilErr
+	}
+	return csilDecIssueForSigningRequestRequest(csilRoot)
+}
+
+// csilEncIssuedClaimResult builds the canonical CBOR value tree for a IssuedClaimResult.
+func csilEncIssuedClaimResult(csilV IssuedClaimResult) cborValue {
+	csilEntries := make(cborMap, 0, 4)
+	if csilV.Message != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("message"), cborText((*csilV.Message))})
+	}
+	csilEntries = append(csilEntries, cborEntry{cborText("outcome"), cborText(csilV.Outcome)})
+	if csilV.ClaimCode != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("claim_code"), cborText((*csilV.ClaimCode))})
+	}
+	csilEntries = append(csilEntries, cborEntry{cborText("claim_type"), cborText(csilV.ClaimType)})
+	return csilEntries
+}
+
+// csilDecIssuedClaimResult reconstructs a IssuedClaimResult from a decoded CBOR value tree.
+func csilDecIssuedClaimResult(csilRoot cborValue) (IssuedClaimResult, error) {
+	var csilOut IssuedClaimResult
+	{
+		csilField, csilErr := cborRequire(csilRoot, "claim_type")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ClaimType = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "outcome")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Outcome = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "message"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Message = &csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "claim_code"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ClaimCode = &csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeIssuedClaimResult encodes a IssuedClaimResult to canonical CSIL CBOR bytes.
+func EncodeIssuedClaimResult(csilV IssuedClaimResult) []byte {
+	return cborEncode(csilEncIssuedClaimResult(csilV))
+}
+
+// DecodeIssuedClaimResult decodes canonical CSIL CBOR bytes into a IssuedClaimResult.
+func DecodeIssuedClaimResult(csilData []byte) (IssuedClaimResult, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero IssuedClaimResult
+		return csilZero, csilErr
+	}
+	return csilDecIssuedClaimResult(csilRoot)
+}
+
+// csilEncIssueForSigningRequestResponse builds the canonical CBOR value tree for a IssueForSigningRequestResponse.
+func csilEncIssueForSigningRequestResponse(csilV IssueForSigningRequestResponse) cborValue {
+	csilEntries := make(cborMap, 0, 1)
+	csilEntries = append(csilEntries, cborEntry{cborText("results"), cborEncArray(csilV.Results, func(csilElem IssuedClaimResult) cborValue { return csilEncIssuedClaimResult(csilElem) })})
+	return csilEntries
+}
+
+// csilDecIssueForSigningRequestResponse reconstructs a IssueForSigningRequestResponse from a decoded CBOR value tree.
+func csilDecIssueForSigningRequestResponse(csilRoot cborValue) (IssueForSigningRequestResponse, error) {
+	var csilOut IssueForSigningRequestResponse
+	{
+		csilField, csilErr := cborRequire(csilRoot, "results")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]IssuedClaimResult, error) {
+			return cborDecArray(csilV, csilDecIssuedClaimResult)
+		})(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Results = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeIssueForSigningRequestResponse encodes a IssueForSigningRequestResponse to canonical CSIL CBOR bytes.
+func EncodeIssueForSigningRequestResponse(csilV IssueForSigningRequestResponse) []byte {
+	return cborEncode(csilEncIssueForSigningRequestResponse(csilV))
+}
+
+// DecodeIssueForSigningRequestResponse decodes canonical CSIL CBOR bytes into a IssueForSigningRequestResponse.
+func DecodeIssueForSigningRequestResponse(csilData []byte) (IssueForSigningRequestResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero IssueForSigningRequestResponse
+		return csilZero, csilErr
+	}
+	return csilDecIssueForSigningRequestResponse(csilRoot)
 }
 
 // csilEncCheckValue encodes a CheckValue union as a tagged sum [variant_index, value].

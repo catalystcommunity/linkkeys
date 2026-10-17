@@ -829,6 +829,8 @@ static inline int csilc_enc_SetClaimTypeLabelRequest(csilc_buf *b, const SetClai
 static inline int csilc_dec_SetClaimTypeLabelRequest(const csilc_value *m, CsilCodecArena *a, SetClaimTypeLabelRequest *out);
 static inline int csilc_enc_SetClaimTypeLabelResponse(csilc_buf *b, const SetClaimTypeLabelResponse *v);
 static inline int csilc_dec_SetClaimTypeLabelResponse(const csilc_value *m, CsilCodecArena *a, SetClaimTypeLabelResponse *out);
+static inline int csilc_enc_ListClaimTypeLabelsResponse(csilc_buf *b, const ListClaimTypeLabelsResponse *v);
+static inline int csilc_dec_ListClaimTypeLabelsResponse(const csilc_value *m, CsilCodecArena *a, ListClaimTypeLabelsResponse *out);
 static inline int csilc_enc_RemoveClaimTypeLabelRequest(csilc_buf *b, const RemoveClaimTypeLabelRequest *v);
 static inline int csilc_dec_RemoveClaimTypeLabelRequest(const csilc_value *m, CsilCodecArena *a, RemoveClaimTypeLabelRequest *out);
 static inline int csilc_enc_RemoveClaimTypeLabelResponse(csilc_buf *b, const RemoveClaimTypeLabelResponse *v);
@@ -907,6 +909,14 @@ static inline int csilc_enc_SetMyClaimSharingRequest(csilc_buf *b, const SetMyCl
 static inline int csilc_dec_SetMyClaimSharingRequest(const csilc_value *m, CsilCodecArena *a, SetMyClaimSharingRequest *out);
 static inline int csilc_enc_SetMyClaimSharingResponse(csilc_buf *b, const SetMyClaimSharingResponse *v);
 static inline int csilc_dec_SetMyClaimSharingResponse(const csilc_value *m, CsilCodecArena *a, SetMyClaimSharingResponse *out);
+static inline int csilc_enc_MyClaimSetting(csilc_buf *b, const MyClaimSetting *v);
+static inline int csilc_dec_MyClaimSetting(const csilc_value *m, CsilCodecArena *a, MyClaimSetting *out);
+static inline int csilc_enc_MyClaimSettingsResponse(csilc_buf *b, const MyClaimSettingsResponse *v);
+static inline int csilc_dec_MyClaimSettingsResponse(const csilc_value *m, CsilCodecArena *a, MyClaimSettingsResponse *out);
+static inline int csilc_enc_SetMyClaimKeepVerifiedRequest(csilc_buf *b, const SetMyClaimKeepVerifiedRequest *v);
+static inline int csilc_dec_SetMyClaimKeepVerifiedRequest(const csilc_value *m, CsilCodecArena *a, SetMyClaimKeepVerifiedRequest *out);
+static inline int csilc_enc_SetMyClaimKeepVerifiedResponse(csilc_buf *b, const SetMyClaimKeepVerifiedResponse *v);
+static inline int csilc_dec_SetMyClaimKeepVerifiedResponse(const csilc_value *m, CsilCodecArena *a, SetMyClaimKeepVerifiedResponse *out);
 static inline int csilc_enc_Profile(csilc_buf *b, const Profile *v);
 static inline int csilc_dec_Profile(const csilc_value *m, CsilCodecArena *a, Profile *out);
 static inline int csilc_enc_CreateProfileRequest(csilc_buf *b, const CreateProfileRequest *v);
@@ -975,6 +985,14 @@ static inline int csilc_enc_BrowserAuthorizationCompleteRequest(csilc_buf *b, co
 static inline int csilc_dec_BrowserAuthorizationCompleteRequest(const csilc_value *m, CsilCodecArena *a, BrowserAuthorizationCompleteRequest *out);
 static inline int csilc_enc_BrowserAuthorizationCompleteResponse(csilc_buf *b, const BrowserAuthorizationCompleteResponse *v);
 static inline int csilc_dec_BrowserAuthorizationCompleteResponse(const csilc_value *m, CsilCodecArena *a, BrowserAuthorizationCompleteResponse *out);
+static inline int csilc_enc_BrowserLocalRpInspectRequest(csilc_buf *b, const BrowserLocalRpInspectRequest *v);
+static inline int csilc_dec_BrowserLocalRpInspectRequest(const csilc_value *m, CsilCodecArena *a, BrowserLocalRpInspectRequest *out);
+static inline int csilc_enc_BrowserLocalRpInspectResponse(csilc_buf *b, const BrowserLocalRpInspectResponse *v);
+static inline int csilc_dec_BrowserLocalRpInspectResponse(const csilc_value *m, CsilCodecArena *a, BrowserLocalRpInspectResponse *out);
+static inline int csilc_enc_BrowserLocalRpCompleteRequest(csilc_buf *b, const BrowserLocalRpCompleteRequest *v);
+static inline int csilc_dec_BrowserLocalRpCompleteRequest(const csilc_value *m, CsilCodecArena *a, BrowserLocalRpCompleteRequest *out);
+static inline int csilc_enc_BrowserLocalRpCompleteResponse(csilc_buf *b, const BrowserLocalRpCompleteResponse *v);
+static inline int csilc_dec_BrowserLocalRpCompleteResponse(const csilc_value *m, CsilCodecArena *a, BrowserLocalRpCompleteResponse *out);
 static inline int csilc_enc_UiTheme(csilc_buf *b, const UiTheme *v);
 static inline int csilc_dec_UiTheme(const csilc_value *m, CsilCodecArena *a, UiTheme *out);
 static inline int csilc_enc_UiExtension(csilc_buf *b, const UiExtension *v);
@@ -1065,6 +1083,10 @@ static inline int csilc_enc_SetLocalRpPolicyRequest(csilc_buf *b, const SetLocal
 static inline int csilc_dec_SetLocalRpPolicyRequest(const csilc_value *m, CsilCodecArena *a, SetLocalRpPolicyRequest *out);
 static inline int csilc_enc_SetLocalRpPolicyResponse(csilc_buf *b, const SetLocalRpPolicyResponse *v);
 static inline int csilc_dec_SetLocalRpPolicyResponse(const csilc_value *m, CsilCodecArena *a, SetLocalRpPolicyResponse *out);
+static inline int csilc_enc_SignInPolicy(csilc_buf *b, const SignInPolicy *v);
+static inline int csilc_dec_SignInPolicy(const csilc_value *m, CsilCodecArena *a, SignInPolicy *out);
+static inline int csilc_enc_SetSignInPolicyRequest(csilc_buf *b, const SetSignInPolicyRequest *v);
+static inline int csilc_dec_SetSignInPolicyRequest(const csilc_value *m, CsilCodecArena *a, SetSignInPolicyRequest *out);
 static inline int csilc_enc_PurgeLocalRpTicketsRequest(csilc_buf *b, const PurgeLocalRpTicketsRequest *v);
 static inline int csilc_dec_PurgeLocalRpTicketsRequest(const csilc_value *m, CsilCodecArena *a, PurgeLocalRpTicketsRequest *out);
 static inline int csilc_enc_PurgeLocalRpTicketsResponse(csilc_buf *b, const PurgeLocalRpTicketsResponse *v);
@@ -1193,6 +1215,26 @@ static inline int csilc_enc_RevokeActAsGrantRequest(csilc_buf *b, const RevokeAc
 static inline int csilc_dec_RevokeActAsGrantRequest(const csilc_value *m, CsilCodecArena *a, RevokeActAsGrantRequest *out);
 static inline int csilc_enc_RevokeActAsGrantResponse(csilc_buf *b, const RevokeActAsGrantResponse *v);
 static inline int csilc_dec_RevokeActAsGrantResponse(const csilc_value *m, CsilCodecArena *a, RevokeActAsGrantResponse *out);
+static inline int csilc_enc_PreviewReleasePolicyRequest(csilc_buf *b, const PreviewReleasePolicyRequest *v);
+static inline int csilc_dec_PreviewReleasePolicyRequest(const csilc_value *m, CsilCodecArena *a, PreviewReleasePolicyRequest *out);
+static inline int csilc_enc_PreviewReleaseRow(csilc_buf *b, const PreviewReleaseRow *v);
+static inline int csilc_dec_PreviewReleaseRow(const csilc_value *m, CsilCodecArena *a, PreviewReleaseRow *out);
+static inline int csilc_enc_PreviewReleasePolicyResponse(csilc_buf *b, const PreviewReleasePolicyResponse *v);
+static inline int csilc_dec_PreviewReleasePolicyResponse(const csilc_value *m, CsilCodecArena *a, PreviewReleasePolicyResponse *out);
+static inline int csilc_enc_PreviewIssuerPolicyRequest(csilc_buf *b, const PreviewIssuerPolicyRequest *v);
+static inline int csilc_dec_PreviewIssuerPolicyRequest(const csilc_value *m, CsilCodecArena *a, PreviewIssuerPolicyRequest *out);
+static inline int csilc_enc_PreviewIssuerPolicyResponse(csilc_buf *b, const PreviewIssuerPolicyResponse *v);
+static inline int csilc_dec_PreviewIssuerPolicyResponse(const csilc_value *m, CsilCodecArena *a, PreviewIssuerPolicyResponse *out);
+static inline int csilc_enc_InspectSigningRequestRequest(csilc_buf *b, const InspectSigningRequestRequest *v);
+static inline int csilc_dec_InspectSigningRequestRequest(const csilc_value *m, CsilCodecArena *a, InspectSigningRequestRequest *out);
+static inline int csilc_enc_InspectSigningRequestResponse(csilc_buf *b, const InspectSigningRequestResponse *v);
+static inline int csilc_dec_InspectSigningRequestResponse(const csilc_value *m, CsilCodecArena *a, InspectSigningRequestResponse *out);
+static inline int csilc_enc_IssueForSigningRequestRequest(csilc_buf *b, const IssueForSigningRequestRequest *v);
+static inline int csilc_dec_IssueForSigningRequestRequest(const csilc_value *m, CsilCodecArena *a, IssueForSigningRequestRequest *out);
+static inline int csilc_enc_IssuedClaimResult(csilc_buf *b, const IssuedClaimResult *v);
+static inline int csilc_dec_IssuedClaimResult(const csilc_value *m, CsilCodecArena *a, IssuedClaimResult *out);
+static inline int csilc_enc_IssueForSigningRequestResponse(csilc_buf *b, const IssueForSigningRequestResponse *v);
+static inline int csilc_dec_IssueForSigningRequestResponse(const csilc_value *m, CsilCodecArena *a, IssueForSigningRequestResponse *out);
 
 /* csilc_enc_CheckValue writes the union as a tagged sum [variant_index, value]. */
 static inline int csilc_enc_CheckValue(csilc_buf *b, const CheckValue *v) {
@@ -4360,6 +4402,37 @@ static inline int csilc_dec_SetClaimTypeLabelResponse(const csilc_value *m, Csil
     return 0;
 }
 
+/* csilc_enc_ListClaimTypeLabelsResponse writes ListClaimTypeLabelsResponse as a canonical CBOR map. */
+static inline int csilc_enc_ListClaimTypeLabelsResponse(csilc_buf *b, const ListClaimTypeLabelsResponse *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "labels", 6)) return -1;
+    if (csilc_w_array_head(b, v->labels_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->labels_count; csilc_i++) {
+        if (csilc_enc_ClaimTypeLabel(b, &(v->labels[csilc_i]))) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_ListClaimTypeLabelsResponse reads ListClaimTypeLabelsResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_ListClaimTypeLabelsResponse(const csilc_value *m, CsilCodecArena *a, ListClaimTypeLabelsResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "labels");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->labels_count = csilc_f->as.array.count;
+    out->labels = NULL;
+    if (out->labels_count) {
+        out->labels = (ClaimTypeLabel *)csilc_arena_alloc(a, out->labels_count * sizeof(ClaimTypeLabel));
+        if (!out->labels) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->labels_count; csilc_i++) {
+            if (csilc_dec_ClaimTypeLabel(&csilc_f->as.array.items[csilc_i], a, &(out->labels[csilc_i]))) return -1;
+        }
+    }
+    return 0;
+}
+
 /* csilc_enc_RemoveClaimTypeLabelRequest writes RemoveClaimTypeLabelRequest as a canonical CBOR map. */
 static inline int csilc_enc_RemoveClaimTypeLabelRequest(csilc_buf *b, const RemoveClaimTypeLabelRequest *v) {
     size_t csilc_n = 2;
@@ -5333,6 +5406,123 @@ static inline int csilc_dec_SetMyClaimSharingResponse(const csilc_value *m, Csil
     return 0;
 }
 
+/* csilc_enc_MyClaimSetting writes MyClaimSetting as a canonical CBOR map. */
+static inline int csilc_enc_MyClaimSetting(csilc_buf *b, const MyClaimSetting *v) {
+    size_t csilc_n = 3;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "claim_type", 10)) return -1;
+    if (csilc_w_text(b, (v->claim_type), (v->claim_type) ? strlen(v->claim_type) : 0)) return -1;
+    if (csilc_w_text(b, "keep_verified", 13)) return -1;
+    if (csilc_w_bool(b, (v->keep_verified))) return -1;
+    if (csilc_w_text(b, "shared_with_every_app", 21)) return -1;
+    if (csilc_w_bool(b, (v->shared_with_every_app))) return -1;
+    return 0;
+}
+
+/* csilc_dec_MyClaimSetting reads MyClaimSetting from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_MyClaimSetting(const csilc_value *m, CsilCodecArena *a, MyClaimSetting *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "claim_type");
+    if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
+    csilc_f = csilc_map_get(m, "keep_verified");
+    if (!csilc_as_bool(csilc_f, &(out->keep_verified))) return -1;
+    csilc_f = csilc_map_get(m, "shared_with_every_app");
+    if (!csilc_as_bool(csilc_f, &(out->shared_with_every_app))) return -1;
+    return 0;
+}
+
+/* csilc_enc_MyClaimSettingsResponse writes MyClaimSettingsResponse as a canonical CBOR map. */
+static inline int csilc_enc_MyClaimSettingsResponse(csilc_buf *b, const MyClaimSettingsResponse *v) {
+    size_t csilc_n = 3;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "profiles", 8)) return -1;
+    if (csilc_w_array_head(b, v->profiles_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->profiles_count; csilc_i++) {
+        if (csilc_enc_Profile(b, &(v->profiles[csilc_i]))) return -1;
+    }
+    if (csilc_w_text(b, "settings", 8)) return -1;
+    if (csilc_w_array_head(b, v->settings_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->settings_count; csilc_i++) {
+        if (csilc_enc_MyClaimSetting(b, &(v->settings[csilc_i]))) return -1;
+    }
+    if (csilc_w_text(b, "max_profiles", 12)) return -1;
+    if (csilc_w_int(b, (int64_t)(v->max_profiles))) return -1;
+    return 0;
+}
+
+/* csilc_dec_MyClaimSettingsResponse reads MyClaimSettingsResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_MyClaimSettingsResponse(const csilc_value *m, CsilCodecArena *a, MyClaimSettingsResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "profiles");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->profiles_count = csilc_f->as.array.count;
+    out->profiles = NULL;
+    if (out->profiles_count) {
+        out->profiles = (Profile *)csilc_arena_alloc(a, out->profiles_count * sizeof(Profile));
+        if (!out->profiles) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->profiles_count; csilc_i++) {
+            if (csilc_dec_Profile(&csilc_f->as.array.items[csilc_i], a, &(out->profiles[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "settings");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->settings_count = csilc_f->as.array.count;
+    out->settings = NULL;
+    if (out->settings_count) {
+        out->settings = (MyClaimSetting *)csilc_arena_alloc(a, out->settings_count * sizeof(MyClaimSetting));
+        if (!out->settings) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->settings_count; csilc_i++) {
+            if (csilc_dec_MyClaimSetting(&csilc_f->as.array.items[csilc_i], a, &(out->settings[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "max_profiles");
+    if (!csilc_as_i64(csilc_f, &(out->max_profiles))) return -1;
+    return 0;
+}
+
+/* csilc_enc_SetMyClaimKeepVerifiedRequest writes SetMyClaimKeepVerifiedRequest as a canonical CBOR map. */
+static inline int csilc_enc_SetMyClaimKeepVerifiedRequest(csilc_buf *b, const SetMyClaimKeepVerifiedRequest *v) {
+    size_t csilc_n = 2;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "claim_type", 10)) return -1;
+    if (csilc_w_text(b, (v->claim_type), (v->claim_type) ? strlen(v->claim_type) : 0)) return -1;
+    if (csilc_w_text(b, "keep_verified", 13)) return -1;
+    if (csilc_w_bool(b, (v->keep_verified))) return -1;
+    return 0;
+}
+
+/* csilc_dec_SetMyClaimKeepVerifiedRequest reads SetMyClaimKeepVerifiedRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_SetMyClaimKeepVerifiedRequest(const csilc_value *m, CsilCodecArena *a, SetMyClaimKeepVerifiedRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "claim_type");
+    if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
+    csilc_f = csilc_map_get(m, "keep_verified");
+    if (!csilc_as_bool(csilc_f, &(out->keep_verified))) return -1;
+    return 0;
+}
+
+/* csilc_enc_SetMyClaimKeepVerifiedResponse writes SetMyClaimKeepVerifiedResponse as a canonical CBOR map. */
+static inline int csilc_enc_SetMyClaimKeepVerifiedResponse(csilc_buf *b, const SetMyClaimKeepVerifiedResponse *v) {
+    size_t csilc_n = 0;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    (void)v;
+    return 0;
+}
+
+/* csilc_dec_SetMyClaimKeepVerifiedResponse reads SetMyClaimKeepVerifiedResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_SetMyClaimKeepVerifiedResponse(const csilc_value *m, CsilCodecArena *a, SetMyClaimKeepVerifiedResponse *out) {
+    (void)a;
+    (void)out;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    return 0;
+}
+
 /* csilc_enc_Profile writes Profile as a canonical CBOR map. */
 static inline int csilc_enc_Profile(csilc_buf *b, const Profile *v) {
     size_t csilc_n = 4;
@@ -6108,6 +6298,7 @@ static inline int csilc_dec_BrowserAuthorizationInspectRequest(const csilc_value
 /* csilc_enc_BrowserConsentClaim writes BrowserConsentClaim as a canonical CBOR map. */
 static inline int csilc_enc_BrowserConsentClaim(csilc_buf *b, const BrowserConsentClaim *v) {
     size_t csilc_n = 10;
+    if (v->newly_requested) csilc_n++;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "label", 5)) return -1;
     if (csilc_w_text(b, (v->label), (v->label) ? strlen(v->label) : 0)) return -1;
@@ -6127,6 +6318,10 @@ static inline int csilc_enc_BrowserConsentClaim(csilc_buf *b, const BrowserConse
     if (csilc_w_bool(b, (v->user_settable))) return -1;
     if (csilc_w_text(b, "default_granted", 15)) return -1;
     if (csilc_w_bool(b, (v->default_granted))) return -1;
+    if (v->newly_requested) {
+        if (csilc_w_text(b, "newly_requested", 15)) return -1;
+        if (csilc_w_bool(b, ((*v->newly_requested)))) return -1;
+    }
     if (csilc_w_text(b, "requires_approval", 17)) return -1;
     if (csilc_w_bool(b, (v->requires_approval))) return -1;
     return 0;
@@ -6155,6 +6350,14 @@ static inline int csilc_dec_BrowserConsentClaim(const csilc_value *m, CsilCodecA
     if (!csilc_as_bool(csilc_f, &(out->user_settable))) return -1;
     csilc_f = csilc_map_get(m, "default_granted");
     if (!csilc_as_bool(csilc_f, &(out->default_granted))) return -1;
+    csilc_f = csilc_map_get(m, "newly_requested");
+    out->newly_requested = NULL;
+    if (csilc_f) {
+        bool *csilc_p = (bool *)csilc_arena_alloc(a, sizeof(bool));
+        if (!csilc_p) return -1;
+        if (!csilc_as_bool(csilc_f, &((*csilc_p)))) return -1;
+        out->newly_requested = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "requires_approval");
     if (!csilc_as_bool(csilc_f, &(out->requires_approval))) return -1;
     return 0;
@@ -6325,6 +6528,217 @@ static inline int csilc_enc_BrowserAuthorizationCompleteResponse(csilc_buf *b, c
 
 /* csilc_dec_BrowserAuthorizationCompleteResponse reads BrowserAuthorizationCompleteResponse from a decoded CBOR map (arena-borrowed). */
 static inline int csilc_dec_BrowserAuthorizationCompleteResponse(const csilc_value *m, CsilCodecArena *a, BrowserAuthorizationCompleteResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "redirect_url");
+    if (!csilc_get_text(csilc_f, &(out->redirect_url))) return -1;
+    return 0;
+}
+
+/* csilc_enc_BrowserLocalRpInspectRequest writes BrowserLocalRpInspectRequest as a canonical CBOR map. */
+static inline int csilc_enc_BrowserLocalRpInspectRequest(csilc_buf *b, const BrowserLocalRpInspectRequest *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "signed_request", 14)) return -1;
+    if (csilc_w_text(b, (v->signed_request), (v->signed_request) ? strlen(v->signed_request) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_BrowserLocalRpInspectRequest reads BrowserLocalRpInspectRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_BrowserLocalRpInspectRequest(const csilc_value *m, CsilCodecArena *a, BrowserLocalRpInspectRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "signed_request");
+    if (!csilc_get_text(csilc_f, &(out->signed_request))) return -1;
+    return 0;
+}
+
+/* csilc_enc_BrowserLocalRpInspectResponse writes BrowserLocalRpInspectResponse as a canonical CBOR map. */
+static inline int csilc_enc_BrowserLocalRpInspectResponse(csilc_buf *b, const BrowserLocalRpInspectResponse *v) {
+    size_t csilc_n = 5;
+    if (v->first_seen_at) csilc_n++;
+    if (v->request_reason) csilc_n++;
+    if (v->already_consented) csilc_n++;
+    if (v->authorized_claims_count) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "claims", 6)) return -1;
+    if (csilc_w_array_head(b, v->claims_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->claims_count; csilc_i++) {
+        if (csilc_enc_BrowserConsentClaim(b, &(v->claims[csilc_i]))) return -1;
+    }
+    if (csilc_w_text(b, "app_name", 8)) return -1;
+    if (csilc_w_text(b, (v->app_name), (v->app_name) ? strlen(v->app_name) : 0)) return -1;
+    if (csilc_w_text(b, "admission", 9)) return -1;
+    if (csilc_w_text(b, (v->admission), (v->admission) ? strlen(v->admission) : 0)) return -1;
+    if (csilc_w_text(b, "fingerprint", 11)) return -1;
+    if (csilc_w_text(b, (v->fingerprint), (v->fingerprint) ? strlen(v->fingerprint) : 0)) return -1;
+    if (csilc_w_text(b, "callback_host", 13)) return -1;
+    if (csilc_w_text(b, (v->callback_host), (v->callback_host) ? strlen(v->callback_host) : 0)) return -1;
+    if (v->first_seen_at) {
+        if (csilc_w_text(b, "first_seen_at", 13)) return -1;
+        if (csilc_w_text(b, (v->first_seen_at), (v->first_seen_at) ? strlen(v->first_seen_at) : 0)) return -1;
+    }
+    if (v->request_reason) {
+        if (csilc_w_text(b, "request_reason", 14)) return -1;
+        if (csilc_w_text(b, (v->request_reason), (v->request_reason) ? strlen(v->request_reason) : 0)) return -1;
+    }
+    if (v->already_consented) {
+        if (csilc_w_text(b, "already_consented", 17)) return -1;
+        if (csilc_w_bool(b, ((*v->already_consented)))) return -1;
+    }
+    if (v->authorized_claims_count) {
+        if (csilc_w_text(b, "authorized_claims", 17)) return -1;
+        if (csilc_w_array_head(b, v->authorized_claims_count)) return -1;
+        for (size_t csilc_i = 0; csilc_i < v->authorized_claims_count; csilc_i++) {
+            if (csilc_w_text(b, (v->authorized_claims[csilc_i]), (v->authorized_claims[csilc_i]) ? strlen(v->authorized_claims[csilc_i]) : 0)) return -1;
+        }
+    }
+    return 0;
+}
+
+/* csilc_dec_BrowserLocalRpInspectResponse reads BrowserLocalRpInspectResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_BrowserLocalRpInspectResponse(const csilc_value *m, CsilCodecArena *a, BrowserLocalRpInspectResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "claims");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->claims_count = csilc_f->as.array.count;
+    out->claims = NULL;
+    if (out->claims_count) {
+        out->claims = (BrowserConsentClaim *)csilc_arena_alloc(a, out->claims_count * sizeof(BrowserConsentClaim));
+        if (!out->claims) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->claims_count; csilc_i++) {
+            if (csilc_dec_BrowserConsentClaim(&csilc_f->as.array.items[csilc_i], a, &(out->claims[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "app_name");
+    if (!csilc_get_text(csilc_f, &(out->app_name))) return -1;
+    csilc_f = csilc_map_get(m, "admission");
+    if (!csilc_get_text(csilc_f, &(out->admission))) return -1;
+    csilc_f = csilc_map_get(m, "fingerprint");
+    if (!csilc_get_text(csilc_f, &(out->fingerprint))) return -1;
+    csilc_f = csilc_map_get(m, "callback_host");
+    if (!csilc_get_text(csilc_f, &(out->callback_host))) return -1;
+    csilc_f = csilc_map_get(m, "first_seen_at");
+    out->first_seen_at = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "request_reason");
+    out->request_reason = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "already_consented");
+    out->already_consented = NULL;
+    if (csilc_f) {
+        bool *csilc_p = (bool *)csilc_arena_alloc(a, sizeof(bool));
+        if (!csilc_p) return -1;
+        if (!csilc_as_bool(csilc_f, &((*csilc_p)))) return -1;
+        out->already_consented = csilc_p;
+    }
+    csilc_f = csilc_map_get(m, "authorized_claims");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->authorized_claims_count = csilc_f->as.array.count;
+    out->authorized_claims = NULL;
+    if (out->authorized_claims_count) {
+        out->authorized_claims = (char * *)csilc_arena_alloc(a, out->authorized_claims_count * sizeof(char *));
+        if (!out->authorized_claims) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->authorized_claims_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->authorized_claims[csilc_i]))) return -1;
+        }
+    }
+    return 0;
+}
+
+/* csilc_enc_BrowserLocalRpCompleteRequest writes BrowserLocalRpCompleteRequest as a canonical CBOR map. */
+static inline int csilc_enc_BrowserLocalRpCompleteRequest(csilc_buf *b, const BrowserLocalRpCompleteRequest *v) {
+    size_t csilc_n = 4;
+    if (v->use_standing_grant) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "signed_request", 14)) return -1;
+    if (csilc_w_text(b, (v->signed_request), (v->signed_request) ? strlen(v->signed_request) : 0)) return -1;
+    if (csilc_w_text(b, "authorized_claims", 17)) return -1;
+    if (csilc_w_array_head(b, v->authorized_claims_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->authorized_claims_count; csilc_i++) {
+        if (csilc_w_text(b, (v->authorized_claims[csilc_i]), (v->authorized_claims[csilc_i]) ? strlen(v->authorized_claims[csilc_i]) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "claim_types_to_set", 18)) return -1;
+    if (csilc_w_array_head(b, v->claim_types_to_set_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->claim_types_to_set_count; csilc_i++) {
+        if (csilc_w_text(b, (v->claim_types_to_set[csilc_i]), (v->claim_types_to_set[csilc_i]) ? strlen(v->claim_types_to_set[csilc_i]) : 0)) return -1;
+    }
+    if (v->use_standing_grant) {
+        if (csilc_w_text(b, "use_standing_grant", 18)) return -1;
+        if (csilc_w_bool(b, ((*v->use_standing_grant)))) return -1;
+    }
+    if (csilc_w_text(b, "claim_values_to_set", 19)) return -1;
+    if (csilc_w_array_head(b, v->claim_values_to_set_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->claim_values_to_set_count; csilc_i++) {
+        if (csilc_w_text(b, (v->claim_values_to_set[csilc_i]), (v->claim_values_to_set[csilc_i]) ? strlen(v->claim_values_to_set[csilc_i]) : 0)) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_BrowserLocalRpCompleteRequest reads BrowserLocalRpCompleteRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_BrowserLocalRpCompleteRequest(const csilc_value *m, CsilCodecArena *a, BrowserLocalRpCompleteRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "signed_request");
+    if (!csilc_get_text(csilc_f, &(out->signed_request))) return -1;
+    csilc_f = csilc_map_get(m, "authorized_claims");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->authorized_claims_count = csilc_f->as.array.count;
+    out->authorized_claims = NULL;
+    if (out->authorized_claims_count) {
+        out->authorized_claims = (char * *)csilc_arena_alloc(a, out->authorized_claims_count * sizeof(char *));
+        if (!out->authorized_claims) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->authorized_claims_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->authorized_claims[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "claim_types_to_set");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->claim_types_to_set_count = csilc_f->as.array.count;
+    out->claim_types_to_set = NULL;
+    if (out->claim_types_to_set_count) {
+        out->claim_types_to_set = (char * *)csilc_arena_alloc(a, out->claim_types_to_set_count * sizeof(char *));
+        if (!out->claim_types_to_set) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->claim_types_to_set_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->claim_types_to_set[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "use_standing_grant");
+    out->use_standing_grant = NULL;
+    if (csilc_f) {
+        bool *csilc_p = (bool *)csilc_arena_alloc(a, sizeof(bool));
+        if (!csilc_p) return -1;
+        if (!csilc_as_bool(csilc_f, &((*csilc_p)))) return -1;
+        out->use_standing_grant = csilc_p;
+    }
+    csilc_f = csilc_map_get(m, "claim_values_to_set");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->claim_values_to_set_count = csilc_f->as.array.count;
+    out->claim_values_to_set = NULL;
+    if (out->claim_values_to_set_count) {
+        out->claim_values_to_set = (char * *)csilc_arena_alloc(a, out->claim_values_to_set_count * sizeof(char *));
+        if (!out->claim_values_to_set) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->claim_values_to_set_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->claim_values_to_set[csilc_i]))) return -1;
+        }
+    }
+    return 0;
+}
+
+/* csilc_enc_BrowserLocalRpCompleteResponse writes BrowserLocalRpCompleteResponse as a canonical CBOR map. */
+static inline int csilc_enc_BrowserLocalRpCompleteResponse(csilc_buf *b, const BrowserLocalRpCompleteResponse *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "redirect_url", 12)) return -1;
+    if (csilc_w_text(b, (v->redirect_url), (v->redirect_url) ? strlen(v->redirect_url) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_BrowserLocalRpCompleteResponse reads BrowserLocalRpCompleteResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_BrowserLocalRpCompleteResponse(const csilc_value *m, CsilCodecArena *a, BrowserLocalRpCompleteResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
     if (!m || m->kind != CSILC_MAP) return -1;
@@ -6794,6 +7208,7 @@ static inline int csilc_enc_AuthorizeValidateResponse(csilc_buf *b, const Author
     size_t csilc_n = 3;
     if (v->already_consented) csilc_n++;
     if (v->authorized_claims_count) csilc_n++;
+    if (v->newly_requested_claims_count) csilc_n++;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "callback_url", 12)) return -1;
     if (csilc_w_text(b, (v->callback_url), (v->callback_url) ? strlen(v->callback_url) : 0)) return -1;
@@ -6813,6 +7228,13 @@ static inline int csilc_enc_AuthorizeValidateResponse(csilc_buf *b, const Author
         if (csilc_w_array_head(b, v->authorized_claims_count)) return -1;
         for (size_t csilc_i = 0; csilc_i < v->authorized_claims_count; csilc_i++) {
             if (csilc_w_text(b, (v->authorized_claims[csilc_i]), (v->authorized_claims[csilc_i]) ? strlen(v->authorized_claims[csilc_i]) : 0)) return -1;
+        }
+    }
+    if (v->newly_requested_claims_count) {
+        if (csilc_w_text(b, "newly_requested_claims", 22)) return -1;
+        if (csilc_w_array_head(b, v->newly_requested_claims_count)) return -1;
+        for (size_t csilc_i = 0; csilc_i < v->newly_requested_claims_count; csilc_i++) {
+            if (csilc_w_text(b, (v->newly_requested_claims[csilc_i]), (v->newly_requested_claims[csilc_i]) ? strlen(v->newly_requested_claims[csilc_i]) : 0)) return -1;
         }
     }
     return 0;
@@ -6855,6 +7277,17 @@ static inline int csilc_dec_AuthorizeValidateResponse(const csilc_value *m, Csil
         if (!out->authorized_claims) return -1;
         for (size_t csilc_i = 0; csilc_i < out->authorized_claims_count; csilc_i++) {
             if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->authorized_claims[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "newly_requested_claims");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->newly_requested_claims_count = csilc_f->as.array.count;
+    out->newly_requested_claims = NULL;
+    if (out->newly_requested_claims_count) {
+        out->newly_requested_claims = (char * *)csilc_arena_alloc(a, out->newly_requested_claims_count * sizeof(char *));
+        if (!out->newly_requested_claims) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->newly_requested_claims_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->newly_requested_claims[csilc_i]))) return -1;
         }
     }
     return 0;
@@ -7812,6 +8245,56 @@ static inline int csilc_dec_SetLocalRpPolicyResponse(const csilc_value *m, CsilC
     if (!m || m->kind != CSILC_MAP) return -1;
     csilc_f = csilc_map_get(m, "policy");
     if (!csilc_get_text(csilc_f, &(out->policy))) return -1;
+    return 0;
+}
+
+/* csilc_enc_SignInPolicy writes SignInPolicy as a canonical CBOR map. */
+static inline int csilc_enc_SignInPolicy(csilc_buf *b, const SignInPolicy *v) {
+    size_t csilc_n = 4;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "sign_in_hours", 13)) return -1;
+    if (csilc_w_int(b, (int64_t)(v->sign_in_hours))) return -1;
+    if (csilc_w_text(b, "max_sign_in_hours", 17)) return -1;
+    if (csilc_w_int(b, (int64_t)(v->max_sign_in_hours))) return -1;
+    if (csilc_w_text(b, "min_sign_in_hours", 17)) return -1;
+    if (csilc_w_int(b, (int64_t)(v->min_sign_in_hours))) return -1;
+    if (csilc_w_text(b, "default_sign_in_hours", 21)) return -1;
+    if (csilc_w_int(b, (int64_t)(v->default_sign_in_hours))) return -1;
+    return 0;
+}
+
+/* csilc_dec_SignInPolicy reads SignInPolicy from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_SignInPolicy(const csilc_value *m, CsilCodecArena *a, SignInPolicy *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "sign_in_hours");
+    if (!csilc_as_i64(csilc_f, &(out->sign_in_hours))) return -1;
+    csilc_f = csilc_map_get(m, "max_sign_in_hours");
+    if (!csilc_as_i64(csilc_f, &(out->max_sign_in_hours))) return -1;
+    csilc_f = csilc_map_get(m, "min_sign_in_hours");
+    if (!csilc_as_i64(csilc_f, &(out->min_sign_in_hours))) return -1;
+    csilc_f = csilc_map_get(m, "default_sign_in_hours");
+    if (!csilc_as_i64(csilc_f, &(out->default_sign_in_hours))) return -1;
+    return 0;
+}
+
+/* csilc_enc_SetSignInPolicyRequest writes SetSignInPolicyRequest as a canonical CBOR map. */
+static inline int csilc_enc_SetSignInPolicyRequest(csilc_buf *b, const SetSignInPolicyRequest *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "sign_in_hours", 13)) return -1;
+    if (csilc_w_int(b, (int64_t)(v->sign_in_hours))) return -1;
+    return 0;
+}
+
+/* csilc_dec_SetSignInPolicyRequest reads SetSignInPolicyRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_SetSignInPolicyRequest(const csilc_value *m, CsilCodecArena *a, SetSignInPolicyRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "sign_in_hours");
+    if (!csilc_as_i64(csilc_f, &(out->sign_in_hours))) return -1;
     return 0;
 }
 
@@ -10264,6 +10747,568 @@ static inline int csilc_dec_RevokeActAsGrantResponse(const csilc_value *m, CsilC
     return 0;
 }
 
+/* csilc_enc_PreviewReleasePolicyRequest writes PreviewReleasePolicyRequest as a canonical CBOR map. */
+static inline int csilc_enc_PreviewReleasePolicyRequest(csilc_buf *b, const PreviewReleasePolicyRequest *v) {
+    size_t csilc_n = 5;
+    if (v->temp_audience) csilc_n++;
+    if (v->temp_claim_type) csilc_n++;
+    if (v->temp_disposition) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "audience", 8)) return -1;
+    if (csilc_w_text(b, (v->audience), (v->audience) ? strlen(v->audience) : 0)) return -1;
+    if (csilc_w_text(b, "user_choices", 12)) return -1;
+    if (csilc_w_array_head(b, v->user_choices_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->user_choices_count; csilc_i++) {
+        if (csilc_w_text(b, (v->user_choices[csilc_i]), (v->user_choices[csilc_i]) ? strlen(v->user_choices[csilc_i]) : 0)) return -1;
+    }
+    if (v->temp_audience) {
+        if (csilc_w_text(b, "temp_audience", 13)) return -1;
+        if (csilc_w_text(b, (v->temp_audience), (v->temp_audience) ? strlen(v->temp_audience) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "optional_claims", 15)) return -1;
+    if (csilc_w_array_head(b, v->optional_claims_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->optional_claims_count; csilc_i++) {
+        if (csilc_w_text(b, (v->optional_claims[csilc_i]), (v->optional_claims[csilc_i]) ? strlen(v->optional_claims[csilc_i]) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "required_claims", 15)) return -1;
+    if (csilc_w_array_head(b, v->required_claims_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->required_claims_count; csilc_i++) {
+        if (csilc_w_text(b, (v->required_claims[csilc_i]), (v->required_claims[csilc_i]) ? strlen(v->required_claims[csilc_i]) : 0)) return -1;
+    }
+    if (v->temp_claim_type) {
+        if (csilc_w_text(b, "temp_claim_type", 15)) return -1;
+        if (csilc_w_text(b, (v->temp_claim_type), (v->temp_claim_type) ? strlen(v->temp_claim_type) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "available_claims", 16)) return -1;
+    if (csilc_w_array_head(b, v->available_claims_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->available_claims_count; csilc_i++) {
+        if (csilc_w_text(b, (v->available_claims[csilc_i]), (v->available_claims[csilc_i]) ? strlen(v->available_claims[csilc_i]) : 0)) return -1;
+    }
+    if (v->temp_disposition) {
+        if (csilc_w_text(b, "temp_disposition", 16)) return -1;
+        if (csilc_w_text(b, (v->temp_disposition), (v->temp_disposition) ? strlen(v->temp_disposition) : 0)) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_PreviewReleasePolicyRequest reads PreviewReleasePolicyRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_PreviewReleasePolicyRequest(const csilc_value *m, CsilCodecArena *a, PreviewReleasePolicyRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "audience");
+    if (!csilc_get_text(csilc_f, &(out->audience))) return -1;
+    csilc_f = csilc_map_get(m, "user_choices");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->user_choices_count = csilc_f->as.array.count;
+    out->user_choices = NULL;
+    if (out->user_choices_count) {
+        out->user_choices = (char * *)csilc_arena_alloc(a, out->user_choices_count * sizeof(char *));
+        if (!out->user_choices) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->user_choices_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->user_choices[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "temp_audience");
+    out->temp_audience = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "optional_claims");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->optional_claims_count = csilc_f->as.array.count;
+    out->optional_claims = NULL;
+    if (out->optional_claims_count) {
+        out->optional_claims = (char * *)csilc_arena_alloc(a, out->optional_claims_count * sizeof(char *));
+        if (!out->optional_claims) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->optional_claims_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->optional_claims[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "required_claims");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->required_claims_count = csilc_f->as.array.count;
+    out->required_claims = NULL;
+    if (out->required_claims_count) {
+        out->required_claims = (char * *)csilc_arena_alloc(a, out->required_claims_count * sizeof(char *));
+        if (!out->required_claims) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->required_claims_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->required_claims[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "temp_claim_type");
+    out->temp_claim_type = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "available_claims");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->available_claims_count = csilc_f->as.array.count;
+    out->available_claims = NULL;
+    if (out->available_claims_count) {
+        out->available_claims = (char * *)csilc_arena_alloc(a, out->available_claims_count * sizeof(char *));
+        if (!out->available_claims) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->available_claims_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->available_claims[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "temp_disposition");
+    out->temp_disposition = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    return 0;
+}
+
+/* csilc_enc_PreviewReleaseRow writes PreviewReleaseRow as a canonical CBOR map. */
+static inline int csilc_enc_PreviewReleaseRow(csilc_buf *b, const PreviewReleaseRow *v) {
+    size_t csilc_n = 6;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "locked", 6)) return -1;
+    if (csilc_w_bool(b, (v->locked))) return -1;
+    if (csilc_w_text(b, "policy", 6)) return -1;
+    if (csilc_w_text(b, (v->policy), (v->policy) ? strlen(v->policy) : 0)) return -1;
+    if (csilc_w_text(b, "required", 8)) return -1;
+    if (csilc_w_bool(b, (v->required))) return -1;
+    if (csilc_w_text(b, "available", 9)) return -1;
+    if (csilc_w_bool(b, (v->available))) return -1;
+    if (csilc_w_text(b, "claim_type", 10)) return -1;
+    if (csilc_w_text(b, (v->claim_type), (v->claim_type) ? strlen(v->claim_type) : 0)) return -1;
+    if (csilc_w_text(b, "default_granted", 15)) return -1;
+    if (csilc_w_bool(b, (v->default_granted))) return -1;
+    return 0;
+}
+
+/* csilc_dec_PreviewReleaseRow reads PreviewReleaseRow from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_PreviewReleaseRow(const csilc_value *m, CsilCodecArena *a, PreviewReleaseRow *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "locked");
+    if (!csilc_as_bool(csilc_f, &(out->locked))) return -1;
+    csilc_f = csilc_map_get(m, "policy");
+    if (!csilc_get_text(csilc_f, &(out->policy))) return -1;
+    csilc_f = csilc_map_get(m, "required");
+    if (!csilc_as_bool(csilc_f, &(out->required))) return -1;
+    csilc_f = csilc_map_get(m, "available");
+    if (!csilc_as_bool(csilc_f, &(out->available))) return -1;
+    csilc_f = csilc_map_get(m, "claim_type");
+    if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
+    csilc_f = csilc_map_get(m, "default_granted");
+    if (!csilc_as_bool(csilc_f, &(out->default_granted))) return -1;
+    return 0;
+}
+
+/* csilc_enc_PreviewReleasePolicyResponse writes PreviewReleasePolicyResponse as a canonical CBOR map. */
+static inline int csilc_enc_PreviewReleasePolicyResponse(csilc_buf *b, const PreviewReleasePolicyResponse *v) {
+    size_t csilc_n = 4;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "rows", 4)) return -1;
+    if (csilc_w_array_head(b, v->rows_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->rows_count; csilc_i++) {
+        if (csilc_enc_PreviewReleaseRow(b, &(v->rows[csilc_i]))) return -1;
+    }
+    if (csilc_w_text(b, "forced_deny", 11)) return -1;
+    if (csilc_w_array_head(b, v->forced_deny_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->forced_deny_count; csilc_i++) {
+        if (csilc_w_text(b, (v->forced_deny[csilc_i]), (v->forced_deny[csilc_i]) ? strlen(v->forced_deny[csilc_i]) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "forced_allow", 12)) return -1;
+    if (csilc_w_array_head(b, v->forced_allow_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->forced_allow_count; csilc_i++) {
+        if (csilc_w_text(b, (v->forced_allow[csilc_i]), (v->forced_allow[csilc_i]) ? strlen(v->forced_allow[csilc_i]) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "authorized_claims", 17)) return -1;
+    if (csilc_w_array_head(b, v->authorized_claims_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->authorized_claims_count; csilc_i++) {
+        if (csilc_w_text(b, (v->authorized_claims[csilc_i]), (v->authorized_claims[csilc_i]) ? strlen(v->authorized_claims[csilc_i]) : 0)) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_PreviewReleasePolicyResponse reads PreviewReleasePolicyResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_PreviewReleasePolicyResponse(const csilc_value *m, CsilCodecArena *a, PreviewReleasePolicyResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "rows");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->rows_count = csilc_f->as.array.count;
+    out->rows = NULL;
+    if (out->rows_count) {
+        out->rows = (PreviewReleaseRow *)csilc_arena_alloc(a, out->rows_count * sizeof(PreviewReleaseRow));
+        if (!out->rows) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->rows_count; csilc_i++) {
+            if (csilc_dec_PreviewReleaseRow(&csilc_f->as.array.items[csilc_i], a, &(out->rows[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "forced_deny");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->forced_deny_count = csilc_f->as.array.count;
+    out->forced_deny = NULL;
+    if (out->forced_deny_count) {
+        out->forced_deny = (char * *)csilc_arena_alloc(a, out->forced_deny_count * sizeof(char *));
+        if (!out->forced_deny) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->forced_deny_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->forced_deny[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "forced_allow");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->forced_allow_count = csilc_f->as.array.count;
+    out->forced_allow = NULL;
+    if (out->forced_allow_count) {
+        out->forced_allow = (char * *)csilc_arena_alloc(a, out->forced_allow_count * sizeof(char *));
+        if (!out->forced_allow) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->forced_allow_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->forced_allow[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "authorized_claims");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->authorized_claims_count = csilc_f->as.array.count;
+    out->authorized_claims = NULL;
+    if (out->authorized_claims_count) {
+        out->authorized_claims = (char * *)csilc_arena_alloc(a, out->authorized_claims_count * sizeof(char *));
+        if (!out->authorized_claims) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->authorized_claims_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->authorized_claims[csilc_i]))) return -1;
+        }
+    }
+    return 0;
+}
+
+/* csilc_enc_PreviewIssuerPolicyRequest writes PreviewIssuerPolicyRequest as a canonical CBOR map. */
+static inline int csilc_enc_PreviewIssuerPolicyRequest(csilc_buf *b, const PreviewIssuerPolicyRequest *v) {
+    size_t csilc_n = 1;
+    if (v->claim_type) csilc_n++;
+    if (v->denied_tlds_count) csilc_n++;
+    if (v->denied_domains_count) csilc_n++;
+    if (v->issuer_user_id) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (v->claim_type) {
+        if (csilc_w_text(b, "claim_type", 10)) return -1;
+        if (csilc_w_text(b, (v->claim_type), (v->claim_type) ? strlen(v->claim_type) : 0)) return -1;
+    }
+    if (v->denied_tlds_count) {
+        if (csilc_w_text(b, "denied_tlds", 11)) return -1;
+        if (csilc_w_array_head(b, v->denied_tlds_count)) return -1;
+        for (size_t csilc_i = 0; csilc_i < v->denied_tlds_count; csilc_i++) {
+            if (csilc_w_text(b, (v->denied_tlds[csilc_i]), (v->denied_tlds[csilc_i]) ? strlen(v->denied_tlds[csilc_i]) : 0)) return -1;
+        }
+    }
+    if (v->denied_domains_count) {
+        if (csilc_w_text(b, "denied_domains", 14)) return -1;
+        if (csilc_w_array_head(b, v->denied_domains_count)) return -1;
+        for (size_t csilc_i = 0; csilc_i < v->denied_domains_count; csilc_i++) {
+            if (csilc_w_text(b, (v->denied_domains[csilc_i]), (v->denied_domains[csilc_i]) ? strlen(v->denied_domains[csilc_i]) : 0)) return -1;
+        }
+    }
+    if (v->issuer_user_id) {
+        if (csilc_w_text(b, "issuer_user_id", 14)) return -1;
+        if (csilc_w_text(b, (v->issuer_user_id), (v->issuer_user_id) ? strlen(v->issuer_user_id) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "subject_domain", 14)) return -1;
+    if (csilc_w_text(b, (v->subject_domain), (v->subject_domain) ? strlen(v->subject_domain) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_PreviewIssuerPolicyRequest reads PreviewIssuerPolicyRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_PreviewIssuerPolicyRequest(const csilc_value *m, CsilCodecArena *a, PreviewIssuerPolicyRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "claim_type");
+    out->claim_type = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "denied_tlds");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->denied_tlds_count = csilc_f->as.array.count;
+    out->denied_tlds = NULL;
+    if (out->denied_tlds_count) {
+        out->denied_tlds = (char * *)csilc_arena_alloc(a, out->denied_tlds_count * sizeof(char *));
+        if (!out->denied_tlds) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->denied_tlds_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->denied_tlds[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "denied_domains");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->denied_domains_count = csilc_f->as.array.count;
+    out->denied_domains = NULL;
+    if (out->denied_domains_count) {
+        out->denied_domains = (char * *)csilc_arena_alloc(a, out->denied_domains_count * sizeof(char *));
+        if (!out->denied_domains) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->denied_domains_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->denied_domains[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "issuer_user_id");
+    out->issuer_user_id = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "subject_domain");
+    if (!csilc_get_text(csilc_f, &(out->subject_domain))) return -1;
+    return 0;
+}
+
+/* csilc_enc_PreviewIssuerPolicyResponse writes PreviewIssuerPolicyResponse as a canonical CBOR map. */
+static inline int csilc_enc_PreviewIssuerPolicyResponse(csilc_buf *b, const PreviewIssuerPolicyResponse *v) {
+    size_t csilc_n = 5;
+    if (v->user_can_issue) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "reason", 6)) return -1;
+    if (csilc_w_text(b, (v->reason), (v->reason) ? strlen(v->reason) : 0)) return -1;
+    if (csilc_w_text(b, "allowed", 7)) return -1;
+    if (csilc_w_bool(b, (v->allowed))) return -1;
+    if (csilc_w_text(b, "denied_tlds", 11)) return -1;
+    if (csilc_w_array_head(b, v->denied_tlds_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->denied_tlds_count; csilc_i++) {
+        if (csilc_w_text(b, (v->denied_tlds[csilc_i]), (v->denied_tlds[csilc_i]) ? strlen(v->denied_tlds[csilc_i]) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "denied_domains", 14)) return -1;
+    if (csilc_w_array_head(b, v->denied_domains_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->denied_domains_count; csilc_i++) {
+        if (csilc_w_text(b, (v->denied_domains[csilc_i]), (v->denied_domains[csilc_i]) ? strlen(v->denied_domains[csilc_i]) : 0)) return -1;
+    }
+    if (v->user_can_issue) {
+        if (csilc_w_text(b, "user_can_issue", 14)) return -1;
+        if (csilc_w_bool(b, ((*v->user_can_issue)))) return -1;
+    }
+    if (csilc_w_text(b, "attested_claim_ttl_seconds", 26)) return -1;
+    if (csilc_w_int(b, (int64_t)(v->attested_claim_ttl_seconds))) return -1;
+    return 0;
+}
+
+/* csilc_dec_PreviewIssuerPolicyResponse reads PreviewIssuerPolicyResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_PreviewIssuerPolicyResponse(const csilc_value *m, CsilCodecArena *a, PreviewIssuerPolicyResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "reason");
+    if (!csilc_get_text(csilc_f, &(out->reason))) return -1;
+    csilc_f = csilc_map_get(m, "allowed");
+    if (!csilc_as_bool(csilc_f, &(out->allowed))) return -1;
+    csilc_f = csilc_map_get(m, "denied_tlds");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->denied_tlds_count = csilc_f->as.array.count;
+    out->denied_tlds = NULL;
+    if (out->denied_tlds_count) {
+        out->denied_tlds = (char * *)csilc_arena_alloc(a, out->denied_tlds_count * sizeof(char *));
+        if (!out->denied_tlds) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->denied_tlds_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->denied_tlds[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "denied_domains");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->denied_domains_count = csilc_f->as.array.count;
+    out->denied_domains = NULL;
+    if (out->denied_domains_count) {
+        out->denied_domains = (char * *)csilc_arena_alloc(a, out->denied_domains_count * sizeof(char *));
+        if (!out->denied_domains) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->denied_domains_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->denied_domains[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "user_can_issue");
+    out->user_can_issue = NULL;
+    if (csilc_f) {
+        bool *csilc_p = (bool *)csilc_arena_alloc(a, sizeof(bool));
+        if (!csilc_p) return -1;
+        if (!csilc_as_bool(csilc_f, &((*csilc_p)))) return -1;
+        out->user_can_issue = csilc_p;
+    }
+    csilc_f = csilc_map_get(m, "attested_claim_ttl_seconds");
+    if (!csilc_as_i64(csilc_f, &(out->attested_claim_ttl_seconds))) return -1;
+    return 0;
+}
+
+/* csilc_enc_InspectSigningRequestRequest writes InspectSigningRequestRequest as a canonical CBOR map. */
+static inline int csilc_enc_InspectSigningRequestRequest(csilc_buf *b, const InspectSigningRequestRequest *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "signed_request", 14)) return -1;
+    if (csilc_w_text(b, (v->signed_request), (v->signed_request) ? strlen(v->signed_request) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_InspectSigningRequestRequest reads InspectSigningRequestRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_InspectSigningRequestRequest(const csilc_value *m, CsilCodecArena *a, InspectSigningRequestRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "signed_request");
+    if (!csilc_get_text(csilc_f, &(out->signed_request))) return -1;
+    return 0;
+}
+
+/* csilc_enc_InspectSigningRequestResponse writes InspectSigningRequestResponse as a canonical CBOR map. */
+static inline int csilc_enc_InspectSigningRequestResponse(csilc_buf *b, const InspectSigningRequestResponse *v) {
+    size_t csilc_n = 5;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "expires_at", 10)) return -1;
+    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_text(b, "subject_domain", 14)) return -1;
+    if (csilc_w_text(b, (v->subject_domain), (v->subject_domain) ? strlen(v->subject_domain) : 0)) return -1;
+    if (csilc_w_text(b, "subject_user_id", 15)) return -1;
+    if (csilc_w_text(b, (v->subject_user_id), (v->subject_user_id) ? strlen(v->subject_user_id) : 0)) return -1;
+    if (csilc_w_text(b, "issuable_claim_types", 20)) return -1;
+    if (csilc_w_array_head(b, v->issuable_claim_types_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->issuable_claim_types_count; csilc_i++) {
+        if (csilc_w_text(b, (v->issuable_claim_types[csilc_i]), (v->issuable_claim_types[csilc_i]) ? strlen(v->issuable_claim_types[csilc_i]) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "requested_claim_types", 21)) return -1;
+    if (csilc_w_array_head(b, v->requested_claim_types_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->requested_claim_types_count; csilc_i++) {
+        if (csilc_w_text(b, (v->requested_claim_types[csilc_i]), (v->requested_claim_types[csilc_i]) ? strlen(v->requested_claim_types[csilc_i]) : 0)) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_InspectSigningRequestResponse reads InspectSigningRequestResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_InspectSigningRequestResponse(const csilc_value *m, CsilCodecArena *a, InspectSigningRequestResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "expires_at");
+    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    csilc_f = csilc_map_get(m, "subject_domain");
+    if (!csilc_get_text(csilc_f, &(out->subject_domain))) return -1;
+    csilc_f = csilc_map_get(m, "subject_user_id");
+    if (!csilc_get_text(csilc_f, &(out->subject_user_id))) return -1;
+    csilc_f = csilc_map_get(m, "issuable_claim_types");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->issuable_claim_types_count = csilc_f->as.array.count;
+    out->issuable_claim_types = NULL;
+    if (out->issuable_claim_types_count) {
+        out->issuable_claim_types = (char * *)csilc_arena_alloc(a, out->issuable_claim_types_count * sizeof(char *));
+        if (!out->issuable_claim_types) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->issuable_claim_types_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->issuable_claim_types[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "requested_claim_types");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->requested_claim_types_count = csilc_f->as.array.count;
+    out->requested_claim_types = NULL;
+    if (out->requested_claim_types_count) {
+        out->requested_claim_types = (char * *)csilc_arena_alloc(a, out->requested_claim_types_count * sizeof(char *));
+        if (!out->requested_claim_types) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->requested_claim_types_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->requested_claim_types[csilc_i]))) return -1;
+        }
+    }
+    return 0;
+}
+
+/* csilc_enc_IssueForSigningRequestRequest writes IssueForSigningRequestRequest as a canonical CBOR map. */
+static inline int csilc_enc_IssueForSigningRequestRequest(csilc_buf *b, const IssueForSigningRequestRequest *v) {
+    size_t csilc_n = 3;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "claim_types", 11)) return -1;
+    if (csilc_w_array_head(b, v->claim_types_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->claim_types_count; csilc_i++) {
+        if (csilc_w_text(b, (v->claim_types[csilc_i]), (v->claim_types[csilc_i]) ? strlen(v->claim_types[csilc_i]) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "claim_values", 12)) return -1;
+    if (csilc_w_array_head(b, v->claim_values_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->claim_values_count; csilc_i++) {
+        if (csilc_w_text(b, (v->claim_values[csilc_i]), (v->claim_values[csilc_i]) ? strlen(v->claim_values[csilc_i]) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "signed_request", 14)) return -1;
+    if (csilc_w_text(b, (v->signed_request), (v->signed_request) ? strlen(v->signed_request) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_IssueForSigningRequestRequest reads IssueForSigningRequestRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_IssueForSigningRequestRequest(const csilc_value *m, CsilCodecArena *a, IssueForSigningRequestRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "claim_types");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->claim_types_count = csilc_f->as.array.count;
+    out->claim_types = NULL;
+    if (out->claim_types_count) {
+        out->claim_types = (char * *)csilc_arena_alloc(a, out->claim_types_count * sizeof(char *));
+        if (!out->claim_types) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->claim_types_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->claim_types[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "claim_values");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->claim_values_count = csilc_f->as.array.count;
+    out->claim_values = NULL;
+    if (out->claim_values_count) {
+        out->claim_values = (char * *)csilc_arena_alloc(a, out->claim_values_count * sizeof(char *));
+        if (!out->claim_values) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->claim_values_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->claim_values[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "signed_request");
+    if (!csilc_get_text(csilc_f, &(out->signed_request))) return -1;
+    return 0;
+}
+
+/* csilc_enc_IssuedClaimResult writes IssuedClaimResult as a canonical CBOR map. */
+static inline int csilc_enc_IssuedClaimResult(csilc_buf *b, const IssuedClaimResult *v) {
+    size_t csilc_n = 2;
+    if (v->message) csilc_n++;
+    if (v->claim_code) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (v->message) {
+        if (csilc_w_text(b, "message", 7)) return -1;
+        if (csilc_w_text(b, (v->message), (v->message) ? strlen(v->message) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "outcome", 7)) return -1;
+    if (csilc_w_text(b, (v->outcome), (v->outcome) ? strlen(v->outcome) : 0)) return -1;
+    if (v->claim_code) {
+        if (csilc_w_text(b, "claim_code", 10)) return -1;
+        if (csilc_w_text(b, (v->claim_code), (v->claim_code) ? strlen(v->claim_code) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "claim_type", 10)) return -1;
+    if (csilc_w_text(b, (v->claim_type), (v->claim_type) ? strlen(v->claim_type) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_IssuedClaimResult reads IssuedClaimResult from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_IssuedClaimResult(const csilc_value *m, CsilCodecArena *a, IssuedClaimResult *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "message");
+    out->message = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "outcome");
+    if (!csilc_get_text(csilc_f, &(out->outcome))) return -1;
+    csilc_f = csilc_map_get(m, "claim_code");
+    out->claim_code = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "claim_type");
+    if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
+    return 0;
+}
+
+/* csilc_enc_IssueForSigningRequestResponse writes IssueForSigningRequestResponse as a canonical CBOR map. */
+static inline int csilc_enc_IssueForSigningRequestResponse(csilc_buf *b, const IssueForSigningRequestResponse *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "results", 7)) return -1;
+    if (csilc_w_array_head(b, v->results_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->results_count; csilc_i++) {
+        if (csilc_enc_IssuedClaimResult(b, &(v->results[csilc_i]))) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_IssueForSigningRequestResponse reads IssueForSigningRequestResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_IssueForSigningRequestResponse(const csilc_value *m, CsilCodecArena *a, IssueForSigningRequestResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "results");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->results_count = csilc_f->as.array.count;
+    out->results = NULL;
+    if (out->results_count) {
+        out->results = (IssuedClaimResult *)csilc_arena_alloc(a, out->results_count * sizeof(IssuedClaimResult));
+        if (!out->results) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->results_count; csilc_i++) {
+            if (csilc_dec_IssuedClaimResult(&csilc_f->as.array.items[csilc_i], a, &(out->results[csilc_i]))) return -1;
+        }
+    }
+    return 0;
+}
+
 /* Encode a CheckValue to CBOR. On success *out is a malloc'd buffer of
  * *out_len bytes the caller frees with free(); returns non-zero on failure. */
 static inline int csil_encode_CheckValue(const CheckValue *v, uint8_t **out, size_t *out_len) {
@@ -12541,6 +13586,29 @@ static inline int csil_decode_SetClaimTypeLabelResponse(const uint8_t *in, size_
     return 0;
 }
 
+/* Encode a ListClaimTypeLabelsResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ListClaimTypeLabelsResponse(const ListClaimTypeLabelsResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ListClaimTypeLabelsResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ListClaimTypeLabelsResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ListClaimTypeLabelsResponse(const uint8_t *in, size_t len, ListClaimTypeLabelsResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ListClaimTypeLabelsResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
 /* Encode a RemoveClaimTypeLabelRequest to CBOR. On success *out is a malloc'd buffer of
  * *out_len bytes the caller frees with free(); returns non-zero on failure. */
 static inline int csil_encode_RemoveClaimTypeLabelRequest(const RemoveClaimTypeLabelRequest *v, uint8_t **out, size_t *out_len) {
@@ -13438,6 +14506,98 @@ static inline int csil_decode_SetMyClaimSharingResponse(const uint8_t *in, size_
     return 0;
 }
 
+/* Encode a MyClaimSetting to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_MyClaimSetting(const MyClaimSetting *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_MyClaimSetting(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a MyClaimSetting. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_MyClaimSetting(const uint8_t *in, size_t len, MyClaimSetting *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_MyClaimSetting(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a MyClaimSettingsResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_MyClaimSettingsResponse(const MyClaimSettingsResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_MyClaimSettingsResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a MyClaimSettingsResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_MyClaimSettingsResponse(const uint8_t *in, size_t len, MyClaimSettingsResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_MyClaimSettingsResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SetMyClaimKeepVerifiedRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SetMyClaimKeepVerifiedRequest(const SetMyClaimKeepVerifiedRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SetMyClaimKeepVerifiedRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SetMyClaimKeepVerifiedRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SetMyClaimKeepVerifiedRequest(const uint8_t *in, size_t len, SetMyClaimKeepVerifiedRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SetMyClaimKeepVerifiedRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SetMyClaimKeepVerifiedResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SetMyClaimKeepVerifiedResponse(const SetMyClaimKeepVerifiedResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SetMyClaimKeepVerifiedResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SetMyClaimKeepVerifiedResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SetMyClaimKeepVerifiedResponse(const uint8_t *in, size_t len, SetMyClaimKeepVerifiedResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SetMyClaimKeepVerifiedResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
 /* Encode a Profile to CBOR. On success *out is a malloc'd buffer of
  * *out_len bytes the caller frees with free(); returns non-zero on failure. */
 static inline int csil_encode_Profile(const Profile *v, uint8_t **out, size_t *out_len) {
@@ -14216,6 +15376,98 @@ static inline int csil_decode_BrowserAuthorizationCompleteResponse(const uint8_t
     const csilc_value *root;
     if (csilc_decode(in, len, &a, &root)) return -1;
     if (csilc_dec_BrowserAuthorizationCompleteResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a BrowserLocalRpInspectRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_BrowserLocalRpInspectRequest(const BrowserLocalRpInspectRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_BrowserLocalRpInspectRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a BrowserLocalRpInspectRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_BrowserLocalRpInspectRequest(const uint8_t *in, size_t len, BrowserLocalRpInspectRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_BrowserLocalRpInspectRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a BrowserLocalRpInspectResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_BrowserLocalRpInspectResponse(const BrowserLocalRpInspectResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_BrowserLocalRpInspectResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a BrowserLocalRpInspectResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_BrowserLocalRpInspectResponse(const uint8_t *in, size_t len, BrowserLocalRpInspectResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_BrowserLocalRpInspectResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a BrowserLocalRpCompleteRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_BrowserLocalRpCompleteRequest(const BrowserLocalRpCompleteRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_BrowserLocalRpCompleteRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a BrowserLocalRpCompleteRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_BrowserLocalRpCompleteRequest(const uint8_t *in, size_t len, BrowserLocalRpCompleteRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_BrowserLocalRpCompleteRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a BrowserLocalRpCompleteResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_BrowserLocalRpCompleteResponse(const BrowserLocalRpCompleteResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_BrowserLocalRpCompleteResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a BrowserLocalRpCompleteResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_BrowserLocalRpCompleteResponse(const uint8_t *in, size_t len, BrowserLocalRpCompleteResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_BrowserLocalRpCompleteResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
     *owner = a;
     return 0;
 }
@@ -15251,6 +16503,52 @@ static inline int csil_decode_SetLocalRpPolicyResponse(const uint8_t *in, size_t
     const csilc_value *root;
     if (csilc_decode(in, len, &a, &root)) return -1;
     if (csilc_dec_SetLocalRpPolicyResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SignInPolicy to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SignInPolicy(const SignInPolicy *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SignInPolicy(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SignInPolicy. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SignInPolicy(const uint8_t *in, size_t len, SignInPolicy *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SignInPolicy(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SetSignInPolicyRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SetSignInPolicyRequest(const SetSignInPolicyRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SetSignInPolicyRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SetSignInPolicyRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SetSignInPolicyRequest(const uint8_t *in, size_t len, SetSignInPolicyRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SetSignInPolicyRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
     *owner = a;
     return 0;
 }
@@ -16723,6 +18021,236 @@ static inline int csil_decode_RevokeActAsGrantResponse(const uint8_t *in, size_t
     const csilc_value *root;
     if (csilc_decode(in, len, &a, &root)) return -1;
     if (csilc_dec_RevokeActAsGrantResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a PreviewReleasePolicyRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_PreviewReleasePolicyRequest(const PreviewReleasePolicyRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_PreviewReleasePolicyRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a PreviewReleasePolicyRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_PreviewReleasePolicyRequest(const uint8_t *in, size_t len, PreviewReleasePolicyRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_PreviewReleasePolicyRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a PreviewReleaseRow to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_PreviewReleaseRow(const PreviewReleaseRow *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_PreviewReleaseRow(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a PreviewReleaseRow. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_PreviewReleaseRow(const uint8_t *in, size_t len, PreviewReleaseRow *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_PreviewReleaseRow(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a PreviewReleasePolicyResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_PreviewReleasePolicyResponse(const PreviewReleasePolicyResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_PreviewReleasePolicyResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a PreviewReleasePolicyResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_PreviewReleasePolicyResponse(const uint8_t *in, size_t len, PreviewReleasePolicyResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_PreviewReleasePolicyResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a PreviewIssuerPolicyRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_PreviewIssuerPolicyRequest(const PreviewIssuerPolicyRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_PreviewIssuerPolicyRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a PreviewIssuerPolicyRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_PreviewIssuerPolicyRequest(const uint8_t *in, size_t len, PreviewIssuerPolicyRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_PreviewIssuerPolicyRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a PreviewIssuerPolicyResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_PreviewIssuerPolicyResponse(const PreviewIssuerPolicyResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_PreviewIssuerPolicyResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a PreviewIssuerPolicyResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_PreviewIssuerPolicyResponse(const uint8_t *in, size_t len, PreviewIssuerPolicyResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_PreviewIssuerPolicyResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a InspectSigningRequestRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_InspectSigningRequestRequest(const InspectSigningRequestRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_InspectSigningRequestRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a InspectSigningRequestRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_InspectSigningRequestRequest(const uint8_t *in, size_t len, InspectSigningRequestRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_InspectSigningRequestRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a InspectSigningRequestResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_InspectSigningRequestResponse(const InspectSigningRequestResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_InspectSigningRequestResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a InspectSigningRequestResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_InspectSigningRequestResponse(const uint8_t *in, size_t len, InspectSigningRequestResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_InspectSigningRequestResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a IssueForSigningRequestRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_IssueForSigningRequestRequest(const IssueForSigningRequestRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_IssueForSigningRequestRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a IssueForSigningRequestRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_IssueForSigningRequestRequest(const uint8_t *in, size_t len, IssueForSigningRequestRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_IssueForSigningRequestRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a IssuedClaimResult to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_IssuedClaimResult(const IssuedClaimResult *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_IssuedClaimResult(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a IssuedClaimResult. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_IssuedClaimResult(const uint8_t *in, size_t len, IssuedClaimResult *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_IssuedClaimResult(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a IssueForSigningRequestResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_IssueForSigningRequestResponse(const IssueForSigningRequestResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_IssueForSigningRequestResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a IssueForSigningRequestResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_IssueForSigningRequestResponse(const uint8_t *in, size_t len, IssueForSigningRequestResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_IssueForSigningRequestResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
     *owner = a;
     return 0;
 }

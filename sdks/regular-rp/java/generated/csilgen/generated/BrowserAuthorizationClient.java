@@ -28,4 +28,12 @@ public final class BrowserAuthorizationClient {
     public BrowserActAsCompleteResponse completeActAs(BrowserActAsCompleteRequest req) throws ClientException {
         return CsilCbor.decodeBrowserActAsCompleteResponse(transport.call("BrowserAuthorization", "complete-act-as", CsilCbor.encodeBrowserActAsCompleteRequest(req)));
     }
+
+    public BrowserLocalRpInspectResponse inspectLocalRp(BrowserLocalRpInspectRequest req) throws ClientException {
+        return CsilCbor.decodeBrowserLocalRpInspectResponse(transport.call("BrowserAuthorization", "inspect-local-rp", CsilCbor.encodeBrowserLocalRpInspectRequest(req)));
+    }
+
+    public BrowserLocalRpCompleteResponse completeLocalRp(BrowserLocalRpCompleteRequest req) throws ClientException {
+        return CsilCbor.decodeBrowserLocalRpCompleteResponse(transport.call("BrowserAuthorization", "complete-local-rp", CsilCbor.encodeBrowserLocalRpCompleteRequest(req)));
+    }
 }

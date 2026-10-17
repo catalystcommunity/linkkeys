@@ -952,6 +952,7 @@ export interface BrowserConsentClaim {
   userSettable: boolean;
   maxBytes: number;
   requiresApproval: boolean;
+  newlyRequested?: boolean;
 }
 
 export interface BrowserAuthorizationInspectResponse {
@@ -1089,6 +1090,7 @@ export interface AuthorizeValidateResponse {
   requestedClaims: string[];
   alreadyConsented?: boolean;
   authorizedClaims?: string[];
+  newlyRequestedClaims?: string[];
 }
 
 export interface AuthorizeFinalizeRequest {

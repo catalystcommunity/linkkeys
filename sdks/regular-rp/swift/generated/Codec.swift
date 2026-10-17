@@ -2710,6 +2710,27 @@ public extension SetClaimTypeLabelResponse {
     static func fromCbor(_ bytes: [UInt8]) throws -> SetClaimTypeLabelResponse { try SetClaimTypeLabelResponse(cborValue: CsilCbor.decode(bytes)) }
 }
 
+public extension ListClaimTypeLabelsResponse {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("labels", CsilCborValue.array(self.labels.map { $0.toCborValue() })))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let labels = try CsilCbor.asArray((try CsilCbor.require(cborValue, "labels"))).map { try ClaimTypeLabel(cborValue: $0) }
+        self.init(labels: labels)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> ListClaimTypeLabelsResponse { try ListClaimTypeLabelsResponse(cborValue: CsilCbor.decode(bytes)) }
+}
+
 public extension RemoveClaimTypeLabelRequest {
     /// The CBOR value tree for this record (deep, canonical key order).
     func toCborValue() -> CsilCborValue {
@@ -3595,6 +3616,98 @@ public extension SetMyClaimSharingResponse {
     static func fromCbor(_ bytes: [UInt8]) throws -> SetMyClaimSharingResponse { try SetMyClaimSharingResponse(cborValue: CsilCbor.decode(bytes)) }
 }
 
+public extension MyClaimSetting {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("claim_type", .text(self.claimType)))
+        csilEntries.append(("keep_verified", .bool(self.keepVerified)))
+        csilEntries.append(("shared_with_every_app", .bool(self.sharedWithEveryApp)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let claimType = try CsilCbor.asText((try CsilCbor.require(cborValue, "claim_type")))
+        let keepVerified = try CsilCbor.asBool((try CsilCbor.require(cborValue, "keep_verified")))
+        let sharedWithEveryApp = try CsilCbor.asBool((try CsilCbor.require(cborValue, "shared_with_every_app")))
+        self.init(claimType: claimType, keepVerified: keepVerified, sharedWithEveryApp: sharedWithEveryApp)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> MyClaimSetting { try MyClaimSetting(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension MyClaimSettingsResponse {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("profiles", CsilCborValue.array(self.profiles.map { $0.toCborValue() })))
+        csilEntries.append(("settings", CsilCborValue.array(self.settings.map { $0.toCborValue() })))
+        csilEntries.append(("max_profiles", .int(self.maxProfiles)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let settings = try CsilCbor.asArray((try CsilCbor.require(cborValue, "settings"))).map { try MyClaimSetting(cborValue: $0) }
+        let profiles = try CsilCbor.asArray((try CsilCbor.require(cborValue, "profiles"))).map { try Profile(cborValue: $0) }
+        let maxProfiles = try CsilCbor.asI64((try CsilCbor.require(cborValue, "max_profiles")))
+        self.init(settings: settings, profiles: profiles, maxProfiles: maxProfiles)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> MyClaimSettingsResponse { try MyClaimSettingsResponse(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension SetMyClaimKeepVerifiedRequest {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("claim_type", .text(self.claimType)))
+        csilEntries.append(("keep_verified", .bool(self.keepVerified)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let claimType = try CsilCbor.asText((try CsilCbor.require(cborValue, "claim_type")))
+        let keepVerified = try CsilCbor.asBool((try CsilCbor.require(cborValue, "keep_verified")))
+        self.init(claimType: claimType, keepVerified: keepVerified)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> SetMyClaimKeepVerifiedRequest { try SetMyClaimKeepVerifiedRequest(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension SetMyClaimKeepVerifiedResponse {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        self.init()
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> SetMyClaimKeepVerifiedResponse { try SetMyClaimKeepVerifiedResponse(cborValue: CsilCbor.decode(bytes)) }
+}
+
 public extension Profile {
     /// The CBOR value tree for this record (deep, canonical key order).
     func toCborValue() -> CsilCborValue {
@@ -4292,6 +4405,7 @@ public extension BrowserConsentClaim {
         csilEntries.append(("claim_type", .text(self.claimType)))
         csilEntries.append(("user_settable", .bool(self.userSettable)))
         csilEntries.append(("default_granted", .bool(self.defaultGranted)))
+        if let csilV = self.newlyRequested { csilEntries.append(("newly_requested", .bool(csilV))) }
         csilEntries.append(("requires_approval", .bool(self.requiresApproval)))
         return .map(csilEntries)
     }
@@ -4308,7 +4422,8 @@ public extension BrowserConsentClaim {
         let userSettable = try CsilCbor.asBool((try CsilCbor.require(cborValue, "user_settable")))
         let maxBytes = try CsilCbor.asI64((try CsilCbor.require(cborValue, "max_bytes")))
         let requiresApproval = try CsilCbor.asBool((try CsilCbor.require(cborValue, "requires_approval")))
-        self.init(claimType: claimType, label: label, datatype: datatype, required: required, available: available, defaultGranted: defaultGranted, policy: policy, userSettable: userSettable, maxBytes: maxBytes, requiresApproval: requiresApproval)
+        let newlyRequested: Bool? = if let csilV = CsilCbor.mapGet(cborValue, "newly_requested") { try CsilCbor.asBool(csilV) } else { nil }
+        self.init(claimType: claimType, label: label, datatype: datatype, required: required, available: available, defaultGranted: defaultGranted, policy: policy, userSettable: userSettable, maxBytes: maxBytes, requiresApproval: requiresApproval, newlyRequested: newlyRequested)
     }
 
     /// Encode this record to canonical CSIL CBOR bytes.
@@ -4395,6 +4510,114 @@ public extension BrowserAuthorizationCompleteResponse {
 
     /// Decode a CSIL CBOR byte payload into this record.
     static func fromCbor(_ bytes: [UInt8]) throws -> BrowserAuthorizationCompleteResponse { try BrowserAuthorizationCompleteResponse(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension BrowserLocalRpInspectRequest {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("signed_request", .text(self.signedRequest)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let signedRequest = try CsilCbor.asText((try CsilCbor.require(cborValue, "signed_request")))
+        self.init(signedRequest: signedRequest)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> BrowserLocalRpInspectRequest { try BrowserLocalRpInspectRequest(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension BrowserLocalRpInspectResponse {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("claims", CsilCborValue.array(self.claims.map { $0.toCborValue() })))
+        csilEntries.append(("app_name", .text(self.appName)))
+        csilEntries.append(("admission", .text(self.admission)))
+        csilEntries.append(("fingerprint", .text(self.fingerprint)))
+        csilEntries.append(("callback_host", .text(self.callbackHost)))
+        if let csilV = self.firstSeenAt { csilEntries.append(("first_seen_at", .text(csilV))) }
+        if let csilV = self.requestReason { csilEntries.append(("request_reason", .text(csilV))) }
+        if let csilV = self.alreadyConsented { csilEntries.append(("already_consented", .bool(csilV))) }
+        if let csilV = self.authorizedClaims { csilEntries.append(("authorized_claims", CsilCborValue.array(csilV.map { .text($0) }))) }
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let admission = try CsilCbor.asText((try CsilCbor.require(cborValue, "admission")))
+        let appName = try CsilCbor.asText((try CsilCbor.require(cborValue, "app_name")))
+        let fingerprint = try CsilCbor.asText((try CsilCbor.require(cborValue, "fingerprint")))
+        let callbackHost = try CsilCbor.asText((try CsilCbor.require(cborValue, "callback_host")))
+        let firstSeenAt: String? = if let csilV = CsilCbor.mapGet(cborValue, "first_seen_at") { try CsilCbor.asText(csilV) } else { nil }
+        let claims = try CsilCbor.asArray((try CsilCbor.require(cborValue, "claims"))).map { try BrowserConsentClaim(cborValue: $0) }
+        let requestReason: String? = if let csilV = CsilCbor.mapGet(cborValue, "request_reason") { try CsilCbor.asText(csilV) } else { nil }
+        let alreadyConsented: Bool? = if let csilV = CsilCbor.mapGet(cborValue, "already_consented") { try CsilCbor.asBool(csilV) } else { nil }
+        let authorizedClaims: [String]? = if let csilV = CsilCbor.mapGet(cborValue, "authorized_claims") { try CsilCbor.asArray(csilV).map { try CsilCbor.asText($0) } } else { nil }
+        self.init(admission: admission, appName: appName, fingerprint: fingerprint, callbackHost: callbackHost, firstSeenAt: firstSeenAt, claims: claims, requestReason: requestReason, alreadyConsented: alreadyConsented, authorizedClaims: authorizedClaims)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> BrowserLocalRpInspectResponse { try BrowserLocalRpInspectResponse(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension BrowserLocalRpCompleteRequest {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("signed_request", .text(self.signedRequest)))
+        csilEntries.append(("authorized_claims", CsilCborValue.array(self.authorizedClaims.map { .text($0) })))
+        csilEntries.append(("claim_types_to_set", CsilCborValue.array(self.claimTypesToSet.map { .text($0) })))
+        if let csilV = self.useStandingGrant { csilEntries.append(("use_standing_grant", .bool(csilV))) }
+        csilEntries.append(("claim_values_to_set", CsilCborValue.array(self.claimValuesToSet.map { .text($0) })))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let signedRequest = try CsilCbor.asText((try CsilCbor.require(cborValue, "signed_request")))
+        let authorizedClaims = try CsilCbor.asArray((try CsilCbor.require(cborValue, "authorized_claims"))).map { try CsilCbor.asText($0) }
+        let claimTypesToSet = try CsilCbor.asArray((try CsilCbor.require(cborValue, "claim_types_to_set"))).map { try CsilCbor.asText($0) }
+        let claimValuesToSet = try CsilCbor.asArray((try CsilCbor.require(cborValue, "claim_values_to_set"))).map { try CsilCbor.asText($0) }
+        let useStandingGrant: Bool? = if let csilV = CsilCbor.mapGet(cborValue, "use_standing_grant") { try CsilCbor.asBool(csilV) } else { nil }
+        self.init(signedRequest: signedRequest, authorizedClaims: authorizedClaims, claimTypesToSet: claimTypesToSet, claimValuesToSet: claimValuesToSet, useStandingGrant: useStandingGrant)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> BrowserLocalRpCompleteRequest { try BrowserLocalRpCompleteRequest(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension BrowserLocalRpCompleteResponse {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("redirect_url", .text(self.redirectUrl)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let redirectUrl = try CsilCbor.asText((try CsilCbor.require(cborValue, "redirect_url")))
+        self.init(redirectUrl: redirectUrl)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> BrowserLocalRpCompleteResponse { try BrowserLocalRpCompleteResponse(cborValue: CsilCbor.decode(bytes)) }
 }
 
 public extension UiTheme {
@@ -4750,6 +4973,7 @@ public extension AuthorizeValidateResponse {
         csilEntries.append(("requested_claims", CsilCborValue.array(self.requestedClaims.map { .text($0) })))
         if let csilV = self.alreadyConsented { csilEntries.append(("already_consented", .bool(csilV))) }
         if let csilV = self.authorizedClaims { csilEntries.append(("authorized_claims", CsilCborValue.array(csilV.map { .text($0) }))) }
+        if let csilV = self.newlyRequestedClaims { csilEntries.append(("newly_requested_claims", CsilCborValue.array(csilV.map { .text($0) }))) }
         return .map(csilEntries)
     }
 
@@ -4760,7 +4984,8 @@ public extension AuthorizeValidateResponse {
         let requestedClaims = try CsilCbor.asArray((try CsilCbor.require(cborValue, "requested_claims"))).map { try CsilCbor.asText($0) }
         let alreadyConsented: Bool? = if let csilV = CsilCbor.mapGet(cborValue, "already_consented") { try CsilCbor.asBool(csilV) } else { nil }
         let authorizedClaims: [String]? = if let csilV = CsilCbor.mapGet(cborValue, "authorized_claims") { try CsilCbor.asArray(csilV).map { try CsilCbor.asText($0) } } else { nil }
-        self.init(relyingParty: relyingParty, callbackUrl: callbackUrl, requestedClaims: requestedClaims, alreadyConsented: alreadyConsented, authorizedClaims: authorizedClaims)
+        let newlyRequestedClaims: [String]? = if let csilV = CsilCbor.mapGet(cborValue, "newly_requested_claims") { try CsilCbor.asArray(csilV).map { try CsilCbor.asText($0) } } else { nil }
+        self.init(relyingParty: relyingParty, callbackUrl: callbackUrl, requestedClaims: requestedClaims, alreadyConsented: alreadyConsented, authorizedClaims: authorizedClaims, newlyRequestedClaims: newlyRequestedClaims)
     }
 
     /// Encode this record to canonical CSIL CBOR bytes.
@@ -5514,6 +5739,54 @@ public extension SetLocalRpPolicyResponse {
 
     /// Decode a CSIL CBOR byte payload into this record.
     static func fromCbor(_ bytes: [UInt8]) throws -> SetLocalRpPolicyResponse { try SetLocalRpPolicyResponse(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension SignInPolicy {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("sign_in_hours", .int(self.signInHours)))
+        csilEntries.append(("max_sign_in_hours", .int(self.maxSignInHours)))
+        csilEntries.append(("min_sign_in_hours", .int(self.minSignInHours)))
+        csilEntries.append(("default_sign_in_hours", .int(self.defaultSignInHours)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let signInHours = try CsilCbor.asI64((try CsilCbor.require(cborValue, "sign_in_hours")))
+        let defaultSignInHours = try CsilCbor.asI64((try CsilCbor.require(cborValue, "default_sign_in_hours")))
+        let minSignInHours = try CsilCbor.asI64((try CsilCbor.require(cborValue, "min_sign_in_hours")))
+        let maxSignInHours = try CsilCbor.asI64((try CsilCbor.require(cborValue, "max_sign_in_hours")))
+        self.init(signInHours: signInHours, defaultSignInHours: defaultSignInHours, minSignInHours: minSignInHours, maxSignInHours: maxSignInHours)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> SignInPolicy { try SignInPolicy(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension SetSignInPolicyRequest {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("sign_in_hours", .int(self.signInHours)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let signInHours = try CsilCbor.asI64((try CsilCbor.require(cborValue, "sign_in_hours")))
+        self.init(signInHours: signInHours)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> SetSignInPolicyRequest { try SetSignInPolicyRequest(cborValue: CsilCbor.decode(bytes)) }
 }
 
 public extension PurgeLocalRpTicketsRequest {
@@ -7189,5 +7462,281 @@ public extension RevokeActAsGrantResponse {
 
     /// Decode a CSIL CBOR byte payload into this record.
     static func fromCbor(_ bytes: [UInt8]) throws -> RevokeActAsGrantResponse { try RevokeActAsGrantResponse(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension PreviewReleasePolicyRequest {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("audience", .text(self.audience)))
+        csilEntries.append(("user_choices", CsilCborValue.array(self.userChoices.map { .text($0) })))
+        if let csilV = self.tempAudience { csilEntries.append(("temp_audience", .text(csilV))) }
+        csilEntries.append(("optional_claims", CsilCborValue.array(self.optionalClaims.map { .text($0) })))
+        csilEntries.append(("required_claims", CsilCborValue.array(self.requiredClaims.map { .text($0) })))
+        if let csilV = self.tempClaimType { csilEntries.append(("temp_claim_type", .text(csilV))) }
+        csilEntries.append(("available_claims", CsilCborValue.array(self.availableClaims.map { .text($0) })))
+        if let csilV = self.tempDisposition { csilEntries.append(("temp_disposition", .text(csilV))) }
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let audience = try CsilCbor.asText((try CsilCbor.require(cborValue, "audience")))
+        let requiredClaims = try CsilCbor.asArray((try CsilCbor.require(cborValue, "required_claims"))).map { try CsilCbor.asText($0) }
+        let optionalClaims = try CsilCbor.asArray((try CsilCbor.require(cborValue, "optional_claims"))).map { try CsilCbor.asText($0) }
+        let availableClaims = try CsilCbor.asArray((try CsilCbor.require(cborValue, "available_claims"))).map { try CsilCbor.asText($0) }
+        let userChoices = try CsilCbor.asArray((try CsilCbor.require(cborValue, "user_choices"))).map { try CsilCbor.asText($0) }
+        let tempAudience: String? = if let csilV = CsilCbor.mapGet(cborValue, "temp_audience") { try CsilCbor.asText(csilV) } else { nil }
+        let tempClaimType: String? = if let csilV = CsilCbor.mapGet(cborValue, "temp_claim_type") { try CsilCbor.asText(csilV) } else { nil }
+        let tempDisposition: String? = if let csilV = CsilCbor.mapGet(cborValue, "temp_disposition") { try CsilCbor.asText(csilV) } else { nil }
+        self.init(audience: audience, requiredClaims: requiredClaims, optionalClaims: optionalClaims, availableClaims: availableClaims, userChoices: userChoices, tempAudience: tempAudience, tempClaimType: tempClaimType, tempDisposition: tempDisposition)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> PreviewReleasePolicyRequest { try PreviewReleasePolicyRequest(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension PreviewReleaseRow {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("locked", .bool(self.locked)))
+        csilEntries.append(("policy", .text(self.policy)))
+        csilEntries.append(("required", .bool(self.required)))
+        csilEntries.append(("available", .bool(self.available)))
+        csilEntries.append(("claim_type", .text(self.claimType)))
+        csilEntries.append(("default_granted", .bool(self.defaultGranted)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let claimType = try CsilCbor.asText((try CsilCbor.require(cborValue, "claim_type")))
+        let required = try CsilCbor.asBool((try CsilCbor.require(cborValue, "required")))
+        let available = try CsilCbor.asBool((try CsilCbor.require(cborValue, "available")))
+        let locked = try CsilCbor.asBool((try CsilCbor.require(cborValue, "locked")))
+        let policy = try CsilCbor.asText((try CsilCbor.require(cborValue, "policy")))
+        let defaultGranted = try CsilCbor.asBool((try CsilCbor.require(cborValue, "default_granted")))
+        self.init(claimType: claimType, required: required, available: available, locked: locked, policy: policy, defaultGranted: defaultGranted)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> PreviewReleaseRow { try PreviewReleaseRow(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension PreviewReleasePolicyResponse {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("rows", CsilCborValue.array(self.rows.map { $0.toCborValue() })))
+        csilEntries.append(("forced_deny", CsilCborValue.array(self.forcedDeny.map { .text($0) })))
+        csilEntries.append(("forced_allow", CsilCborValue.array(self.forcedAllow.map { .text($0) })))
+        csilEntries.append(("authorized_claims", CsilCborValue.array(self.authorizedClaims.map { .text($0) })))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let forcedAllow = try CsilCbor.asArray((try CsilCbor.require(cborValue, "forced_allow"))).map { try CsilCbor.asText($0) }
+        let forcedDeny = try CsilCbor.asArray((try CsilCbor.require(cborValue, "forced_deny"))).map { try CsilCbor.asText($0) }
+        let authorizedClaims = try CsilCbor.asArray((try CsilCbor.require(cborValue, "authorized_claims"))).map { try CsilCbor.asText($0) }
+        let rows = try CsilCbor.asArray((try CsilCbor.require(cborValue, "rows"))).map { try PreviewReleaseRow(cborValue: $0) }
+        self.init(forcedAllow: forcedAllow, forcedDeny: forcedDeny, authorizedClaims: authorizedClaims, rows: rows)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> PreviewReleasePolicyResponse { try PreviewReleasePolicyResponse(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension PreviewIssuerPolicyRequest {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        if let csilV = self.claimType { csilEntries.append(("claim_type", .text(csilV))) }
+        if let csilV = self.deniedTlds { csilEntries.append(("denied_tlds", CsilCborValue.array(csilV.map { .text($0) }))) }
+        if let csilV = self.deniedDomains { csilEntries.append(("denied_domains", CsilCborValue.array(csilV.map { .text($0) }))) }
+        if let csilV = self.issuerUserId { csilEntries.append(("issuer_user_id", .text(csilV))) }
+        csilEntries.append(("subject_domain", .text(self.subjectDomain)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let subjectDomain = try CsilCbor.asText((try CsilCbor.require(cborValue, "subject_domain")))
+        let deniedDomains: [String]? = if let csilV = CsilCbor.mapGet(cborValue, "denied_domains") { try CsilCbor.asArray(csilV).map { try CsilCbor.asText($0) } } else { nil }
+        let deniedTlds: [String]? = if let csilV = CsilCbor.mapGet(cborValue, "denied_tlds") { try CsilCbor.asArray(csilV).map { try CsilCbor.asText($0) } } else { nil }
+        let issuerUserId: String? = if let csilV = CsilCbor.mapGet(cborValue, "issuer_user_id") { try CsilCbor.asText(csilV) } else { nil }
+        let claimType: String? = if let csilV = CsilCbor.mapGet(cborValue, "claim_type") { try CsilCbor.asText(csilV) } else { nil }
+        self.init(subjectDomain: subjectDomain, deniedDomains: deniedDomains, deniedTlds: deniedTlds, issuerUserId: issuerUserId, claimType: claimType)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> PreviewIssuerPolicyRequest { try PreviewIssuerPolicyRequest(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension PreviewIssuerPolicyResponse {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("reason", .text(self.reason)))
+        csilEntries.append(("allowed", .bool(self.allowed)))
+        csilEntries.append(("denied_tlds", CsilCborValue.array(self.deniedTlds.map { .text($0) })))
+        csilEntries.append(("denied_domains", CsilCborValue.array(self.deniedDomains.map { .text($0) })))
+        if let csilV = self.userCanIssue { csilEntries.append(("user_can_issue", .bool(csilV))) }
+        csilEntries.append(("attested_claim_ttl_seconds", .int(self.attestedClaimTtlSeconds)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let deniedDomains = try CsilCbor.asArray((try CsilCbor.require(cborValue, "denied_domains"))).map { try CsilCbor.asText($0) }
+        let deniedTlds = try CsilCbor.asArray((try CsilCbor.require(cborValue, "denied_tlds"))).map { try CsilCbor.asText($0) }
+        let allowed = try CsilCbor.asBool((try CsilCbor.require(cborValue, "allowed")))
+        let reason = try CsilCbor.asText((try CsilCbor.require(cborValue, "reason")))
+        let userCanIssue: Bool? = if let csilV = CsilCbor.mapGet(cborValue, "user_can_issue") { try CsilCbor.asBool(csilV) } else { nil }
+        let attestedClaimTtlSeconds = try CsilCbor.asI64((try CsilCbor.require(cborValue, "attested_claim_ttl_seconds")))
+        self.init(deniedDomains: deniedDomains, deniedTlds: deniedTlds, allowed: allowed, reason: reason, userCanIssue: userCanIssue, attestedClaimTtlSeconds: attestedClaimTtlSeconds)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> PreviewIssuerPolicyResponse { try PreviewIssuerPolicyResponse(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension InspectSigningRequestRequest {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("signed_request", .text(self.signedRequest)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let signedRequest = try CsilCbor.asText((try CsilCbor.require(cborValue, "signed_request")))
+        self.init(signedRequest: signedRequest)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> InspectSigningRequestRequest { try InspectSigningRequestRequest(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension InspectSigningRequestResponse {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("expires_at", .text(self.expiresAt)))
+        csilEntries.append(("subject_domain", .text(self.subjectDomain)))
+        csilEntries.append(("subject_user_id", .text(self.subjectUserId)))
+        csilEntries.append(("issuable_claim_types", CsilCborValue.array(self.issuableClaimTypes.map { .text($0) })))
+        csilEntries.append(("requested_claim_types", CsilCborValue.array(self.requestedClaimTypes.map { .text($0) })))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let subjectUserId = try CsilCbor.asText((try CsilCbor.require(cborValue, "subject_user_id")))
+        let subjectDomain = try CsilCbor.asText((try CsilCbor.require(cborValue, "subject_domain")))
+        let requestedClaimTypes = try CsilCbor.asArray((try CsilCbor.require(cborValue, "requested_claim_types"))).map { try CsilCbor.asText($0) }
+        let expiresAt = try CsilCbor.asText((try CsilCbor.require(cborValue, "expires_at")))
+        let issuableClaimTypes = try CsilCbor.asArray((try CsilCbor.require(cborValue, "issuable_claim_types"))).map { try CsilCbor.asText($0) }
+        self.init(subjectUserId: subjectUserId, subjectDomain: subjectDomain, requestedClaimTypes: requestedClaimTypes, expiresAt: expiresAt, issuableClaimTypes: issuableClaimTypes)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> InspectSigningRequestResponse { try InspectSigningRequestResponse(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension IssueForSigningRequestRequest {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("claim_types", CsilCborValue.array(self.claimTypes.map { .text($0) })))
+        csilEntries.append(("claim_values", CsilCborValue.array(self.claimValues.map { .text($0) })))
+        csilEntries.append(("signed_request", .text(self.signedRequest)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let signedRequest = try CsilCbor.asText((try CsilCbor.require(cborValue, "signed_request")))
+        let claimTypes = try CsilCbor.asArray((try CsilCbor.require(cborValue, "claim_types"))).map { try CsilCbor.asText($0) }
+        let claimValues = try CsilCbor.asArray((try CsilCbor.require(cborValue, "claim_values"))).map { try CsilCbor.asText($0) }
+        self.init(signedRequest: signedRequest, claimTypes: claimTypes, claimValues: claimValues)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> IssueForSigningRequestRequest { try IssueForSigningRequestRequest(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension IssuedClaimResult {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        if let csilV = self.message { csilEntries.append(("message", .text(csilV))) }
+        csilEntries.append(("outcome", .text(self.outcome)))
+        if let csilV = self.claimCode { csilEntries.append(("claim_code", .text(csilV))) }
+        csilEntries.append(("claim_type", .text(self.claimType)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let claimType = try CsilCbor.asText((try CsilCbor.require(cborValue, "claim_type")))
+        let outcome = try CsilCbor.asText((try CsilCbor.require(cborValue, "outcome")))
+        let message: String? = if let csilV = CsilCbor.mapGet(cborValue, "message") { try CsilCbor.asText(csilV) } else { nil }
+        let claimCode: String? = if let csilV = CsilCbor.mapGet(cborValue, "claim_code") { try CsilCbor.asText(csilV) } else { nil }
+        self.init(claimType: claimType, outcome: outcome, message: message, claimCode: claimCode)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> IssuedClaimResult { try IssuedClaimResult(cborValue: CsilCbor.decode(bytes)) }
+}
+
+public extension IssueForSigningRequestResponse {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append(("results", CsilCborValue.array(self.results.map { $0.toCborValue() })))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let results = try CsilCbor.asArray((try CsilCbor.require(cborValue, "results"))).map { try IssuedClaimResult(cborValue: $0) }
+        self.init(results: results)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> IssueForSigningRequestResponse { try IssueForSigningRequestResponse(cborValue: CsilCbor.decode(bytes)) }
 }
 

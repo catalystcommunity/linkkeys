@@ -2,7 +2,7 @@
 // Source: <csil spec>
 // Target: typescript-codec
 
-import type { ActAsCredential, ActAsGrant, ActAsGrantRequest, ActAsGrantRevocation, ActAsGrantSummary, ActAsPresentation, ActAsRefreshRequest, ActAsScopeEntry, ActAsScopeSet, ActAsScopeSetRequest, ActivateUserRequest, ActivateUserResponse, AddApplicationKeyRequest, AddApplicationKeyResponse, AddTrustedIssuerRequest, AddTrustedIssuerResponse, AdminIssueAttestationRequest, AdminIssueAttestationResponse, AdminLocalRp, AdminUser, AdminUserClaimsRequest, AdminUserClaimsResponse, AeadSuite, AlgorithmSupport, ApiError, ApiErrorCode, ApplicationKeyAddition, ApplicationKeyAttestation, ApplicationKeyRenewal, ApplicationKeyRevocation, ApplicationKeySignature, ApplicationRef, ApproveClaimRequest, ApproveClaimResponse, ApproveLocalRpRequest, ApproveLocalRpResponse, AuthFlowContext, AuthRequest, AuthenticateRequest, AuthenticateResponse, AuthenticationRequirements, AuthorizeFinalizeRequest, AuthorizeFinalizeResponse, AuthorizeValidateRequest, AuthorizeValidateResponse, BrowserActAsCompleteRequest, BrowserActAsCompleteResponse, BrowserActAsInspectRequest, BrowserActAsInspectResponse, BrowserActAsParty, BrowserActAsScopeEntry, BrowserAuthorizationCompleteRequest, BrowserAuthorizationCompleteResponse, BrowserAuthorizationInspectRequest, BrowserAuthorizationInspectResponse, BrowserConsentClaim, BrowserSessionInfo, ChangePasswordRequest, ChangePasswordResponse, CheckEntries, CheckPermissionRequest, CheckPermissionResponse, CheckResult, CheckValue, Claim, ClaimApproval, ClaimRequest, ClaimSignature, ClaimTypeLabel, ClaimTypePolicy, CompletePasswordRecoveryRequest, CompletePasswordRecoveryResponse, ConfirmContactVerificationRequest, ConfirmContactVerificationResponse, ConsentGrant, CreateGuestbookRequest, CreateProfileRequest, CreateProfileResponse, CreateUserRequest, CreateUserResponse, DeactivateUserRequest, DeactivateUserResponse, DeleteGuestbookRequest, DeleteGuestbookResponse, DenyLocalRpRequest, DenyLocalRpResponse, DepositClaimRequest, DepositClaimResponse, DomainClaim, DomainPublicKey, EmptyRequest, EncryptedToken, EnrollApplicationInstanceRequest, EnrollApplicationInstanceResponse, GetActAsGrantRevocationsRequest, GetActAsGrantRevocationsResponse, GetApplicationKeysRequest, GetApplicationKeysResponse, GetDomainKeysResponse, GetLocalRpPolicyRequest, GetLocalRpPolicyResponse, GetLocalRpRequest, GetLocalRpResponse, GetMyInfoResponse, GetNotificationCapabilitiesResponse, GetRevocationsRequest, GetRevocationsResponse, GetUiConfigurationResponse, GetUserAuthenticationActivityRequest, GetUserAuthenticationActivityResponse, GetUserClaimsRequest, GetUserClaimsResponse, GetUserInfoRequest, GetUserKeysRequest, GetUserKeysResponse, GetUserRequest, GetUserResponse, GrantRelationRequest, GrantRelationResponse, GranteeProof, GranteeRef, GuestbookEntry, GuestbookListRequest, GuestbookListResponse, HandshakeRequest, HandshakeResponse, HelloRequest, HelloResponse, IdentityAssertion, IntrospectBrowserSessionRequest, IntrospectBrowserSessionResponse, ListActAsGrantsResponse, ListClaimTypesResponse, ListLocalRpsRequest, ListLocalRpsResponse, ListLocalesResponse, ListPendingClaimApprovalsResponse, ListRelationsRequest, ListRelationsResponse, ListReleaseRulesResponse, ListSettablePoliciesResponse, ListTrustedIssuersResponse, ListUserClaimsRequest, ListUserClaimsResponse, ListUsersRequest, ListUsersResponse, ListVerifiedContactMethodsResponse, LocalRpCallbackHeader, LocalRpCallbackPayload, LocalRpDescriptor, LocalRpEncryptedCallback, LocalRpLoginRequest, LocalRpPolicy, LocalRpTicketRedemptionRequest, LocalRpTicketRedemptionResponse, LocaleMessages, NotificationCapability, PasswordPolicy, PinRecheckResult, Profile, PurgeLocalRpTicketsRequest, PurgeLocalRpTicketsResponse, PurgeUserRequest, PurgeUserResponse, RecheckPinsRequest, RecheckPinsResponse, RefreshActAsGrantRequest, RefreshActAsGrantResponse, RejectClaimRequest, RejectClaimResponse, Relation, ReleaseRule, RemoveClaimRequest, RemoveClaimResponse, RemoveClaimTypeLabelRequest, RemoveClaimTypeLabelResponse, RemoveClaimTypeRequest, RemoveClaimTypeResponse, RemoveCredentialRequest, RemoveCredentialResponse, RemoveMyClaimRequest, RemoveMyClaimResponse, RemoveRelationRequest, RemoveRelationResponse, RemoveReleaseRuleRequest, RemoveReleaseRuleResponse, RemoveTrustedIssuerRequest, RemoveTrustedIssuerResponse, RenewApplicationKeyAttestationRequest, RenewApplicationKeyAttestationResponse, RequestContactVerificationRequest, RequestContactVerificationResponse, RequestPasswordRecoveryRequest, RequestPasswordRecoveryResponse, RequestVerificationRequest, RequestVerificationResponse, RequestedClaim, ResetPasswordRequest, ResetPasswordResponse, RevocationCertificate, RevokeActAsGrantRequest, RevokeActAsGrantResponse, RevokeApplicationKeyRequest, RevokeApplicationKeyResponse, RevokeDomainKeyRequest, RevokeDomainKeyResponse, RevokeLocalRpRequest, RevokeLocalRpResponse, RevokeVerifiedContactMethodRequest, RevokeVerifiedContactMethodResponse, RpActAsRefreshRequest, RpDecryptRequest, RpDecryptResponse, RpIssueAttestationRequest, RpIssueAttestationResponse, RpResolveActAsRevocationsRequest, RpResolveApplicationKeysRequest, RpResolveApplicationKeysResponse, RpResolveDomainKeysRequest, RpResolveDomainKeysResponse, RpSignRequest, RpSignResponse, RpUserInfoRequest, RpVerifyRequest, RpVerifyResponse, SessionCurrentResponse, SessionLogoutResponse, SessionPasswordLoginRequest, SessionPasswordLoginResponse, SetClaimRequest, SetClaimResponse, SetClaimTypeLabelRequest, SetClaimTypeLabelResponse, SetClaimTypeRequest, SetClaimTypeResponse, SetLocalRpPolicyRequest, SetLocalRpPolicyResponse, SetMyClaimRequest, SetMyClaimResponse, SetMyClaimSharingRequest, SetMyClaimSharingResponse, SetReleaseRuleRequest, SetReleaseRuleResponse, SetUserClaimRequest, SetUserClaimResponse, SettableClaimPolicy, SignedActAsGrant, SignedActAsGrantRequest, SignedActAsGrantRevocation, SignedActAsPresentation, SignedActAsRefreshRequest, SignedActAsScopeSet, SignedApplicationKeyAddition, SignedApplicationKeyAttestation, SignedApplicationKeyRenewal, SignedAuthRequest, SignedConsentGrant, SignedIdentityAssertion, SignedLocalRpCallbackPayload, SignedLocalRpDescriptor, SignedLocalRpLoginRequest, SignedLocalRpTicketRedemptionRequest, SignedSigningRequest, SignedUserInfoRequest, SigningRequest, StartApplicationKeyChallengeRequest, StartApplicationKeyChallengeResponse, TranslationsRequest, TranslationsResponse, TrustedIssuer, UiDisplaySettings, UiExtension, UiTheme, UpdateGuestbookRequest, UpdateUserRequest, UpdateUserResponse, UserAuthenticationActivity, UserInfo, UserInfoRequest, UserPublicKey, ValidatePasswordRecoveryRequest, ValidatePasswordRecoveryResponse, VerifiedContactMethod } from "./types.gen.ts";
+import type { ActAsCredential, ActAsGrant, ActAsGrantRequest, ActAsGrantRevocation, ActAsGrantSummary, ActAsPresentation, ActAsRefreshRequest, ActAsScopeEntry, ActAsScopeSet, ActAsScopeSetRequest, ActivateUserRequest, ActivateUserResponse, AddApplicationKeyRequest, AddApplicationKeyResponse, AddTrustedIssuerRequest, AddTrustedIssuerResponse, AdminIssueAttestationRequest, AdminIssueAttestationResponse, AdminLocalRp, AdminUser, AdminUserClaimsRequest, AdminUserClaimsResponse, AeadSuite, AlgorithmSupport, ApiError, ApiErrorCode, ApplicationKeyAddition, ApplicationKeyAttestation, ApplicationKeyRenewal, ApplicationKeyRevocation, ApplicationKeySignature, ApplicationRef, ApproveClaimRequest, ApproveClaimResponse, ApproveLocalRpRequest, ApproveLocalRpResponse, AuthFlowContext, AuthRequest, AuthenticateRequest, AuthenticateResponse, AuthenticationRequirements, AuthorizeFinalizeRequest, AuthorizeFinalizeResponse, AuthorizeValidateRequest, AuthorizeValidateResponse, BrowserActAsCompleteRequest, BrowserActAsCompleteResponse, BrowserActAsInspectRequest, BrowserActAsInspectResponse, BrowserActAsParty, BrowserActAsScopeEntry, BrowserAuthorizationCompleteRequest, BrowserAuthorizationCompleteResponse, BrowserAuthorizationInspectRequest, BrowserAuthorizationInspectResponse, BrowserConsentClaim, BrowserLocalRpCompleteRequest, BrowserLocalRpCompleteResponse, BrowserLocalRpInspectRequest, BrowserLocalRpInspectResponse, BrowserSessionInfo, ChangePasswordRequest, ChangePasswordResponse, CheckEntries, CheckPermissionRequest, CheckPermissionResponse, CheckResult, CheckValue, Claim, ClaimApproval, ClaimRequest, ClaimSignature, ClaimTypeLabel, ClaimTypePolicy, CompletePasswordRecoveryRequest, CompletePasswordRecoveryResponse, ConfirmContactVerificationRequest, ConfirmContactVerificationResponse, ConsentGrant, CreateGuestbookRequest, CreateProfileRequest, CreateProfileResponse, CreateUserRequest, CreateUserResponse, DeactivateUserRequest, DeactivateUserResponse, DeleteGuestbookRequest, DeleteGuestbookResponse, DenyLocalRpRequest, DenyLocalRpResponse, DepositClaimRequest, DepositClaimResponse, DomainClaim, DomainPublicKey, EmptyRequest, EncryptedToken, EnrollApplicationInstanceRequest, EnrollApplicationInstanceResponse, GetActAsGrantRevocationsRequest, GetActAsGrantRevocationsResponse, GetApplicationKeysRequest, GetApplicationKeysResponse, GetDomainKeysResponse, GetLocalRpPolicyRequest, GetLocalRpPolicyResponse, GetLocalRpRequest, GetLocalRpResponse, GetMyInfoResponse, GetNotificationCapabilitiesResponse, GetRevocationsRequest, GetRevocationsResponse, GetUiConfigurationResponse, GetUserAuthenticationActivityRequest, GetUserAuthenticationActivityResponse, GetUserClaimsRequest, GetUserClaimsResponse, GetUserInfoRequest, GetUserKeysRequest, GetUserKeysResponse, GetUserRequest, GetUserResponse, GrantRelationRequest, GrantRelationResponse, GranteeProof, GranteeRef, GuestbookEntry, GuestbookListRequest, GuestbookListResponse, HandshakeRequest, HandshakeResponse, HelloRequest, HelloResponse, IdentityAssertion, InspectSigningRequestRequest, InspectSigningRequestResponse, IntrospectBrowserSessionRequest, IntrospectBrowserSessionResponse, IssueForSigningRequestRequest, IssueForSigningRequestResponse, IssuedClaimResult, ListActAsGrantsResponse, ListClaimTypeLabelsResponse, ListClaimTypesResponse, ListLocalRpsRequest, ListLocalRpsResponse, ListLocalesResponse, ListPendingClaimApprovalsResponse, ListRelationsRequest, ListRelationsResponse, ListReleaseRulesResponse, ListSettablePoliciesResponse, ListTrustedIssuersResponse, ListUserClaimsRequest, ListUserClaimsResponse, ListUsersRequest, ListUsersResponse, ListVerifiedContactMethodsResponse, LocalRpCallbackHeader, LocalRpCallbackPayload, LocalRpDescriptor, LocalRpEncryptedCallback, LocalRpLoginRequest, LocalRpPolicy, LocalRpTicketRedemptionRequest, LocalRpTicketRedemptionResponse, LocaleMessages, MyClaimSetting, MyClaimSettingsResponse, NotificationCapability, PasswordPolicy, PinRecheckResult, PreviewIssuerPolicyRequest, PreviewIssuerPolicyResponse, PreviewReleasePolicyRequest, PreviewReleasePolicyResponse, PreviewReleaseRow, Profile, PurgeLocalRpTicketsRequest, PurgeLocalRpTicketsResponse, PurgeUserRequest, PurgeUserResponse, RecheckPinsRequest, RecheckPinsResponse, RefreshActAsGrantRequest, RefreshActAsGrantResponse, RejectClaimRequest, RejectClaimResponse, Relation, ReleaseRule, RemoveClaimRequest, RemoveClaimResponse, RemoveClaimTypeLabelRequest, RemoveClaimTypeLabelResponse, RemoveClaimTypeRequest, RemoveClaimTypeResponse, RemoveCredentialRequest, RemoveCredentialResponse, RemoveMyClaimRequest, RemoveMyClaimResponse, RemoveRelationRequest, RemoveRelationResponse, RemoveReleaseRuleRequest, RemoveReleaseRuleResponse, RemoveTrustedIssuerRequest, RemoveTrustedIssuerResponse, RenewApplicationKeyAttestationRequest, RenewApplicationKeyAttestationResponse, RequestContactVerificationRequest, RequestContactVerificationResponse, RequestPasswordRecoveryRequest, RequestPasswordRecoveryResponse, RequestVerificationRequest, RequestVerificationResponse, RequestedClaim, ResetPasswordRequest, ResetPasswordResponse, RevocationCertificate, RevokeActAsGrantRequest, RevokeActAsGrantResponse, RevokeApplicationKeyRequest, RevokeApplicationKeyResponse, RevokeDomainKeyRequest, RevokeDomainKeyResponse, RevokeLocalRpRequest, RevokeLocalRpResponse, RevokeVerifiedContactMethodRequest, RevokeVerifiedContactMethodResponse, RpActAsRefreshRequest, RpDecryptRequest, RpDecryptResponse, RpIssueAttestationRequest, RpIssueAttestationResponse, RpResolveActAsRevocationsRequest, RpResolveApplicationKeysRequest, RpResolveApplicationKeysResponse, RpResolveDomainKeysRequest, RpResolveDomainKeysResponse, RpSignRequest, RpSignResponse, RpUserInfoRequest, RpVerifyRequest, RpVerifyResponse, SessionCurrentResponse, SessionLogoutResponse, SessionPasswordLoginRequest, SessionPasswordLoginResponse, SetClaimRequest, SetClaimResponse, SetClaimTypeLabelRequest, SetClaimTypeLabelResponse, SetClaimTypeRequest, SetClaimTypeResponse, SetLocalRpPolicyRequest, SetLocalRpPolicyResponse, SetMyClaimKeepVerifiedRequest, SetMyClaimKeepVerifiedResponse, SetMyClaimRequest, SetMyClaimResponse, SetMyClaimSharingRequest, SetMyClaimSharingResponse, SetReleaseRuleRequest, SetReleaseRuleResponse, SetSignInPolicyRequest, SetUserClaimRequest, SetUserClaimResponse, SettableClaimPolicy, SignInPolicy, SignedActAsGrant, SignedActAsGrantRequest, SignedActAsGrantRevocation, SignedActAsPresentation, SignedActAsRefreshRequest, SignedActAsScopeSet, SignedApplicationKeyAddition, SignedApplicationKeyAttestation, SignedApplicationKeyRenewal, SignedAuthRequest, SignedConsentGrant, SignedIdentityAssertion, SignedLocalRpCallbackPayload, SignedLocalRpDescriptor, SignedLocalRpLoginRequest, SignedLocalRpTicketRedemptionRequest, SignedSigningRequest, SignedUserInfoRequest, SigningRequest, StartApplicationKeyChallengeRequest, StartApplicationKeyChallengeResponse, TranslationsRequest, TranslationsResponse, TrustedIssuer, UiDisplaySettings, UiExtension, UiTheme, UpdateGuestbookRequest, UpdateUserRequest, UpdateUserResponse, UserAuthenticationActivity, UserInfo, UserInfoRequest, UserPublicKey, ValidatePasswordRecoveryRequest, ValidatePasswordRecoveryResponse, VerifiedContactMethod } from "./types.gen.ts";
 
 /** A CBOR semantic tag wrapping an inner value (e.g. tag 0 timestamp, tag 4 decimal). */
 export type CborTag = { readonly tag: number; readonly value: CborValue };
@@ -2671,6 +2671,26 @@ export function fromSetClaimTypeLabelResponseCbor(bytes: Uint8Array): SetClaimTy
   return fromSetClaimTypeLabelResponseCborValue(decode(bytes));
 }
 
+export function toListClaimTypeLabelsResponseCborValue(v: ListClaimTypeLabelsResponse): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("labels", v.labels.map((csilE): CborValue => toClaimTypeLabelCborValue(csilE)));
+  return csilMap;
+}
+
+export function fromListClaimTypeLabelsResponseCborValue(value: CborValue): ListClaimTypeLabelsResponse {
+  return {
+    labels: asArray(requireKey(value, "labels")).map((csilE) => fromClaimTypeLabelCborValue(csilE)),
+  };
+}
+
+export function toListClaimTypeLabelsResponseCbor(v: ListClaimTypeLabelsResponse): Uint8Array {
+  return encodeValue(toListClaimTypeLabelsResponseCborValue(v));
+}
+
+export function fromListClaimTypeLabelsResponseCbor(bytes: Uint8Array): ListClaimTypeLabelsResponse {
+  return fromListClaimTypeLabelsResponseCborValue(decode(bytes));
+}
+
 export function toRemoveClaimTypeLabelRequestCborValue(v: RemoveClaimTypeLabelRequest): CborValue {
   const csilMap = new Map<CborValue, CborValue>();
   csilMap.set("locale", v.locale);
@@ -3517,6 +3537,94 @@ export function fromSetMyClaimSharingResponseCbor(bytes: Uint8Array): SetMyClaim
   return fromSetMyClaimSharingResponseCborValue(decode(bytes));
 }
 
+export function toMyClaimSettingCborValue(v: MyClaimSetting): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("claim_type", v.claimType);
+  csilMap.set("keep_verified", v.keepVerified);
+  csilMap.set("shared_with_every_app", v.sharedWithEveryApp);
+  return csilMap;
+}
+
+export function fromMyClaimSettingCborValue(value: CborValue): MyClaimSetting {
+  return {
+    claimType: asString(requireKey(value, "claim_type")),
+    keepVerified: asBool(requireKey(value, "keep_verified")),
+    sharedWithEveryApp: asBool(requireKey(value, "shared_with_every_app")),
+  };
+}
+
+export function toMyClaimSettingCbor(v: MyClaimSetting): Uint8Array {
+  return encodeValue(toMyClaimSettingCborValue(v));
+}
+
+export function fromMyClaimSettingCbor(bytes: Uint8Array): MyClaimSetting {
+  return fromMyClaimSettingCborValue(decode(bytes));
+}
+
+export function toMyClaimSettingsResponseCborValue(v: MyClaimSettingsResponse): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("profiles", v.profiles.map((csilE): CborValue => toProfileCborValue(csilE)));
+  csilMap.set("settings", v.settings.map((csilE): CborValue => toMyClaimSettingCborValue(csilE)));
+  csilMap.set("max_profiles", v.maxProfiles);
+  return csilMap;
+}
+
+export function fromMyClaimSettingsResponseCborValue(value: CborValue): MyClaimSettingsResponse {
+  return {
+    settings: asArray(requireKey(value, "settings")).map((csilE) => fromMyClaimSettingCborValue(csilE)),
+    profiles: asArray(requireKey(value, "profiles")).map((csilE) => fromProfileCborValue(csilE)),
+    maxProfiles: asNumber(requireKey(value, "max_profiles")),
+  };
+}
+
+export function toMyClaimSettingsResponseCbor(v: MyClaimSettingsResponse): Uint8Array {
+  return encodeValue(toMyClaimSettingsResponseCborValue(v));
+}
+
+export function fromMyClaimSettingsResponseCbor(bytes: Uint8Array): MyClaimSettingsResponse {
+  return fromMyClaimSettingsResponseCborValue(decode(bytes));
+}
+
+export function toSetMyClaimKeepVerifiedRequestCborValue(v: SetMyClaimKeepVerifiedRequest): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("claim_type", v.claimType);
+  csilMap.set("keep_verified", v.keepVerified);
+  return csilMap;
+}
+
+export function fromSetMyClaimKeepVerifiedRequestCborValue(value: CborValue): SetMyClaimKeepVerifiedRequest {
+  return {
+    claimType: asString(requireKey(value, "claim_type")),
+    keepVerified: asBool(requireKey(value, "keep_verified")),
+  };
+}
+
+export function toSetMyClaimKeepVerifiedRequestCbor(v: SetMyClaimKeepVerifiedRequest): Uint8Array {
+  return encodeValue(toSetMyClaimKeepVerifiedRequestCborValue(v));
+}
+
+export function fromSetMyClaimKeepVerifiedRequestCbor(bytes: Uint8Array): SetMyClaimKeepVerifiedRequest {
+  return fromSetMyClaimKeepVerifiedRequestCborValue(decode(bytes));
+}
+
+export function toSetMyClaimKeepVerifiedResponseCborValue(v: SetMyClaimKeepVerifiedResponse): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  return csilMap;
+}
+
+export function fromSetMyClaimKeepVerifiedResponseCborValue(value: CborValue): SetMyClaimKeepVerifiedResponse {
+  void value;
+  return {} as SetMyClaimKeepVerifiedResponse;
+}
+
+export function toSetMyClaimKeepVerifiedResponseCbor(v: SetMyClaimKeepVerifiedResponse): Uint8Array {
+  return encodeValue(toSetMyClaimKeepVerifiedResponseCborValue(v));
+}
+
+export function fromSetMyClaimKeepVerifiedResponseCbor(bytes: Uint8Array): SetMyClaimKeepVerifiedResponse {
+  return fromSetMyClaimKeepVerifiedResponseCborValue(decode(bytes));
+}
+
 export function toProfileCborValue(v: Profile): CborValue {
   const csilMap = new Map<CborValue, CborValue>();
   csilMap.set("id", v.id);
@@ -4182,6 +4290,7 @@ export function toBrowserConsentClaimCborValue(v: BrowserConsentClaim): CborValu
   csilMap.set("claim_type", v.claimType);
   csilMap.set("user_settable", v.userSettable);
   csilMap.set("default_granted", v.defaultGranted);
+  if (v.newlyRequested !== undefined) csilMap.set("newly_requested", v.newlyRequested);
   csilMap.set("requires_approval", v.requiresApproval);
   return csilMap;
 }
@@ -4198,6 +4307,7 @@ export function fromBrowserConsentClaimCborValue(value: CborValue): BrowserConse
     userSettable: asBool(requireKey(value, "user_settable")),
     maxBytes: asNumber(requireKey(value, "max_bytes")),
     requiresApproval: asBool(requireKey(value, "requires_approval")),
+    newlyRequested: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asBool(csilV))(mapGet(value, "newly_requested")),
   };
 }
 
@@ -4283,6 +4393,110 @@ export function toBrowserAuthorizationCompleteResponseCbor(v: BrowserAuthorizati
 
 export function fromBrowserAuthorizationCompleteResponseCbor(bytes: Uint8Array): BrowserAuthorizationCompleteResponse {
   return fromBrowserAuthorizationCompleteResponseCborValue(decode(bytes));
+}
+
+export function toBrowserLocalRpInspectRequestCborValue(v: BrowserLocalRpInspectRequest): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("signed_request", v.signedRequest);
+  return csilMap;
+}
+
+export function fromBrowserLocalRpInspectRequestCborValue(value: CborValue): BrowserLocalRpInspectRequest {
+  return {
+    signedRequest: asString(requireKey(value, "signed_request")),
+  };
+}
+
+export function toBrowserLocalRpInspectRequestCbor(v: BrowserLocalRpInspectRequest): Uint8Array {
+  return encodeValue(toBrowserLocalRpInspectRequestCborValue(v));
+}
+
+export function fromBrowserLocalRpInspectRequestCbor(bytes: Uint8Array): BrowserLocalRpInspectRequest {
+  return fromBrowserLocalRpInspectRequestCborValue(decode(bytes));
+}
+
+export function toBrowserLocalRpInspectResponseCborValue(v: BrowserLocalRpInspectResponse): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("claims", v.claims.map((csilE): CborValue => toBrowserConsentClaimCborValue(csilE)));
+  csilMap.set("app_name", v.appName);
+  csilMap.set("admission", v.admission);
+  csilMap.set("fingerprint", v.fingerprint);
+  csilMap.set("callback_host", v.callbackHost);
+  if (v.firstSeenAt !== undefined) csilMap.set("first_seen_at", v.firstSeenAt);
+  if (v.requestReason !== undefined) csilMap.set("request_reason", v.requestReason);
+  if (v.alreadyConsented !== undefined) csilMap.set("already_consented", v.alreadyConsented);
+  if (v.authorizedClaims !== undefined) csilMap.set("authorized_claims", v.authorizedClaims);
+  return csilMap;
+}
+
+export function fromBrowserLocalRpInspectResponseCborValue(value: CborValue): BrowserLocalRpInspectResponse {
+  return {
+    admission: asString(requireKey(value, "admission")),
+    appName: asString(requireKey(value, "app_name")),
+    fingerprint: asString(requireKey(value, "fingerprint")),
+    callbackHost: asString(requireKey(value, "callback_host")),
+    firstSeenAt: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "first_seen_at")),
+    claims: asArray(requireKey(value, "claims")).map((csilE) => fromBrowserConsentClaimCborValue(csilE)),
+    requestReason: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "request_reason")),
+    alreadyConsented: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asBool(csilV))(mapGet(value, "already_consented")),
+    authorizedClaims: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asArray(csilV).map((csilE) => asString(csilE)))(mapGet(value, "authorized_claims")),
+  };
+}
+
+export function toBrowserLocalRpInspectResponseCbor(v: BrowserLocalRpInspectResponse): Uint8Array {
+  return encodeValue(toBrowserLocalRpInspectResponseCborValue(v));
+}
+
+export function fromBrowserLocalRpInspectResponseCbor(bytes: Uint8Array): BrowserLocalRpInspectResponse {
+  return fromBrowserLocalRpInspectResponseCborValue(decode(bytes));
+}
+
+export function toBrowserLocalRpCompleteRequestCborValue(v: BrowserLocalRpCompleteRequest): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("signed_request", v.signedRequest);
+  csilMap.set("authorized_claims", v.authorizedClaims);
+  csilMap.set("claim_types_to_set", v.claimTypesToSet);
+  if (v.useStandingGrant !== undefined) csilMap.set("use_standing_grant", v.useStandingGrant);
+  csilMap.set("claim_values_to_set", v.claimValuesToSet);
+  return csilMap;
+}
+
+export function fromBrowserLocalRpCompleteRequestCborValue(value: CborValue): BrowserLocalRpCompleteRequest {
+  return {
+    signedRequest: asString(requireKey(value, "signed_request")),
+    authorizedClaims: asArray(requireKey(value, "authorized_claims")).map((csilE) => asString(csilE)),
+    claimTypesToSet: asArray(requireKey(value, "claim_types_to_set")).map((csilE) => asString(csilE)),
+    claimValuesToSet: asArray(requireKey(value, "claim_values_to_set")).map((csilE) => asString(csilE)),
+    useStandingGrant: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asBool(csilV))(mapGet(value, "use_standing_grant")),
+  };
+}
+
+export function toBrowserLocalRpCompleteRequestCbor(v: BrowserLocalRpCompleteRequest): Uint8Array {
+  return encodeValue(toBrowserLocalRpCompleteRequestCborValue(v));
+}
+
+export function fromBrowserLocalRpCompleteRequestCbor(bytes: Uint8Array): BrowserLocalRpCompleteRequest {
+  return fromBrowserLocalRpCompleteRequestCborValue(decode(bytes));
+}
+
+export function toBrowserLocalRpCompleteResponseCborValue(v: BrowserLocalRpCompleteResponse): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("redirect_url", v.redirectUrl);
+  return csilMap;
+}
+
+export function fromBrowserLocalRpCompleteResponseCborValue(value: CborValue): BrowserLocalRpCompleteResponse {
+  return {
+    redirectUrl: asString(requireKey(value, "redirect_url")),
+  };
+}
+
+export function toBrowserLocalRpCompleteResponseCbor(v: BrowserLocalRpCompleteResponse): Uint8Array {
+  return encodeValue(toBrowserLocalRpCompleteResponseCborValue(v));
+}
+
+export function fromBrowserLocalRpCompleteResponseCbor(bytes: Uint8Array): BrowserLocalRpCompleteResponse {
+  return fromBrowserLocalRpCompleteResponseCborValue(decode(bytes));
 }
 
 export function toUiThemeCborValue(v: UiTheme): CborValue {
@@ -4622,6 +4836,7 @@ export function toAuthorizeValidateResponseCborValue(v: AuthorizeValidateRespons
   csilMap.set("requested_claims", v.requestedClaims);
   if (v.alreadyConsented !== undefined) csilMap.set("already_consented", v.alreadyConsented);
   if (v.authorizedClaims !== undefined) csilMap.set("authorized_claims", v.authorizedClaims);
+  if (v.newlyRequestedClaims !== undefined) csilMap.set("newly_requested_claims", v.newlyRequestedClaims);
   return csilMap;
 }
 
@@ -4632,6 +4847,7 @@ export function fromAuthorizeValidateResponseCborValue(value: CborValue): Author
     requestedClaims: asArray(requireKey(value, "requested_claims")).map((csilE) => asString(csilE)),
     alreadyConsented: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asBool(csilV))(mapGet(value, "already_consented")),
     authorizedClaims: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asArray(csilV).map((csilE) => asString(csilE)))(mapGet(value, "authorized_claims")),
+    newlyRequestedClaims: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asArray(csilV).map((csilE) => asString(csilE)))(mapGet(value, "newly_requested_claims")),
   };
 }
 
@@ -5339,6 +5555,52 @@ export function toSetLocalRpPolicyResponseCbor(v: SetLocalRpPolicyResponse): Uin
 
 export function fromSetLocalRpPolicyResponseCbor(bytes: Uint8Array): SetLocalRpPolicyResponse {
   return fromSetLocalRpPolicyResponseCborValue(decode(bytes));
+}
+
+export function toSignInPolicyCborValue(v: SignInPolicy): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("sign_in_hours", v.signInHours);
+  csilMap.set("max_sign_in_hours", v.maxSignInHours);
+  csilMap.set("min_sign_in_hours", v.minSignInHours);
+  csilMap.set("default_sign_in_hours", v.defaultSignInHours);
+  return csilMap;
+}
+
+export function fromSignInPolicyCborValue(value: CborValue): SignInPolicy {
+  return {
+    signInHours: asNumber(requireKey(value, "sign_in_hours")),
+    defaultSignInHours: asNumber(requireKey(value, "default_sign_in_hours")),
+    minSignInHours: asNumber(requireKey(value, "min_sign_in_hours")),
+    maxSignInHours: asNumber(requireKey(value, "max_sign_in_hours")),
+  };
+}
+
+export function toSignInPolicyCbor(v: SignInPolicy): Uint8Array {
+  return encodeValue(toSignInPolicyCborValue(v));
+}
+
+export function fromSignInPolicyCbor(bytes: Uint8Array): SignInPolicy {
+  return fromSignInPolicyCborValue(decode(bytes));
+}
+
+export function toSetSignInPolicyRequestCborValue(v: SetSignInPolicyRequest): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("sign_in_hours", v.signInHours);
+  return csilMap;
+}
+
+export function fromSetSignInPolicyRequestCborValue(value: CborValue): SetSignInPolicyRequest {
+  return {
+    signInHours: asNumber(requireKey(value, "sign_in_hours")),
+  };
+}
+
+export function toSetSignInPolicyRequestCbor(v: SetSignInPolicyRequest): Uint8Array {
+  return encodeValue(toSetSignInPolicyRequestCborValue(v));
+}
+
+export function fromSetSignInPolicyRequestCbor(bytes: Uint8Array): SetSignInPolicyRequest {
+  return fromSetSignInPolicyRequestCborValue(decode(bytes));
 }
 
 export function toPurgeLocalRpTicketsRequestCborValue(v: PurgeLocalRpTicketsRequest): CborValue {
@@ -6951,5 +7213,271 @@ export function toRevokeActAsGrantResponseCbor(v: RevokeActAsGrantResponse): Uin
 
 export function fromRevokeActAsGrantResponseCbor(bytes: Uint8Array): RevokeActAsGrantResponse {
   return fromRevokeActAsGrantResponseCborValue(decode(bytes));
+}
+
+export function toPreviewReleasePolicyRequestCborValue(v: PreviewReleasePolicyRequest): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("audience", v.audience);
+  csilMap.set("user_choices", v.userChoices);
+  if (v.tempAudience !== undefined) csilMap.set("temp_audience", v.tempAudience);
+  csilMap.set("optional_claims", v.optionalClaims);
+  csilMap.set("required_claims", v.requiredClaims);
+  if (v.tempClaimType !== undefined) csilMap.set("temp_claim_type", v.tempClaimType);
+  csilMap.set("available_claims", v.availableClaims);
+  if (v.tempDisposition !== undefined) csilMap.set("temp_disposition", v.tempDisposition);
+  return csilMap;
+}
+
+export function fromPreviewReleasePolicyRequestCborValue(value: CborValue): PreviewReleasePolicyRequest {
+  return {
+    audience: asString(requireKey(value, "audience")),
+    requiredClaims: asArray(requireKey(value, "required_claims")).map((csilE) => asString(csilE)),
+    optionalClaims: asArray(requireKey(value, "optional_claims")).map((csilE) => asString(csilE)),
+    availableClaims: asArray(requireKey(value, "available_claims")).map((csilE) => asString(csilE)),
+    userChoices: asArray(requireKey(value, "user_choices")).map((csilE) => asString(csilE)),
+    tempAudience: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "temp_audience")),
+    tempClaimType: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "temp_claim_type")),
+    tempDisposition: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "temp_disposition")),
+  };
+}
+
+export function toPreviewReleasePolicyRequestCbor(v: PreviewReleasePolicyRequest): Uint8Array {
+  return encodeValue(toPreviewReleasePolicyRequestCborValue(v));
+}
+
+export function fromPreviewReleasePolicyRequestCbor(bytes: Uint8Array): PreviewReleasePolicyRequest {
+  return fromPreviewReleasePolicyRequestCborValue(decode(bytes));
+}
+
+export function toPreviewReleaseRowCborValue(v: PreviewReleaseRow): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("locked", v.locked);
+  csilMap.set("policy", v.policy);
+  csilMap.set("required", v.required);
+  csilMap.set("available", v.available);
+  csilMap.set("claim_type", v.claimType);
+  csilMap.set("default_granted", v.defaultGranted);
+  return csilMap;
+}
+
+export function fromPreviewReleaseRowCborValue(value: CborValue): PreviewReleaseRow {
+  return {
+    claimType: asString(requireKey(value, "claim_type")),
+    required: asBool(requireKey(value, "required")),
+    available: asBool(requireKey(value, "available")),
+    locked: asBool(requireKey(value, "locked")),
+    policy: asString(requireKey(value, "policy")),
+    defaultGranted: asBool(requireKey(value, "default_granted")),
+  };
+}
+
+export function toPreviewReleaseRowCbor(v: PreviewReleaseRow): Uint8Array {
+  return encodeValue(toPreviewReleaseRowCborValue(v));
+}
+
+export function fromPreviewReleaseRowCbor(bytes: Uint8Array): PreviewReleaseRow {
+  return fromPreviewReleaseRowCborValue(decode(bytes));
+}
+
+export function toPreviewReleasePolicyResponseCborValue(v: PreviewReleasePolicyResponse): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("rows", v.rows.map((csilE): CborValue => toPreviewReleaseRowCborValue(csilE)));
+  csilMap.set("forced_deny", v.forcedDeny);
+  csilMap.set("forced_allow", v.forcedAllow);
+  csilMap.set("authorized_claims", v.authorizedClaims);
+  return csilMap;
+}
+
+export function fromPreviewReleasePolicyResponseCborValue(value: CborValue): PreviewReleasePolicyResponse {
+  return {
+    forcedAllow: asArray(requireKey(value, "forced_allow")).map((csilE) => asString(csilE)),
+    forcedDeny: asArray(requireKey(value, "forced_deny")).map((csilE) => asString(csilE)),
+    authorizedClaims: asArray(requireKey(value, "authorized_claims")).map((csilE) => asString(csilE)),
+    rows: asArray(requireKey(value, "rows")).map((csilE) => fromPreviewReleaseRowCborValue(csilE)),
+  };
+}
+
+export function toPreviewReleasePolicyResponseCbor(v: PreviewReleasePolicyResponse): Uint8Array {
+  return encodeValue(toPreviewReleasePolicyResponseCborValue(v));
+}
+
+export function fromPreviewReleasePolicyResponseCbor(bytes: Uint8Array): PreviewReleasePolicyResponse {
+  return fromPreviewReleasePolicyResponseCborValue(decode(bytes));
+}
+
+export function toPreviewIssuerPolicyRequestCborValue(v: PreviewIssuerPolicyRequest): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  if (v.claimType !== undefined) csilMap.set("claim_type", v.claimType);
+  if (v.deniedTlds !== undefined) csilMap.set("denied_tlds", v.deniedTlds);
+  if (v.deniedDomains !== undefined) csilMap.set("denied_domains", v.deniedDomains);
+  if (v.issuerUserId !== undefined) csilMap.set("issuer_user_id", v.issuerUserId);
+  csilMap.set("subject_domain", v.subjectDomain);
+  return csilMap;
+}
+
+export function fromPreviewIssuerPolicyRequestCborValue(value: CborValue): PreviewIssuerPolicyRequest {
+  return {
+    subjectDomain: asString(requireKey(value, "subject_domain")),
+    deniedDomains: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asArray(csilV).map((csilE) => asString(csilE)))(mapGet(value, "denied_domains")),
+    deniedTlds: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asArray(csilV).map((csilE) => asString(csilE)))(mapGet(value, "denied_tlds")),
+    issuerUserId: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "issuer_user_id")),
+    claimType: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "claim_type")),
+  };
+}
+
+export function toPreviewIssuerPolicyRequestCbor(v: PreviewIssuerPolicyRequest): Uint8Array {
+  return encodeValue(toPreviewIssuerPolicyRequestCborValue(v));
+}
+
+export function fromPreviewIssuerPolicyRequestCbor(bytes: Uint8Array): PreviewIssuerPolicyRequest {
+  return fromPreviewIssuerPolicyRequestCborValue(decode(bytes));
+}
+
+export function toPreviewIssuerPolicyResponseCborValue(v: PreviewIssuerPolicyResponse): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("reason", v.reason);
+  csilMap.set("allowed", v.allowed);
+  csilMap.set("denied_tlds", v.deniedTlds);
+  csilMap.set("denied_domains", v.deniedDomains);
+  if (v.userCanIssue !== undefined) csilMap.set("user_can_issue", v.userCanIssue);
+  csilMap.set("attested_claim_ttl_seconds", v.attestedClaimTtlSeconds);
+  return csilMap;
+}
+
+export function fromPreviewIssuerPolicyResponseCborValue(value: CborValue): PreviewIssuerPolicyResponse {
+  return {
+    deniedDomains: asArray(requireKey(value, "denied_domains")).map((csilE) => asString(csilE)),
+    deniedTlds: asArray(requireKey(value, "denied_tlds")).map((csilE) => asString(csilE)),
+    allowed: asBool(requireKey(value, "allowed")),
+    reason: asString(requireKey(value, "reason")),
+    userCanIssue: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asBool(csilV))(mapGet(value, "user_can_issue")),
+    attestedClaimTtlSeconds: asNumber(requireKey(value, "attested_claim_ttl_seconds")),
+  };
+}
+
+export function toPreviewIssuerPolicyResponseCbor(v: PreviewIssuerPolicyResponse): Uint8Array {
+  return encodeValue(toPreviewIssuerPolicyResponseCborValue(v));
+}
+
+export function fromPreviewIssuerPolicyResponseCbor(bytes: Uint8Array): PreviewIssuerPolicyResponse {
+  return fromPreviewIssuerPolicyResponseCborValue(decode(bytes));
+}
+
+export function toInspectSigningRequestRequestCborValue(v: InspectSigningRequestRequest): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("signed_request", v.signedRequest);
+  return csilMap;
+}
+
+export function fromInspectSigningRequestRequestCborValue(value: CborValue): InspectSigningRequestRequest {
+  return {
+    signedRequest: asString(requireKey(value, "signed_request")),
+  };
+}
+
+export function toInspectSigningRequestRequestCbor(v: InspectSigningRequestRequest): Uint8Array {
+  return encodeValue(toInspectSigningRequestRequestCborValue(v));
+}
+
+export function fromInspectSigningRequestRequestCbor(bytes: Uint8Array): InspectSigningRequestRequest {
+  return fromInspectSigningRequestRequestCborValue(decode(bytes));
+}
+
+export function toInspectSigningRequestResponseCborValue(v: InspectSigningRequestResponse): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("expires_at", v.expiresAt);
+  csilMap.set("subject_domain", v.subjectDomain);
+  csilMap.set("subject_user_id", v.subjectUserId);
+  csilMap.set("issuable_claim_types", v.issuableClaimTypes);
+  csilMap.set("requested_claim_types", v.requestedClaimTypes);
+  return csilMap;
+}
+
+export function fromInspectSigningRequestResponseCborValue(value: CborValue): InspectSigningRequestResponse {
+  return {
+    subjectUserId: asString(requireKey(value, "subject_user_id")),
+    subjectDomain: asString(requireKey(value, "subject_domain")),
+    requestedClaimTypes: asArray(requireKey(value, "requested_claim_types")).map((csilE) => asString(csilE)),
+    expiresAt: asString(requireKey(value, "expires_at")),
+    issuableClaimTypes: asArray(requireKey(value, "issuable_claim_types")).map((csilE) => asString(csilE)),
+  };
+}
+
+export function toInspectSigningRequestResponseCbor(v: InspectSigningRequestResponse): Uint8Array {
+  return encodeValue(toInspectSigningRequestResponseCborValue(v));
+}
+
+export function fromInspectSigningRequestResponseCbor(bytes: Uint8Array): InspectSigningRequestResponse {
+  return fromInspectSigningRequestResponseCborValue(decode(bytes));
+}
+
+export function toIssueForSigningRequestRequestCborValue(v: IssueForSigningRequestRequest): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("claim_types", v.claimTypes);
+  csilMap.set("claim_values", v.claimValues);
+  csilMap.set("signed_request", v.signedRequest);
+  return csilMap;
+}
+
+export function fromIssueForSigningRequestRequestCborValue(value: CborValue): IssueForSigningRequestRequest {
+  return {
+    signedRequest: asString(requireKey(value, "signed_request")),
+    claimTypes: asArray(requireKey(value, "claim_types")).map((csilE) => asString(csilE)),
+    claimValues: asArray(requireKey(value, "claim_values")).map((csilE) => asString(csilE)),
+  };
+}
+
+export function toIssueForSigningRequestRequestCbor(v: IssueForSigningRequestRequest): Uint8Array {
+  return encodeValue(toIssueForSigningRequestRequestCborValue(v));
+}
+
+export function fromIssueForSigningRequestRequestCbor(bytes: Uint8Array): IssueForSigningRequestRequest {
+  return fromIssueForSigningRequestRequestCborValue(decode(bytes));
+}
+
+export function toIssuedClaimResultCborValue(v: IssuedClaimResult): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  if (v.message !== undefined) csilMap.set("message", v.message);
+  csilMap.set("outcome", v.outcome);
+  if (v.claimCode !== undefined) csilMap.set("claim_code", v.claimCode);
+  csilMap.set("claim_type", v.claimType);
+  return csilMap;
+}
+
+export function fromIssuedClaimResultCborValue(value: CborValue): IssuedClaimResult {
+  return {
+    claimType: asString(requireKey(value, "claim_type")),
+    outcome: asString(requireKey(value, "outcome")),
+    message: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "message")),
+    claimCode: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "claim_code")),
+  };
+}
+
+export function toIssuedClaimResultCbor(v: IssuedClaimResult): Uint8Array {
+  return encodeValue(toIssuedClaimResultCborValue(v));
+}
+
+export function fromIssuedClaimResultCbor(bytes: Uint8Array): IssuedClaimResult {
+  return fromIssuedClaimResultCborValue(decode(bytes));
+}
+
+export function toIssueForSigningRequestResponseCborValue(v: IssueForSigningRequestResponse): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("results", v.results.map((csilE): CborValue => toIssuedClaimResultCborValue(csilE)));
+  return csilMap;
+}
+
+export function fromIssueForSigningRequestResponseCborValue(value: CborValue): IssueForSigningRequestResponse {
+  return {
+    results: asArray(requireKey(value, "results")).map((csilE) => fromIssuedClaimResultCborValue(csilE)),
+  };
+}
+
+export function toIssueForSigningRequestResponseCbor(v: IssueForSigningRequestResponse): Uint8Array {
+  return encodeValue(toIssueForSigningRequestResponseCborValue(v));
+}
+
+export function fromIssueForSigningRequestResponseCbor(bytes: Uint8Array): IssueForSigningRequestResponse {
+  return fromIssueForSigningRequestResponseCborValue(decode(bytes));
 }
 

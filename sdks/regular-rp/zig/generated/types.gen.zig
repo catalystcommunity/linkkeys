@@ -719,6 +719,11 @@ pub const SetClaimTypeLabelResponse = struct {
     label: ClaimTypeLabel,
 };
 
+/// ListClaimTypeLabelsResponse is a structured data type.
+pub const ListClaimTypeLabelsResponse = struct {
+    labels: []ClaimTypeLabel,
+};
+
 /// RemoveClaimTypeLabelRequest is a structured data type.
 pub const RemoveClaimTypeLabelRequest = struct {
     claim_type: []const u8,
@@ -946,6 +951,29 @@ pub const SetMyClaimSharingRequest = struct {
 /// SetMyClaimSharingResponse is a structured data type.
 pub const SetMyClaimSharingResponse = struct {};
 
+/// MyClaimSetting is a structured data type.
+pub const MyClaimSetting = struct {
+    claim_type: []const u8,
+    keep_verified: bool,
+    shared_with_every_app: bool,
+};
+
+/// MyClaimSettingsResponse is a structured data type.
+pub const MyClaimSettingsResponse = struct {
+    settings: []MyClaimSetting,
+    profiles: []Profile,
+    max_profiles: i64,
+};
+
+/// SetMyClaimKeepVerifiedRequest is a structured data type.
+pub const SetMyClaimKeepVerifiedRequest = struct {
+    claim_type: []const u8,
+    keep_verified: bool,
+};
+
+/// SetMyClaimKeepVerifiedResponse is a structured data type.
+pub const SetMyClaimKeepVerifiedResponse = struct {};
+
 /// Profile is a structured data type.
 pub const Profile = struct {
     id: []const u8,
@@ -1134,6 +1162,7 @@ pub const BrowserConsentClaim = struct {
     user_settable: bool,
     max_bytes: i64,
     requires_approval: bool,
+    newly_requested: ?bool = null,
 };
 
 /// BrowserAuthorizationInspectResponse is a structured data type.
@@ -1156,6 +1185,38 @@ pub const BrowserAuthorizationCompleteRequest = struct {
 
 /// BrowserAuthorizationCompleteResponse is a structured data type.
 pub const BrowserAuthorizationCompleteResponse = struct {
+    redirect_url: []const u8,
+};
+
+/// BrowserLocalRpInspectRequest is a structured data type.
+pub const BrowserLocalRpInspectRequest = struct {
+    signed_request: []const u8,
+};
+
+/// BrowserLocalRpInspectResponse is a structured data type.
+pub const BrowserLocalRpInspectResponse = struct {
+    admission: []const u8,
+    app_name: []const u8,
+    fingerprint: []const u8,
+    callback_host: []const u8,
+    first_seen_at: ?[]const u8 = null,
+    claims: []BrowserConsentClaim,
+    request_reason: ?[]const u8 = null,
+    already_consented: ?bool = null,
+    authorized_claims: ?[][]const u8 = null,
+};
+
+/// BrowserLocalRpCompleteRequest is a structured data type.
+pub const BrowserLocalRpCompleteRequest = struct {
+    signed_request: []const u8,
+    authorized_claims: [][]const u8,
+    claim_types_to_set: [][]const u8,
+    claim_values_to_set: [][]const u8,
+    use_standing_grant: ?bool = null,
+};
+
+/// BrowserLocalRpCompleteResponse is a structured data type.
+pub const BrowserLocalRpCompleteResponse = struct {
     redirect_url: []const u8,
 };
 
@@ -1261,6 +1322,7 @@ pub const AuthorizeValidateResponse = struct {
     requested_claims: [][]const u8,
     already_consented: ?bool = null,
     authorized_claims: ?[][]const u8 = null,
+    newly_requested_claims: ?[][]const u8 = null,
 };
 
 /// AuthorizeFinalizeRequest is a structured data type.
@@ -1432,6 +1494,19 @@ pub const RevokeLocalRpResponse = struct {
 
 /// GetLocalRpPolicyRequest is a structured data type.
 pub const GetLocalRpPolicyRequest = struct {};
+
+/// SignInPolicy is a structured data type.
+pub const SignInPolicy = struct {
+    sign_in_hours: i64,
+    default_sign_in_hours: i64,
+    min_sign_in_hours: i64,
+    max_sign_in_hours: i64,
+};
+
+/// SetSignInPolicyRequest is a structured data type.
+pub const SetSignInPolicyRequest = struct {
+    sign_in_hours: i64,
+};
 
 /// PurgeLocalRpTicketsRequest is a structured data type.
 pub const PurgeLocalRpTicketsRequest = struct {};
@@ -1914,6 +1989,89 @@ pub const RevokeActAsGrantRequest = struct {
 /// RevokeActAsGrantResponse is a structured data type.
 pub const RevokeActAsGrantResponse = struct {
     revoked_at: []const u8,
+};
+
+/// PreviewReleasePolicyRequest is a structured data type.
+pub const PreviewReleasePolicyRequest = struct {
+    audience: []const u8,
+    required_claims: [][]const u8,
+    optional_claims: [][]const u8,
+    available_claims: [][]const u8,
+    user_choices: [][]const u8,
+    temp_audience: ?[]const u8 = null,
+    temp_claim_type: ?[]const u8 = null,
+    temp_disposition: ?[]const u8 = null,
+};
+
+/// PreviewReleaseRow is a structured data type.
+pub const PreviewReleaseRow = struct {
+    claim_type: []const u8,
+    required: bool,
+    available: bool,
+    locked: bool,
+    policy: []const u8,
+    default_granted: bool,
+};
+
+/// PreviewReleasePolicyResponse is a structured data type.
+pub const PreviewReleasePolicyResponse = struct {
+    forced_allow: [][]const u8,
+    forced_deny: [][]const u8,
+    authorized_claims: [][]const u8,
+    rows: []PreviewReleaseRow,
+};
+
+/// PreviewIssuerPolicyRequest is a structured data type.
+pub const PreviewIssuerPolicyRequest = struct {
+    subject_domain: []const u8,
+    denied_domains: ?[][]const u8 = null,
+    denied_tlds: ?[][]const u8 = null,
+    issuer_user_id: ?[]const u8 = null,
+    claim_type: ?[]const u8 = null,
+};
+
+/// PreviewIssuerPolicyResponse is a structured data type.
+pub const PreviewIssuerPolicyResponse = struct {
+    denied_domains: [][]const u8,
+    denied_tlds: [][]const u8,
+    allowed: bool,
+    reason: []const u8,
+    user_can_issue: ?bool = null,
+    attested_claim_ttl_seconds: i64,
+};
+
+/// InspectSigningRequestRequest is a structured data type.
+pub const InspectSigningRequestRequest = struct {
+    signed_request: []const u8,
+};
+
+/// InspectSigningRequestResponse is a structured data type.
+pub const InspectSigningRequestResponse = struct {
+    subject_user_id: []const u8,
+    subject_domain: []const u8,
+    requested_claim_types: [][]const u8,
+    expires_at: []const u8,
+    issuable_claim_types: [][]const u8,
+};
+
+/// IssueForSigningRequestRequest is a structured data type.
+pub const IssueForSigningRequestRequest = struct {
+    signed_request: []const u8,
+    claim_types: [][]const u8,
+    claim_values: [][]const u8,
+};
+
+/// IssuedClaimResult is a structured data type.
+pub const IssuedClaimResult = struct {
+    claim_type: []const u8,
+    outcome: []const u8,
+    message: ?[]const u8 = null,
+    claim_code: ?[]const u8 = null,
+};
+
+/// IssueForSigningRequestResponse is a structured data type.
+pub const IssueForSigningRequestResponse = struct {
+    results: []IssuedClaimResult,
 };
 
 /// CheckResult is a structured data type.

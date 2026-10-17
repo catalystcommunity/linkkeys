@@ -171,6 +171,20 @@ public sealed class BrowserAuthorizationClient(ICsilTransport transport)
         Codec.Decode<BrowserActAsInspectResponse>(transport.Call("BrowserAuthorization", "inspect-act-as", Codec.Encode(browserActAsInspectRequest)));
     public BrowserActAsCompleteResponse CompleteActAs(BrowserActAsCompleteRequest browserActAsCompleteRequest) =>
         Codec.Decode<BrowserActAsCompleteResponse>(transport.Call("BrowserAuthorization", "complete-act-as", Codec.Encode(browserActAsCompleteRequest)));
+    public BrowserLocalRpInspectResponse InspectLocalRp(BrowserLocalRpInspectRequest browserLocalRpInspectRequest) =>
+        Codec.Decode<BrowserLocalRpInspectResponse>(transport.Call("BrowserAuthorization", "inspect-local-rp", Codec.Encode(browserLocalRpInspectRequest)));
+    public BrowserLocalRpCompleteResponse CompleteLocalRp(BrowserLocalRpCompleteRequest browserLocalRpCompleteRequest) =>
+        Codec.Decode<BrowserLocalRpCompleteResponse>(transport.Call("BrowserAuthorization", "complete-local-rp", Codec.Encode(browserLocalRpCompleteRequest)));
+}
+
+/// <summary>Typed RPC client for the BrowserIssuer service. The client owns
+/// (de)serialization via the generated codec; the transport only moves bytes.</summary>
+public sealed class BrowserIssuerClient(ICsilTransport transport)
+{
+    public InspectSigningRequestResponse InspectSigningRequest(InspectSigningRequestRequest inspectSigningRequestRequest) =>
+        Codec.Decode<InspectSigningRequestResponse>(transport.Call("BrowserIssuer", "inspect-signing-request", Codec.Encode(inspectSigningRequestRequest)));
+    public IssueForSigningRequestResponse IssueForSigningRequest(IssueForSigningRequestRequest issueForSigningRequestRequest) =>
+        Codec.Decode<IssueForSigningRequestResponse>(transport.Call("BrowserIssuer", "issue-for-signing-request", Codec.Encode(issueForSigningRequestRequest)));
 }
 
 /// <summary>Typed RPC client for the Admin service. The client owns
@@ -219,6 +233,8 @@ public sealed class AdminClient(ICsilTransport transport)
         Codec.Decode<SetClaimTypeResponse>(transport.Call("Admin", "set-claim-type", Codec.Encode(setClaimTypeRequest)));
     public RemoveClaimTypeResponse RemoveClaimType(RemoveClaimTypeRequest removeClaimTypeRequest) =>
         Codec.Decode<RemoveClaimTypeResponse>(transport.Call("Admin", "remove-claim-type", Codec.Encode(removeClaimTypeRequest)));
+    public ListClaimTypeLabelsResponse ListClaimTypeLabels(EmptyRequest emptyRequest) =>
+        Codec.Decode<ListClaimTypeLabelsResponse>(transport.Call("Admin", "list-claim-type-labels", Codec.Encode(emptyRequest)));
     public SetClaimTypeLabelResponse SetClaimTypeLabel(SetClaimTypeLabelRequest setClaimTypeLabelRequest) =>
         Codec.Decode<SetClaimTypeLabelResponse>(transport.Call("Admin", "set-claim-type-label", Codec.Encode(setClaimTypeLabelRequest)));
     public RemoveClaimTypeLabelResponse RemoveClaimTypeLabel(RemoveClaimTypeLabelRequest removeClaimTypeLabelRequest) =>
@@ -243,6 +259,10 @@ public sealed class AdminClient(ICsilTransport transport)
         Codec.Decode<RejectClaimResponse>(transport.Call("Admin", "reject-claim", Codec.Encode(rejectClaimRequest)));
     public AdminIssueAttestationResponse AdminIssueAttestation(AdminIssueAttestationRequest adminIssueAttestationRequest) =>
         Codec.Decode<AdminIssueAttestationResponse>(transport.Call("Admin", "admin-issue-attestation", Codec.Encode(adminIssueAttestationRequest)));
+    public PreviewReleasePolicyResponse PreviewReleasePolicy(PreviewReleasePolicyRequest previewReleasePolicyRequest) =>
+        Codec.Decode<PreviewReleasePolicyResponse>(transport.Call("Admin", "preview-release-policy", Codec.Encode(previewReleasePolicyRequest)));
+    public PreviewIssuerPolicyResponse PreviewIssuerPolicy(PreviewIssuerPolicyRequest previewIssuerPolicyRequest) =>
+        Codec.Decode<PreviewIssuerPolicyResponse>(transport.Call("Admin", "preview-issuer-policy", Codec.Encode(previewIssuerPolicyRequest)));
     public GrantRelationResponse GrantRelation(GrantRelationRequest grantRelationRequest) =>
         Codec.Decode<GrantRelationResponse>(transport.Call("Admin", "grant-relation", Codec.Encode(grantRelationRequest)));
     public RemoveRelationResponse RemoveRelation(RemoveRelationRequest removeRelationRequest) =>
@@ -269,6 +289,10 @@ public sealed class AdminClient(ICsilTransport transport)
         Codec.Decode<SetLocalRpPolicyResponse>(transport.Call("Admin", "set-local-rp-policy", Codec.Encode(setLocalRpPolicyRequest)));
     public PurgeLocalRpTicketsResponse PurgeLocalRpTickets(PurgeLocalRpTicketsRequest purgeLocalRpTicketsRequest) =>
         Codec.Decode<PurgeLocalRpTicketsResponse>(transport.Call("Admin", "purge-local-rp-tickets", Codec.Encode(purgeLocalRpTicketsRequest)));
+    public SignInPolicy GetSignInPolicy(EmptyRequest emptyRequest) =>
+        Codec.Decode<SignInPolicy>(transport.Call("Admin", "get-sign-in-policy", Codec.Encode(emptyRequest)));
+    public SignInPolicy SetSignInPolicy(SetSignInPolicyRequest setSignInPolicyRequest) =>
+        Codec.Decode<SignInPolicy>(transport.Call("Admin", "set-sign-in-policy", Codec.Encode(setSignInPolicyRequest)));
 }
 
 /// <summary>Typed RPC client for the Account service. The client owns
@@ -289,6 +313,10 @@ public sealed class AccountClient(ICsilTransport transport)
         Codec.Decode<SetMyClaimSharingResponse>(transport.Call("Account", "set-my-claim-sharing", Codec.Encode(setMyClaimSharingRequest)));
     public CreateProfileResponse CreateProfile(CreateProfileRequest createProfileRequest) =>
         Codec.Decode<CreateProfileResponse>(transport.Call("Account", "create-profile", Codec.Encode(createProfileRequest)));
+    public MyClaimSettingsResponse GetMyClaimSettings(EmptyRequest emptyRequest) =>
+        Codec.Decode<MyClaimSettingsResponse>(transport.Call("Account", "get-my-claim-settings", Codec.Encode(emptyRequest)));
+    public SetMyClaimKeepVerifiedResponse SetMyClaimKeepVerified(SetMyClaimKeepVerifiedRequest setMyClaimKeepVerifiedRequest) =>
+        Codec.Decode<SetMyClaimKeepVerifiedResponse>(transport.Call("Account", "set-my-claim-keep-verified", Codec.Encode(setMyClaimKeepVerifiedRequest)));
     public RequestVerificationResponse RequestVerification(RequestVerificationRequest requestVerificationRequest) =>
         Codec.Decode<RequestVerificationResponse>(transport.Call("Account", "request-verification", Codec.Encode(requestVerificationRequest)));
     public ListVerifiedContactMethodsResponse ListVerifiedContactMethods(EmptyRequest emptyRequest) =>

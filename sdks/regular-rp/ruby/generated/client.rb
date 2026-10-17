@@ -265,6 +265,33 @@ class BrowserAuthorizationClient
   def complete_act_as(req)
     BrowserActAsCompleteResponse.from_cbor(@transport.call("BrowserAuthorization", "complete-act-as", req.to_cbor))
   end
+
+  # inspect-local-rp: -> BrowserLocalRpInspectResponse
+  def inspect_local_rp(req)
+    BrowserLocalRpInspectResponse.from_cbor(@transport.call("BrowserAuthorization", "inspect-local-rp", req.to_cbor))
+  end
+
+  # complete-local-rp: -> BrowserLocalRpCompleteResponse
+  def complete_local_rp(req)
+    BrowserLocalRpCompleteResponse.from_cbor(@transport.call("BrowserAuthorization", "complete-local-rp", req.to_cbor))
+  end
+end
+
+# Typed client for the BrowserIssuer service.
+class BrowserIssuerClient
+  def initialize(transport)
+    @transport = transport
+  end
+
+  # inspect-signing-request: -> InspectSigningRequestResponse
+  def inspect_signing_request(req)
+    InspectSigningRequestResponse.from_cbor(@transport.call("BrowserIssuer", "inspect-signing-request", req.to_cbor))
+  end
+
+  # issue-for-signing-request: -> IssueForSigningRequestResponse
+  def issue_for_signing_request(req)
+    IssueForSigningRequestResponse.from_cbor(@transport.call("BrowserIssuer", "issue-for-signing-request", req.to_cbor))
+  end
 end
 
 # Typed client for the Admin service.
@@ -378,6 +405,11 @@ class AdminClient
     RemoveClaimTypeResponse.from_cbor(@transport.call("Admin", "remove-claim-type", req.to_cbor))
   end
 
+  # list-claim-type-labels: -> ListClaimTypeLabelsResponse
+  def list_claim_type_labels(req)
+    ListClaimTypeLabelsResponse.from_cbor(@transport.call("Admin", "list-claim-type-labels", req.to_cbor))
+  end
+
   # set-claim-type-label: -> SetClaimTypeLabelResponse
   def set_claim_type_label(req)
     SetClaimTypeLabelResponse.from_cbor(@transport.call("Admin", "set-claim-type-label", req.to_cbor))
@@ -436,6 +468,16 @@ class AdminClient
   # admin-issue-attestation: -> AdminIssueAttestationResponse
   def admin_issue_attestation(req)
     AdminIssueAttestationResponse.from_cbor(@transport.call("Admin", "admin-issue-attestation", req.to_cbor))
+  end
+
+  # preview-release-policy: -> PreviewReleasePolicyResponse
+  def preview_release_policy(req)
+    PreviewReleasePolicyResponse.from_cbor(@transport.call("Admin", "preview-release-policy", req.to_cbor))
+  end
+
+  # preview-issuer-policy: -> PreviewIssuerPolicyResponse
+  def preview_issuer_policy(req)
+    PreviewIssuerPolicyResponse.from_cbor(@transport.call("Admin", "preview-issuer-policy", req.to_cbor))
   end
 
   # grant-relation: -> GrantRelationResponse
@@ -502,6 +544,16 @@ class AdminClient
   def purge_local_rp_tickets(req)
     PurgeLocalRpTicketsResponse.from_cbor(@transport.call("Admin", "purge-local-rp-tickets", req.to_cbor))
   end
+
+  # get-sign-in-policy: -> SignInPolicy
+  def get_sign_in_policy(req)
+    SignInPolicy.from_cbor(@transport.call("Admin", "get-sign-in-policy", req.to_cbor))
+  end
+
+  # set-sign-in-policy: -> SignInPolicy
+  def set_sign_in_policy(req)
+    SignInPolicy.from_cbor(@transport.call("Admin", "set-sign-in-policy", req.to_cbor))
+  end
 end
 
 # Typed client for the Account service.
@@ -543,6 +595,16 @@ class AccountClient
   # create-profile: -> CreateProfileResponse
   def create_profile(req)
     CreateProfileResponse.from_cbor(@transport.call("Account", "create-profile", req.to_cbor))
+  end
+
+  # get-my-claim-settings: -> MyClaimSettingsResponse
+  def get_my_claim_settings(req)
+    MyClaimSettingsResponse.from_cbor(@transport.call("Account", "get-my-claim-settings", req.to_cbor))
+  end
+
+  # set-my-claim-keep-verified: -> SetMyClaimKeepVerifiedResponse
+  def set_my_claim_keep_verified(req)
+    SetMyClaimKeepVerifiedResponse.from_cbor(@transport.call("Account", "set-my-claim-keep-verified", req.to_cbor))
   end
 
   # request-verification: -> RequestVerificationResponse

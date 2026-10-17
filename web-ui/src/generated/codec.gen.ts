@@ -4290,6 +4290,7 @@ export function toBrowserConsentClaimCborValue(v: BrowserConsentClaim): CborValu
   csilMap.set("claim_type", v.claimType);
   csilMap.set("user_settable", v.userSettable);
   csilMap.set("default_granted", v.defaultGranted);
+  if (v.newlyRequested !== undefined) csilMap.set("newly_requested", v.newlyRequested);
   csilMap.set("requires_approval", v.requiresApproval);
   return csilMap;
 }
@@ -4306,6 +4307,7 @@ export function fromBrowserConsentClaimCborValue(value: CborValue): BrowserConse
     userSettable: asBool(requireKey(value, "user_settable")),
     maxBytes: asNumber(requireKey(value, "max_bytes")),
     requiresApproval: asBool(requireKey(value, "requires_approval")),
+    newlyRequested: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asBool(csilV))(mapGet(value, "newly_requested")),
   };
 }
 
@@ -4834,6 +4836,7 @@ export function toAuthorizeValidateResponseCborValue(v: AuthorizeValidateRespons
   csilMap.set("requested_claims", v.requestedClaims);
   if (v.alreadyConsented !== undefined) csilMap.set("already_consented", v.alreadyConsented);
   if (v.authorizedClaims !== undefined) csilMap.set("authorized_claims", v.authorizedClaims);
+  if (v.newlyRequestedClaims !== undefined) csilMap.set("newly_requested_claims", v.newlyRequestedClaims);
   return csilMap;
 }
 
@@ -4844,6 +4847,7 @@ export function fromAuthorizeValidateResponseCborValue(value: CborValue): Author
     requestedClaims: asArray(requireKey(value, "requested_claims")).map((csilE) => asString(csilE)),
     alreadyConsented: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asBool(csilV))(mapGet(value, "already_consented")),
     authorizedClaims: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asArray(csilV).map((csilE) => asString(csilE)))(mapGet(value, "authorized_claims")),
+    newlyRequestedClaims: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asArray(csilV).map((csilE) => asString(csilE)))(mapGet(value, "newly_requested_claims")),
   };
 }
 

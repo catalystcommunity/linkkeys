@@ -195,3 +195,28 @@ were removed before the upgrade.
 LinkKeys removes the durable activity when it purges the user. The operation
 does not return sign-in, sign-out, or failed-attempt history. That history
 needs a separate retention policy and API.
+
+## Upgrading to the release after 0.16.3
+
+### A newly requested optional claim opens consent once (behavior change, additive fields)
+
+Before this release, a silent login ignored an optional claim that the
+application added after the first consent. The user never saw the claim, and
+the IDP never released it.
+
+Now a claim that the application did not request at the last consent stops the
+silent login. This rule applies to optional claims and required claims. The
+consent screen opens one time and marks each new claim. A claim that the user
+declines is recorded as seen and does not open the screen again. The IDP uses
+the `requested_types` column that each consent grant already stores. No
+migration is necessary.
+
+`BrowserConsentClaim` gained the optional `newly_requested` field. It is `true`
+for a new claim and absent in all other cases, including the first consent.
+`AuthorizeValidateResponse` gained the optional `newly_requested_claims` field.
+The server sends it only when the caller sent `user_id`, a prior grant exists,
+and at least one claim is new. When this field is present, `already_consented`
+is absent. A custom consent UI can use this field to mark the new claims.
+
+Older clients ignore the new fields. Their consent screen opens for a new claim
+but does not mark it as new.

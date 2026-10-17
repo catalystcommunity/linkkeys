@@ -581,6 +581,10 @@ export interface SetClaimTypeLabelResponse {
   label: ClaimTypeLabel;
 }
 
+export interface ListClaimTypeLabelsResponse {
+  labels: ClaimTypeLabel[];
+}
+
 export interface RemoveClaimTypeLabelRequest {
   claimType: string;
   locale: string;
@@ -770,6 +774,26 @@ export interface SetMyClaimSharingRequest {
 export interface SetMyClaimSharingResponse {
 }
 
+export interface MyClaimSetting {
+  claimType: string;
+  keepVerified: boolean;
+  sharedWithEveryApp: boolean;
+}
+
+export interface MyClaimSettingsResponse {
+  settings: MyClaimSetting[];
+  profiles: Profile[];
+  maxProfiles: number;
+}
+
+export interface SetMyClaimKeepVerifiedRequest {
+  claimType: string;
+  keepVerified: boolean;
+}
+
+export interface SetMyClaimKeepVerifiedResponse {
+}
+
 export interface Profile {
   id: string;
   accountId: string;
@@ -928,6 +952,7 @@ export interface BrowserConsentClaim {
   userSettable: boolean;
   maxBytes: number;
   requiresApproval: boolean;
+  newlyRequested?: boolean;
 }
 
 export interface BrowserAuthorizationInspectResponse {
@@ -947,6 +972,34 @@ export interface BrowserAuthorizationCompleteRequest {
 }
 
 export interface BrowserAuthorizationCompleteResponse {
+  redirectUrl: string;
+}
+
+export interface BrowserLocalRpInspectRequest {
+  signedRequest: string;
+}
+
+export interface BrowserLocalRpInspectResponse {
+  admission: string;
+  appName: string;
+  fingerprint: string;
+  callbackHost: string;
+  firstSeenAt?: string;
+  claims: BrowserConsentClaim[];
+  requestReason?: string;
+  alreadyConsented?: boolean;
+  authorizedClaims?: string[];
+}
+
+export interface BrowserLocalRpCompleteRequest {
+  signedRequest: string;
+  authorizedClaims: string[];
+  claimTypesToSet: string[];
+  claimValuesToSet: string[];
+  useStandingGrant?: boolean;
+}
+
+export interface BrowserLocalRpCompleteResponse {
   redirectUrl: string;
 }
 
@@ -1037,6 +1090,7 @@ export interface AuthorizeValidateResponse {
   requestedClaims: string[];
   alreadyConsented?: boolean;
   authorizedClaims?: string[];
+  newlyRequestedClaims?: string[];
 }
 
 export interface AuthorizeFinalizeRequest {
@@ -1218,6 +1272,17 @@ export interface SetLocalRpPolicyRequest {
 
 export interface SetLocalRpPolicyResponse {
   policy: LocalRpPolicy;
+}
+
+export interface SignInPolicy {
+  signInHours: number;
+  defaultSignInHours: number;
+  minSignInHours: number;
+  maxSignInHours: number;
+}
+
+export interface SetSignInPolicyRequest {
+  signInHours: number;
 }
 
 export interface PurgeLocalRpTicketsRequest {
@@ -1648,6 +1713,79 @@ export interface RevokeActAsGrantRequest {
 
 export interface RevokeActAsGrantResponse {
   revokedAt: string;
+}
+
+export interface PreviewReleasePolicyRequest {
+  audience: string;
+  requiredClaims: string[];
+  optionalClaims: string[];
+  availableClaims: string[];
+  userChoices: string[];
+  tempAudience?: string;
+  tempClaimType?: string;
+  tempDisposition?: string;
+}
+
+export interface PreviewReleaseRow {
+  claimType: string;
+  required: boolean;
+  available: boolean;
+  locked: boolean;
+  policy: string;
+  defaultGranted: boolean;
+}
+
+export interface PreviewReleasePolicyResponse {
+  forcedAllow: string[];
+  forcedDeny: string[];
+  authorizedClaims: string[];
+  rows: PreviewReleaseRow[];
+}
+
+export interface PreviewIssuerPolicyRequest {
+  subjectDomain: string;
+  deniedDomains?: string[];
+  deniedTlds?: string[];
+  issuerUserId?: string;
+  claimType?: string;
+}
+
+export interface PreviewIssuerPolicyResponse {
+  deniedDomains: string[];
+  deniedTlds: string[];
+  allowed: boolean;
+  reason: string;
+  userCanIssue?: boolean;
+  attestedClaimTtlSeconds: number;
+}
+
+export interface InspectSigningRequestRequest {
+  signedRequest: string;
+}
+
+export interface InspectSigningRequestResponse {
+  subjectUserId: string;
+  subjectDomain: string;
+  requestedClaimTypes: string[];
+  expiresAt: string;
+  issuableClaimTypes: string[];
+}
+
+export interface IssueForSigningRequestRequest {
+  signedRequest: string;
+  claimTypes: string[];
+  claimValues: string[];
+}
+
+export interface IssuedClaimResult {
+  claimType: string;
+  outcome: string;
+  message?: string;
+  claimCode?: string;
+}
+
+export interface IssueForSigningRequestResponse {
+  results: IssuedClaimResult[];
 }
 
 export function validateLocalRpDescriptor(value: LocalRpDescriptor): string[] {

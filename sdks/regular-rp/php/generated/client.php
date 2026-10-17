@@ -464,6 +464,51 @@ class BrowserAuthorizationClient
         return Codec::decodeBrowserActAsCompleteResponse($reply);
     }
 
+    public function inspectLocalRp($request)
+    {
+        $payload = Codec::encodeBrowserLocalRpInspectRequest($request);
+        $reply = $this->transport->call('BrowserAuthorization', 'inspect-local-rp', $payload);
+        return Codec::decodeBrowserLocalRpInspectResponse($reply);
+    }
+
+    public function completeLocalRp($request)
+    {
+        $payload = Codec::encodeBrowserLocalRpCompleteRequest($request);
+        $reply = $this->transport->call('BrowserAuthorization', 'complete-local-rp', $payload);
+        return Codec::decodeBrowserLocalRpCompleteResponse($reply);
+    }
+
+}
+
+/**
+ * The injected transport must expose call($service, $op, $payload) and return
+ * the reply payload bytes. $service and $op are the CSIL names exactly as
+ * written in the source and map verbatim onto the CSIL-RPC v1 envelope's
+ * service/op fields.
+ */
+class BrowserIssuerClient
+{
+    private $transport;
+
+    public function __construct($transport)
+    {
+        $this->transport = $transport;
+    }
+
+    public function inspectSigningRequest($request)
+    {
+        $payload = Codec::encodeInspectSigningRequestRequest($request);
+        $reply = $this->transport->call('BrowserIssuer', 'inspect-signing-request', $payload);
+        return Codec::decodeInspectSigningRequestResponse($reply);
+    }
+
+    public function issueForSigningRequest($request)
+    {
+        $payload = Codec::encodeIssueForSigningRequestRequest($request);
+        $reply = $this->transport->call('BrowserIssuer', 'issue-for-signing-request', $payload);
+        return Codec::decodeIssueForSigningRequestResponse($reply);
+    }
+
 }
 
 /**
@@ -628,6 +673,13 @@ class AdminClient
         return Codec::decodeRemoveClaimTypeResponse($reply);
     }
 
+    public function listClaimTypeLabels($request)
+    {
+        $payload = Codec::encodeEmptyRequest($request);
+        $reply = $this->transport->call('Admin', 'list-claim-type-labels', $payload);
+        return Codec::decodeListClaimTypeLabelsResponse($reply);
+    }
+
     public function setClaimTypeLabel($request)
     {
         $payload = Codec::encodeSetClaimTypeLabelRequest($request);
@@ -710,6 +762,20 @@ class AdminClient
         $payload = Codec::encodeAdminIssueAttestationRequest($request);
         $reply = $this->transport->call('Admin', 'admin-issue-attestation', $payload);
         return Codec::decodeAdminIssueAttestationResponse($reply);
+    }
+
+    public function previewReleasePolicy($request)
+    {
+        $payload = Codec::encodePreviewReleasePolicyRequest($request);
+        $reply = $this->transport->call('Admin', 'preview-release-policy', $payload);
+        return Codec::decodePreviewReleasePolicyResponse($reply);
+    }
+
+    public function previewIssuerPolicy($request)
+    {
+        $payload = Codec::encodePreviewIssuerPolicyRequest($request);
+        $reply = $this->transport->call('Admin', 'preview-issuer-policy', $payload);
+        return Codec::decodePreviewIssuerPolicyResponse($reply);
     }
 
     public function grantRelation($request)
@@ -803,6 +869,20 @@ class AdminClient
         return Codec::decodePurgeLocalRpTicketsResponse($reply);
     }
 
+    public function getSignInPolicy($request)
+    {
+        $payload = Codec::encodeEmptyRequest($request);
+        $reply = $this->transport->call('Admin', 'get-sign-in-policy', $payload);
+        return Codec::decodeSignInPolicy($reply);
+    }
+
+    public function setSignInPolicy($request)
+    {
+        $payload = Codec::encodeSetSignInPolicyRequest($request);
+        $reply = $this->transport->call('Admin', 'set-sign-in-policy', $payload);
+        return Codec::decodeSignInPolicy($reply);
+    }
+
 }
 
 /**
@@ -867,6 +947,20 @@ class AccountClient
         $payload = Codec::encodeCreateProfileRequest($request);
         $reply = $this->transport->call('Account', 'create-profile', $payload);
         return Codec::decodeCreateProfileResponse($reply);
+    }
+
+    public function getMyClaimSettings($request)
+    {
+        $payload = Codec::encodeEmptyRequest($request);
+        $reply = $this->transport->call('Account', 'get-my-claim-settings', $payload);
+        return Codec::decodeMyClaimSettingsResponse($reply);
+    }
+
+    public function setMyClaimKeepVerified($request)
+    {
+        $payload = Codec::encodeSetMyClaimKeepVerifiedRequest($request);
+        $reply = $this->transport->call('Account', 'set-my-claim-keep-verified', $payload);
+        return Codec::decodeSetMyClaimKeepVerifiedResponse($reply);
     }
 
     public function requestVerification($request)

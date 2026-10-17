@@ -2,7 +2,7 @@
 // Source: <csil spec>
 // Target: typescript-server
 
-import type { ActivateUserRequest, ActivateUserResponse, AddTrustedIssuerRequest, AddTrustedIssuerResponse, AdminIssueAttestationRequest, AdminIssueAttestationResponse, AdminUserClaimsRequest, AdminUserClaimsResponse, ApproveClaimRequest, ApproveClaimResponse, ApproveLocalRpRequest, ApproveLocalRpResponse, AuthenticateRequest, AuthenticateResponse, BrowserAuthorizationCompleteRequest, BrowserAuthorizationCompleteResponse, BrowserAuthorizationInspectRequest, BrowserAuthorizationInspectResponse, ChangePasswordRequest, ChangePasswordResponse, CheckPermissionRequest, CheckPermissionResponse, CheckResult, CompletePasswordRecoveryRequest, CompletePasswordRecoveryResponse, ConfirmContactVerificationRequest, ConfirmContactVerificationResponse, CreateGuestbookRequest, CreateProfileRequest, CreateProfileResponse, CreateUserRequest, CreateUserResponse, DeactivateUserRequest, DeactivateUserResponse, DeleteGuestbookRequest, DeleteGuestbookResponse, DenyLocalRpRequest, DenyLocalRpResponse, DepositClaimRequest, DepositClaimResponse, EmptyRequest, GetDomainKeysResponse, GetLocalRpPolicyRequest, GetLocalRpPolicyResponse, GetLocalRpRequest, GetLocalRpResponse, GetMyInfoResponse, GetNotificationCapabilitiesResponse, GetRevocationsRequest, GetRevocationsResponse, GetUiConfigurationResponse, GetUserKeysRequest, GetUserKeysResponse, GetUserRequest, GetUserResponse, GrantRelationRequest, GrantRelationResponse, GuestbookEntry, GuestbookListRequest, GuestbookListResponse, HandshakeRequest, HandshakeResponse, HelloRequest, HelloResponse, IntrospectBrowserSessionRequest, IntrospectBrowserSessionResponse, ListClaimTypesResponse, ListLocalRpsRequest, ListLocalRpsResponse, ListLocalesResponse, ListPendingClaimApprovalsResponse, ListRelationsRequest, ListRelationsResponse, ListReleaseRulesResponse, ListSettablePoliciesResponse, ListTrustedIssuersResponse, ListUserClaimsRequest, ListUserClaimsResponse, ListUsersRequest, ListUsersResponse, ListVerifiedContactMethodsResponse, LocalRpTicketRedemptionResponse, PurgeLocalRpTicketsRequest, PurgeLocalRpTicketsResponse, PurgeUserRequest, PurgeUserResponse, RecheckPinsRequest, RecheckPinsResponse, RejectClaimRequest, RejectClaimResponse, RemoveClaimRequest, RemoveClaimResponse, RemoveClaimTypeLabelRequest, RemoveClaimTypeLabelResponse, RemoveClaimTypeRequest, RemoveClaimTypeResponse, RemoveCredentialRequest, RemoveCredentialResponse, RemoveMyClaimRequest, RemoveMyClaimResponse, RemoveRelationRequest, RemoveRelationResponse, RemoveReleaseRuleRequest, RemoveReleaseRuleResponse, RemoveTrustedIssuerRequest, RemoveTrustedIssuerResponse, RequestContactVerificationRequest, RequestContactVerificationResponse, RequestPasswordRecoveryRequest, RequestPasswordRecoveryResponse, RequestVerificationRequest, RequestVerificationResponse, ResetPasswordRequest, ResetPasswordResponse, RevokeDomainKeyRequest, RevokeDomainKeyResponse, RevokeLocalRpRequest, RevokeLocalRpResponse, RevokeVerifiedContactMethodRequest, RevokeVerifiedContactMethodResponse, RpDecryptRequest, RpDecryptResponse, RpIssueAttestationRequest, RpIssueAttestationResponse, RpSignRequest, RpSignResponse, RpUserInfoRequest, RpVerifyRequest, RpVerifyResponse, ServiceError, SessionCurrentResponse, SessionLogoutResponse, SessionPasswordLoginRequest, SessionPasswordLoginResponse, SetClaimRequest, SetClaimResponse, SetClaimTypeLabelRequest, SetClaimTypeLabelResponse, SetClaimTypeRequest, SetClaimTypeResponse, SetLocalRpPolicyRequest, SetLocalRpPolicyResponse, SetMyClaimRequest, SetMyClaimResponse, SetMyClaimSharingRequest, SetMyClaimSharingResponse, SetReleaseRuleRequest, SetReleaseRuleResponse, SetUserClaimRequest, SetUserClaimResponse, SignedLocalRpTicketRedemptionRequest, SignedUserInfoRequest, TranslationsRequest, TranslationsResponse, UpdateGuestbookRequest, UpdateUserRequest, UpdateUserResponse, UserInfo, ValidatePasswordRecoveryRequest, ValidatePasswordRecoveryResponse } from "./types.gen.ts";
+import type { ActivateUserRequest, ActivateUserResponse, AddApplicationKeyRequest, AddApplicationKeyResponse, AddTrustedIssuerRequest, AddTrustedIssuerResponse, AdminIssueAttestationRequest, AdminIssueAttestationResponse, AdminUserClaimsRequest, AdminUserClaimsResponse, ApproveClaimRequest, ApproveClaimResponse, ApproveLocalRpRequest, ApproveLocalRpResponse, AuthenticateRequest, AuthenticateResponse, BrowserActAsCompleteRequest, BrowserActAsCompleteResponse, BrowserActAsInspectRequest, BrowserActAsInspectResponse, BrowserAuthorizationCompleteRequest, BrowserAuthorizationCompleteResponse, BrowserAuthorizationInspectRequest, BrowserAuthorizationInspectResponse, BrowserLocalRpCompleteRequest, BrowserLocalRpCompleteResponse, BrowserLocalRpInspectRequest, BrowserLocalRpInspectResponse, ChangePasswordRequest, ChangePasswordResponse, CheckPermissionRequest, CheckPermissionResponse, CheckResult, CompletePasswordRecoveryRequest, CompletePasswordRecoveryResponse, ConfirmContactVerificationRequest, ConfirmContactVerificationResponse, CreateGuestbookRequest, CreateProfileRequest, CreateProfileResponse, CreateUserRequest, CreateUserResponse, DeactivateUserRequest, DeactivateUserResponse, DeleteGuestbookRequest, DeleteGuestbookResponse, DenyLocalRpRequest, DenyLocalRpResponse, DepositClaimRequest, DepositClaimResponse, EmptyRequest, EnrollApplicationInstanceRequest, EnrollApplicationInstanceResponse, GetActAsGrantRevocationsRequest, GetActAsGrantRevocationsResponse, GetApplicationKeysRequest, GetApplicationKeysResponse, GetDomainKeysResponse, GetLocalRpPolicyRequest, GetLocalRpPolicyResponse, GetLocalRpRequest, GetLocalRpResponse, GetMyInfoResponse, GetNotificationCapabilitiesResponse, GetRevocationsRequest, GetRevocationsResponse, GetUiConfigurationResponse, GetUserAuthenticationActivityRequest, GetUserAuthenticationActivityResponse, GetUserKeysRequest, GetUserKeysResponse, GetUserRequest, GetUserResponse, GrantRelationRequest, GrantRelationResponse, GuestbookEntry, GuestbookListRequest, GuestbookListResponse, HandshakeRequest, HandshakeResponse, HelloRequest, HelloResponse, InspectSigningRequestRequest, InspectSigningRequestResponse, IntrospectBrowserSessionRequest, IntrospectBrowserSessionResponse, IssueForSigningRequestRequest, IssueForSigningRequestResponse, ListActAsGrantsResponse, ListClaimTypeLabelsResponse, ListClaimTypesResponse, ListLocalRpsRequest, ListLocalRpsResponse, ListLocalesResponse, ListPendingClaimApprovalsResponse, ListRelationsRequest, ListRelationsResponse, ListReleaseRulesResponse, ListSettablePoliciesResponse, ListTrustedIssuersResponse, ListUserClaimsRequest, ListUserClaimsResponse, ListUsersRequest, ListUsersResponse, ListVerifiedContactMethodsResponse, LocalRpTicketRedemptionResponse, MyClaimSettingsResponse, PreviewIssuerPolicyRequest, PreviewIssuerPolicyResponse, PreviewReleasePolicyRequest, PreviewReleasePolicyResponse, PurgeLocalRpTicketsRequest, PurgeLocalRpTicketsResponse, PurgeUserRequest, PurgeUserResponse, RecheckPinsRequest, RecheckPinsResponse, RefreshActAsGrantRequest, RefreshActAsGrantResponse, RejectClaimRequest, RejectClaimResponse, RemoveClaimRequest, RemoveClaimResponse, RemoveClaimTypeLabelRequest, RemoveClaimTypeLabelResponse, RemoveClaimTypeRequest, RemoveClaimTypeResponse, RemoveCredentialRequest, RemoveCredentialResponse, RemoveMyClaimRequest, RemoveMyClaimResponse, RemoveRelationRequest, RemoveRelationResponse, RemoveReleaseRuleRequest, RemoveReleaseRuleResponse, RemoveTrustedIssuerRequest, RemoveTrustedIssuerResponse, RenewApplicationKeyAttestationRequest, RenewApplicationKeyAttestationResponse, RequestContactVerificationRequest, RequestContactVerificationResponse, RequestPasswordRecoveryRequest, RequestPasswordRecoveryResponse, RequestVerificationRequest, RequestVerificationResponse, ResetPasswordRequest, ResetPasswordResponse, RevokeActAsGrantRequest, RevokeActAsGrantResponse, RevokeApplicationKeyRequest, RevokeApplicationKeyResponse, RevokeDomainKeyRequest, RevokeDomainKeyResponse, RevokeLocalRpRequest, RevokeLocalRpResponse, RevokeVerifiedContactMethodRequest, RevokeVerifiedContactMethodResponse, RpActAsRefreshRequest, RpDecryptRequest, RpDecryptResponse, RpIssueAttestationRequest, RpIssueAttestationResponse, RpResolveActAsRevocationsRequest, RpResolveApplicationKeysRequest, RpResolveApplicationKeysResponse, RpResolveDomainKeysRequest, RpResolveDomainKeysResponse, RpSignRequest, RpSignResponse, RpUserInfoRequest, RpVerifyRequest, RpVerifyResponse, ServiceError, SessionCurrentResponse, SessionLogoutResponse, SessionPasswordLoginRequest, SessionPasswordLoginResponse, SetClaimRequest, SetClaimResponse, SetClaimTypeLabelRequest, SetClaimTypeLabelResponse, SetClaimTypeRequest, SetClaimTypeResponse, SetLocalRpPolicyRequest, SetLocalRpPolicyResponse, SetMyClaimKeepVerifiedRequest, SetMyClaimKeepVerifiedResponse, SetMyClaimRequest, SetMyClaimResponse, SetMyClaimSharingRequest, SetMyClaimSharingResponse, SetReleaseRuleRequest, SetReleaseRuleResponse, SetSignInPolicyRequest, SetUserClaimRequest, SetUserClaimResponse, SignInPolicy, SignedLocalRpTicketRedemptionRequest, SignedUserInfoRequest, StartApplicationKeyChallengeRequest, StartApplicationKeyChallengeResponse, TranslationsRequest, TranslationsResponse, UpdateGuestbookRequest, UpdateUserRequest, UpdateUserResponse, UserInfo, ValidatePasswordRecoveryRequest, ValidatePasswordRecoveryResponse } from "./types.gen.ts";
 
 // The consumer-defined context carries auth, request id, etc. It is opaque to
 // generated code; the adapter defines its shape.
@@ -23,16 +23,27 @@ export interface AccountHandlers {
   removeMyClaim(req: RemoveMyClaimRequest, ctx: RequestContext): Promise<RemoveMyClaimResponse>;
   setMyClaimSharing(req: SetMyClaimSharingRequest, ctx: RequestContext): Promise<SetMyClaimSharingResponse>;
   createProfile(req: CreateProfileRequest, ctx: RequestContext): Promise<CreateProfileResponse>;
+  getMyClaimSettings(req: EmptyRequest, ctx: RequestContext): Promise<MyClaimSettingsResponse>;
+  setMyClaimKeepVerified(req: SetMyClaimKeepVerifiedRequest, ctx: RequestContext): Promise<SetMyClaimKeepVerifiedResponse>;
   requestVerification(req: RequestVerificationRequest, ctx: RequestContext): Promise<RequestVerificationResponse>;
   listVerifiedContactMethods(req: EmptyRequest, ctx: RequestContext): Promise<ListVerifiedContactMethodsResponse>;
   revokeVerifiedContactMethod(req: RevokeVerifiedContactMethodRequest, ctx: RequestContext): Promise<RevokeVerifiedContactMethodResponse>;
   requestContactVerification(req: RequestContactVerificationRequest, ctx: RequestContext): Promise<RequestContactVerificationResponse>;
   confirmContactVerification(req: ConfirmContactVerificationRequest, ctx: RequestContext): Promise<ConfirmContactVerificationResponse>;
+  enrollApplicationInstance(req: EnrollApplicationInstanceRequest, ctx: RequestContext): Promise<EnrollApplicationInstanceResponse>;
+  listActAsGrants(req: EmptyRequest, ctx: RequestContext): Promise<ListActAsGrantsResponse>;
+  revokeActAsGrant(req: RevokeActAsGrantRequest, ctx: RequestContext): Promise<RevokeActAsGrantResponse>;
+}
+
+export interface ActAsHandlers {
+  refreshGrant(req: RefreshActAsGrantRequest, ctx: RequestContext): Promise<RefreshActAsGrantResponse>;
+  getGrantRevocations(req: GetActAsGrantRevocationsRequest, ctx: RequestContext): Promise<GetActAsGrantRevocationsResponse>;
 }
 
 export interface AdminHandlers {
   listUsers(req: ListUsersRequest, ctx: RequestContext): Promise<ListUsersResponse>;
   getUser(req: GetUserRequest, ctx: RequestContext): Promise<GetUserResponse>;
+  getUserAuthenticationActivity(req: GetUserAuthenticationActivityRequest, ctx: RequestContext): Promise<GetUserAuthenticationActivityResponse>;
   createUser(req: CreateUserRequest, ctx: RequestContext): Promise<CreateUserResponse>;
   updateUser(req: UpdateUserRequest, ctx: RequestContext): Promise<UpdateUserResponse>;
   deactivateUser(req: DeactivateUserRequest, ctx: RequestContext): Promise<DeactivateUserResponse>;
@@ -51,6 +62,7 @@ export interface AdminHandlers {
   listClaimTypes(req: EmptyRequest, ctx: RequestContext): Promise<ListClaimTypesResponse>;
   setClaimType(req: SetClaimTypeRequest, ctx: RequestContext): Promise<SetClaimTypeResponse>;
   removeClaimType(req: RemoveClaimTypeRequest, ctx: RequestContext): Promise<RemoveClaimTypeResponse>;
+  listClaimTypeLabels(req: EmptyRequest, ctx: RequestContext): Promise<ListClaimTypeLabelsResponse>;
   setClaimTypeLabel(req: SetClaimTypeLabelRequest, ctx: RequestContext): Promise<SetClaimTypeLabelResponse>;
   removeClaimTypeLabel(req: RemoveClaimTypeLabelRequest, ctx: RequestContext): Promise<RemoveClaimTypeLabelResponse>;
   listTrustedIssuers(req: EmptyRequest, ctx: RequestContext): Promise<ListTrustedIssuersResponse>;
@@ -63,6 +75,8 @@ export interface AdminHandlers {
   approveClaim(req: ApproveClaimRequest, ctx: RequestContext): Promise<ApproveClaimResponse>;
   rejectClaim(req: RejectClaimRequest, ctx: RequestContext): Promise<RejectClaimResponse>;
   adminIssueAttestation(req: AdminIssueAttestationRequest, ctx: RequestContext): Promise<AdminIssueAttestationResponse>;
+  previewReleasePolicy(req: PreviewReleasePolicyRequest, ctx: RequestContext): Promise<PreviewReleasePolicyResponse>;
+  previewIssuerPolicy(req: PreviewIssuerPolicyRequest, ctx: RequestContext): Promise<PreviewIssuerPolicyResponse>;
   grantRelation(req: GrantRelationRequest, ctx: RequestContext): Promise<GrantRelationResponse>;
   removeRelation(req: RemoveRelationRequest, ctx: RequestContext): Promise<RemoveRelationResponse>;
   listRelations(req: ListRelationsRequest, ctx: RequestContext): Promise<ListRelationsResponse>;
@@ -76,6 +90,16 @@ export interface AdminHandlers {
   getLocalRpPolicy(req: GetLocalRpPolicyRequest, ctx: RequestContext): Promise<GetLocalRpPolicyResponse>;
   setLocalRpPolicy(req: SetLocalRpPolicyRequest, ctx: RequestContext): Promise<SetLocalRpPolicyResponse>;
   purgeLocalRpTickets(req: PurgeLocalRpTicketsRequest, ctx: RequestContext): Promise<PurgeLocalRpTicketsResponse>;
+  getSignInPolicy(req: EmptyRequest, ctx: RequestContext): Promise<SignInPolicy>;
+  setSignInPolicy(req: SetSignInPolicyRequest, ctx: RequestContext): Promise<SignInPolicy>;
+}
+
+export interface ApplicationKeysHandlers {
+  getApplicationKeys(req: GetApplicationKeysRequest, ctx: RequestContext): Promise<GetApplicationKeysResponse>;
+  startKeyChallenge(req: StartApplicationKeyChallengeRequest, ctx: RequestContext): Promise<StartApplicationKeyChallengeResponse>;
+  addKey(req: AddApplicationKeyRequest, ctx: RequestContext): Promise<AddApplicationKeyResponse>;
+  renewAttestation(req: RenewApplicationKeyAttestationRequest, ctx: RequestContext): Promise<RenewApplicationKeyAttestationResponse>;
+  revokeKey(req: RevokeApplicationKeyRequest, ctx: RequestContext): Promise<RevokeApplicationKeyResponse>;
 }
 
 export interface AttestationHandlers {
@@ -85,6 +109,15 @@ export interface AttestationHandlers {
 export interface BrowserAuthorizationHandlers {
   inspect(req: BrowserAuthorizationInspectRequest, ctx: RequestContext): Promise<BrowserAuthorizationInspectResponse>;
   complete(req: BrowserAuthorizationCompleteRequest, ctx: RequestContext): Promise<BrowserAuthorizationCompleteResponse>;
+  inspectActAs(req: BrowserActAsInspectRequest, ctx: RequestContext): Promise<BrowserActAsInspectResponse>;
+  completeActAs(req: BrowserActAsCompleteRequest, ctx: RequestContext): Promise<BrowserActAsCompleteResponse>;
+  inspectLocalRp(req: BrowserLocalRpInspectRequest, ctx: RequestContext): Promise<BrowserLocalRpInspectResponse>;
+  completeLocalRp(req: BrowserLocalRpCompleteRequest, ctx: RequestContext): Promise<BrowserLocalRpCompleteResponse>;
+}
+
+export interface BrowserIssuerHandlers {
+  inspectSigningRequest(req: InspectSigningRequestRequest, ctx: RequestContext): Promise<InspectSigningRequestResponse>;
+  issueForSigningRequest(req: IssueForSigningRequestRequest, ctx: RequestContext): Promise<IssueForSigningRequestResponse>;
 }
 
 export interface DomainKeysHandlers {
@@ -141,6 +174,10 @@ export interface RpHandlers {
   verifyAssertion(req: RpVerifyRequest, ctx: RequestContext): Promise<RpVerifyResponse>;
   userinfoFetch(req: RpUserInfoRequest, ctx: RequestContext): Promise<UserInfo>;
   issueAttestation(req: RpIssueAttestationRequest, ctx: RequestContext): Promise<RpIssueAttestationResponse>;
+  resolveDomainKeys(req: RpResolveDomainKeysRequest, ctx: RequestContext): Promise<RpResolveDomainKeysResponse>;
+  resolveApplicationKeys(req: RpResolveApplicationKeysRequest, ctx: RequestContext): Promise<RpResolveApplicationKeysResponse>;
+  actAsRefreshGrant(req: RpActAsRefreshRequest, ctx: RequestContext): Promise<RefreshActAsGrantResponse>;
+  resolveActAsRevocations(req: RpResolveActAsRevocationsRequest, ctx: RequestContext): Promise<GetActAsGrantRevocationsResponse>;
 }
 
 export interface SessionHandlers {
@@ -160,9 +197,12 @@ export interface UserKeysHandlers {
 
 export interface ServerHandlers {
   account: AccountHandlers;
+  actAs: ActAsHandlers;
   admin: AdminHandlers;
+  applicationKeys: ApplicationKeysHandlers;
   attestation: AttestationHandlers;
   browserAuthorization: BrowserAuthorizationHandlers;
+  browserIssuer: BrowserIssuerHandlers;
   domainKeys: DomainKeysHandlers;
   guestbook: GuestbookHandlers;
   handshake: HandshakeHandlers;
@@ -230,6 +270,16 @@ export async function dispatch(
           const res = await handlers.account.createProfile(req, ctx);
           return codec.encode(res);
         }
+        case "get-my-claim-settings": {
+          const req = codec.decode<EmptyRequest>(reqBytes);
+          const res = await handlers.account.getMyClaimSettings(req, ctx);
+          return codec.encode(res);
+        }
+        case "set-my-claim-keep-verified": {
+          const req = codec.decode<SetMyClaimKeepVerifiedRequest>(reqBytes);
+          const res = await handlers.account.setMyClaimKeepVerified(req, ctx);
+          return codec.encode(res);
+        }
         case "request-verification": {
           const req = codec.decode<RequestVerificationRequest>(reqBytes);
           const res = await handlers.account.requestVerification(req, ctx);
@@ -255,6 +305,37 @@ export async function dispatch(
           const res = await handlers.account.confirmContactVerification(req, ctx);
           return codec.encode(res);
         }
+        case "enroll-application-instance": {
+          const req = codec.decode<EnrollApplicationInstanceRequest>(reqBytes);
+          const res = await handlers.account.enrollApplicationInstance(req, ctx);
+          return codec.encode(res);
+        }
+        case "list-act-as-grants": {
+          const req = codec.decode<EmptyRequest>(reqBytes);
+          const res = await handlers.account.listActAsGrants(req, ctx);
+          return codec.encode(res);
+        }
+        case "revoke-act-as-grant": {
+          const req = codec.decode<RevokeActAsGrantRequest>(reqBytes);
+          const res = await handlers.account.revokeActAsGrant(req, ctx);
+          return codec.encode(res);
+        }
+        default:
+          throw { code: 404, message: `unknown method ${service}.${method}` } satisfies ServiceError;
+      }
+    }
+    case "ActAs": {
+      switch (method) {
+        case "refresh-grant": {
+          const req = codec.decode<RefreshActAsGrantRequest>(reqBytes);
+          const res = await handlers.actAs.refreshGrant(req, ctx);
+          return codec.encode(res);
+        }
+        case "get-grant-revocations": {
+          const req = codec.decode<GetActAsGrantRevocationsRequest>(reqBytes);
+          const res = await handlers.actAs.getGrantRevocations(req, ctx);
+          return codec.encode(res);
+        }
         default:
           throw { code: 404, message: `unknown method ${service}.${method}` } satisfies ServiceError;
       }
@@ -269,6 +350,11 @@ export async function dispatch(
         case "get-user": {
           const req = codec.decode<GetUserRequest>(reqBytes);
           const res = await handlers.admin.getUser(req, ctx);
+          return codec.encode(res);
+        }
+        case "get-user-authentication-activity": {
+          const req = codec.decode<GetUserAuthenticationActivityRequest>(reqBytes);
+          const res = await handlers.admin.getUserAuthenticationActivity(req, ctx);
           return codec.encode(res);
         }
         case "create-user": {
@@ -361,6 +447,11 @@ export async function dispatch(
           const res = await handlers.admin.removeClaimType(req, ctx);
           return codec.encode(res);
         }
+        case "list-claim-type-labels": {
+          const req = codec.decode<EmptyRequest>(reqBytes);
+          const res = await handlers.admin.listClaimTypeLabels(req, ctx);
+          return codec.encode(res);
+        }
         case "set-claim-type-label": {
           const req = codec.decode<SetClaimTypeLabelRequest>(reqBytes);
           const res = await handlers.admin.setClaimTypeLabel(req, ctx);
@@ -419,6 +510,16 @@ export async function dispatch(
         case "admin-issue-attestation": {
           const req = codec.decode<AdminIssueAttestationRequest>(reqBytes);
           const res = await handlers.admin.adminIssueAttestation(req, ctx);
+          return codec.encode(res);
+        }
+        case "preview-release-policy": {
+          const req = codec.decode<PreviewReleasePolicyRequest>(reqBytes);
+          const res = await handlers.admin.previewReleasePolicy(req, ctx);
+          return codec.encode(res);
+        }
+        case "preview-issuer-policy": {
+          const req = codec.decode<PreviewIssuerPolicyRequest>(reqBytes);
+          const res = await handlers.admin.previewIssuerPolicy(req, ctx);
           return codec.encode(res);
         }
         case "grant-relation": {
@@ -486,6 +587,47 @@ export async function dispatch(
           const res = await handlers.admin.purgeLocalRpTickets(req, ctx);
           return codec.encode(res);
         }
+        case "get-sign-in-policy": {
+          const req = codec.decode<EmptyRequest>(reqBytes);
+          const res = await handlers.admin.getSignInPolicy(req, ctx);
+          return codec.encode(res);
+        }
+        case "set-sign-in-policy": {
+          const req = codec.decode<SetSignInPolicyRequest>(reqBytes);
+          const res = await handlers.admin.setSignInPolicy(req, ctx);
+          return codec.encode(res);
+        }
+        default:
+          throw { code: 404, message: `unknown method ${service}.${method}` } satisfies ServiceError;
+      }
+    }
+    case "ApplicationKeys": {
+      switch (method) {
+        case "get-application-keys": {
+          const req = codec.decode<GetApplicationKeysRequest>(reqBytes);
+          const res = await handlers.applicationKeys.getApplicationKeys(req, ctx);
+          return codec.encode(res);
+        }
+        case "start-key-challenge": {
+          const req = codec.decode<StartApplicationKeyChallengeRequest>(reqBytes);
+          const res = await handlers.applicationKeys.startKeyChallenge(req, ctx);
+          return codec.encode(res);
+        }
+        case "add-key": {
+          const req = codec.decode<AddApplicationKeyRequest>(reqBytes);
+          const res = await handlers.applicationKeys.addKey(req, ctx);
+          return codec.encode(res);
+        }
+        case "renew-attestation": {
+          const req = codec.decode<RenewApplicationKeyAttestationRequest>(reqBytes);
+          const res = await handlers.applicationKeys.renewAttestation(req, ctx);
+          return codec.encode(res);
+        }
+        case "revoke-key": {
+          const req = codec.decode<RevokeApplicationKeyRequest>(reqBytes);
+          const res = await handlers.applicationKeys.revokeKey(req, ctx);
+          return codec.encode(res);
+        }
         default:
           throw { code: 404, message: `unknown method ${service}.${method}` } satisfies ServiceError;
       }
@@ -511,6 +653,42 @@ export async function dispatch(
         case "complete": {
           const req = codec.decode<BrowserAuthorizationCompleteRequest>(reqBytes);
           const res = await handlers.browserAuthorization.complete(req, ctx);
+          return codec.encode(res);
+        }
+        case "inspect-act-as": {
+          const req = codec.decode<BrowserActAsInspectRequest>(reqBytes);
+          const res = await handlers.browserAuthorization.inspectActAs(req, ctx);
+          return codec.encode(res);
+        }
+        case "complete-act-as": {
+          const req = codec.decode<BrowserActAsCompleteRequest>(reqBytes);
+          const res = await handlers.browserAuthorization.completeActAs(req, ctx);
+          return codec.encode(res);
+        }
+        case "inspect-local-rp": {
+          const req = codec.decode<BrowserLocalRpInspectRequest>(reqBytes);
+          const res = await handlers.browserAuthorization.inspectLocalRp(req, ctx);
+          return codec.encode(res);
+        }
+        case "complete-local-rp": {
+          const req = codec.decode<BrowserLocalRpCompleteRequest>(reqBytes);
+          const res = await handlers.browserAuthorization.completeLocalRp(req, ctx);
+          return codec.encode(res);
+        }
+        default:
+          throw { code: 404, message: `unknown method ${service}.${method}` } satisfies ServiceError;
+      }
+    }
+    case "BrowserIssuer": {
+      switch (method) {
+        case "inspect-signing-request": {
+          const req = codec.decode<InspectSigningRequestRequest>(reqBytes);
+          const res = await handlers.browserIssuer.inspectSigningRequest(req, ctx);
+          return codec.encode(res);
+        }
+        case "issue-for-signing-request": {
+          const req = codec.decode<IssueForSigningRequestRequest>(reqBytes);
+          const res = await handlers.browserIssuer.issueForSigningRequest(req, ctx);
           return codec.encode(res);
         }
         default:
@@ -692,6 +870,26 @@ export async function dispatch(
         case "issue-attestation": {
           const req = codec.decode<RpIssueAttestationRequest>(reqBytes);
           const res = await handlers.rp.issueAttestation(req, ctx);
+          return codec.encode(res);
+        }
+        case "resolve-domain-keys": {
+          const req = codec.decode<RpResolveDomainKeysRequest>(reqBytes);
+          const res = await handlers.rp.resolveDomainKeys(req, ctx);
+          return codec.encode(res);
+        }
+        case "resolve-application-keys": {
+          const req = codec.decode<RpResolveApplicationKeysRequest>(reqBytes);
+          const res = await handlers.rp.resolveApplicationKeys(req, ctx);
+          return codec.encode(res);
+        }
+        case "act-as-refresh-grant": {
+          const req = codec.decode<RpActAsRefreshRequest>(reqBytes);
+          const res = await handlers.rp.actAsRefreshGrant(req, ctx);
+          return codec.encode(res);
+        }
+        case "resolve-act-as-revocations": {
+          const req = codec.decode<RpResolveActAsRevocationsRequest>(reqBytes);
+          const res = await handlers.rp.resolveActAsRevocations(req, ctx);
           return codec.encode(res);
         }
         default:

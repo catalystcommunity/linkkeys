@@ -41,6 +41,14 @@ public final class AccountClient {
         return CsilCbor.decodeCreateProfileResponse(transport.call("Account", "create-profile", CsilCbor.encodeCreateProfileRequest(req)));
     }
 
+    public MyClaimSettingsResponse getMyClaimSettings(EmptyRequest req) throws ClientException {
+        return CsilCbor.decodeMyClaimSettingsResponse(transport.call("Account", "get-my-claim-settings", CsilCbor.encodeEmptyRequest(req)));
+    }
+
+    public SetMyClaimKeepVerifiedResponse setMyClaimKeepVerified(SetMyClaimKeepVerifiedRequest req) throws ClientException {
+        return CsilCbor.decodeSetMyClaimKeepVerifiedResponse(transport.call("Account", "set-my-claim-keep-verified", CsilCbor.encodeSetMyClaimKeepVerifiedRequest(req)));
+    }
+
     public RequestVerificationResponse requestVerification(RequestVerificationRequest req) throws ClientException {
         return CsilCbor.decodeRequestVerificationResponse(transport.call("Account", "request-verification", CsilCbor.encodeRequestVerificationRequest(req)));
     }

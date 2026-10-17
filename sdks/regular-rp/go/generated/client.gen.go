@@ -461,6 +461,52 @@ func (c *BrowserAuthorizationClient) CompleteActAs(ctx context.Context, req Brow
 	return DecodeBrowserActAsCompleteResponse(csilResp)
 }
 
+func (c *BrowserAuthorizationClient) InspectLocalRp(ctx context.Context, req BrowserLocalRpInspectRequest) (BrowserLocalRpInspectResponse, error) {
+	var csilZero BrowserLocalRpInspectResponse
+	csilResp, csilErr := c.transport.Call(ctx, "BrowserAuthorization", "inspect-local-rp", EncodeBrowserLocalRpInspectRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeBrowserLocalRpInspectResponse(csilResp)
+}
+
+func (c *BrowserAuthorizationClient) CompleteLocalRp(ctx context.Context, req BrowserLocalRpCompleteRequest) (BrowserLocalRpCompleteResponse, error) {
+	var csilZero BrowserLocalRpCompleteResponse
+	csilResp, csilErr := c.transport.Call(ctx, "BrowserAuthorization", "complete-local-rp", EncodeBrowserLocalRpCompleteRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeBrowserLocalRpCompleteResponse(csilResp)
+}
+
+// BrowserIssuerClient is a typed client for the BrowserIssuer service. The client owns
+// (de)serialization via the generated codec; the transport only moves bytes.
+type BrowserIssuerClient struct {
+	transport Transport
+}
+
+func NewBrowserIssuerClient(transport Transport) *BrowserIssuerClient {
+	return &BrowserIssuerClient{transport: transport}
+}
+
+func (c *BrowserIssuerClient) InspectSigningRequest(ctx context.Context, req InspectSigningRequestRequest) (InspectSigningRequestResponse, error) {
+	var csilZero InspectSigningRequestResponse
+	csilResp, csilErr := c.transport.Call(ctx, "BrowserIssuer", "inspect-signing-request", EncodeInspectSigningRequestRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeInspectSigningRequestResponse(csilResp)
+}
+
+func (c *BrowserIssuerClient) IssueForSigningRequest(ctx context.Context, req IssueForSigningRequestRequest) (IssueForSigningRequestResponse, error) {
+	var csilZero IssueForSigningRequestResponse
+	csilResp, csilErr := c.transport.Call(ctx, "BrowserIssuer", "issue-for-signing-request", EncodeIssueForSigningRequestRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeIssueForSigningRequestResponse(csilResp)
+}
+
 // AdminClient is a typed client for the Admin service. The client owns
 // (de)serialization via the generated codec; the transport only moves bytes.
 type AdminClient struct {
@@ -660,6 +706,15 @@ func (c *AdminClient) RemoveClaimType(ctx context.Context, req RemoveClaimTypeRe
 	return DecodeRemoveClaimTypeResponse(csilResp)
 }
 
+func (c *AdminClient) ListClaimTypeLabels(ctx context.Context, req EmptyRequest) (ListClaimTypeLabelsResponse, error) {
+	var csilZero ListClaimTypeLabelsResponse
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-claim-type-labels", EncodeEmptyRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeListClaimTypeLabelsResponse(csilResp)
+}
+
 func (c *AdminClient) SetClaimTypeLabel(ctx context.Context, req SetClaimTypeLabelRequest) (SetClaimTypeLabelResponse, error) {
 	var csilZero SetClaimTypeLabelResponse
 	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-claim-type-label", EncodeSetClaimTypeLabelRequest(req))
@@ -766,6 +821,24 @@ func (c *AdminClient) AdminIssueAttestation(ctx context.Context, req AdminIssueA
 		return csilZero, csilErr
 	}
 	return DecodeAdminIssueAttestationResponse(csilResp)
+}
+
+func (c *AdminClient) PreviewReleasePolicy(ctx context.Context, req PreviewReleasePolicyRequest) (PreviewReleasePolicyResponse, error) {
+	var csilZero PreviewReleasePolicyResponse
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "preview-release-policy", EncodePreviewReleasePolicyRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodePreviewReleasePolicyResponse(csilResp)
+}
+
+func (c *AdminClient) PreviewIssuerPolicy(ctx context.Context, req PreviewIssuerPolicyRequest) (PreviewIssuerPolicyResponse, error) {
+	var csilZero PreviewIssuerPolicyResponse
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "preview-issuer-policy", EncodePreviewIssuerPolicyRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodePreviewIssuerPolicyResponse(csilResp)
 }
 
 func (c *AdminClient) GrantRelation(ctx context.Context, req GrantRelationRequest) (GrantRelationResponse, error) {
@@ -885,6 +958,24 @@ func (c *AdminClient) PurgeLocalRpTickets(ctx context.Context, req PurgeLocalRpT
 	return DecodePurgeLocalRpTicketsResponse(csilResp)
 }
 
+func (c *AdminClient) GetSignInPolicy(ctx context.Context, req EmptyRequest) (SignInPolicy, error) {
+	var csilZero SignInPolicy
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "get-sign-in-policy", EncodeEmptyRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeSignInPolicy(csilResp)
+}
+
+func (c *AdminClient) SetSignInPolicy(ctx context.Context, req SetSignInPolicyRequest) (SignInPolicy, error) {
+	var csilZero SignInPolicy
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-sign-in-policy", EncodeSetSignInPolicyRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeSignInPolicy(csilResp)
+}
+
 // AccountClient is a typed client for the Account service. The client owns
 // (de)serialization via the generated codec; the transport only moves bytes.
 type AccountClient struct {
@@ -956,6 +1047,24 @@ func (c *AccountClient) CreateProfile(ctx context.Context, req CreateProfileRequ
 		return csilZero, csilErr
 	}
 	return DecodeCreateProfileResponse(csilResp)
+}
+
+func (c *AccountClient) GetMyClaimSettings(ctx context.Context, req EmptyRequest) (MyClaimSettingsResponse, error) {
+	var csilZero MyClaimSettingsResponse
+	csilResp, csilErr := c.transport.Call(ctx, "Account", "get-my-claim-settings", EncodeEmptyRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeMyClaimSettingsResponse(csilResp)
+}
+
+func (c *AccountClient) SetMyClaimKeepVerified(ctx context.Context, req SetMyClaimKeepVerifiedRequest) (SetMyClaimKeepVerifiedResponse, error) {
+	var csilZero SetMyClaimKeepVerifiedResponse
+	csilResp, csilErr := c.transport.Call(ctx, "Account", "set-my-claim-keep-verified", EncodeSetMyClaimKeepVerifiedRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeSetMyClaimKeepVerifiedResponse(csilResp)
 }
 
 func (c *AccountClient) RequestVerification(ctx context.Context, req RequestVerificationRequest) (RequestVerificationResponse, error) {

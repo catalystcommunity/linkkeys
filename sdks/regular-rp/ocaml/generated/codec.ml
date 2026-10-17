@@ -963,6 +963,14 @@ and encode_set_claim_type_label_response (v : set_claim_type_label_response) : C
          Some (Cbor.Text "label", (encode_claim_type_label v.label));
        ])
 
+and encode_list_claim_type_labels_response (v : list_claim_type_labels_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "labels", (Cbor.Array (List.map (fun csil_e -> (encode_claim_type_label csil_e)) v.labels)));
+       ])
+
 and encode_remove_claim_type_label_request (v : remove_claim_type_label_request) : Cbor.t =
   Cbor.Map
     (List.filter_map
@@ -1303,6 +1311,37 @@ and encode_set_my_claim_sharing_request (v : set_my_claim_sharing_request) : Cbo
 
 and encode_set_my_claim_sharing_response (_v : set_my_claim_sharing_response) : Cbor.t = Cbor.Map []
 
+and encode_my_claim_setting (v : my_claim_setting) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "claim_type", (Cbor.Text v.claim_type));
+         Some (Cbor.Text "keep_verified", (Cbor.Bool v.keep_verified));
+         Some (Cbor.Text "shared_with_every_app", (Cbor.Bool v.shared_with_every_app));
+       ])
+
+and encode_my_claim_settings_response (v : my_claim_settings_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "profiles", (Cbor.Array (List.map (fun csil_e -> (encode_profile csil_e)) v.profiles)));
+         Some (Cbor.Text "settings", (Cbor.Array (List.map (fun csil_e -> (encode_my_claim_setting csil_e)) v.settings)));
+         Some (Cbor.Text "max_profiles", (Cbor.int64 v.max_profiles));
+       ])
+
+and encode_set_my_claim_keep_verified_request (v : set_my_claim_keep_verified_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "claim_type", (Cbor.Text v.claim_type));
+         Some (Cbor.Text "keep_verified", (Cbor.Bool v.keep_verified));
+       ])
+
+and encode_set_my_claim_keep_verified_response (_v : set_my_claim_keep_verified_response) : Cbor.t = Cbor.Map []
+
 and encode_profile (v : profile) : Cbor.t =
   Cbor.Map
     (List.filter_map
@@ -1579,6 +1618,7 @@ and encode_browser_consent_claim (v : browser_consent_claim) : Cbor.t =
          Some (Cbor.Text "claim_type", (Cbor.Text v.claim_type));
          Some (Cbor.Text "user_settable", (Cbor.Bool v.user_settable));
          Some (Cbor.Text "default_granted", (Cbor.Bool v.default_granted));
+         (match v.newly_requested with Some csil_x -> Some (Cbor.Text "newly_requested", (Cbor.Bool csil_x)) | None -> None);
          Some (Cbor.Text "requires_approval", (Cbor.Bool v.requires_approval));
        ])
 
@@ -1607,6 +1647,50 @@ and encode_browser_authorization_complete_request (v : browser_authorization_com
        ])
 
 and encode_browser_authorization_complete_response (v : browser_authorization_complete_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "redirect_url", (Cbor.Text v.redirect_url));
+       ])
+
+and encode_browser_local_rp_inspect_request (v : browser_local_rp_inspect_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "signed_request", (Cbor.Text v.signed_request));
+       ])
+
+and encode_browser_local_rp_inspect_response (v : browser_local_rp_inspect_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "claims", (Cbor.Array (List.map (fun csil_e -> (encode_browser_consent_claim csil_e)) v.claims)));
+         Some (Cbor.Text "app_name", (Cbor.Text v.app_name));
+         Some (Cbor.Text "admission", (Cbor.Text v.admission));
+         Some (Cbor.Text "fingerprint", (Cbor.Text v.fingerprint));
+         Some (Cbor.Text "callback_host", (Cbor.Text v.callback_host));
+         (match v.first_seen_at with Some csil_x -> Some (Cbor.Text "first_seen_at", (Cbor.Text csil_x)) | None -> None);
+         (match v.request_reason with Some csil_x -> Some (Cbor.Text "request_reason", (Cbor.Text csil_x)) | None -> None);
+         (match v.already_consented with Some csil_x -> Some (Cbor.Text "already_consented", (Cbor.Bool csil_x)) | None -> None);
+         (match v.authorized_claims with Some csil_x -> Some (Cbor.Text "authorized_claims", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) csil_x))) | None -> None);
+       ])
+
+and encode_browser_local_rp_complete_request (v : browser_local_rp_complete_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "signed_request", (Cbor.Text v.signed_request));
+         Some (Cbor.Text "authorized_claims", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.authorized_claims)));
+         Some (Cbor.Text "claim_types_to_set", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.claim_types_to_set)));
+         (match v.use_standing_grant with Some csil_x -> Some (Cbor.Text "use_standing_grant", (Cbor.Bool csil_x)) | None -> None);
+         Some (Cbor.Text "claim_values_to_set", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.claim_values_to_set)));
+       ])
+
+and encode_browser_local_rp_complete_response (v : browser_local_rp_complete_response) : Cbor.t =
   Cbor.Map
     (List.filter_map
        (fun x -> x)
@@ -1761,6 +1845,7 @@ and encode_authorize_validate_response (v : authorize_validate_response) : Cbor.
          Some (Cbor.Text "requested_claims", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.requested_claims)));
          (match v.already_consented with Some csil_x -> Some (Cbor.Text "already_consented", (Cbor.Bool csil_x)) | None -> None);
          (match v.authorized_claims with Some csil_x -> Some (Cbor.Text "authorized_claims", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) csil_x))) | None -> None);
+         (match v.newly_requested_claims with Some csil_x -> Some (Cbor.Text "newly_requested_claims", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) csil_x))) | None -> None);
        ])
 
 and encode_authorize_finalize_request (v : authorize_finalize_request) : Cbor.t =
@@ -2050,6 +2135,25 @@ and encode_set_local_rp_policy_response (v : set_local_rp_policy_response) : Cbo
        (fun x -> x)
        [
          Some (Cbor.Text "policy", (Cbor.Text v.policy));
+       ])
+
+and encode_sign_in_policy (v : sign_in_policy) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "sign_in_hours", (Cbor.int64 v.sign_in_hours));
+         Some (Cbor.Text "max_sign_in_hours", (Cbor.int64 v.max_sign_in_hours));
+         Some (Cbor.Text "min_sign_in_hours", (Cbor.int64 v.min_sign_in_hours));
+         Some (Cbor.Text "default_sign_in_hours", (Cbor.int64 v.default_sign_in_hours));
+       ])
+
+and encode_set_sign_in_policy_request (v : set_sign_in_policy_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "sign_in_hours", (Cbor.int64 v.sign_in_hours));
        ])
 
 and encode_purge_local_rp_tickets_request (_v : purge_local_rp_tickets_request) : Cbor.t = Cbor.Map []
@@ -2725,6 +2829,119 @@ and encode_revoke_act_as_grant_response (v : revoke_act_as_grant_response) : Cbo
        (fun x -> x)
        [
          Some (Cbor.Text "revoked_at", (Cbor.Text v.revoked_at));
+       ])
+
+and encode_preview_release_policy_request (v : preview_release_policy_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "audience", (Cbor.Text v.audience));
+         Some (Cbor.Text "user_choices", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.user_choices)));
+         (match v.temp_audience with Some csil_x -> Some (Cbor.Text "temp_audience", (Cbor.Text csil_x)) | None -> None);
+         Some (Cbor.Text "optional_claims", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.optional_claims)));
+         Some (Cbor.Text "required_claims", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.required_claims)));
+         (match v.temp_claim_type with Some csil_x -> Some (Cbor.Text "temp_claim_type", (Cbor.Text csil_x)) | None -> None);
+         Some (Cbor.Text "available_claims", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.available_claims)));
+         (match v.temp_disposition with Some csil_x -> Some (Cbor.Text "temp_disposition", (Cbor.Text csil_x)) | None -> None);
+       ])
+
+and encode_preview_release_row (v : preview_release_row) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "locked", (Cbor.Bool v.locked));
+         Some (Cbor.Text "policy", (Cbor.Text v.policy));
+         Some (Cbor.Text "required", (Cbor.Bool v.required));
+         Some (Cbor.Text "available", (Cbor.Bool v.available));
+         Some (Cbor.Text "claim_type", (Cbor.Text v.claim_type));
+         Some (Cbor.Text "default_granted", (Cbor.Bool v.default_granted));
+       ])
+
+and encode_preview_release_policy_response (v : preview_release_policy_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "rows", (Cbor.Array (List.map (fun csil_e -> (encode_preview_release_row csil_e)) v.rows)));
+         Some (Cbor.Text "forced_deny", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.forced_deny)));
+         Some (Cbor.Text "forced_allow", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.forced_allow)));
+         Some (Cbor.Text "authorized_claims", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.authorized_claims)));
+       ])
+
+and encode_preview_issuer_policy_request (v : preview_issuer_policy_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         (match v.claim_type with Some csil_x -> Some (Cbor.Text "claim_type", (Cbor.Text csil_x)) | None -> None);
+         (match v.denied_tlds with Some csil_x -> Some (Cbor.Text "denied_tlds", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) csil_x))) | None -> None);
+         (match v.denied_domains with Some csil_x -> Some (Cbor.Text "denied_domains", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) csil_x))) | None -> None);
+         (match v.issuer_user_id with Some csil_x -> Some (Cbor.Text "issuer_user_id", (Cbor.Text csil_x)) | None -> None);
+         Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
+       ])
+
+and encode_preview_issuer_policy_response (v : preview_issuer_policy_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "reason", (Cbor.Text v.reason));
+         Some (Cbor.Text "allowed", (Cbor.Bool v.allowed));
+         Some (Cbor.Text "denied_tlds", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.denied_tlds)));
+         Some (Cbor.Text "denied_domains", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.denied_domains)));
+         (match v.user_can_issue with Some csil_x -> Some (Cbor.Text "user_can_issue", (Cbor.Bool csil_x)) | None -> None);
+         Some (Cbor.Text "attested_claim_ttl_seconds", (Cbor.int64 v.attested_claim_ttl_seconds));
+       ])
+
+and encode_inspect_signing_request_request (v : inspect_signing_request_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "signed_request", (Cbor.Text v.signed_request));
+       ])
+
+and encode_inspect_signing_request_response (v : inspect_signing_request_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
+         Some (Cbor.Text "subject_user_id", (Cbor.Text v.subject_user_id));
+         Some (Cbor.Text "issuable_claim_types", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.issuable_claim_types)));
+         Some (Cbor.Text "requested_claim_types", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.requested_claim_types)));
+       ])
+
+and encode_issue_for_signing_request_request (v : issue_for_signing_request_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "claim_types", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.claim_types)));
+         Some (Cbor.Text "claim_values", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.claim_values)));
+         Some (Cbor.Text "signed_request", (Cbor.Text v.signed_request));
+       ])
+
+and encode_issued_claim_result (v : issued_claim_result) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         (match v.message with Some csil_x -> Some (Cbor.Text "message", (Cbor.Text csil_x)) | None -> None);
+         Some (Cbor.Text "outcome", (Cbor.Text v.outcome));
+         (match v.claim_code with Some csil_x -> Some (Cbor.Text "claim_code", (Cbor.Text csil_x)) | None -> None);
+         Some (Cbor.Text "claim_type", (Cbor.Text v.claim_type));
+       ])
+
+and encode_issue_for_signing_request_response (v : issue_for_signing_request_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "results", (Cbor.Array (List.map (fun csil_e -> (encode_issued_claim_result csil_e)) v.results)));
        ])
 
 let rec decode_check_value (csil_c : Cbor.t) : check_value =
@@ -4166,6 +4383,19 @@ and decode_set_claim_type_label_response (csil_c : Cbor.t) : set_claim_type_labe
       }
   | _ -> failwith "csilgen: expected map for set_claim_type_label_response"
 
+and decode_list_claim_type_labels_response (csil_c : Cbor.t) : list_claim_type_labels_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        labels = (match (csil_req "labels") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_claim_type_label csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+      }
+  | _ -> failwith "csilgen: expected map for list_claim_type_labels_response"
+
 and decode_remove_claim_type_label_request (csil_c : Cbor.t) : remove_claim_type_label_request =
   match csil_c with
   | Cbor.Map csil_kvs ->
@@ -4697,6 +4927,53 @@ and decode_set_my_claim_sharing_request (csil_c : Cbor.t) : set_my_claim_sharing
 and decode_set_my_claim_sharing_response (csil_c : Cbor.t) : set_my_claim_sharing_response =
   match csil_c with Cbor.Map _ -> () | _ -> failwith "csilgen: expected map for set_my_claim_sharing_response"
 
+and decode_my_claim_setting (csil_c : Cbor.t) : my_claim_setting =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        claim_type = (Cbor.to_text (csil_req "claim_type"));
+        keep_verified = (Cbor.to_bool (csil_req "keep_verified"));
+        shared_with_every_app = (Cbor.to_bool (csil_req "shared_with_every_app"));
+      }
+  | _ -> failwith "csilgen: expected map for my_claim_setting"
+
+and decode_my_claim_settings_response (csil_c : Cbor.t) : my_claim_settings_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        profiles = (match (csil_req "profiles") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_profile csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        settings = (match (csil_req "settings") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_my_claim_setting csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        max_profiles = (Cbor.to_i64 (csil_req "max_profiles"));
+      }
+  | _ -> failwith "csilgen: expected map for my_claim_settings_response"
+
+and decode_set_my_claim_keep_verified_request (csil_c : Cbor.t) : set_my_claim_keep_verified_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        claim_type = (Cbor.to_text (csil_req "claim_type"));
+        keep_verified = (Cbor.to_bool (csil_req "keep_verified"));
+      }
+  | _ -> failwith "csilgen: expected map for set_my_claim_keep_verified_request"
+
+and decode_set_my_claim_keep_verified_response (csil_c : Cbor.t) : set_my_claim_keep_verified_response =
+  match csil_c with Cbor.Map _ -> () | _ -> failwith "csilgen: expected map for set_my_claim_keep_verified_response"
+
 and decode_profile (csil_c : Cbor.t) : profile =
   match csil_c with
   | Cbor.Map csil_kvs ->
@@ -5123,6 +5400,7 @@ and decode_browser_consent_claim (csil_c : Cbor.t) : browser_consent_claim =
         claim_type = (Cbor.to_text (csil_req "claim_type"));
         user_settable = (Cbor.to_bool (csil_req "user_settable"));
         default_granted = (Cbor.to_bool (csil_req "default_granted"));
+        newly_requested = (match csil_field "newly_requested" with Some csil_v -> Some (Cbor.to_bool csil_v) | None -> None);
         requires_approval = (Cbor.to_bool (csil_req "requires_approval"));
       }
   | _ -> failwith "csilgen: expected map for browser_consent_claim"
@@ -5173,6 +5451,70 @@ and decode_browser_authorization_complete_response (csil_c : Cbor.t) : browser_a
         redirect_url = (Cbor.to_text (csil_req "redirect_url"));
       }
   | _ -> failwith "csilgen: expected map for browser_authorization_complete_response"
+
+and decode_browser_local_rp_inspect_request (csil_c : Cbor.t) : browser_local_rp_inspect_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        signed_request = (Cbor.to_text (csil_req "signed_request"));
+      }
+  | _ -> failwith "csilgen: expected map for browser_local_rp_inspect_request"
+
+and decode_browser_local_rp_inspect_response (csil_c : Cbor.t) : browser_local_rp_inspect_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        claims = (match (csil_req "claims") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_browser_consent_claim csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        app_name = (Cbor.to_text (csil_req "app_name"));
+        admission = (Cbor.to_text (csil_req "admission"));
+        fingerprint = (Cbor.to_text (csil_req "fingerprint"));
+        callback_host = (Cbor.to_text (csil_req "callback_host"));
+        first_seen_at = (match csil_field "first_seen_at" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        request_reason = (match csil_field "request_reason" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        already_consented = (match csil_field "already_consented" with Some csil_v -> Some (Cbor.to_bool csil_v) | None -> None);
+        authorized_claims = (match csil_field "authorized_claims" with Some csil_v -> Some (match csil_v with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array") | None -> None);
+      }
+  | _ -> failwith "csilgen: expected map for browser_local_rp_inspect_response"
+
+and decode_browser_local_rp_complete_request (csil_c : Cbor.t) : browser_local_rp_complete_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        signed_request = (Cbor.to_text (csil_req "signed_request"));
+        authorized_claims = (match (csil_req "authorized_claims") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        claim_types_to_set = (match (csil_req "claim_types_to_set") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        use_standing_grant = (match csil_field "use_standing_grant" with Some csil_v -> Some (Cbor.to_bool csil_v) | None -> None);
+        claim_values_to_set = (match (csil_req "claim_values_to_set") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+      }
+  | _ -> failwith "csilgen: expected map for browser_local_rp_complete_request"
+
+and decode_browser_local_rp_complete_response (csil_c : Cbor.t) : browser_local_rp_complete_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        redirect_url = (Cbor.to_text (csil_req "redirect_url"));
+      }
+  | _ -> failwith "csilgen: expected map for browser_local_rp_complete_response"
 
 and decode_ui_theme (csil_c : Cbor.t) : ui_theme =
   match csil_c with
@@ -5395,6 +5737,7 @@ and decode_authorize_validate_response (csil_c : Cbor.t) : authorize_validate_re
         requested_claims = (match (csil_req "requested_claims") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
         already_consented = (match csil_field "already_consented" with Some csil_v -> Some (Cbor.to_bool csil_v) | None -> None);
         authorized_claims = (match csil_field "authorized_claims" with Some csil_v -> Some (match csil_v with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array") | None -> None);
+        newly_requested_claims = (match csil_field "newly_requested_claims" with Some csil_v -> Some (match csil_v with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array") | None -> None);
       }
   | _ -> failwith "csilgen: expected map for authorize_validate_response"
 
@@ -5827,6 +6170,35 @@ and decode_set_local_rp_policy_response (csil_c : Cbor.t) : set_local_rp_policy_
         policy = (Cbor.to_text (csil_req "policy"));
       }
   | _ -> failwith "csilgen: expected map for set_local_rp_policy_response"
+
+and decode_sign_in_policy (csil_c : Cbor.t) : sign_in_policy =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        sign_in_hours = (Cbor.to_i64 (csil_req "sign_in_hours"));
+        max_sign_in_hours = (Cbor.to_i64 (csil_req "max_sign_in_hours"));
+        min_sign_in_hours = (Cbor.to_i64 (csil_req "min_sign_in_hours"));
+        default_sign_in_hours = (Cbor.to_i64 (csil_req "default_sign_in_hours"));
+      }
+  | _ -> failwith "csilgen: expected map for sign_in_policy"
+
+and decode_set_sign_in_policy_request (csil_c : Cbor.t) : set_sign_in_policy_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        sign_in_hours = (Cbor.to_i64 (csil_req "sign_in_hours"));
+      }
+  | _ -> failwith "csilgen: expected map for set_sign_in_policy_request"
 
 and decode_purge_local_rp_tickets_request (csil_c : Cbor.t) : purge_local_rp_tickets_request =
   match csil_c with Cbor.Map _ -> () | _ -> failwith "csilgen: expected map for purge_local_rp_tickets_request"
@@ -6814,6 +7186,169 @@ and decode_revoke_act_as_grant_response (csil_c : Cbor.t) : revoke_act_as_grant_
       }
   | _ -> failwith "csilgen: expected map for revoke_act_as_grant_response"
 
+and decode_preview_release_policy_request (csil_c : Cbor.t) : preview_release_policy_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        audience = (Cbor.to_text (csil_req "audience"));
+        user_choices = (match (csil_req "user_choices") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        temp_audience = (match csil_field "temp_audience" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        optional_claims = (match (csil_req "optional_claims") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        required_claims = (match (csil_req "required_claims") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        temp_claim_type = (match csil_field "temp_claim_type" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        available_claims = (match (csil_req "available_claims") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        temp_disposition = (match csil_field "temp_disposition" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+      }
+  | _ -> failwith "csilgen: expected map for preview_release_policy_request"
+
+and decode_preview_release_row (csil_c : Cbor.t) : preview_release_row =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        locked = (Cbor.to_bool (csil_req "locked"));
+        policy = (Cbor.to_text (csil_req "policy"));
+        required = (Cbor.to_bool (csil_req "required"));
+        available = (Cbor.to_bool (csil_req "available"));
+        claim_type = (Cbor.to_text (csil_req "claim_type"));
+        default_granted = (Cbor.to_bool (csil_req "default_granted"));
+      }
+  | _ -> failwith "csilgen: expected map for preview_release_row"
+
+and decode_preview_release_policy_response (csil_c : Cbor.t) : preview_release_policy_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        rows = (match (csil_req "rows") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_preview_release_row csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        forced_deny = (match (csil_req "forced_deny") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        forced_allow = (match (csil_req "forced_allow") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        authorized_claims = (match (csil_req "authorized_claims") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+      }
+  | _ -> failwith "csilgen: expected map for preview_release_policy_response"
+
+and decode_preview_issuer_policy_request (csil_c : Cbor.t) : preview_issuer_policy_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        claim_type = (match csil_field "claim_type" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        denied_tlds = (match csil_field "denied_tlds" with Some csil_v -> Some (match csil_v with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array") | None -> None);
+        denied_domains = (match csil_field "denied_domains" with Some csil_v -> Some (match csil_v with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array") | None -> None);
+        issuer_user_id = (match csil_field "issuer_user_id" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        subject_domain = (Cbor.to_text (csil_req "subject_domain"));
+      }
+  | _ -> failwith "csilgen: expected map for preview_issuer_policy_request"
+
+and decode_preview_issuer_policy_response (csil_c : Cbor.t) : preview_issuer_policy_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        reason = (Cbor.to_text (csil_req "reason"));
+        allowed = (Cbor.to_bool (csil_req "allowed"));
+        denied_tlds = (match (csil_req "denied_tlds") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        denied_domains = (match (csil_req "denied_domains") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        user_can_issue = (match csil_field "user_can_issue" with Some csil_v -> Some (Cbor.to_bool csil_v) | None -> None);
+        attested_claim_ttl_seconds = (Cbor.to_i64 (csil_req "attested_claim_ttl_seconds"));
+      }
+  | _ -> failwith "csilgen: expected map for preview_issuer_policy_response"
+
+and decode_inspect_signing_request_request (csil_c : Cbor.t) : inspect_signing_request_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        signed_request = (Cbor.to_text (csil_req "signed_request"));
+      }
+  | _ -> failwith "csilgen: expected map for inspect_signing_request_request"
+
+and decode_inspect_signing_request_response (csil_c : Cbor.t) : inspect_signing_request_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        subject_domain = (Cbor.to_text (csil_req "subject_domain"));
+        subject_user_id = (Cbor.to_text (csil_req "subject_user_id"));
+        issuable_claim_types = (match (csil_req "issuable_claim_types") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        requested_claim_types = (match (csil_req "requested_claim_types") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+      }
+  | _ -> failwith "csilgen: expected map for inspect_signing_request_response"
+
+and decode_issue_for_signing_request_request (csil_c : Cbor.t) : issue_for_signing_request_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        claim_types = (match (csil_req "claim_types") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        claim_values = (match (csil_req "claim_values") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        signed_request = (Cbor.to_text (csil_req "signed_request"));
+      }
+  | _ -> failwith "csilgen: expected map for issue_for_signing_request_request"
+
+and decode_issued_claim_result (csil_c : Cbor.t) : issued_claim_result =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        message = (match csil_field "message" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        outcome = (Cbor.to_text (csil_req "outcome"));
+        claim_code = (match csil_field "claim_code" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        claim_type = (Cbor.to_text (csil_req "claim_type"));
+      }
+  | _ -> failwith "csilgen: expected map for issued_claim_result"
+
+and decode_issue_for_signing_request_response (csil_c : Cbor.t) : issue_for_signing_request_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        results = (match (csil_req "results") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_issued_claim_result csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+      }
+  | _ -> failwith "csilgen: expected map for issue_for_signing_request_response"
+
 let encode_check_value_bytes (v : check_value) : bytes = Cbor.encode (encode_check_value v)
 let decode_check_value_bytes (b : bytes) : check_value =
   match Cbor.decode b with Ok c -> decode_check_value c | Error e -> failwith e
@@ -7206,6 +7741,10 @@ let encode_set_claim_type_label_response_bytes (v : set_claim_type_label_respons
 let decode_set_claim_type_label_response_bytes (b : bytes) : set_claim_type_label_response =
   match Cbor.decode b with Ok c -> decode_set_claim_type_label_response c | Error e -> failwith e
 
+let encode_list_claim_type_labels_response_bytes (v : list_claim_type_labels_response) : bytes = Cbor.encode (encode_list_claim_type_labels_response v)
+let decode_list_claim_type_labels_response_bytes (b : bytes) : list_claim_type_labels_response =
+  match Cbor.decode b with Ok c -> decode_list_claim_type_labels_response c | Error e -> failwith e
+
 let encode_remove_claim_type_label_request_bytes (v : remove_claim_type_label_request) : bytes = Cbor.encode (encode_remove_claim_type_label_request v)
 let decode_remove_claim_type_label_request_bytes (b : bytes) : remove_claim_type_label_request =
   match Cbor.decode b with Ok c -> decode_remove_claim_type_label_request c | Error e -> failwith e
@@ -7362,6 +7901,22 @@ let encode_set_my_claim_sharing_response_bytes (v : set_my_claim_sharing_respons
 let decode_set_my_claim_sharing_response_bytes (b : bytes) : set_my_claim_sharing_response =
   match Cbor.decode b with Ok c -> decode_set_my_claim_sharing_response c | Error e -> failwith e
 
+let encode_my_claim_setting_bytes (v : my_claim_setting) : bytes = Cbor.encode (encode_my_claim_setting v)
+let decode_my_claim_setting_bytes (b : bytes) : my_claim_setting =
+  match Cbor.decode b with Ok c -> decode_my_claim_setting c | Error e -> failwith e
+
+let encode_my_claim_settings_response_bytes (v : my_claim_settings_response) : bytes = Cbor.encode (encode_my_claim_settings_response v)
+let decode_my_claim_settings_response_bytes (b : bytes) : my_claim_settings_response =
+  match Cbor.decode b with Ok c -> decode_my_claim_settings_response c | Error e -> failwith e
+
+let encode_set_my_claim_keep_verified_request_bytes (v : set_my_claim_keep_verified_request) : bytes = Cbor.encode (encode_set_my_claim_keep_verified_request v)
+let decode_set_my_claim_keep_verified_request_bytes (b : bytes) : set_my_claim_keep_verified_request =
+  match Cbor.decode b with Ok c -> decode_set_my_claim_keep_verified_request c | Error e -> failwith e
+
+let encode_set_my_claim_keep_verified_response_bytes (v : set_my_claim_keep_verified_response) : bytes = Cbor.encode (encode_set_my_claim_keep_verified_response v)
+let decode_set_my_claim_keep_verified_response_bytes (b : bytes) : set_my_claim_keep_verified_response =
+  match Cbor.decode b with Ok c -> decode_set_my_claim_keep_verified_response c | Error e -> failwith e
+
 let encode_profile_bytes (v : profile) : bytes = Cbor.encode (encode_profile v)
 let decode_profile_bytes (b : bytes) : profile =
   match Cbor.decode b with Ok c -> decode_profile c | Error e -> failwith e
@@ -7497,6 +8052,22 @@ let decode_browser_authorization_complete_request_bytes (b : bytes) : browser_au
 let encode_browser_authorization_complete_response_bytes (v : browser_authorization_complete_response) : bytes = Cbor.encode (encode_browser_authorization_complete_response v)
 let decode_browser_authorization_complete_response_bytes (b : bytes) : browser_authorization_complete_response =
   match Cbor.decode b with Ok c -> decode_browser_authorization_complete_response c | Error e -> failwith e
+
+let encode_browser_local_rp_inspect_request_bytes (v : browser_local_rp_inspect_request) : bytes = Cbor.encode (encode_browser_local_rp_inspect_request v)
+let decode_browser_local_rp_inspect_request_bytes (b : bytes) : browser_local_rp_inspect_request =
+  match Cbor.decode b with Ok c -> decode_browser_local_rp_inspect_request c | Error e -> failwith e
+
+let encode_browser_local_rp_inspect_response_bytes (v : browser_local_rp_inspect_response) : bytes = Cbor.encode (encode_browser_local_rp_inspect_response v)
+let decode_browser_local_rp_inspect_response_bytes (b : bytes) : browser_local_rp_inspect_response =
+  match Cbor.decode b with Ok c -> decode_browser_local_rp_inspect_response c | Error e -> failwith e
+
+let encode_browser_local_rp_complete_request_bytes (v : browser_local_rp_complete_request) : bytes = Cbor.encode (encode_browser_local_rp_complete_request v)
+let decode_browser_local_rp_complete_request_bytes (b : bytes) : browser_local_rp_complete_request =
+  match Cbor.decode b with Ok c -> decode_browser_local_rp_complete_request c | Error e -> failwith e
+
+let encode_browser_local_rp_complete_response_bytes (v : browser_local_rp_complete_response) : bytes = Cbor.encode (encode_browser_local_rp_complete_response v)
+let decode_browser_local_rp_complete_response_bytes (b : bytes) : browser_local_rp_complete_response =
+  match Cbor.decode b with Ok c -> decode_browser_local_rp_complete_response c | Error e -> failwith e
 
 let encode_ui_theme_bytes (v : ui_theme) : bytes = Cbor.encode (encode_ui_theme v)
 let decode_ui_theme_bytes (b : bytes) : ui_theme =
@@ -7677,6 +8248,14 @@ let decode_set_local_rp_policy_request_bytes (b : bytes) : set_local_rp_policy_r
 let encode_set_local_rp_policy_response_bytes (v : set_local_rp_policy_response) : bytes = Cbor.encode (encode_set_local_rp_policy_response v)
 let decode_set_local_rp_policy_response_bytes (b : bytes) : set_local_rp_policy_response =
   match Cbor.decode b with Ok c -> decode_set_local_rp_policy_response c | Error e -> failwith e
+
+let encode_sign_in_policy_bytes (v : sign_in_policy) : bytes = Cbor.encode (encode_sign_in_policy v)
+let decode_sign_in_policy_bytes (b : bytes) : sign_in_policy =
+  match Cbor.decode b with Ok c -> decode_sign_in_policy c | Error e -> failwith e
+
+let encode_set_sign_in_policy_request_bytes (v : set_sign_in_policy_request) : bytes = Cbor.encode (encode_set_sign_in_policy_request v)
+let decode_set_sign_in_policy_request_bytes (b : bytes) : set_sign_in_policy_request =
+  match Cbor.decode b with Ok c -> decode_set_sign_in_policy_request c | Error e -> failwith e
 
 let encode_purge_local_rp_tickets_request_bytes (v : purge_local_rp_tickets_request) : bytes = Cbor.encode (encode_purge_local_rp_tickets_request v)
 let decode_purge_local_rp_tickets_request_bytes (b : bytes) : purge_local_rp_tickets_request =
@@ -7929,3 +8508,43 @@ let decode_revoke_act_as_grant_request_bytes (b : bytes) : revoke_act_as_grant_r
 let encode_revoke_act_as_grant_response_bytes (v : revoke_act_as_grant_response) : bytes = Cbor.encode (encode_revoke_act_as_grant_response v)
 let decode_revoke_act_as_grant_response_bytes (b : bytes) : revoke_act_as_grant_response =
   match Cbor.decode b with Ok c -> decode_revoke_act_as_grant_response c | Error e -> failwith e
+
+let encode_preview_release_policy_request_bytes (v : preview_release_policy_request) : bytes = Cbor.encode (encode_preview_release_policy_request v)
+let decode_preview_release_policy_request_bytes (b : bytes) : preview_release_policy_request =
+  match Cbor.decode b with Ok c -> decode_preview_release_policy_request c | Error e -> failwith e
+
+let encode_preview_release_row_bytes (v : preview_release_row) : bytes = Cbor.encode (encode_preview_release_row v)
+let decode_preview_release_row_bytes (b : bytes) : preview_release_row =
+  match Cbor.decode b with Ok c -> decode_preview_release_row c | Error e -> failwith e
+
+let encode_preview_release_policy_response_bytes (v : preview_release_policy_response) : bytes = Cbor.encode (encode_preview_release_policy_response v)
+let decode_preview_release_policy_response_bytes (b : bytes) : preview_release_policy_response =
+  match Cbor.decode b with Ok c -> decode_preview_release_policy_response c | Error e -> failwith e
+
+let encode_preview_issuer_policy_request_bytes (v : preview_issuer_policy_request) : bytes = Cbor.encode (encode_preview_issuer_policy_request v)
+let decode_preview_issuer_policy_request_bytes (b : bytes) : preview_issuer_policy_request =
+  match Cbor.decode b with Ok c -> decode_preview_issuer_policy_request c | Error e -> failwith e
+
+let encode_preview_issuer_policy_response_bytes (v : preview_issuer_policy_response) : bytes = Cbor.encode (encode_preview_issuer_policy_response v)
+let decode_preview_issuer_policy_response_bytes (b : bytes) : preview_issuer_policy_response =
+  match Cbor.decode b with Ok c -> decode_preview_issuer_policy_response c | Error e -> failwith e
+
+let encode_inspect_signing_request_request_bytes (v : inspect_signing_request_request) : bytes = Cbor.encode (encode_inspect_signing_request_request v)
+let decode_inspect_signing_request_request_bytes (b : bytes) : inspect_signing_request_request =
+  match Cbor.decode b with Ok c -> decode_inspect_signing_request_request c | Error e -> failwith e
+
+let encode_inspect_signing_request_response_bytes (v : inspect_signing_request_response) : bytes = Cbor.encode (encode_inspect_signing_request_response v)
+let decode_inspect_signing_request_response_bytes (b : bytes) : inspect_signing_request_response =
+  match Cbor.decode b with Ok c -> decode_inspect_signing_request_response c | Error e -> failwith e
+
+let encode_issue_for_signing_request_request_bytes (v : issue_for_signing_request_request) : bytes = Cbor.encode (encode_issue_for_signing_request_request v)
+let decode_issue_for_signing_request_request_bytes (b : bytes) : issue_for_signing_request_request =
+  match Cbor.decode b with Ok c -> decode_issue_for_signing_request_request c | Error e -> failwith e
+
+let encode_issued_claim_result_bytes (v : issued_claim_result) : bytes = Cbor.encode (encode_issued_claim_result v)
+let decode_issued_claim_result_bytes (b : bytes) : issued_claim_result =
+  match Cbor.decode b with Ok c -> decode_issued_claim_result c | Error e -> failwith e
+
+let encode_issue_for_signing_request_response_bytes (v : issue_for_signing_request_response) : bytes = Cbor.encode (encode_issue_for_signing_request_response v)
+let decode_issue_for_signing_request_response_bytes (b : bytes) : issue_for_signing_request_response =
+  match Cbor.decode b with Ok c -> decode_issue_for_signing_request_response c | Error e -> failwith e

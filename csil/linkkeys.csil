@@ -1381,7 +1381,11 @@ BrowserConsentClaim = {
     policy: text,
     user_settable: bool,
     max_bytes: int,
-    requires_approval: bool
+    requires_approval: bool,
+    ;; True when the app did not request this claim at the user's last
+    ;; consent to this app, so the user has not seen it. Absent on first
+    ;; consent. A new claim, required or optional, reopens consent once.
+    ? newly_requested: bool
 }
 
 BrowserAuthorizationInspectResponse = {
@@ -1591,7 +1595,12 @@ AuthorizeValidateResponse = {
     ;; succeed without new consent. Only computed when user_id was sent.
     ? already_consented: bool,
     ;; The claim types that silent finalize would release.
-    ? authorized_claims: [* text]
+    ? authorized_claims: [* text],
+    ;; Requested claim types this user has not seen for this app: not
+    ;; requested at the user's last consent. Only computed when user_id was
+    ;; sent and a prior grant exists. Absent when empty. Any entry means
+    ;; already_consented is absent, and the consent UI should mark these new.
+    ? newly_requested_claims: [* text]
 }
 
 ;; Finalize a login the consent UI approved: burn the request nonce, persist

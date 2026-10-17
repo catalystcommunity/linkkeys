@@ -617,6 +617,73 @@ defmodule Csilgen.Generated.BrowserAuthorizationClient do
 
     Csilgen.Generated.BrowserActAsCompleteResponse.from_cbor(resp)
   end
+
+  @spec inspect_local_rp(t(), Csilgen.Generated.BrowserLocalRpInspectRequest.t()) ::
+          Csilgen.Generated.BrowserLocalRpInspectResponse.t()
+  def inspect_local_rp(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "BrowserAuthorization",
+        "inspect-local-rp",
+        Csilgen.Generated.BrowserLocalRpInspectRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.BrowserLocalRpInspectResponse.from_cbor(resp)
+  end
+
+  @spec complete_local_rp(t(), Csilgen.Generated.BrowserLocalRpCompleteRequest.t()) ::
+          Csilgen.Generated.BrowserLocalRpCompleteResponse.t()
+  def complete_local_rp(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "BrowserAuthorization",
+        "complete-local-rp",
+        Csilgen.Generated.BrowserLocalRpCompleteRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.BrowserLocalRpCompleteResponse.from_cbor(resp)
+  end
+end
+
+defmodule Csilgen.Generated.BrowserIssuerClient do
+  @moduledoc "Typed client for the BrowserIssuer service. The client owns (de)serialization via the codec; the transport only moves bytes."
+
+  @enforce_keys [:transport]
+  defstruct [:transport]
+  @type t :: %__MODULE__{transport: Csilgen.Generated.Transport.t()}
+
+  @spec new(Csilgen.Generated.Transport.t()) :: t()
+  def new(transport), do: %__MODULE__{transport: transport}
+
+  @spec inspect_signing_request(t(), Csilgen.Generated.InspectSigningRequestRequest.t()) ::
+          Csilgen.Generated.InspectSigningRequestResponse.t()
+  def inspect_signing_request(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "BrowserIssuer",
+        "inspect-signing-request",
+        Csilgen.Generated.InspectSigningRequestRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.InspectSigningRequestResponse.from_cbor(resp)
+  end
+
+  @spec issue_for_signing_request(t(), Csilgen.Generated.IssueForSigningRequestRequest.t()) ::
+          Csilgen.Generated.IssueForSigningRequestResponse.t()
+  def issue_for_signing_request(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "BrowserIssuer",
+        "issue-for-signing-request",
+        Csilgen.Generated.IssueForSigningRequestRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.IssueForSigningRequestResponse.from_cbor(resp)
+  end
 end
 
 defmodule Csilgen.Generated.AdminClient do
@@ -926,6 +993,20 @@ defmodule Csilgen.Generated.AdminClient do
     Csilgen.Generated.RemoveClaimTypeResponse.from_cbor(resp)
   end
 
+  @spec list_claim_type_labels(t(), Csilgen.Generated.EmptyRequest.t()) ::
+          Csilgen.Generated.ListClaimTypeLabelsResponse.t()
+  def list_claim_type_labels(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Admin",
+        "list-claim-type-labels",
+        Csilgen.Generated.EmptyRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.ListClaimTypeLabelsResponse.from_cbor(resp)
+  end
+
   @spec set_claim_type_label(t(), Csilgen.Generated.SetClaimTypeLabelRequest.t()) ::
           Csilgen.Generated.SetClaimTypeLabelResponse.t()
   def set_claim_type_label(%__MODULE__{transport: transport}, req) do
@@ -1092,6 +1173,34 @@ defmodule Csilgen.Generated.AdminClient do
       )
 
     Csilgen.Generated.AdminIssueAttestationResponse.from_cbor(resp)
+  end
+
+  @spec preview_release_policy(t(), Csilgen.Generated.PreviewReleasePolicyRequest.t()) ::
+          Csilgen.Generated.PreviewReleasePolicyResponse.t()
+  def preview_release_policy(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Admin",
+        "preview-release-policy",
+        Csilgen.Generated.PreviewReleasePolicyRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.PreviewReleasePolicyResponse.from_cbor(resp)
+  end
+
+  @spec preview_issuer_policy(t(), Csilgen.Generated.PreviewIssuerPolicyRequest.t()) ::
+          Csilgen.Generated.PreviewIssuerPolicyResponse.t()
+  def preview_issuer_policy(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Admin",
+        "preview-issuer-policy",
+        Csilgen.Generated.PreviewIssuerPolicyRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.PreviewIssuerPolicyResponse.from_cbor(resp)
   end
 
   @spec grant_relation(t(), Csilgen.Generated.GrantRelationRequest.t()) ::
@@ -1275,6 +1384,34 @@ defmodule Csilgen.Generated.AdminClient do
 
     Csilgen.Generated.PurgeLocalRpTicketsResponse.from_cbor(resp)
   end
+
+  @spec get_sign_in_policy(t(), Csilgen.Generated.EmptyRequest.t()) ::
+          Csilgen.Generated.SignInPolicy.t()
+  def get_sign_in_policy(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Admin",
+        "get-sign-in-policy",
+        Csilgen.Generated.EmptyRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.SignInPolicy.from_cbor(resp)
+  end
+
+  @spec set_sign_in_policy(t(), Csilgen.Generated.SetSignInPolicyRequest.t()) ::
+          Csilgen.Generated.SignInPolicy.t()
+  def set_sign_in_policy(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Admin",
+        "set-sign-in-policy",
+        Csilgen.Generated.SetSignInPolicyRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.SignInPolicy.from_cbor(resp)
+  end
 end
 
 defmodule Csilgen.Generated.AccountClient do
@@ -1383,6 +1520,34 @@ defmodule Csilgen.Generated.AccountClient do
       )
 
     Csilgen.Generated.CreateProfileResponse.from_cbor(resp)
+  end
+
+  @spec get_my_claim_settings(t(), Csilgen.Generated.EmptyRequest.t()) ::
+          Csilgen.Generated.MyClaimSettingsResponse.t()
+  def get_my_claim_settings(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Account",
+        "get-my-claim-settings",
+        Csilgen.Generated.EmptyRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.MyClaimSettingsResponse.from_cbor(resp)
+  end
+
+  @spec set_my_claim_keep_verified(t(), Csilgen.Generated.SetMyClaimKeepVerifiedRequest.t()) ::
+          Csilgen.Generated.SetMyClaimKeepVerifiedResponse.t()
+  def set_my_claim_keep_verified(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Account",
+        "set-my-claim-keep-verified",
+        Csilgen.Generated.SetMyClaimKeepVerifiedRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.SetMyClaimKeepVerifiedResponse.from_cbor(resp)
   end
 
   @spec request_verification(t(), Csilgen.Generated.RequestVerificationRequest.t()) ::

@@ -443,6 +443,7 @@ public static class Codec
         ClaimTypeLabel csilTyped => ClaimTypeLabelToCborValue(csilTyped),
         SetClaimTypeLabelRequest csilTyped => SetClaimTypeLabelRequestToCborValue(csilTyped),
         SetClaimTypeLabelResponse csilTyped => SetClaimTypeLabelResponseToCborValue(csilTyped),
+        ListClaimTypeLabelsResponse csilTyped => ListClaimTypeLabelsResponseToCborValue(csilTyped),
         RemoveClaimTypeLabelRequest csilTyped => RemoveClaimTypeLabelRequestToCborValue(csilTyped),
         RemoveClaimTypeLabelResponse csilTyped => RemoveClaimTypeLabelResponseToCborValue(csilTyped),
         TrustedIssuer csilTyped => TrustedIssuerToCborValue(csilTyped),
@@ -482,6 +483,10 @@ public static class Codec
         RemoveMyClaimResponse csilTyped => RemoveMyClaimResponseToCborValue(csilTyped),
         SetMyClaimSharingRequest csilTyped => SetMyClaimSharingRequestToCborValue(csilTyped),
         SetMyClaimSharingResponse csilTyped => SetMyClaimSharingResponseToCborValue(csilTyped),
+        MyClaimSetting csilTyped => MyClaimSettingToCborValue(csilTyped),
+        MyClaimSettingsResponse csilTyped => MyClaimSettingsResponseToCborValue(csilTyped),
+        SetMyClaimKeepVerifiedRequest csilTyped => SetMyClaimKeepVerifiedRequestToCborValue(csilTyped),
+        SetMyClaimKeepVerifiedResponse csilTyped => SetMyClaimKeepVerifiedResponseToCborValue(csilTyped),
         Profile csilTyped => ProfileToCborValue(csilTyped),
         CreateProfileRequest csilTyped => CreateProfileRequestToCborValue(csilTyped),
         CreateProfileResponse csilTyped => CreateProfileResponseToCborValue(csilTyped),
@@ -516,6 +521,10 @@ public static class Codec
         BrowserAuthorizationInspectResponse csilTyped => BrowserAuthorizationInspectResponseToCborValue(csilTyped),
         BrowserAuthorizationCompleteRequest csilTyped => BrowserAuthorizationCompleteRequestToCborValue(csilTyped),
         BrowserAuthorizationCompleteResponse csilTyped => BrowserAuthorizationCompleteResponseToCborValue(csilTyped),
+        BrowserLocalRpInspectRequest csilTyped => BrowserLocalRpInspectRequestToCborValue(csilTyped),
+        BrowserLocalRpInspectResponse csilTyped => BrowserLocalRpInspectResponseToCborValue(csilTyped),
+        BrowserLocalRpCompleteRequest csilTyped => BrowserLocalRpCompleteRequestToCborValue(csilTyped),
+        BrowserLocalRpCompleteResponse csilTyped => BrowserLocalRpCompleteResponseToCborValue(csilTyped),
         UiTheme csilTyped => UiThemeToCborValue(csilTyped),
         UiExtension csilTyped => UiExtensionToCborValue(csilTyped),
         UiDisplaySettings csilTyped => UiDisplaySettingsToCborValue(csilTyped),
@@ -561,6 +570,8 @@ public static class Codec
         GetLocalRpPolicyResponse csilTyped => GetLocalRpPolicyResponseToCborValue(csilTyped),
         SetLocalRpPolicyRequest csilTyped => SetLocalRpPolicyRequestToCborValue(csilTyped),
         SetLocalRpPolicyResponse csilTyped => SetLocalRpPolicyResponseToCborValue(csilTyped),
+        SignInPolicy csilTyped => SignInPolicyToCborValue(csilTyped),
+        SetSignInPolicyRequest csilTyped => SetSignInPolicyRequestToCborValue(csilTyped),
         PurgeLocalRpTicketsRequest csilTyped => PurgeLocalRpTicketsRequestToCborValue(csilTyped),
         PurgeLocalRpTicketsResponse csilTyped => PurgeLocalRpTicketsResponseToCborValue(csilTyped),
         TranslationsRequest csilTyped => TranslationsRequestToCborValue(csilTyped),
@@ -624,6 +635,16 @@ public static class Codec
         ListActAsGrantsResponse csilTyped => ListActAsGrantsResponseToCborValue(csilTyped),
         RevokeActAsGrantRequest csilTyped => RevokeActAsGrantRequestToCborValue(csilTyped),
         RevokeActAsGrantResponse csilTyped => RevokeActAsGrantResponseToCborValue(csilTyped),
+        PreviewReleasePolicyRequest csilTyped => PreviewReleasePolicyRequestToCborValue(csilTyped),
+        PreviewReleaseRow csilTyped => PreviewReleaseRowToCborValue(csilTyped),
+        PreviewReleasePolicyResponse csilTyped => PreviewReleasePolicyResponseToCborValue(csilTyped),
+        PreviewIssuerPolicyRequest csilTyped => PreviewIssuerPolicyRequestToCborValue(csilTyped),
+        PreviewIssuerPolicyResponse csilTyped => PreviewIssuerPolicyResponseToCborValue(csilTyped),
+        InspectSigningRequestRequest csilTyped => InspectSigningRequestRequestToCborValue(csilTyped),
+        InspectSigningRequestResponse csilTyped => InspectSigningRequestResponseToCborValue(csilTyped),
+        IssueForSigningRequestRequest csilTyped => IssueForSigningRequestRequestToCborValue(csilTyped),
+        IssuedClaimResult csilTyped => IssuedClaimResultToCborValue(csilTyped),
+        IssueForSigningRequestResponse csilTyped => IssueForSigningRequestResponseToCborValue(csilTyped),
         _ => throw new System.ArgumentException("csilgen: no CSIL codec for the requested type"),
     };
 
@@ -727,6 +748,7 @@ public static class Codec
         if (csilType == typeof(ClaimTypeLabel)) return ClaimTypeLabelFromCborValue(value);
         if (csilType == typeof(SetClaimTypeLabelRequest)) return SetClaimTypeLabelRequestFromCborValue(value);
         if (csilType == typeof(SetClaimTypeLabelResponse)) return SetClaimTypeLabelResponseFromCborValue(value);
+        if (csilType == typeof(ListClaimTypeLabelsResponse)) return ListClaimTypeLabelsResponseFromCborValue(value);
         if (csilType == typeof(RemoveClaimTypeLabelRequest)) return RemoveClaimTypeLabelRequestFromCborValue(value);
         if (csilType == typeof(RemoveClaimTypeLabelResponse)) return RemoveClaimTypeLabelResponseFromCborValue(value);
         if (csilType == typeof(TrustedIssuer)) return TrustedIssuerFromCborValue(value);
@@ -766,6 +788,10 @@ public static class Codec
         if (csilType == typeof(RemoveMyClaimResponse)) return RemoveMyClaimResponseFromCborValue(value);
         if (csilType == typeof(SetMyClaimSharingRequest)) return SetMyClaimSharingRequestFromCborValue(value);
         if (csilType == typeof(SetMyClaimSharingResponse)) return SetMyClaimSharingResponseFromCborValue(value);
+        if (csilType == typeof(MyClaimSetting)) return MyClaimSettingFromCborValue(value);
+        if (csilType == typeof(MyClaimSettingsResponse)) return MyClaimSettingsResponseFromCborValue(value);
+        if (csilType == typeof(SetMyClaimKeepVerifiedRequest)) return SetMyClaimKeepVerifiedRequestFromCborValue(value);
+        if (csilType == typeof(SetMyClaimKeepVerifiedResponse)) return SetMyClaimKeepVerifiedResponseFromCborValue(value);
         if (csilType == typeof(Profile)) return ProfileFromCborValue(value);
         if (csilType == typeof(CreateProfileRequest)) return CreateProfileRequestFromCborValue(value);
         if (csilType == typeof(CreateProfileResponse)) return CreateProfileResponseFromCborValue(value);
@@ -800,6 +826,10 @@ public static class Codec
         if (csilType == typeof(BrowserAuthorizationInspectResponse)) return BrowserAuthorizationInspectResponseFromCborValue(value);
         if (csilType == typeof(BrowserAuthorizationCompleteRequest)) return BrowserAuthorizationCompleteRequestFromCborValue(value);
         if (csilType == typeof(BrowserAuthorizationCompleteResponse)) return BrowserAuthorizationCompleteResponseFromCborValue(value);
+        if (csilType == typeof(BrowserLocalRpInspectRequest)) return BrowserLocalRpInspectRequestFromCborValue(value);
+        if (csilType == typeof(BrowserLocalRpInspectResponse)) return BrowserLocalRpInspectResponseFromCborValue(value);
+        if (csilType == typeof(BrowserLocalRpCompleteRequest)) return BrowserLocalRpCompleteRequestFromCborValue(value);
+        if (csilType == typeof(BrowserLocalRpCompleteResponse)) return BrowserLocalRpCompleteResponseFromCborValue(value);
         if (csilType == typeof(UiTheme)) return UiThemeFromCborValue(value);
         if (csilType == typeof(UiExtension)) return UiExtensionFromCborValue(value);
         if (csilType == typeof(UiDisplaySettings)) return UiDisplaySettingsFromCborValue(value);
@@ -845,6 +875,8 @@ public static class Codec
         if (csilType == typeof(GetLocalRpPolicyResponse)) return GetLocalRpPolicyResponseFromCborValue(value);
         if (csilType == typeof(SetLocalRpPolicyRequest)) return SetLocalRpPolicyRequestFromCborValue(value);
         if (csilType == typeof(SetLocalRpPolicyResponse)) return SetLocalRpPolicyResponseFromCborValue(value);
+        if (csilType == typeof(SignInPolicy)) return SignInPolicyFromCborValue(value);
+        if (csilType == typeof(SetSignInPolicyRequest)) return SetSignInPolicyRequestFromCborValue(value);
         if (csilType == typeof(PurgeLocalRpTicketsRequest)) return PurgeLocalRpTicketsRequestFromCborValue(value);
         if (csilType == typeof(PurgeLocalRpTicketsResponse)) return PurgeLocalRpTicketsResponseFromCborValue(value);
         if (csilType == typeof(TranslationsRequest)) return TranslationsRequestFromCborValue(value);
@@ -908,6 +940,16 @@ public static class Codec
         if (csilType == typeof(ListActAsGrantsResponse)) return ListActAsGrantsResponseFromCborValue(value);
         if (csilType == typeof(RevokeActAsGrantRequest)) return RevokeActAsGrantRequestFromCborValue(value);
         if (csilType == typeof(RevokeActAsGrantResponse)) return RevokeActAsGrantResponseFromCborValue(value);
+        if (csilType == typeof(PreviewReleasePolicyRequest)) return PreviewReleasePolicyRequestFromCborValue(value);
+        if (csilType == typeof(PreviewReleaseRow)) return PreviewReleaseRowFromCborValue(value);
+        if (csilType == typeof(PreviewReleasePolicyResponse)) return PreviewReleasePolicyResponseFromCborValue(value);
+        if (csilType == typeof(PreviewIssuerPolicyRequest)) return PreviewIssuerPolicyRequestFromCborValue(value);
+        if (csilType == typeof(PreviewIssuerPolicyResponse)) return PreviewIssuerPolicyResponseFromCborValue(value);
+        if (csilType == typeof(InspectSigningRequestRequest)) return InspectSigningRequestRequestFromCborValue(value);
+        if (csilType == typeof(InspectSigningRequestResponse)) return InspectSigningRequestResponseFromCborValue(value);
+        if (csilType == typeof(IssueForSigningRequestRequest)) return IssueForSigningRequestRequestFromCborValue(value);
+        if (csilType == typeof(IssuedClaimResult)) return IssuedClaimResultFromCborValue(value);
+        if (csilType == typeof(IssueForSigningRequestResponse)) return IssueForSigningRequestResponseFromCborValue(value);
         throw new System.ArgumentException("csilgen: no CSIL codec for the requested type");
     }
 
@@ -3357,6 +3399,24 @@ public static class Codec
         };
     }
 
+    /// <summary>The canonical CBOR value tree for a ListClaimTypeLabelsResponse.</summary>
+    public static CborValue ListClaimTypeLabelsResponseToCborValue(ListClaimTypeLabelsResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("labels"), new CborValue.Array(value.Labels.Select(csilElem => (CborValue)ClaimTypeLabelToCborValue(csilElem)).ToList())));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a ListClaimTypeLabelsResponse from a decoded CBOR value tree.</summary>
+    public static ListClaimTypeLabelsResponse ListClaimTypeLabelsResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsArray(Cbor.Require(value, "labels")).Select(csilElem => ClaimTypeLabelFromCborValue(csilElem)).ToList();
+        return new ListClaimTypeLabelsResponse
+        {
+            Labels = csilField0,
+        };
+    }
+
     /// <summary>The canonical CBOR value tree for a RemoveClaimTypeLabelRequest.</summary>
     public static CborValue RemoveClaimTypeLabelRequestToCborValue(RemoveClaimTypeLabelRequest value)
     {
@@ -4179,6 +4239,90 @@ public static class Codec
         };
     }
 
+    /// <summary>The canonical CBOR value tree for a MyClaimSetting.</summary>
+    public static CborValue MyClaimSettingToCborValue(MyClaimSetting value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("claim_type"), new CborValue.Text(value.ClaimType)));
+        csilEntries.Add((new CborValue.Text("keep_verified"), new CborValue.Bool(value.KeepVerified)));
+        csilEntries.Add((new CborValue.Text("shared_with_every_app"), new CborValue.Bool(value.SharedWithEveryApp)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a MyClaimSetting from a decoded CBOR value tree.</summary>
+    public static MyClaimSetting MyClaimSettingFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "claim_type"));
+        var csilField1 = Cbor.AsBool(Cbor.Require(value, "keep_verified"));
+        var csilField2 = Cbor.AsBool(Cbor.Require(value, "shared_with_every_app"));
+        return new MyClaimSetting
+        {
+            ClaimType = csilField0,
+            KeepVerified = csilField1,
+            SharedWithEveryApp = csilField2,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a MyClaimSettingsResponse.</summary>
+    public static CborValue MyClaimSettingsResponseToCborValue(MyClaimSettingsResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("profiles"), new CborValue.Array(value.Profiles.Select(csilElem => (CborValue)ProfileToCborValue(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("settings"), new CborValue.Array(value.Settings.Select(csilElem => (CborValue)MyClaimSettingToCborValue(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("max_profiles"), new CborValue.Int(value.MaxProfiles)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a MyClaimSettingsResponse from a decoded CBOR value tree.</summary>
+    public static MyClaimSettingsResponse MyClaimSettingsResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsArray(Cbor.Require(value, "settings")).Select(csilElem => MyClaimSettingFromCborValue(csilElem)).ToList();
+        var csilField1 = Cbor.AsArray(Cbor.Require(value, "profiles")).Select(csilElem => ProfileFromCborValue(csilElem)).ToList();
+        var csilField2 = Cbor.AsI64(Cbor.Require(value, "max_profiles"));
+        return new MyClaimSettingsResponse
+        {
+            Settings = csilField0,
+            Profiles = csilField1,
+            MaxProfiles = csilField2,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a SetMyClaimKeepVerifiedRequest.</summary>
+    public static CborValue SetMyClaimKeepVerifiedRequestToCborValue(SetMyClaimKeepVerifiedRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("claim_type"), new CborValue.Text(value.ClaimType)));
+        csilEntries.Add((new CborValue.Text("keep_verified"), new CborValue.Bool(value.KeepVerified)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a SetMyClaimKeepVerifiedRequest from a decoded CBOR value tree.</summary>
+    public static SetMyClaimKeepVerifiedRequest SetMyClaimKeepVerifiedRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "claim_type"));
+        var csilField1 = Cbor.AsBool(Cbor.Require(value, "keep_verified"));
+        return new SetMyClaimKeepVerifiedRequest
+        {
+            ClaimType = csilField0,
+            KeepVerified = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a SetMyClaimKeepVerifiedResponse.</summary>
+    public static CborValue SetMyClaimKeepVerifiedResponseToCborValue(SetMyClaimKeepVerifiedResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a SetMyClaimKeepVerifiedResponse from a decoded CBOR value tree.</summary>
+    public static SetMyClaimKeepVerifiedResponse SetMyClaimKeepVerifiedResponseFromCborValue(CborValue value)
+    {
+        return new SetMyClaimKeepVerifiedResponse
+        {
+        };
+    }
+
     /// <summary>The canonical CBOR value tree for a Profile.</summary>
     public static CborValue ProfileToCborValue(Profile value)
     {
@@ -4822,6 +4966,10 @@ public static class Codec
         csilEntries.Add((new CborValue.Text("claim_type"), new CborValue.Text(value.ClaimType)));
         csilEntries.Add((new CborValue.Text("user_settable"), new CborValue.Bool(value.UserSettable)));
         csilEntries.Add((new CborValue.Text("default_granted"), new CborValue.Bool(value.DefaultGranted)));
+        if (value.NewlyRequested is { } csilV9)
+        {
+            csilEntries.Add((new CborValue.Text("newly_requested"), new CborValue.Bool(csilV9)));
+        }
         csilEntries.Add((new CborValue.Text("requires_approval"), new CborValue.Bool(value.RequiresApproval)));
         return new CborValue.Map(csilEntries);
     }
@@ -4839,6 +4987,7 @@ public static class Codec
         var csilField7 = Cbor.AsBool(Cbor.Require(value, "user_settable"));
         var csilField8 = Cbor.AsI64(Cbor.Require(value, "max_bytes"));
         var csilField9 = Cbor.AsBool(Cbor.Require(value, "requires_approval"));
+        bool? csilField10 = Cbor.MapGet(value, "newly_requested") is { } csilRaw10 ? Cbor.AsBool(csilRaw10) : null;
         return new BrowserConsentClaim
         {
             ClaimType = csilField0,
@@ -4851,6 +5000,7 @@ public static class Codec
             UserSettable = csilField7,
             MaxBytes = csilField8,
             RequiresApproval = csilField9,
+            NewlyRequested = csilField10,
         };
     }
 
@@ -4939,6 +5089,129 @@ public static class Codec
     {
         var csilField0 = Cbor.AsText(Cbor.Require(value, "redirect_url"));
         return new BrowserAuthorizationCompleteResponse
+        {
+            RedirectUrl = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a BrowserLocalRpInspectRequest.</summary>
+    public static CborValue BrowserLocalRpInspectRequestToCborValue(BrowserLocalRpInspectRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("signed_request"), new CborValue.Text(value.SignedRequest)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a BrowserLocalRpInspectRequest from a decoded CBOR value tree.</summary>
+    public static BrowserLocalRpInspectRequest BrowserLocalRpInspectRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "signed_request"));
+        return new BrowserLocalRpInspectRequest
+        {
+            SignedRequest = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a BrowserLocalRpInspectResponse.</summary>
+    public static CborValue BrowserLocalRpInspectResponseToCborValue(BrowserLocalRpInspectResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("claims"), new CborValue.Array(value.Claims.Select(csilElem => (CborValue)BrowserConsentClaimToCborValue(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("app_name"), new CborValue.Text(value.AppName)));
+        csilEntries.Add((new CborValue.Text("admission"), new CborValue.Text(value.Admission)));
+        csilEntries.Add((new CborValue.Text("fingerprint"), new CborValue.Text(value.Fingerprint)));
+        csilEntries.Add((new CborValue.Text("callback_host"), new CborValue.Text(value.CallbackHost)));
+        if (value.FirstSeenAt is { } csilV5)
+        {
+            csilEntries.Add((new CborValue.Text("first_seen_at"), new CborValue.Text(csilV5)));
+        }
+        if (value.RequestReason is { } csilV6)
+        {
+            csilEntries.Add((new CborValue.Text("request_reason"), new CborValue.Text(csilV6)));
+        }
+        if (value.AlreadyConsented is { } csilV7)
+        {
+            csilEntries.Add((new CborValue.Text("already_consented"), new CborValue.Bool(csilV7)));
+        }
+        if (value.AuthorizedClaims is { } csilV8)
+        {
+            csilEntries.Add((new CborValue.Text("authorized_claims"), new CborValue.Array(csilV8.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        }
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a BrowserLocalRpInspectResponse from a decoded CBOR value tree.</summary>
+    public static BrowserLocalRpInspectResponse BrowserLocalRpInspectResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "admission"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "app_name"));
+        var csilField2 = Cbor.AsText(Cbor.Require(value, "fingerprint"));
+        var csilField3 = Cbor.AsText(Cbor.Require(value, "callback_host"));
+        string? csilField4 = Cbor.MapGet(value, "first_seen_at") is { } csilRaw4 ? Cbor.AsText(csilRaw4) : null;
+        var csilField5 = Cbor.AsArray(Cbor.Require(value, "claims")).Select(csilElem => BrowserConsentClaimFromCborValue(csilElem)).ToList();
+        string? csilField6 = Cbor.MapGet(value, "request_reason") is { } csilRaw6 ? Cbor.AsText(csilRaw6) : null;
+        bool? csilField7 = Cbor.MapGet(value, "already_consented") is { } csilRaw7 ? Cbor.AsBool(csilRaw7) : null;
+        System.Collections.Generic.List<string>? csilField8 = Cbor.MapGet(value, "authorized_claims") is { } csilRaw8 ? Cbor.AsArray(csilRaw8).Select(csilElem => Cbor.AsText(csilElem)).ToList() : null;
+        return new BrowserLocalRpInspectResponse
+        {
+            Admission = csilField0,
+            AppName = csilField1,
+            Fingerprint = csilField2,
+            CallbackHost = csilField3,
+            FirstSeenAt = csilField4,
+            Claims = csilField5,
+            RequestReason = csilField6,
+            AlreadyConsented = csilField7,
+            AuthorizedClaims = csilField8,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a BrowserLocalRpCompleteRequest.</summary>
+    public static CborValue BrowserLocalRpCompleteRequestToCborValue(BrowserLocalRpCompleteRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("signed_request"), new CborValue.Text(value.SignedRequest)));
+        csilEntries.Add((new CborValue.Text("authorized_claims"), new CborValue.Array(value.AuthorizedClaims.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("claim_types_to_set"), new CborValue.Array(value.ClaimTypesToSet.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        if (value.UseStandingGrant is { } csilV3)
+        {
+            csilEntries.Add((new CborValue.Text("use_standing_grant"), new CborValue.Bool(csilV3)));
+        }
+        csilEntries.Add((new CborValue.Text("claim_values_to_set"), new CborValue.Array(value.ClaimValuesToSet.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a BrowserLocalRpCompleteRequest from a decoded CBOR value tree.</summary>
+    public static BrowserLocalRpCompleteRequest BrowserLocalRpCompleteRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "signed_request"));
+        var csilField1 = Cbor.AsArray(Cbor.Require(value, "authorized_claims")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        var csilField2 = Cbor.AsArray(Cbor.Require(value, "claim_types_to_set")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        var csilField3 = Cbor.AsArray(Cbor.Require(value, "claim_values_to_set")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        bool? csilField4 = Cbor.MapGet(value, "use_standing_grant") is { } csilRaw4 ? Cbor.AsBool(csilRaw4) : null;
+        return new BrowserLocalRpCompleteRequest
+        {
+            SignedRequest = csilField0,
+            AuthorizedClaims = csilField1,
+            ClaimTypesToSet = csilField2,
+            ClaimValuesToSet = csilField3,
+            UseStandingGrant = csilField4,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a BrowserLocalRpCompleteResponse.</summary>
+    public static CborValue BrowserLocalRpCompleteResponseToCborValue(BrowserLocalRpCompleteResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("redirect_url"), new CborValue.Text(value.RedirectUrl)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a BrowserLocalRpCompleteResponse from a decoded CBOR value tree.</summary>
+    public static BrowserLocalRpCompleteResponse BrowserLocalRpCompleteResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "redirect_url"));
+        return new BrowserLocalRpCompleteResponse
         {
             RedirectUrl = csilField0,
         };
@@ -5322,6 +5595,10 @@ public static class Codec
         {
             csilEntries.Add((new CborValue.Text("authorized_claims"), new CborValue.Array(csilV4.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
         }
+        if (value.NewlyRequestedClaims is { } csilV5)
+        {
+            csilEntries.Add((new CborValue.Text("newly_requested_claims"), new CborValue.Array(csilV5.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        }
         return new CborValue.Map(csilEntries);
     }
 
@@ -5333,6 +5610,7 @@ public static class Codec
         var csilField2 = Cbor.AsArray(Cbor.Require(value, "requested_claims")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
         bool? csilField3 = Cbor.MapGet(value, "already_consented") is { } csilRaw3 ? Cbor.AsBool(csilRaw3) : null;
         System.Collections.Generic.List<string>? csilField4 = Cbor.MapGet(value, "authorized_claims") is { } csilRaw4 ? Cbor.AsArray(csilRaw4).Select(csilElem => Cbor.AsText(csilElem)).ToList() : null;
+        System.Collections.Generic.List<string>? csilField5 = Cbor.MapGet(value, "newly_requested_claims") is { } csilRaw5 ? Cbor.AsArray(csilRaw5).Select(csilElem => Cbor.AsText(csilElem)).ToList() : null;
         return new AuthorizeValidateResponse
         {
             RelyingParty = csilField0,
@@ -5340,6 +5618,7 @@ public static class Codec
             RequestedClaims = csilField2,
             AlreadyConsented = csilField3,
             AuthorizedClaims = csilField4,
+            NewlyRequestedClaims = csilField5,
         };
     }
 
@@ -6110,6 +6389,51 @@ public static class Codec
         return new SetLocalRpPolicyResponse
         {
             Policy = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a SignInPolicy.</summary>
+    public static CborValue SignInPolicyToCborValue(SignInPolicy value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("sign_in_hours"), new CborValue.Int(value.SignInHours)));
+        csilEntries.Add((new CborValue.Text("max_sign_in_hours"), new CborValue.Int(value.MaxSignInHours)));
+        csilEntries.Add((new CborValue.Text("min_sign_in_hours"), new CborValue.Int(value.MinSignInHours)));
+        csilEntries.Add((new CborValue.Text("default_sign_in_hours"), new CborValue.Int(value.DefaultSignInHours)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a SignInPolicy from a decoded CBOR value tree.</summary>
+    public static SignInPolicy SignInPolicyFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsI64(Cbor.Require(value, "sign_in_hours"));
+        var csilField1 = Cbor.AsI64(Cbor.Require(value, "default_sign_in_hours"));
+        var csilField2 = Cbor.AsI64(Cbor.Require(value, "min_sign_in_hours"));
+        var csilField3 = Cbor.AsI64(Cbor.Require(value, "max_sign_in_hours"));
+        return new SignInPolicy
+        {
+            SignInHours = csilField0,
+            DefaultSignInHours = csilField1,
+            MinSignInHours = csilField2,
+            MaxSignInHours = csilField3,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a SetSignInPolicyRequest.</summary>
+    public static CborValue SetSignInPolicyRequestToCborValue(SetSignInPolicyRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("sign_in_hours"), new CborValue.Int(value.SignInHours)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a SetSignInPolicyRequest from a decoded CBOR value tree.</summary>
+    public static SetSignInPolicyRequest SetSignInPolicyRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsI64(Cbor.Require(value, "sign_in_hours"));
+        return new SetSignInPolicyRequest
+        {
+            SignInHours = csilField0,
         };
     }
 
@@ -7859,6 +8183,315 @@ public static class Codec
         return new RevokeActAsGrantResponse
         {
             RevokedAt = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a PreviewReleasePolicyRequest.</summary>
+    public static CborValue PreviewReleasePolicyRequestToCborValue(PreviewReleasePolicyRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("audience"), new CborValue.Text(value.Audience)));
+        csilEntries.Add((new CborValue.Text("user_choices"), new CborValue.Array(value.UserChoices.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        if (value.TempAudience is { } csilV2)
+        {
+            csilEntries.Add((new CborValue.Text("temp_audience"), new CborValue.Text(csilV2)));
+        }
+        csilEntries.Add((new CborValue.Text("optional_claims"), new CborValue.Array(value.OptionalClaims.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("required_claims"), new CborValue.Array(value.RequiredClaims.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        if (value.TempClaimType is { } csilV5)
+        {
+            csilEntries.Add((new CborValue.Text("temp_claim_type"), new CborValue.Text(csilV5)));
+        }
+        csilEntries.Add((new CborValue.Text("available_claims"), new CborValue.Array(value.AvailableClaims.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        if (value.TempDisposition is { } csilV7)
+        {
+            csilEntries.Add((new CborValue.Text("temp_disposition"), new CborValue.Text(csilV7)));
+        }
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a PreviewReleasePolicyRequest from a decoded CBOR value tree.</summary>
+    public static PreviewReleasePolicyRequest PreviewReleasePolicyRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "audience"));
+        var csilField1 = Cbor.AsArray(Cbor.Require(value, "required_claims")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        var csilField2 = Cbor.AsArray(Cbor.Require(value, "optional_claims")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        var csilField3 = Cbor.AsArray(Cbor.Require(value, "available_claims")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        var csilField4 = Cbor.AsArray(Cbor.Require(value, "user_choices")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        string? csilField5 = Cbor.MapGet(value, "temp_audience") is { } csilRaw5 ? Cbor.AsText(csilRaw5) : null;
+        string? csilField6 = Cbor.MapGet(value, "temp_claim_type") is { } csilRaw6 ? Cbor.AsText(csilRaw6) : null;
+        string? csilField7 = Cbor.MapGet(value, "temp_disposition") is { } csilRaw7 ? Cbor.AsText(csilRaw7) : null;
+        return new PreviewReleasePolicyRequest
+        {
+            Audience = csilField0,
+            RequiredClaims = csilField1,
+            OptionalClaims = csilField2,
+            AvailableClaims = csilField3,
+            UserChoices = csilField4,
+            TempAudience = csilField5,
+            TempClaimType = csilField6,
+            TempDisposition = csilField7,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a PreviewReleaseRow.</summary>
+    public static CborValue PreviewReleaseRowToCborValue(PreviewReleaseRow value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("locked"), new CborValue.Bool(value.Locked)));
+        csilEntries.Add((new CborValue.Text("policy"), new CborValue.Text(value.Policy)));
+        csilEntries.Add((new CborValue.Text("required"), new CborValue.Bool(value.Required)));
+        csilEntries.Add((new CborValue.Text("available"), new CborValue.Bool(value.Available)));
+        csilEntries.Add((new CborValue.Text("claim_type"), new CborValue.Text(value.ClaimType)));
+        csilEntries.Add((new CborValue.Text("default_granted"), new CborValue.Bool(value.DefaultGranted)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a PreviewReleaseRow from a decoded CBOR value tree.</summary>
+    public static PreviewReleaseRow PreviewReleaseRowFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "claim_type"));
+        var csilField1 = Cbor.AsBool(Cbor.Require(value, "required"));
+        var csilField2 = Cbor.AsBool(Cbor.Require(value, "available"));
+        var csilField3 = Cbor.AsBool(Cbor.Require(value, "locked"));
+        var csilField4 = Cbor.AsText(Cbor.Require(value, "policy"));
+        var csilField5 = Cbor.AsBool(Cbor.Require(value, "default_granted"));
+        return new PreviewReleaseRow
+        {
+            ClaimType = csilField0,
+            Required = csilField1,
+            Available = csilField2,
+            Locked = csilField3,
+            Policy = csilField4,
+            DefaultGranted = csilField5,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a PreviewReleasePolicyResponse.</summary>
+    public static CborValue PreviewReleasePolicyResponseToCborValue(PreviewReleasePolicyResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("rows"), new CborValue.Array(value.Rows.Select(csilElem => (CborValue)PreviewReleaseRowToCborValue(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("forced_deny"), new CborValue.Array(value.ForcedDeny.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("forced_allow"), new CborValue.Array(value.ForcedAllow.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("authorized_claims"), new CborValue.Array(value.AuthorizedClaims.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a PreviewReleasePolicyResponse from a decoded CBOR value tree.</summary>
+    public static PreviewReleasePolicyResponse PreviewReleasePolicyResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsArray(Cbor.Require(value, "forced_allow")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        var csilField1 = Cbor.AsArray(Cbor.Require(value, "forced_deny")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        var csilField2 = Cbor.AsArray(Cbor.Require(value, "authorized_claims")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        var csilField3 = Cbor.AsArray(Cbor.Require(value, "rows")).Select(csilElem => PreviewReleaseRowFromCborValue(csilElem)).ToList();
+        return new PreviewReleasePolicyResponse
+        {
+            ForcedAllow = csilField0,
+            ForcedDeny = csilField1,
+            AuthorizedClaims = csilField2,
+            Rows = csilField3,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a PreviewIssuerPolicyRequest.</summary>
+    public static CborValue PreviewIssuerPolicyRequestToCborValue(PreviewIssuerPolicyRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        if (value.ClaimType is { } csilV0)
+        {
+            csilEntries.Add((new CborValue.Text("claim_type"), new CborValue.Text(csilV0)));
+        }
+        if (value.DeniedTlds is { } csilV1)
+        {
+            csilEntries.Add((new CborValue.Text("denied_tlds"), new CborValue.Array(csilV1.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        }
+        if (value.DeniedDomains is { } csilV2)
+        {
+            csilEntries.Add((new CborValue.Text("denied_domains"), new CborValue.Array(csilV2.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        }
+        if (value.IssuerUserId is { } csilV3)
+        {
+            csilEntries.Add((new CborValue.Text("issuer_user_id"), new CborValue.Text(csilV3)));
+        }
+        csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a PreviewIssuerPolicyRequest from a decoded CBOR value tree.</summary>
+    public static PreviewIssuerPolicyRequest PreviewIssuerPolicyRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "subject_domain"));
+        System.Collections.Generic.List<string>? csilField1 = Cbor.MapGet(value, "denied_domains") is { } csilRaw1 ? Cbor.AsArray(csilRaw1).Select(csilElem => Cbor.AsText(csilElem)).ToList() : null;
+        System.Collections.Generic.List<string>? csilField2 = Cbor.MapGet(value, "denied_tlds") is { } csilRaw2 ? Cbor.AsArray(csilRaw2).Select(csilElem => Cbor.AsText(csilElem)).ToList() : null;
+        string? csilField3 = Cbor.MapGet(value, "issuer_user_id") is { } csilRaw3 ? Cbor.AsText(csilRaw3) : null;
+        string? csilField4 = Cbor.MapGet(value, "claim_type") is { } csilRaw4 ? Cbor.AsText(csilRaw4) : null;
+        return new PreviewIssuerPolicyRequest
+        {
+            SubjectDomain = csilField0,
+            DeniedDomains = csilField1,
+            DeniedTlds = csilField2,
+            IssuerUserId = csilField3,
+            ClaimType = csilField4,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a PreviewIssuerPolicyResponse.</summary>
+    public static CborValue PreviewIssuerPolicyResponseToCborValue(PreviewIssuerPolicyResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("reason"), new CborValue.Text(value.Reason)));
+        csilEntries.Add((new CborValue.Text("allowed"), new CborValue.Bool(value.Allowed)));
+        csilEntries.Add((new CborValue.Text("denied_tlds"), new CborValue.Array(value.DeniedTlds.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("denied_domains"), new CborValue.Array(value.DeniedDomains.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        if (value.UserCanIssue is { } csilV4)
+        {
+            csilEntries.Add((new CborValue.Text("user_can_issue"), new CborValue.Bool(csilV4)));
+        }
+        csilEntries.Add((new CborValue.Text("attested_claim_ttl_seconds"), new CborValue.Int(value.AttestedClaimTtlSeconds)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a PreviewIssuerPolicyResponse from a decoded CBOR value tree.</summary>
+    public static PreviewIssuerPolicyResponse PreviewIssuerPolicyResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsArray(Cbor.Require(value, "denied_domains")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        var csilField1 = Cbor.AsArray(Cbor.Require(value, "denied_tlds")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        var csilField2 = Cbor.AsBool(Cbor.Require(value, "allowed"));
+        var csilField3 = Cbor.AsText(Cbor.Require(value, "reason"));
+        bool? csilField4 = Cbor.MapGet(value, "user_can_issue") is { } csilRaw4 ? Cbor.AsBool(csilRaw4) : null;
+        var csilField5 = Cbor.AsI64(Cbor.Require(value, "attested_claim_ttl_seconds"));
+        return new PreviewIssuerPolicyResponse
+        {
+            DeniedDomains = csilField0,
+            DeniedTlds = csilField1,
+            Allowed = csilField2,
+            Reason = csilField3,
+            UserCanIssue = csilField4,
+            AttestedClaimTtlSeconds = csilField5,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a InspectSigningRequestRequest.</summary>
+    public static CborValue InspectSigningRequestRequestToCborValue(InspectSigningRequestRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("signed_request"), new CborValue.Text(value.SignedRequest)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a InspectSigningRequestRequest from a decoded CBOR value tree.</summary>
+    public static InspectSigningRequestRequest InspectSigningRequestRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "signed_request"));
+        return new InspectSigningRequestRequest
+        {
+            SignedRequest = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a InspectSigningRequestResponse.</summary>
+    public static CborValue InspectSigningRequestResponseToCborValue(InspectSigningRequestResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
+        csilEntries.Add((new CborValue.Text("subject_user_id"), new CborValue.Text(value.SubjectUserId)));
+        csilEntries.Add((new CborValue.Text("issuable_claim_types"), new CborValue.Array(value.IssuableClaimTypes.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("requested_claim_types"), new CborValue.Array(value.RequestedClaimTypes.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a InspectSigningRequestResponse from a decoded CBOR value tree.</summary>
+    public static InspectSigningRequestResponse InspectSigningRequestResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "subject_user_id"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "subject_domain"));
+        var csilField2 = Cbor.AsArray(Cbor.Require(value, "requested_claim_types")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        var csilField3 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        var csilField4 = Cbor.AsArray(Cbor.Require(value, "issuable_claim_types")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        return new InspectSigningRequestResponse
+        {
+            SubjectUserId = csilField0,
+            SubjectDomain = csilField1,
+            RequestedClaimTypes = csilField2,
+            ExpiresAt = csilField3,
+            IssuableClaimTypes = csilField4,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a IssueForSigningRequestRequest.</summary>
+    public static CborValue IssueForSigningRequestRequestToCborValue(IssueForSigningRequestRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("claim_types"), new CborValue.Array(value.ClaimTypes.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("claim_values"), new CborValue.Array(value.ClaimValues.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("signed_request"), new CborValue.Text(value.SignedRequest)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a IssueForSigningRequestRequest from a decoded CBOR value tree.</summary>
+    public static IssueForSigningRequestRequest IssueForSigningRequestRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "signed_request"));
+        var csilField1 = Cbor.AsArray(Cbor.Require(value, "claim_types")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        var csilField2 = Cbor.AsArray(Cbor.Require(value, "claim_values")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        return new IssueForSigningRequestRequest
+        {
+            SignedRequest = csilField0,
+            ClaimTypes = csilField1,
+            ClaimValues = csilField2,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a IssuedClaimResult.</summary>
+    public static CborValue IssuedClaimResultToCborValue(IssuedClaimResult value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        if (value.Message is { } csilV0)
+        {
+            csilEntries.Add((new CborValue.Text("message"), new CborValue.Text(csilV0)));
+        }
+        csilEntries.Add((new CborValue.Text("outcome"), new CborValue.Text(value.Outcome)));
+        if (value.ClaimCode is { } csilV2)
+        {
+            csilEntries.Add((new CborValue.Text("claim_code"), new CborValue.Text(csilV2)));
+        }
+        csilEntries.Add((new CborValue.Text("claim_type"), new CborValue.Text(value.ClaimType)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a IssuedClaimResult from a decoded CBOR value tree.</summary>
+    public static IssuedClaimResult IssuedClaimResultFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "claim_type"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "outcome"));
+        string? csilField2 = Cbor.MapGet(value, "message") is { } csilRaw2 ? Cbor.AsText(csilRaw2) : null;
+        string? csilField3 = Cbor.MapGet(value, "claim_code") is { } csilRaw3 ? Cbor.AsText(csilRaw3) : null;
+        return new IssuedClaimResult
+        {
+            ClaimType = csilField0,
+            Outcome = csilField1,
+            Message = csilField2,
+            ClaimCode = csilField3,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a IssueForSigningRequestResponse.</summary>
+    public static CborValue IssueForSigningRequestResponseToCborValue(IssueForSigningRequestResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("results"), new CborValue.Array(value.Results.Select(csilElem => (CborValue)IssuedClaimResultToCborValue(csilElem)).ToList())));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a IssueForSigningRequestResponse from a decoded CBOR value tree.</summary>
+    public static IssueForSigningRequestResponse IssueForSigningRequestResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsArray(Cbor.Require(value, "results")).Select(csilElem => IssuedClaimResultFromCborValue(csilElem)).ToList();
+        return new IssueForSigningRequestResponse
+        {
+            Results = csilField0,
         };
     }
 }

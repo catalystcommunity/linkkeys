@@ -97,6 +97,10 @@ public final class AdminClient {
         return CsilCbor.decodeRemoveClaimTypeResponse(transport.call("Admin", "remove-claim-type", CsilCbor.encodeRemoveClaimTypeRequest(req)));
     }
 
+    public ListClaimTypeLabelsResponse listClaimTypeLabels(EmptyRequest req) throws ClientException {
+        return CsilCbor.decodeListClaimTypeLabelsResponse(transport.call("Admin", "list-claim-type-labels", CsilCbor.encodeEmptyRequest(req)));
+    }
+
     public SetClaimTypeLabelResponse setClaimTypeLabel(SetClaimTypeLabelRequest req) throws ClientException {
         return CsilCbor.decodeSetClaimTypeLabelResponse(transport.call("Admin", "set-claim-type-label", CsilCbor.encodeSetClaimTypeLabelRequest(req)));
     }
@@ -143,6 +147,14 @@ public final class AdminClient {
 
     public AdminIssueAttestationResponse adminIssueAttestation(AdminIssueAttestationRequest req) throws ClientException {
         return CsilCbor.decodeAdminIssueAttestationResponse(transport.call("Admin", "admin-issue-attestation", CsilCbor.encodeAdminIssueAttestationRequest(req)));
+    }
+
+    public PreviewReleasePolicyResponse previewReleasePolicy(PreviewReleasePolicyRequest req) throws ClientException {
+        return CsilCbor.decodePreviewReleasePolicyResponse(transport.call("Admin", "preview-release-policy", CsilCbor.encodePreviewReleasePolicyRequest(req)));
+    }
+
+    public PreviewIssuerPolicyResponse previewIssuerPolicy(PreviewIssuerPolicyRequest req) throws ClientException {
+        return CsilCbor.decodePreviewIssuerPolicyResponse(transport.call("Admin", "preview-issuer-policy", CsilCbor.encodePreviewIssuerPolicyRequest(req)));
     }
 
     public GrantRelationResponse grantRelation(GrantRelationRequest req) throws ClientException {
@@ -195,5 +207,13 @@ public final class AdminClient {
 
     public PurgeLocalRpTicketsResponse purgeLocalRpTickets(PurgeLocalRpTicketsRequest req) throws ClientException {
         return CsilCbor.decodePurgeLocalRpTicketsResponse(transport.call("Admin", "purge-local-rp-tickets", CsilCbor.encodePurgeLocalRpTicketsRequest(req)));
+    }
+
+    public SignInPolicy getSignInPolicy(EmptyRequest req) throws ClientException {
+        return CsilCbor.decodeSignInPolicy(transport.call("Admin", "get-sign-in-policy", CsilCbor.encodeEmptyRequest(req)));
+    }
+
+    public SignInPolicy setSignInPolicy(SetSignInPolicyRequest req) throws ClientException {
+        return CsilCbor.decodeSignInPolicy(transport.call("Admin", "set-sign-in-policy", CsilCbor.encodeSetSignInPolicyRequest(req)));
     }
 }

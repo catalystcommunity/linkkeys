@@ -1109,7 +1109,7 @@ pub fn preview_release_policy(
             revoked_at: None,
         })
         .collect();
-    let screen = resolve_consent_screen(&claim_request, &available, None, &policy);
+    let screen = resolve_consent_screen(&claim_request, &available, None, None, &policy);
     let authorized_claims = compute_authorized_claims(&claim_request, &req.user_choices, &policy);
     let rows = screen
         .rows

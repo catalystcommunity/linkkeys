@@ -126,6 +126,7 @@ typedef struct RemoveClaimTypeResponse RemoveClaimTypeResponse;
 typedef struct ClaimTypeLabel ClaimTypeLabel;
 typedef struct SetClaimTypeLabelRequest SetClaimTypeLabelRequest;
 typedef struct SetClaimTypeLabelResponse SetClaimTypeLabelResponse;
+typedef struct ListClaimTypeLabelsResponse ListClaimTypeLabelsResponse;
 typedef struct RemoveClaimTypeLabelRequest RemoveClaimTypeLabelRequest;
 typedef struct RemoveClaimTypeLabelResponse RemoveClaimTypeLabelResponse;
 typedef struct TrustedIssuer TrustedIssuer;
@@ -165,6 +166,10 @@ typedef struct RemoveMyClaimRequest RemoveMyClaimRequest;
 typedef struct RemoveMyClaimResponse RemoveMyClaimResponse;
 typedef struct SetMyClaimSharingRequest SetMyClaimSharingRequest;
 typedef struct SetMyClaimSharingResponse SetMyClaimSharingResponse;
+typedef struct MyClaimSetting MyClaimSetting;
+typedef struct MyClaimSettingsResponse MyClaimSettingsResponse;
+typedef struct SetMyClaimKeepVerifiedRequest SetMyClaimKeepVerifiedRequest;
+typedef struct SetMyClaimKeepVerifiedResponse SetMyClaimKeepVerifiedResponse;
 typedef struct Profile Profile;
 typedef struct CreateProfileRequest CreateProfileRequest;
 typedef struct CreateProfileResponse CreateProfileResponse;
@@ -199,6 +204,10 @@ typedef struct BrowserConsentClaim BrowserConsentClaim;
 typedef struct BrowserAuthorizationInspectResponse BrowserAuthorizationInspectResponse;
 typedef struct BrowserAuthorizationCompleteRequest BrowserAuthorizationCompleteRequest;
 typedef struct BrowserAuthorizationCompleteResponse BrowserAuthorizationCompleteResponse;
+typedef struct BrowserLocalRpInspectRequest BrowserLocalRpInspectRequest;
+typedef struct BrowserLocalRpInspectResponse BrowserLocalRpInspectResponse;
+typedef struct BrowserLocalRpCompleteRequest BrowserLocalRpCompleteRequest;
+typedef struct BrowserLocalRpCompleteResponse BrowserLocalRpCompleteResponse;
 typedef struct UiTheme UiTheme;
 typedef struct UiExtension UiExtension;
 typedef struct UiDisplaySettings UiDisplaySettings;
@@ -243,6 +252,8 @@ typedef struct GetLocalRpPolicyRequest GetLocalRpPolicyRequest;
 typedef struct GetLocalRpPolicyResponse GetLocalRpPolicyResponse;
 typedef struct SetLocalRpPolicyRequest SetLocalRpPolicyRequest;
 typedef struct SetLocalRpPolicyResponse SetLocalRpPolicyResponse;
+typedef struct SignInPolicy SignInPolicy;
+typedef struct SetSignInPolicyRequest SetSignInPolicyRequest;
 typedef struct PurgeLocalRpTicketsRequest PurgeLocalRpTicketsRequest;
 typedef struct PurgeLocalRpTicketsResponse PurgeLocalRpTicketsResponse;
 typedef struct LocaleMessages LocaleMessages;
@@ -307,6 +318,16 @@ typedef struct ActAsGrantSummary ActAsGrantSummary;
 typedef struct ListActAsGrantsResponse ListActAsGrantsResponse;
 typedef struct RevokeActAsGrantRequest RevokeActAsGrantRequest;
 typedef struct RevokeActAsGrantResponse RevokeActAsGrantResponse;
+typedef struct PreviewReleasePolicyRequest PreviewReleasePolicyRequest;
+typedef struct PreviewReleaseRow PreviewReleaseRow;
+typedef struct PreviewReleasePolicyResponse PreviewReleasePolicyResponse;
+typedef struct PreviewIssuerPolicyRequest PreviewIssuerPolicyRequest;
+typedef struct PreviewIssuerPolicyResponse PreviewIssuerPolicyResponse;
+typedef struct InspectSigningRequestRequest InspectSigningRequestRequest;
+typedef struct InspectSigningRequestResponse InspectSigningRequestResponse;
+typedef struct IssueForSigningRequestRequest IssueForSigningRequestRequest;
+typedef struct IssuedClaimResult IssuedClaimResult;
+typedef struct IssueForSigningRequestResponse IssueForSigningRequestResponse;
 
 /* AeadSuite is a type alias. */
 typedef char *AeadSuite;
@@ -1030,6 +1051,12 @@ typedef struct SetClaimTypeLabelResponse {
     ClaimTypeLabel label;
 } SetClaimTypeLabelResponse;
 
+/* ListClaimTypeLabelsResponse is a structured data type. */
+typedef struct ListClaimTypeLabelsResponse {
+    ClaimTypeLabel *labels;
+    size_t labels_count;
+} ListClaimTypeLabelsResponse;
+
 /* RemoveClaimTypeLabelRequest is a structured data type. */
 typedef struct RemoveClaimTypeLabelRequest {
     char *claim_type;
@@ -1264,6 +1291,32 @@ typedef struct SetMyClaimSharingRequest {
 typedef struct SetMyClaimSharingResponse {
 } SetMyClaimSharingResponse;
 
+/* MyClaimSetting is a structured data type. */
+typedef struct MyClaimSetting {
+    char *claim_type;
+    bool keep_verified;
+    bool shared_with_every_app;
+} MyClaimSetting;
+
+/* MyClaimSettingsResponse is a structured data type. */
+typedef struct MyClaimSettingsResponse {
+    MyClaimSetting *settings;
+    size_t settings_count;
+    Profile *profiles;
+    size_t profiles_count;
+    int64_t max_profiles;
+} MyClaimSettingsResponse;
+
+/* SetMyClaimKeepVerifiedRequest is a structured data type. */
+typedef struct SetMyClaimKeepVerifiedRequest {
+    char *claim_type;
+    bool keep_verified;
+} SetMyClaimKeepVerifiedRequest;
+
+/* SetMyClaimKeepVerifiedResponse is a structured data type. */
+typedef struct SetMyClaimKeepVerifiedResponse {
+} SetMyClaimKeepVerifiedResponse;
+
 /* Profile is a structured data type. */
 typedef struct Profile {
     char *id;
@@ -1460,6 +1513,7 @@ typedef struct BrowserConsentClaim {
     bool user_settable;
     int64_t max_bytes;
     bool requires_approval;
+    bool *newly_requested;
 } BrowserConsentClaim;
 
 /* BrowserAuthorizationInspectResponse is a structured data type. */
@@ -1489,6 +1543,43 @@ typedef struct BrowserAuthorizationCompleteRequest {
 typedef struct BrowserAuthorizationCompleteResponse {
     char *redirect_url;
 } BrowserAuthorizationCompleteResponse;
+
+/* BrowserLocalRpInspectRequest is a structured data type. */
+typedef struct BrowserLocalRpInspectRequest {
+    char *signed_request;
+} BrowserLocalRpInspectRequest;
+
+/* BrowserLocalRpInspectResponse is a structured data type. */
+typedef struct BrowserLocalRpInspectResponse {
+    char *admission;
+    char *app_name;
+    char *fingerprint;
+    char *callback_host;
+    char *first_seen_at;
+    BrowserConsentClaim *claims;
+    size_t claims_count;
+    char *request_reason;
+    bool *already_consented;
+    char **authorized_claims;
+    size_t authorized_claims_count;
+} BrowserLocalRpInspectResponse;
+
+/* BrowserLocalRpCompleteRequest is a structured data type. */
+typedef struct BrowserLocalRpCompleteRequest {
+    char *signed_request;
+    char **authorized_claims;
+    size_t authorized_claims_count;
+    char **claim_types_to_set;
+    size_t claim_types_to_set_count;
+    char **claim_values_to_set;
+    size_t claim_values_to_set_count;
+    bool *use_standing_grant;
+} BrowserLocalRpCompleteRequest;
+
+/* BrowserLocalRpCompleteResponse is a structured data type. */
+typedef struct BrowserLocalRpCompleteResponse {
+    char *redirect_url;
+} BrowserLocalRpCompleteResponse;
 
 /* UiTheme is a structured data type. */
 typedef struct UiTheme {
@@ -1596,6 +1687,8 @@ typedef struct AuthorizeValidateResponse {
     bool *already_consented;
     char **authorized_claims;
     size_t authorized_claims_count;
+    char **newly_requested_claims;
+    size_t newly_requested_claims_count;
 } AuthorizeValidateResponse;
 
 /* AuthorizeFinalizeRequest is a structured data type. */
@@ -1807,6 +1900,19 @@ typedef struct SetLocalRpPolicyRequest {
 typedef struct SetLocalRpPolicyResponse {
     LocalRpPolicy policy;
 } SetLocalRpPolicyResponse;
+
+/* SignInPolicy is a structured data type. */
+typedef struct SignInPolicy {
+    int64_t sign_in_hours;
+    int64_t default_sign_in_hours;
+    int64_t min_sign_in_hours;
+    int64_t max_sign_in_hours;
+} SignInPolicy;
+
+/* SetSignInPolicyRequest is a structured data type. */
+typedef struct SetSignInPolicyRequest {
+    int64_t sign_in_hours;
+} SetSignInPolicyRequest;
 
 /* PurgeLocalRpTicketsRequest is a structured data type. */
 typedef struct PurgeLocalRpTicketsRequest {
@@ -2335,5 +2441,105 @@ typedef struct RevokeActAsGrantRequest {
 typedef struct RevokeActAsGrantResponse {
     char *revoked_at;
 } RevokeActAsGrantResponse;
+
+/* PreviewReleasePolicyRequest is a structured data type. */
+typedef struct PreviewReleasePolicyRequest {
+    char *audience;
+    char **required_claims;
+    size_t required_claims_count;
+    char **optional_claims;
+    size_t optional_claims_count;
+    char **available_claims;
+    size_t available_claims_count;
+    char **user_choices;
+    size_t user_choices_count;
+    char *temp_audience;
+    char *temp_claim_type;
+    char *temp_disposition;
+} PreviewReleasePolicyRequest;
+
+/* PreviewReleaseRow is a structured data type. */
+typedef struct PreviewReleaseRow {
+    char *claim_type;
+    bool required;
+    bool available;
+    bool locked;
+    char *policy;
+    bool default_granted;
+} PreviewReleaseRow;
+
+/* PreviewReleasePolicyResponse is a structured data type. */
+typedef struct PreviewReleasePolicyResponse {
+    char **forced_allow;
+    size_t forced_allow_count;
+    char **forced_deny;
+    size_t forced_deny_count;
+    char **authorized_claims;
+    size_t authorized_claims_count;
+    PreviewReleaseRow *rows;
+    size_t rows_count;
+} PreviewReleasePolicyResponse;
+
+/* PreviewIssuerPolicyRequest is a structured data type. */
+typedef struct PreviewIssuerPolicyRequest {
+    char *subject_domain;
+    char **denied_domains;
+    size_t denied_domains_count;
+    char **denied_tlds;
+    size_t denied_tlds_count;
+    char *issuer_user_id;
+    char *claim_type;
+} PreviewIssuerPolicyRequest;
+
+/* PreviewIssuerPolicyResponse is a structured data type. */
+typedef struct PreviewIssuerPolicyResponse {
+    char **denied_domains;
+    size_t denied_domains_count;
+    char **denied_tlds;
+    size_t denied_tlds_count;
+    bool allowed;
+    char *reason;
+    bool *user_can_issue;
+    int64_t attested_claim_ttl_seconds;
+} PreviewIssuerPolicyResponse;
+
+/* InspectSigningRequestRequest is a structured data type. */
+typedef struct InspectSigningRequestRequest {
+    char *signed_request;
+} InspectSigningRequestRequest;
+
+/* InspectSigningRequestResponse is a structured data type. */
+typedef struct InspectSigningRequestResponse {
+    char *subject_user_id;
+    char *subject_domain;
+    char **requested_claim_types;
+    size_t requested_claim_types_count;
+    char *expires_at;
+    char **issuable_claim_types;
+    size_t issuable_claim_types_count;
+} InspectSigningRequestResponse;
+
+/* IssueForSigningRequestRequest is a structured data type. */
+typedef struct IssueForSigningRequestRequest {
+    char *signed_request;
+    char **claim_types;
+    size_t claim_types_count;
+    char **claim_values;
+    size_t claim_values_count;
+} IssueForSigningRequestRequest;
+
+/* IssuedClaimResult is a structured data type. */
+typedef struct IssuedClaimResult {
+    char *claim_type;
+    char *outcome;
+    char *message;
+    char *claim_code;
+} IssuedClaimResult;
+
+/* IssueForSigningRequestResponse is a structured data type. */
+typedef struct IssueForSigningRequestResponse {
+    IssuedClaimResult *results;
+    size_t results_count;
+} IssueForSigningRequestResponse;
 
 #endif /* CSILGEN_TYPES_GEN_H */

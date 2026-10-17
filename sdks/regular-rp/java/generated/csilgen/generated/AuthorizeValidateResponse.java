@@ -9,6 +9,7 @@ public record AuthorizeValidateResponse(
     String callbackUrl /* wire: "callback_url" */,
     List<String> requestedClaims /* wire: "requested_claims" */,
     Boolean alreadyConsented /* wire: "already_consented" */,
-    List<String> authorizedClaims /* wire: "authorized_claims" */
+    List<String> authorizedClaims /* wire: "authorized_claims" */,
+    List<String> newlyRequestedClaims /* wire: "newly_requested_claims" */
 ) {
 }

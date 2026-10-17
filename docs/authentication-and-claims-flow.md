@@ -202,6 +202,14 @@ This rule also applies when an administrator requires the release. A new forced
 claim opens the disclosure screen once before it can enter the standing grant.
 An explicit claims-update request does not use this shortcut.
 
+A claim that the application did not request at the last consent opens the
+consent screen once. This rule applies to optional claims as well as required
+claims. The screen marks each new claim with a "New!" tag. The IDP compares the
+request with all claims that the application requested at the last consent,
+not only with the approved claims. Thus a claim that the user declined does not
+open the screen again. If the application stops requesting a claim and then
+requests it again, the claim is new again.
+
 ```mermaid
 sequenceDiagram
     actor User
@@ -223,9 +231,9 @@ sequenceDiagram
     end
 
     IDP->>IDP: Evaluate standing consent and active claims
-    alt Grant covers all required claims
+    alt Grant covers all required claims and no claim is new
         IDP->>IDP: Reuse authorized claim set
-    else Consent is missing, expired, or incomplete
+    else Consent is missing, expired, or incomplete, or a claim is new
         IDP-->>Browser: Show consent choices
         User->>Browser: Approve or cancel
         Browser->>IDP: Complete authorization
