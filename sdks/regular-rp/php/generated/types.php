@@ -2853,6 +2853,26 @@ class SetClaimTypeLabelResponse
     }
 }
 
+class ListClaimTypeLabelsResponse
+{
+    /** @var mixed */
+    public $labels;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->labels = array_key_exists('labels', $values) ? $values['labels'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'labels' => $this->labels,
+        );
+    }
+}
+
 class RemoveClaimTypeLabelRequest
 {
     /** @var mixed */
@@ -3798,6 +3818,106 @@ class SetMyClaimSharingResponse
     }
 }
 
+class MyClaimSetting
+{
+    /** @var mixed */
+    public $claimType;
+
+    /** @var mixed */
+    public $keepVerified;
+
+    /** @var mixed */
+    public $sharedWithEveryApp;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->claimType = array_key_exists('claim_type', $values) ? $values['claim_type'] : null;
+        $this->keepVerified = array_key_exists('keep_verified', $values) ? $values['keep_verified'] : null;
+        $this->sharedWithEveryApp = array_key_exists('shared_with_every_app', $values) ? $values['shared_with_every_app'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'claim_type' => $this->claimType,
+            'keep_verified' => $this->keepVerified,
+            'shared_with_every_app' => $this->sharedWithEveryApp,
+        );
+    }
+}
+
+class MyClaimSettingsResponse
+{
+    /** @var mixed */
+    public $settings;
+
+    /** @var mixed */
+    public $profiles;
+
+    /** @var mixed */
+    public $maxProfiles;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->settings = array_key_exists('settings', $values) ? $values['settings'] : null;
+        $this->profiles = array_key_exists('profiles', $values) ? $values['profiles'] : null;
+        $this->maxProfiles = array_key_exists('max_profiles', $values) ? $values['max_profiles'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'settings' => $this->settings,
+            'profiles' => $this->profiles,
+            'max_profiles' => $this->maxProfiles,
+        );
+    }
+}
+
+class SetMyClaimKeepVerifiedRequest
+{
+    /** @var mixed */
+    public $claimType;
+
+    /** @var mixed */
+    public $keepVerified;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->claimType = array_key_exists('claim_type', $values) ? $values['claim_type'] : null;
+        $this->keepVerified = array_key_exists('keep_verified', $values) ? $values['keep_verified'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'claim_type' => $this->claimType,
+            'keep_verified' => $this->keepVerified,
+        );
+    }
+}
+
+class SetMyClaimKeepVerifiedResponse
+{
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+        );
+    }
+}
+
 class Profile
 {
     /** @var mixed */
@@ -4565,6 +4685,9 @@ class BrowserConsentClaim
     /** @var mixed */
     public $requiresApproval;
 
+    /** @var mixed */
+    public $newlyRequested;
+
     /** @param array<string,mixed> $values */
     public function __construct(array $values = array())
     {
@@ -4578,6 +4701,7 @@ class BrowserConsentClaim
         $this->userSettable = array_key_exists('user_settable', $values) ? $values['user_settable'] : null;
         $this->maxBytes = array_key_exists('max_bytes', $values) ? $values['max_bytes'] : null;
         $this->requiresApproval = array_key_exists('requires_approval', $values) ? $values['requires_approval'] : null;
+        $this->newlyRequested = array_key_exists('newly_requested', $values) ? $values['newly_requested'] : null;
     }
 
     /** @return array<string,mixed> */
@@ -4594,6 +4718,7 @@ class BrowserConsentClaim
             'user_settable' => $this->userSettable,
             'max_bytes' => $this->maxBytes,
             'requires_approval' => $this->requiresApproval,
+            'newly_requested' => $this->newlyRequested,
         );
     }
 }
@@ -4679,6 +4804,146 @@ class BrowserAuthorizationCompleteRequest
 }
 
 class BrowserAuthorizationCompleteResponse
+{
+    /** @var mixed */
+    public $redirectUrl;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->redirectUrl = array_key_exists('redirect_url', $values) ? $values['redirect_url'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'redirect_url' => $this->redirectUrl,
+        );
+    }
+}
+
+class BrowserLocalRpInspectRequest
+{
+    /** @var mixed */
+    public $signedRequest;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->signedRequest = array_key_exists('signed_request', $values) ? $values['signed_request'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'signed_request' => $this->signedRequest,
+        );
+    }
+}
+
+class BrowserLocalRpInspectResponse
+{
+    /** @var mixed */
+    public $admission;
+
+    /** @var mixed */
+    public $appName;
+
+    /** @var mixed */
+    public $fingerprint;
+
+    /** @var mixed */
+    public $callbackHost;
+
+    /** @var mixed */
+    public $firstSeenAt;
+
+    /** @var mixed */
+    public $claims;
+
+    /** @var mixed */
+    public $requestReason;
+
+    /** @var mixed */
+    public $alreadyConsented;
+
+    /** @var mixed */
+    public $authorizedClaims;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->admission = array_key_exists('admission', $values) ? $values['admission'] : null;
+        $this->appName = array_key_exists('app_name', $values) ? $values['app_name'] : null;
+        $this->fingerprint = array_key_exists('fingerprint', $values) ? $values['fingerprint'] : null;
+        $this->callbackHost = array_key_exists('callback_host', $values) ? $values['callback_host'] : null;
+        $this->firstSeenAt = array_key_exists('first_seen_at', $values) ? $values['first_seen_at'] : null;
+        $this->claims = array_key_exists('claims', $values) ? $values['claims'] : null;
+        $this->requestReason = array_key_exists('request_reason', $values) ? $values['request_reason'] : null;
+        $this->alreadyConsented = array_key_exists('already_consented', $values) ? $values['already_consented'] : null;
+        $this->authorizedClaims = array_key_exists('authorized_claims', $values) ? $values['authorized_claims'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'admission' => $this->admission,
+            'app_name' => $this->appName,
+            'fingerprint' => $this->fingerprint,
+            'callback_host' => $this->callbackHost,
+            'first_seen_at' => $this->firstSeenAt,
+            'claims' => $this->claims,
+            'request_reason' => $this->requestReason,
+            'already_consented' => $this->alreadyConsented,
+            'authorized_claims' => $this->authorizedClaims,
+        );
+    }
+}
+
+class BrowserLocalRpCompleteRequest
+{
+    /** @var mixed */
+    public $signedRequest;
+
+    /** @var mixed */
+    public $authorizedClaims;
+
+    /** @var mixed */
+    public $claimTypesToSet;
+
+    /** @var mixed */
+    public $claimValuesToSet;
+
+    /** @var mixed */
+    public $useStandingGrant;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->signedRequest = array_key_exists('signed_request', $values) ? $values['signed_request'] : null;
+        $this->authorizedClaims = array_key_exists('authorized_claims', $values) ? $values['authorized_claims'] : null;
+        $this->claimTypesToSet = array_key_exists('claim_types_to_set', $values) ? $values['claim_types_to_set'] : null;
+        $this->claimValuesToSet = array_key_exists('claim_values_to_set', $values) ? $values['claim_values_to_set'] : null;
+        $this->useStandingGrant = array_key_exists('use_standing_grant', $values) ? $values['use_standing_grant'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'signed_request' => $this->signedRequest,
+            'authorized_claims' => $this->authorizedClaims,
+            'claim_types_to_set' => $this->claimTypesToSet,
+            'claim_values_to_set' => $this->claimValuesToSet,
+            'use_standing_grant' => $this->useStandingGrant,
+        );
+    }
+}
+
+class BrowserLocalRpCompleteResponse
 {
     /** @var mixed */
     public $redirectUrl;
@@ -5120,6 +5385,9 @@ class AuthorizeValidateResponse
     /** @var mixed */
     public $authorizedClaims;
 
+    /** @var mixed */
+    public $newlyRequestedClaims;
+
     /** @param array<string,mixed> $values */
     public function __construct(array $values = array())
     {
@@ -5128,6 +5396,7 @@ class AuthorizeValidateResponse
         $this->requestedClaims = array_key_exists('requested_claims', $values) ? $values['requested_claims'] : null;
         $this->alreadyConsented = array_key_exists('already_consented', $values) ? $values['already_consented'] : null;
         $this->authorizedClaims = array_key_exists('authorized_claims', $values) ? $values['authorized_claims'] : null;
+        $this->newlyRequestedClaims = array_key_exists('newly_requested_claims', $values) ? $values['newly_requested_claims'] : null;
     }
 
     /** @return array<string,mixed> */
@@ -5139,6 +5408,7 @@ class AuthorizeValidateResponse
             'requested_claims' => $this->requestedClaims,
             'already_consented' => $this->alreadyConsented,
             'authorized_claims' => $this->authorizedClaims,
+            'newly_requested_claims' => $this->newlyRequestedClaims,
         );
     }
 }
@@ -6014,6 +6284,61 @@ class SetLocalRpPolicyResponse
     {
         return array(
             'policy' => $this->policy,
+        );
+    }
+}
+
+class SignInPolicy
+{
+    /** @var mixed */
+    public $signInHours;
+
+    /** @var mixed */
+    public $defaultSignInHours;
+
+    /** @var mixed */
+    public $minSignInHours;
+
+    /** @var mixed */
+    public $maxSignInHours;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->signInHours = array_key_exists('sign_in_hours', $values) ? $values['sign_in_hours'] : null;
+        $this->defaultSignInHours = array_key_exists('default_sign_in_hours', $values) ? $values['default_sign_in_hours'] : null;
+        $this->minSignInHours = array_key_exists('min_sign_in_hours', $values) ? $values['min_sign_in_hours'] : null;
+        $this->maxSignInHours = array_key_exists('max_sign_in_hours', $values) ? $values['max_sign_in_hours'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'sign_in_hours' => $this->signInHours,
+            'default_sign_in_hours' => $this->defaultSignInHours,
+            'min_sign_in_hours' => $this->minSignInHours,
+            'max_sign_in_hours' => $this->maxSignInHours,
+        );
+    }
+}
+
+class SetSignInPolicyRequest
+{
+    /** @var mixed */
+    public $signInHours;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->signInHours = array_key_exists('sign_in_hours', $values) ? $values['sign_in_hours'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'sign_in_hours' => $this->signInHours,
         );
     }
 }
@@ -8154,6 +8479,371 @@ class RevokeActAsGrantResponse
     {
         return array(
             'revoked_at' => $this->revokedAt,
+        );
+    }
+}
+
+class PreviewReleasePolicyRequest
+{
+    /** @var mixed */
+    public $audience;
+
+    /** @var mixed */
+    public $requiredClaims;
+
+    /** @var mixed */
+    public $optionalClaims;
+
+    /** @var mixed */
+    public $availableClaims;
+
+    /** @var mixed */
+    public $userChoices;
+
+    /** @var mixed */
+    public $tempAudience;
+
+    /** @var mixed */
+    public $tempClaimType;
+
+    /** @var mixed */
+    public $tempDisposition;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->audience = array_key_exists('audience', $values) ? $values['audience'] : null;
+        $this->requiredClaims = array_key_exists('required_claims', $values) ? $values['required_claims'] : null;
+        $this->optionalClaims = array_key_exists('optional_claims', $values) ? $values['optional_claims'] : null;
+        $this->availableClaims = array_key_exists('available_claims', $values) ? $values['available_claims'] : null;
+        $this->userChoices = array_key_exists('user_choices', $values) ? $values['user_choices'] : null;
+        $this->tempAudience = array_key_exists('temp_audience', $values) ? $values['temp_audience'] : null;
+        $this->tempClaimType = array_key_exists('temp_claim_type', $values) ? $values['temp_claim_type'] : null;
+        $this->tempDisposition = array_key_exists('temp_disposition', $values) ? $values['temp_disposition'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'audience' => $this->audience,
+            'required_claims' => $this->requiredClaims,
+            'optional_claims' => $this->optionalClaims,
+            'available_claims' => $this->availableClaims,
+            'user_choices' => $this->userChoices,
+            'temp_audience' => $this->tempAudience,
+            'temp_claim_type' => $this->tempClaimType,
+            'temp_disposition' => $this->tempDisposition,
+        );
+    }
+}
+
+class PreviewReleaseRow
+{
+    /** @var mixed */
+    public $claimType;
+
+    /** @var mixed */
+    public $required;
+
+    /** @var mixed */
+    public $available;
+
+    /** @var mixed */
+    public $locked;
+
+    /** @var mixed */
+    public $policy;
+
+    /** @var mixed */
+    public $defaultGranted;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->claimType = array_key_exists('claim_type', $values) ? $values['claim_type'] : null;
+        $this->required = array_key_exists('required', $values) ? $values['required'] : null;
+        $this->available = array_key_exists('available', $values) ? $values['available'] : null;
+        $this->locked = array_key_exists('locked', $values) ? $values['locked'] : null;
+        $this->policy = array_key_exists('policy', $values) ? $values['policy'] : null;
+        $this->defaultGranted = array_key_exists('default_granted', $values) ? $values['default_granted'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'claim_type' => $this->claimType,
+            'required' => $this->required,
+            'available' => $this->available,
+            'locked' => $this->locked,
+            'policy' => $this->policy,
+            'default_granted' => $this->defaultGranted,
+        );
+    }
+}
+
+class PreviewReleasePolicyResponse
+{
+    /** @var mixed */
+    public $forcedAllow;
+
+    /** @var mixed */
+    public $forcedDeny;
+
+    /** @var mixed */
+    public $authorizedClaims;
+
+    /** @var mixed */
+    public $rows;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->forcedAllow = array_key_exists('forced_allow', $values) ? $values['forced_allow'] : null;
+        $this->forcedDeny = array_key_exists('forced_deny', $values) ? $values['forced_deny'] : null;
+        $this->authorizedClaims = array_key_exists('authorized_claims', $values) ? $values['authorized_claims'] : null;
+        $this->rows = array_key_exists('rows', $values) ? $values['rows'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'forced_allow' => $this->forcedAllow,
+            'forced_deny' => $this->forcedDeny,
+            'authorized_claims' => $this->authorizedClaims,
+            'rows' => $this->rows,
+        );
+    }
+}
+
+class PreviewIssuerPolicyRequest
+{
+    /** @var mixed */
+    public $subjectDomain;
+
+    /** @var mixed */
+    public $deniedDomains;
+
+    /** @var mixed */
+    public $deniedTlds;
+
+    /** @var mixed */
+    public $issuerUserId;
+
+    /** @var mixed */
+    public $claimType;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->subjectDomain = array_key_exists('subject_domain', $values) ? $values['subject_domain'] : null;
+        $this->deniedDomains = array_key_exists('denied_domains', $values) ? $values['denied_domains'] : null;
+        $this->deniedTlds = array_key_exists('denied_tlds', $values) ? $values['denied_tlds'] : null;
+        $this->issuerUserId = array_key_exists('issuer_user_id', $values) ? $values['issuer_user_id'] : null;
+        $this->claimType = array_key_exists('claim_type', $values) ? $values['claim_type'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'subject_domain' => $this->subjectDomain,
+            'denied_domains' => $this->deniedDomains,
+            'denied_tlds' => $this->deniedTlds,
+            'issuer_user_id' => $this->issuerUserId,
+            'claim_type' => $this->claimType,
+        );
+    }
+}
+
+class PreviewIssuerPolicyResponse
+{
+    /** @var mixed */
+    public $deniedDomains;
+
+    /** @var mixed */
+    public $deniedTlds;
+
+    /** @var mixed */
+    public $allowed;
+
+    /** @var mixed */
+    public $reason;
+
+    /** @var mixed */
+    public $userCanIssue;
+
+    /** @var mixed */
+    public $attestedClaimTtlSeconds;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->deniedDomains = array_key_exists('denied_domains', $values) ? $values['denied_domains'] : null;
+        $this->deniedTlds = array_key_exists('denied_tlds', $values) ? $values['denied_tlds'] : null;
+        $this->allowed = array_key_exists('allowed', $values) ? $values['allowed'] : null;
+        $this->reason = array_key_exists('reason', $values) ? $values['reason'] : null;
+        $this->userCanIssue = array_key_exists('user_can_issue', $values) ? $values['user_can_issue'] : null;
+        $this->attestedClaimTtlSeconds = array_key_exists('attested_claim_ttl_seconds', $values) ? $values['attested_claim_ttl_seconds'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'denied_domains' => $this->deniedDomains,
+            'denied_tlds' => $this->deniedTlds,
+            'allowed' => $this->allowed,
+            'reason' => $this->reason,
+            'user_can_issue' => $this->userCanIssue,
+            'attested_claim_ttl_seconds' => $this->attestedClaimTtlSeconds,
+        );
+    }
+}
+
+class InspectSigningRequestRequest
+{
+    /** @var mixed */
+    public $signedRequest;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->signedRequest = array_key_exists('signed_request', $values) ? $values['signed_request'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'signed_request' => $this->signedRequest,
+        );
+    }
+}
+
+class InspectSigningRequestResponse
+{
+    /** @var mixed */
+    public $subjectUserId;
+
+    /** @var mixed */
+    public $subjectDomain;
+
+    /** @var mixed */
+    public $requestedClaimTypes;
+
+    /** @var mixed */
+    public $expiresAt;
+
+    /** @var mixed */
+    public $issuableClaimTypes;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->subjectUserId = array_key_exists('subject_user_id', $values) ? $values['subject_user_id'] : null;
+        $this->subjectDomain = array_key_exists('subject_domain', $values) ? $values['subject_domain'] : null;
+        $this->requestedClaimTypes = array_key_exists('requested_claim_types', $values) ? $values['requested_claim_types'] : null;
+        $this->expiresAt = array_key_exists('expires_at', $values) ? $values['expires_at'] : null;
+        $this->issuableClaimTypes = array_key_exists('issuable_claim_types', $values) ? $values['issuable_claim_types'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'subject_user_id' => $this->subjectUserId,
+            'subject_domain' => $this->subjectDomain,
+            'requested_claim_types' => $this->requestedClaimTypes,
+            'expires_at' => $this->expiresAt,
+            'issuable_claim_types' => $this->issuableClaimTypes,
+        );
+    }
+}
+
+class IssueForSigningRequestRequest
+{
+    /** @var mixed */
+    public $signedRequest;
+
+    /** @var mixed */
+    public $claimTypes;
+
+    /** @var mixed */
+    public $claimValues;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->signedRequest = array_key_exists('signed_request', $values) ? $values['signed_request'] : null;
+        $this->claimTypes = array_key_exists('claim_types', $values) ? $values['claim_types'] : null;
+        $this->claimValues = array_key_exists('claim_values', $values) ? $values['claim_values'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'signed_request' => $this->signedRequest,
+            'claim_types' => $this->claimTypes,
+            'claim_values' => $this->claimValues,
+        );
+    }
+}
+
+class IssuedClaimResult
+{
+    /** @var mixed */
+    public $claimType;
+
+    /** @var mixed */
+    public $outcome;
+
+    /** @var mixed */
+    public $message;
+
+    /** @var mixed */
+    public $claimCode;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->claimType = array_key_exists('claim_type', $values) ? $values['claim_type'] : null;
+        $this->outcome = array_key_exists('outcome', $values) ? $values['outcome'] : null;
+        $this->message = array_key_exists('message', $values) ? $values['message'] : null;
+        $this->claimCode = array_key_exists('claim_code', $values) ? $values['claim_code'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'claim_type' => $this->claimType,
+            'outcome' => $this->outcome,
+            'message' => $this->message,
+            'claim_code' => $this->claimCode,
+        );
+    }
+}
+
+class IssueForSigningRequestResponse
+{
+    /** @var mixed */
+    public $results;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->results = array_key_exists('results', $values) ? $values['results'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'results' => $this->results,
         );
     }
 }

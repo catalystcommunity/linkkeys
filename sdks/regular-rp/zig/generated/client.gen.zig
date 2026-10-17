@@ -490,6 +490,59 @@ pub const BrowserAuthorizationClient = struct {
         defer alloc.free(csil_respb);
         try codec.decode_BrowserActAsCompleteResponse(alloc, csil_respb, out);
     }
+
+    /// Invoke BrowserAuthorization/inspect-local-rp with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn inspect_local_rp(self: BrowserAuthorizationClient, alloc: std.mem.Allocator, req: *const types.BrowserLocalRpInspectRequest, out: *types.BrowserLocalRpInspectResponse) anyerror!void {
+        const csil_reqb = try codec.encode_BrowserLocalRpInspectRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "BrowserAuthorization", "inspect-local-rp", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_BrowserLocalRpInspectResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke BrowserAuthorization/complete-local-rp with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn complete_local_rp(self: BrowserAuthorizationClient, alloc: std.mem.Allocator, req: *const types.BrowserLocalRpCompleteRequest, out: *types.BrowserLocalRpCompleteResponse) anyerror!void {
+        const csil_reqb = try codec.encode_BrowserLocalRpCompleteRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "BrowserAuthorization", "complete-local-rp", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_BrowserLocalRpCompleteResponse(alloc, csil_respb, out);
+    }
+};
+
+/// BrowserIssuerClient is a typed client for the BrowserIssuer service over a CsilgenTransport.
+pub const BrowserIssuerClient = struct {
+    transport: CsilgenTransport,
+
+    pub fn init(transport: CsilgenTransport) BrowserIssuerClient {
+        return .{ .transport = transport };
+    }
+
+    /// Invoke BrowserIssuer/inspect-signing-request with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn inspect_signing_request(self: BrowserIssuerClient, alloc: std.mem.Allocator, req: *const types.InspectSigningRequestRequest, out: *types.InspectSigningRequestResponse) anyerror!void {
+        const csil_reqb = try codec.encode_InspectSigningRequestRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "BrowserIssuer", "inspect-signing-request", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_InspectSigningRequestResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke BrowserIssuer/issue-for-signing-request with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn issue_for_signing_request(self: BrowserIssuerClient, alloc: std.mem.Allocator, req: *const types.IssueForSigningRequestRequest, out: *types.IssueForSigningRequestResponse) anyerror!void {
+        const csil_reqb = try codec.encode_IssueForSigningRequestRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "BrowserIssuer", "issue-for-signing-request", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_IssueForSigningRequestResponse(alloc, csil_respb, out);
+    }
 };
 
 /// AdminClient is a typed client for the Admin service over a CsilgenTransport.
@@ -731,6 +784,17 @@ pub const AdminClient = struct {
         try codec.decode_RemoveClaimTypeResponse(alloc, csil_respb, out);
     }
 
+    /// Invoke Admin/list-claim-type-labels with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn list_claim_type_labels(self: AdminClient, alloc: std.mem.Allocator, req: *const types.EmptyRequest, out: *types.ListClaimTypeLabelsResponse) anyerror!void {
+        const csil_reqb = try codec.encode_EmptyRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Admin", "list-claim-type-labels", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_ListClaimTypeLabelsResponse(alloc, csil_respb, out);
+    }
+
     /// Invoke Admin/set-claim-type-label with a typed request, returning the decoded
     /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
     /// and free it once when done.
@@ -861,6 +925,28 @@ pub const AdminClient = struct {
         const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Admin", "admin-issue-attestation", csil_reqb);
         defer alloc.free(csil_respb);
         try codec.decode_AdminIssueAttestationResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke Admin/preview-release-policy with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn preview_release_policy(self: AdminClient, alloc: std.mem.Allocator, req: *const types.PreviewReleasePolicyRequest, out: *types.PreviewReleasePolicyResponse) anyerror!void {
+        const csil_reqb = try codec.encode_PreviewReleasePolicyRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Admin", "preview-release-policy", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_PreviewReleasePolicyResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke Admin/preview-issuer-policy with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn preview_issuer_policy(self: AdminClient, alloc: std.mem.Allocator, req: *const types.PreviewIssuerPolicyRequest, out: *types.PreviewIssuerPolicyResponse) anyerror!void {
+        const csil_reqb = try codec.encode_PreviewIssuerPolicyRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Admin", "preview-issuer-policy", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_PreviewIssuerPolicyResponse(alloc, csil_respb, out);
     }
 
     /// Invoke Admin/grant-relation with a typed request, returning the decoded
@@ -1005,6 +1091,28 @@ pub const AdminClient = struct {
         defer alloc.free(csil_respb);
         try codec.decode_PurgeLocalRpTicketsResponse(alloc, csil_respb, out);
     }
+
+    /// Invoke Admin/get-sign-in-policy with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn get_sign_in_policy(self: AdminClient, alloc: std.mem.Allocator, req: *const types.EmptyRequest, out: *types.SignInPolicy) anyerror!void {
+        const csil_reqb = try codec.encode_EmptyRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Admin", "get-sign-in-policy", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_SignInPolicy(alloc, csil_respb, out);
+    }
+
+    /// Invoke Admin/set-sign-in-policy with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn set_sign_in_policy(self: AdminClient, alloc: std.mem.Allocator, req: *const types.SetSignInPolicyRequest, out: *types.SignInPolicy) anyerror!void {
+        const csil_reqb = try codec.encode_SetSignInPolicyRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Admin", "set-sign-in-policy", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_SignInPolicy(alloc, csil_respb, out);
+    }
 };
 
 /// AccountClient is a typed client for the Account service over a CsilgenTransport.
@@ -1090,6 +1198,28 @@ pub const AccountClient = struct {
         const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Account", "create-profile", csil_reqb);
         defer alloc.free(csil_respb);
         try codec.decode_CreateProfileResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke Account/get-my-claim-settings with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn get_my_claim_settings(self: AccountClient, alloc: std.mem.Allocator, req: *const types.EmptyRequest, out: *types.MyClaimSettingsResponse) anyerror!void {
+        const csil_reqb = try codec.encode_EmptyRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Account", "get-my-claim-settings", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_MyClaimSettingsResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke Account/set-my-claim-keep-verified with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn set_my_claim_keep_verified(self: AccountClient, alloc: std.mem.Allocator, req: *const types.SetMyClaimKeepVerifiedRequest, out: *types.SetMyClaimKeepVerifiedResponse) anyerror!void {
+        const csil_reqb = try codec.encode_SetMyClaimKeepVerifiedRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Account", "set-my-claim-keep-verified", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_SetMyClaimKeepVerifiedResponse(alloc, csil_respb, out);
     }
 
     /// Invoke Account/request-verification with a typed request, returning the decoded

@@ -584,6 +584,74 @@ impl<T: Transport> BrowserAuthorizationClient<T> {
         decode_browser_act_as_complete_response(&csil_resp)
             .map_err(|e| ClientError::Transport(e.to_string()))
     }
+
+    /// inspect-local-rp (request/response).
+    pub fn inspect_local_rp(
+        &self,
+        req: BrowserLocalRpInspectRequest,
+    ) -> Result<BrowserLocalRpInspectResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "BrowserAuthorization",
+            "inspect-local-rp",
+            &encode_browser_local_rp_inspect_request(&req),
+        )?;
+        decode_browser_local_rp_inspect_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
+    /// complete-local-rp (request/response).
+    pub fn complete_local_rp(
+        &self,
+        req: BrowserLocalRpCompleteRequest,
+    ) -> Result<BrowserLocalRpCompleteResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "BrowserAuthorization",
+            "complete-local-rp",
+            &encode_browser_local_rp_complete_request(&req),
+        )?;
+        decode_browser_local_rp_complete_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+}
+
+/// Typed client for the BrowserIssuer service.
+pub struct BrowserIssuerClient<T: Transport> {
+    #[allow(dead_code)]
+    transport: T,
+}
+
+impl<T: Transport> BrowserIssuerClient<T> {
+    pub fn new(transport: T) -> Self {
+        Self { transport }
+    }
+
+    /// inspect-signing-request (request/response).
+    pub fn inspect_signing_request(
+        &self,
+        req: InspectSigningRequestRequest,
+    ) -> Result<InspectSigningRequestResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "BrowserIssuer",
+            "inspect-signing-request",
+            &encode_inspect_signing_request_request(&req),
+        )?;
+        decode_inspect_signing_request_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
+    /// issue-for-signing-request (request/response).
+    pub fn issue_for_signing_request(
+        &self,
+        req: IssueForSigningRequestRequest,
+    ) -> Result<IssueForSigningRequestResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "BrowserIssuer",
+            "issue-for-signing-request",
+            &encode_issue_for_signing_request_request(&req),
+        )?;
+        decode_issue_for_signing_request_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
 }
 
 /// Typed client for the Admin service.
@@ -846,6 +914,20 @@ impl<T: Transport> AdminClient<T> {
             .map_err(|e| ClientError::Transport(e.to_string()))
     }
 
+    /// list-claim-type-labels (request/response).
+    pub fn list_claim_type_labels(
+        &self,
+        req: EmptyRequest,
+    ) -> Result<ListClaimTypeLabelsResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "Admin",
+            "list-claim-type-labels",
+            &encode_empty_request(&req),
+        )?;
+        decode_list_claim_type_labels_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
     /// set-claim-type-label (request/response).
     pub fn set_claim_type_label(
         &self,
@@ -1003,6 +1085,34 @@ impl<T: Transport> AdminClient<T> {
             &encode_admin_issue_attestation_request(&req),
         )?;
         decode_admin_issue_attestation_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
+    /// preview-release-policy (request/response).
+    pub fn preview_release_policy(
+        &self,
+        req: PreviewReleasePolicyRequest,
+    ) -> Result<PreviewReleasePolicyResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "Admin",
+            "preview-release-policy",
+            &encode_preview_release_policy_request(&req),
+        )?;
+        decode_preview_release_policy_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
+    /// preview-issuer-policy (request/response).
+    pub fn preview_issuer_policy(
+        &self,
+        req: PreviewIssuerPolicyRequest,
+    ) -> Result<PreviewIssuerPolicyResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "Admin",
+            "preview-issuer-policy",
+            &encode_preview_issuer_policy_request(&req),
+        )?;
+        decode_preview_issuer_policy_response(&csil_resp)
             .map_err(|e| ClientError::Transport(e.to_string()))
     }
 
@@ -1177,6 +1287,27 @@ impl<T: Transport> AdminClient<T> {
         decode_purge_local_rp_tickets_response(&csil_resp)
             .map_err(|e| ClientError::Transport(e.to_string()))
     }
+
+    /// get-sign-in-policy (request/response).
+    pub fn get_sign_in_policy(&self, req: EmptyRequest) -> Result<SignInPolicy, ClientError> {
+        let csil_resp =
+            self.transport
+                .call("Admin", "get-sign-in-policy", &encode_empty_request(&req))?;
+        decode_sign_in_policy(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
+    /// set-sign-in-policy (request/response).
+    pub fn set_sign_in_policy(
+        &self,
+        req: SetSignInPolicyRequest,
+    ) -> Result<SignInPolicy, ClientError> {
+        let csil_resp = self.transport.call(
+            "Admin",
+            "set-sign-in-policy",
+            &encode_set_sign_in_policy_request(&req),
+        )?;
+        decode_sign_in_policy(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+    }
 }
 
 /// Typed client for the Account service.
@@ -1275,6 +1406,34 @@ impl<T: Transport> AccountClient<T> {
             &encode_create_profile_request(&req),
         )?;
         decode_create_profile_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
+    /// get-my-claim-settings (request/response).
+    pub fn get_my_claim_settings(
+        &self,
+        req: EmptyRequest,
+    ) -> Result<MyClaimSettingsResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "Account",
+            "get-my-claim-settings",
+            &encode_empty_request(&req),
+        )?;
+        decode_my_claim_settings_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
+    /// set-my-claim-keep-verified (request/response).
+    pub fn set_my_claim_keep_verified(
+        &self,
+        req: SetMyClaimKeepVerifiedRequest,
+    ) -> Result<SetMyClaimKeepVerifiedResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "Account",
+            "set-my-claim-keep-verified",
+            &encode_set_my_claim_keep_verified_request(&req),
+        )?;
+        decode_set_my_claim_keep_verified_response(&csil_resp)
             .map_err(|e| ClientError::Transport(e.to_string()))
     }
 

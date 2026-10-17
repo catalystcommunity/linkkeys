@@ -16,6 +16,7 @@ import {
   cleanupOnce,
   currentPasswordMessage,
   hasBlockedRequiredClaim,
+  hasNewlyRequestedClaim,
   inputType,
   loginFailureMessage,
   passwordLengthError,
@@ -54,6 +55,12 @@ describe("browser UI decisions", () => {
     expect(hasBlockedRequiredClaim([claim({ required: true, available: false, userSettable: false })])).toBe(true);
     expect(hasBlockedRequiredClaim([claim({ required: true, policy: "forced_deny" })])).toBe(true);
     expect(hasBlockedRequiredClaim([claim({ required: true, available: false, userSettable: true })])).toBe(false);
+  });
+
+  it("announces new information only when a claim is newly requested", () => {
+    expect(hasNewlyRequestedClaim([claim({}), claim({ newlyRequested: true })])).toBe(true);
+    expect(hasNewlyRequestedClaim([claim({}), claim({ newlyRequested: false })])).toBe(false);
+    expect(hasNewlyRequestedClaim([])).toBe(false);
   });
 
   it("uses a standing grant only after the first claim disclosure", () => {

@@ -412,6 +412,65 @@ final class BrowserAuthorizationClient {
       CsilCbor.decode(csilResp),
     );
   }
+
+  BrowserLocalRpInspectResponse inspectLocalRp(
+    BrowserLocalRpInspectRequest request,
+  ) {
+    final csilResp = transport.call(
+      'BrowserAuthorization',
+      'inspect-local-rp',
+      request.toCbor(),
+    );
+    return BrowserLocalRpInspectResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
+
+  BrowserLocalRpCompleteResponse completeLocalRp(
+    BrowserLocalRpCompleteRequest request,
+  ) {
+    final csilResp = transport.call(
+      'BrowserAuthorization',
+      'complete-local-rp',
+      request.toCbor(),
+    );
+    return BrowserLocalRpCompleteResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
+}
+
+/// A typed, transport-agnostic client for the BrowserIssuer service. The client owns
+/// (de)serialization; the carrier only moves bytes.
+final class BrowserIssuerClient {
+  final CsilTransport transport;
+  const BrowserIssuerClient(this.transport);
+
+  InspectSigningRequestResponse inspectSigningRequest(
+    InspectSigningRequestRequest request,
+  ) {
+    final csilResp = transport.call(
+      'BrowserIssuer',
+      'inspect-signing-request',
+      request.toCbor(),
+    );
+    return InspectSigningRequestResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
+
+  IssueForSigningRequestResponse issueForSigningRequest(
+    IssueForSigningRequestRequest request,
+  ) {
+    final csilResp = transport.call(
+      'BrowserIssuer',
+      'issue-for-signing-request',
+      request.toCbor(),
+    );
+    return IssueForSigningRequestResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
 }
 
 /// A typed, transport-agnostic client for the Admin service. The client owns
@@ -579,6 +638,15 @@ final class AdminClient {
     return RemoveClaimTypeResponse.fromCborValue(CsilCbor.decode(csilResp));
   }
 
+  ListClaimTypeLabelsResponse listClaimTypeLabels(EmptyRequest request) {
+    final csilResp = transport.call(
+      'Admin',
+      'list-claim-type-labels',
+      request.toCbor(),
+    );
+    return ListClaimTypeLabelsResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
   SetClaimTypeLabelResponse setClaimTypeLabel(
     SetClaimTypeLabelRequest request,
   ) {
@@ -697,6 +765,30 @@ final class AdminClient {
     );
   }
 
+  PreviewReleasePolicyResponse previewReleasePolicy(
+    PreviewReleasePolicyRequest request,
+  ) {
+    final csilResp = transport.call(
+      'Admin',
+      'preview-release-policy',
+      request.toCbor(),
+    );
+    return PreviewReleasePolicyResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
+
+  PreviewIssuerPolicyResponse previewIssuerPolicy(
+    PreviewIssuerPolicyRequest request,
+  ) {
+    final csilResp = transport.call(
+      'Admin',
+      'preview-issuer-policy',
+      request.toCbor(),
+    );
+    return PreviewIssuerPolicyResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
   GrantRelationResponse grantRelation(GrantRelationRequest request) {
     final csilResp = transport.call(
       'Admin',
@@ -803,6 +895,24 @@ final class AdminClient {
     );
     return PurgeLocalRpTicketsResponse.fromCborValue(CsilCbor.decode(csilResp));
   }
+
+  SignInPolicy getSignInPolicy(EmptyRequest request) {
+    final csilResp = transport.call(
+      'Admin',
+      'get-sign-in-policy',
+      request.toCbor(),
+    );
+    return SignInPolicy.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
+  SignInPolicy setSignInPolicy(SetSignInPolicyRequest request) {
+    final csilResp = transport.call(
+      'Admin',
+      'set-sign-in-policy',
+      request.toCbor(),
+    );
+    return SignInPolicy.fromCborValue(CsilCbor.decode(csilResp));
+  }
 }
 
 /// A typed, transport-agnostic client for the Account service. The client owns
@@ -872,6 +982,28 @@ final class AccountClient {
       request.toCbor(),
     );
     return CreateProfileResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
+  MyClaimSettingsResponse getMyClaimSettings(EmptyRequest request) {
+    final csilResp = transport.call(
+      'Account',
+      'get-my-claim-settings',
+      request.toCbor(),
+    );
+    return MyClaimSettingsResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
+  SetMyClaimKeepVerifiedResponse setMyClaimKeepVerified(
+    SetMyClaimKeepVerifiedRequest request,
+  ) {
+    final csilResp = transport.call(
+      'Account',
+      'set-my-claim-keep-verified',
+      request.toCbor(),
+    );
+    return SetMyClaimKeepVerifiedResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
   }
 
   RequestVerificationResponse requestVerification(

@@ -720,3 +720,81 @@ async fn declined_required_claim_is_a_hard_error() {
         "required_claim_missing",
     );
 }
+
+// ---------------------------------------------------------------------
+// Newly requested claim
+// ---------------------------------------------------------------------
+
+/// Re-sign the fixture's request with a fresh nonce and a new requested
+/// claim list (the app's claim list grew).
+fn resigned_with_claims(fx: &LocalRpFixture, requested_claims: &[&str]) -> String {
+    let original =
+        liblinkkeys::encoding::signed_local_rp_login_request_from_url_param(&fx.signed_request)
+            .unwrap();
+    let mut request =
+        liblinkkeys::generated::decode_local_rp_login_request(&original.request).unwrap();
+    let now = chrono::Utc::now();
+    request.nonce = rand::random::<[u8; 16]>().to_vec();
+    request.state = rand::random::<[u8; 16]>().to_vec();
+    request.issued_at = now.to_rfc3339();
+    request.expires_at = (now + chrono::Duration::minutes(5)).to_rfc3339();
+    request.requested_claims = requested_claims.iter().map(|c| c.to_string()).collect();
+    let signed = sign_local_rp_login_request(&request, &fx.signing_sk).unwrap();
+    liblinkkeys::encoding::signed_local_rp_login_request_to_url_param(&signed).unwrap()
+}
+
+/// An optional claim the local app adds after the first consent reopens
+/// consent once, marked new. Declining it is remembered.
+#[rocket::async_test]
+async fn new_optional_claim_reopens_local_rp_consent_once() {
+    let pool = setup();
+    let user = seed_idp_and_user(&pool);
+    let fx = build_fixture(
+        "http://127.0.0.1:9999/callback",
+        vec!["aes-256-gcm".to_string()],
+        vec!["handle".to_string()],
+        vec!["handle".to_string()],
+    );
+    approve(&pool, &fx, "Test Jukebox");
+    let client = build_client(&pool).await;
+    sign_in(&client, &user).await;
+
+    // First consent: nothing is marked new.
+    let screen = inspected(&inspect(&client, &fx.signed_request).await);
+    assert!(screen.claims.iter().all(|c| c.newly_requested.is_none()));
+    redirect_url(&complete(&client, &fx.signed_request, &["handle"], false).await);
+
+    // The app now also asks for optional display_name.
+    let grown = resigned_with_claims(&fx, &["handle", "display_name"]);
+    let screen = inspected(&inspect(&client, &grown).await);
+    assert_eq!(
+        screen.already_consented, None,
+        "an unseen optional claim must reopen consent"
+    );
+    let flag = |claim_type: &str| {
+        screen
+            .claims
+            .iter()
+            .find(|c| c.claim_type == claim_type)
+            .expect("row present")
+            .newly_requested
+    };
+    assert_eq!(flag("display_name"), Some(true));
+    assert_eq!(flag("handle"), None);
+    assert_ne!(
+        complete(&client, &grown, &[], true).await.status,
+        RpcStatus::Ok,
+        "standing completion must refuse while a claim is new"
+    );
+
+    // Decline display_name; the next sign-in is silent.
+    redirect_url(&complete(&client, &grown, &["handle"], false).await);
+    let again = resigned_with_claims(&fx, &["handle", "display_name"]);
+    let screen = inspected(&inspect(&client, &again).await);
+    assert_eq!(
+        screen.already_consented,
+        Some(true),
+        "a declined claim is not new"
+    );
+    assert_eq!(screen.authorized_claims, Some(vec!["handle".to_string()]));
+}

@@ -1141,6 +1141,7 @@ pub struct BrowserConsentClaim {
     pub user_settable: bool,
     pub max_bytes: i64,
     pub requires_approval: bool,
+    pub newly_requested: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1300,6 +1301,7 @@ pub struct AuthorizeValidateResponse {
     pub requested_claims: Vec<String>,
     pub already_consented: Option<bool>,
     pub authorized_claims: Option<Vec<String>>,
+    pub newly_requested_claims: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

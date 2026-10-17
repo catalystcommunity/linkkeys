@@ -2910,6 +2910,25 @@ public final class CsilCbor {
         return decSetClaimTypeLabelResponse(decode(data));
     }
 
+    static CborValue encListClaimTypeLabelsResponse(ListClaimTypeLabelsResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("labels"), encArray(v.labels(), csilElem0 -> encClaimTypeLabel(csilElem0))));
+        return new CborMap(csilEntries);
+    }
+
+    static ListClaimTypeLabelsResponse decListClaimTypeLabelsResponse(CborValue csilRoot) {
+        List<ClaimTypeLabel> labels = decArray(require(csilRoot, "labels"), csilE0 -> decClaimTypeLabel(csilE0));
+        return new ListClaimTypeLabelsResponse(labels);
+    }
+
+    public static byte[] encodeListClaimTypeLabelsResponse(ListClaimTypeLabelsResponse v) {
+        return encode(encListClaimTypeLabelsResponse(v));
+    }
+
+    public static ListClaimTypeLabelsResponse decodeListClaimTypeLabelsResponse(byte[] data) {
+        return decListClaimTypeLabelsResponse(decode(data));
+    }
+
     static CborValue encRemoveClaimTypeLabelRequest(RemoveClaimTypeLabelRequest v) {
         List<CborEntry> csilEntries = new ArrayList<>(2);
         csilEntries.add(new CborEntry(new CborText("locale"), new CborText(v.locale())));
@@ -3759,6 +3778,90 @@ public final class CsilCbor {
         return decSetMyClaimSharingResponse(decode(data));
     }
 
+    static CborValue encMyClaimSetting(MyClaimSetting v) {
+        List<CborEntry> csilEntries = new ArrayList<>(3);
+        csilEntries.add(new CborEntry(new CborText("claim_type"), new CborText(v.claimType())));
+        csilEntries.add(new CborEntry(new CborText("keep_verified"), new CborBool(v.keepVerified())));
+        csilEntries.add(new CborEntry(new CborText("shared_with_every_app"), new CborBool(v.sharedWithEveryApp())));
+        return new CborMap(csilEntries);
+    }
+
+    static MyClaimSetting decMyClaimSetting(CborValue csilRoot) {
+        String claimType = asText(require(csilRoot, "claim_type"));
+        boolean keepVerified = asBool(require(csilRoot, "keep_verified"));
+        boolean sharedWithEveryApp = asBool(require(csilRoot, "shared_with_every_app"));
+        return new MyClaimSetting(claimType, keepVerified, sharedWithEveryApp);
+    }
+
+    public static byte[] encodeMyClaimSetting(MyClaimSetting v) {
+        return encode(encMyClaimSetting(v));
+    }
+
+    public static MyClaimSetting decodeMyClaimSetting(byte[] data) {
+        return decMyClaimSetting(decode(data));
+    }
+
+    static CborValue encMyClaimSettingsResponse(MyClaimSettingsResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(3);
+        csilEntries.add(new CborEntry(new CborText("profiles"), encArray(v.profiles(), csilElem0 -> encProfile(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("settings"), encArray(v.settings(), csilElem0 -> encMyClaimSetting(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("max_profiles"), new CborInt(v.maxProfiles())));
+        return new CborMap(csilEntries);
+    }
+
+    static MyClaimSettingsResponse decMyClaimSettingsResponse(CborValue csilRoot) {
+        List<MyClaimSetting> settings = decArray(require(csilRoot, "settings"), csilE0 -> decMyClaimSetting(csilE0));
+        List<Profile> profiles = decArray(require(csilRoot, "profiles"), csilE0 -> decProfile(csilE0));
+        long maxProfiles = asI64(require(csilRoot, "max_profiles"));
+        return new MyClaimSettingsResponse(settings, profiles, maxProfiles);
+    }
+
+    public static byte[] encodeMyClaimSettingsResponse(MyClaimSettingsResponse v) {
+        return encode(encMyClaimSettingsResponse(v));
+    }
+
+    public static MyClaimSettingsResponse decodeMyClaimSettingsResponse(byte[] data) {
+        return decMyClaimSettingsResponse(decode(data));
+    }
+
+    static CborValue encSetMyClaimKeepVerifiedRequest(SetMyClaimKeepVerifiedRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("claim_type"), new CborText(v.claimType())));
+        csilEntries.add(new CborEntry(new CborText("keep_verified"), new CborBool(v.keepVerified())));
+        return new CborMap(csilEntries);
+    }
+
+    static SetMyClaimKeepVerifiedRequest decSetMyClaimKeepVerifiedRequest(CborValue csilRoot) {
+        String claimType = asText(require(csilRoot, "claim_type"));
+        boolean keepVerified = asBool(require(csilRoot, "keep_verified"));
+        return new SetMyClaimKeepVerifiedRequest(claimType, keepVerified);
+    }
+
+    public static byte[] encodeSetMyClaimKeepVerifiedRequest(SetMyClaimKeepVerifiedRequest v) {
+        return encode(encSetMyClaimKeepVerifiedRequest(v));
+    }
+
+    public static SetMyClaimKeepVerifiedRequest decodeSetMyClaimKeepVerifiedRequest(byte[] data) {
+        return decSetMyClaimKeepVerifiedRequest(decode(data));
+    }
+
+    static CborValue encSetMyClaimKeepVerifiedResponse(SetMyClaimKeepVerifiedResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(0);
+        return new CborMap(csilEntries);
+    }
+
+    static SetMyClaimKeepVerifiedResponse decSetMyClaimKeepVerifiedResponse(CborValue csilRoot) {
+        return new SetMyClaimKeepVerifiedResponse();
+    }
+
+    public static byte[] encodeSetMyClaimKeepVerifiedResponse(SetMyClaimKeepVerifiedResponse v) {
+        return encode(encSetMyClaimKeepVerifiedResponse(v));
+    }
+
+    public static SetMyClaimKeepVerifiedResponse decodeSetMyClaimKeepVerifiedResponse(byte[] data) {
+        return decSetMyClaimKeepVerifiedResponse(decode(data));
+    }
+
     static CborValue encProfile(Profile v) {
         List<CborEntry> csilEntries = new ArrayList<>(5);
         csilEntries.add(new CborEntry(new CborText("id"), new CborText(v.id())));
@@ -4402,7 +4505,7 @@ public final class CsilCbor {
     }
 
     static CborValue encBrowserConsentClaim(BrowserConsentClaim v) {
-        List<CborEntry> csilEntries = new ArrayList<>(10);
+        List<CborEntry> csilEntries = new ArrayList<>(11);
         csilEntries.add(new CborEntry(new CborText("label"), new CborText(v.label())));
         csilEntries.add(new CborEntry(new CborText("policy"), new CborText(v.policy())));
         csilEntries.add(new CborEntry(new CborText("datatype"), new CborText(v.datatype())));
@@ -4412,6 +4515,9 @@ public final class CsilCbor {
         csilEntries.add(new CborEntry(new CborText("claim_type"), new CborText(v.claimType())));
         csilEntries.add(new CborEntry(new CborText("user_settable"), new CborBool(v.userSettable())));
         csilEntries.add(new CborEntry(new CborText("default_granted"), new CborBool(v.defaultGranted())));
+        if (v.newlyRequested() != null) {
+            csilEntries.add(new CborEntry(new CborText("newly_requested"), new CborBool(v.newlyRequested())));
+        }
         csilEntries.add(new CborEntry(new CborText("requires_approval"), new CborBool(v.requiresApproval())));
         return new CborMap(csilEntries);
     }
@@ -4427,7 +4533,12 @@ public final class CsilCbor {
         boolean userSettable = asBool(require(csilRoot, "user_settable"));
         long maxBytes = asI64(require(csilRoot, "max_bytes"));
         boolean requiresApproval = asBool(require(csilRoot, "requires_approval"));
-        return new BrowserConsentClaim(claimType, label, datatype, required, available, defaultGranted, policy, userSettable, maxBytes, requiresApproval);
+        Boolean newlyRequested;
+        {
+            CborValue csilField = mapGet(csilRoot, "newly_requested");
+            newlyRequested = csilField != null ? asBool(csilField) : null;
+        }
+        return new BrowserConsentClaim(claimType, label, datatype, required, available, defaultGranted, policy, userSettable, maxBytes, requiresApproval, newlyRequested);
     }
 
     public static byte[] encodeBrowserConsentClaim(BrowserConsentClaim v) {
@@ -4533,6 +4644,136 @@ public final class CsilCbor {
 
     public static BrowserAuthorizationCompleteResponse decodeBrowserAuthorizationCompleteResponse(byte[] data) {
         return decBrowserAuthorizationCompleteResponse(decode(data));
+    }
+
+    static CborValue encBrowserLocalRpInspectRequest(BrowserLocalRpInspectRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("signed_request"), new CborText(v.signedRequest())));
+        return new CborMap(csilEntries);
+    }
+
+    static BrowserLocalRpInspectRequest decBrowserLocalRpInspectRequest(CborValue csilRoot) {
+        String signedRequest = asText(require(csilRoot, "signed_request"));
+        return new BrowserLocalRpInspectRequest(signedRequest);
+    }
+
+    public static byte[] encodeBrowserLocalRpInspectRequest(BrowserLocalRpInspectRequest v) {
+        return encode(encBrowserLocalRpInspectRequest(v));
+    }
+
+    public static BrowserLocalRpInspectRequest decodeBrowserLocalRpInspectRequest(byte[] data) {
+        return decBrowserLocalRpInspectRequest(decode(data));
+    }
+
+    static CborValue encBrowserLocalRpInspectResponse(BrowserLocalRpInspectResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(9);
+        csilEntries.add(new CborEntry(new CborText("claims"), encArray(v.claims(), csilElem0 -> encBrowserConsentClaim(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("app_name"), new CborText(v.appName())));
+        csilEntries.add(new CborEntry(new CborText("admission"), new CborText(v.admission())));
+        csilEntries.add(new CborEntry(new CborText("fingerprint"), new CborText(v.fingerprint())));
+        csilEntries.add(new CborEntry(new CborText("callback_host"), new CborText(v.callbackHost())));
+        if (v.firstSeenAt() != null) {
+            csilEntries.add(new CborEntry(new CborText("first_seen_at"), new CborText(v.firstSeenAt())));
+        }
+        if (v.requestReason() != null) {
+            csilEntries.add(new CborEntry(new CborText("request_reason"), new CborText(v.requestReason())));
+        }
+        if (v.alreadyConsented() != null) {
+            csilEntries.add(new CborEntry(new CborText("already_consented"), new CborBool(v.alreadyConsented())));
+        }
+        if (v.authorizedClaims() != null) {
+            csilEntries.add(new CborEntry(new CborText("authorized_claims"), encArray(v.authorizedClaims(), csilElem0 -> new CborText(csilElem0))));
+        }
+        return new CborMap(csilEntries);
+    }
+
+    static BrowserLocalRpInspectResponse decBrowserLocalRpInspectResponse(CborValue csilRoot) {
+        String admission = asText(require(csilRoot, "admission"));
+        String appName = asText(require(csilRoot, "app_name"));
+        String fingerprint = asText(require(csilRoot, "fingerprint"));
+        String callbackHost = asText(require(csilRoot, "callback_host"));
+        String firstSeenAt;
+        {
+            CborValue csilField = mapGet(csilRoot, "first_seen_at");
+            firstSeenAt = csilField != null ? asText(csilField) : null;
+        }
+        List<BrowserConsentClaim> claims = decArray(require(csilRoot, "claims"), csilE0 -> decBrowserConsentClaim(csilE0));
+        String requestReason;
+        {
+            CborValue csilField = mapGet(csilRoot, "request_reason");
+            requestReason = csilField != null ? asText(csilField) : null;
+        }
+        Boolean alreadyConsented;
+        {
+            CborValue csilField = mapGet(csilRoot, "already_consented");
+            alreadyConsented = csilField != null ? asBool(csilField) : null;
+        }
+        List<String> authorizedClaims;
+        {
+            CborValue csilField = mapGet(csilRoot, "authorized_claims");
+            authorizedClaims = csilField != null ? decArray(csilField, csilE0 -> asText(csilE0)) : null;
+        }
+        return new BrowserLocalRpInspectResponse(admission, appName, fingerprint, callbackHost, firstSeenAt, claims, requestReason, alreadyConsented, authorizedClaims);
+    }
+
+    public static byte[] encodeBrowserLocalRpInspectResponse(BrowserLocalRpInspectResponse v) {
+        return encode(encBrowserLocalRpInspectResponse(v));
+    }
+
+    public static BrowserLocalRpInspectResponse decodeBrowserLocalRpInspectResponse(byte[] data) {
+        return decBrowserLocalRpInspectResponse(decode(data));
+    }
+
+    static CborValue encBrowserLocalRpCompleteRequest(BrowserLocalRpCompleteRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(5);
+        csilEntries.add(new CborEntry(new CborText("signed_request"), new CborText(v.signedRequest())));
+        csilEntries.add(new CborEntry(new CborText("authorized_claims"), encArray(v.authorizedClaims(), csilElem0 -> new CborText(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("claim_types_to_set"), encArray(v.claimTypesToSet(), csilElem0 -> new CborText(csilElem0))));
+        if (v.useStandingGrant() != null) {
+            csilEntries.add(new CborEntry(new CborText("use_standing_grant"), new CborBool(v.useStandingGrant())));
+        }
+        csilEntries.add(new CborEntry(new CborText("claim_values_to_set"), encArray(v.claimValuesToSet(), csilElem0 -> new CborText(csilElem0))));
+        return new CborMap(csilEntries);
+    }
+
+    static BrowserLocalRpCompleteRequest decBrowserLocalRpCompleteRequest(CborValue csilRoot) {
+        String signedRequest = asText(require(csilRoot, "signed_request"));
+        List<String> authorizedClaims = decArray(require(csilRoot, "authorized_claims"), csilE0 -> asText(csilE0));
+        List<String> claimTypesToSet = decArray(require(csilRoot, "claim_types_to_set"), csilE0 -> asText(csilE0));
+        List<String> claimValuesToSet = decArray(require(csilRoot, "claim_values_to_set"), csilE0 -> asText(csilE0));
+        Boolean useStandingGrant;
+        {
+            CborValue csilField = mapGet(csilRoot, "use_standing_grant");
+            useStandingGrant = csilField != null ? asBool(csilField) : null;
+        }
+        return new BrowserLocalRpCompleteRequest(signedRequest, authorizedClaims, claimTypesToSet, claimValuesToSet, useStandingGrant);
+    }
+
+    public static byte[] encodeBrowserLocalRpCompleteRequest(BrowserLocalRpCompleteRequest v) {
+        return encode(encBrowserLocalRpCompleteRequest(v));
+    }
+
+    public static BrowserLocalRpCompleteRequest decodeBrowserLocalRpCompleteRequest(byte[] data) {
+        return decBrowserLocalRpCompleteRequest(decode(data));
+    }
+
+    static CborValue encBrowserLocalRpCompleteResponse(BrowserLocalRpCompleteResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("redirect_url"), new CborText(v.redirectUrl())));
+        return new CborMap(csilEntries);
+    }
+
+    static BrowserLocalRpCompleteResponse decBrowserLocalRpCompleteResponse(CborValue csilRoot) {
+        String redirectUrl = asText(require(csilRoot, "redirect_url"));
+        return new BrowserLocalRpCompleteResponse(redirectUrl);
+    }
+
+    public static byte[] encodeBrowserLocalRpCompleteResponse(BrowserLocalRpCompleteResponse v) {
+        return encode(encBrowserLocalRpCompleteResponse(v));
+    }
+
+    public static BrowserLocalRpCompleteResponse decodeBrowserLocalRpCompleteResponse(byte[] data) {
+        return decBrowserLocalRpCompleteResponse(decode(data));
     }
 
     static CborValue encUiTheme(UiTheme v) {
@@ -4924,7 +5165,7 @@ public final class CsilCbor {
     }
 
     static CborValue encAuthorizeValidateResponse(AuthorizeValidateResponse v) {
-        List<CborEntry> csilEntries = new ArrayList<>(5);
+        List<CborEntry> csilEntries = new ArrayList<>(6);
         csilEntries.add(new CborEntry(new CborText("callback_url"), new CborText(v.callbackUrl())));
         csilEntries.add(new CborEntry(new CborText("relying_party"), new CborText(v.relyingParty())));
         csilEntries.add(new CborEntry(new CborText("requested_claims"), encArray(v.requestedClaims(), csilElem0 -> new CborText(csilElem0))));
@@ -4933,6 +5174,9 @@ public final class CsilCbor {
         }
         if (v.authorizedClaims() != null) {
             csilEntries.add(new CborEntry(new CborText("authorized_claims"), encArray(v.authorizedClaims(), csilElem0 -> new CborText(csilElem0))));
+        }
+        if (v.newlyRequestedClaims() != null) {
+            csilEntries.add(new CborEntry(new CborText("newly_requested_claims"), encArray(v.newlyRequestedClaims(), csilElem0 -> new CborText(csilElem0))));
         }
         return new CborMap(csilEntries);
     }
@@ -4951,7 +5195,12 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "authorized_claims");
             authorizedClaims = csilField != null ? decArray(csilField, csilE0 -> asText(csilE0)) : null;
         }
-        return new AuthorizeValidateResponse(relyingParty, callbackUrl, requestedClaims, alreadyConsented, authorizedClaims);
+        List<String> newlyRequestedClaims;
+        {
+            CborValue csilField = mapGet(csilRoot, "newly_requested_claims");
+            newlyRequestedClaims = csilField != null ? decArray(csilField, csilE0 -> asText(csilE0)) : null;
+        }
+        return new AuthorizeValidateResponse(relyingParty, callbackUrl, requestedClaims, alreadyConsented, authorizedClaims, newlyRequestedClaims);
     }
 
     public static byte[] encodeAuthorizeValidateResponse(AuthorizeValidateResponse v) {
@@ -5707,6 +5956,50 @@ public final class CsilCbor {
 
     public static SetLocalRpPolicyResponse decodeSetLocalRpPolicyResponse(byte[] data) {
         return decSetLocalRpPolicyResponse(decode(data));
+    }
+
+    static CborValue encSignInPolicy(SignInPolicy v) {
+        List<CborEntry> csilEntries = new ArrayList<>(4);
+        csilEntries.add(new CborEntry(new CborText("sign_in_hours"), new CborInt(v.signInHours())));
+        csilEntries.add(new CborEntry(new CborText("max_sign_in_hours"), new CborInt(v.maxSignInHours())));
+        csilEntries.add(new CborEntry(new CborText("min_sign_in_hours"), new CborInt(v.minSignInHours())));
+        csilEntries.add(new CborEntry(new CborText("default_sign_in_hours"), new CborInt(v.defaultSignInHours())));
+        return new CborMap(csilEntries);
+    }
+
+    static SignInPolicy decSignInPolicy(CborValue csilRoot) {
+        long signInHours = asI64(require(csilRoot, "sign_in_hours"));
+        long defaultSignInHours = asI64(require(csilRoot, "default_sign_in_hours"));
+        long minSignInHours = asI64(require(csilRoot, "min_sign_in_hours"));
+        long maxSignInHours = asI64(require(csilRoot, "max_sign_in_hours"));
+        return new SignInPolicy(signInHours, defaultSignInHours, minSignInHours, maxSignInHours);
+    }
+
+    public static byte[] encodeSignInPolicy(SignInPolicy v) {
+        return encode(encSignInPolicy(v));
+    }
+
+    public static SignInPolicy decodeSignInPolicy(byte[] data) {
+        return decSignInPolicy(decode(data));
+    }
+
+    static CborValue encSetSignInPolicyRequest(SetSignInPolicyRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("sign_in_hours"), new CborInt(v.signInHours())));
+        return new CborMap(csilEntries);
+    }
+
+    static SetSignInPolicyRequest decSetSignInPolicyRequest(CborValue csilRoot) {
+        long signInHours = asI64(require(csilRoot, "sign_in_hours"));
+        return new SetSignInPolicyRequest(signInHours);
+    }
+
+    public static byte[] encodeSetSignInPolicyRequest(SetSignInPolicyRequest v) {
+        return encode(encSetSignInPolicyRequest(v));
+    }
+
+    public static SetSignInPolicyRequest decodeSetSignInPolicyRequest(byte[] data) {
+        return decSetSignInPolicyRequest(decode(data));
     }
 
     static CborValue encPurgeLocalRpTicketsRequest(PurgeLocalRpTicketsRequest v) {
@@ -7430,6 +7723,322 @@ public final class CsilCbor {
 
     public static RevokeActAsGrantResponse decodeRevokeActAsGrantResponse(byte[] data) {
         return decRevokeActAsGrantResponse(decode(data));
+    }
+
+    static CborValue encPreviewReleasePolicyRequest(PreviewReleasePolicyRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(8);
+        csilEntries.add(new CborEntry(new CborText("audience"), new CborText(v.audience())));
+        csilEntries.add(new CborEntry(new CborText("user_choices"), encArray(v.userChoices(), csilElem0 -> new CborText(csilElem0))));
+        if (v.tempAudience() != null) {
+            csilEntries.add(new CborEntry(new CborText("temp_audience"), new CborText(v.tempAudience())));
+        }
+        csilEntries.add(new CborEntry(new CborText("optional_claims"), encArray(v.optionalClaims(), csilElem0 -> new CborText(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("required_claims"), encArray(v.requiredClaims(), csilElem0 -> new CborText(csilElem0))));
+        if (v.tempClaimType() != null) {
+            csilEntries.add(new CborEntry(new CborText("temp_claim_type"), new CborText(v.tempClaimType())));
+        }
+        csilEntries.add(new CborEntry(new CborText("available_claims"), encArray(v.availableClaims(), csilElem0 -> new CborText(csilElem0))));
+        if (v.tempDisposition() != null) {
+            csilEntries.add(new CborEntry(new CborText("temp_disposition"), new CborText(v.tempDisposition())));
+        }
+        return new CborMap(csilEntries);
+    }
+
+    static PreviewReleasePolicyRequest decPreviewReleasePolicyRequest(CborValue csilRoot) {
+        String audience = asText(require(csilRoot, "audience"));
+        List<String> requiredClaims = decArray(require(csilRoot, "required_claims"), csilE0 -> asText(csilE0));
+        List<String> optionalClaims = decArray(require(csilRoot, "optional_claims"), csilE0 -> asText(csilE0));
+        List<String> availableClaims = decArray(require(csilRoot, "available_claims"), csilE0 -> asText(csilE0));
+        List<String> userChoices = decArray(require(csilRoot, "user_choices"), csilE0 -> asText(csilE0));
+        String tempAudience;
+        {
+            CborValue csilField = mapGet(csilRoot, "temp_audience");
+            tempAudience = csilField != null ? asText(csilField) : null;
+        }
+        String tempClaimType;
+        {
+            CborValue csilField = mapGet(csilRoot, "temp_claim_type");
+            tempClaimType = csilField != null ? asText(csilField) : null;
+        }
+        String tempDisposition;
+        {
+            CborValue csilField = mapGet(csilRoot, "temp_disposition");
+            tempDisposition = csilField != null ? asText(csilField) : null;
+        }
+        return new PreviewReleasePolicyRequest(audience, requiredClaims, optionalClaims, availableClaims, userChoices, tempAudience, tempClaimType, tempDisposition);
+    }
+
+    public static byte[] encodePreviewReleasePolicyRequest(PreviewReleasePolicyRequest v) {
+        return encode(encPreviewReleasePolicyRequest(v));
+    }
+
+    public static PreviewReleasePolicyRequest decodePreviewReleasePolicyRequest(byte[] data) {
+        return decPreviewReleasePolicyRequest(decode(data));
+    }
+
+    static CborValue encPreviewReleaseRow(PreviewReleaseRow v) {
+        List<CborEntry> csilEntries = new ArrayList<>(6);
+        csilEntries.add(new CborEntry(new CborText("locked"), new CborBool(v.locked())));
+        csilEntries.add(new CborEntry(new CborText("policy"), new CborText(v.policy())));
+        csilEntries.add(new CborEntry(new CborText("required"), new CborBool(v.required())));
+        csilEntries.add(new CborEntry(new CborText("available"), new CborBool(v.available())));
+        csilEntries.add(new CborEntry(new CborText("claim_type"), new CborText(v.claimType())));
+        csilEntries.add(new CborEntry(new CborText("default_granted"), new CborBool(v.defaultGranted())));
+        return new CborMap(csilEntries);
+    }
+
+    static PreviewReleaseRow decPreviewReleaseRow(CborValue csilRoot) {
+        String claimType = asText(require(csilRoot, "claim_type"));
+        boolean required = asBool(require(csilRoot, "required"));
+        boolean available = asBool(require(csilRoot, "available"));
+        boolean locked = asBool(require(csilRoot, "locked"));
+        String policy = asText(require(csilRoot, "policy"));
+        boolean defaultGranted = asBool(require(csilRoot, "default_granted"));
+        return new PreviewReleaseRow(claimType, required, available, locked, policy, defaultGranted);
+    }
+
+    public static byte[] encodePreviewReleaseRow(PreviewReleaseRow v) {
+        return encode(encPreviewReleaseRow(v));
+    }
+
+    public static PreviewReleaseRow decodePreviewReleaseRow(byte[] data) {
+        return decPreviewReleaseRow(decode(data));
+    }
+
+    static CborValue encPreviewReleasePolicyResponse(PreviewReleasePolicyResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(4);
+        csilEntries.add(new CborEntry(new CborText("rows"), encArray(v.rows(), csilElem0 -> encPreviewReleaseRow(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("forced_deny"), encArray(v.forcedDeny(), csilElem0 -> new CborText(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("forced_allow"), encArray(v.forcedAllow(), csilElem0 -> new CborText(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("authorized_claims"), encArray(v.authorizedClaims(), csilElem0 -> new CborText(csilElem0))));
+        return new CborMap(csilEntries);
+    }
+
+    static PreviewReleasePolicyResponse decPreviewReleasePolicyResponse(CborValue csilRoot) {
+        List<String> forcedAllow = decArray(require(csilRoot, "forced_allow"), csilE0 -> asText(csilE0));
+        List<String> forcedDeny = decArray(require(csilRoot, "forced_deny"), csilE0 -> asText(csilE0));
+        List<String> authorizedClaims = decArray(require(csilRoot, "authorized_claims"), csilE0 -> asText(csilE0));
+        List<PreviewReleaseRow> rows = decArray(require(csilRoot, "rows"), csilE0 -> decPreviewReleaseRow(csilE0));
+        return new PreviewReleasePolicyResponse(forcedAllow, forcedDeny, authorizedClaims, rows);
+    }
+
+    public static byte[] encodePreviewReleasePolicyResponse(PreviewReleasePolicyResponse v) {
+        return encode(encPreviewReleasePolicyResponse(v));
+    }
+
+    public static PreviewReleasePolicyResponse decodePreviewReleasePolicyResponse(byte[] data) {
+        return decPreviewReleasePolicyResponse(decode(data));
+    }
+
+    static CborValue encPreviewIssuerPolicyRequest(PreviewIssuerPolicyRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(5);
+        if (v.claimType() != null) {
+            csilEntries.add(new CborEntry(new CborText("claim_type"), new CborText(v.claimType())));
+        }
+        if (v.deniedTlds() != null) {
+            csilEntries.add(new CborEntry(new CborText("denied_tlds"), encArray(v.deniedTlds(), csilElem0 -> new CborText(csilElem0))));
+        }
+        if (v.deniedDomains() != null) {
+            csilEntries.add(new CborEntry(new CborText("denied_domains"), encArray(v.deniedDomains(), csilElem0 -> new CborText(csilElem0))));
+        }
+        if (v.issuerUserId() != null) {
+            csilEntries.add(new CborEntry(new CborText("issuer_user_id"), new CborText(v.issuerUserId())));
+        }
+        csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
+        return new CborMap(csilEntries);
+    }
+
+    static PreviewIssuerPolicyRequest decPreviewIssuerPolicyRequest(CborValue csilRoot) {
+        String subjectDomain = asText(require(csilRoot, "subject_domain"));
+        List<String> deniedDomains;
+        {
+            CborValue csilField = mapGet(csilRoot, "denied_domains");
+            deniedDomains = csilField != null ? decArray(csilField, csilE0 -> asText(csilE0)) : null;
+        }
+        List<String> deniedTlds;
+        {
+            CborValue csilField = mapGet(csilRoot, "denied_tlds");
+            deniedTlds = csilField != null ? decArray(csilField, csilE0 -> asText(csilE0)) : null;
+        }
+        String issuerUserId;
+        {
+            CborValue csilField = mapGet(csilRoot, "issuer_user_id");
+            issuerUserId = csilField != null ? asText(csilField) : null;
+        }
+        String claimType;
+        {
+            CborValue csilField = mapGet(csilRoot, "claim_type");
+            claimType = csilField != null ? asText(csilField) : null;
+        }
+        return new PreviewIssuerPolicyRequest(subjectDomain, deniedDomains, deniedTlds, issuerUserId, claimType);
+    }
+
+    public static byte[] encodePreviewIssuerPolicyRequest(PreviewIssuerPolicyRequest v) {
+        return encode(encPreviewIssuerPolicyRequest(v));
+    }
+
+    public static PreviewIssuerPolicyRequest decodePreviewIssuerPolicyRequest(byte[] data) {
+        return decPreviewIssuerPolicyRequest(decode(data));
+    }
+
+    static CborValue encPreviewIssuerPolicyResponse(PreviewIssuerPolicyResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(6);
+        csilEntries.add(new CborEntry(new CborText("reason"), new CborText(v.reason())));
+        csilEntries.add(new CborEntry(new CborText("allowed"), new CborBool(v.allowed())));
+        csilEntries.add(new CborEntry(new CborText("denied_tlds"), encArray(v.deniedTlds(), csilElem0 -> new CborText(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("denied_domains"), encArray(v.deniedDomains(), csilElem0 -> new CborText(csilElem0))));
+        if (v.userCanIssue() != null) {
+            csilEntries.add(new CborEntry(new CborText("user_can_issue"), new CborBool(v.userCanIssue())));
+        }
+        csilEntries.add(new CborEntry(new CborText("attested_claim_ttl_seconds"), new CborInt(v.attestedClaimTtlSeconds())));
+        return new CborMap(csilEntries);
+    }
+
+    static PreviewIssuerPolicyResponse decPreviewIssuerPolicyResponse(CborValue csilRoot) {
+        List<String> deniedDomains = decArray(require(csilRoot, "denied_domains"), csilE0 -> asText(csilE0));
+        List<String> deniedTlds = decArray(require(csilRoot, "denied_tlds"), csilE0 -> asText(csilE0));
+        boolean allowed = asBool(require(csilRoot, "allowed"));
+        String reason = asText(require(csilRoot, "reason"));
+        Boolean userCanIssue;
+        {
+            CborValue csilField = mapGet(csilRoot, "user_can_issue");
+            userCanIssue = csilField != null ? asBool(csilField) : null;
+        }
+        long attestedClaimTtlSeconds = asI64(require(csilRoot, "attested_claim_ttl_seconds"));
+        return new PreviewIssuerPolicyResponse(deniedDomains, deniedTlds, allowed, reason, userCanIssue, attestedClaimTtlSeconds);
+    }
+
+    public static byte[] encodePreviewIssuerPolicyResponse(PreviewIssuerPolicyResponse v) {
+        return encode(encPreviewIssuerPolicyResponse(v));
+    }
+
+    public static PreviewIssuerPolicyResponse decodePreviewIssuerPolicyResponse(byte[] data) {
+        return decPreviewIssuerPolicyResponse(decode(data));
+    }
+
+    static CborValue encInspectSigningRequestRequest(InspectSigningRequestRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("signed_request"), new CborText(v.signedRequest())));
+        return new CborMap(csilEntries);
+    }
+
+    static InspectSigningRequestRequest decInspectSigningRequestRequest(CborValue csilRoot) {
+        String signedRequest = asText(require(csilRoot, "signed_request"));
+        return new InspectSigningRequestRequest(signedRequest);
+    }
+
+    public static byte[] encodeInspectSigningRequestRequest(InspectSigningRequestRequest v) {
+        return encode(encInspectSigningRequestRequest(v));
+    }
+
+    public static InspectSigningRequestRequest decodeInspectSigningRequestRequest(byte[] data) {
+        return decInspectSigningRequestRequest(decode(data));
+    }
+
+    static CborValue encInspectSigningRequestResponse(InspectSigningRequestResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(5);
+        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
+        csilEntries.add(new CborEntry(new CborText("subject_user_id"), new CborText(v.subjectUserId())));
+        csilEntries.add(new CborEntry(new CborText("issuable_claim_types"), encArray(v.issuableClaimTypes(), csilElem0 -> new CborText(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("requested_claim_types"), encArray(v.requestedClaimTypes(), csilElem0 -> new CborText(csilElem0))));
+        return new CborMap(csilEntries);
+    }
+
+    static InspectSigningRequestResponse decInspectSigningRequestResponse(CborValue csilRoot) {
+        String subjectUserId = asText(require(csilRoot, "subject_user_id"));
+        String subjectDomain = asText(require(csilRoot, "subject_domain"));
+        List<String> requestedClaimTypes = decArray(require(csilRoot, "requested_claim_types"), csilE0 -> asText(csilE0));
+        String expiresAt = asText(require(csilRoot, "expires_at"));
+        List<String> issuableClaimTypes = decArray(require(csilRoot, "issuable_claim_types"), csilE0 -> asText(csilE0));
+        return new InspectSigningRequestResponse(subjectUserId, subjectDomain, requestedClaimTypes, expiresAt, issuableClaimTypes);
+    }
+
+    public static byte[] encodeInspectSigningRequestResponse(InspectSigningRequestResponse v) {
+        return encode(encInspectSigningRequestResponse(v));
+    }
+
+    public static InspectSigningRequestResponse decodeInspectSigningRequestResponse(byte[] data) {
+        return decInspectSigningRequestResponse(decode(data));
+    }
+
+    static CborValue encIssueForSigningRequestRequest(IssueForSigningRequestRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(3);
+        csilEntries.add(new CborEntry(new CborText("claim_types"), encArray(v.claimTypes(), csilElem0 -> new CborText(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("claim_values"), encArray(v.claimValues(), csilElem0 -> new CborText(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("signed_request"), new CborText(v.signedRequest())));
+        return new CborMap(csilEntries);
+    }
+
+    static IssueForSigningRequestRequest decIssueForSigningRequestRequest(CborValue csilRoot) {
+        String signedRequest = asText(require(csilRoot, "signed_request"));
+        List<String> claimTypes = decArray(require(csilRoot, "claim_types"), csilE0 -> asText(csilE0));
+        List<String> claimValues = decArray(require(csilRoot, "claim_values"), csilE0 -> asText(csilE0));
+        return new IssueForSigningRequestRequest(signedRequest, claimTypes, claimValues);
+    }
+
+    public static byte[] encodeIssueForSigningRequestRequest(IssueForSigningRequestRequest v) {
+        return encode(encIssueForSigningRequestRequest(v));
+    }
+
+    public static IssueForSigningRequestRequest decodeIssueForSigningRequestRequest(byte[] data) {
+        return decIssueForSigningRequestRequest(decode(data));
+    }
+
+    static CborValue encIssuedClaimResult(IssuedClaimResult v) {
+        List<CborEntry> csilEntries = new ArrayList<>(4);
+        if (v.message() != null) {
+            csilEntries.add(new CborEntry(new CborText("message"), new CborText(v.message())));
+        }
+        csilEntries.add(new CborEntry(new CborText("outcome"), new CborText(v.outcome())));
+        if (v.claimCode() != null) {
+            csilEntries.add(new CborEntry(new CborText("claim_code"), new CborText(v.claimCode())));
+        }
+        csilEntries.add(new CborEntry(new CborText("claim_type"), new CborText(v.claimType())));
+        return new CborMap(csilEntries);
+    }
+
+    static IssuedClaimResult decIssuedClaimResult(CborValue csilRoot) {
+        String claimType = asText(require(csilRoot, "claim_type"));
+        String outcome = asText(require(csilRoot, "outcome"));
+        String message;
+        {
+            CborValue csilField = mapGet(csilRoot, "message");
+            message = csilField != null ? asText(csilField) : null;
+        }
+        String claimCode;
+        {
+            CborValue csilField = mapGet(csilRoot, "claim_code");
+            claimCode = csilField != null ? asText(csilField) : null;
+        }
+        return new IssuedClaimResult(claimType, outcome, message, claimCode);
+    }
+
+    public static byte[] encodeIssuedClaimResult(IssuedClaimResult v) {
+        return encode(encIssuedClaimResult(v));
+    }
+
+    public static IssuedClaimResult decodeIssuedClaimResult(byte[] data) {
+        return decIssuedClaimResult(decode(data));
+    }
+
+    static CborValue encIssueForSigningRequestResponse(IssueForSigningRequestResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("results"), encArray(v.results(), csilElem0 -> encIssuedClaimResult(csilElem0))));
+        return new CborMap(csilEntries);
+    }
+
+    static IssueForSigningRequestResponse decIssueForSigningRequestResponse(CborValue csilRoot) {
+        List<IssuedClaimResult> results = decArray(require(csilRoot, "results"), csilE0 -> decIssuedClaimResult(csilE0));
+        return new IssueForSigningRequestResponse(results);
+    }
+
+    public static byte[] encodeIssueForSigningRequestResponse(IssueForSigningRequestResponse v) {
+        return encode(encIssueForSigningRequestResponse(v));
+    }
+
+    public static IssueForSigningRequestResponse decodeIssueForSigningRequestResponse(byte[] data) {
+        return decIssueForSigningRequestResponse(decode(data));
     }
 
     static CborValue encCheckValue(CheckValue v) {

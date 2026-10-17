@@ -596,6 +596,78 @@ static inline int csil_browser_authorization_complete_act_as(const CsilgenTransp
     return csil_drc;
 }
 
+/* Invoke BrowserAuthorization/inspect-local-rp with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_browser_authorization_inspect_local_rp(const CsilgenTransport *t, const BrowserLocalRpInspectRequest *req,
+                        BrowserLocalRpInspectResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_BrowserLocalRpInspectRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "BrowserAuthorization", "inspect-local-rp", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_BrowserLocalRpInspectResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
+/* Invoke BrowserAuthorization/complete-local-rp with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_browser_authorization_complete_local_rp(const CsilgenTransport *t, const BrowserLocalRpCompleteRequest *req,
+                        BrowserLocalRpCompleteResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_BrowserLocalRpCompleteRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "BrowserAuthorization", "complete-local-rp", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_BrowserLocalRpCompleteResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
+/* Invoke BrowserIssuer/inspect-signing-request with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_browser_issuer_inspect_signing_request(const CsilgenTransport *t, const InspectSigningRequestRequest *req,
+                        InspectSigningRequestResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_InspectSigningRequestRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "BrowserIssuer", "inspect-signing-request", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_InspectSigningRequestResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
+/* Invoke BrowserIssuer/issue-for-signing-request with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_browser_issuer_issue_for_signing_request(const CsilgenTransport *t, const IssueForSigningRequestRequest *req,
+                        IssueForSigningRequestResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_IssueForSigningRequestRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "BrowserIssuer", "issue-for-signing-request", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_IssueForSigningRequestResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
 /* Invoke Admin/list-users with a typed request and decode the typed
  * response. *resp_owner holds the response's backing storage; free it once
  * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
@@ -974,6 +1046,24 @@ static inline int csil_admin_remove_claim_type(const CsilgenTransport *t, const 
     return csil_drc;
 }
 
+/* Invoke Admin/list-claim-type-labels with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_admin_list_claim_type_labels(const CsilgenTransport *t, const EmptyRequest *req,
+                        ListClaimTypeLabelsResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_EmptyRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "Admin", "list-claim-type-labels", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_ListClaimTypeLabelsResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
 /* Invoke Admin/set-claim-type-label with a typed request and decode the typed
  * response. *resp_owner holds the response's backing storage; free it once
  * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
@@ -1186,6 +1276,42 @@ static inline int csil_admin_admin_issue_attestation(const CsilgenTransport *t, 
     free(csil_reqb);
     if (csil_rc != 0) { free(csil_respb); return csil_rc; }
     int csil_drc = csil_decode_AdminIssueAttestationResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
+/* Invoke Admin/preview-release-policy with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_admin_preview_release_policy(const CsilgenTransport *t, const PreviewReleasePolicyRequest *req,
+                        PreviewReleasePolicyResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_PreviewReleasePolicyRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "Admin", "preview-release-policy", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_PreviewReleasePolicyResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
+/* Invoke Admin/preview-issuer-policy with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_admin_preview_issuer_policy(const CsilgenTransport *t, const PreviewIssuerPolicyRequest *req,
+                        PreviewIssuerPolicyResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_PreviewIssuerPolicyRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "Admin", "preview-issuer-policy", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_PreviewIssuerPolicyResponse(csil_respb, csil_respn, resp, resp_owner);
     free(csil_respb);
     return csil_drc;
 }
@@ -1424,6 +1550,42 @@ static inline int csil_admin_purge_local_rp_tickets(const CsilgenTransport *t, c
     return csil_drc;
 }
 
+/* Invoke Admin/get-sign-in-policy with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_admin_get_sign_in_policy(const CsilgenTransport *t, const EmptyRequest *req,
+                        SignInPolicy *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_EmptyRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "Admin", "get-sign-in-policy", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_SignInPolicy(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
+/* Invoke Admin/set-sign-in-policy with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_admin_set_sign_in_policy(const CsilgenTransport *t, const SetSignInPolicyRequest *req,
+                        SignInPolicy *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_SetSignInPolicyRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "Admin", "set-sign-in-policy", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_SignInPolicy(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
 /* Invoke Account/change-password with a typed request and decode the typed
  * response. *resp_owner holds the response's backing storage; free it once
  * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
@@ -1546,6 +1708,42 @@ static inline int csil_account_create_profile(const CsilgenTransport *t, const C
     free(csil_reqb);
     if (csil_rc != 0) { free(csil_respb); return csil_rc; }
     int csil_drc = csil_decode_CreateProfileResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
+/* Invoke Account/get-my-claim-settings with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_account_get_my_claim_settings(const CsilgenTransport *t, const EmptyRequest *req,
+                        MyClaimSettingsResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_EmptyRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "Account", "get-my-claim-settings", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_MyClaimSettingsResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
+/* Invoke Account/set-my-claim-keep-verified with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_account_set_my_claim_keep_verified(const CsilgenTransport *t, const SetMyClaimKeepVerifiedRequest *req,
+                        SetMyClaimKeepVerifiedResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_SetMyClaimKeepVerifiedRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "Account", "set-my-claim-keep-verified", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_SetMyClaimKeepVerifiedResponse(csil_respb, csil_respn, resp, resp_owner);
     free(csil_respb);
     return csil_drc;
 }

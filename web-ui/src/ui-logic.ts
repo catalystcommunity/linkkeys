@@ -64,6 +64,12 @@ export function inputType(datatype: string | undefined): "text" | "email" | "url
   return "text";
 }
 
+/** True when the app requests a claim that was not in the user's last
+ * approval for it. The consent screen then announces new information. */
+export function hasNewlyRequestedClaim(claims: BrowserConsentClaim[]): boolean {
+  return claims.some((claim) => claim.newlyRequested === true);
+}
+
 export function hasBlockedRequiredClaim(claims: BrowserConsentClaim[]): boolean {
   return claims.some((claim) => claim.required
     && (claim.policy === "forced_deny" || (!claim.available && !claim.userSettable)));

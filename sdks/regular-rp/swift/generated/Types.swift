@@ -2075,6 +2075,20 @@ public struct SetClaimTypeLabelResponse: Equatable, Sendable {
     ]
 }
 
+/// ListClaimTypeLabelsResponse is a generated CSIL record type.
+public struct ListClaimTypeLabelsResponse: Equatable, Sendable {
+    public let labels: [ClaimTypeLabel]
+
+    public init(labels: [ClaimTypeLabel]) {
+        self.labels = labels
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "labels": "labels"
+    ]
+}
+
 /// RemoveClaimTypeLabelRequest is a generated CSIL record type.
 public struct RemoveClaimTypeLabelRequest: Equatable, Sendable {
     /// wire key: claim_type
@@ -2759,6 +2773,76 @@ public struct SetMyClaimSharingResponse: Equatable, Sendable {
     }
 }
 
+/// MyClaimSetting is a generated CSIL record type.
+public struct MyClaimSetting: Equatable, Sendable {
+    /// wire key: claim_type
+    public let claimType: String
+    /// wire key: keep_verified
+    public let keepVerified: Bool
+    /// wire key: shared_with_every_app
+    public let sharedWithEveryApp: Bool
+
+    public init(claimType: String, keepVerified: Bool, sharedWithEveryApp: Bool) {
+        self.claimType = claimType
+        self.keepVerified = keepVerified
+        self.sharedWithEveryApp = sharedWithEveryApp
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "claimType": "claim_type",
+        "keepVerified": "keep_verified",
+        "sharedWithEveryApp": "shared_with_every_app"
+    ]
+}
+
+/// MyClaimSettingsResponse is a generated CSIL record type.
+public struct MyClaimSettingsResponse: Equatable, Sendable {
+    public let settings: [MyClaimSetting]
+    public let profiles: [Profile]
+    /// wire key: max_profiles
+    public let maxProfiles: Int64
+
+    public init(settings: [MyClaimSetting], profiles: [Profile], maxProfiles: Int64) {
+        self.settings = settings
+        self.profiles = profiles
+        self.maxProfiles = maxProfiles
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "settings": "settings",
+        "profiles": "profiles",
+        "maxProfiles": "max_profiles"
+    ]
+}
+
+/// SetMyClaimKeepVerifiedRequest is a generated CSIL record type.
+public struct SetMyClaimKeepVerifiedRequest: Equatable, Sendable {
+    /// wire key: claim_type
+    public let claimType: String
+    /// wire key: keep_verified
+    public let keepVerified: Bool
+
+    public init(claimType: String, keepVerified: Bool) {
+        self.claimType = claimType
+        self.keepVerified = keepVerified
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "claimType": "claim_type",
+        "keepVerified": "keep_verified"
+    ]
+}
+
+/// SetMyClaimKeepVerifiedResponse is a generated CSIL record type.
+public struct SetMyClaimKeepVerifiedResponse: Equatable, Sendable {
+
+    public init() {
+    }
+}
+
 /// Profile is a generated CSIL record type.
 public struct Profile: Equatable, Sendable {
     public let id: String
@@ -3303,8 +3387,10 @@ public struct BrowserConsentClaim: Equatable, Sendable {
     public let maxBytes: Int64
     /// wire key: requires_approval
     public let requiresApproval: Bool
+    /// wire key: newly_requested
+    public let newlyRequested: Bool?
 
-    public init(claimType: String, label: String, datatype: String, required: Bool, available: Bool, defaultGranted: Bool, policy: String, userSettable: Bool, maxBytes: Int64, requiresApproval: Bool) {
+    public init(claimType: String, label: String, datatype: String, required: Bool, available: Bool, defaultGranted: Bool, policy: String, userSettable: Bool, maxBytes: Int64, requiresApproval: Bool, newlyRequested: Bool? = nil) {
         self.claimType = claimType
         self.label = label
         self.datatype = datatype
@@ -3315,6 +3401,7 @@ public struct BrowserConsentClaim: Equatable, Sendable {
         self.userSettable = userSettable
         self.maxBytes = maxBytes
         self.requiresApproval = requiresApproval
+        self.newlyRequested = newlyRequested
     }
 
     /// CBOR wire keys (verbatim) keyed by Swift property name.
@@ -3328,7 +3415,8 @@ public struct BrowserConsentClaim: Equatable, Sendable {
         "policy": "policy",
         "userSettable": "user_settable",
         "maxBytes": "max_bytes",
-        "requiresApproval": "requires_approval"
+        "requiresApproval": "requires_approval",
+        "newlyRequested": "newly_requested"
     ]
 }
 
@@ -3395,6 +3483,111 @@ public struct BrowserAuthorizationCompleteRequest: Equatable, Sendable {
 
 /// BrowserAuthorizationCompleteResponse is a generated CSIL record type.
 public struct BrowserAuthorizationCompleteResponse: Equatable, Sendable {
+    /// wire key: redirect_url
+    public let redirectUrl: String
+
+    public init(redirectUrl: String) {
+        self.redirectUrl = redirectUrl
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "redirectUrl": "redirect_url"
+    ]
+}
+
+/// BrowserLocalRpInspectRequest is a generated CSIL record type.
+public struct BrowserLocalRpInspectRequest: Equatable, Sendable {
+    /// wire key: signed_request
+    public let signedRequest: String
+
+    public init(signedRequest: String) {
+        self.signedRequest = signedRequest
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "signedRequest": "signed_request"
+    ]
+}
+
+/// BrowserLocalRpInspectResponse is a generated CSIL record type.
+public struct BrowserLocalRpInspectResponse: Equatable, Sendable {
+    public let admission: String
+    /// wire key: app_name
+    public let appName: String
+    public let fingerprint: String
+    /// wire key: callback_host
+    public let callbackHost: String
+    /// wire key: first_seen_at
+    public let firstSeenAt: String?
+    public let claims: [BrowserConsentClaim]
+    /// wire key: request_reason
+    public let requestReason: String?
+    /// wire key: already_consented
+    public let alreadyConsented: Bool?
+    /// wire key: authorized_claims
+    public let authorizedClaims: [String]?
+
+    public init(admission: String, appName: String, fingerprint: String, callbackHost: String, firstSeenAt: String? = nil, claims: [BrowserConsentClaim], requestReason: String? = nil, alreadyConsented: Bool? = nil, authorizedClaims: [String]? = nil) {
+        self.admission = admission
+        self.appName = appName
+        self.fingerprint = fingerprint
+        self.callbackHost = callbackHost
+        self.firstSeenAt = firstSeenAt
+        self.claims = claims
+        self.requestReason = requestReason
+        self.alreadyConsented = alreadyConsented
+        self.authorizedClaims = authorizedClaims
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "admission": "admission",
+        "appName": "app_name",
+        "fingerprint": "fingerprint",
+        "callbackHost": "callback_host",
+        "firstSeenAt": "first_seen_at",
+        "claims": "claims",
+        "requestReason": "request_reason",
+        "alreadyConsented": "already_consented",
+        "authorizedClaims": "authorized_claims"
+    ]
+}
+
+/// BrowserLocalRpCompleteRequest is a generated CSIL record type.
+public struct BrowserLocalRpCompleteRequest: Equatable, Sendable {
+    /// wire key: signed_request
+    public let signedRequest: String
+    /// wire key: authorized_claims
+    public let authorizedClaims: [String]
+    /// wire key: claim_types_to_set
+    public let claimTypesToSet: [String]
+    /// wire key: claim_values_to_set
+    public let claimValuesToSet: [String]
+    /// wire key: use_standing_grant
+    public let useStandingGrant: Bool?
+
+    public init(signedRequest: String, authorizedClaims: [String], claimTypesToSet: [String], claimValuesToSet: [String], useStandingGrant: Bool? = nil) {
+        self.signedRequest = signedRequest
+        self.authorizedClaims = authorizedClaims
+        self.claimTypesToSet = claimTypesToSet
+        self.claimValuesToSet = claimValuesToSet
+        self.useStandingGrant = useStandingGrant
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "signedRequest": "signed_request",
+        "authorizedClaims": "authorized_claims",
+        "claimTypesToSet": "claim_types_to_set",
+        "claimValuesToSet": "claim_values_to_set",
+        "useStandingGrant": "use_standing_grant"
+    ]
+}
+
+/// BrowserLocalRpCompleteResponse is a generated CSIL record type.
+public struct BrowserLocalRpCompleteResponse: Equatable, Sendable {
     /// wire key: redirect_url
     public let redirectUrl: String
 
@@ -3717,13 +3910,16 @@ public struct AuthorizeValidateResponse: Equatable, Sendable {
     public let alreadyConsented: Bool?
     /// wire key: authorized_claims
     public let authorizedClaims: [String]?
+    /// wire key: newly_requested_claims
+    public let newlyRequestedClaims: [String]?
 
-    public init(relyingParty: String, callbackUrl: String, requestedClaims: [String], alreadyConsented: Bool? = nil, authorizedClaims: [String]? = nil) {
+    public init(relyingParty: String, callbackUrl: String, requestedClaims: [String], alreadyConsented: Bool? = nil, authorizedClaims: [String]? = nil, newlyRequestedClaims: [String]? = nil) {
         self.relyingParty = relyingParty
         self.callbackUrl = callbackUrl
         self.requestedClaims = requestedClaims
         self.alreadyConsented = alreadyConsented
         self.authorizedClaims = authorizedClaims
+        self.newlyRequestedClaims = newlyRequestedClaims
     }
 
     /// CBOR wire keys (verbatim) keyed by Swift property name.
@@ -3732,7 +3928,8 @@ public struct AuthorizeValidateResponse: Equatable, Sendable {
         "callbackUrl": "callback_url",
         "requestedClaims": "requested_claims",
         "alreadyConsented": "already_consented",
-        "authorizedClaims": "authorized_claims"
+        "authorizedClaims": "authorized_claims",
+        "newlyRequestedClaims": "newly_requested_claims"
     ]
 }
 
@@ -4412,6 +4609,48 @@ public struct SetLocalRpPolicyResponse: Equatable, Sendable {
     /// CBOR wire keys (verbatim) keyed by Swift property name.
     public static let wireKeys: [String: String] = [
         "policy": "policy"
+    ]
+}
+
+/// SignInPolicy is a generated CSIL record type.
+public struct SignInPolicy: Equatable, Sendable {
+    /// wire key: sign_in_hours
+    public let signInHours: Int64
+    /// wire key: default_sign_in_hours
+    public let defaultSignInHours: Int64
+    /// wire key: min_sign_in_hours
+    public let minSignInHours: Int64
+    /// wire key: max_sign_in_hours
+    public let maxSignInHours: Int64
+
+    public init(signInHours: Int64, defaultSignInHours: Int64, minSignInHours: Int64, maxSignInHours: Int64) {
+        self.signInHours = signInHours
+        self.defaultSignInHours = defaultSignInHours
+        self.minSignInHours = minSignInHours
+        self.maxSignInHours = maxSignInHours
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "signInHours": "sign_in_hours",
+        "defaultSignInHours": "default_sign_in_hours",
+        "minSignInHours": "min_sign_in_hours",
+        "maxSignInHours": "max_sign_in_hours"
+    ]
+}
+
+/// SetSignInPolicyRequest is a generated CSIL record type.
+public struct SetSignInPolicyRequest: Equatable, Sendable {
+    /// wire key: sign_in_hours
+    public let signInHours: Int64
+
+    public init(signInHours: Int64) {
+        self.signInHours = signInHours
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "signInHours": "sign_in_hours"
     ]
 }
 
@@ -5978,6 +6217,277 @@ public struct RevokeActAsGrantResponse: Equatable, Sendable {
     /// CBOR wire keys (verbatim) keyed by Swift property name.
     public static let wireKeys: [String: String] = [
         "revokedAt": "revoked_at"
+    ]
+}
+
+/// PreviewReleasePolicyRequest is a generated CSIL record type.
+public struct PreviewReleasePolicyRequest: Equatable, Sendable {
+    public let audience: String
+    /// wire key: required_claims
+    public let requiredClaims: [String]
+    /// wire key: optional_claims
+    public let optionalClaims: [String]
+    /// wire key: available_claims
+    public let availableClaims: [String]
+    /// wire key: user_choices
+    public let userChoices: [String]
+    /// wire key: temp_audience
+    public let tempAudience: String?
+    /// wire key: temp_claim_type
+    public let tempClaimType: String?
+    /// wire key: temp_disposition
+    public let tempDisposition: String?
+
+    public init(audience: String, requiredClaims: [String], optionalClaims: [String], availableClaims: [String], userChoices: [String], tempAudience: String? = nil, tempClaimType: String? = nil, tempDisposition: String? = nil) {
+        self.audience = audience
+        self.requiredClaims = requiredClaims
+        self.optionalClaims = optionalClaims
+        self.availableClaims = availableClaims
+        self.userChoices = userChoices
+        self.tempAudience = tempAudience
+        self.tempClaimType = tempClaimType
+        self.tempDisposition = tempDisposition
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "audience": "audience",
+        "requiredClaims": "required_claims",
+        "optionalClaims": "optional_claims",
+        "availableClaims": "available_claims",
+        "userChoices": "user_choices",
+        "tempAudience": "temp_audience",
+        "tempClaimType": "temp_claim_type",
+        "tempDisposition": "temp_disposition"
+    ]
+}
+
+/// PreviewReleaseRow is a generated CSIL record type.
+public struct PreviewReleaseRow: Equatable, Sendable {
+    /// wire key: claim_type
+    public let claimType: String
+    public let required: Bool
+    public let available: Bool
+    public let locked: Bool
+    public let policy: String
+    /// wire key: default_granted
+    public let defaultGranted: Bool
+
+    public init(claimType: String, required: Bool, available: Bool, locked: Bool, policy: String, defaultGranted: Bool) {
+        self.claimType = claimType
+        self.required = required
+        self.available = available
+        self.locked = locked
+        self.policy = policy
+        self.defaultGranted = defaultGranted
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "claimType": "claim_type",
+        "required": "required",
+        "available": "available",
+        "locked": "locked",
+        "policy": "policy",
+        "defaultGranted": "default_granted"
+    ]
+}
+
+/// PreviewReleasePolicyResponse is a generated CSIL record type.
+public struct PreviewReleasePolicyResponse: Equatable, Sendable {
+    /// wire key: forced_allow
+    public let forcedAllow: [String]
+    /// wire key: forced_deny
+    public let forcedDeny: [String]
+    /// wire key: authorized_claims
+    public let authorizedClaims: [String]
+    public let rows: [PreviewReleaseRow]
+
+    public init(forcedAllow: [String], forcedDeny: [String], authorizedClaims: [String], rows: [PreviewReleaseRow]) {
+        self.forcedAllow = forcedAllow
+        self.forcedDeny = forcedDeny
+        self.authorizedClaims = authorizedClaims
+        self.rows = rows
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "forcedAllow": "forced_allow",
+        "forcedDeny": "forced_deny",
+        "authorizedClaims": "authorized_claims",
+        "rows": "rows"
+    ]
+}
+
+/// PreviewIssuerPolicyRequest is a generated CSIL record type.
+public struct PreviewIssuerPolicyRequest: Equatable, Sendable {
+    /// wire key: subject_domain
+    public let subjectDomain: String
+    /// wire key: denied_domains
+    public let deniedDomains: [String]?
+    /// wire key: denied_tlds
+    public let deniedTlds: [String]?
+    /// wire key: issuer_user_id
+    public let issuerUserId: String?
+    /// wire key: claim_type
+    public let claimType: String?
+
+    public init(subjectDomain: String, deniedDomains: [String]? = nil, deniedTlds: [String]? = nil, issuerUserId: String? = nil, claimType: String? = nil) {
+        self.subjectDomain = subjectDomain
+        self.deniedDomains = deniedDomains
+        self.deniedTlds = deniedTlds
+        self.issuerUserId = issuerUserId
+        self.claimType = claimType
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "subjectDomain": "subject_domain",
+        "deniedDomains": "denied_domains",
+        "deniedTlds": "denied_tlds",
+        "issuerUserId": "issuer_user_id",
+        "claimType": "claim_type"
+    ]
+}
+
+/// PreviewIssuerPolicyResponse is a generated CSIL record type.
+public struct PreviewIssuerPolicyResponse: Equatable, Sendable {
+    /// wire key: denied_domains
+    public let deniedDomains: [String]
+    /// wire key: denied_tlds
+    public let deniedTlds: [String]
+    public let allowed: Bool
+    public let reason: String
+    /// wire key: user_can_issue
+    public let userCanIssue: Bool?
+    /// wire key: attested_claim_ttl_seconds
+    public let attestedClaimTtlSeconds: Int64
+
+    public init(deniedDomains: [String], deniedTlds: [String], allowed: Bool, reason: String, userCanIssue: Bool? = nil, attestedClaimTtlSeconds: Int64) {
+        self.deniedDomains = deniedDomains
+        self.deniedTlds = deniedTlds
+        self.allowed = allowed
+        self.reason = reason
+        self.userCanIssue = userCanIssue
+        self.attestedClaimTtlSeconds = attestedClaimTtlSeconds
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "deniedDomains": "denied_domains",
+        "deniedTlds": "denied_tlds",
+        "allowed": "allowed",
+        "reason": "reason",
+        "userCanIssue": "user_can_issue",
+        "attestedClaimTtlSeconds": "attested_claim_ttl_seconds"
+    ]
+}
+
+/// InspectSigningRequestRequest is a generated CSIL record type.
+public struct InspectSigningRequestRequest: Equatable, Sendable {
+    /// wire key: signed_request
+    public let signedRequest: String
+
+    public init(signedRequest: String) {
+        self.signedRequest = signedRequest
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "signedRequest": "signed_request"
+    ]
+}
+
+/// InspectSigningRequestResponse is a generated CSIL record type.
+public struct InspectSigningRequestResponse: Equatable, Sendable {
+    /// wire key: subject_user_id
+    public let subjectUserId: String
+    /// wire key: subject_domain
+    public let subjectDomain: String
+    /// wire key: requested_claim_types
+    public let requestedClaimTypes: [String]
+    /// wire key: expires_at
+    public let expiresAt: String
+    /// wire key: issuable_claim_types
+    public let issuableClaimTypes: [String]
+
+    public init(subjectUserId: String, subjectDomain: String, requestedClaimTypes: [String], expiresAt: String, issuableClaimTypes: [String]) {
+        self.subjectUserId = subjectUserId
+        self.subjectDomain = subjectDomain
+        self.requestedClaimTypes = requestedClaimTypes
+        self.expiresAt = expiresAt
+        self.issuableClaimTypes = issuableClaimTypes
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "subjectUserId": "subject_user_id",
+        "subjectDomain": "subject_domain",
+        "requestedClaimTypes": "requested_claim_types",
+        "expiresAt": "expires_at",
+        "issuableClaimTypes": "issuable_claim_types"
+    ]
+}
+
+/// IssueForSigningRequestRequest is a generated CSIL record type.
+public struct IssueForSigningRequestRequest: Equatable, Sendable {
+    /// wire key: signed_request
+    public let signedRequest: String
+    /// wire key: claim_types
+    public let claimTypes: [String]
+    /// wire key: claim_values
+    public let claimValues: [String]
+
+    public init(signedRequest: String, claimTypes: [String], claimValues: [String]) {
+        self.signedRequest = signedRequest
+        self.claimTypes = claimTypes
+        self.claimValues = claimValues
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "signedRequest": "signed_request",
+        "claimTypes": "claim_types",
+        "claimValues": "claim_values"
+    ]
+}
+
+/// IssuedClaimResult is a generated CSIL record type.
+public struct IssuedClaimResult: Equatable, Sendable {
+    /// wire key: claim_type
+    public let claimType: String
+    public let outcome: String
+    public let message: String?
+    /// wire key: claim_code
+    public let claimCode: String?
+
+    public init(claimType: String, outcome: String, message: String? = nil, claimCode: String? = nil) {
+        self.claimType = claimType
+        self.outcome = outcome
+        self.message = message
+        self.claimCode = claimCode
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "claimType": "claim_type",
+        "outcome": "outcome",
+        "message": "message",
+        "claimCode": "claim_code"
+    ]
+}
+
+/// IssueForSigningRequestResponse is a generated CSIL record type.
+public struct IssueForSigningRequestResponse: Equatable, Sendable {
+    public let results: [IssuedClaimResult]
+
+    public init(results: [IssuedClaimResult]) {
+        self.results = results
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "results": "results"
     ]
 }
 

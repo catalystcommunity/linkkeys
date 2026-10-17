@@ -198,6 +198,28 @@ module Browser_authorization = struct
     match c.call ~service:"BrowserAuthorization" ~op:"complete-act-as" ~payload:(Codec.encode_browser_act_as_complete_request_bytes req) with
     | Ok payload -> Ok (Codec.decode_browser_act_as_complete_response_bytes payload)
     | Error _ as e -> e
+
+  let inspect_local_rp (c : client) (req : browser_local_rp_inspect_request) : (browser_local_rp_inspect_response, string) result =
+    match c.call ~service:"BrowserAuthorization" ~op:"inspect-local-rp" ~payload:(Codec.encode_browser_local_rp_inspect_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_browser_local_rp_inspect_response_bytes payload)
+    | Error _ as e -> e
+
+  let complete_local_rp (c : client) (req : browser_local_rp_complete_request) : (browser_local_rp_complete_response, string) result =
+    match c.call ~service:"BrowserAuthorization" ~op:"complete-local-rp" ~payload:(Codec.encode_browser_local_rp_complete_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_browser_local_rp_complete_response_bytes payload)
+    | Error _ as e -> e
+end
+
+module Browser_issuer = struct
+  let inspect_signing_request (c : client) (req : inspect_signing_request_request) : (inspect_signing_request_response, string) result =
+    match c.call ~service:"BrowserIssuer" ~op:"inspect-signing-request" ~payload:(Codec.encode_inspect_signing_request_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_inspect_signing_request_response_bytes payload)
+    | Error _ as e -> e
+
+  let issue_for_signing_request (c : client) (req : issue_for_signing_request_request) : (issue_for_signing_request_response, string) result =
+    match c.call ~service:"BrowserIssuer" ~op:"issue-for-signing-request" ~payload:(Codec.encode_issue_for_signing_request_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_issue_for_signing_request_response_bytes payload)
+    | Error _ as e -> e
 end
 
 module Admin = struct
@@ -306,6 +328,11 @@ module Admin = struct
     | Ok payload -> Ok (Codec.decode_remove_claim_type_response_bytes payload)
     | Error _ as e -> e
 
+  let list_claim_type_labels (c : client) (req : empty_request) : (list_claim_type_labels_response, string) result =
+    match c.call ~service:"Admin" ~op:"list-claim-type-labels" ~payload:(Codec.encode_empty_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_list_claim_type_labels_response_bytes payload)
+    | Error _ as e -> e
+
   let set_claim_type_label (c : client) (req : set_claim_type_label_request) : (set_claim_type_label_response, string) result =
     match c.call ~service:"Admin" ~op:"set-claim-type-label" ~payload:(Codec.encode_set_claim_type_label_request_bytes req) with
     | Ok payload -> Ok (Codec.decode_set_claim_type_label_response_bytes payload)
@@ -364,6 +391,16 @@ module Admin = struct
   let admin_issue_attestation (c : client) (req : admin_issue_attestation_request) : (admin_issue_attestation_response, string) result =
     match c.call ~service:"Admin" ~op:"admin-issue-attestation" ~payload:(Codec.encode_admin_issue_attestation_request_bytes req) with
     | Ok payload -> Ok (Codec.decode_admin_issue_attestation_response_bytes payload)
+    | Error _ as e -> e
+
+  let preview_release_policy (c : client) (req : preview_release_policy_request) : (preview_release_policy_response, string) result =
+    match c.call ~service:"Admin" ~op:"preview-release-policy" ~payload:(Codec.encode_preview_release_policy_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_preview_release_policy_response_bytes payload)
+    | Error _ as e -> e
+
+  let preview_issuer_policy (c : client) (req : preview_issuer_policy_request) : (preview_issuer_policy_response, string) result =
+    match c.call ~service:"Admin" ~op:"preview-issuer-policy" ~payload:(Codec.encode_preview_issuer_policy_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_preview_issuer_policy_response_bytes payload)
     | Error _ as e -> e
 
   let grant_relation (c : client) (req : grant_relation_request) : (grant_relation_response, string) result =
@@ -430,6 +467,16 @@ module Admin = struct
     match c.call ~service:"Admin" ~op:"purge-local-rp-tickets" ~payload:(Codec.encode_purge_local_rp_tickets_request_bytes req) with
     | Ok payload -> Ok (Codec.decode_purge_local_rp_tickets_response_bytes payload)
     | Error _ as e -> e
+
+  let get_sign_in_policy (c : client) (req : empty_request) : (sign_in_policy, string) result =
+    match c.call ~service:"Admin" ~op:"get-sign-in-policy" ~payload:(Codec.encode_empty_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_sign_in_policy_bytes payload)
+    | Error _ as e -> e
+
+  let set_sign_in_policy (c : client) (req : set_sign_in_policy_request) : (sign_in_policy, string) result =
+    match c.call ~service:"Admin" ~op:"set-sign-in-policy" ~payload:(Codec.encode_set_sign_in_policy_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_sign_in_policy_bytes payload)
+    | Error _ as e -> e
 end
 
 module Account = struct
@@ -466,6 +513,16 @@ module Account = struct
   let create_profile (c : client) (req : create_profile_request) : (create_profile_response, string) result =
     match c.call ~service:"Account" ~op:"create-profile" ~payload:(Codec.encode_create_profile_request_bytes req) with
     | Ok payload -> Ok (Codec.decode_create_profile_response_bytes payload)
+    | Error _ as e -> e
+
+  let get_my_claim_settings (c : client) (req : empty_request) : (my_claim_settings_response, string) result =
+    match c.call ~service:"Account" ~op:"get-my-claim-settings" ~payload:(Codec.encode_empty_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_my_claim_settings_response_bytes payload)
+    | Error _ as e -> e
+
+  let set_my_claim_keep_verified (c : client) (req : set_my_claim_keep_verified_request) : (set_my_claim_keep_verified_response, string) result =
+    match c.call ~service:"Account" ~op:"set-my-claim-keep-verified" ~payload:(Codec.encode_set_my_claim_keep_verified_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_set_my_claim_keep_verified_response_bytes payload)
     | Error _ as e -> e
 
   let request_verification (c : client) (req : request_verification_request) : (request_verification_response, string) result =

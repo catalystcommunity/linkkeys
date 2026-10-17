@@ -699,6 +699,11 @@ pub struct SetClaimTypeLabelResponse {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ListClaimTypeLabelsResponse {
+    pub labels: Vec<ClaimTypeLabel>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct RemoveClaimTypeLabelRequest {
     pub claim_type: String,
     pub locale: String,
@@ -926,6 +931,29 @@ pub struct SetMyClaimSharingRequest {
 pub struct SetMyClaimSharingResponse {}
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct MyClaimSetting {
+    pub claim_type: String,
+    pub keep_verified: bool,
+    pub shared_with_every_app: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MyClaimSettingsResponse {
+    pub settings: Vec<MyClaimSetting>,
+    pub profiles: Vec<Profile>,
+    pub max_profiles: i64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetMyClaimKeepVerifiedRequest {
+    pub claim_type: String,
+    pub keep_verified: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetMyClaimKeepVerifiedResponse {}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Profile {
     pub id: String,
     pub account_id: String,
@@ -1113,6 +1141,7 @@ pub struct BrowserConsentClaim {
     pub user_settable: bool,
     pub max_bytes: i64,
     pub requires_approval: bool,
+    pub newly_requested: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1135,6 +1164,38 @@ pub struct BrowserAuthorizationCompleteRequest {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BrowserAuthorizationCompleteResponse {
+    pub redirect_url: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrowserLocalRpInspectRequest {
+    pub signed_request: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrowserLocalRpInspectResponse {
+    pub admission: String,
+    pub app_name: String,
+    pub fingerprint: String,
+    pub callback_host: String,
+    pub first_seen_at: Option<String>,
+    pub claims: Vec<BrowserConsentClaim>,
+    pub request_reason: Option<String>,
+    pub already_consented: Option<bool>,
+    pub authorized_claims: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrowserLocalRpCompleteRequest {
+    pub signed_request: String,
+    pub authorized_claims: Vec<String>,
+    pub claim_types_to_set: Vec<String>,
+    pub claim_values_to_set: Vec<String>,
+    pub use_standing_grant: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrowserLocalRpCompleteResponse {
     pub redirect_url: String,
 }
 
@@ -1240,6 +1301,7 @@ pub struct AuthorizeValidateResponse {
     pub requested_claims: Vec<String>,
     pub already_consented: Option<bool>,
     pub authorized_claims: Option<Vec<String>>,
+    pub newly_requested_claims: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1543,6 +1605,19 @@ pub struct SetLocalRpPolicyRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SetLocalRpPolicyResponse {
     pub policy: LocalRpPolicy,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SignInPolicy {
+    pub sign_in_hours: i64,
+    pub default_sign_in_hours: i64,
+    pub min_sign_in_hours: i64,
+    pub max_sign_in_hours: i64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetSignInPolicyRequest {
+    pub sign_in_hours: i64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2035,4 +2110,87 @@ pub struct RevokeActAsGrantRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RevokeActAsGrantResponse {
     pub revoked_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PreviewReleasePolicyRequest {
+    pub audience: String,
+    pub required_claims: Vec<String>,
+    pub optional_claims: Vec<String>,
+    pub available_claims: Vec<String>,
+    pub user_choices: Vec<String>,
+    pub temp_audience: Option<String>,
+    pub temp_claim_type: Option<String>,
+    pub temp_disposition: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PreviewReleaseRow {
+    pub claim_type: String,
+    pub required: bool,
+    pub available: bool,
+    pub locked: bool,
+    pub policy: String,
+    pub default_granted: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PreviewReleasePolicyResponse {
+    pub forced_allow: Vec<String>,
+    pub forced_deny: Vec<String>,
+    pub authorized_claims: Vec<String>,
+    pub rows: Vec<PreviewReleaseRow>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PreviewIssuerPolicyRequest {
+    pub subject_domain: String,
+    pub denied_domains: Option<Vec<String>>,
+    pub denied_tlds: Option<Vec<String>>,
+    pub issuer_user_id: Option<String>,
+    pub claim_type: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PreviewIssuerPolicyResponse {
+    pub denied_domains: Vec<String>,
+    pub denied_tlds: Vec<String>,
+    pub allowed: bool,
+    pub reason: String,
+    pub user_can_issue: Option<bool>,
+    pub attested_claim_ttl_seconds: i64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct InspectSigningRequestRequest {
+    pub signed_request: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct InspectSigningRequestResponse {
+    pub subject_user_id: String,
+    pub subject_domain: String,
+    pub requested_claim_types: Vec<String>,
+    pub expires_at: String,
+    pub issuable_claim_types: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IssueForSigningRequestRequest {
+    pub signed_request: String,
+    pub claim_types: Vec<String>,
+    pub claim_values: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IssuedClaimResult {
+    pub claim_type: String,
+    pub outcome: String,
+    pub message: Option<String>,
+    pub claim_code: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IssueForSigningRequestResponse {
+    pub results: Vec<IssuedClaimResult>,
 }

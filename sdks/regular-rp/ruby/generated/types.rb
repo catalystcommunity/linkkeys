@@ -599,6 +599,9 @@ end
 # label [ClaimTypeLabel]
 SetClaimTypeLabelResponse = Data.define(:label)
 
+# labels [Array<ClaimTypeLabel>]
+ListClaimTypeLabelsResponse = Data.define(:labels)
+
 # claim_type [String]
 # locale [String]
 RemoveClaimTypeLabelRequest = Data.define(:claim_type, :locale)
@@ -761,6 +764,22 @@ SetMyClaimSharingRequest = Data.define(:claim_type, :share)
 
 SetMyClaimSharingResponse = Data.define
 
+# claim_type [String]
+# keep_verified [Boolean]
+# shared_with_every_app [Boolean]
+MyClaimSetting = Data.define(:claim_type, :keep_verified, :shared_with_every_app)
+
+# settings [Array<MyClaimSetting>]
+# profiles [Array<Profile>]
+# max_profiles [Integer]
+MyClaimSettingsResponse = Data.define(:settings, :profiles, :max_profiles)
+
+# claim_type [String]
+# keep_verified [Boolean]
+SetMyClaimKeepVerifiedRequest = Data.define(:claim_type, :keep_verified)
+
+SetMyClaimKeepVerifiedResponse = Data.define
+
 # id [String]
 # account_id [String]
 # domain [String]
@@ -900,7 +919,12 @@ BrowserAuthorizationInspectRequest = Data.define(:signed_request)
 # user_settable [Boolean]
 # max_bytes [Integer]
 # requires_approval [Boolean]
-BrowserConsentClaim = Data.define(:claim_type, :label, :datatype, :required, :available, :default_granted, :policy, :user_settable, :max_bytes, :requires_approval)
+# newly_requested [Boolean]
+BrowserConsentClaim = Data.define(:claim_type, :label, :datatype, :required, :available, :default_granted, :policy, :user_settable, :max_bytes, :requires_approval, :newly_requested) do
+  def initialize(claim_type:, label:, datatype:, required:, available:, default_granted:, policy:, user_settable:, max_bytes:, requires_approval:, newly_requested: nil)
+    super
+  end
+end
 
 # relying_party [String]
 # claims [Array<BrowserConsentClaim>]
@@ -926,6 +950,38 @@ end
 
 # redirect_url [String]
 BrowserAuthorizationCompleteResponse = Data.define(:redirect_url)
+
+# signed_request [String]
+BrowserLocalRpInspectRequest = Data.define(:signed_request)
+
+# admission [String]
+# app_name [String]
+# fingerprint [String]
+# callback_host [String]
+# first_seen_at [String]
+# claims [Array<BrowserConsentClaim>]
+# request_reason [String]
+# already_consented [Boolean]
+# authorized_claims [Array<String>]
+BrowserLocalRpInspectResponse = Data.define(:admission, :app_name, :fingerprint, :callback_host, :first_seen_at, :claims, :request_reason, :already_consented, :authorized_claims) do
+  def initialize(admission:, app_name:, fingerprint:, callback_host:, claims:, first_seen_at: nil, request_reason: nil, already_consented: nil, authorized_claims: nil)
+    super
+  end
+end
+
+# signed_request [String]
+# authorized_claims [Array<String>]
+# claim_types_to_set [Array<String>]
+# claim_values_to_set [Array<String>]
+# use_standing_grant [Boolean]
+BrowserLocalRpCompleteRequest = Data.define(:signed_request, :authorized_claims, :claim_types_to_set, :claim_values_to_set, :use_standing_grant) do
+  def initialize(signed_request:, authorized_claims:, claim_types_to_set:, claim_values_to_set:, use_standing_grant: nil)
+    super
+  end
+end
+
+# redirect_url [String]
+BrowserLocalRpCompleteResponse = Data.define(:redirect_url)
 
 # stylesheet_url [String]
 # logo_url [String]
@@ -1023,8 +1079,9 @@ end
 # requested_claims [Array<String>]
 # already_consented [Boolean]
 # authorized_claims [Array<String>]
-AuthorizeValidateResponse = Data.define(:relying_party, :callback_url, :requested_claims, :already_consented, :authorized_claims) do
-  def initialize(relying_party:, callback_url:, requested_claims:, already_consented: nil, authorized_claims: nil)
+# newly_requested_claims [Array<String>]
+AuthorizeValidateResponse = Data.define(:relying_party, :callback_url, :requested_claims, :already_consented, :authorized_claims, :newly_requested_claims) do
+  def initialize(relying_party:, callback_url:, requested_claims:, already_consented: nil, authorized_claims: nil, newly_requested_claims: nil)
     super
   end
 end
@@ -1229,6 +1286,15 @@ SetLocalRpPolicyRequest = Data.define(:policy)
 
 # policy [LocalRpPolicy]
 SetLocalRpPolicyResponse = Data.define(:policy)
+
+# sign_in_hours [Integer]
+# default_sign_in_hours [Integer]
+# min_sign_in_hours [Integer]
+# max_sign_in_hours [Integer]
+SignInPolicy = Data.define(:sign_in_hours, :default_sign_in_hours, :min_sign_in_hours, :max_sign_in_hours)
+
+# sign_in_hours [Integer]
+SetSignInPolicyRequest = Data.define(:sign_in_hours)
 
 PurgeLocalRpTicketsRequest = Data.define
 
@@ -1664,3 +1730,82 @@ RevokeActAsGrantRequest = Data.define(:grant_id)
 
 # revoked_at [String]
 RevokeActAsGrantResponse = Data.define(:revoked_at)
+
+# audience [String]
+# required_claims [Array<String>]
+# optional_claims [Array<String>]
+# available_claims [Array<String>]
+# user_choices [Array<String>]
+# temp_audience [String]
+# temp_claim_type [String]
+# temp_disposition [String]
+PreviewReleasePolicyRequest = Data.define(:audience, :required_claims, :optional_claims, :available_claims, :user_choices, :temp_audience, :temp_claim_type, :temp_disposition) do
+  def initialize(audience:, required_claims:, optional_claims:, available_claims:, user_choices:, temp_audience: nil, temp_claim_type: nil, temp_disposition: nil)
+    super
+  end
+end
+
+# claim_type [String]
+# required [Boolean]
+# available [Boolean]
+# locked [Boolean]
+# policy [String]
+# default_granted [Boolean]
+PreviewReleaseRow = Data.define(:claim_type, :required, :available, :locked, :policy, :default_granted)
+
+# forced_allow [Array<String>]
+# forced_deny [Array<String>]
+# authorized_claims [Array<String>]
+# rows [Array<PreviewReleaseRow>]
+PreviewReleasePolicyResponse = Data.define(:forced_allow, :forced_deny, :authorized_claims, :rows)
+
+# subject_domain [String]
+# denied_domains [Array<String>]
+# denied_tlds [Array<String>]
+# issuer_user_id [String]
+# claim_type [String]
+PreviewIssuerPolicyRequest = Data.define(:subject_domain, :denied_domains, :denied_tlds, :issuer_user_id, :claim_type) do
+  def initialize(subject_domain:, denied_domains: nil, denied_tlds: nil, issuer_user_id: nil, claim_type: nil)
+    super
+  end
+end
+
+# denied_domains [Array<String>]
+# denied_tlds [Array<String>]
+# allowed [Boolean]
+# reason [String]
+# user_can_issue [Boolean]
+# attested_claim_ttl_seconds [Integer]
+PreviewIssuerPolicyResponse = Data.define(:denied_domains, :denied_tlds, :allowed, :reason, :user_can_issue, :attested_claim_ttl_seconds) do
+  def initialize(denied_domains:, denied_tlds:, allowed:, reason:, attested_claim_ttl_seconds:, user_can_issue: nil)
+    super
+  end
+end
+
+# signed_request [String]
+InspectSigningRequestRequest = Data.define(:signed_request)
+
+# subject_user_id [String]
+# subject_domain [String]
+# requested_claim_types [Array<String>]
+# expires_at [String]
+# issuable_claim_types [Array<String>]
+InspectSigningRequestResponse = Data.define(:subject_user_id, :subject_domain, :requested_claim_types, :expires_at, :issuable_claim_types)
+
+# signed_request [String]
+# claim_types [Array<String>]
+# claim_values [Array<String>]
+IssueForSigningRequestRequest = Data.define(:signed_request, :claim_types, :claim_values)
+
+# claim_type [String]
+# outcome [String]
+# message [String]
+# claim_code [String]
+IssuedClaimResult = Data.define(:claim_type, :outcome, :message, :claim_code) do
+  def initialize(claim_type:, outcome:, message: nil, claim_code: nil)
+    super
+  end
+end
+
+# results [Array<IssuedClaimResult>]
+IssueForSigningRequestResponse = Data.define(:results)

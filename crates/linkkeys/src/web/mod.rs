@@ -490,12 +490,13 @@ pub(super) fn filter_authorized_to_active_values(
 /// drift.
 ///
 /// Returns `Some(authorized_claims)` when a silent finalize would succeed:
-/// the request is not a `claims_update`, a prior grant covers every required
-/// claim, no newly forced claim would be released, and every authorized
-/// required claim has a concrete active value (never a value-less release,
-/// which would just push the failure to the RP). Returns `None` when nothing is
-/// requested, no standing coverage exists, or any of the above checks fail —
-/// the caller must fall back to showing consent.
+/// the request is not a `claims_update`, the RP requests no claim type the
+/// user has not seen for this audience (required or optional), a prior grant
+/// covers every required claim, no newly forced claim would be released, and
+/// every authorized required claim has a concrete active value (never a
+/// value-less release, which would just push the failure to the RP). Returns
+/// `None` when nothing is requested, no standing coverage exists, or any of
+/// the above checks fail — the caller must fall back to showing consent.
 pub(crate) fn silent_authorization(
     pool: &DbPool,
     policy: &DomainPolicy,
@@ -510,6 +511,12 @@ pub(crate) fn silent_authorization(
         .find_active_consent_grant(user_id, &request.relying_party)
         .ok()
         .flatten()?;
+    // A claim the user has never been shown reopens consent once, even when
+    // optional. Without this, an optional claim added after the first consent
+    // is silently dropped forever.
+    if !consent::newly_requested_claims(req, &prior.requested_types, policy).is_empty() {
+        return None;
+    }
     let prior_claims = prior.claim_types.as_slice();
     let authorized = compute_authorized_claims(req, prior_claims, policy);
     if !all_required_authorized(req, &authorized)
@@ -529,6 +536,24 @@ pub(crate) fn silent_authorization(
         return None;
     }
     Some(active)
+}
+
+/// The requested claim types `user_id` has not seen for this audience, for a
+/// consent UI to mark as new. `None` on first consent (no prior grant), when
+/// nothing is new, or on a lookup failure.
+fn newly_requested_for_user(
+    pool: &DbPool,
+    policy: &DomainPolicy,
+    user_id: &str,
+    request: &AuthRequest,
+) -> Option<Vec<String>> {
+    let req = request.requested_claims.as_ref()?;
+    let prior = pool
+        .find_active_consent_grant(user_id, &request.relying_party)
+        .ok()
+        .flatten()?;
+    let new = consent::newly_requested_claims(req, &prior.requested_types, policy);
+    (!new.is_empty()).then_some(new)
 }
 
 /// Reconstruct the protocol `ConsentGrant` from a stored row for the consent
@@ -565,7 +590,13 @@ pub(super) fn build_consent_screen(
         .ok()
         .flatten();
     let prior_obj = prior.as_ref().map(prior_grant_object);
-    let mut screen = resolve_consent_screen(req, &available, prior_obj.as_ref(), policy);
+    let mut screen = resolve_consent_screen(
+        req,
+        &available,
+        prior_obj.as_ref(),
+        prior.as_ref().map(|row| row.requested_types.as_slice()),
+        policy,
+    );
 
     // Fold in the user's standing release preferences (claims they chose to
     // pre-share with this audience or with any domain). These rows arrive
@@ -910,6 +941,7 @@ pub(super) fn consent_claims(
                 datatype: row.datatype,
                 max_bytes,
                 requires_approval,
+                newly_requested: row.newly_requested.then_some(true),
                 required: row.required,
                 available: row.available,
                 default_granted,
@@ -1361,9 +1393,11 @@ async fn rp_authorize_validate(
     // not a trust decision (finalize re-checks everything). On "no", both
     // response fields stay absent so a client on an older CSIL subset that
     // never sends user_id sees a byte-identical response to before this field
-    // existed.
+    // existed. `newly_requested_claims` is only present when non-empty, and
+    // then silent consent is never possible.
     let mut already_consented = None;
     let mut authorized_claims = None;
+    let mut newly_requested_claims = None;
     if let Some(user_id) = req.user_id.as_deref() {
         if let (Ok(user), Ok(policy)) = (
             pool.find_user_by_id(user_id),
@@ -1372,6 +1406,9 @@ async fn rp_authorize_validate(
             if let Some(authorized) = silent_authorization(pool, &policy, &user.id, &validated) {
                 already_consented = Some(true);
                 authorized_claims = Some(authorized);
+            } else {
+                newly_requested_claims =
+                    newly_requested_for_user(pool, &policy, &user.id, &validated);
             }
         }
     }
@@ -1388,6 +1425,7 @@ async fn rp_authorize_validate(
                     .unwrap_or_default(),
                 already_consented,
                 authorized_claims,
+                newly_requested_claims,
             },
         ),
     ))

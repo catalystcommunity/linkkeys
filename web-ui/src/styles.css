@@ -41,6 +41,7 @@ button { width: fit-content; padding: 11px 17px; border: 0; border-radius: var(-
 .button-row { display: flex; align-items: center; gap: 12px; }
 .row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px 0; border-top: 1px solid var(--line); }
 .pill { display: inline-flex; padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: .75rem; text-transform: uppercase; }
+.pill.new { border-color: var(--accent); color: var(--accent); }
 .notice { margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; } .notice.good { border-color: #285c53; color: var(--good); } .notice.bad { border-color: #713737; color: var(--bad); }
 .muted { color: var(--muted); } code { overflow-wrap: anywhere; color: var(--accent); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .table-wrap { overflow-x: auto; } table { width: 100%; border-collapse: collapse; } th, td { padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; } th { color: var(--muted); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }

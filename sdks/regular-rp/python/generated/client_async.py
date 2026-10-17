@@ -224,6 +224,27 @@ class BrowserAuthorizationAsyncClient:
         """complete-act-as"""
         return BrowserActAsCompleteResponse.from_cbor(await self._transport.call("BrowserAuthorization", "complete-act-as", req.to_cbor()))
 
+    async def inspect_local_rp(self, req: BrowserLocalRpInspectRequest) -> BrowserLocalRpInspectResponse:
+        """inspect-local-rp"""
+        return BrowserLocalRpInspectResponse.from_cbor(await self._transport.call("BrowserAuthorization", "inspect-local-rp", req.to_cbor()))
+
+    async def complete_local_rp(self, req: BrowserLocalRpCompleteRequest) -> BrowserLocalRpCompleteResponse:
+        """complete-local-rp"""
+        return BrowserLocalRpCompleteResponse.from_cbor(await self._transport.call("BrowserAuthorization", "complete-local-rp", req.to_cbor()))
+
+class BrowserIssuerAsyncClient:
+    """Typed client for the BrowserIssuer service."""
+    def __init__(self, transport: AsyncTransport):
+        self._transport = transport
+
+    async def inspect_signing_request(self, req: InspectSigningRequestRequest) -> InspectSigningRequestResponse:
+        """inspect-signing-request"""
+        return InspectSigningRequestResponse.from_cbor(await self._transport.call("BrowserIssuer", "inspect-signing-request", req.to_cbor()))
+
+    async def issue_for_signing_request(self, req: IssueForSigningRequestRequest) -> IssueForSigningRequestResponse:
+        """issue-for-signing-request"""
+        return IssueForSigningRequestResponse.from_cbor(await self._transport.call("BrowserIssuer", "issue-for-signing-request", req.to_cbor()))
+
 class AdminAsyncClient:
     """Typed client for the Admin service."""
     def __init__(self, transport: AsyncTransport):
@@ -313,6 +334,10 @@ class AdminAsyncClient:
         """remove-claim-type"""
         return RemoveClaimTypeResponse.from_cbor(await self._transport.call("Admin", "remove-claim-type", req.to_cbor()))
 
+    async def list_claim_type_labels(self, req: EmptyRequest) -> ListClaimTypeLabelsResponse:
+        """list-claim-type-labels"""
+        return ListClaimTypeLabelsResponse.from_cbor(await self._transport.call("Admin", "list-claim-type-labels", req.to_cbor()))
+
     async def set_claim_type_label(self, req: SetClaimTypeLabelRequest) -> SetClaimTypeLabelResponse:
         """set-claim-type-label"""
         return SetClaimTypeLabelResponse.from_cbor(await self._transport.call("Admin", "set-claim-type-label", req.to_cbor()))
@@ -360,6 +385,14 @@ class AdminAsyncClient:
     async def admin_issue_attestation(self, req: AdminIssueAttestationRequest) -> AdminIssueAttestationResponse:
         """admin-issue-attestation"""
         return AdminIssueAttestationResponse.from_cbor(await self._transport.call("Admin", "admin-issue-attestation", req.to_cbor()))
+
+    async def preview_release_policy(self, req: PreviewReleasePolicyRequest) -> PreviewReleasePolicyResponse:
+        """preview-release-policy"""
+        return PreviewReleasePolicyResponse.from_cbor(await self._transport.call("Admin", "preview-release-policy", req.to_cbor()))
+
+    async def preview_issuer_policy(self, req: PreviewIssuerPolicyRequest) -> PreviewIssuerPolicyResponse:
+        """preview-issuer-policy"""
+        return PreviewIssuerPolicyResponse.from_cbor(await self._transport.call("Admin", "preview-issuer-policy", req.to_cbor()))
 
     async def grant_relation(self, req: GrantRelationRequest) -> GrantRelationResponse:
         """grant-relation"""
@@ -413,6 +446,14 @@ class AdminAsyncClient:
         """purge-local-rp-tickets"""
         return PurgeLocalRpTicketsResponse.from_cbor(await self._transport.call("Admin", "purge-local-rp-tickets", req.to_cbor()))
 
+    async def get_sign_in_policy(self, req: EmptyRequest) -> SignInPolicy:
+        """get-sign-in-policy"""
+        return SignInPolicy.from_cbor(await self._transport.call("Admin", "get-sign-in-policy", req.to_cbor()))
+
+    async def set_sign_in_policy(self, req: SetSignInPolicyRequest) -> SignInPolicy:
+        """set-sign-in-policy"""
+        return SignInPolicy.from_cbor(await self._transport.call("Admin", "set-sign-in-policy", req.to_cbor()))
+
 class AccountAsyncClient:
     """Typed client for the Account service."""
     def __init__(self, transport: AsyncTransport):
@@ -445,6 +486,14 @@ class AccountAsyncClient:
     async def create_profile(self, req: CreateProfileRequest) -> CreateProfileResponse:
         """create-profile"""
         return CreateProfileResponse.from_cbor(await self._transport.call("Account", "create-profile", req.to_cbor()))
+
+    async def get_my_claim_settings(self, req: EmptyRequest) -> MyClaimSettingsResponse:
+        """get-my-claim-settings"""
+        return MyClaimSettingsResponse.from_cbor(await self._transport.call("Account", "get-my-claim-settings", req.to_cbor()))
+
+    async def set_my_claim_keep_verified(self, req: SetMyClaimKeepVerifiedRequest) -> SetMyClaimKeepVerifiedResponse:
+        """set-my-claim-keep-verified"""
+        return SetMyClaimKeepVerifiedResponse.from_cbor(await self._transport.call("Account", "set-my-claim-keep-verified", req.to_cbor()))
 
     async def request_verification(self, req: RequestVerificationRequest) -> RequestVerificationResponse:
         """request-verification"""

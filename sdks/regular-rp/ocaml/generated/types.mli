@@ -407,6 +407,7 @@ and set_claim_type_label_request = {
 }
 
 and set_claim_type_label_response = { label : claim_type_label }
+and list_claim_type_labels_response = { labels : claim_type_label list }
 and remove_claim_type_label_request = { claim_type : string; locale : string }
 and remove_claim_type_label_response = { success : bool }
 and trusted_issuer = { claim_type : string; issuer_domain : string }
@@ -518,6 +519,25 @@ and remove_my_claim_request = { claim_id : string }
 and remove_my_claim_response = { success : bool }
 and set_my_claim_sharing_request = { claim_type : string; share : bool }
 and set_my_claim_sharing_response = unit
+
+and my_claim_setting = {
+  claim_type : string;
+  keep_verified : bool;
+  shared_with_every_app : bool;
+}
+
+and my_claim_settings_response = {
+  settings : my_claim_setting list;
+  profiles : profile list;
+  max_profiles : int64;
+}
+
+and set_my_claim_keep_verified_request = {
+  claim_type : string;
+  keep_verified : bool;
+}
+
+and set_my_claim_keep_verified_response = unit
 
 and profile = {
   id : string;
@@ -632,6 +652,7 @@ and browser_consent_claim = {
   user_settable : bool;
   max_bytes : int64;
   requires_approval : bool;
+  newly_requested : bool option;
 }
 
 and browser_authorization_inspect_response = {
@@ -651,6 +672,29 @@ and browser_authorization_complete_request = {
 }
 
 and browser_authorization_complete_response = { redirect_url : string }
+and browser_local_rp_inspect_request = { signed_request : string }
+
+and browser_local_rp_inspect_response = {
+  admission : string;
+  app_name : string;
+  fingerprint : string;
+  callback_host : string;
+  first_seen_at : string option;
+  claims : browser_consent_claim list;
+  request_reason : string option;
+  already_consented : bool option;
+  authorized_claims : string list option;
+}
+
+and browser_local_rp_complete_request = {
+  signed_request : string;
+  authorized_claims : string list;
+  claim_types_to_set : string list;
+  claim_values_to_set : string list;
+  use_standing_grant : bool option;
+}
+
+and browser_local_rp_complete_response = { redirect_url : string }
 
 and ui_theme = {
   stylesheet_url : string option;
@@ -717,6 +761,7 @@ and authorize_validate_response = {
   requested_claims : string list;
   already_consented : bool option;
   authorized_claims : string list option;
+  newly_requested_claims : string list option;
 }
 
 and authorize_finalize_request = {
@@ -868,6 +913,15 @@ and get_local_rp_policy_request = unit
 and get_local_rp_policy_response = { policy : local_rp_policy }
 and set_local_rp_policy_request = { policy : local_rp_policy }
 and set_local_rp_policy_response = { policy : local_rp_policy }
+
+and sign_in_policy = {
+  sign_in_hours : int64;
+  default_sign_in_hours : int64;
+  min_sign_in_hours : int64;
+  max_sign_in_hours : int64;
+}
+
+and set_sign_in_policy_request = { sign_in_hours : int64 }
 and purge_local_rp_tickets_request = unit
 and purge_local_rp_tickets_response = { purged_count : int64 }
 and locale_messages = (string * string) list
@@ -1257,3 +1311,72 @@ and act_as_grant_summary = {
 and list_act_as_grants_response = { grants : act_as_grant_summary list }
 and revoke_act_as_grant_request = { grant_id : string }
 and revoke_act_as_grant_response = { revoked_at : string }
+
+and preview_release_policy_request = {
+  audience : string;
+  required_claims : string list;
+  optional_claims : string list;
+  available_claims : string list;
+  user_choices : string list;
+  temp_audience : string option;
+  temp_claim_type : string option;
+  temp_disposition : string option;
+}
+
+and preview_release_row = {
+  claim_type : string;
+  required : bool;
+  available : bool;
+  locked : bool;
+  policy : string;
+  default_granted : bool;
+}
+
+and preview_release_policy_response = {
+  forced_allow : string list;
+  forced_deny : string list;
+  authorized_claims : string list;
+  rows : preview_release_row list;
+}
+
+and preview_issuer_policy_request = {
+  subject_domain : string;
+  denied_domains : string list option;
+  denied_tlds : string list option;
+  issuer_user_id : string option;
+  claim_type : string option;
+}
+
+and preview_issuer_policy_response = {
+  denied_domains : string list;
+  denied_tlds : string list;
+  allowed : bool;
+  reason : string;
+  user_can_issue : bool option;
+  attested_claim_ttl_seconds : int64;
+}
+
+and inspect_signing_request_request = { signed_request : string }
+
+and inspect_signing_request_response = {
+  subject_user_id : string;
+  subject_domain : string;
+  requested_claim_types : string list;
+  expires_at : string;
+  issuable_claim_types : string list;
+}
+
+and issue_for_signing_request_request = {
+  signed_request : string;
+  claim_types : string list;
+  claim_values : string list;
+}
+
+and issued_claim_result = {
+  claim_type : string;
+  outcome : string;
+  message : string option;
+  claim_code : string option;
+}
+
+and issue_for_signing_request_response = { results : issued_claim_result list }

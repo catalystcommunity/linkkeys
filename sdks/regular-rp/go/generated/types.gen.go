@@ -676,6 +676,11 @@ type SetClaimTypeLabelResponse struct {
 	Label ClaimTypeLabel `json:"label" yaml:"label"`
 }
 
+// ListClaimTypeLabelsResponse represents a structured data type
+type ListClaimTypeLabelsResponse struct {
+	Labels []ClaimTypeLabel `json:"labels" yaml:"labels"`
+}
+
 // RemoveClaimTypeLabelRequest represents a structured data type
 type RemoveClaimTypeLabelRequest struct {
 	ClaimType string `json:"claim_type" yaml:"claim_type"`
@@ -904,6 +909,30 @@ type SetMyClaimSharingRequest struct {
 type SetMyClaimSharingResponse struct {
 }
 
+// MyClaimSetting represents a structured data type
+type MyClaimSetting struct {
+	ClaimType          string `json:"claim_type" yaml:"claim_type"`
+	KeepVerified       bool   `json:"keep_verified" yaml:"keep_verified"`
+	SharedWithEveryApp bool   `json:"shared_with_every_app" yaml:"shared_with_every_app"`
+}
+
+// MyClaimSettingsResponse represents a structured data type
+type MyClaimSettingsResponse struct {
+	Settings    []MyClaimSetting `json:"settings" yaml:"settings"`
+	Profiles    []Profile        `json:"profiles" yaml:"profiles"`
+	MaxProfiles int64            `json:"max_profiles" yaml:"max_profiles"`
+}
+
+// SetMyClaimKeepVerifiedRequest represents a structured data type
+type SetMyClaimKeepVerifiedRequest struct {
+	ClaimType    string `json:"claim_type" yaml:"claim_type"`
+	KeepVerified bool   `json:"keep_verified" yaml:"keep_verified"`
+}
+
+// SetMyClaimKeepVerifiedResponse represents a structured data type
+type SetMyClaimKeepVerifiedResponse struct {
+}
+
 // Profile represents a structured data type
 type Profile struct {
 	Id        string  `json:"id" yaml:"id"`
@@ -1093,6 +1122,7 @@ type BrowserConsentClaim struct {
 	UserSettable     bool   `json:"user_settable" yaml:"user_settable"`
 	MaxBytes         int64  `json:"max_bytes" yaml:"max_bytes"`
 	RequiresApproval bool   `json:"requires_approval" yaml:"requires_approval"`
+	NewlyRequested   *bool  `json:"newly_requested,omitempty" yaml:"newly_requested,omitempty"`
 }
 
 // BrowserAuthorizationInspectResponse represents a structured data type
@@ -1115,6 +1145,38 @@ type BrowserAuthorizationCompleteRequest struct {
 
 // BrowserAuthorizationCompleteResponse represents a structured data type
 type BrowserAuthorizationCompleteResponse struct {
+	RedirectUrl string `json:"redirect_url" yaml:"redirect_url"`
+}
+
+// BrowserLocalRpInspectRequest represents a structured data type
+type BrowserLocalRpInspectRequest struct {
+	SignedRequest string `json:"signed_request" yaml:"signed_request"`
+}
+
+// BrowserLocalRpInspectResponse represents a structured data type
+type BrowserLocalRpInspectResponse struct {
+	Admission        string                `json:"admission" yaml:"admission"`
+	AppName          string                `json:"app_name" yaml:"app_name"`
+	Fingerprint      string                `json:"fingerprint" yaml:"fingerprint"`
+	CallbackHost     string                `json:"callback_host" yaml:"callback_host"`
+	FirstSeenAt      *string               `json:"first_seen_at,omitempty" yaml:"first_seen_at,omitempty"`
+	Claims           []BrowserConsentClaim `json:"claims" yaml:"claims"`
+	RequestReason    *string               `json:"request_reason,omitempty" yaml:"request_reason,omitempty"`
+	AlreadyConsented *bool                 `json:"already_consented,omitempty" yaml:"already_consented,omitempty"`
+	AuthorizedClaims []string              `json:"authorized_claims,omitempty" yaml:"authorized_claims,omitempty"`
+}
+
+// BrowserLocalRpCompleteRequest represents a structured data type
+type BrowserLocalRpCompleteRequest struct {
+	SignedRequest    string   `json:"signed_request" yaml:"signed_request"`
+	AuthorizedClaims []string `json:"authorized_claims" yaml:"authorized_claims"`
+	ClaimTypesToSet  []string `json:"claim_types_to_set" yaml:"claim_types_to_set"`
+	ClaimValuesToSet []string `json:"claim_values_to_set" yaml:"claim_values_to_set"`
+	UseStandingGrant *bool    `json:"use_standing_grant,omitempty" yaml:"use_standing_grant,omitempty"`
+}
+
+// BrowserLocalRpCompleteResponse represents a structured data type
+type BrowserLocalRpCompleteResponse struct {
 	RedirectUrl string `json:"redirect_url" yaml:"redirect_url"`
 }
 
@@ -1215,11 +1277,12 @@ type AuthorizeValidateRequest struct {
 
 // AuthorizeValidateResponse represents a structured data type
 type AuthorizeValidateResponse struct {
-	RelyingParty     string   `json:"relying_party" yaml:"relying_party"`
-	CallbackUrl      string   `json:"callback_url" yaml:"callback_url"`
-	RequestedClaims  []string `json:"requested_claims" yaml:"requested_claims"`
-	AlreadyConsented *bool    `json:"already_consented,omitempty" yaml:"already_consented,omitempty"`
-	AuthorizedClaims []string `json:"authorized_claims,omitempty" yaml:"authorized_claims,omitempty"`
+	RelyingParty         string   `json:"relying_party" yaml:"relying_party"`
+	CallbackUrl          string   `json:"callback_url" yaml:"callback_url"`
+	RequestedClaims      []string `json:"requested_claims" yaml:"requested_claims"`
+	AlreadyConsented     *bool    `json:"already_consented,omitempty" yaml:"already_consented,omitempty"`
+	AuthorizedClaims     []string `json:"authorized_claims,omitempty" yaml:"authorized_claims,omitempty"`
+	NewlyRequestedClaims []string `json:"newly_requested_claims,omitempty" yaml:"newly_requested_claims,omitempty"`
 }
 
 // AuthorizeFinalizeRequest represents a structured data type
@@ -1433,6 +1496,19 @@ type SetLocalRpPolicyRequest struct {
 // SetLocalRpPolicyResponse represents a structured data type
 type SetLocalRpPolicyResponse struct {
 	Policy LocalRpPolicy `json:"policy" yaml:"policy"`
+}
+
+// SignInPolicy represents a structured data type
+type SignInPolicy struct {
+	SignInHours        int64 `json:"sign_in_hours" yaml:"sign_in_hours"`
+	DefaultSignInHours int64 `json:"default_sign_in_hours" yaml:"default_sign_in_hours"`
+	MinSignInHours     int64 `json:"min_sign_in_hours" yaml:"min_sign_in_hours"`
+	MaxSignInHours     int64 `json:"max_sign_in_hours" yaml:"max_sign_in_hours"`
+}
+
+// SetSignInPolicyRequest represents a structured data type
+type SetSignInPolicyRequest struct {
+	SignInHours int64 `json:"sign_in_hours" yaml:"sign_in_hours"`
 }
 
 // PurgeLocalRpTicketsRequest represents a structured data type
@@ -1927,4 +2003,87 @@ type RevokeActAsGrantRequest struct {
 // RevokeActAsGrantResponse represents a structured data type
 type RevokeActAsGrantResponse struct {
 	RevokedAt string `json:"revoked_at" yaml:"revoked_at"`
+}
+
+// PreviewReleasePolicyRequest represents a structured data type
+type PreviewReleasePolicyRequest struct {
+	Audience        string   `json:"audience" yaml:"audience"`
+	RequiredClaims  []string `json:"required_claims" yaml:"required_claims"`
+	OptionalClaims  []string `json:"optional_claims" yaml:"optional_claims"`
+	AvailableClaims []string `json:"available_claims" yaml:"available_claims"`
+	UserChoices     []string `json:"user_choices" yaml:"user_choices"`
+	TempAudience    *string  `json:"temp_audience,omitempty" yaml:"temp_audience,omitempty"`
+	TempClaimType   *string  `json:"temp_claim_type,omitempty" yaml:"temp_claim_type,omitempty"`
+	TempDisposition *string  `json:"temp_disposition,omitempty" yaml:"temp_disposition,omitempty"`
+}
+
+// PreviewReleaseRow represents a structured data type
+type PreviewReleaseRow struct {
+	ClaimType      string `json:"claim_type" yaml:"claim_type"`
+	Required       bool   `json:"required" yaml:"required"`
+	Available      bool   `json:"available" yaml:"available"`
+	Locked         bool   `json:"locked" yaml:"locked"`
+	Policy         string `json:"policy" yaml:"policy"`
+	DefaultGranted bool   `json:"default_granted" yaml:"default_granted"`
+}
+
+// PreviewReleasePolicyResponse represents a structured data type
+type PreviewReleasePolicyResponse struct {
+	ForcedAllow      []string            `json:"forced_allow" yaml:"forced_allow"`
+	ForcedDeny       []string            `json:"forced_deny" yaml:"forced_deny"`
+	AuthorizedClaims []string            `json:"authorized_claims" yaml:"authorized_claims"`
+	Rows             []PreviewReleaseRow `json:"rows" yaml:"rows"`
+}
+
+// PreviewIssuerPolicyRequest represents a structured data type
+type PreviewIssuerPolicyRequest struct {
+	SubjectDomain string   `json:"subject_domain" yaml:"subject_domain"`
+	DeniedDomains []string `json:"denied_domains,omitempty" yaml:"denied_domains,omitempty"`
+	DeniedTlds    []string `json:"denied_tlds,omitempty" yaml:"denied_tlds,omitempty"`
+	IssuerUserId  *string  `json:"issuer_user_id,omitempty" yaml:"issuer_user_id,omitempty"`
+	ClaimType     *string  `json:"claim_type,omitempty" yaml:"claim_type,omitempty"`
+}
+
+// PreviewIssuerPolicyResponse represents a structured data type
+type PreviewIssuerPolicyResponse struct {
+	DeniedDomains           []string `json:"denied_domains" yaml:"denied_domains"`
+	DeniedTlds              []string `json:"denied_tlds" yaml:"denied_tlds"`
+	Allowed                 bool     `json:"allowed" yaml:"allowed"`
+	Reason                  string   `json:"reason" yaml:"reason"`
+	UserCanIssue            *bool    `json:"user_can_issue,omitempty" yaml:"user_can_issue,omitempty"`
+	AttestedClaimTtlSeconds int64    `json:"attested_claim_ttl_seconds" yaml:"attested_claim_ttl_seconds"`
+}
+
+// InspectSigningRequestRequest represents a structured data type
+type InspectSigningRequestRequest struct {
+	SignedRequest string `json:"signed_request" yaml:"signed_request"`
+}
+
+// InspectSigningRequestResponse represents a structured data type
+type InspectSigningRequestResponse struct {
+	SubjectUserId       string   `json:"subject_user_id" yaml:"subject_user_id"`
+	SubjectDomain       string   `json:"subject_domain" yaml:"subject_domain"`
+	RequestedClaimTypes []string `json:"requested_claim_types" yaml:"requested_claim_types"`
+	ExpiresAt           string   `json:"expires_at" yaml:"expires_at"`
+	IssuableClaimTypes  []string `json:"issuable_claim_types" yaml:"issuable_claim_types"`
+}
+
+// IssueForSigningRequestRequest represents a structured data type
+type IssueForSigningRequestRequest struct {
+	SignedRequest string   `json:"signed_request" yaml:"signed_request"`
+	ClaimTypes    []string `json:"claim_types" yaml:"claim_types"`
+	ClaimValues   []string `json:"claim_values" yaml:"claim_values"`
+}
+
+// IssuedClaimResult represents a structured data type
+type IssuedClaimResult struct {
+	ClaimType string  `json:"claim_type" yaml:"claim_type"`
+	Outcome   string  `json:"outcome" yaml:"outcome"`
+	Message   *string `json:"message,omitempty" yaml:"message,omitempty"`
+	ClaimCode *string `json:"claim_code,omitempty" yaml:"claim_code,omitempty"`
+}
+
+// IssueForSigningRequestResponse represents a structured data type
+type IssueForSigningRequestResponse struct {
+	Results []IssuedClaimResult `json:"results" yaml:"results"`
 }

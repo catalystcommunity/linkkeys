@@ -3034,6 +3034,29 @@ def _set_claim_type_label_response_from_cbor(data: bytes) -> "SetClaimTypeLabelR
 SetClaimTypeLabelResponse.to_cbor = _set_claim_type_label_response_to_cbor
 SetClaimTypeLabelResponse.from_cbor = staticmethod(_set_claim_type_label_response_from_cbor)
 
+def _encode_list_claim_type_labels_response_value(v: "ListClaimTypeLabelsResponse") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["labels"] = [_encode_claim_type_label_value(csil_e) for csil_e in v.labels]
+    return csil_m
+
+def _decode_list_claim_type_labels_response_value(tree: Any) -> "ListClaimTypeLabelsResponse":
+    tree = _csil_expect_map(tree)
+    return ListClaimTypeLabelsResponse(
+        labels=[_decode_claim_type_label_value(csil_e) for csil_e in _csil_expect_array(tree["labels"])],
+    )
+
+
+def _list_claim_type_labels_response_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_list_claim_type_labels_response_value(self))
+
+
+def _list_claim_type_labels_response_from_cbor(data: bytes) -> "ListClaimTypeLabelsResponse":
+    return _decode_list_claim_type_labels_response_value(cbor_decode(data))
+
+
+ListClaimTypeLabelsResponse.to_cbor = _list_claim_type_labels_response_to_cbor
+ListClaimTypeLabelsResponse.from_cbor = staticmethod(_list_claim_type_labels_response_from_cbor)
+
 def _encode_remove_claim_type_label_request_value(v: "RemoveClaimTypeLabelRequest") -> Dict[Any, Any]:
     csil_m: Dict[Any, Any] = {}
     csil_m["locale"] = v.locale
@@ -4010,6 +4033,105 @@ def _set_my_claim_sharing_response_from_cbor(data: bytes) -> "SetMyClaimSharingR
 SetMyClaimSharingResponse.to_cbor = _set_my_claim_sharing_response_to_cbor
 SetMyClaimSharingResponse.from_cbor = staticmethod(_set_my_claim_sharing_response_from_cbor)
 
+def _encode_my_claim_setting_value(v: "MyClaimSetting") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["claim_type"] = v.claim_type
+    csil_m["keep_verified"] = v.keep_verified
+    csil_m["shared_with_every_app"] = v.shared_with_every_app
+    return csil_m
+
+def _decode_my_claim_setting_value(tree: Any) -> "MyClaimSetting":
+    tree = _csil_expect_map(tree)
+    return MyClaimSetting(
+        claim_type=_csil_expect_text(tree["claim_type"]),
+        keep_verified=_csil_expect_bool(tree["keep_verified"]),
+        shared_with_every_app=_csil_expect_bool(tree["shared_with_every_app"]),
+    )
+
+
+def _my_claim_setting_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_my_claim_setting_value(self))
+
+
+def _my_claim_setting_from_cbor(data: bytes) -> "MyClaimSetting":
+    return _decode_my_claim_setting_value(cbor_decode(data))
+
+
+MyClaimSetting.to_cbor = _my_claim_setting_to_cbor
+MyClaimSetting.from_cbor = staticmethod(_my_claim_setting_from_cbor)
+
+def _encode_my_claim_settings_response_value(v: "MyClaimSettingsResponse") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["profiles"] = [_encode_profile_value(csil_e) for csil_e in v.profiles]
+    csil_m["settings"] = [_encode_my_claim_setting_value(csil_e) for csil_e in v.settings]
+    csil_m["max_profiles"] = v.max_profiles
+    return csil_m
+
+def _decode_my_claim_settings_response_value(tree: Any) -> "MyClaimSettingsResponse":
+    tree = _csil_expect_map(tree)
+    return MyClaimSettingsResponse(
+        settings=[_decode_my_claim_setting_value(csil_e) for csil_e in _csil_expect_array(tree["settings"])],
+        profiles=[_decode_profile_value(csil_e) for csil_e in _csil_expect_array(tree["profiles"])],
+        max_profiles=_csil_expect_int(tree["max_profiles"]),
+    )
+
+
+def _my_claim_settings_response_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_my_claim_settings_response_value(self))
+
+
+def _my_claim_settings_response_from_cbor(data: bytes) -> "MyClaimSettingsResponse":
+    return _decode_my_claim_settings_response_value(cbor_decode(data))
+
+
+MyClaimSettingsResponse.to_cbor = _my_claim_settings_response_to_cbor
+MyClaimSettingsResponse.from_cbor = staticmethod(_my_claim_settings_response_from_cbor)
+
+def _encode_set_my_claim_keep_verified_request_value(v: "SetMyClaimKeepVerifiedRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["claim_type"] = v.claim_type
+    csil_m["keep_verified"] = v.keep_verified
+    return csil_m
+
+def _decode_set_my_claim_keep_verified_request_value(tree: Any) -> "SetMyClaimKeepVerifiedRequest":
+    tree = _csil_expect_map(tree)
+    return SetMyClaimKeepVerifiedRequest(
+        claim_type=_csil_expect_text(tree["claim_type"]),
+        keep_verified=_csil_expect_bool(tree["keep_verified"]),
+    )
+
+
+def _set_my_claim_keep_verified_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_set_my_claim_keep_verified_request_value(self))
+
+
+def _set_my_claim_keep_verified_request_from_cbor(data: bytes) -> "SetMyClaimKeepVerifiedRequest":
+    return _decode_set_my_claim_keep_verified_request_value(cbor_decode(data))
+
+
+SetMyClaimKeepVerifiedRequest.to_cbor = _set_my_claim_keep_verified_request_to_cbor
+SetMyClaimKeepVerifiedRequest.from_cbor = staticmethod(_set_my_claim_keep_verified_request_from_cbor)
+
+def _encode_set_my_claim_keep_verified_response_value(v: "SetMyClaimKeepVerifiedResponse") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    return csil_m
+
+def _decode_set_my_claim_keep_verified_response_value(tree: Any) -> "SetMyClaimKeepVerifiedResponse":
+    tree = _csil_expect_map(tree)
+    return SetMyClaimKeepVerifiedResponse()
+
+
+def _set_my_claim_keep_verified_response_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_set_my_claim_keep_verified_response_value(self))
+
+
+def _set_my_claim_keep_verified_response_from_cbor(data: bytes) -> "SetMyClaimKeepVerifiedResponse":
+    return _decode_set_my_claim_keep_verified_response_value(cbor_decode(data))
+
+
+SetMyClaimKeepVerifiedResponse.to_cbor = _set_my_claim_keep_verified_response_to_cbor
+SetMyClaimKeepVerifiedResponse.from_cbor = staticmethod(_set_my_claim_keep_verified_response_from_cbor)
+
 def _encode_profile_value(v: "Profile") -> Dict[Any, Any]:
     csil_m: Dict[Any, Any] = {}
     csil_m["id"] = v.id
@@ -4770,6 +4892,9 @@ def _encode_browser_consent_claim_value(v: "BrowserConsentClaim") -> Dict[Any, A
     csil_m["claim_type"] = v.claim_type
     csil_m["user_settable"] = v.user_settable
     csil_m["default_granted"] = v.default_granted
+    csil_x = v.newly_requested
+    if csil_x is not None:
+        csil_m["newly_requested"] = csil_x
     csil_m["requires_approval"] = v.requires_approval
     return csil_m
 
@@ -4786,6 +4911,7 @@ def _decode_browser_consent_claim_value(tree: Any) -> "BrowserConsentClaim":
         user_settable=_csil_expect_bool(tree["user_settable"]),
         max_bytes=_csil_expect_int(tree["max_bytes"]),
         requires_approval=_csil_expect_bool(tree["requires_approval"]),
+        newly_requested=(None if tree.get("newly_requested") is None else _csil_expect_bool(tree["newly_requested"])),
     )
 
 
@@ -4892,6 +5018,132 @@ def _browser_authorization_complete_response_from_cbor(data: bytes) -> "BrowserA
 
 BrowserAuthorizationCompleteResponse.to_cbor = _browser_authorization_complete_response_to_cbor
 BrowserAuthorizationCompleteResponse.from_cbor = staticmethod(_browser_authorization_complete_response_from_cbor)
+
+def _encode_browser_local_rp_inspect_request_value(v: "BrowserLocalRpInspectRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["signed_request"] = v.signed_request
+    return csil_m
+
+def _decode_browser_local_rp_inspect_request_value(tree: Any) -> "BrowserLocalRpInspectRequest":
+    tree = _csil_expect_map(tree)
+    return BrowserLocalRpInspectRequest(
+        signed_request=_csil_expect_text(tree["signed_request"]),
+    )
+
+
+def _browser_local_rp_inspect_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_browser_local_rp_inspect_request_value(self))
+
+
+def _browser_local_rp_inspect_request_from_cbor(data: bytes) -> "BrowserLocalRpInspectRequest":
+    return _decode_browser_local_rp_inspect_request_value(cbor_decode(data))
+
+
+BrowserLocalRpInspectRequest.to_cbor = _browser_local_rp_inspect_request_to_cbor
+BrowserLocalRpInspectRequest.from_cbor = staticmethod(_browser_local_rp_inspect_request_from_cbor)
+
+def _encode_browser_local_rp_inspect_response_value(v: "BrowserLocalRpInspectResponse") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["claims"] = [_encode_browser_consent_claim_value(csil_e) for csil_e in v.claims]
+    csil_m["app_name"] = v.app_name
+    csil_m["admission"] = v.admission
+    csil_m["fingerprint"] = v.fingerprint
+    csil_m["callback_host"] = v.callback_host
+    csil_x = v.first_seen_at
+    if csil_x is not None:
+        csil_m["first_seen_at"] = csil_x
+    csil_x = v.request_reason
+    if csil_x is not None:
+        csil_m["request_reason"] = csil_x
+    csil_x = v.already_consented
+    if csil_x is not None:
+        csil_m["already_consented"] = csil_x
+    csil_x = v.authorized_claims
+    if csil_x is not None:
+        csil_m["authorized_claims"] = csil_x
+    return csil_m
+
+def _decode_browser_local_rp_inspect_response_value(tree: Any) -> "BrowserLocalRpInspectResponse":
+    tree = _csil_expect_map(tree)
+    return BrowserLocalRpInspectResponse(
+        admission=_csil_expect_text(tree["admission"]),
+        app_name=_csil_expect_text(tree["app_name"]),
+        fingerprint=_csil_expect_text(tree["fingerprint"]),
+        callback_host=_csil_expect_text(tree["callback_host"]),
+        first_seen_at=(None if tree.get("first_seen_at") is None else _csil_expect_text(tree["first_seen_at"])),
+        claims=[_decode_browser_consent_claim_value(csil_e) for csil_e in _csil_expect_array(tree["claims"])],
+        request_reason=(None if tree.get("request_reason") is None else _csil_expect_text(tree["request_reason"])),
+        already_consented=(None if tree.get("already_consented") is None else _csil_expect_bool(tree["already_consented"])),
+        authorized_claims=(None if tree.get("authorized_claims") is None else [_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["authorized_claims"])]),
+    )
+
+
+def _browser_local_rp_inspect_response_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_browser_local_rp_inspect_response_value(self))
+
+
+def _browser_local_rp_inspect_response_from_cbor(data: bytes) -> "BrowserLocalRpInspectResponse":
+    return _decode_browser_local_rp_inspect_response_value(cbor_decode(data))
+
+
+BrowserLocalRpInspectResponse.to_cbor = _browser_local_rp_inspect_response_to_cbor
+BrowserLocalRpInspectResponse.from_cbor = staticmethod(_browser_local_rp_inspect_response_from_cbor)
+
+def _encode_browser_local_rp_complete_request_value(v: "BrowserLocalRpCompleteRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["signed_request"] = v.signed_request
+    csil_m["authorized_claims"] = v.authorized_claims
+    csil_m["claim_types_to_set"] = v.claim_types_to_set
+    csil_x = v.use_standing_grant
+    if csil_x is not None:
+        csil_m["use_standing_grant"] = csil_x
+    csil_m["claim_values_to_set"] = v.claim_values_to_set
+    return csil_m
+
+def _decode_browser_local_rp_complete_request_value(tree: Any) -> "BrowserLocalRpCompleteRequest":
+    tree = _csil_expect_map(tree)
+    return BrowserLocalRpCompleteRequest(
+        signed_request=_csil_expect_text(tree["signed_request"]),
+        authorized_claims=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["authorized_claims"])],
+        claim_types_to_set=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["claim_types_to_set"])],
+        claim_values_to_set=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["claim_values_to_set"])],
+        use_standing_grant=(None if tree.get("use_standing_grant") is None else _csil_expect_bool(tree["use_standing_grant"])),
+    )
+
+
+def _browser_local_rp_complete_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_browser_local_rp_complete_request_value(self))
+
+
+def _browser_local_rp_complete_request_from_cbor(data: bytes) -> "BrowserLocalRpCompleteRequest":
+    return _decode_browser_local_rp_complete_request_value(cbor_decode(data))
+
+
+BrowserLocalRpCompleteRequest.to_cbor = _browser_local_rp_complete_request_to_cbor
+BrowserLocalRpCompleteRequest.from_cbor = staticmethod(_browser_local_rp_complete_request_from_cbor)
+
+def _encode_browser_local_rp_complete_response_value(v: "BrowserLocalRpCompleteResponse") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["redirect_url"] = v.redirect_url
+    return csil_m
+
+def _decode_browser_local_rp_complete_response_value(tree: Any) -> "BrowserLocalRpCompleteResponse":
+    tree = _csil_expect_map(tree)
+    return BrowserLocalRpCompleteResponse(
+        redirect_url=_csil_expect_text(tree["redirect_url"]),
+    )
+
+
+def _browser_local_rp_complete_response_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_browser_local_rp_complete_response_value(self))
+
+
+def _browser_local_rp_complete_response_from_cbor(data: bytes) -> "BrowserLocalRpCompleteResponse":
+    return _decode_browser_local_rp_complete_response_value(cbor_decode(data))
+
+
+BrowserLocalRpCompleteResponse.to_cbor = _browser_local_rp_complete_response_to_cbor
+BrowserLocalRpCompleteResponse.from_cbor = staticmethod(_browser_local_rp_complete_response_from_cbor)
 
 def _encode_ui_theme_value(v: "UiTheme") -> Dict[Any, Any]:
     csil_m: Dict[Any, Any] = {}
@@ -5300,6 +5552,9 @@ def _encode_authorize_validate_response_value(v: "AuthorizeValidateResponse") ->
     csil_x = v.authorized_claims
     if csil_x is not None:
         csil_m["authorized_claims"] = csil_x
+    csil_x = v.newly_requested_claims
+    if csil_x is not None:
+        csil_m["newly_requested_claims"] = csil_x
     return csil_m
 
 def _decode_authorize_validate_response_value(tree: Any) -> "AuthorizeValidateResponse":
@@ -5310,6 +5565,7 @@ def _decode_authorize_validate_response_value(tree: Any) -> "AuthorizeValidateRe
         requested_claims=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["requested_claims"])],
         already_consented=(None if tree.get("already_consented") is None else _csil_expect_bool(tree["already_consented"])),
         authorized_claims=(None if tree.get("authorized_claims") is None else [_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["authorized_claims"])]),
+        newly_requested_claims=(None if tree.get("newly_requested_claims") is None else [_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["newly_requested_claims"])]),
     )
 
 
@@ -6133,6 +6389,58 @@ def _set_local_rp_policy_response_from_cbor(data: bytes) -> "SetLocalRpPolicyRes
 
 SetLocalRpPolicyResponse.to_cbor = _set_local_rp_policy_response_to_cbor
 SetLocalRpPolicyResponse.from_cbor = staticmethod(_set_local_rp_policy_response_from_cbor)
+
+def _encode_sign_in_policy_value(v: "SignInPolicy") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["sign_in_hours"] = v.sign_in_hours
+    csil_m["max_sign_in_hours"] = v.max_sign_in_hours
+    csil_m["min_sign_in_hours"] = v.min_sign_in_hours
+    csil_m["default_sign_in_hours"] = v.default_sign_in_hours
+    return csil_m
+
+def _decode_sign_in_policy_value(tree: Any) -> "SignInPolicy":
+    tree = _csil_expect_map(tree)
+    return SignInPolicy(
+        sign_in_hours=_csil_expect_int(tree["sign_in_hours"]),
+        default_sign_in_hours=_csil_expect_int(tree["default_sign_in_hours"]),
+        min_sign_in_hours=_csil_expect_int(tree["min_sign_in_hours"]),
+        max_sign_in_hours=_csil_expect_int(tree["max_sign_in_hours"]),
+    )
+
+
+def _sign_in_policy_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_sign_in_policy_value(self))
+
+
+def _sign_in_policy_from_cbor(data: bytes) -> "SignInPolicy":
+    return _decode_sign_in_policy_value(cbor_decode(data))
+
+
+SignInPolicy.to_cbor = _sign_in_policy_to_cbor
+SignInPolicy.from_cbor = staticmethod(_sign_in_policy_from_cbor)
+
+def _encode_set_sign_in_policy_request_value(v: "SetSignInPolicyRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["sign_in_hours"] = v.sign_in_hours
+    return csil_m
+
+def _decode_set_sign_in_policy_request_value(tree: Any) -> "SetSignInPolicyRequest":
+    tree = _csil_expect_map(tree)
+    return SetSignInPolicyRequest(
+        sign_in_hours=_csil_expect_int(tree["sign_in_hours"]),
+    )
+
+
+def _set_sign_in_policy_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_set_sign_in_policy_request_value(self))
+
+
+def _set_sign_in_policy_request_from_cbor(data: bytes) -> "SetSignInPolicyRequest":
+    return _decode_set_sign_in_policy_request_value(cbor_decode(data))
+
+
+SetSignInPolicyRequest.to_cbor = _set_sign_in_policy_request_to_cbor
+SetSignInPolicyRequest.from_cbor = staticmethod(_set_sign_in_policy_request_from_cbor)
 
 def _encode_purge_local_rp_tickets_request_value(v: "PurgeLocalRpTicketsRequest") -> Dict[Any, Any]:
     csil_m: Dict[Any, Any] = {}
@@ -7991,6 +8299,322 @@ def _revoke_act_as_grant_response_from_cbor(data: bytes) -> "RevokeActAsGrantRes
 
 RevokeActAsGrantResponse.to_cbor = _revoke_act_as_grant_response_to_cbor
 RevokeActAsGrantResponse.from_cbor = staticmethod(_revoke_act_as_grant_response_from_cbor)
+
+def _encode_preview_release_policy_request_value(v: "PreviewReleasePolicyRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["audience"] = v.audience
+    csil_m["user_choices"] = v.user_choices
+    csil_x = v.temp_audience
+    if csil_x is not None:
+        csil_m["temp_audience"] = csil_x
+    csil_m["optional_claims"] = v.optional_claims
+    csil_m["required_claims"] = v.required_claims
+    csil_x = v.temp_claim_type
+    if csil_x is not None:
+        csil_m["temp_claim_type"] = csil_x
+    csil_m["available_claims"] = v.available_claims
+    csil_x = v.temp_disposition
+    if csil_x is not None:
+        csil_m["temp_disposition"] = csil_x
+    return csil_m
+
+def _decode_preview_release_policy_request_value(tree: Any) -> "PreviewReleasePolicyRequest":
+    tree = _csil_expect_map(tree)
+    return PreviewReleasePolicyRequest(
+        audience=_csil_expect_text(tree["audience"]),
+        required_claims=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["required_claims"])],
+        optional_claims=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["optional_claims"])],
+        available_claims=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["available_claims"])],
+        user_choices=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["user_choices"])],
+        temp_audience=(None if tree.get("temp_audience") is None else _csil_expect_text(tree["temp_audience"])),
+        temp_claim_type=(None if tree.get("temp_claim_type") is None else _csil_expect_text(tree["temp_claim_type"])),
+        temp_disposition=(None if tree.get("temp_disposition") is None else _csil_expect_text(tree["temp_disposition"])),
+    )
+
+
+def _preview_release_policy_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_preview_release_policy_request_value(self))
+
+
+def _preview_release_policy_request_from_cbor(data: bytes) -> "PreviewReleasePolicyRequest":
+    return _decode_preview_release_policy_request_value(cbor_decode(data))
+
+
+PreviewReleasePolicyRequest.to_cbor = _preview_release_policy_request_to_cbor
+PreviewReleasePolicyRequest.from_cbor = staticmethod(_preview_release_policy_request_from_cbor)
+
+def _encode_preview_release_row_value(v: "PreviewReleaseRow") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["locked"] = v.locked
+    csil_m["policy"] = v.policy
+    csil_m["required"] = v.required
+    csil_m["available"] = v.available
+    csil_m["claim_type"] = v.claim_type
+    csil_m["default_granted"] = v.default_granted
+    return csil_m
+
+def _decode_preview_release_row_value(tree: Any) -> "PreviewReleaseRow":
+    tree = _csil_expect_map(tree)
+    return PreviewReleaseRow(
+        claim_type=_csil_expect_text(tree["claim_type"]),
+        required=_csil_expect_bool(tree["required"]),
+        available=_csil_expect_bool(tree["available"]),
+        locked=_csil_expect_bool(tree["locked"]),
+        policy=_csil_expect_text(tree["policy"]),
+        default_granted=_csil_expect_bool(tree["default_granted"]),
+    )
+
+
+def _preview_release_row_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_preview_release_row_value(self))
+
+
+def _preview_release_row_from_cbor(data: bytes) -> "PreviewReleaseRow":
+    return _decode_preview_release_row_value(cbor_decode(data))
+
+
+PreviewReleaseRow.to_cbor = _preview_release_row_to_cbor
+PreviewReleaseRow.from_cbor = staticmethod(_preview_release_row_from_cbor)
+
+def _encode_preview_release_policy_response_value(v: "PreviewReleasePolicyResponse") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["rows"] = [_encode_preview_release_row_value(csil_e) for csil_e in v.rows]
+    csil_m["forced_deny"] = v.forced_deny
+    csil_m["forced_allow"] = v.forced_allow
+    csil_m["authorized_claims"] = v.authorized_claims
+    return csil_m
+
+def _decode_preview_release_policy_response_value(tree: Any) -> "PreviewReleasePolicyResponse":
+    tree = _csil_expect_map(tree)
+    return PreviewReleasePolicyResponse(
+        forced_allow=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["forced_allow"])],
+        forced_deny=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["forced_deny"])],
+        authorized_claims=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["authorized_claims"])],
+        rows=[_decode_preview_release_row_value(csil_e) for csil_e in _csil_expect_array(tree["rows"])],
+    )
+
+
+def _preview_release_policy_response_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_preview_release_policy_response_value(self))
+
+
+def _preview_release_policy_response_from_cbor(data: bytes) -> "PreviewReleasePolicyResponse":
+    return _decode_preview_release_policy_response_value(cbor_decode(data))
+
+
+PreviewReleasePolicyResponse.to_cbor = _preview_release_policy_response_to_cbor
+PreviewReleasePolicyResponse.from_cbor = staticmethod(_preview_release_policy_response_from_cbor)
+
+def _encode_preview_issuer_policy_request_value(v: "PreviewIssuerPolicyRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_x = v.claim_type
+    if csil_x is not None:
+        csil_m["claim_type"] = csil_x
+    csil_x = v.denied_tlds
+    if csil_x is not None:
+        csil_m["denied_tlds"] = csil_x
+    csil_x = v.denied_domains
+    if csil_x is not None:
+        csil_m["denied_domains"] = csil_x
+    csil_x = v.issuer_user_id
+    if csil_x is not None:
+        csil_m["issuer_user_id"] = csil_x
+    csil_m["subject_domain"] = v.subject_domain
+    return csil_m
+
+def _decode_preview_issuer_policy_request_value(tree: Any) -> "PreviewIssuerPolicyRequest":
+    tree = _csil_expect_map(tree)
+    return PreviewIssuerPolicyRequest(
+        subject_domain=_csil_expect_text(tree["subject_domain"]),
+        denied_domains=(None if tree.get("denied_domains") is None else [_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["denied_domains"])]),
+        denied_tlds=(None if tree.get("denied_tlds") is None else [_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["denied_tlds"])]),
+        issuer_user_id=(None if tree.get("issuer_user_id") is None else _csil_expect_text(tree["issuer_user_id"])),
+        claim_type=(None if tree.get("claim_type") is None else _csil_expect_text(tree["claim_type"])),
+    )
+
+
+def _preview_issuer_policy_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_preview_issuer_policy_request_value(self))
+
+
+def _preview_issuer_policy_request_from_cbor(data: bytes) -> "PreviewIssuerPolicyRequest":
+    return _decode_preview_issuer_policy_request_value(cbor_decode(data))
+
+
+PreviewIssuerPolicyRequest.to_cbor = _preview_issuer_policy_request_to_cbor
+PreviewIssuerPolicyRequest.from_cbor = staticmethod(_preview_issuer_policy_request_from_cbor)
+
+def _encode_preview_issuer_policy_response_value(v: "PreviewIssuerPolicyResponse") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["reason"] = v.reason
+    csil_m["allowed"] = v.allowed
+    csil_m["denied_tlds"] = v.denied_tlds
+    csil_m["denied_domains"] = v.denied_domains
+    csil_x = v.user_can_issue
+    if csil_x is not None:
+        csil_m["user_can_issue"] = csil_x
+    csil_m["attested_claim_ttl_seconds"] = v.attested_claim_ttl_seconds
+    return csil_m
+
+def _decode_preview_issuer_policy_response_value(tree: Any) -> "PreviewIssuerPolicyResponse":
+    tree = _csil_expect_map(tree)
+    return PreviewIssuerPolicyResponse(
+        denied_domains=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["denied_domains"])],
+        denied_tlds=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["denied_tlds"])],
+        allowed=_csil_expect_bool(tree["allowed"]),
+        reason=_csil_expect_text(tree["reason"]),
+        user_can_issue=(None if tree.get("user_can_issue") is None else _csil_expect_bool(tree["user_can_issue"])),
+        attested_claim_ttl_seconds=_csil_expect_int(tree["attested_claim_ttl_seconds"]),
+    )
+
+
+def _preview_issuer_policy_response_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_preview_issuer_policy_response_value(self))
+
+
+def _preview_issuer_policy_response_from_cbor(data: bytes) -> "PreviewIssuerPolicyResponse":
+    return _decode_preview_issuer_policy_response_value(cbor_decode(data))
+
+
+PreviewIssuerPolicyResponse.to_cbor = _preview_issuer_policy_response_to_cbor
+PreviewIssuerPolicyResponse.from_cbor = staticmethod(_preview_issuer_policy_response_from_cbor)
+
+def _encode_inspect_signing_request_request_value(v: "InspectSigningRequestRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["signed_request"] = v.signed_request
+    return csil_m
+
+def _decode_inspect_signing_request_request_value(tree: Any) -> "InspectSigningRequestRequest":
+    tree = _csil_expect_map(tree)
+    return InspectSigningRequestRequest(
+        signed_request=_csil_expect_text(tree["signed_request"]),
+    )
+
+
+def _inspect_signing_request_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_inspect_signing_request_request_value(self))
+
+
+def _inspect_signing_request_request_from_cbor(data: bytes) -> "InspectSigningRequestRequest":
+    return _decode_inspect_signing_request_request_value(cbor_decode(data))
+
+
+InspectSigningRequestRequest.to_cbor = _inspect_signing_request_request_to_cbor
+InspectSigningRequestRequest.from_cbor = staticmethod(_inspect_signing_request_request_from_cbor)
+
+def _encode_inspect_signing_request_response_value(v: "InspectSigningRequestResponse") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["expires_at"] = v.expires_at
+    csil_m["subject_domain"] = v.subject_domain
+    csil_m["subject_user_id"] = v.subject_user_id
+    csil_m["issuable_claim_types"] = v.issuable_claim_types
+    csil_m["requested_claim_types"] = v.requested_claim_types
+    return csil_m
+
+def _decode_inspect_signing_request_response_value(tree: Any) -> "InspectSigningRequestResponse":
+    tree = _csil_expect_map(tree)
+    return InspectSigningRequestResponse(
+        subject_user_id=_csil_expect_text(tree["subject_user_id"]),
+        subject_domain=_csil_expect_text(tree["subject_domain"]),
+        requested_claim_types=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["requested_claim_types"])],
+        expires_at=_csil_expect_text(tree["expires_at"]),
+        issuable_claim_types=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["issuable_claim_types"])],
+    )
+
+
+def _inspect_signing_request_response_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_inspect_signing_request_response_value(self))
+
+
+def _inspect_signing_request_response_from_cbor(data: bytes) -> "InspectSigningRequestResponse":
+    return _decode_inspect_signing_request_response_value(cbor_decode(data))
+
+
+InspectSigningRequestResponse.to_cbor = _inspect_signing_request_response_to_cbor
+InspectSigningRequestResponse.from_cbor = staticmethod(_inspect_signing_request_response_from_cbor)
+
+def _encode_issue_for_signing_request_request_value(v: "IssueForSigningRequestRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["claim_types"] = v.claim_types
+    csil_m["claim_values"] = v.claim_values
+    csil_m["signed_request"] = v.signed_request
+    return csil_m
+
+def _decode_issue_for_signing_request_request_value(tree: Any) -> "IssueForSigningRequestRequest":
+    tree = _csil_expect_map(tree)
+    return IssueForSigningRequestRequest(
+        signed_request=_csil_expect_text(tree["signed_request"]),
+        claim_types=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["claim_types"])],
+        claim_values=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["claim_values"])],
+    )
+
+
+def _issue_for_signing_request_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_issue_for_signing_request_request_value(self))
+
+
+def _issue_for_signing_request_request_from_cbor(data: bytes) -> "IssueForSigningRequestRequest":
+    return _decode_issue_for_signing_request_request_value(cbor_decode(data))
+
+
+IssueForSigningRequestRequest.to_cbor = _issue_for_signing_request_request_to_cbor
+IssueForSigningRequestRequest.from_cbor = staticmethod(_issue_for_signing_request_request_from_cbor)
+
+def _encode_issued_claim_result_value(v: "IssuedClaimResult") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_x = v.message
+    if csil_x is not None:
+        csil_m["message"] = csil_x
+    csil_m["outcome"] = v.outcome
+    csil_x = v.claim_code
+    if csil_x is not None:
+        csil_m["claim_code"] = csil_x
+    csil_m["claim_type"] = v.claim_type
+    return csil_m
+
+def _decode_issued_claim_result_value(tree: Any) -> "IssuedClaimResult":
+    tree = _csil_expect_map(tree)
+    return IssuedClaimResult(
+        claim_type=_csil_expect_text(tree["claim_type"]),
+        outcome=_csil_expect_text(tree["outcome"]),
+        message=(None if tree.get("message") is None else _csil_expect_text(tree["message"])),
+        claim_code=(None if tree.get("claim_code") is None else _csil_expect_text(tree["claim_code"])),
+    )
+
+
+def _issued_claim_result_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_issued_claim_result_value(self))
+
+
+def _issued_claim_result_from_cbor(data: bytes) -> "IssuedClaimResult":
+    return _decode_issued_claim_result_value(cbor_decode(data))
+
+
+IssuedClaimResult.to_cbor = _issued_claim_result_to_cbor
+IssuedClaimResult.from_cbor = staticmethod(_issued_claim_result_from_cbor)
+
+def _encode_issue_for_signing_request_response_value(v: "IssueForSigningRequestResponse") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["results"] = [_encode_issued_claim_result_value(csil_e) for csil_e in v.results]
+    return csil_m
+
+def _decode_issue_for_signing_request_response_value(tree: Any) -> "IssueForSigningRequestResponse":
+    tree = _csil_expect_map(tree)
+    return IssueForSigningRequestResponse(
+        results=[_decode_issued_claim_result_value(csil_e) for csil_e in _csil_expect_array(tree["results"])],
+    )
+
+
+def _issue_for_signing_request_response_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_issue_for_signing_request_response_value(self))
+
+
+def _issue_for_signing_request_response_from_cbor(data: bytes) -> "IssueForSigningRequestResponse":
+    return _decode_issue_for_signing_request_response_value(cbor_decode(data))
+
+
+IssueForSigningRequestResponse.to_cbor = _issue_for_signing_request_response_to_cbor
+IssueForSigningRequestResponse.from_cbor = staticmethod(_issue_for_signing_request_response_from_cbor)
 
 def _encode_check_value_value(csil_v):
     if isinstance(csil_v, str):

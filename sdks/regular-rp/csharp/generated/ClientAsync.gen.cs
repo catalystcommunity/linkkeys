@@ -160,6 +160,20 @@ public sealed class BrowserAuthorizationAsyncClient(ICsilAsyncTransport transpor
         Codec.Decode<BrowserActAsInspectResponse>(await transport.Call("BrowserAuthorization", "inspect-act-as", Codec.Encode(browserActAsInspectRequest)));
     public async System.Threading.Tasks.Task<BrowserActAsCompleteResponse> CompleteActAsAsync(BrowserActAsCompleteRequest browserActAsCompleteRequest) =>
         Codec.Decode<BrowserActAsCompleteResponse>(await transport.Call("BrowserAuthorization", "complete-act-as", Codec.Encode(browserActAsCompleteRequest)));
+    public async System.Threading.Tasks.Task<BrowserLocalRpInspectResponse> InspectLocalRpAsync(BrowserLocalRpInspectRequest browserLocalRpInspectRequest) =>
+        Codec.Decode<BrowserLocalRpInspectResponse>(await transport.Call("BrowserAuthorization", "inspect-local-rp", Codec.Encode(browserLocalRpInspectRequest)));
+    public async System.Threading.Tasks.Task<BrowserLocalRpCompleteResponse> CompleteLocalRpAsync(BrowserLocalRpCompleteRequest browserLocalRpCompleteRequest) =>
+        Codec.Decode<BrowserLocalRpCompleteResponse>(await transport.Call("BrowserAuthorization", "complete-local-rp", Codec.Encode(browserLocalRpCompleteRequest)));
+}
+
+/// <summary>Typed RPC client for the BrowserIssuer service. The client owns
+/// (de)serialization via the generated codec; the transport only moves bytes.</summary>
+public sealed class BrowserIssuerAsyncClient(ICsilAsyncTransport transport)
+{
+    public async System.Threading.Tasks.Task<InspectSigningRequestResponse> InspectSigningRequestAsync(InspectSigningRequestRequest inspectSigningRequestRequest) =>
+        Codec.Decode<InspectSigningRequestResponse>(await transport.Call("BrowserIssuer", "inspect-signing-request", Codec.Encode(inspectSigningRequestRequest)));
+    public async System.Threading.Tasks.Task<IssueForSigningRequestResponse> IssueForSigningRequestAsync(IssueForSigningRequestRequest issueForSigningRequestRequest) =>
+        Codec.Decode<IssueForSigningRequestResponse>(await transport.Call("BrowserIssuer", "issue-for-signing-request", Codec.Encode(issueForSigningRequestRequest)));
 }
 
 /// <summary>Typed RPC client for the Admin service. The client owns
@@ -208,6 +222,8 @@ public sealed class AdminAsyncClient(ICsilAsyncTransport transport)
         Codec.Decode<SetClaimTypeResponse>(await transport.Call("Admin", "set-claim-type", Codec.Encode(setClaimTypeRequest)));
     public async System.Threading.Tasks.Task<RemoveClaimTypeResponse> RemoveClaimTypeAsync(RemoveClaimTypeRequest removeClaimTypeRequest) =>
         Codec.Decode<RemoveClaimTypeResponse>(await transport.Call("Admin", "remove-claim-type", Codec.Encode(removeClaimTypeRequest)));
+    public async System.Threading.Tasks.Task<ListClaimTypeLabelsResponse> ListClaimTypeLabelsAsync(EmptyRequest emptyRequest) =>
+        Codec.Decode<ListClaimTypeLabelsResponse>(await transport.Call("Admin", "list-claim-type-labels", Codec.Encode(emptyRequest)));
     public async System.Threading.Tasks.Task<SetClaimTypeLabelResponse> SetClaimTypeLabelAsync(SetClaimTypeLabelRequest setClaimTypeLabelRequest) =>
         Codec.Decode<SetClaimTypeLabelResponse>(await transport.Call("Admin", "set-claim-type-label", Codec.Encode(setClaimTypeLabelRequest)));
     public async System.Threading.Tasks.Task<RemoveClaimTypeLabelResponse> RemoveClaimTypeLabelAsync(RemoveClaimTypeLabelRequest removeClaimTypeLabelRequest) =>
@@ -232,6 +248,10 @@ public sealed class AdminAsyncClient(ICsilAsyncTransport transport)
         Codec.Decode<RejectClaimResponse>(await transport.Call("Admin", "reject-claim", Codec.Encode(rejectClaimRequest)));
     public async System.Threading.Tasks.Task<AdminIssueAttestationResponse> AdminIssueAttestationAsync(AdminIssueAttestationRequest adminIssueAttestationRequest) =>
         Codec.Decode<AdminIssueAttestationResponse>(await transport.Call("Admin", "admin-issue-attestation", Codec.Encode(adminIssueAttestationRequest)));
+    public async System.Threading.Tasks.Task<PreviewReleasePolicyResponse> PreviewReleasePolicyAsync(PreviewReleasePolicyRequest previewReleasePolicyRequest) =>
+        Codec.Decode<PreviewReleasePolicyResponse>(await transport.Call("Admin", "preview-release-policy", Codec.Encode(previewReleasePolicyRequest)));
+    public async System.Threading.Tasks.Task<PreviewIssuerPolicyResponse> PreviewIssuerPolicyAsync(PreviewIssuerPolicyRequest previewIssuerPolicyRequest) =>
+        Codec.Decode<PreviewIssuerPolicyResponse>(await transport.Call("Admin", "preview-issuer-policy", Codec.Encode(previewIssuerPolicyRequest)));
     public async System.Threading.Tasks.Task<GrantRelationResponse> GrantRelationAsync(GrantRelationRequest grantRelationRequest) =>
         Codec.Decode<GrantRelationResponse>(await transport.Call("Admin", "grant-relation", Codec.Encode(grantRelationRequest)));
     public async System.Threading.Tasks.Task<RemoveRelationResponse> RemoveRelationAsync(RemoveRelationRequest removeRelationRequest) =>
@@ -258,6 +278,10 @@ public sealed class AdminAsyncClient(ICsilAsyncTransport transport)
         Codec.Decode<SetLocalRpPolicyResponse>(await transport.Call("Admin", "set-local-rp-policy", Codec.Encode(setLocalRpPolicyRequest)));
     public async System.Threading.Tasks.Task<PurgeLocalRpTicketsResponse> PurgeLocalRpTicketsAsync(PurgeLocalRpTicketsRequest purgeLocalRpTicketsRequest) =>
         Codec.Decode<PurgeLocalRpTicketsResponse>(await transport.Call("Admin", "purge-local-rp-tickets", Codec.Encode(purgeLocalRpTicketsRequest)));
+    public async System.Threading.Tasks.Task<SignInPolicy> GetSignInPolicyAsync(EmptyRequest emptyRequest) =>
+        Codec.Decode<SignInPolicy>(await transport.Call("Admin", "get-sign-in-policy", Codec.Encode(emptyRequest)));
+    public async System.Threading.Tasks.Task<SignInPolicy> SetSignInPolicyAsync(SetSignInPolicyRequest setSignInPolicyRequest) =>
+        Codec.Decode<SignInPolicy>(await transport.Call("Admin", "set-sign-in-policy", Codec.Encode(setSignInPolicyRequest)));
 }
 
 /// <summary>Typed RPC client for the Account service. The client owns
@@ -278,6 +302,10 @@ public sealed class AccountAsyncClient(ICsilAsyncTransport transport)
         Codec.Decode<SetMyClaimSharingResponse>(await transport.Call("Account", "set-my-claim-sharing", Codec.Encode(setMyClaimSharingRequest)));
     public async System.Threading.Tasks.Task<CreateProfileResponse> CreateProfileAsync(CreateProfileRequest createProfileRequest) =>
         Codec.Decode<CreateProfileResponse>(await transport.Call("Account", "create-profile", Codec.Encode(createProfileRequest)));
+    public async System.Threading.Tasks.Task<MyClaimSettingsResponse> GetMyClaimSettingsAsync(EmptyRequest emptyRequest) =>
+        Codec.Decode<MyClaimSettingsResponse>(await transport.Call("Account", "get-my-claim-settings", Codec.Encode(emptyRequest)));
+    public async System.Threading.Tasks.Task<SetMyClaimKeepVerifiedResponse> SetMyClaimKeepVerifiedAsync(SetMyClaimKeepVerifiedRequest setMyClaimKeepVerifiedRequest) =>
+        Codec.Decode<SetMyClaimKeepVerifiedResponse>(await transport.Call("Account", "set-my-claim-keep-verified", Codec.Encode(setMyClaimKeepVerifiedRequest)));
     public async System.Threading.Tasks.Task<RequestVerificationResponse> RequestVerificationAsync(RequestVerificationRequest requestVerificationRequest) =>
         Codec.Decode<RequestVerificationResponse>(await transport.Call("Account", "request-verification", Codec.Encode(requestVerificationRequest)));
     public async System.Threading.Tasks.Task<ListVerifiedContactMethodsResponse> ListVerifiedContactMethodsAsync(EmptyRequest emptyRequest) =>

@@ -2888,6 +2888,30 @@ class SetClaimTypeLabelResponse
   end
 end
 
+# CBOR codec for ListClaimTypeLabelsResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class ListClaimTypeLabelsResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["labels"] = (labels).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      labels: (node["labels"]).map { |csil_e| ClaimTypeLabel.csil_from_tree(csil_e) }
+    )
+  end
+end
+
 # CBOR codec for RemoveClaimTypeLabelRequest: a map keyed by the verbatim CSIL field names in
 # canonical RFC 8949 order.
 class RemoveClaimTypeLabelRequest
@@ -3889,6 +3913,109 @@ class SetMyClaimSharingResponse
   end
 end
 
+# CBOR codec for MyClaimSetting: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class MyClaimSetting
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["claim_type"] = claim_type
+    csil_map["keep_verified"] = keep_verified
+    csil_map["shared_with_every_app"] = shared_with_every_app
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      claim_type: node["claim_type"],
+      keep_verified: node["keep_verified"],
+      shared_with_every_app: node["shared_with_every_app"]
+    )
+  end
+end
+
+# CBOR codec for MyClaimSettingsResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class MyClaimSettingsResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["profiles"] = (profiles).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["settings"] = (settings).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["max_profiles"] = max_profiles
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      settings: (node["settings"]).map { |csil_e| MyClaimSetting.csil_from_tree(csil_e) },
+      profiles: (node["profiles"]).map { |csil_e| Profile.csil_from_tree(csil_e) },
+      max_profiles: node["max_profiles"]
+    )
+  end
+end
+
+# CBOR codec for SetMyClaimKeepVerifiedRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class SetMyClaimKeepVerifiedRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["claim_type"] = claim_type
+    csil_map["keep_verified"] = keep_verified
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      claim_type: node["claim_type"],
+      keep_verified: node["keep_verified"]
+    )
+  end
+end
+
+# CBOR codec for SetMyClaimKeepVerifiedResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class SetMyClaimKeepVerifiedResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new
+  end
+end
+
 # CBOR codec for Profile: a map keyed by the verbatim CSIL field names in
 # canonical RFC 8949 order.
 class Profile
@@ -4680,6 +4807,7 @@ class BrowserConsentClaim
     csil_map["claim_type"] = claim_type
     csil_map["user_settable"] = user_settable
     csil_map["default_granted"] = default_granted
+    csil_map["newly_requested"] = newly_requested unless newly_requested.nil?
     csil_map["requires_approval"] = requires_approval
     csil_map
   end
@@ -4699,7 +4827,8 @@ class BrowserConsentClaim
       policy: node["policy"],
       user_settable: node["user_settable"],
       max_bytes: node["max_bytes"],
-      requires_approval: node["requires_approval"]
+      requires_approval: node["requires_approval"],
+      newly_requested: (node.key?("newly_requested") ? node["newly_requested"] : nil)
     )
   end
 end
@@ -4771,6 +4900,126 @@ end
 # CBOR codec for BrowserAuthorizationCompleteResponse: a map keyed by the verbatim CSIL field names in
 # canonical RFC 8949 order.
 class BrowserAuthorizationCompleteResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["redirect_url"] = redirect_url
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      redirect_url: node["redirect_url"]
+    )
+  end
+end
+
+# CBOR codec for BrowserLocalRpInspectRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class BrowserLocalRpInspectRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["signed_request"] = signed_request
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      signed_request: node["signed_request"]
+    )
+  end
+end
+
+# CBOR codec for BrowserLocalRpInspectResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class BrowserLocalRpInspectResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["claims"] = (claims).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["app_name"] = app_name
+    csil_map["admission"] = admission
+    csil_map["fingerprint"] = fingerprint
+    csil_map["callback_host"] = callback_host
+    csil_map["first_seen_at"] = first_seen_at unless first_seen_at.nil?
+    csil_map["request_reason"] = request_reason unless request_reason.nil?
+    csil_map["already_consented"] = already_consented unless already_consented.nil?
+    csil_map["authorized_claims"] = (authorized_claims).map { |csil_e| csil_e } unless authorized_claims.nil?
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      admission: node["admission"],
+      app_name: node["app_name"],
+      fingerprint: node["fingerprint"],
+      callback_host: node["callback_host"],
+      first_seen_at: (node.key?("first_seen_at") ? node["first_seen_at"] : nil),
+      claims: (node["claims"]).map { |csil_e| BrowserConsentClaim.csil_from_tree(csil_e) },
+      request_reason: (node.key?("request_reason") ? node["request_reason"] : nil),
+      already_consented: (node.key?("already_consented") ? node["already_consented"] : nil),
+      authorized_claims: (node.key?("authorized_claims") ? (node["authorized_claims"]).map { |csil_e| csil_e } : nil)
+    )
+  end
+end
+
+# CBOR codec for BrowserLocalRpCompleteRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class BrowserLocalRpCompleteRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["signed_request"] = signed_request
+    csil_map["authorized_claims"] = (authorized_claims).map { |csil_e| csil_e }
+    csil_map["claim_types_to_set"] = (claim_types_to_set).map { |csil_e| csil_e }
+    csil_map["use_standing_grant"] = use_standing_grant unless use_standing_grant.nil?
+    csil_map["claim_values_to_set"] = (claim_values_to_set).map { |csil_e| csil_e }
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      signed_request: node["signed_request"],
+      authorized_claims: (node["authorized_claims"]).map { |csil_e| csil_e },
+      claim_types_to_set: (node["claim_types_to_set"]).map { |csil_e| csil_e },
+      claim_values_to_set: (node["claim_values_to_set"]).map { |csil_e| csil_e },
+      use_standing_grant: (node.key?("use_standing_grant") ? node["use_standing_grant"] : nil)
+    )
+  end
+end
+
+# CBOR codec for BrowserLocalRpCompleteResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class BrowserLocalRpCompleteResponse
   def to_cbor
     CsilCbor.encode(csil_to_tree)
   end
@@ -5192,6 +5441,7 @@ class AuthorizeValidateResponse
     csil_map["requested_claims"] = (requested_claims).map { |csil_e| csil_e }
     csil_map["already_consented"] = already_consented unless already_consented.nil?
     csil_map["authorized_claims"] = (authorized_claims).map { |csil_e| csil_e } unless authorized_claims.nil?
+    csil_map["newly_requested_claims"] = (newly_requested_claims).map { |csil_e| csil_e } unless newly_requested_claims.nil?
     csil_map
   end
 
@@ -5205,7 +5455,8 @@ class AuthorizeValidateResponse
       callback_url: node["callback_url"],
       requested_claims: (node["requested_claims"]).map { |csil_e| csil_e },
       already_consented: (node.key?("already_consented") ? node["already_consented"] : nil),
-      authorized_claims: (node.key?("authorized_claims") ? (node["authorized_claims"]).map { |csil_e| csil_e } : nil)
+      authorized_claims: (node.key?("authorized_claims") ? (node["authorized_claims"]).map { |csil_e| csil_e } : nil),
+      newly_requested_claims: (node.key?("newly_requested_claims") ? (node["newly_requested_claims"]).map { |csil_e| csil_e } : nil)
     )
   end
 end
@@ -6032,6 +6283,60 @@ class SetLocalRpPolicyResponse
   def self.csil_from_tree(node)
     new(
       policy: node["policy"]
+    )
+  end
+end
+
+# CBOR codec for SignInPolicy: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class SignInPolicy
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["sign_in_hours"] = sign_in_hours
+    csil_map["max_sign_in_hours"] = max_sign_in_hours
+    csil_map["min_sign_in_hours"] = min_sign_in_hours
+    csil_map["default_sign_in_hours"] = default_sign_in_hours
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      sign_in_hours: node["sign_in_hours"],
+      default_sign_in_hours: node["default_sign_in_hours"],
+      min_sign_in_hours: node["min_sign_in_hours"],
+      max_sign_in_hours: node["max_sign_in_hours"]
+    )
+  end
+end
+
+# CBOR codec for SetSignInPolicyRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class SetSignInPolicyRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["sign_in_hours"] = sign_in_hours
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      sign_in_hours: node["sign_in_hours"]
     )
   end
 end
@@ -7895,6 +8200,312 @@ class RevokeActAsGrantResponse
   def self.csil_from_tree(node)
     new(
       revoked_at: node["revoked_at"]
+    )
+  end
+end
+
+# CBOR codec for PreviewReleasePolicyRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class PreviewReleasePolicyRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["audience"] = audience
+    csil_map["user_choices"] = (user_choices).map { |csil_e| csil_e }
+    csil_map["temp_audience"] = temp_audience unless temp_audience.nil?
+    csil_map["optional_claims"] = (optional_claims).map { |csil_e| csil_e }
+    csil_map["required_claims"] = (required_claims).map { |csil_e| csil_e }
+    csil_map["temp_claim_type"] = temp_claim_type unless temp_claim_type.nil?
+    csil_map["available_claims"] = (available_claims).map { |csil_e| csil_e }
+    csil_map["temp_disposition"] = temp_disposition unless temp_disposition.nil?
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      audience: node["audience"],
+      required_claims: (node["required_claims"]).map { |csil_e| csil_e },
+      optional_claims: (node["optional_claims"]).map { |csil_e| csil_e },
+      available_claims: (node["available_claims"]).map { |csil_e| csil_e },
+      user_choices: (node["user_choices"]).map { |csil_e| csil_e },
+      temp_audience: (node.key?("temp_audience") ? node["temp_audience"] : nil),
+      temp_claim_type: (node.key?("temp_claim_type") ? node["temp_claim_type"] : nil),
+      temp_disposition: (node.key?("temp_disposition") ? node["temp_disposition"] : nil)
+    )
+  end
+end
+
+# CBOR codec for PreviewReleaseRow: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class PreviewReleaseRow
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["locked"] = locked
+    csil_map["policy"] = policy
+    csil_map["required"] = required
+    csil_map["available"] = available
+    csil_map["claim_type"] = claim_type
+    csil_map["default_granted"] = default_granted
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      claim_type: node["claim_type"],
+      required: node["required"],
+      available: node["available"],
+      locked: node["locked"],
+      policy: node["policy"],
+      default_granted: node["default_granted"]
+    )
+  end
+end
+
+# CBOR codec for PreviewReleasePolicyResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class PreviewReleasePolicyResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["rows"] = (rows).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["forced_deny"] = (forced_deny).map { |csil_e| csil_e }
+    csil_map["forced_allow"] = (forced_allow).map { |csil_e| csil_e }
+    csil_map["authorized_claims"] = (authorized_claims).map { |csil_e| csil_e }
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      forced_allow: (node["forced_allow"]).map { |csil_e| csil_e },
+      forced_deny: (node["forced_deny"]).map { |csil_e| csil_e },
+      authorized_claims: (node["authorized_claims"]).map { |csil_e| csil_e },
+      rows: (node["rows"]).map { |csil_e| PreviewReleaseRow.csil_from_tree(csil_e) }
+    )
+  end
+end
+
+# CBOR codec for PreviewIssuerPolicyRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class PreviewIssuerPolicyRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["claim_type"] = claim_type unless claim_type.nil?
+    csil_map["denied_tlds"] = (denied_tlds).map { |csil_e| csil_e } unless denied_tlds.nil?
+    csil_map["denied_domains"] = (denied_domains).map { |csil_e| csil_e } unless denied_domains.nil?
+    csil_map["issuer_user_id"] = issuer_user_id unless issuer_user_id.nil?
+    csil_map["subject_domain"] = subject_domain
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      subject_domain: node["subject_domain"],
+      denied_domains: (node.key?("denied_domains") ? (node["denied_domains"]).map { |csil_e| csil_e } : nil),
+      denied_tlds: (node.key?("denied_tlds") ? (node["denied_tlds"]).map { |csil_e| csil_e } : nil),
+      issuer_user_id: (node.key?("issuer_user_id") ? node["issuer_user_id"] : nil),
+      claim_type: (node.key?("claim_type") ? node["claim_type"] : nil)
+    )
+  end
+end
+
+# CBOR codec for PreviewIssuerPolicyResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class PreviewIssuerPolicyResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["reason"] = reason
+    csil_map["allowed"] = allowed
+    csil_map["denied_tlds"] = (denied_tlds).map { |csil_e| csil_e }
+    csil_map["denied_domains"] = (denied_domains).map { |csil_e| csil_e }
+    csil_map["user_can_issue"] = user_can_issue unless user_can_issue.nil?
+    csil_map["attested_claim_ttl_seconds"] = attested_claim_ttl_seconds
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      denied_domains: (node["denied_domains"]).map { |csil_e| csil_e },
+      denied_tlds: (node["denied_tlds"]).map { |csil_e| csil_e },
+      allowed: node["allowed"],
+      reason: node["reason"],
+      user_can_issue: (node.key?("user_can_issue") ? node["user_can_issue"] : nil),
+      attested_claim_ttl_seconds: node["attested_claim_ttl_seconds"]
+    )
+  end
+end
+
+# CBOR codec for InspectSigningRequestRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class InspectSigningRequestRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["signed_request"] = signed_request
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      signed_request: node["signed_request"]
+    )
+  end
+end
+
+# CBOR codec for InspectSigningRequestResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class InspectSigningRequestResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["expires_at"] = expires_at
+    csil_map["subject_domain"] = subject_domain
+    csil_map["subject_user_id"] = subject_user_id
+    csil_map["issuable_claim_types"] = (issuable_claim_types).map { |csil_e| csil_e }
+    csil_map["requested_claim_types"] = (requested_claim_types).map { |csil_e| csil_e }
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      subject_user_id: node["subject_user_id"],
+      subject_domain: node["subject_domain"],
+      requested_claim_types: (node["requested_claim_types"]).map { |csil_e| csil_e },
+      expires_at: node["expires_at"],
+      issuable_claim_types: (node["issuable_claim_types"]).map { |csil_e| csil_e }
+    )
+  end
+end
+
+# CBOR codec for IssueForSigningRequestRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class IssueForSigningRequestRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["claim_types"] = (claim_types).map { |csil_e| csil_e }
+    csil_map["claim_values"] = (claim_values).map { |csil_e| csil_e }
+    csil_map["signed_request"] = signed_request
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      signed_request: node["signed_request"],
+      claim_types: (node["claim_types"]).map { |csil_e| csil_e },
+      claim_values: (node["claim_values"]).map { |csil_e| csil_e }
+    )
+  end
+end
+
+# CBOR codec for IssuedClaimResult: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class IssuedClaimResult
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["message"] = message unless message.nil?
+    csil_map["outcome"] = outcome
+    csil_map["claim_code"] = claim_code unless claim_code.nil?
+    csil_map["claim_type"] = claim_type
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      claim_type: node["claim_type"],
+      outcome: node["outcome"],
+      message: (node.key?("message") ? node["message"] : nil),
+      claim_code: (node.key?("claim_code") ? node["claim_code"] : nil)
+    )
+  end
+end
+
+# CBOR codec for IssueForSigningRequestResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class IssueForSigningRequestResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["results"] = (results).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      results: (node["results"]).map { |csil_e| IssuedClaimResult.csil_from_tree(csil_e) }
     )
   end
 end

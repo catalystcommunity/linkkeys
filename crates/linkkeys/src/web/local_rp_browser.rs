@@ -344,6 +344,14 @@ fn silent_authorization(
     if prior.is_none() && !admin_covers_all_required {
         return None;
     }
+    // A claim the user has never been shown reopens consent once, even when
+    // optional.
+    if prior.as_ref().is_some_and(|grant| {
+        !liblinkkeys::consent::newly_requested_claims(req, &grant.requested_types, policy)
+            .is_empty()
+    }) {
+        return None;
+    }
     let prior_claims = prior
         .as_ref()
         .map(|grant| grant.claim_types.as_slice())

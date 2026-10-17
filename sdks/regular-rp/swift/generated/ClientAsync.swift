@@ -307,6 +307,36 @@ public struct BrowserAuthorizationAsyncClient {
         return try BrowserActAsCompleteResponse.fromCbor(csilResp)
     }
 
+    public func inspectLocalRp(_ request: BrowserLocalRpInspectRequest) async throws -> BrowserLocalRpInspectResponse {
+        let csilResp = try await transport.call(service: "BrowserAuthorization", op: "inspect-local-rp", request: request.toCbor())
+        return try BrowserLocalRpInspectResponse.fromCbor(csilResp)
+    }
+
+    public func completeLocalRp(_ request: BrowserLocalRpCompleteRequest) async throws -> BrowserLocalRpCompleteResponse {
+        let csilResp = try await transport.call(service: "BrowserAuthorization", op: "complete-local-rp", request: request.toCbor())
+        return try BrowserLocalRpCompleteResponse.fromCbor(csilResp)
+    }
+
+}
+
+/// BrowserIssuerAsyncClient is a typed client for the BrowserIssuer service. The client owns
+/// (de)serialization; the carrier only moves bytes.
+public struct BrowserIssuerAsyncClient {
+    public let transport: AsyncCsilTransport
+    public init(transport: AsyncCsilTransport) {
+        self.transport = transport
+    }
+
+    public func inspectSigningRequest(_ request: InspectSigningRequestRequest) async throws -> InspectSigningRequestResponse {
+        let csilResp = try await transport.call(service: "BrowserIssuer", op: "inspect-signing-request", request: request.toCbor())
+        return try InspectSigningRequestResponse.fromCbor(csilResp)
+    }
+
+    public func issueForSigningRequest(_ request: IssueForSigningRequestRequest) async throws -> IssueForSigningRequestResponse {
+        let csilResp = try await transport.call(service: "BrowserIssuer", op: "issue-for-signing-request", request: request.toCbor())
+        return try IssueForSigningRequestResponse.fromCbor(csilResp)
+    }
+
 }
 
 /// AdminAsyncClient is a typed client for the Admin service. The client owns
@@ -422,6 +452,11 @@ public struct AdminAsyncClient {
         return try RemoveClaimTypeResponse.fromCbor(csilResp)
     }
 
+    public func listClaimTypeLabels(_ request: EmptyRequest) async throws -> ListClaimTypeLabelsResponse {
+        let csilResp = try await transport.call(service: "Admin", op: "list-claim-type-labels", request: request.toCbor())
+        return try ListClaimTypeLabelsResponse.fromCbor(csilResp)
+    }
+
     public func setClaimTypeLabel(_ request: SetClaimTypeLabelRequest) async throws -> SetClaimTypeLabelResponse {
         let csilResp = try await transport.call(service: "Admin", op: "set-claim-type-label", request: request.toCbor())
         return try SetClaimTypeLabelResponse.fromCbor(csilResp)
@@ -480,6 +515,16 @@ public struct AdminAsyncClient {
     public func adminIssueAttestation(_ request: AdminIssueAttestationRequest) async throws -> AdminIssueAttestationResponse {
         let csilResp = try await transport.call(service: "Admin", op: "admin-issue-attestation", request: request.toCbor())
         return try AdminIssueAttestationResponse.fromCbor(csilResp)
+    }
+
+    public func previewReleasePolicy(_ request: PreviewReleasePolicyRequest) async throws -> PreviewReleasePolicyResponse {
+        let csilResp = try await transport.call(service: "Admin", op: "preview-release-policy", request: request.toCbor())
+        return try PreviewReleasePolicyResponse.fromCbor(csilResp)
+    }
+
+    public func previewIssuerPolicy(_ request: PreviewIssuerPolicyRequest) async throws -> PreviewIssuerPolicyResponse {
+        let csilResp = try await transport.call(service: "Admin", op: "preview-issuer-policy", request: request.toCbor())
+        return try PreviewIssuerPolicyResponse.fromCbor(csilResp)
     }
 
     public func grantRelation(_ request: GrantRelationRequest) async throws -> GrantRelationResponse {
@@ -547,6 +592,16 @@ public struct AdminAsyncClient {
         return try PurgeLocalRpTicketsResponse.fromCbor(csilResp)
     }
 
+    public func getSignInPolicy(_ request: EmptyRequest) async throws -> SignInPolicy {
+        let csilResp = try await transport.call(service: "Admin", op: "get-sign-in-policy", request: request.toCbor())
+        return try SignInPolicy.fromCbor(csilResp)
+    }
+
+    public func setSignInPolicy(_ request: SetSignInPolicyRequest) async throws -> SignInPolicy {
+        let csilResp = try await transport.call(service: "Admin", op: "set-sign-in-policy", request: request.toCbor())
+        return try SignInPolicy.fromCbor(csilResp)
+    }
+
 }
 
 /// AccountAsyncClient is a typed client for the Account service. The client owns
@@ -590,6 +645,16 @@ public struct AccountAsyncClient {
     public func createProfile(_ request: CreateProfileRequest) async throws -> CreateProfileResponse {
         let csilResp = try await transport.call(service: "Account", op: "create-profile", request: request.toCbor())
         return try CreateProfileResponse.fromCbor(csilResp)
+    }
+
+    public func getMyClaimSettings(_ request: EmptyRequest) async throws -> MyClaimSettingsResponse {
+        let csilResp = try await transport.call(service: "Account", op: "get-my-claim-settings", request: request.toCbor())
+        return try MyClaimSettingsResponse.fromCbor(csilResp)
+    }
+
+    public func setMyClaimKeepVerified(_ request: SetMyClaimKeepVerifiedRequest) async throws -> SetMyClaimKeepVerifiedResponse {
+        let csilResp = try await transport.call(service: "Account", op: "set-my-claim-keep-verified", request: request.toCbor())
+        return try SetMyClaimKeepVerifiedResponse.fromCbor(csilResp)
     }
 
     public func requestVerification(_ request: RequestVerificationRequest) async throws -> RequestVerificationResponse {

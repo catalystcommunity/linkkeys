@@ -459,3 +459,255 @@ async fn forced_claim_without_a_value_does_not_reopen_consent() {
     );
     assert_eq!(resp.authorized_claims, None);
 }
+
+/// Seed a signing key, a vouched encryption key, a password user holding
+/// `email` and `display_name`, and an API caller with `api_access`. Returns
+/// the rocket client, signing key id + secret, the user, and the caller's
+/// bearer token.
+async fn seeded_idp() -> (
+    linkkeys::db::DbPool,
+    Client,
+    String,
+    Vec<u8>,
+    linkkeys::db::models::User,
+    String,
+) {
+    std::env::set_var("DOMAIN_NAME", TEST_DOMAIN);
+    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
+    std::env::set_var("ENABLE_PASSWORD_AUTH", "true");
+
+    let pool = common::create_test_pool();
+    pool.seed_default_policies().expect("seed policies");
+
+    let (vk, sk) = crypto::generate_ed25519_keypair();
+    let pk = vk.as_bytes().to_vec();
+    let sk_bytes = sk.to_bytes().to_vec();
+    let enc_sk = crypto::encrypt_private_key(&sk_bytes, PASSPHRASE).unwrap();
+    let fp = crypto::fingerprint(&pk);
+    let expires = chrono::Utc::now() + chrono::Duration::days(365);
+    let signing = pool
+        .create_domain_key(&pk, &enc_sk, &fp, "ed25519", expires)
+        .expect("signing key");
+
+    let (epub, epriv) = crypto::generate_x25519_keypair();
+    let efp = crypto::fingerprint(&epub);
+    let epriv_enc = crypto::encrypt_private_key(&epriv, PASSPHRASE).unwrap();
+    let vouch = liblinkkeys::dns::sign_key_vouch(
+        &efp,
+        &expires.to_rfc3339(),
+        SigningAlgorithm::Ed25519,
+        &sk_bytes,
+    )
+    .unwrap();
+    pool.create_domain_encryption_key(&epub, &epriv_enc, &efp, &signing.id, &vouch, expires)
+        .expect("encryption key");
+
+    let mut overrides = DataMap::new();
+    overrides.insert("username".to_string(), serde_json::json!(USERNAME));
+    let user = create_user(&pool, &overrides);
+    let hash = linkkeys::services::password::hash_for_storage(PASSWORD).unwrap();
+    create_auth_credential(&pool, &user.id, "password", &hash);
+    for (claim_type, value) in [("email", &b"a@b.com"[..]), ("display_name", b"Alice")] {
+        pool.create_claim(
+            &uuid::Uuid::now_v7().to_string(),
+            &user.id,
+            claim_type,
+            value,
+            &[],
+            None,
+            chrono::Utc::now(),
+        )
+        .expect("claim");
+    }
+
+    let caller = create_user(&pool, &DataMap::new());
+    let bearer = api_key_for(&pool, &caller.id);
+    create_relation(
+        &pool,
+        "user",
+        &caller.id,
+        "api_access",
+        "domain",
+        TEST_DOMAIN,
+    );
+
+    let config = rocket::Config {
+        secret_key: rocket::config::SecretKey::derive_from(&[7u8; 64]),
+        ..rocket::Config::debug_default()
+    };
+    let rocket = linkkeys::web::build_rocket(
+        pool.clone(),
+        Arc::new(AtomicBool::new(true)),
+        common::net::offline_net(),
+        config,
+    );
+    let client = Client::tracked(rocket).await.expect("rocket client");
+    (pool, client, signing.id, sk_bytes, user, bearer)
+}
+
+async fn inspect(
+    client: &Client,
+    signed_request: &str,
+) -> liblinkkeys::generated::types::BrowserAuthorizationInspectResponse {
+    let resp = rpc(
+        client,
+        "BrowserAuthorization",
+        "inspect",
+        liblinkkeys::generated::encode_browser_authorization_inspect_request(
+            &liblinkkeys::generated::types::BrowserAuthorizationInspectRequest {
+                signed_request: signed_request.to_string(),
+            },
+        ),
+    )
+    .await;
+    assert_eq!(resp.status, RpcStatus::Ok, "inspect succeeds");
+    liblinkkeys::generated::decode_browser_authorization_inspect_response(&resp.payload)
+        .expect("decodable inspect response")
+}
+
+/// An optional claim the app adds after the user's first consent reopens
+/// consent once, marked new. Declining it is remembered: later sign-ins are
+/// silent again.
+#[rocket::async_test]
+async fn new_optional_claim_reopens_consent_once() {
+    let (pool, client, signing_id, sk_bytes, user, bearer) = seeded_idp().await;
+
+    // 1. First consent: email only. Nothing is "new" on a first consent.
+    let sr = signed_claims_request(&signing_id, &sk_bytes, "new-opt-1", &[], false);
+    consent_once(&client, &sr, &["email"]).await;
+    let sr = signed_claims_request(&signing_id, &sk_bytes, "new-opt-1b", &[], false);
+    let resp = call_validate(&client, &bearer, &sr, Some(&user.id)).await;
+    assert_eq!(resp.already_consented, Some(true));
+    assert_eq!(resp.newly_requested_claims, None);
+
+    // 2. The app now also asks for optional display_name. The user holds a
+    //    value, but has never been shown this claim for this app: no silent
+    //    sign-in, and the claim is reported as new.
+    let sr = signed_claims_request(
+        &signing_id,
+        &sk_bytes,
+        "new-opt-2",
+        &["display_name"],
+        false,
+    );
+    let resp = call_validate(&client, &bearer, &sr, Some(&user.id)).await;
+    assert_eq!(
+        resp.already_consented, None,
+        "an unseen optional claim must reopen consent"
+    );
+    assert_eq!(resp.authorized_claims, None);
+    assert_eq!(
+        resp.newly_requested_claims,
+        Some(vec!["display_name".to_string()])
+    );
+
+    // 3. The browser consent screen marks only display_name as new.
+    let screen = inspect(&client, &sr).await;
+    assert_eq!(screen.already_consented, None);
+    let flag = |claim_type: &str| {
+        screen
+            .claims
+            .iter()
+            .find(|c| c.claim_type == claim_type)
+            .expect("row present")
+            .newly_requested
+    };
+    assert_eq!(flag("display_name"), Some(true));
+    assert_eq!(flag("email"), None);
+
+    // 4. A standing-grant completion cannot skip the new claim.
+    let standing = rpc(
+        &client,
+        "BrowserAuthorization",
+        "complete",
+        liblinkkeys::generated::encode_browser_authorization_complete_request(
+            &BrowserAuthorizationCompleteRequest {
+                signed_request: sr.clone(),
+                authorized_claims: Vec::new(),
+                claim_types_to_set: Vec::new(),
+                claim_values_to_set: Vec::new(),
+                use_standing_grant: Some(true),
+            },
+        ),
+    )
+    .await;
+    assert_ne!(
+        standing.status,
+        RpcStatus::Ok,
+        "standing completion must refuse while a claim is new"
+    );
+
+    // 5. The user declines display_name. The decline is remembered: the next
+    //    sign-in is silent and releases email only.
+    let sr = signed_claims_request(
+        &signing_id,
+        &sk_bytes,
+        "new-opt-3",
+        &["display_name"],
+        false,
+    );
+    consent_once(&client, &sr, &["email"]).await;
+    let grant = pool
+        .find_active_consent_grant(&user.id, TEST_DOMAIN)
+        .expect("query grant")
+        .expect("grant stored");
+    assert_eq!(grant.claim_types, vec!["email".to_string()]);
+    let sr = signed_claims_request(
+        &signing_id,
+        &sk_bytes,
+        "new-opt-4",
+        &["display_name"],
+        false,
+    );
+    let resp = call_validate(&client, &bearer, &sr, Some(&user.id)).await;
+    assert_eq!(
+        resp.already_consented,
+        Some(true),
+        "a declined claim is not new"
+    );
+    assert_eq!(resp.authorized_claims, Some(vec!["email".to_string()]));
+    assert_eq!(resp.newly_requested_claims, None);
+    let screen = inspect(&client, &sr).await;
+    assert!(screen.claims.iter().all(|c| c.newly_requested.is_none()));
+}
+
+/// A claim the app stops requesting, then requests again, is new again: the
+/// silent sign-in in between records the smaller requested set.
+#[rocket::async_test]
+async fn dropped_then_readded_claim_is_new_again() {
+    let (_pool, client, signing_id, sk_bytes, user, bearer) = seeded_idp().await;
+
+    let sr = signed_claims_request(&signing_id, &sk_bytes, "readd-1", &["display_name"], false);
+    consent_once(&client, &sr, &["email", "display_name"]).await;
+
+    // The app drops display_name; the sign-in completes silently, which
+    // stores the new requested set.
+    let sr = signed_claims_request(&signing_id, &sk_bytes, "readd-2", &[], false);
+    let screen = inspect(&client, &sr).await;
+    assert_eq!(screen.already_consented, Some(true));
+    let silent = rpc(
+        &client,
+        "BrowserAuthorization",
+        "complete",
+        liblinkkeys::generated::encode_browser_authorization_complete_request(
+            &BrowserAuthorizationCompleteRequest {
+                signed_request: sr,
+                authorized_claims: Vec::new(),
+                claim_types_to_set: Vec::new(),
+                claim_values_to_set: Vec::new(),
+                use_standing_grant: Some(true),
+            },
+        ),
+    )
+    .await;
+    assert_eq!(silent.status, RpcStatus::Ok, "silent completion succeeds");
+
+    // The app asks for display_name again: it is new again.
+    let sr = signed_claims_request(&signing_id, &sk_bytes, "readd-3", &["display_name"], false);
+    let resp = call_validate(&client, &bearer, &sr, Some(&user.id)).await;
+    assert_eq!(resp.already_consented, None);
+    assert_eq!(
+        resp.newly_requested_claims,
+        Some(vec!["display_name".to_string()])
+    );
+}

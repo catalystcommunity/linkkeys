@@ -187,6 +187,23 @@ class BrowserAuthorizationClient(private val transport: Transport) {
     fun completeActAs(request: BrowserActAsCompleteRequest): BrowserActAsCompleteResponse {
         return decode<BrowserActAsCompleteResponse>(transport.call("BrowserAuthorization", "complete-act-as", encode(request)))
     }
+    fun inspectLocalRp(request: BrowserLocalRpInspectRequest): BrowserLocalRpInspectResponse {
+        return decode<BrowserLocalRpInspectResponse>(transport.call("BrowserAuthorization", "inspect-local-rp", encode(request)))
+    }
+    fun completeLocalRp(request: BrowserLocalRpCompleteRequest): BrowserLocalRpCompleteResponse {
+        return decode<BrowserLocalRpCompleteResponse>(transport.call("BrowserAuthorization", "complete-local-rp", encode(request)))
+    }
+}
+
+/** Typed client for the BrowserIssuer service. The client owns (de)serialization;
+ * the carrier only moves bytes. */
+class BrowserIssuerClient(private val transport: Transport) {
+    fun inspectSigningRequest(request: InspectSigningRequestRequest): InspectSigningRequestResponse {
+        return decode<InspectSigningRequestResponse>(transport.call("BrowserIssuer", "inspect-signing-request", encode(request)))
+    }
+    fun issueForSigningRequest(request: IssueForSigningRequestRequest): IssueForSigningRequestResponse {
+        return decode<IssueForSigningRequestResponse>(transport.call("BrowserIssuer", "issue-for-signing-request", encode(request)))
+    }
 }
 
 /** Typed client for the Admin service. The client owns (de)serialization;
@@ -255,6 +272,9 @@ class AdminClient(private val transport: Transport) {
     fun removeClaimType(request: RemoveClaimTypeRequest): RemoveClaimTypeResponse {
         return decode<RemoveClaimTypeResponse>(transport.call("Admin", "remove-claim-type", encode(request)))
     }
+    fun listClaimTypeLabels(request: EmptyRequest): ListClaimTypeLabelsResponse {
+        return decode<ListClaimTypeLabelsResponse>(transport.call("Admin", "list-claim-type-labels", encode(request)))
+    }
     fun setClaimTypeLabel(request: SetClaimTypeLabelRequest): SetClaimTypeLabelResponse {
         return decode<SetClaimTypeLabelResponse>(transport.call("Admin", "set-claim-type-label", encode(request)))
     }
@@ -290,6 +310,12 @@ class AdminClient(private val transport: Transport) {
     }
     fun adminIssueAttestation(request: AdminIssueAttestationRequest): AdminIssueAttestationResponse {
         return decode<AdminIssueAttestationResponse>(transport.call("Admin", "admin-issue-attestation", encode(request)))
+    }
+    fun previewReleasePolicy(request: PreviewReleasePolicyRequest): PreviewReleasePolicyResponse {
+        return decode<PreviewReleasePolicyResponse>(transport.call("Admin", "preview-release-policy", encode(request)))
+    }
+    fun previewIssuerPolicy(request: PreviewIssuerPolicyRequest): PreviewIssuerPolicyResponse {
+        return decode<PreviewIssuerPolicyResponse>(transport.call("Admin", "preview-issuer-policy", encode(request)))
     }
     fun grantRelation(request: GrantRelationRequest): GrantRelationResponse {
         return decode<GrantRelationResponse>(transport.call("Admin", "grant-relation", encode(request)))
@@ -330,6 +356,12 @@ class AdminClient(private val transport: Transport) {
     fun purgeLocalRpTickets(request: PurgeLocalRpTicketsRequest): PurgeLocalRpTicketsResponse {
         return decode<PurgeLocalRpTicketsResponse>(transport.call("Admin", "purge-local-rp-tickets", encode(request)))
     }
+    fun getSignInPolicy(request: EmptyRequest): SignInPolicy {
+        return decode<SignInPolicy>(transport.call("Admin", "get-sign-in-policy", encode(request)))
+    }
+    fun setSignInPolicy(request: SetSignInPolicyRequest): SignInPolicy {
+        return decode<SignInPolicy>(transport.call("Admin", "set-sign-in-policy", encode(request)))
+    }
 }
 
 /** Typed client for the Account service. The client owns (de)serialization;
@@ -355,6 +387,12 @@ class AccountClient(private val transport: Transport) {
     }
     fun createProfile(request: CreateProfileRequest): CreateProfileResponse {
         return decode<CreateProfileResponse>(transport.call("Account", "create-profile", encode(request)))
+    }
+    fun getMyClaimSettings(request: EmptyRequest): MyClaimSettingsResponse {
+        return decode<MyClaimSettingsResponse>(transport.call("Account", "get-my-claim-settings", encode(request)))
+    }
+    fun setMyClaimKeepVerified(request: SetMyClaimKeepVerifiedRequest): SetMyClaimKeepVerifiedResponse {
+        return decode<SetMyClaimKeepVerifiedResponse>(transport.call("Account", "set-my-claim-keep-verified", encode(request)))
     }
     fun requestVerification(request: RequestVerificationRequest): RequestVerificationResponse {
         return decode<RequestVerificationResponse>(transport.call("Account", "request-verification", encode(request)))

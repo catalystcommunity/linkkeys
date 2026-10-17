@@ -1103,6 +1103,11 @@ data class SetClaimTypeLabelResponse(
     val label: ClaimTypeLabel
 )
 
+/** ListClaimTypeLabelsResponse record. */
+data class ListClaimTypeLabelsResponse(
+    val labels: List<ClaimTypeLabel>
+)
+
 /** RemoveClaimTypeLabelRequest record. */
 data class RemoveClaimTypeLabelRequest(
     // wire key: claim_type
@@ -1415,6 +1420,35 @@ data class SetMyClaimSharingRequest(
 /** SetMyClaimSharingResponse record. */
 class SetMyClaimSharingResponse
 
+/** MyClaimSetting record. */
+data class MyClaimSetting(
+    // wire key: claim_type
+    val claimType: String,
+    // wire key: keep_verified
+    val keepVerified: Boolean,
+    // wire key: shared_with_every_app
+    val sharedWithEveryApp: Boolean
+)
+
+/** MyClaimSettingsResponse record. */
+data class MyClaimSettingsResponse(
+    val settings: List<MyClaimSetting>,
+    val profiles: List<Profile>,
+    // wire key: max_profiles
+    val maxProfiles: Long
+)
+
+/** SetMyClaimKeepVerifiedRequest record. */
+data class SetMyClaimKeepVerifiedRequest(
+    // wire key: claim_type
+    val claimType: String,
+    // wire key: keep_verified
+    val keepVerified: Boolean
+)
+
+/** SetMyClaimKeepVerifiedResponse record. */
+class SetMyClaimKeepVerifiedResponse
+
 /** Profile record. */
 data class Profile(
     val id: String,
@@ -1637,7 +1671,9 @@ data class BrowserConsentClaim(
     // wire key: max_bytes
     val maxBytes: Long,
     // wire key: requires_approval
-    val requiresApproval: Boolean
+    val requiresApproval: Boolean,
+    // wire key: newly_requested
+    val newlyRequested: Boolean? = null
 )
 
 /** BrowserAuthorizationInspectResponse record. */
@@ -1669,6 +1705,51 @@ data class BrowserAuthorizationCompleteRequest(
 
 /** BrowserAuthorizationCompleteResponse record. */
 data class BrowserAuthorizationCompleteResponse(
+    // wire key: redirect_url
+    val redirectUrl: String
+)
+
+/** BrowserLocalRpInspectRequest record. */
+data class BrowserLocalRpInspectRequest(
+    // wire key: signed_request
+    val signedRequest: String
+)
+
+/** BrowserLocalRpInspectResponse record. */
+data class BrowserLocalRpInspectResponse(
+    val admission: String,
+    // wire key: app_name
+    val appName: String,
+    val fingerprint: String,
+    // wire key: callback_host
+    val callbackHost: String,
+    // wire key: first_seen_at
+    val firstSeenAt: String? = null,
+    val claims: List<BrowserConsentClaim>,
+    // wire key: request_reason
+    val requestReason: String? = null,
+    // wire key: already_consented
+    val alreadyConsented: Boolean? = null,
+    // wire key: authorized_claims
+    val authorizedClaims: List<String>? = null
+)
+
+/** BrowserLocalRpCompleteRequest record. */
+data class BrowserLocalRpCompleteRequest(
+    // wire key: signed_request
+    val signedRequest: String,
+    // wire key: authorized_claims
+    val authorizedClaims: List<String>,
+    // wire key: claim_types_to_set
+    val claimTypesToSet: List<String>,
+    // wire key: claim_values_to_set
+    val claimValuesToSet: List<String>,
+    // wire key: use_standing_grant
+    val useStandingGrant: Boolean? = null
+)
+
+/** BrowserLocalRpCompleteResponse record. */
+data class BrowserLocalRpCompleteResponse(
     // wire key: redirect_url
     val redirectUrl: String
 )
@@ -1821,7 +1902,9 @@ data class AuthorizeValidateResponse(
     // wire key: already_consented
     val alreadyConsented: Boolean? = null,
     // wire key: authorized_claims
-    val authorizedClaims: List<String>? = null
+    val authorizedClaims: List<String>? = null,
+    // wire key: newly_requested_claims
+    val newlyRequestedClaims: List<String>? = null
 )
 
 /** AuthorizeFinalizeRequest record. */
@@ -2316,6 +2399,24 @@ data class SetLocalRpPolicyRequest(
 /** SetLocalRpPolicyResponse record. */
 data class SetLocalRpPolicyResponse(
     val policy: LocalRpPolicy
+)
+
+/** SignInPolicy record. */
+data class SignInPolicy(
+    // wire key: sign_in_hours
+    val signInHours: Long,
+    // wire key: default_sign_in_hours
+    val defaultSignInHours: Long,
+    // wire key: min_sign_in_hours
+    val minSignInHours: Long,
+    // wire key: max_sign_in_hours
+    val maxSignInHours: Long
+)
+
+/** SetSignInPolicyRequest record. */
+data class SetSignInPolicyRequest(
+    // wire key: sign_in_hours
+    val signInHours: Long
 )
 
 /** PurgeLocalRpTicketsRequest record. */
@@ -3277,5 +3378,120 @@ data class RevokeActAsGrantRequest(
 data class RevokeActAsGrantResponse(
     // wire key: revoked_at
     val revokedAt: String
+)
+
+/** PreviewReleasePolicyRequest record. */
+data class PreviewReleasePolicyRequest(
+    val audience: String,
+    // wire key: required_claims
+    val requiredClaims: List<String>,
+    // wire key: optional_claims
+    val optionalClaims: List<String>,
+    // wire key: available_claims
+    val availableClaims: List<String>,
+    // wire key: user_choices
+    val userChoices: List<String>,
+    // wire key: temp_audience
+    val tempAudience: String? = null,
+    // wire key: temp_claim_type
+    val tempClaimType: String? = null,
+    // wire key: temp_disposition
+    val tempDisposition: String? = null
+)
+
+/** PreviewReleaseRow record. */
+data class PreviewReleaseRow(
+    // wire key: claim_type
+    val claimType: String,
+    val required: Boolean,
+    val available: Boolean,
+    val locked: Boolean,
+    val policy: String,
+    // wire key: default_granted
+    val defaultGranted: Boolean
+)
+
+/** PreviewReleasePolicyResponse record. */
+data class PreviewReleasePolicyResponse(
+    // wire key: forced_allow
+    val forcedAllow: List<String>,
+    // wire key: forced_deny
+    val forcedDeny: List<String>,
+    // wire key: authorized_claims
+    val authorizedClaims: List<String>,
+    val rows: List<PreviewReleaseRow>
+)
+
+/** PreviewIssuerPolicyRequest record. */
+data class PreviewIssuerPolicyRequest(
+    // wire key: subject_domain
+    val subjectDomain: String,
+    // wire key: denied_domains
+    val deniedDomains: List<String>? = null,
+    // wire key: denied_tlds
+    val deniedTlds: List<String>? = null,
+    // wire key: issuer_user_id
+    val issuerUserId: String? = null,
+    // wire key: claim_type
+    val claimType: String? = null
+)
+
+/** PreviewIssuerPolicyResponse record. */
+data class PreviewIssuerPolicyResponse(
+    // wire key: denied_domains
+    val deniedDomains: List<String>,
+    // wire key: denied_tlds
+    val deniedTlds: List<String>,
+    val allowed: Boolean,
+    val reason: String,
+    // wire key: user_can_issue
+    val userCanIssue: Boolean? = null,
+    // wire key: attested_claim_ttl_seconds
+    val attestedClaimTtlSeconds: Long
+)
+
+/** InspectSigningRequestRequest record. */
+data class InspectSigningRequestRequest(
+    // wire key: signed_request
+    val signedRequest: String
+)
+
+/** InspectSigningRequestResponse record. */
+data class InspectSigningRequestResponse(
+    // wire key: subject_user_id
+    val subjectUserId: String,
+    // wire key: subject_domain
+    val subjectDomain: String,
+    // wire key: requested_claim_types
+    val requestedClaimTypes: List<String>,
+    // wire key: expires_at
+    val expiresAt: String,
+    // wire key: issuable_claim_types
+    val issuableClaimTypes: List<String>
+)
+
+/** IssueForSigningRequestRequest record. */
+data class IssueForSigningRequestRequest(
+    // wire key: signed_request
+    val signedRequest: String,
+    // wire key: claim_types
+    val claimTypes: List<String>,
+    // wire key: claim_values
+    val claimValues: List<String>
+)
+
+/** IssuedClaimResult record. */
+data class IssuedClaimResult(
+    // wire key: claim_type
+    val claimType: String,
+    val outcome: String,
+    val message: String? = null,
+    // wire key: claim_code
+    val claimCode: String? = null
+)
+
+/** IssueForSigningRequestResponse record. */
+data class IssueForSigningRequestResponse(
+    val results: List<IssuedClaimResult>
 )
 

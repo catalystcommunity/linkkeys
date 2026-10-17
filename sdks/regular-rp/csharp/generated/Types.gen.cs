@@ -965,6 +965,12 @@ public sealed record SetClaimTypeLabelResponse
     public required ClaimTypeLabel Label { get; init; }
 }
 
+public sealed record ListClaimTypeLabelsResponse
+{
+    // CBOR key: labels
+    public required System.Collections.Generic.List<ClaimTypeLabel> Labels { get; init; }
+}
+
 public sealed record RemoveClaimTypeLabelRequest
 {
     // CBOR key: claim_type
@@ -1265,6 +1271,38 @@ public sealed record SetMyClaimSharingResponse
 {
 }
 
+public sealed record MyClaimSetting
+{
+    // CBOR key: claim_type
+    public required string ClaimType { get; init; }
+    // CBOR key: keep_verified
+    public required bool KeepVerified { get; init; }
+    // CBOR key: shared_with_every_app
+    public required bool SharedWithEveryApp { get; init; }
+}
+
+public sealed record MyClaimSettingsResponse
+{
+    // CBOR key: settings
+    public required System.Collections.Generic.List<MyClaimSetting> Settings { get; init; }
+    // CBOR key: profiles
+    public required System.Collections.Generic.List<Profile> Profiles { get; init; }
+    // CBOR key: max_profiles
+    public required long MaxProfiles { get; init; }
+}
+
+public sealed record SetMyClaimKeepVerifiedRequest
+{
+    // CBOR key: claim_type
+    public required string ClaimType { get; init; }
+    // CBOR key: keep_verified
+    public required bool KeepVerified { get; init; }
+}
+
+public sealed record SetMyClaimKeepVerifiedResponse
+{
+}
+
 public sealed record Profile
 {
     // CBOR key: id
@@ -1521,6 +1559,8 @@ public sealed record BrowserConsentClaim
     public required long MaxBytes { get; init; }
     // CBOR key: requires_approval
     public required bool RequiresApproval { get; init; }
+    // CBOR key: newly_requested
+    public bool? NewlyRequested { get; init; }
 }
 
 public sealed record BrowserAuthorizationInspectResponse
@@ -1552,6 +1592,54 @@ public sealed record BrowserAuthorizationCompleteRequest
 }
 
 public sealed record BrowserAuthorizationCompleteResponse
+{
+    // CBOR key: redirect_url
+    public required string RedirectUrl { get; init; }
+}
+
+public sealed record BrowserLocalRpInspectRequest
+{
+    // CBOR key: signed_request
+    public required string SignedRequest { get; init; }
+}
+
+public sealed record BrowserLocalRpInspectResponse
+{
+    // CBOR key: admission
+    public required string Admission { get; init; }
+    // CBOR key: app_name
+    public required string AppName { get; init; }
+    // CBOR key: fingerprint
+    public required string Fingerprint { get; init; }
+    // CBOR key: callback_host
+    public required string CallbackHost { get; init; }
+    // CBOR key: first_seen_at
+    public string? FirstSeenAt { get; init; }
+    // CBOR key: claims
+    public required System.Collections.Generic.List<BrowserConsentClaim> Claims { get; init; }
+    // CBOR key: request_reason
+    public string? RequestReason { get; init; }
+    // CBOR key: already_consented
+    public bool? AlreadyConsented { get; init; }
+    // CBOR key: authorized_claims
+    public System.Collections.Generic.List<string>? AuthorizedClaims { get; init; }
+}
+
+public sealed record BrowserLocalRpCompleteRequest
+{
+    // CBOR key: signed_request
+    public required string SignedRequest { get; init; }
+    // CBOR key: authorized_claims
+    public required System.Collections.Generic.List<string> AuthorizedClaims { get; init; }
+    // CBOR key: claim_types_to_set
+    public required System.Collections.Generic.List<string> ClaimTypesToSet { get; init; }
+    // CBOR key: claim_values_to_set
+    public required System.Collections.Generic.List<string> ClaimValuesToSet { get; init; }
+    // CBOR key: use_standing_grant
+    public bool? UseStandingGrant { get; init; }
+}
+
+public sealed record BrowserLocalRpCompleteResponse
 {
     // CBOR key: redirect_url
     public required string RedirectUrl { get; init; }
@@ -1703,6 +1791,8 @@ public sealed record AuthorizeValidateResponse
     public bool? AlreadyConsented { get; init; }
     // CBOR key: authorized_claims
     public System.Collections.Generic.List<string>? AuthorizedClaims { get; init; }
+    // CBOR key: newly_requested_claims
+    public System.Collections.Generic.List<string>? NewlyRequestedClaims { get; init; }
 }
 
 public sealed record AuthorizeFinalizeRequest
@@ -2058,6 +2148,24 @@ public sealed record SetLocalRpPolicyResponse
 {
     // CBOR key: policy
     public required LocalRpPolicy Policy { get; init; }
+}
+
+public sealed record SignInPolicy
+{
+    // CBOR key: sign_in_hours
+    public required long SignInHours { get; init; }
+    // CBOR key: default_sign_in_hours
+    public required long DefaultSignInHours { get; init; }
+    // CBOR key: min_sign_in_hours
+    public required long MinSignInHours { get; init; }
+    // CBOR key: max_sign_in_hours
+    public required long MaxSignInHours { get; init; }
+}
+
+public sealed record SetSignInPolicyRequest
+{
+    // CBOR key: sign_in_hours
+    public required long SignInHours { get; init; }
 }
 
 public sealed record PurgeLocalRpTicketsRequest
@@ -2788,5 +2896,131 @@ public sealed record RevokeActAsGrantResponse
 {
     // CBOR key: revoked_at
     public required string RevokedAt { get; init; }
+}
+
+public sealed record PreviewReleasePolicyRequest
+{
+    // CBOR key: audience
+    public required string Audience { get; init; }
+    // CBOR key: required_claims
+    public required System.Collections.Generic.List<string> RequiredClaims { get; init; }
+    // CBOR key: optional_claims
+    public required System.Collections.Generic.List<string> OptionalClaims { get; init; }
+    // CBOR key: available_claims
+    public required System.Collections.Generic.List<string> AvailableClaims { get; init; }
+    // CBOR key: user_choices
+    public required System.Collections.Generic.List<string> UserChoices { get; init; }
+    // CBOR key: temp_audience
+    public string? TempAudience { get; init; }
+    // CBOR key: temp_claim_type
+    public string? TempClaimType { get; init; }
+    // CBOR key: temp_disposition
+    public string? TempDisposition { get; init; }
+}
+
+public sealed record PreviewReleaseRow
+{
+    // CBOR key: claim_type
+    public required string ClaimType { get; init; }
+    // CBOR key: required
+    public required bool Required { get; init; }
+    // CBOR key: available
+    public required bool Available { get; init; }
+    // CBOR key: locked
+    public required bool Locked { get; init; }
+    // CBOR key: policy
+    public required string Policy { get; init; }
+    // CBOR key: default_granted
+    public required bool DefaultGranted { get; init; }
+}
+
+public sealed record PreviewReleasePolicyResponse
+{
+    // CBOR key: forced_allow
+    public required System.Collections.Generic.List<string> ForcedAllow { get; init; }
+    // CBOR key: forced_deny
+    public required System.Collections.Generic.List<string> ForcedDeny { get; init; }
+    // CBOR key: authorized_claims
+    public required System.Collections.Generic.List<string> AuthorizedClaims { get; init; }
+    // CBOR key: rows
+    public required System.Collections.Generic.List<PreviewReleaseRow> Rows { get; init; }
+}
+
+public sealed record PreviewIssuerPolicyRequest
+{
+    // CBOR key: subject_domain
+    public required string SubjectDomain { get; init; }
+    // CBOR key: denied_domains
+    public System.Collections.Generic.List<string>? DeniedDomains { get; init; }
+    // CBOR key: denied_tlds
+    public System.Collections.Generic.List<string>? DeniedTlds { get; init; }
+    // CBOR key: issuer_user_id
+    public string? IssuerUserId { get; init; }
+    // CBOR key: claim_type
+    public string? ClaimType { get; init; }
+}
+
+public sealed record PreviewIssuerPolicyResponse
+{
+    // CBOR key: denied_domains
+    public required System.Collections.Generic.List<string> DeniedDomains { get; init; }
+    // CBOR key: denied_tlds
+    public required System.Collections.Generic.List<string> DeniedTlds { get; init; }
+    // CBOR key: allowed
+    public required bool Allowed { get; init; }
+    // CBOR key: reason
+    public required string Reason { get; init; }
+    // CBOR key: user_can_issue
+    public bool? UserCanIssue { get; init; }
+    // CBOR key: attested_claim_ttl_seconds
+    public required long AttestedClaimTtlSeconds { get; init; }
+}
+
+public sealed record InspectSigningRequestRequest
+{
+    // CBOR key: signed_request
+    public required string SignedRequest { get; init; }
+}
+
+public sealed record InspectSigningRequestResponse
+{
+    // CBOR key: subject_user_id
+    public required string SubjectUserId { get; init; }
+    // CBOR key: subject_domain
+    public required string SubjectDomain { get; init; }
+    // CBOR key: requested_claim_types
+    public required System.Collections.Generic.List<string> RequestedClaimTypes { get; init; }
+    // CBOR key: expires_at
+    public required string ExpiresAt { get; init; }
+    // CBOR key: issuable_claim_types
+    public required System.Collections.Generic.List<string> IssuableClaimTypes { get; init; }
+}
+
+public sealed record IssueForSigningRequestRequest
+{
+    // CBOR key: signed_request
+    public required string SignedRequest { get; init; }
+    // CBOR key: claim_types
+    public required System.Collections.Generic.List<string> ClaimTypes { get; init; }
+    // CBOR key: claim_values
+    public required System.Collections.Generic.List<string> ClaimValues { get; init; }
+}
+
+public sealed record IssuedClaimResult
+{
+    // CBOR key: claim_type
+    public required string ClaimType { get; init; }
+    // CBOR key: outcome
+    public required string Outcome { get; init; }
+    // CBOR key: message
+    public string? Message { get; init; }
+    // CBOR key: claim_code
+    public string? ClaimCode { get; init; }
+}
+
+public sealed record IssueForSigningRequestResponse
+{
+    // CBOR key: results
+    public required System.Collections.Generic.List<IssuedClaimResult> Results { get; init; }
 }
 

@@ -282,6 +282,9 @@ pub struct ConsentScreenRow {
     pub available: bool,
     /// This type was in a prior standing grant for this audience (pre-check it).
     pub previously_granted: bool,
+    /// The RP did not request this type when the user last consented to this
+    /// audience, so the user has never seen it. Always false on first consent.
+    pub newly_requested: bool,
     /// Home-domain policy fixes this row; the user cannot change it.
     pub locked: bool,
     pub policy: PolicyDisposition,
@@ -306,14 +309,46 @@ pub struct ConsentScreen {
     pub rows: Vec<ConsentScreenRow>,
 }
 
+/// Requested claim types the user has not seen for this audience:
+///
+/// `new = (required ∪ optional) − prior_requested − forced_deny`
+///
+/// `prior_requested` is everything the RP requested when the user last
+/// consented, including optional types the user declined. Comparing against
+/// that set, not against the granted set, means a declined claim does not
+/// reopen consent on every sign-in. A forced-deny type is never new: the user
+/// cannot act on it. Result is canonical (sorted/deduped).
+pub fn newly_requested_claims(
+    req: &ClaimRequest,
+    prior_requested: &[String],
+    policy: &DomainPolicy,
+) -> Vec<String> {
+    let seen: BTreeSet<&str> = prior_requested.iter().map(String::as_str).collect();
+    let forced_deny: BTreeSet<&str> = policy.forced_deny.iter().map(String::as_str).collect();
+    req.required
+        .iter()
+        .chain(req.optional.iter())
+        .map(|r| r.claim_type.as_str())
+        .filter(|ct| !seen.contains(ct) && !forced_deny.contains(ct))
+        .collect::<BTreeSet<&str>>()
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+}
+
 /// Compute the consent screen for an RP's request, given what the user holds, an
 /// optional prior standing grant for this audience, and home-domain policy. Rows
 /// are the union of requested (required ∪ optional) claim types, sorted, each
 /// annotated. Policy-forced rows are marked `locked`.
+///
+/// `prior_requested` is the claim types the RP requested when the user last
+/// consented (see [`newly_requested_claims`]). `None` means no prior consent,
+/// so no row is marked new.
 pub fn resolve_consent_screen(
     req: &ClaimRequest,
     available: &[Claim],
     prior: Option<&ConsentGrant>,
+    prior_requested: Option<&[String]>,
     policy: &DomainPolicy,
 ) -> ConsentScreen {
     let required: BTreeSet<&str> = req.required.iter().map(|r| r.claim_type.as_str()).collect();
@@ -323,6 +358,9 @@ pub fn resolve_consent_screen(
         .map(|g| g.claim_types.iter().map(String::as_str).collect())
         .unwrap_or_default();
     let available_types: BTreeSet<&str> = available.iter().map(|c| c.claim_type.as_str()).collect();
+    let newly_requested: Vec<String> = prior_requested
+        .map(|seen| newly_requested_claims(req, seen, policy))
+        .unwrap_or_default();
 
     // Datatype per requested claim type. If a type appears in both required and
     // optional, required's datatype wins (looked up first).
@@ -347,6 +385,7 @@ pub fn resolve_consent_screen(
                 required: required.contains(claim_type),
                 available: available_types.contains(claim_type),
                 previously_granted: prior_types.contains(claim_type),
+                newly_requested: newly_requested.iter().any(|t| t == claim_type),
                 locked: policy_disp != PolicyDisposition::User,
                 policy: policy_disp,
             }
@@ -771,7 +810,15 @@ mod tests {
                 revoked_at: None,
             },
         ];
-        let screen = resolve_consent_screen(&r, &available, Some(&prior), &policy);
+        // Last consent requested email and avatar; display_name is new.
+        let prior_requested = types(&["email", "avatar"]);
+        let screen = resolve_consent_screen(
+            &r,
+            &available,
+            Some(&prior),
+            Some(&prior_requested),
+            &policy,
+        );
         let row = |ct: &str| {
             screen
                 .rows
@@ -784,6 +831,7 @@ mod tests {
         let email = row("email");
         assert!(email.required && email.available && email.previously_granted && !email.locked);
         assert!(email.default_granted());
+        assert!(!email.newly_requested);
 
         let avatar = row("avatar");
         assert!(avatar.locked && avatar.policy == PolicyDisposition::ForcedDeny);
@@ -793,6 +841,53 @@ mod tests {
         let dn = row("display_name");
         assert!(!dn.required && dn.available && !dn.previously_granted);
         assert!(!dn.default_granted());
+        assert!(dn.newly_requested);
+    }
+
+    #[test]
+    fn test_resolve_screen_first_consent_marks_nothing_new() {
+        let r = req(&[("email", "email")], &[("display_name", "text")]);
+        let screen = resolve_consent_screen(&r, &[], None, None, &DomainPolicy::default());
+        assert!(screen.rows.iter().all(|row| !row.newly_requested));
+    }
+
+    #[test]
+    fn test_newly_requested_ignores_declined_and_forced_deny() {
+        let r = req(
+            &[("email", "email")],
+            &[
+                ("display_name", "text"),
+                ("avatar", "url"),
+                ("phone", "text"),
+            ],
+        );
+        let policy = DomainPolicy {
+            forced_deny: types(&["phone"]),
+            ..Default::default()
+        };
+        // The user saw email + display_name before (and may have declined
+        // display_name). avatar is new; phone is new but policy-denied.
+        let prior_requested = types(&["email", "display_name"]);
+        assert_eq!(
+            newly_requested_claims(&r, &prior_requested, &policy),
+            types(&["avatar"])
+        );
+    }
+
+    #[test]
+    fn test_newly_requested_empty_when_request_shrinks_or_matches() {
+        let r = req(&[("email", "email")], &[]);
+        let prior_requested = types(&["email", "display_name"]);
+        assert!(newly_requested_claims(&r, &prior_requested, &DomainPolicy::default()).is_empty());
+    }
+
+    #[test]
+    fn test_newly_requested_dedupes_required_and_optional() {
+        let r = req(&[("avatar", "url")], &[("avatar", "url")]);
+        assert_eq!(
+            newly_requested_claims(&r, &[], &DomainPolicy::default()),
+            types(&["avatar"])
+        );
     }
 
     #[test]

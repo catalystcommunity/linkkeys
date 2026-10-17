@@ -455,6 +455,65 @@ final class BrowserAuthorizationAsyncClient {
       CsilCbor.decode(csilResp),
     );
   }
+
+  Future<BrowserLocalRpInspectResponse> inspectLocalRp(
+    BrowserLocalRpInspectRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'BrowserAuthorization',
+      'inspect-local-rp',
+      request.toCbor(),
+    );
+    return BrowserLocalRpInspectResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
+
+  Future<BrowserLocalRpCompleteResponse> completeLocalRp(
+    BrowserLocalRpCompleteRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'BrowserAuthorization',
+      'complete-local-rp',
+      request.toCbor(),
+    );
+    return BrowserLocalRpCompleteResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
+}
+
+/// A typed, transport-agnostic client for the BrowserIssuer service. The client owns
+/// (de)serialization; the carrier only moves bytes.
+final class BrowserIssuerAsyncClient {
+  final AsyncCsilTransport transport;
+  const BrowserIssuerAsyncClient(this.transport);
+
+  Future<InspectSigningRequestResponse> inspectSigningRequest(
+    InspectSigningRequestRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'BrowserIssuer',
+      'inspect-signing-request',
+      request.toCbor(),
+    );
+    return InspectSigningRequestResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
+
+  Future<IssueForSigningRequestResponse> issueForSigningRequest(
+    IssueForSigningRequestRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'BrowserIssuer',
+      'issue-for-signing-request',
+      request.toCbor(),
+    );
+    return IssueForSigningRequestResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
 }
 
 /// A typed, transport-agnostic client for the Admin service. The client owns
@@ -674,6 +733,17 @@ final class AdminAsyncClient {
     return RemoveClaimTypeResponse.fromCborValue(CsilCbor.decode(csilResp));
   }
 
+  Future<ListClaimTypeLabelsResponse> listClaimTypeLabels(
+    EmptyRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'Admin',
+      'list-claim-type-labels',
+      request.toCbor(),
+    );
+    return ListClaimTypeLabelsResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
   Future<SetClaimTypeLabelResponse> setClaimTypeLabel(
     SetClaimTypeLabelRequest request,
   ) async {
@@ -806,6 +876,30 @@ final class AdminAsyncClient {
     return AdminIssueAttestationResponse.fromCborValue(
       CsilCbor.decode(csilResp),
     );
+  }
+
+  Future<PreviewReleasePolicyResponse> previewReleasePolicy(
+    PreviewReleasePolicyRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'Admin',
+      'preview-release-policy',
+      request.toCbor(),
+    );
+    return PreviewReleasePolicyResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
+
+  Future<PreviewIssuerPolicyResponse> previewIssuerPolicy(
+    PreviewIssuerPolicyRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'Admin',
+      'preview-issuer-policy',
+      request.toCbor(),
+    );
+    return PreviewIssuerPolicyResponse.fromCborValue(CsilCbor.decode(csilResp));
   }
 
   Future<GrantRelationResponse> grantRelation(
@@ -942,6 +1036,24 @@ final class AdminAsyncClient {
     );
     return PurgeLocalRpTicketsResponse.fromCborValue(CsilCbor.decode(csilResp));
   }
+
+  Future<SignInPolicy> getSignInPolicy(EmptyRequest request) async {
+    final csilResp = await transport.call(
+      'Admin',
+      'get-sign-in-policy',
+      request.toCbor(),
+    );
+    return SignInPolicy.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
+  Future<SignInPolicy> setSignInPolicy(SetSignInPolicyRequest request) async {
+    final csilResp = await transport.call(
+      'Admin',
+      'set-sign-in-policy',
+      request.toCbor(),
+    );
+    return SignInPolicy.fromCborValue(CsilCbor.decode(csilResp));
+  }
 }
 
 /// A typed, transport-agnostic client for the Account service. The client owns
@@ -1023,6 +1135,30 @@ final class AccountAsyncClient {
       request.toCbor(),
     );
     return CreateProfileResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
+  Future<MyClaimSettingsResponse> getMyClaimSettings(
+    EmptyRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'Account',
+      'get-my-claim-settings',
+      request.toCbor(),
+    );
+    return MyClaimSettingsResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
+  Future<SetMyClaimKeepVerifiedResponse> setMyClaimKeepVerified(
+    SetMyClaimKeepVerifiedRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'Account',
+      'set-my-claim-keep-verified',
+      request.toCbor(),
+    );
+    return SetMyClaimKeepVerifiedResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
   }
 
   Future<RequestVerificationResponse> requestVerification(

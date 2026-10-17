@@ -12,6 +12,7 @@ public record BrowserConsentClaim(
     String policy /* wire: "policy" */,
     boolean userSettable /* wire: "user_settable" */,
     long maxBytes /* wire: "max_bytes" */,
-    boolean requiresApproval /* wire: "requires_approval" */
+    boolean requiresApproval /* wire: "requires_approval" */,
+    Boolean newlyRequested /* wire: "newly_requested" */
 ) {
 }
