@@ -10,6 +10,10 @@ ignore = [
     { id = "RUSTSEC-2026-0098", reason = "Rocket uses the affected rustls-webpki only for server TLS; LinkKeys does not enable mutual TLS or verify client certificate names." },
     { id = "RUSTSEC-2026-0099", reason = "Rocket uses the affected rustls-webpki only for server TLS; LinkKeys does not enable mutual TLS or verify client certificate names." },
     { id = "RUSTSEC-2026-0104", reason = "LinkKeys and Rocket do not parse certificate revocation lists." },
+    # rustls 0.21 has no patched release. Both advisories are client-side. The
+    # LinkKeys rustls 0.23 client is on the patched 0.23.46 release.
+    { id = "RUSTSEC-2026-0346", reason = "Rocket 0.5.1 uses rustls 0.21 only as a TLS server; the advisory affects Debug output of client session values." },
+    { id = "RUSTSEC-2026-0349", reason = "Rocket 0.5.1 uses rustls 0.21 only as a TLS server; the advisory affects client key-share prediction." },
     { id = "RUSTSEC-2025-0134", reason = "The unmaintained crate is a private transitive dependency of Rocket 0.5.1, the latest Rocket release." },
     { crate = "spin@0.9.8", reason = "Rocket 0.5.1 requires multer 3.1, which requires the yanked spin 0.9 release." },
 ]
