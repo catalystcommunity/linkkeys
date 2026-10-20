@@ -1793,6 +1793,9 @@ def _encode_admin_user_value(v: "AdminUser") -> Dict[Any, Any]:
     csil_x = v.purge_reason
     if csil_x is not None:
         csil_m["purge_reason"] = csil_x
+    csil_x = v.password_locked
+    if csil_x is not None:
+        csil_m["password_locked"] = csil_x
     return csil_m
 
 def _decode_admin_user_value(tree: Any) -> "AdminUser":
@@ -1806,6 +1809,7 @@ def _decode_admin_user_value(tree: Any) -> "AdminUser":
         updated_at=_csil_expect_text(tree["updated_at"]),
         purged_at=(None if tree.get("purged_at") is None else _csil_expect_text(tree["purged_at"])),
         purge_reason=(None if tree.get("purge_reason") is None else _csil_expect_text(tree["purge_reason"])),
+        password_locked=(None if tree.get("password_locked") is None else _csil_expect_bool(tree["password_locked"])),
     )
 
 
@@ -4929,6 +4933,9 @@ BrowserConsentClaim.from_cbor = staticmethod(_browser_consent_claim_from_cbor)
 def _encode_browser_authorization_inspect_response_value(v: "BrowserAuthorizationInspectResponse") -> Dict[Any, Any]:
     csil_m: Dict[Any, Any] = {}
     csil_m["claims"] = [_encode_browser_consent_claim_value(csil_e) for csil_e in v.claims]
+    csil_x = v.access_denied
+    if csil_x is not None:
+        csil_m["access_denied"] = _encode_app_access_denial_value(csil_x)
     csil_m["relying_party"] = v.relying_party
     csil_x = v.request_reason
     if csil_x is not None:
@@ -4949,6 +4956,7 @@ def _decode_browser_authorization_inspect_response_value(tree: Any) -> "BrowserA
         request_reason=(None if tree.get("request_reason") is None else _csil_expect_text(tree["request_reason"])),
         already_consented=(None if tree.get("already_consented") is None else _csil_expect_bool(tree["already_consented"])),
         authorized_claims=(None if tree.get("authorized_claims") is None else [_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["authorized_claims"])]),
+        access_denied=(None if tree.get("access_denied") is None else _decode_app_access_denial_value(tree["access_denied"])),
     )
 
 
@@ -5048,6 +5056,9 @@ def _encode_browser_local_rp_inspect_response_value(v: "BrowserLocalRpInspectRes
     csil_m["app_name"] = v.app_name
     csil_m["admission"] = v.admission
     csil_m["fingerprint"] = v.fingerprint
+    csil_x = v.access_denied
+    if csil_x is not None:
+        csil_m["access_denied"] = _encode_app_access_denial_value(csil_x)
     csil_m["callback_host"] = v.callback_host
     csil_x = v.first_seen_at
     if csil_x is not None:
@@ -5075,6 +5086,7 @@ def _decode_browser_local_rp_inspect_response_value(tree: Any) -> "BrowserLocalR
         request_reason=(None if tree.get("request_reason") is None else _csil_expect_text(tree["request_reason"])),
         already_consented=(None if tree.get("already_consented") is None else _csil_expect_bool(tree["already_consented"])),
         authorized_claims=(None if tree.get("authorized_claims") is None else [_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["authorized_claims"])]),
+        access_denied=(None if tree.get("access_denied") is None else _decode_app_access_denial_value(tree["access_denied"])),
     )
 
 
@@ -5544,6 +5556,9 @@ AuthorizeValidateRequest.from_cbor = staticmethod(_authorize_validate_request_fr
 def _encode_authorize_validate_response_value(v: "AuthorizeValidateResponse") -> Dict[Any, Any]:
     csil_m: Dict[Any, Any] = {}
     csil_m["callback_url"] = v.callback_url
+    csil_x = v.access_denied
+    if csil_x is not None:
+        csil_m["access_denied"] = _encode_app_access_denial_value(csil_x)
     csil_m["relying_party"] = v.relying_party
     csil_m["requested_claims"] = v.requested_claims
     csil_x = v.already_consented
@@ -5566,6 +5581,7 @@ def _decode_authorize_validate_response_value(tree: Any) -> "AuthorizeValidateRe
         already_consented=(None if tree.get("already_consented") is None else _csil_expect_bool(tree["already_consented"])),
         authorized_claims=(None if tree.get("authorized_claims") is None else [_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["authorized_claims"])]),
         newly_requested_claims=(None if tree.get("newly_requested_claims") is None else [_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["newly_requested_claims"])]),
+        access_denied=(None if tree.get("access_denied") is None else _decode_app_access_denial_value(tree["access_denied"])),
     )
 
 
@@ -6441,6 +6457,344 @@ def _set_sign_in_policy_request_from_cbor(data: bytes) -> "SetSignInPolicyReques
 
 SetSignInPolicyRequest.to_cbor = _set_sign_in_policy_request_to_cbor
 SetSignInPolicyRequest.from_cbor = staticmethod(_set_sign_in_policy_request_from_cbor)
+
+def _encode_set_user_password_lock_request_value(v: "SetUserPasswordLockRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["locked"] = v.locked
+    csil_m["user_id"] = v.user_id
+    return csil_m
+
+def _decode_set_user_password_lock_request_value(tree: Any) -> "SetUserPasswordLockRequest":
+    tree = _csil_expect_map(tree)
+    return SetUserPasswordLockRequest(
+        user_id=_csil_expect_text(tree["user_id"]),
+        locked=_csil_expect_bool(tree["locked"]),
+    )
+
+
+def _set_user_password_lock_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_set_user_password_lock_request_value(self))
+
+
+def _set_user_password_lock_request_from_cbor(data: bytes) -> "SetUserPasswordLockRequest":
+    return _decode_set_user_password_lock_request_value(cbor_decode(data))
+
+
+SetUserPasswordLockRequest.to_cbor = _set_user_password_lock_request_to_cbor
+SetUserPasswordLockRequest.from_cbor = staticmethod(_set_user_password_lock_request_from_cbor)
+
+def _encode_set_user_password_lock_response_value(v: "SetUserPasswordLockResponse") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["user"] = _encode_admin_user_value(v.user)
+    return csil_m
+
+def _decode_set_user_password_lock_response_value(tree: Any) -> "SetUserPasswordLockResponse":
+    tree = _csil_expect_map(tree)
+    return SetUserPasswordLockResponse(
+        user=_decode_admin_user_value(tree["user"]),
+    )
+
+
+def _set_user_password_lock_response_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_set_user_password_lock_response_value(self))
+
+
+def _set_user_password_lock_response_from_cbor(data: bytes) -> "SetUserPasswordLockResponse":
+    return _decode_set_user_password_lock_response_value(cbor_decode(data))
+
+
+SetUserPasswordLockResponse.to_cbor = _set_user_password_lock_response_to_cbor
+SetUserPasswordLockResponse.from_cbor = staticmethod(_set_user_password_lock_response_from_cbor)
+
+def _encode_app_access_target_value(v: "AppAccessTarget") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["kind"] = v.kind
+    csil_x = v.user_id
+    if csil_x is not None:
+        csil_m["user_id"] = csil_x
+    csil_x = v.claim_type
+    if csil_x is not None:
+        csil_m["claim_type"] = csil_x
+    csil_x = v.group_name
+    if csil_x is not None:
+        csil_m["group_name"] = csil_x
+    csil_x = v.claim_value
+    if csil_x is not None:
+        csil_m["claim_value"] = csil_x
+    csil_x = v.claim_operator
+    if csil_x is not None:
+        csil_m["claim_operator"] = csil_x
+    return csil_m
+
+def _decode_app_access_target_value(tree: Any) -> "AppAccessTarget":
+    tree = _csil_expect_map(tree)
+    return AppAccessTarget(
+        kind=_csil_expect_text(tree["kind"]),
+        user_id=(None if tree.get("user_id") is None else _csil_expect_text(tree["user_id"])),
+        group_name=(None if tree.get("group_name") is None else _csil_expect_text(tree["group_name"])),
+        claim_type=(None if tree.get("claim_type") is None else _csil_expect_text(tree["claim_type"])),
+        claim_operator=(None if tree.get("claim_operator") is None else _csil_expect_text(tree["claim_operator"])),
+        claim_value=(None if tree.get("claim_value") is None else _csil_expect_text(tree["claim_value"])),
+    )
+
+
+def _app_access_target_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_app_access_target_value(self))
+
+
+def _app_access_target_from_cbor(data: bytes) -> "AppAccessTarget":
+    return _decode_app_access_target_value(cbor_decode(data))
+
+
+AppAccessTarget.to_cbor = _app_access_target_to_cbor
+AppAccessTarget.from_cbor = staticmethod(_app_access_target_from_cbor)
+
+def _encode_app_access_policy_value(v: "AppAccessPolicy") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["id"] = v.id
+    csil_m["mode"] = v.mode
+    csil_m["name"] = v.name
+    csil_x = v.message
+    if csil_x is not None:
+        csil_m["message"] = csil_x
+    csil_m["targets"] = [_encode_app_access_target_value(csil_e) for csil_e in v.targets]
+    csil_m["patterns"] = v.patterns
+    return csil_m
+
+def _decode_app_access_policy_value(tree: Any) -> "AppAccessPolicy":
+    tree = _csil_expect_map(tree)
+    return AppAccessPolicy(
+        id=_csil_expect_text(tree["id"]),
+        name=_csil_expect_text(tree["name"]),
+        mode=_csil_expect_text(tree["mode"]),
+        patterns=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["patterns"])],
+        message=(None if tree.get("message") is None else _csil_expect_text(tree["message"])),
+        targets=[_decode_app_access_target_value(csil_e) for csil_e in _csil_expect_array(tree["targets"])],
+    )
+
+
+def _app_access_policy_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_app_access_policy_value(self))
+
+
+def _app_access_policy_from_cbor(data: bytes) -> "AppAccessPolicy":
+    return _decode_app_access_policy_value(cbor_decode(data))
+
+
+AppAccessPolicy.to_cbor = _app_access_policy_to_cbor
+AppAccessPolicy.from_cbor = staticmethod(_app_access_policy_from_cbor)
+
+def _encode_list_app_access_policies_response_value(v: "ListAppAccessPoliciesResponse") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["policies"] = [_encode_app_access_policy_value(csil_e) for csil_e in v.policies]
+    return csil_m
+
+def _decode_list_app_access_policies_response_value(tree: Any) -> "ListAppAccessPoliciesResponse":
+    tree = _csil_expect_map(tree)
+    return ListAppAccessPoliciesResponse(
+        policies=[_decode_app_access_policy_value(csil_e) for csil_e in _csil_expect_array(tree["policies"])],
+    )
+
+
+def _list_app_access_policies_response_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_list_app_access_policies_response_value(self))
+
+
+def _list_app_access_policies_response_from_cbor(data: bytes) -> "ListAppAccessPoliciesResponse":
+    return _decode_list_app_access_policies_response_value(cbor_decode(data))
+
+
+ListAppAccessPoliciesResponse.to_cbor = _list_app_access_policies_response_to_cbor
+ListAppAccessPoliciesResponse.from_cbor = staticmethod(_list_app_access_policies_response_from_cbor)
+
+def _encode_set_app_access_policy_request_value(v: "SetAppAccessPolicyRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_x = v.id
+    if csil_x is not None:
+        csil_m["id"] = csil_x
+    csil_m["mode"] = v.mode
+    csil_m["name"] = v.name
+    csil_x = v.message
+    if csil_x is not None:
+        csil_m["message"] = csil_x
+    csil_m["targets"] = [_encode_app_access_target_value(csil_e) for csil_e in v.targets]
+    csil_m["patterns"] = v.patterns
+    return csil_m
+
+def _decode_set_app_access_policy_request_value(tree: Any) -> "SetAppAccessPolicyRequest":
+    tree = _csil_expect_map(tree)
+    return SetAppAccessPolicyRequest(
+        id=(None if tree.get("id") is None else _csil_expect_text(tree["id"])),
+        name=_csil_expect_text(tree["name"]),
+        mode=_csil_expect_text(tree["mode"]),
+        patterns=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["patterns"])],
+        message=(None if tree.get("message") is None else _csil_expect_text(tree["message"])),
+        targets=[_decode_app_access_target_value(csil_e) for csil_e in _csil_expect_array(tree["targets"])],
+    )
+
+
+def _set_app_access_policy_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_set_app_access_policy_request_value(self))
+
+
+def _set_app_access_policy_request_from_cbor(data: bytes) -> "SetAppAccessPolicyRequest":
+    return _decode_set_app_access_policy_request_value(cbor_decode(data))
+
+
+SetAppAccessPolicyRequest.to_cbor = _set_app_access_policy_request_to_cbor
+SetAppAccessPolicyRequest.from_cbor = staticmethod(_set_app_access_policy_request_from_cbor)
+
+def _encode_set_app_access_policy_response_value(v: "SetAppAccessPolicyResponse") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["policy"] = _encode_app_access_policy_value(v.policy)
+    return csil_m
+
+def _decode_set_app_access_policy_response_value(tree: Any) -> "SetAppAccessPolicyResponse":
+    tree = _csil_expect_map(tree)
+    return SetAppAccessPolicyResponse(
+        policy=_decode_app_access_policy_value(tree["policy"]),
+    )
+
+
+def _set_app_access_policy_response_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_set_app_access_policy_response_value(self))
+
+
+def _set_app_access_policy_response_from_cbor(data: bytes) -> "SetAppAccessPolicyResponse":
+    return _decode_set_app_access_policy_response_value(cbor_decode(data))
+
+
+SetAppAccessPolicyResponse.to_cbor = _set_app_access_policy_response_to_cbor
+SetAppAccessPolicyResponse.from_cbor = staticmethod(_set_app_access_policy_response_from_cbor)
+
+def _encode_remove_app_access_policy_request_value(v: "RemoveAppAccessPolicyRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["id"] = v.id
+    return csil_m
+
+def _decode_remove_app_access_policy_request_value(tree: Any) -> "RemoveAppAccessPolicyRequest":
+    tree = _csil_expect_map(tree)
+    return RemoveAppAccessPolicyRequest(
+        id=_csil_expect_text(tree["id"]),
+    )
+
+
+def _remove_app_access_policy_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_remove_app_access_policy_request_value(self))
+
+
+def _remove_app_access_policy_request_from_cbor(data: bytes) -> "RemoveAppAccessPolicyRequest":
+    return _decode_remove_app_access_policy_request_value(cbor_decode(data))
+
+
+RemoveAppAccessPolicyRequest.to_cbor = _remove_app_access_policy_request_to_cbor
+RemoveAppAccessPolicyRequest.from_cbor = staticmethod(_remove_app_access_policy_request_from_cbor)
+
+def _encode_remove_app_access_policy_response_value(v: "RemoveAppAccessPolicyResponse") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["success"] = v.success
+    return csil_m
+
+def _decode_remove_app_access_policy_response_value(tree: Any) -> "RemoveAppAccessPolicyResponse":
+    tree = _csil_expect_map(tree)
+    return RemoveAppAccessPolicyResponse(
+        success=_csil_expect_bool(tree["success"]),
+    )
+
+
+def _remove_app_access_policy_response_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_remove_app_access_policy_response_value(self))
+
+
+def _remove_app_access_policy_response_from_cbor(data: bytes) -> "RemoveAppAccessPolicyResponse":
+    return _decode_remove_app_access_policy_response_value(cbor_decode(data))
+
+
+RemoveAppAccessPolicyResponse.to_cbor = _remove_app_access_policy_response_to_cbor
+RemoveAppAccessPolicyResponse.from_cbor = staticmethod(_remove_app_access_policy_response_from_cbor)
+
+def _encode_preview_app_access_request_value(v: "PreviewAppAccessRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_x = v.domain
+    if csil_x is not None:
+        csil_m["domain"] = csil_x
+    csil_m["user_id"] = v.user_id
+    return csil_m
+
+def _decode_preview_app_access_request_value(tree: Any) -> "PreviewAppAccessRequest":
+    tree = _csil_expect_map(tree)
+    return PreviewAppAccessRequest(
+        user_id=_csil_expect_text(tree["user_id"]),
+        domain=(None if tree.get("domain") is None else _csil_expect_text(tree["domain"])),
+    )
+
+
+def _preview_app_access_request_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_preview_app_access_request_value(self))
+
+
+def _preview_app_access_request_from_cbor(data: bytes) -> "PreviewAppAccessRequest":
+    return _decode_preview_app_access_request_value(cbor_decode(data))
+
+
+PreviewAppAccessRequest.to_cbor = _preview_app_access_request_to_cbor
+PreviewAppAccessRequest.from_cbor = staticmethod(_preview_app_access_request_from_cbor)
+
+def _encode_preview_app_access_response_value(v: "PreviewAppAccessResponse") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["allowed"] = v.allowed
+    csil_m["messages"] = v.messages
+    csil_m["applied_policies"] = v.applied_policies
+    csil_m["blocking_policies"] = v.blocking_policies
+    return csil_m
+
+def _decode_preview_app_access_response_value(tree: Any) -> "PreviewAppAccessResponse":
+    tree = _csil_expect_map(tree)
+    return PreviewAppAccessResponse(
+        allowed=_csil_expect_bool(tree["allowed"]),
+        applied_policies=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["applied_policies"])],
+        blocking_policies=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["blocking_policies"])],
+        messages=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["messages"])],
+    )
+
+
+def _preview_app_access_response_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_preview_app_access_response_value(self))
+
+
+def _preview_app_access_response_from_cbor(data: bytes) -> "PreviewAppAccessResponse":
+    return _decode_preview_app_access_response_value(cbor_decode(data))
+
+
+PreviewAppAccessResponse.to_cbor = _preview_app_access_response_to_cbor
+PreviewAppAccessResponse.from_cbor = staticmethod(_preview_app_access_response_from_cbor)
+
+def _encode_app_access_denial_value(v: "AppAccessDenial") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_x = v.domain
+    if csil_x is not None:
+        csil_m["domain"] = csil_x
+    csil_m["messages"] = v.messages
+    return csil_m
+
+def _decode_app_access_denial_value(tree: Any) -> "AppAccessDenial":
+    tree = _csil_expect_map(tree)
+    return AppAccessDenial(
+        domain=(None if tree.get("domain") is None else _csil_expect_text(tree["domain"])),
+        messages=[_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["messages"])],
+    )
+
+
+def _app_access_denial_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_app_access_denial_value(self))
+
+
+def _app_access_denial_from_cbor(data: bytes) -> "AppAccessDenial":
+    return _decode_app_access_denial_value(cbor_decode(data))
+
+
+AppAccessDenial.to_cbor = _app_access_denial_to_cbor
+AppAccessDenial.from_cbor = staticmethod(_app_access_denial_from_cbor)
 
 def _encode_purge_local_rp_tickets_request_value(v: "PurgeLocalRpTicketsRequest") -> Dict[Any, Any]:
     csil_m: Dict[Any, Any] = {}
@@ -8105,6 +8459,9 @@ def _encode_browser_act_as_inspect_response_value(v: "BrowserActAsInspectRespons
     csil_x = v.language
     if csil_x is not None:
         csil_m["language"] = csil_x
+    csil_x = v.access_denied
+    if csil_x is not None:
+        csil_m["access_denied"] = _encode_app_access_denial_value(csil_x)
     csil_m["grantee_party"] = _encode_browser_act_as_party_value(v.grantee_party)
     csil_m["audience_party"] = _encode_browser_act_as_party_value(v.audience_party)
     csil_m["max_lifetime_seconds"] = v.max_lifetime_seconds
@@ -8126,6 +8483,7 @@ def _decode_browser_act_as_inspect_response_value(tree: Any) -> "BrowserActAsIns
         max_lifetime_seconds=_csil_expect_int(tree["max_lifetime_seconds"]),
         default_renewal_window_seconds=_csil_expect_int(tree["default_renewal_window_seconds"]),
         max_renewal_window_seconds=_csil_expect_int(tree["max_renewal_window_seconds"]),
+        access_denied=(None if tree.get("access_denied") is None else _decode_app_access_denial_value(tree["access_denied"])),
     )
 
 

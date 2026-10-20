@@ -282,6 +282,16 @@ public sealed class AdminAsyncClient(ICsilAsyncTransport transport)
         Codec.Decode<SignInPolicy>(await transport.Call("Admin", "get-sign-in-policy", Codec.Encode(emptyRequest)));
     public async System.Threading.Tasks.Task<SignInPolicy> SetSignInPolicyAsync(SetSignInPolicyRequest setSignInPolicyRequest) =>
         Codec.Decode<SignInPolicy>(await transport.Call("Admin", "set-sign-in-policy", Codec.Encode(setSignInPolicyRequest)));
+    public async System.Threading.Tasks.Task<SetUserPasswordLockResponse> SetUserPasswordLockAsync(SetUserPasswordLockRequest setUserPasswordLockRequest) =>
+        Codec.Decode<SetUserPasswordLockResponse>(await transport.Call("Admin", "set-user-password-lock", Codec.Encode(setUserPasswordLockRequest)));
+    public async System.Threading.Tasks.Task<ListAppAccessPoliciesResponse> ListAppAccessPoliciesAsync(EmptyRequest emptyRequest) =>
+        Codec.Decode<ListAppAccessPoliciesResponse>(await transport.Call("Admin", "list-app-access-policies", Codec.Encode(emptyRequest)));
+    public async System.Threading.Tasks.Task<SetAppAccessPolicyResponse> SetAppAccessPolicyAsync(SetAppAccessPolicyRequest setAppAccessPolicyRequest) =>
+        Codec.Decode<SetAppAccessPolicyResponse>(await transport.Call("Admin", "set-app-access-policy", Codec.Encode(setAppAccessPolicyRequest)));
+    public async System.Threading.Tasks.Task<RemoveAppAccessPolicyResponse> RemoveAppAccessPolicyAsync(RemoveAppAccessPolicyRequest removeAppAccessPolicyRequest) =>
+        Codec.Decode<RemoveAppAccessPolicyResponse>(await transport.Call("Admin", "remove-app-access-policy", Codec.Encode(removeAppAccessPolicyRequest)));
+    public async System.Threading.Tasks.Task<PreviewAppAccessResponse> PreviewAppAccessAsync(PreviewAppAccessRequest previewAppAccessRequest) =>
+        Codec.Decode<PreviewAppAccessResponse>(await transport.Call("Admin", "preview-app-access", Codec.Encode(previewAppAccessRequest)));
 }
 
 /// <summary>Typed RPC client for the Account service. The client owns

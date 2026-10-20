@@ -216,4 +216,24 @@ public final class AdminClient {
     public SignInPolicy setSignInPolicy(SetSignInPolicyRequest req) throws ClientException {
         return CsilCbor.decodeSignInPolicy(transport.call("Admin", "set-sign-in-policy", CsilCbor.encodeSetSignInPolicyRequest(req)));
     }
+
+    public SetUserPasswordLockResponse setUserPasswordLock(SetUserPasswordLockRequest req) throws ClientException {
+        return CsilCbor.decodeSetUserPasswordLockResponse(transport.call("Admin", "set-user-password-lock", CsilCbor.encodeSetUserPasswordLockRequest(req)));
+    }
+
+    public ListAppAccessPoliciesResponse listAppAccessPolicies(EmptyRequest req) throws ClientException {
+        return CsilCbor.decodeListAppAccessPoliciesResponse(transport.call("Admin", "list-app-access-policies", CsilCbor.encodeEmptyRequest(req)));
+    }
+
+    public SetAppAccessPolicyResponse setAppAccessPolicy(SetAppAccessPolicyRequest req) throws ClientException {
+        return CsilCbor.decodeSetAppAccessPolicyResponse(transport.call("Admin", "set-app-access-policy", CsilCbor.encodeSetAppAccessPolicyRequest(req)));
+    }
+
+    public RemoveAppAccessPolicyResponse removeAppAccessPolicy(RemoveAppAccessPolicyRequest req) throws ClientException {
+        return CsilCbor.decodeRemoveAppAccessPolicyResponse(transport.call("Admin", "remove-app-access-policy", CsilCbor.encodeRemoveAppAccessPolicyRequest(req)));
+    }
+
+    public PreviewAppAccessResponse previewAppAccess(PreviewAppAccessRequest req) throws ClientException {
+        return CsilCbor.decodePreviewAppAccessResponse(transport.call("Admin", "preview-app-access", CsilCbor.encodePreviewAppAccessRequest(req)));
+    }
 }

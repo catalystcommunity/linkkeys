@@ -220,3 +220,27 @@ is absent. A custom consent UI can use this field to mark the new claims.
 
 Older clients ignore the new fields. Their consent screen opens for a new claim
 but does not mark it as new.
+
+### App access policies and password locks (new feature, migrations, additive fields)
+
+Two migrations run at start: `password_lock` adds `users.password_locked`, and
+`app_access_policies` adds three tables. Backups include the new tables and
+the new column. See [app-access-policies.md](app-access-policies.md).
+
+New `Admin` operations, all with the `admin` relation:
+`set-user-password-lock`, `list-app-access-policies`, `set-app-access-policy`,
+`remove-app-access-policy`, and `preview-app-access`.
+
+New optional fields:
+
+- `AdminUser.password_locked`: present and `true` only for a locked account.
+- `access_denied` (type `AppAccessDenial`) on `BrowserAuthorizationInspectResponse`,
+  `BrowserLocalRpInspectResponse`, `BrowserActAsInspectResponse`, and
+  `AuthorizeValidateResponse`.
+- `BrowserLocalRpInspectResponse.admission` can be `blocked`.
+
+With no policies, sign-in does not change. An application that owns its consent
+UI (it calls `/rp/authorize/validate` and `/rp/authorize/finalize`) should show
+a blocked page when `access_denied` is present. An older client ignores the
+field; its finalize then fails with `forbidden`, and the message contains the
+admin messages.

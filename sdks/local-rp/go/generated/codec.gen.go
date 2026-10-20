@@ -3737,7 +3737,7 @@ func DecodeRelation(csilData []byte) (Relation, error) {
 
 // csilEncAdminUser builds the canonical CBOR value tree for a AdminUser.
 func csilEncAdminUser(csilV AdminUser) cborValue {
-	csilEntries := make(cborMap, 0, 8)
+	csilEntries := make(cborMap, 0, 9)
 	csilEntries = append(csilEntries, cborEntry{cborText("id"), cborText(csilV.Id)})
 	csilEntries = append(csilEntries, cborEntry{cborText("username"), cborText(csilV.Username)})
 	csilEntries = append(csilEntries, cborEntry{cborText("is_active"), cborBool(csilV.IsActive)})
@@ -3749,6 +3749,9 @@ func csilEncAdminUser(csilV AdminUser) cborValue {
 	csilEntries = append(csilEntries, cborEntry{cborText("display_name"), cborText(csilV.DisplayName)})
 	if csilV.PurgeReason != nil {
 		csilEntries = append(csilEntries, cborEntry{cborText("purge_reason"), cborText((*csilV.PurgeReason))})
+	}
+	if csilV.PasswordLocked != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("password_locked"), cborBool((*csilV.PasswordLocked))})
 	}
 	return csilEntries
 }
@@ -3835,6 +3838,13 @@ func csilDecAdminUser(csilRoot cborValue) (AdminUser, error) {
 			return csilOut, csilErr
 		}
 		csilOut.PurgeReason = &csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "password_locked"); csilOk {
+		csilVal, csilErr := (cborAsBool)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.PasswordLocked = &csilVal
 	}
 	return csilOut, nil
 }
@@ -10187,8 +10197,11 @@ func DecodeBrowserConsentClaim(csilData []byte) (BrowserConsentClaim, error) {
 
 // csilEncBrowserAuthorizationInspectResponse builds the canonical CBOR value tree for a BrowserAuthorizationInspectResponse.
 func csilEncBrowserAuthorizationInspectResponse(csilV BrowserAuthorizationInspectResponse) cborValue {
-	csilEntries := make(cborMap, 0, 5)
+	csilEntries := make(cborMap, 0, 6)
 	csilEntries = append(csilEntries, cborEntry{cborText("claims"), cborEncArray(csilV.Claims, func(csilElem BrowserConsentClaim) cborValue { return csilEncBrowserConsentClaim(csilElem) })})
+	if csilV.AccessDenied != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("access_denied"), csilEncAppAccessDenial((*csilV.AccessDenied))})
+	}
 	csilEntries = append(csilEntries, cborEntry{cborText("relying_party"), cborText(csilV.RelyingParty)})
 	if csilV.RequestReason != nil {
 		csilEntries = append(csilEntries, cborEntry{cborText("request_reason"), cborText((*csilV.RequestReason))})
@@ -10249,6 +10262,13 @@ func csilDecBrowserAuthorizationInspectResponse(csilRoot cborValue) (BrowserAuth
 			return csilOut, csilErr
 		}
 		csilOut.AuthorizedClaims = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "access_denied"); csilOk {
+		csilVal, csilErr := (csilDecAppAccessDenial)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.AccessDenied = &csilVal
 	}
 	return csilOut, nil
 }
@@ -10433,11 +10453,14 @@ func DecodeBrowserLocalRpInspectRequest(csilData []byte) (BrowserLocalRpInspectR
 
 // csilEncBrowserLocalRpInspectResponse builds the canonical CBOR value tree for a BrowserLocalRpInspectResponse.
 func csilEncBrowserLocalRpInspectResponse(csilV BrowserLocalRpInspectResponse) cborValue {
-	csilEntries := make(cborMap, 0, 9)
+	csilEntries := make(cborMap, 0, 10)
 	csilEntries = append(csilEntries, cborEntry{cborText("claims"), cborEncArray(csilV.Claims, func(csilElem BrowserConsentClaim) cborValue { return csilEncBrowserConsentClaim(csilElem) })})
 	csilEntries = append(csilEntries, cborEntry{cborText("app_name"), cborText(csilV.AppName)})
 	csilEntries = append(csilEntries, cborEntry{cborText("admission"), cborText(csilV.Admission)})
 	csilEntries = append(csilEntries, cborEntry{cborText("fingerprint"), cborText(csilV.Fingerprint)})
+	if csilV.AccessDenied != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("access_denied"), csilEncAppAccessDenial((*csilV.AccessDenied))})
+	}
 	csilEntries = append(csilEntries, cborEntry{cborText("callback_host"), cborText(csilV.CallbackHost)})
 	if csilV.FirstSeenAt != nil {
 		csilEntries = append(csilEntries, cborEntry{cborText("first_seen_at"), cborText((*csilV.FirstSeenAt))})
@@ -10541,6 +10564,13 @@ func csilDecBrowserLocalRpInspectResponse(csilRoot cborValue) (BrowserLocalRpIns
 			return csilOut, csilErr
 		}
 		csilOut.AuthorizedClaims = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "access_denied"); csilOk {
+		csilVal, csilErr := (csilDecAppAccessDenial)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.AccessDenied = &csilVal
 	}
 	return csilOut, nil
 }
@@ -11508,8 +11538,11 @@ func DecodeAuthorizeValidateRequest(csilData []byte) (AuthorizeValidateRequest, 
 
 // csilEncAuthorizeValidateResponse builds the canonical CBOR value tree for a AuthorizeValidateResponse.
 func csilEncAuthorizeValidateResponse(csilV AuthorizeValidateResponse) cborValue {
-	csilEntries := make(cborMap, 0, 6)
+	csilEntries := make(cborMap, 0, 7)
 	csilEntries = append(csilEntries, cborEntry{cborText("callback_url"), cborText(csilV.CallbackUrl)})
+	if csilV.AccessDenied != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("access_denied"), csilEncAppAccessDenial((*csilV.AccessDenied))})
+	}
 	csilEntries = append(csilEntries, cborEntry{cborText("relying_party"), cborText(csilV.RelyingParty)})
 	csilEntries = append(csilEntries, cborEntry{cborText("requested_claims"), cborEncArray(csilV.RequestedClaims, func(csilElem string) cborValue { return cborText(csilElem) })})
 	if csilV.AlreadyConsented != nil {
@@ -11580,6 +11613,13 @@ func csilDecAuthorizeValidateResponse(csilRoot cborValue) (AuthorizeValidateResp
 			return csilOut, csilErr
 		}
 		csilOut.NewlyRequestedClaims = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "access_denied"); csilOk {
+		csilVal, csilErr := (csilDecAppAccessDenial)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.AccessDenied = &csilVal
 	}
 	return csilOut, nil
 }
@@ -13555,6 +13595,706 @@ func DecodeSetSignInPolicyRequest(csilData []byte) (SetSignInPolicyRequest, erro
 		return csilZero, csilErr
 	}
 	return csilDecSetSignInPolicyRequest(csilRoot)
+}
+
+// csilEncSetUserPasswordLockRequest builds the canonical CBOR value tree for a SetUserPasswordLockRequest.
+func csilEncSetUserPasswordLockRequest(csilV SetUserPasswordLockRequest) cborValue {
+	csilEntries := make(cborMap, 0, 2)
+	csilEntries = append(csilEntries, cborEntry{cborText("locked"), cborBool(csilV.Locked)})
+	csilEntries = append(csilEntries, cborEntry{cborText("user_id"), cborText(csilV.UserId)})
+	return csilEntries
+}
+
+// csilDecSetUserPasswordLockRequest reconstructs a SetUserPasswordLockRequest from a decoded CBOR value tree.
+func csilDecSetUserPasswordLockRequest(csilRoot cborValue) (SetUserPasswordLockRequest, error) {
+	var csilOut SetUserPasswordLockRequest
+	{
+		csilField, csilErr := cborRequire(csilRoot, "user_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.UserId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "locked")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsBool)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Locked = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeSetUserPasswordLockRequest encodes a SetUserPasswordLockRequest to canonical CSIL CBOR bytes.
+func EncodeSetUserPasswordLockRequest(csilV SetUserPasswordLockRequest) []byte {
+	return cborEncode(csilEncSetUserPasswordLockRequest(csilV))
+}
+
+// DecodeSetUserPasswordLockRequest decodes canonical CSIL CBOR bytes into a SetUserPasswordLockRequest.
+func DecodeSetUserPasswordLockRequest(csilData []byte) (SetUserPasswordLockRequest, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero SetUserPasswordLockRequest
+		return csilZero, csilErr
+	}
+	return csilDecSetUserPasswordLockRequest(csilRoot)
+}
+
+// csilEncSetUserPasswordLockResponse builds the canonical CBOR value tree for a SetUserPasswordLockResponse.
+func csilEncSetUserPasswordLockResponse(csilV SetUserPasswordLockResponse) cborValue {
+	csilEntries := make(cborMap, 0, 1)
+	csilEntries = append(csilEntries, cborEntry{cborText("user"), csilEncAdminUser(csilV.User)})
+	return csilEntries
+}
+
+// csilDecSetUserPasswordLockResponse reconstructs a SetUserPasswordLockResponse from a decoded CBOR value tree.
+func csilDecSetUserPasswordLockResponse(csilRoot cborValue) (SetUserPasswordLockResponse, error) {
+	var csilOut SetUserPasswordLockResponse
+	{
+		csilField, csilErr := cborRequire(csilRoot, "user")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (csilDecAdminUser)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.User = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeSetUserPasswordLockResponse encodes a SetUserPasswordLockResponse to canonical CSIL CBOR bytes.
+func EncodeSetUserPasswordLockResponse(csilV SetUserPasswordLockResponse) []byte {
+	return cborEncode(csilEncSetUserPasswordLockResponse(csilV))
+}
+
+// DecodeSetUserPasswordLockResponse decodes canonical CSIL CBOR bytes into a SetUserPasswordLockResponse.
+func DecodeSetUserPasswordLockResponse(csilData []byte) (SetUserPasswordLockResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero SetUserPasswordLockResponse
+		return csilZero, csilErr
+	}
+	return csilDecSetUserPasswordLockResponse(csilRoot)
+}
+
+// csilEncAppAccessTarget builds the canonical CBOR value tree for a AppAccessTarget.
+func csilEncAppAccessTarget(csilV AppAccessTarget) cborValue {
+	csilEntries := make(cborMap, 0, 6)
+	csilEntries = append(csilEntries, cborEntry{cborText("kind"), cborText(csilV.Kind)})
+	if csilV.UserId != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("user_id"), cborText((*csilV.UserId))})
+	}
+	if csilV.ClaimType != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("claim_type"), cborText((*csilV.ClaimType))})
+	}
+	if csilV.GroupName != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("group_name"), cborText((*csilV.GroupName))})
+	}
+	if csilV.ClaimValue != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("claim_value"), cborText((*csilV.ClaimValue))})
+	}
+	if csilV.ClaimOperator != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("claim_operator"), cborText((*csilV.ClaimOperator))})
+	}
+	return csilEntries
+}
+
+// csilDecAppAccessTarget reconstructs a AppAccessTarget from a decoded CBOR value tree.
+func csilDecAppAccessTarget(csilRoot cborValue) (AppAccessTarget, error) {
+	var csilOut AppAccessTarget
+	{
+		csilField, csilErr := cborRequire(csilRoot, "kind")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Kind = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "user_id"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.UserId = &csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "group_name"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.GroupName = &csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "claim_type"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ClaimType = &csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "claim_operator"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ClaimOperator = &csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "claim_value"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ClaimValue = &csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeAppAccessTarget encodes a AppAccessTarget to canonical CSIL CBOR bytes.
+func EncodeAppAccessTarget(csilV AppAccessTarget) []byte {
+	return cborEncode(csilEncAppAccessTarget(csilV))
+}
+
+// DecodeAppAccessTarget decodes canonical CSIL CBOR bytes into a AppAccessTarget.
+func DecodeAppAccessTarget(csilData []byte) (AppAccessTarget, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero AppAccessTarget
+		return csilZero, csilErr
+	}
+	return csilDecAppAccessTarget(csilRoot)
+}
+
+// csilEncAppAccessPolicy builds the canonical CBOR value tree for a AppAccessPolicy.
+func csilEncAppAccessPolicy(csilV AppAccessPolicy) cborValue {
+	csilEntries := make(cborMap, 0, 6)
+	csilEntries = append(csilEntries, cborEntry{cborText("id"), cborText(csilV.Id)})
+	csilEntries = append(csilEntries, cborEntry{cborText("mode"), cborText(csilV.Mode)})
+	csilEntries = append(csilEntries, cborEntry{cborText("name"), cborText(csilV.Name)})
+	if csilV.Message != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("message"), cborText((*csilV.Message))})
+	}
+	csilEntries = append(csilEntries, cborEntry{cborText("targets"), cborEncArray(csilV.Targets, func(csilElem AppAccessTarget) cborValue { return csilEncAppAccessTarget(csilElem) })})
+	csilEntries = append(csilEntries, cborEntry{cborText("patterns"), cborEncArray(csilV.Patterns, func(csilElem string) cborValue { return cborText(csilElem) })})
+	return csilEntries
+}
+
+// csilDecAppAccessPolicy reconstructs a AppAccessPolicy from a decoded CBOR value tree.
+func csilDecAppAccessPolicy(csilRoot cborValue) (AppAccessPolicy, error) {
+	var csilOut AppAccessPolicy
+	{
+		csilField, csilErr := cborRequire(csilRoot, "id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Id = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "name")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Name = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "mode")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Mode = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "patterns")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Patterns = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "message"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Message = &csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "targets")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]AppAccessTarget, error) { return cborDecArray(csilV, csilDecAppAccessTarget) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Targets = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeAppAccessPolicy encodes a AppAccessPolicy to canonical CSIL CBOR bytes.
+func EncodeAppAccessPolicy(csilV AppAccessPolicy) []byte {
+	return cborEncode(csilEncAppAccessPolicy(csilV))
+}
+
+// DecodeAppAccessPolicy decodes canonical CSIL CBOR bytes into a AppAccessPolicy.
+func DecodeAppAccessPolicy(csilData []byte) (AppAccessPolicy, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero AppAccessPolicy
+		return csilZero, csilErr
+	}
+	return csilDecAppAccessPolicy(csilRoot)
+}
+
+// csilEncListAppAccessPoliciesResponse builds the canonical CBOR value tree for a ListAppAccessPoliciesResponse.
+func csilEncListAppAccessPoliciesResponse(csilV ListAppAccessPoliciesResponse) cborValue {
+	csilEntries := make(cborMap, 0, 1)
+	csilEntries = append(csilEntries, cborEntry{cborText("policies"), cborEncArray(csilV.Policies, func(csilElem AppAccessPolicy) cborValue { return csilEncAppAccessPolicy(csilElem) })})
+	return csilEntries
+}
+
+// csilDecListAppAccessPoliciesResponse reconstructs a ListAppAccessPoliciesResponse from a decoded CBOR value tree.
+func csilDecListAppAccessPoliciesResponse(csilRoot cborValue) (ListAppAccessPoliciesResponse, error) {
+	var csilOut ListAppAccessPoliciesResponse
+	{
+		csilField, csilErr := cborRequire(csilRoot, "policies")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]AppAccessPolicy, error) { return cborDecArray(csilV, csilDecAppAccessPolicy) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Policies = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeListAppAccessPoliciesResponse encodes a ListAppAccessPoliciesResponse to canonical CSIL CBOR bytes.
+func EncodeListAppAccessPoliciesResponse(csilV ListAppAccessPoliciesResponse) []byte {
+	return cborEncode(csilEncListAppAccessPoliciesResponse(csilV))
+}
+
+// DecodeListAppAccessPoliciesResponse decodes canonical CSIL CBOR bytes into a ListAppAccessPoliciesResponse.
+func DecodeListAppAccessPoliciesResponse(csilData []byte) (ListAppAccessPoliciesResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero ListAppAccessPoliciesResponse
+		return csilZero, csilErr
+	}
+	return csilDecListAppAccessPoliciesResponse(csilRoot)
+}
+
+// csilEncSetAppAccessPolicyRequest builds the canonical CBOR value tree for a SetAppAccessPolicyRequest.
+func csilEncSetAppAccessPolicyRequest(csilV SetAppAccessPolicyRequest) cborValue {
+	csilEntries := make(cborMap, 0, 6)
+	if csilV.Id != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("id"), cborText((*csilV.Id))})
+	}
+	csilEntries = append(csilEntries, cborEntry{cborText("mode"), cborText(csilV.Mode)})
+	csilEntries = append(csilEntries, cborEntry{cborText("name"), cborText(csilV.Name)})
+	if csilV.Message != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("message"), cborText((*csilV.Message))})
+	}
+	csilEntries = append(csilEntries, cborEntry{cborText("targets"), cborEncArray(csilV.Targets, func(csilElem AppAccessTarget) cborValue { return csilEncAppAccessTarget(csilElem) })})
+	csilEntries = append(csilEntries, cborEntry{cborText("patterns"), cborEncArray(csilV.Patterns, func(csilElem string) cborValue { return cborText(csilElem) })})
+	return csilEntries
+}
+
+// csilDecSetAppAccessPolicyRequest reconstructs a SetAppAccessPolicyRequest from a decoded CBOR value tree.
+func csilDecSetAppAccessPolicyRequest(csilRoot cborValue) (SetAppAccessPolicyRequest, error) {
+	var csilOut SetAppAccessPolicyRequest
+	if csilField, csilOk := cborMapGet(csilRoot, "id"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Id = &csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "name")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Name = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "mode")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Mode = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "patterns")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Patterns = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "message"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Message = &csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "targets")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]AppAccessTarget, error) { return cborDecArray(csilV, csilDecAppAccessTarget) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Targets = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeSetAppAccessPolicyRequest encodes a SetAppAccessPolicyRequest to canonical CSIL CBOR bytes.
+func EncodeSetAppAccessPolicyRequest(csilV SetAppAccessPolicyRequest) []byte {
+	return cborEncode(csilEncSetAppAccessPolicyRequest(csilV))
+}
+
+// DecodeSetAppAccessPolicyRequest decodes canonical CSIL CBOR bytes into a SetAppAccessPolicyRequest.
+func DecodeSetAppAccessPolicyRequest(csilData []byte) (SetAppAccessPolicyRequest, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero SetAppAccessPolicyRequest
+		return csilZero, csilErr
+	}
+	return csilDecSetAppAccessPolicyRequest(csilRoot)
+}
+
+// csilEncSetAppAccessPolicyResponse builds the canonical CBOR value tree for a SetAppAccessPolicyResponse.
+func csilEncSetAppAccessPolicyResponse(csilV SetAppAccessPolicyResponse) cborValue {
+	csilEntries := make(cborMap, 0, 1)
+	csilEntries = append(csilEntries, cborEntry{cborText("policy"), csilEncAppAccessPolicy(csilV.Policy)})
+	return csilEntries
+}
+
+// csilDecSetAppAccessPolicyResponse reconstructs a SetAppAccessPolicyResponse from a decoded CBOR value tree.
+func csilDecSetAppAccessPolicyResponse(csilRoot cborValue) (SetAppAccessPolicyResponse, error) {
+	var csilOut SetAppAccessPolicyResponse
+	{
+		csilField, csilErr := cborRequire(csilRoot, "policy")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (csilDecAppAccessPolicy)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Policy = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeSetAppAccessPolicyResponse encodes a SetAppAccessPolicyResponse to canonical CSIL CBOR bytes.
+func EncodeSetAppAccessPolicyResponse(csilV SetAppAccessPolicyResponse) []byte {
+	return cborEncode(csilEncSetAppAccessPolicyResponse(csilV))
+}
+
+// DecodeSetAppAccessPolicyResponse decodes canonical CSIL CBOR bytes into a SetAppAccessPolicyResponse.
+func DecodeSetAppAccessPolicyResponse(csilData []byte) (SetAppAccessPolicyResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero SetAppAccessPolicyResponse
+		return csilZero, csilErr
+	}
+	return csilDecSetAppAccessPolicyResponse(csilRoot)
+}
+
+// csilEncRemoveAppAccessPolicyRequest builds the canonical CBOR value tree for a RemoveAppAccessPolicyRequest.
+func csilEncRemoveAppAccessPolicyRequest(csilV RemoveAppAccessPolicyRequest) cborValue {
+	csilEntries := make(cborMap, 0, 1)
+	csilEntries = append(csilEntries, cborEntry{cborText("id"), cborText(csilV.Id)})
+	return csilEntries
+}
+
+// csilDecRemoveAppAccessPolicyRequest reconstructs a RemoveAppAccessPolicyRequest from a decoded CBOR value tree.
+func csilDecRemoveAppAccessPolicyRequest(csilRoot cborValue) (RemoveAppAccessPolicyRequest, error) {
+	var csilOut RemoveAppAccessPolicyRequest
+	{
+		csilField, csilErr := cborRequire(csilRoot, "id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Id = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeRemoveAppAccessPolicyRequest encodes a RemoveAppAccessPolicyRequest to canonical CSIL CBOR bytes.
+func EncodeRemoveAppAccessPolicyRequest(csilV RemoveAppAccessPolicyRequest) []byte {
+	return cborEncode(csilEncRemoveAppAccessPolicyRequest(csilV))
+}
+
+// DecodeRemoveAppAccessPolicyRequest decodes canonical CSIL CBOR bytes into a RemoveAppAccessPolicyRequest.
+func DecodeRemoveAppAccessPolicyRequest(csilData []byte) (RemoveAppAccessPolicyRequest, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero RemoveAppAccessPolicyRequest
+		return csilZero, csilErr
+	}
+	return csilDecRemoveAppAccessPolicyRequest(csilRoot)
+}
+
+// csilEncRemoveAppAccessPolicyResponse builds the canonical CBOR value tree for a RemoveAppAccessPolicyResponse.
+func csilEncRemoveAppAccessPolicyResponse(csilV RemoveAppAccessPolicyResponse) cborValue {
+	csilEntries := make(cborMap, 0, 1)
+	csilEntries = append(csilEntries, cborEntry{cborText("success"), cborBool(csilV.Success)})
+	return csilEntries
+}
+
+// csilDecRemoveAppAccessPolicyResponse reconstructs a RemoveAppAccessPolicyResponse from a decoded CBOR value tree.
+func csilDecRemoveAppAccessPolicyResponse(csilRoot cborValue) (RemoveAppAccessPolicyResponse, error) {
+	var csilOut RemoveAppAccessPolicyResponse
+	{
+		csilField, csilErr := cborRequire(csilRoot, "success")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsBool)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Success = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeRemoveAppAccessPolicyResponse encodes a RemoveAppAccessPolicyResponse to canonical CSIL CBOR bytes.
+func EncodeRemoveAppAccessPolicyResponse(csilV RemoveAppAccessPolicyResponse) []byte {
+	return cborEncode(csilEncRemoveAppAccessPolicyResponse(csilV))
+}
+
+// DecodeRemoveAppAccessPolicyResponse decodes canonical CSIL CBOR bytes into a RemoveAppAccessPolicyResponse.
+func DecodeRemoveAppAccessPolicyResponse(csilData []byte) (RemoveAppAccessPolicyResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero RemoveAppAccessPolicyResponse
+		return csilZero, csilErr
+	}
+	return csilDecRemoveAppAccessPolicyResponse(csilRoot)
+}
+
+// csilEncPreviewAppAccessRequest builds the canonical CBOR value tree for a PreviewAppAccessRequest.
+func csilEncPreviewAppAccessRequest(csilV PreviewAppAccessRequest) cborValue {
+	csilEntries := make(cborMap, 0, 2)
+	if csilV.Domain != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("domain"), cborText((*csilV.Domain))})
+	}
+	csilEntries = append(csilEntries, cborEntry{cborText("user_id"), cborText(csilV.UserId)})
+	return csilEntries
+}
+
+// csilDecPreviewAppAccessRequest reconstructs a PreviewAppAccessRequest from a decoded CBOR value tree.
+func csilDecPreviewAppAccessRequest(csilRoot cborValue) (PreviewAppAccessRequest, error) {
+	var csilOut PreviewAppAccessRequest
+	{
+		csilField, csilErr := cborRequire(csilRoot, "user_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.UserId = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "domain"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Domain = &csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodePreviewAppAccessRequest encodes a PreviewAppAccessRequest to canonical CSIL CBOR bytes.
+func EncodePreviewAppAccessRequest(csilV PreviewAppAccessRequest) []byte {
+	return cborEncode(csilEncPreviewAppAccessRequest(csilV))
+}
+
+// DecodePreviewAppAccessRequest decodes canonical CSIL CBOR bytes into a PreviewAppAccessRequest.
+func DecodePreviewAppAccessRequest(csilData []byte) (PreviewAppAccessRequest, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero PreviewAppAccessRequest
+		return csilZero, csilErr
+	}
+	return csilDecPreviewAppAccessRequest(csilRoot)
+}
+
+// csilEncPreviewAppAccessResponse builds the canonical CBOR value tree for a PreviewAppAccessResponse.
+func csilEncPreviewAppAccessResponse(csilV PreviewAppAccessResponse) cborValue {
+	csilEntries := make(cborMap, 0, 4)
+	csilEntries = append(csilEntries, cborEntry{cborText("allowed"), cborBool(csilV.Allowed)})
+	csilEntries = append(csilEntries, cborEntry{cborText("messages"), cborEncArray(csilV.Messages, func(csilElem string) cborValue { return cborText(csilElem) })})
+	csilEntries = append(csilEntries, cborEntry{cborText("applied_policies"), cborEncArray(csilV.AppliedPolicies, func(csilElem string) cborValue { return cborText(csilElem) })})
+	csilEntries = append(csilEntries, cborEntry{cborText("blocking_policies"), cborEncArray(csilV.BlockingPolicies, func(csilElem string) cborValue { return cborText(csilElem) })})
+	return csilEntries
+}
+
+// csilDecPreviewAppAccessResponse reconstructs a PreviewAppAccessResponse from a decoded CBOR value tree.
+func csilDecPreviewAppAccessResponse(csilRoot cborValue) (PreviewAppAccessResponse, error) {
+	var csilOut PreviewAppAccessResponse
+	{
+		csilField, csilErr := cborRequire(csilRoot, "allowed")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsBool)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Allowed = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "applied_policies")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.AppliedPolicies = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "blocking_policies")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.BlockingPolicies = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "messages")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Messages = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodePreviewAppAccessResponse encodes a PreviewAppAccessResponse to canonical CSIL CBOR bytes.
+func EncodePreviewAppAccessResponse(csilV PreviewAppAccessResponse) []byte {
+	return cborEncode(csilEncPreviewAppAccessResponse(csilV))
+}
+
+// DecodePreviewAppAccessResponse decodes canonical CSIL CBOR bytes into a PreviewAppAccessResponse.
+func DecodePreviewAppAccessResponse(csilData []byte) (PreviewAppAccessResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero PreviewAppAccessResponse
+		return csilZero, csilErr
+	}
+	return csilDecPreviewAppAccessResponse(csilRoot)
+}
+
+// csilEncAppAccessDenial builds the canonical CBOR value tree for a AppAccessDenial.
+func csilEncAppAccessDenial(csilV AppAccessDenial) cborValue {
+	csilEntries := make(cborMap, 0, 2)
+	if csilV.Domain != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("domain"), cborText((*csilV.Domain))})
+	}
+	csilEntries = append(csilEntries, cborEntry{cborText("messages"), cborEncArray(csilV.Messages, func(csilElem string) cborValue { return cborText(csilElem) })})
+	return csilEntries
+}
+
+// csilDecAppAccessDenial reconstructs a AppAccessDenial from a decoded CBOR value tree.
+func csilDecAppAccessDenial(csilRoot cborValue) (AppAccessDenial, error) {
+	var csilOut AppAccessDenial
+	if csilField, csilOk := cborMapGet(csilRoot, "domain"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Domain = &csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "messages")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]string, error) { return cborDecArray(csilV, cborAsText) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Messages = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeAppAccessDenial encodes a AppAccessDenial to canonical CSIL CBOR bytes.
+func EncodeAppAccessDenial(csilV AppAccessDenial) []byte {
+	return cborEncode(csilEncAppAccessDenial(csilV))
+}
+
+// DecodeAppAccessDenial decodes canonical CSIL CBOR bytes into a AppAccessDenial.
+func DecodeAppAccessDenial(csilData []byte) (AppAccessDenial, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero AppAccessDenial
+		return csilZero, csilErr
+	}
+	return csilDecAppAccessDenial(csilRoot)
 }
 
 // csilEncPurgeLocalRpTicketsRequest builds the canonical CBOR value tree for a PurgeLocalRpTicketsRequest.
@@ -17612,12 +18352,15 @@ func DecodeBrowserActAsParty(csilData []byte) (BrowserActAsParty, error) {
 
 // csilEncBrowserActAsInspectResponse builds the canonical CBOR value tree for a BrowserActAsInspectResponse.
 func csilEncBrowserActAsInspectResponse(csilV BrowserActAsInspectResponse) cborValue {
-	csilEntries := make(cborMap, 0, 10)
+	csilEntries := make(cborMap, 0, 11)
 	csilEntries = append(csilEntries, cborEntry{cborText("entries"), cborEncArray(csilV.Entries, func(csilElem BrowserActAsScopeEntry) cborValue { return csilEncBrowserActAsScopeEntry(csilElem) })})
 	csilEntries = append(csilEntries, cborEntry{cborText("grantee"), csilEncGranteeRef(csilV.Grantee)})
 	csilEntries = append(csilEntries, cborEntry{cborText("audience"), csilEncApplicationRef(csilV.Audience)})
 	if csilV.Language != nil {
 		csilEntries = append(csilEntries, cborEntry{cborText("language"), cborText((*csilV.Language))})
+	}
+	if csilV.AccessDenied != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("access_denied"), csilEncAppAccessDenial((*csilV.AccessDenied))})
 	}
 	csilEntries = append(csilEntries, cborEntry{cborText("grantee_party"), csilEncBrowserActAsParty(csilV.GranteeParty)})
 	csilEntries = append(csilEntries, cborEntry{cborText("audience_party"), csilEncBrowserActAsParty(csilV.AudienceParty)})
@@ -17738,6 +18481,13 @@ func csilDecBrowserActAsInspectResponse(csilRoot cborValue) (BrowserActAsInspect
 			return csilOut, csilErr
 		}
 		csilOut.MaxRenewalWindowSeconds = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "access_denied"); csilOk {
+		csilVal, csilErr := (csilDecAppAccessDenial)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.AccessDenied = &csilVal
 	}
 	return csilOut, nil
 }

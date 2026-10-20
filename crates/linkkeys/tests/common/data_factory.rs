@@ -8,9 +8,10 @@ use std::collections::HashMap;
 
 use linkkeys::db::act_as::{ActAsGrantRecord, GranteeColumns};
 use linkkeys::db::models::{
-    ApplicationInstance, ApplicationKey, ApplicationKeyAttestationRecord,
-    ApplicationKeyRevocationRecord, AuthCredential, ClaimTypePolicy, DomainKey, GuestbookEntry,
-    LocalRp, LocalRpClaimTicket, Relation, ReleasePolicy, TrustedIssuer, User,
+    AppAccessPolicy, AppAccessTarget, ApplicationInstance, ApplicationKey,
+    ApplicationKeyAttestationRecord, ApplicationKeyRevocationRecord, AuthCredential,
+    ClaimTypePolicy, DomainKey, GuestbookEntry, LocalRp, LocalRpClaimTicket, Relation,
+    ReleasePolicy, TrustedIssuer, User,
 };
 use linkkeys::db::DbPool;
 
@@ -181,6 +182,71 @@ pub fn create_trusted_issuer(
         claim_type: claim_type.to_string(),
         issuer_domain: issuer_domain.to_string(),
     }
+}
+
+/// Create an app access policy directly via `DbPool::save_app_access_policy`.
+/// Overrides: `name`, `mode` (default `"deny"`), `patterns` (JSON array,
+/// default `["*.blocked.example"]`), `message`, and `targets` (JSON array of
+/// objects with `kind`, `user_id`, `group_name`, `claim_type`,
+/// `claim_operator`, `claim_value`; default one `everyone` target). Values are
+/// stored as given: tests that need validation call the service instead.
+#[allow(dead_code)]
+pub fn create_app_access_policy(pool: &DbPool, overrides: &DataMap) -> AppAccessPolicy {
+    let strings = |value: &Value| -> Vec<String> {
+        value
+            .as_array()
+            .expect("a JSON array")
+            .iter()
+            .map(|v| v.as_str().expect("a string").to_string())
+            .collect()
+    };
+    let field =
+        |target: &Value, key: &str| target.get(key).and_then(Value::as_str).map(str::to_string);
+    let policy = AppAccessPolicy {
+        id: uuid::Uuid::now_v7().to_string(),
+        name: extract_str(overrides, "name", || {
+            format!("test-policy-{}", rand_suffix())
+        }),
+        mode: extract_str(overrides, "mode", || "deny".to_string()),
+        message: overrides
+            .get("message")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        patterns: overrides
+            .get("patterns")
+            .map(strings)
+            .unwrap_or_else(|| vec!["*.blocked.example".to_string()]),
+        targets: overrides
+            .get("targets")
+            .map(|targets| {
+                targets
+                    .as_array()
+                    .expect("a JSON array")
+                    .iter()
+                    .map(|t| AppAccessTarget {
+                        kind: field(t, "kind").expect("a target kind"),
+                        user_id: field(t, "user_id"),
+                        group_name: field(t, "group_name"),
+                        claim_type: field(t, "claim_type"),
+                        claim_operator: field(t, "claim_operator"),
+                        claim_value: field(t, "claim_value"),
+                    })
+                    .collect()
+            })
+            .unwrap_or_else(|| {
+                vec![AppAccessTarget {
+                    kind: "everyone".to_string(),
+                    user_id: None,
+                    group_name: None,
+                    claim_type: None,
+                    claim_operator: None,
+                    claim_value: None,
+                }]
+            }),
+    };
+    pool.save_app_access_policy(&policy)
+        .expect("Failed to create test app access policy");
+    policy
 }
 
 /// Create a release-rule entry directly via `DbPool::upsert_release_policy`

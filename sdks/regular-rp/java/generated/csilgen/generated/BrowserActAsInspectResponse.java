@@ -14,6 +14,7 @@ public record BrowserActAsInspectResponse(
     long defaultLifetimeSeconds /* wire: "default_lifetime_seconds" */,
     long maxLifetimeSeconds /* wire: "max_lifetime_seconds" */,
     long defaultRenewalWindowSeconds /* wire: "default_renewal_window_seconds" */,
-    long maxRenewalWindowSeconds /* wire: "max_renewal_window_seconds" */
+    long maxRenewalWindowSeconds /* wire: "max_renewal_window_seconds" */,
+    AppAccessDenial accessDenied /* wire: "access_denied" */
 ) {
 }

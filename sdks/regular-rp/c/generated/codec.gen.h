@@ -1087,6 +1087,30 @@ static inline int csilc_enc_SignInPolicy(csilc_buf *b, const SignInPolicy *v);
 static inline int csilc_dec_SignInPolicy(const csilc_value *m, CsilCodecArena *a, SignInPolicy *out);
 static inline int csilc_enc_SetSignInPolicyRequest(csilc_buf *b, const SetSignInPolicyRequest *v);
 static inline int csilc_dec_SetSignInPolicyRequest(const csilc_value *m, CsilCodecArena *a, SetSignInPolicyRequest *out);
+static inline int csilc_enc_SetUserPasswordLockRequest(csilc_buf *b, const SetUserPasswordLockRequest *v);
+static inline int csilc_dec_SetUserPasswordLockRequest(const csilc_value *m, CsilCodecArena *a, SetUserPasswordLockRequest *out);
+static inline int csilc_enc_SetUserPasswordLockResponse(csilc_buf *b, const SetUserPasswordLockResponse *v);
+static inline int csilc_dec_SetUserPasswordLockResponse(const csilc_value *m, CsilCodecArena *a, SetUserPasswordLockResponse *out);
+static inline int csilc_enc_AppAccessTarget(csilc_buf *b, const AppAccessTarget *v);
+static inline int csilc_dec_AppAccessTarget(const csilc_value *m, CsilCodecArena *a, AppAccessTarget *out);
+static inline int csilc_enc_AppAccessPolicy(csilc_buf *b, const AppAccessPolicy *v);
+static inline int csilc_dec_AppAccessPolicy(const csilc_value *m, CsilCodecArena *a, AppAccessPolicy *out);
+static inline int csilc_enc_ListAppAccessPoliciesResponse(csilc_buf *b, const ListAppAccessPoliciesResponse *v);
+static inline int csilc_dec_ListAppAccessPoliciesResponse(const csilc_value *m, CsilCodecArena *a, ListAppAccessPoliciesResponse *out);
+static inline int csilc_enc_SetAppAccessPolicyRequest(csilc_buf *b, const SetAppAccessPolicyRequest *v);
+static inline int csilc_dec_SetAppAccessPolicyRequest(const csilc_value *m, CsilCodecArena *a, SetAppAccessPolicyRequest *out);
+static inline int csilc_enc_SetAppAccessPolicyResponse(csilc_buf *b, const SetAppAccessPolicyResponse *v);
+static inline int csilc_dec_SetAppAccessPolicyResponse(const csilc_value *m, CsilCodecArena *a, SetAppAccessPolicyResponse *out);
+static inline int csilc_enc_RemoveAppAccessPolicyRequest(csilc_buf *b, const RemoveAppAccessPolicyRequest *v);
+static inline int csilc_dec_RemoveAppAccessPolicyRequest(const csilc_value *m, CsilCodecArena *a, RemoveAppAccessPolicyRequest *out);
+static inline int csilc_enc_RemoveAppAccessPolicyResponse(csilc_buf *b, const RemoveAppAccessPolicyResponse *v);
+static inline int csilc_dec_RemoveAppAccessPolicyResponse(const csilc_value *m, CsilCodecArena *a, RemoveAppAccessPolicyResponse *out);
+static inline int csilc_enc_PreviewAppAccessRequest(csilc_buf *b, const PreviewAppAccessRequest *v);
+static inline int csilc_dec_PreviewAppAccessRequest(const csilc_value *m, CsilCodecArena *a, PreviewAppAccessRequest *out);
+static inline int csilc_enc_PreviewAppAccessResponse(csilc_buf *b, const PreviewAppAccessResponse *v);
+static inline int csilc_dec_PreviewAppAccessResponse(const csilc_value *m, CsilCodecArena *a, PreviewAppAccessResponse *out);
+static inline int csilc_enc_AppAccessDenial(csilc_buf *b, const AppAccessDenial *v);
+static inline int csilc_dec_AppAccessDenial(const csilc_value *m, CsilCodecArena *a, AppAccessDenial *out);
 static inline int csilc_enc_PurgeLocalRpTicketsRequest(csilc_buf *b, const PurgeLocalRpTicketsRequest *v);
 static inline int csilc_dec_PurgeLocalRpTicketsRequest(const csilc_value *m, CsilCodecArena *a, PurgeLocalRpTicketsRequest *out);
 static inline int csilc_enc_PurgeLocalRpTicketsResponse(csilc_buf *b, const PurgeLocalRpTicketsResponse *v);
@@ -3098,6 +3122,7 @@ static inline int csilc_enc_AdminUser(csilc_buf *b, const AdminUser *v) {
     size_t csilc_n = 6;
     if (v->purged_at) csilc_n++;
     if (v->purge_reason) csilc_n++;
+    if (v->password_locked) csilc_n++;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "id", 2)) return -1;
     if (csilc_w_text(b, (v->id), (v->id) ? strlen(v->id) : 0)) return -1;
@@ -3118,6 +3143,10 @@ static inline int csilc_enc_AdminUser(csilc_buf *b, const AdminUser *v) {
     if (v->purge_reason) {
         if (csilc_w_text(b, "purge_reason", 12)) return -1;
         if (csilc_w_text(b, (v->purge_reason), (v->purge_reason) ? strlen(v->purge_reason) : 0)) return -1;
+    }
+    if (v->password_locked) {
+        if (csilc_w_text(b, "password_locked", 15)) return -1;
+        if (csilc_w_bool(b, ((*v->password_locked)))) return -1;
     }
     return 0;
 }
@@ -3143,6 +3172,14 @@ static inline int csilc_dec_AdminUser(const csilc_value *m, CsilCodecArena *a, A
     if (!csilc_get_text(csilc_f, &(out->display_name))) return -1;
     csilc_f = csilc_map_get(m, "purge_reason");
     out->purge_reason = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "password_locked");
+    out->password_locked = NULL;
+    if (csilc_f) {
+        bool *csilc_p = (bool *)csilc_arena_alloc(a, sizeof(bool));
+        if (!csilc_p) return -1;
+        if (!csilc_as_bool(csilc_f, &((*csilc_p)))) return -1;
+        out->password_locked = csilc_p;
+    }
     return 0;
 }
 
@@ -6366,6 +6403,7 @@ static inline int csilc_dec_BrowserConsentClaim(const csilc_value *m, CsilCodecA
 /* csilc_enc_BrowserAuthorizationInspectResponse writes BrowserAuthorizationInspectResponse as a canonical CBOR map. */
 static inline int csilc_enc_BrowserAuthorizationInspectResponse(csilc_buf *b, const BrowserAuthorizationInspectResponse *v) {
     size_t csilc_n = 2;
+    if (v->access_denied) csilc_n++;
     if (v->request_reason) csilc_n++;
     if (v->already_consented) csilc_n++;
     if (v->authorized_claims_count) csilc_n++;
@@ -6374,6 +6412,10 @@ static inline int csilc_enc_BrowserAuthorizationInspectResponse(csilc_buf *b, co
     if (csilc_w_array_head(b, v->claims_count)) return -1;
     for (size_t csilc_i = 0; csilc_i < v->claims_count; csilc_i++) {
         if (csilc_enc_BrowserConsentClaim(b, &(v->claims[csilc_i]))) return -1;
+    }
+    if (v->access_denied) {
+        if (csilc_w_text(b, "access_denied", 13)) return -1;
+        if (csilc_enc_AppAccessDenial(b, &((*v->access_denied)))) return -1;
     }
     if (csilc_w_text(b, "relying_party", 13)) return -1;
     if (csilc_w_text(b, (v->relying_party), (v->relying_party) ? strlen(v->relying_party) : 0)) return -1;
@@ -6410,6 +6452,14 @@ static inline int csilc_dec_BrowserAuthorizationInspectResponse(const csilc_valu
         for (size_t csilc_i = 0; csilc_i < out->claims_count; csilc_i++) {
             if (csilc_dec_BrowserConsentClaim(&csilc_f->as.array.items[csilc_i], a, &(out->claims[csilc_i]))) return -1;
         }
+    }
+    csilc_f = csilc_map_get(m, "access_denied");
+    out->access_denied = NULL;
+    if (csilc_f) {
+        AppAccessDenial *csilc_p = (AppAccessDenial *)csilc_arena_alloc(a, sizeof(AppAccessDenial));
+        if (!csilc_p) return -1;
+        if (csilc_dec_AppAccessDenial(csilc_f, a, &((*csilc_p)))) return -1;
+        out->access_denied = csilc_p;
     }
     csilc_f = csilc_map_get(m, "relying_party");
     if (!csilc_get_text(csilc_f, &(out->relying_party))) return -1;
@@ -6558,6 +6608,7 @@ static inline int csilc_dec_BrowserLocalRpInspectRequest(const csilc_value *m, C
 /* csilc_enc_BrowserLocalRpInspectResponse writes BrowserLocalRpInspectResponse as a canonical CBOR map. */
 static inline int csilc_enc_BrowserLocalRpInspectResponse(csilc_buf *b, const BrowserLocalRpInspectResponse *v) {
     size_t csilc_n = 5;
+    if (v->access_denied) csilc_n++;
     if (v->first_seen_at) csilc_n++;
     if (v->request_reason) csilc_n++;
     if (v->already_consented) csilc_n++;
@@ -6574,6 +6625,10 @@ static inline int csilc_enc_BrowserLocalRpInspectResponse(csilc_buf *b, const Br
     if (csilc_w_text(b, (v->admission), (v->admission) ? strlen(v->admission) : 0)) return -1;
     if (csilc_w_text(b, "fingerprint", 11)) return -1;
     if (csilc_w_text(b, (v->fingerprint), (v->fingerprint) ? strlen(v->fingerprint) : 0)) return -1;
+    if (v->access_denied) {
+        if (csilc_w_text(b, "access_denied", 13)) return -1;
+        if (csilc_enc_AppAccessDenial(b, &((*v->access_denied)))) return -1;
+    }
     if (csilc_w_text(b, "callback_host", 13)) return -1;
     if (csilc_w_text(b, (v->callback_host), (v->callback_host) ? strlen(v->callback_host) : 0)) return -1;
     if (v->first_seen_at) {
@@ -6620,6 +6675,14 @@ static inline int csilc_dec_BrowserLocalRpInspectResponse(const csilc_value *m, 
     if (!csilc_get_text(csilc_f, &(out->admission))) return -1;
     csilc_f = csilc_map_get(m, "fingerprint");
     if (!csilc_get_text(csilc_f, &(out->fingerprint))) return -1;
+    csilc_f = csilc_map_get(m, "access_denied");
+    out->access_denied = NULL;
+    if (csilc_f) {
+        AppAccessDenial *csilc_p = (AppAccessDenial *)csilc_arena_alloc(a, sizeof(AppAccessDenial));
+        if (!csilc_p) return -1;
+        if (csilc_dec_AppAccessDenial(csilc_f, a, &((*csilc_p)))) return -1;
+        out->access_denied = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "callback_host");
     if (!csilc_get_text(csilc_f, &(out->callback_host))) return -1;
     csilc_f = csilc_map_get(m, "first_seen_at");
@@ -7206,12 +7269,17 @@ static inline int csilc_dec_AuthorizeValidateRequest(const csilc_value *m, CsilC
 /* csilc_enc_AuthorizeValidateResponse writes AuthorizeValidateResponse as a canonical CBOR map. */
 static inline int csilc_enc_AuthorizeValidateResponse(csilc_buf *b, const AuthorizeValidateResponse *v) {
     size_t csilc_n = 3;
+    if (v->access_denied) csilc_n++;
     if (v->already_consented) csilc_n++;
     if (v->authorized_claims_count) csilc_n++;
     if (v->newly_requested_claims_count) csilc_n++;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "callback_url", 12)) return -1;
     if (csilc_w_text(b, (v->callback_url), (v->callback_url) ? strlen(v->callback_url) : 0)) return -1;
+    if (v->access_denied) {
+        if (csilc_w_text(b, "access_denied", 13)) return -1;
+        if (csilc_enc_AppAccessDenial(b, &((*v->access_denied)))) return -1;
+    }
     if (csilc_w_text(b, "relying_party", 13)) return -1;
     if (csilc_w_text(b, (v->relying_party), (v->relying_party) ? strlen(v->relying_party) : 0)) return -1;
     if (csilc_w_text(b, "requested_claims", 16)) return -1;
@@ -7247,6 +7315,14 @@ static inline int csilc_dec_AuthorizeValidateResponse(const csilc_value *m, Csil
     if (!m || m->kind != CSILC_MAP) return -1;
     csilc_f = csilc_map_get(m, "callback_url");
     if (!csilc_get_text(csilc_f, &(out->callback_url))) return -1;
+    csilc_f = csilc_map_get(m, "access_denied");
+    out->access_denied = NULL;
+    if (csilc_f) {
+        AppAccessDenial *csilc_p = (AppAccessDenial *)csilc_arena_alloc(a, sizeof(AppAccessDenial));
+        if (!csilc_p) return -1;
+        if (csilc_dec_AppAccessDenial(csilc_f, a, &((*csilc_p)))) return -1;
+        out->access_denied = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "relying_party");
     if (!csilc_get_text(csilc_f, &(out->relying_party))) return -1;
     csilc_f = csilc_map_get(m, "requested_claims");
@@ -8295,6 +8371,456 @@ static inline int csilc_dec_SetSignInPolicyRequest(const csilc_value *m, CsilCod
     if (!m || m->kind != CSILC_MAP) return -1;
     csilc_f = csilc_map_get(m, "sign_in_hours");
     if (!csilc_as_i64(csilc_f, &(out->sign_in_hours))) return -1;
+    return 0;
+}
+
+/* csilc_enc_SetUserPasswordLockRequest writes SetUserPasswordLockRequest as a canonical CBOR map. */
+static inline int csilc_enc_SetUserPasswordLockRequest(csilc_buf *b, const SetUserPasswordLockRequest *v) {
+    size_t csilc_n = 2;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "locked", 6)) return -1;
+    if (csilc_w_bool(b, (v->locked))) return -1;
+    if (csilc_w_text(b, "user_id", 7)) return -1;
+    if (csilc_w_text(b, (v->user_id), (v->user_id) ? strlen(v->user_id) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_SetUserPasswordLockRequest reads SetUserPasswordLockRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_SetUserPasswordLockRequest(const csilc_value *m, CsilCodecArena *a, SetUserPasswordLockRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "locked");
+    if (!csilc_as_bool(csilc_f, &(out->locked))) return -1;
+    csilc_f = csilc_map_get(m, "user_id");
+    if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
+    return 0;
+}
+
+/* csilc_enc_SetUserPasswordLockResponse writes SetUserPasswordLockResponse as a canonical CBOR map. */
+static inline int csilc_enc_SetUserPasswordLockResponse(csilc_buf *b, const SetUserPasswordLockResponse *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "user", 4)) return -1;
+    if (csilc_enc_AdminUser(b, &(v->user))) return -1;
+    return 0;
+}
+
+/* csilc_dec_SetUserPasswordLockResponse reads SetUserPasswordLockResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_SetUserPasswordLockResponse(const csilc_value *m, CsilCodecArena *a, SetUserPasswordLockResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "user");
+    if (csilc_dec_AdminUser(csilc_f, a, &(out->user))) return -1;
+    return 0;
+}
+
+/* csilc_enc_AppAccessTarget writes AppAccessTarget as a canonical CBOR map. */
+static inline int csilc_enc_AppAccessTarget(csilc_buf *b, const AppAccessTarget *v) {
+    size_t csilc_n = 1;
+    if (v->user_id) csilc_n++;
+    if (v->claim_type) csilc_n++;
+    if (v->group_name) csilc_n++;
+    if (v->claim_value) csilc_n++;
+    if (v->claim_operator) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "kind", 4)) return -1;
+    if (csilc_w_text(b, (v->kind), (v->kind) ? strlen(v->kind) : 0)) return -1;
+    if (v->user_id) {
+        if (csilc_w_text(b, "user_id", 7)) return -1;
+        if (csilc_w_text(b, (v->user_id), (v->user_id) ? strlen(v->user_id) : 0)) return -1;
+    }
+    if (v->claim_type) {
+        if (csilc_w_text(b, "claim_type", 10)) return -1;
+        if (csilc_w_text(b, (v->claim_type), (v->claim_type) ? strlen(v->claim_type) : 0)) return -1;
+    }
+    if (v->group_name) {
+        if (csilc_w_text(b, "group_name", 10)) return -1;
+        if (csilc_w_text(b, (v->group_name), (v->group_name) ? strlen(v->group_name) : 0)) return -1;
+    }
+    if (v->claim_value) {
+        if (csilc_w_text(b, "claim_value", 11)) return -1;
+        if (csilc_w_text(b, (v->claim_value), (v->claim_value) ? strlen(v->claim_value) : 0)) return -1;
+    }
+    if (v->claim_operator) {
+        if (csilc_w_text(b, "claim_operator", 14)) return -1;
+        if (csilc_w_text(b, (v->claim_operator), (v->claim_operator) ? strlen(v->claim_operator) : 0)) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_AppAccessTarget reads AppAccessTarget from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_AppAccessTarget(const csilc_value *m, CsilCodecArena *a, AppAccessTarget *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "kind");
+    if (!csilc_get_text(csilc_f, &(out->kind))) return -1;
+    csilc_f = csilc_map_get(m, "user_id");
+    out->user_id = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "claim_type");
+    out->claim_type = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "group_name");
+    out->group_name = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "claim_value");
+    out->claim_value = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "claim_operator");
+    out->claim_operator = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    return 0;
+}
+
+/* csilc_enc_AppAccessPolicy writes AppAccessPolicy as a canonical CBOR map. */
+static inline int csilc_enc_AppAccessPolicy(csilc_buf *b, const AppAccessPolicy *v) {
+    size_t csilc_n = 5;
+    if (v->message) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "id", 2)) return -1;
+    if (csilc_w_text(b, (v->id), (v->id) ? strlen(v->id) : 0)) return -1;
+    if (csilc_w_text(b, "mode", 4)) return -1;
+    if (csilc_w_text(b, (v->mode), (v->mode) ? strlen(v->mode) : 0)) return -1;
+    if (csilc_w_text(b, "name", 4)) return -1;
+    if (csilc_w_text(b, (v->name), (v->name) ? strlen(v->name) : 0)) return -1;
+    if (v->message) {
+        if (csilc_w_text(b, "message", 7)) return -1;
+        if (csilc_w_text(b, (v->message), (v->message) ? strlen(v->message) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "targets", 7)) return -1;
+    if (csilc_w_array_head(b, v->targets_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->targets_count; csilc_i++) {
+        if (csilc_enc_AppAccessTarget(b, &(v->targets[csilc_i]))) return -1;
+    }
+    if (csilc_w_text(b, "patterns", 8)) return -1;
+    if (csilc_w_array_head(b, v->patterns_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->patterns_count; csilc_i++) {
+        if (csilc_w_text(b, (v->patterns[csilc_i]), (v->patterns[csilc_i]) ? strlen(v->patterns[csilc_i]) : 0)) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_AppAccessPolicy reads AppAccessPolicy from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_AppAccessPolicy(const csilc_value *m, CsilCodecArena *a, AppAccessPolicy *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "id");
+    if (!csilc_get_text(csilc_f, &(out->id))) return -1;
+    csilc_f = csilc_map_get(m, "mode");
+    if (!csilc_get_text(csilc_f, &(out->mode))) return -1;
+    csilc_f = csilc_map_get(m, "name");
+    if (!csilc_get_text(csilc_f, &(out->name))) return -1;
+    csilc_f = csilc_map_get(m, "message");
+    out->message = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "targets");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->targets_count = csilc_f->as.array.count;
+    out->targets = NULL;
+    if (out->targets_count) {
+        out->targets = (AppAccessTarget *)csilc_arena_alloc(a, out->targets_count * sizeof(AppAccessTarget));
+        if (!out->targets) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->targets_count; csilc_i++) {
+            if (csilc_dec_AppAccessTarget(&csilc_f->as.array.items[csilc_i], a, &(out->targets[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "patterns");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->patterns_count = csilc_f->as.array.count;
+    out->patterns = NULL;
+    if (out->patterns_count) {
+        out->patterns = (char * *)csilc_arena_alloc(a, out->patterns_count * sizeof(char *));
+        if (!out->patterns) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->patterns_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->patterns[csilc_i]))) return -1;
+        }
+    }
+    return 0;
+}
+
+/* csilc_enc_ListAppAccessPoliciesResponse writes ListAppAccessPoliciesResponse as a canonical CBOR map. */
+static inline int csilc_enc_ListAppAccessPoliciesResponse(csilc_buf *b, const ListAppAccessPoliciesResponse *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "policies", 8)) return -1;
+    if (csilc_w_array_head(b, v->policies_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->policies_count; csilc_i++) {
+        if (csilc_enc_AppAccessPolicy(b, &(v->policies[csilc_i]))) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_ListAppAccessPoliciesResponse reads ListAppAccessPoliciesResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_ListAppAccessPoliciesResponse(const csilc_value *m, CsilCodecArena *a, ListAppAccessPoliciesResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "policies");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->policies_count = csilc_f->as.array.count;
+    out->policies = NULL;
+    if (out->policies_count) {
+        out->policies = (AppAccessPolicy *)csilc_arena_alloc(a, out->policies_count * sizeof(AppAccessPolicy));
+        if (!out->policies) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->policies_count; csilc_i++) {
+            if (csilc_dec_AppAccessPolicy(&csilc_f->as.array.items[csilc_i], a, &(out->policies[csilc_i]))) return -1;
+        }
+    }
+    return 0;
+}
+
+/* csilc_enc_SetAppAccessPolicyRequest writes SetAppAccessPolicyRequest as a canonical CBOR map. */
+static inline int csilc_enc_SetAppAccessPolicyRequest(csilc_buf *b, const SetAppAccessPolicyRequest *v) {
+    size_t csilc_n = 4;
+    if (v->id) csilc_n++;
+    if (v->message) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (v->id) {
+        if (csilc_w_text(b, "id", 2)) return -1;
+        if (csilc_w_text(b, (v->id), (v->id) ? strlen(v->id) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "mode", 4)) return -1;
+    if (csilc_w_text(b, (v->mode), (v->mode) ? strlen(v->mode) : 0)) return -1;
+    if (csilc_w_text(b, "name", 4)) return -1;
+    if (csilc_w_text(b, (v->name), (v->name) ? strlen(v->name) : 0)) return -1;
+    if (v->message) {
+        if (csilc_w_text(b, "message", 7)) return -1;
+        if (csilc_w_text(b, (v->message), (v->message) ? strlen(v->message) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "targets", 7)) return -1;
+    if (csilc_w_array_head(b, v->targets_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->targets_count; csilc_i++) {
+        if (csilc_enc_AppAccessTarget(b, &(v->targets[csilc_i]))) return -1;
+    }
+    if (csilc_w_text(b, "patterns", 8)) return -1;
+    if (csilc_w_array_head(b, v->patterns_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->patterns_count; csilc_i++) {
+        if (csilc_w_text(b, (v->patterns[csilc_i]), (v->patterns[csilc_i]) ? strlen(v->patterns[csilc_i]) : 0)) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_SetAppAccessPolicyRequest reads SetAppAccessPolicyRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_SetAppAccessPolicyRequest(const csilc_value *m, CsilCodecArena *a, SetAppAccessPolicyRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "id");
+    out->id = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "mode");
+    if (!csilc_get_text(csilc_f, &(out->mode))) return -1;
+    csilc_f = csilc_map_get(m, "name");
+    if (!csilc_get_text(csilc_f, &(out->name))) return -1;
+    csilc_f = csilc_map_get(m, "message");
+    out->message = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "targets");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->targets_count = csilc_f->as.array.count;
+    out->targets = NULL;
+    if (out->targets_count) {
+        out->targets = (AppAccessTarget *)csilc_arena_alloc(a, out->targets_count * sizeof(AppAccessTarget));
+        if (!out->targets) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->targets_count; csilc_i++) {
+            if (csilc_dec_AppAccessTarget(&csilc_f->as.array.items[csilc_i], a, &(out->targets[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "patterns");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->patterns_count = csilc_f->as.array.count;
+    out->patterns = NULL;
+    if (out->patterns_count) {
+        out->patterns = (char * *)csilc_arena_alloc(a, out->patterns_count * sizeof(char *));
+        if (!out->patterns) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->patterns_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->patterns[csilc_i]))) return -1;
+        }
+    }
+    return 0;
+}
+
+/* csilc_enc_SetAppAccessPolicyResponse writes SetAppAccessPolicyResponse as a canonical CBOR map. */
+static inline int csilc_enc_SetAppAccessPolicyResponse(csilc_buf *b, const SetAppAccessPolicyResponse *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "policy", 6)) return -1;
+    if (csilc_enc_AppAccessPolicy(b, &(v->policy))) return -1;
+    return 0;
+}
+
+/* csilc_dec_SetAppAccessPolicyResponse reads SetAppAccessPolicyResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_SetAppAccessPolicyResponse(const csilc_value *m, CsilCodecArena *a, SetAppAccessPolicyResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "policy");
+    if (csilc_dec_AppAccessPolicy(csilc_f, a, &(out->policy))) return -1;
+    return 0;
+}
+
+/* csilc_enc_RemoveAppAccessPolicyRequest writes RemoveAppAccessPolicyRequest as a canonical CBOR map. */
+static inline int csilc_enc_RemoveAppAccessPolicyRequest(csilc_buf *b, const RemoveAppAccessPolicyRequest *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "id", 2)) return -1;
+    if (csilc_w_text(b, (v->id), (v->id) ? strlen(v->id) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_RemoveAppAccessPolicyRequest reads RemoveAppAccessPolicyRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RemoveAppAccessPolicyRequest(const csilc_value *m, CsilCodecArena *a, RemoveAppAccessPolicyRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "id");
+    if (!csilc_get_text(csilc_f, &(out->id))) return -1;
+    return 0;
+}
+
+/* csilc_enc_RemoveAppAccessPolicyResponse writes RemoveAppAccessPolicyResponse as a canonical CBOR map. */
+static inline int csilc_enc_RemoveAppAccessPolicyResponse(csilc_buf *b, const RemoveAppAccessPolicyResponse *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "success", 7)) return -1;
+    if (csilc_w_bool(b, (v->success))) return -1;
+    return 0;
+}
+
+/* csilc_dec_RemoveAppAccessPolicyResponse reads RemoveAppAccessPolicyResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RemoveAppAccessPolicyResponse(const csilc_value *m, CsilCodecArena *a, RemoveAppAccessPolicyResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "success");
+    if (!csilc_as_bool(csilc_f, &(out->success))) return -1;
+    return 0;
+}
+
+/* csilc_enc_PreviewAppAccessRequest writes PreviewAppAccessRequest as a canonical CBOR map. */
+static inline int csilc_enc_PreviewAppAccessRequest(csilc_buf *b, const PreviewAppAccessRequest *v) {
+    size_t csilc_n = 1;
+    if (v->domain) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (v->domain) {
+        if (csilc_w_text(b, "domain", 6)) return -1;
+        if (csilc_w_text(b, (v->domain), (v->domain) ? strlen(v->domain) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "user_id", 7)) return -1;
+    if (csilc_w_text(b, (v->user_id), (v->user_id) ? strlen(v->user_id) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_PreviewAppAccessRequest reads PreviewAppAccessRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_PreviewAppAccessRequest(const csilc_value *m, CsilCodecArena *a, PreviewAppAccessRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "domain");
+    out->domain = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "user_id");
+    if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
+    return 0;
+}
+
+/* csilc_enc_PreviewAppAccessResponse writes PreviewAppAccessResponse as a canonical CBOR map. */
+static inline int csilc_enc_PreviewAppAccessResponse(csilc_buf *b, const PreviewAppAccessResponse *v) {
+    size_t csilc_n = 4;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "allowed", 7)) return -1;
+    if (csilc_w_bool(b, (v->allowed))) return -1;
+    if (csilc_w_text(b, "messages", 8)) return -1;
+    if (csilc_w_array_head(b, v->messages_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->messages_count; csilc_i++) {
+        if (csilc_w_text(b, (v->messages[csilc_i]), (v->messages[csilc_i]) ? strlen(v->messages[csilc_i]) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "applied_policies", 16)) return -1;
+    if (csilc_w_array_head(b, v->applied_policies_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->applied_policies_count; csilc_i++) {
+        if (csilc_w_text(b, (v->applied_policies[csilc_i]), (v->applied_policies[csilc_i]) ? strlen(v->applied_policies[csilc_i]) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "blocking_policies", 17)) return -1;
+    if (csilc_w_array_head(b, v->blocking_policies_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->blocking_policies_count; csilc_i++) {
+        if (csilc_w_text(b, (v->blocking_policies[csilc_i]), (v->blocking_policies[csilc_i]) ? strlen(v->blocking_policies[csilc_i]) : 0)) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_PreviewAppAccessResponse reads PreviewAppAccessResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_PreviewAppAccessResponse(const csilc_value *m, CsilCodecArena *a, PreviewAppAccessResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "allowed");
+    if (!csilc_as_bool(csilc_f, &(out->allowed))) return -1;
+    csilc_f = csilc_map_get(m, "messages");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->messages_count = csilc_f->as.array.count;
+    out->messages = NULL;
+    if (out->messages_count) {
+        out->messages = (char * *)csilc_arena_alloc(a, out->messages_count * sizeof(char *));
+        if (!out->messages) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->messages_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->messages[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "applied_policies");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->applied_policies_count = csilc_f->as.array.count;
+    out->applied_policies = NULL;
+    if (out->applied_policies_count) {
+        out->applied_policies = (char * *)csilc_arena_alloc(a, out->applied_policies_count * sizeof(char *));
+        if (!out->applied_policies) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->applied_policies_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->applied_policies[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "blocking_policies");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->blocking_policies_count = csilc_f->as.array.count;
+    out->blocking_policies = NULL;
+    if (out->blocking_policies_count) {
+        out->blocking_policies = (char * *)csilc_arena_alloc(a, out->blocking_policies_count * sizeof(char *));
+        if (!out->blocking_policies) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->blocking_policies_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->blocking_policies[csilc_i]))) return -1;
+        }
+    }
+    return 0;
+}
+
+/* csilc_enc_AppAccessDenial writes AppAccessDenial as a canonical CBOR map. */
+static inline int csilc_enc_AppAccessDenial(csilc_buf *b, const AppAccessDenial *v) {
+    size_t csilc_n = 1;
+    if (v->domain) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (v->domain) {
+        if (csilc_w_text(b, "domain", 6)) return -1;
+        if (csilc_w_text(b, (v->domain), (v->domain) ? strlen(v->domain) : 0)) return -1;
+    }
+    if (csilc_w_text(b, "messages", 8)) return -1;
+    if (csilc_w_array_head(b, v->messages_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->messages_count; csilc_i++) {
+        if (csilc_w_text(b, (v->messages[csilc_i]), (v->messages[csilc_i]) ? strlen(v->messages[csilc_i]) : 0)) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_AppAccessDenial reads AppAccessDenial from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_AppAccessDenial(const csilc_value *m, CsilCodecArena *a, AppAccessDenial *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "domain");
+    out->domain = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "messages");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->messages_count = csilc_f->as.array.count;
+    out->messages = NULL;
+    if (out->messages_count) {
+        out->messages = (char * *)csilc_arena_alloc(a, out->messages_count * sizeof(char *));
+        if (!out->messages) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->messages_count; csilc_i++) {
+            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->messages[csilc_i]))) return -1;
+        }
+    }
     return 0;
 }
 
@@ -10488,6 +11014,7 @@ static inline int csilc_dec_BrowserActAsParty(const csilc_value *m, CsilCodecAre
 static inline int csilc_enc_BrowserActAsInspectResponse(csilc_buf *b, const BrowserActAsInspectResponse *v) {
     size_t csilc_n = 9;
     if (v->language) csilc_n++;
+    if (v->access_denied) csilc_n++;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "entries", 7)) return -1;
     if (csilc_w_array_head(b, v->entries_count)) return -1;
@@ -10501,6 +11028,10 @@ static inline int csilc_enc_BrowserActAsInspectResponse(csilc_buf *b, const Brow
     if (v->language) {
         if (csilc_w_text(b, "language", 8)) return -1;
         if (csilc_w_text(b, (v->language), (v->language) ? strlen(v->language) : 0)) return -1;
+    }
+    if (v->access_denied) {
+        if (csilc_w_text(b, "access_denied", 13)) return -1;
+        if (csilc_enc_AppAccessDenial(b, &((*v->access_denied)))) return -1;
     }
     if (csilc_w_text(b, "grantee_party", 13)) return -1;
     if (csilc_enc_BrowserActAsParty(b, &(v->grantee_party))) return -1;
@@ -10539,6 +11070,14 @@ static inline int csilc_dec_BrowserActAsInspectResponse(const csilc_value *m, Cs
     if (csilc_dec_ApplicationRef(csilc_f, a, &(out->audience))) return -1;
     csilc_f = csilc_map_get(m, "language");
     out->language = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "access_denied");
+    out->access_denied = NULL;
+    if (csilc_f) {
+        AppAccessDenial *csilc_p = (AppAccessDenial *)csilc_arena_alloc(a, sizeof(AppAccessDenial));
+        if (!csilc_p) return -1;
+        if (csilc_dec_AppAccessDenial(csilc_f, a, &((*csilc_p)))) return -1;
+        out->access_denied = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "grantee_party");
     if (csilc_dec_BrowserActAsParty(csilc_f, a, &(out->grantee_party))) return -1;
     csilc_f = csilc_map_get(m, "audience_party");
@@ -16549,6 +17088,282 @@ static inline int csil_decode_SetSignInPolicyRequest(const uint8_t *in, size_t l
     const csilc_value *root;
     if (csilc_decode(in, len, &a, &root)) return -1;
     if (csilc_dec_SetSignInPolicyRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SetUserPasswordLockRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SetUserPasswordLockRequest(const SetUserPasswordLockRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SetUserPasswordLockRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SetUserPasswordLockRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SetUserPasswordLockRequest(const uint8_t *in, size_t len, SetUserPasswordLockRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SetUserPasswordLockRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SetUserPasswordLockResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SetUserPasswordLockResponse(const SetUserPasswordLockResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SetUserPasswordLockResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SetUserPasswordLockResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SetUserPasswordLockResponse(const uint8_t *in, size_t len, SetUserPasswordLockResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SetUserPasswordLockResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a AppAccessTarget to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_AppAccessTarget(const AppAccessTarget *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_AppAccessTarget(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a AppAccessTarget. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_AppAccessTarget(const uint8_t *in, size_t len, AppAccessTarget *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_AppAccessTarget(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a AppAccessPolicy to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_AppAccessPolicy(const AppAccessPolicy *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_AppAccessPolicy(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a AppAccessPolicy. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_AppAccessPolicy(const uint8_t *in, size_t len, AppAccessPolicy *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_AppAccessPolicy(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ListAppAccessPoliciesResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ListAppAccessPoliciesResponse(const ListAppAccessPoliciesResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ListAppAccessPoliciesResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ListAppAccessPoliciesResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ListAppAccessPoliciesResponse(const uint8_t *in, size_t len, ListAppAccessPoliciesResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ListAppAccessPoliciesResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SetAppAccessPolicyRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SetAppAccessPolicyRequest(const SetAppAccessPolicyRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SetAppAccessPolicyRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SetAppAccessPolicyRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SetAppAccessPolicyRequest(const uint8_t *in, size_t len, SetAppAccessPolicyRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SetAppAccessPolicyRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SetAppAccessPolicyResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SetAppAccessPolicyResponse(const SetAppAccessPolicyResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SetAppAccessPolicyResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SetAppAccessPolicyResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SetAppAccessPolicyResponse(const uint8_t *in, size_t len, SetAppAccessPolicyResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SetAppAccessPolicyResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RemoveAppAccessPolicyRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RemoveAppAccessPolicyRequest(const RemoveAppAccessPolicyRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RemoveAppAccessPolicyRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RemoveAppAccessPolicyRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RemoveAppAccessPolicyRequest(const uint8_t *in, size_t len, RemoveAppAccessPolicyRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RemoveAppAccessPolicyRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RemoveAppAccessPolicyResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RemoveAppAccessPolicyResponse(const RemoveAppAccessPolicyResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RemoveAppAccessPolicyResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RemoveAppAccessPolicyResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RemoveAppAccessPolicyResponse(const uint8_t *in, size_t len, RemoveAppAccessPolicyResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RemoveAppAccessPolicyResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a PreviewAppAccessRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_PreviewAppAccessRequest(const PreviewAppAccessRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_PreviewAppAccessRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a PreviewAppAccessRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_PreviewAppAccessRequest(const uint8_t *in, size_t len, PreviewAppAccessRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_PreviewAppAccessRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a PreviewAppAccessResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_PreviewAppAccessResponse(const PreviewAppAccessResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_PreviewAppAccessResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a PreviewAppAccessResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_PreviewAppAccessResponse(const uint8_t *in, size_t len, PreviewAppAccessResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_PreviewAppAccessResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a AppAccessDenial to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_AppAccessDenial(const AppAccessDenial *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_AppAccessDenial(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a AppAccessDenial. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_AppAccessDenial(const uint8_t *in, size_t len, AppAccessDenial *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_AppAccessDenial(root, a, out)) { csil_codec_arena_free(a); return -1; }
     *owner = a;
     return 0;
 }

@@ -16,7 +16,9 @@ use std::sync::{Mutex, MutexGuard};
 
 use base64ct::{Base64UrlUnpadded, Encoding};
 use chrono::{DateTime, Duration, Utc};
-use common::data_factory::{create_local_rp_with_signing_key, create_user, DataMap};
+use common::data_factory::{
+    create_app_access_policy, create_local_rp_with_signing_key, create_user, DataMap,
+};
 use liblinkkeys::act_as::{self as aa, AudienceContext, GranteeSigner};
 use liblinkkeys::application_keys::{ApplicationKeyRef, ApplicationSigner};
 use liblinkkeys::crypto::{fingerprint, generate_keypair, SigningAlgorithm};
@@ -496,6 +498,55 @@ fn an_administrator_account_cannot_grant() {
             .unwrap_err()
             .code,
         403
+    );
+}
+
+#[test]
+fn app_access_policies_cover_the_grantee_and_the_audience() {
+    let _g = signing_guard();
+    let w = world();
+    let sr = w.signed_request(None, Some(3600), "n-access");
+    let id = grant_id_from(&w.complete(&sr, &["read"], 3600, 3600).unwrap());
+
+    // Blocking the audience domain stops new grants and the renewal of
+    // existing ones.
+    let mut block_audience = DataMap::new();
+    block_audience.insert("patterns".into(), json!(["audience.test"]));
+    block_audience.insert("message".into(), json!("No audience access."));
+    block_audience.insert(
+        "targets".into(),
+        json!([{ "kind": "user", "user_id": w.user.id }]),
+    );
+    let policy = create_app_access_policy(&w.pool, &block_audience);
+    let sr = w.signed_request(None, None, "n-access-2");
+    let inspected = svc::inspect(&w.pool, &w.keys, &w.user, &sr, now()).unwrap();
+    let denial = inspected.access_denied.expect("the denial");
+    assert_eq!(denial.domain.as_deref(), Some("audience.test"));
+    assert_eq!(denial.messages, vec!["No audience access.".to_string()]);
+    let err = w.complete(&sr, &["read"], 3600, 0).unwrap_err();
+    assert_eq!(err.code, 403);
+    assert!(
+        err.message.contains("No audience access."),
+        "{}",
+        err.message
+    );
+    let err = w.refresh(&id, &w.grantee_signer(), now()).unwrap_err();
+    assert_eq!(err.code, 403);
+
+    // An allow list must cover the grantee too.
+    w.pool.delete_app_access_policy(&policy.id).unwrap();
+    let mut allow_audience = DataMap::new();
+    allow_audience.insert("mode".into(), json!("allow"));
+    allow_audience.insert("patterns".into(), json!(["audience.test"]));
+    create_app_access_policy(&w.pool, &allow_audience);
+    let inspected = svc::inspect(&w.pool, &w.keys, &w.user, &sr, now()).unwrap();
+    assert_eq!(
+        inspected
+            .access_denied
+            .expect("the denial")
+            .domain
+            .as_deref(),
+        Some("grantee.test")
     );
 }
 

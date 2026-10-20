@@ -529,6 +529,7 @@ and encode_admin_user (v : admin_user) : Cbor.t =
          Some (Cbor.Text "updated_at", (Cbor.Text v.updated_at));
          Some (Cbor.Text "display_name", (Cbor.Text v.display_name));
          (match v.purge_reason with Some csil_x -> Some (Cbor.Text "purge_reason", (Cbor.Text csil_x)) | None -> None);
+         (match v.password_locked with Some csil_x -> Some (Cbor.Text "password_locked", (Cbor.Bool csil_x)) | None -> None);
        ])
 
 and encode_list_users_request (v : list_users_request) : Cbor.t =
@@ -1628,6 +1629,7 @@ and encode_browser_authorization_inspect_response (v : browser_authorization_ins
        (fun x -> x)
        [
          Some (Cbor.Text "claims", (Cbor.Array (List.map (fun csil_e -> (encode_browser_consent_claim csil_e)) v.claims)));
+         (match v.access_denied with Some csil_x -> Some (Cbor.Text "access_denied", (encode_app_access_denial csil_x)) | None -> None);
          Some (Cbor.Text "relying_party", (Cbor.Text v.relying_party));
          (match v.request_reason with Some csil_x -> Some (Cbor.Text "request_reason", (Cbor.Text csil_x)) | None -> None);
          (match v.already_consented with Some csil_x -> Some (Cbor.Text "already_consented", (Cbor.Bool csil_x)) | None -> None);
@@ -1671,6 +1673,7 @@ and encode_browser_local_rp_inspect_response (v : browser_local_rp_inspect_respo
          Some (Cbor.Text "app_name", (Cbor.Text v.app_name));
          Some (Cbor.Text "admission", (Cbor.Text v.admission));
          Some (Cbor.Text "fingerprint", (Cbor.Text v.fingerprint));
+         (match v.access_denied with Some csil_x -> Some (Cbor.Text "access_denied", (encode_app_access_denial csil_x)) | None -> None);
          Some (Cbor.Text "callback_host", (Cbor.Text v.callback_host));
          (match v.first_seen_at with Some csil_x -> Some (Cbor.Text "first_seen_at", (Cbor.Text csil_x)) | None -> None);
          (match v.request_reason with Some csil_x -> Some (Cbor.Text "request_reason", (Cbor.Text csil_x)) | None -> None);
@@ -1841,6 +1844,7 @@ and encode_authorize_validate_response (v : authorize_validate_response) : Cbor.
        (fun x -> x)
        [
          Some (Cbor.Text "callback_url", (Cbor.Text v.callback_url));
+         (match v.access_denied with Some csil_x -> Some (Cbor.Text "access_denied", (encode_app_access_denial csil_x)) | None -> None);
          Some (Cbor.Text "relying_party", (Cbor.Text v.relying_party));
          Some (Cbor.Text "requested_claims", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.requested_claims)));
          (match v.already_consented with Some csil_x -> Some (Cbor.Text "already_consented", (Cbor.Bool csil_x)) | None -> None);
@@ -2154,6 +2158,123 @@ and encode_set_sign_in_policy_request (v : set_sign_in_policy_request) : Cbor.t 
        (fun x -> x)
        [
          Some (Cbor.Text "sign_in_hours", (Cbor.int64 v.sign_in_hours));
+       ])
+
+and encode_set_user_password_lock_request (v : set_user_password_lock_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "locked", (Cbor.Bool v.locked));
+         Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
+       ])
+
+and encode_set_user_password_lock_response (v : set_user_password_lock_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "user", (encode_admin_user v.user));
+       ])
+
+and encode_app_access_target (v : app_access_target) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "kind", (Cbor.Text v.kind));
+         (match v.user_id with Some csil_x -> Some (Cbor.Text "user_id", (Cbor.Text csil_x)) | None -> None);
+         (match v.claim_type with Some csil_x -> Some (Cbor.Text "claim_type", (Cbor.Text csil_x)) | None -> None);
+         (match v.group_name with Some csil_x -> Some (Cbor.Text "group_name", (Cbor.Text csil_x)) | None -> None);
+         (match v.claim_value with Some csil_x -> Some (Cbor.Text "claim_value", (Cbor.Text csil_x)) | None -> None);
+         (match v.claim_operator with Some csil_x -> Some (Cbor.Text "claim_operator", (Cbor.Text csil_x)) | None -> None);
+       ])
+
+and encode_app_access_policy (v : app_access_policy) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "id", (Cbor.Text v.id));
+         Some (Cbor.Text "mode", (Cbor.Text v.mode));
+         Some (Cbor.Text "name", (Cbor.Text v.name));
+         (match v.message with Some csil_x -> Some (Cbor.Text "message", (Cbor.Text csil_x)) | None -> None);
+         Some (Cbor.Text "targets", (Cbor.Array (List.map (fun csil_e -> (encode_app_access_target csil_e)) v.targets)));
+         Some (Cbor.Text "patterns", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.patterns)));
+       ])
+
+and encode_list_app_access_policies_response (v : list_app_access_policies_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "policies", (Cbor.Array (List.map (fun csil_e -> (encode_app_access_policy csil_e)) v.policies)));
+       ])
+
+and encode_set_app_access_policy_request (v : set_app_access_policy_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         (match v.id with Some csil_x -> Some (Cbor.Text "id", (Cbor.Text csil_x)) | None -> None);
+         Some (Cbor.Text "mode", (Cbor.Text v.mode));
+         Some (Cbor.Text "name", (Cbor.Text v.name));
+         (match v.message with Some csil_x -> Some (Cbor.Text "message", (Cbor.Text csil_x)) | None -> None);
+         Some (Cbor.Text "targets", (Cbor.Array (List.map (fun csil_e -> (encode_app_access_target csil_e)) v.targets)));
+         Some (Cbor.Text "patterns", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.patterns)));
+       ])
+
+and encode_set_app_access_policy_response (v : set_app_access_policy_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "policy", (encode_app_access_policy v.policy));
+       ])
+
+and encode_remove_app_access_policy_request (v : remove_app_access_policy_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "id", (Cbor.Text v.id));
+       ])
+
+and encode_remove_app_access_policy_response (v : remove_app_access_policy_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "success", (Cbor.Bool v.success));
+       ])
+
+and encode_preview_app_access_request (v : preview_app_access_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         (match v.domain with Some csil_x -> Some (Cbor.Text "domain", (Cbor.Text csil_x)) | None -> None);
+         Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
+       ])
+
+and encode_preview_app_access_response (v : preview_app_access_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "allowed", (Cbor.Bool v.allowed));
+         Some (Cbor.Text "messages", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.messages)));
+         Some (Cbor.Text "applied_policies", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.applied_policies)));
+         Some (Cbor.Text "blocking_policies", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.blocking_policies)));
+       ])
+
+and encode_app_access_denial (v : app_access_denial) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         (match v.domain with Some csil_x -> Some (Cbor.Text "domain", (Cbor.Text csil_x)) | None -> None);
+         Some (Cbor.Text "messages", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.messages)));
        ])
 
 and encode_purge_local_rp_tickets_request (_v : purge_local_rp_tickets_request) : Cbor.t = Cbor.Map []
@@ -2765,6 +2886,7 @@ and encode_browser_act_as_inspect_response (v : browser_act_as_inspect_response)
          Some (Cbor.Text "grantee", (encode_grantee_ref v.grantee));
          Some (Cbor.Text "audience", (encode_application_ref v.audience));
          (match v.language with Some csil_x -> Some (Cbor.Text "language", (Cbor.Text csil_x)) | None -> None);
+         (match v.access_denied with Some csil_x -> Some (Cbor.Text "access_denied", (encode_app_access_denial csil_x)) | None -> None);
          Some (Cbor.Text "grantee_party", (encode_browser_act_as_party v.grantee_party));
          Some (Cbor.Text "audience_party", (encode_browser_act_as_party v.audience_party));
          Some (Cbor.Text "max_lifetime_seconds", (Cbor.int64 v.max_lifetime_seconds));
@@ -3718,6 +3840,7 @@ and decode_admin_user (csil_c : Cbor.t) : admin_user =
         updated_at = (Cbor.to_text (csil_req "updated_at"));
         display_name = (Cbor.to_text (csil_req "display_name"));
         purge_reason = (match csil_field "purge_reason" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        password_locked = (match csil_field "password_locked" with Some csil_v -> Some (Cbor.to_bool csil_v) | None -> None);
       }
   | _ -> failwith "csilgen: expected map for admin_user"
 
@@ -5415,6 +5538,7 @@ and decode_browser_authorization_inspect_response (csil_c : Cbor.t) : browser_au
       ignore csil_req;
       {
         claims = (match (csil_req "claims") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_browser_consent_claim csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        access_denied = (match csil_field "access_denied" with Some csil_v -> Some (decode_app_access_denial csil_v) | None -> None);
         relying_party = (Cbor.to_text (csil_req "relying_party"));
         request_reason = (match csil_field "request_reason" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
         already_consented = (match csil_field "already_consented" with Some csil_v -> Some (Cbor.to_bool csil_v) | None -> None);
@@ -5478,6 +5602,7 @@ and decode_browser_local_rp_inspect_response (csil_c : Cbor.t) : browser_local_r
         app_name = (Cbor.to_text (csil_req "app_name"));
         admission = (Cbor.to_text (csil_req "admission"));
         fingerprint = (Cbor.to_text (csil_req "fingerprint"));
+        access_denied = (match csil_field "access_denied" with Some csil_v -> Some (decode_app_access_denial csil_v) | None -> None);
         callback_host = (Cbor.to_text (csil_req "callback_host"));
         first_seen_at = (match csil_field "first_seen_at" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
         request_reason = (match csil_field "request_reason" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
@@ -5733,6 +5858,7 @@ and decode_authorize_validate_response (csil_c : Cbor.t) : authorize_validate_re
       ignore csil_req;
       {
         callback_url = (Cbor.to_text (csil_req "callback_url"));
+        access_denied = (match csil_field "access_denied" with Some csil_v -> Some (decode_app_access_denial csil_v) | None -> None);
         relying_party = (Cbor.to_text (csil_req "relying_party"));
         requested_claims = (match (csil_req "requested_claims") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
         already_consented = (match csil_field "already_consented" with Some csil_v -> Some (Cbor.to_bool csil_v) | None -> None);
@@ -6199,6 +6325,183 @@ and decode_set_sign_in_policy_request (csil_c : Cbor.t) : set_sign_in_policy_req
         sign_in_hours = (Cbor.to_i64 (csil_req "sign_in_hours"));
       }
   | _ -> failwith "csilgen: expected map for set_sign_in_policy_request"
+
+and decode_set_user_password_lock_request (csil_c : Cbor.t) : set_user_password_lock_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        locked = (Cbor.to_bool (csil_req "locked"));
+        user_id = (Cbor.to_text (csil_req "user_id"));
+      }
+  | _ -> failwith "csilgen: expected map for set_user_password_lock_request"
+
+and decode_set_user_password_lock_response (csil_c : Cbor.t) : set_user_password_lock_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        user = (decode_admin_user (csil_req "user"));
+      }
+  | _ -> failwith "csilgen: expected map for set_user_password_lock_response"
+
+and decode_app_access_target (csil_c : Cbor.t) : app_access_target =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        kind = (Cbor.to_text (csil_req "kind"));
+        user_id = (match csil_field "user_id" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        claim_type = (match csil_field "claim_type" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        group_name = (match csil_field "group_name" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        claim_value = (match csil_field "claim_value" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        claim_operator = (match csil_field "claim_operator" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+      }
+  | _ -> failwith "csilgen: expected map for app_access_target"
+
+and decode_app_access_policy (csil_c : Cbor.t) : app_access_policy =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        id = (Cbor.to_text (csil_req "id"));
+        mode = (Cbor.to_text (csil_req "mode"));
+        name = (Cbor.to_text (csil_req "name"));
+        message = (match csil_field "message" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        targets = (match (csil_req "targets") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_app_access_target csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        patterns = (match (csil_req "patterns") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+      }
+  | _ -> failwith "csilgen: expected map for app_access_policy"
+
+and decode_list_app_access_policies_response (csil_c : Cbor.t) : list_app_access_policies_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        policies = (match (csil_req "policies") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_app_access_policy csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+      }
+  | _ -> failwith "csilgen: expected map for list_app_access_policies_response"
+
+and decode_set_app_access_policy_request (csil_c : Cbor.t) : set_app_access_policy_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        id = (match csil_field "id" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        mode = (Cbor.to_text (csil_req "mode"));
+        name = (Cbor.to_text (csil_req "name"));
+        message = (match csil_field "message" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        targets = (match (csil_req "targets") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_app_access_target csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        patterns = (match (csil_req "patterns") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+      }
+  | _ -> failwith "csilgen: expected map for set_app_access_policy_request"
+
+and decode_set_app_access_policy_response (csil_c : Cbor.t) : set_app_access_policy_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        policy = (decode_app_access_policy (csil_req "policy"));
+      }
+  | _ -> failwith "csilgen: expected map for set_app_access_policy_response"
+
+and decode_remove_app_access_policy_request (csil_c : Cbor.t) : remove_app_access_policy_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        id = (Cbor.to_text (csil_req "id"));
+      }
+  | _ -> failwith "csilgen: expected map for remove_app_access_policy_request"
+
+and decode_remove_app_access_policy_response (csil_c : Cbor.t) : remove_app_access_policy_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        success = (Cbor.to_bool (csil_req "success"));
+      }
+  | _ -> failwith "csilgen: expected map for remove_app_access_policy_response"
+
+and decode_preview_app_access_request (csil_c : Cbor.t) : preview_app_access_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        domain = (match csil_field "domain" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        user_id = (Cbor.to_text (csil_req "user_id"));
+      }
+  | _ -> failwith "csilgen: expected map for preview_app_access_request"
+
+and decode_preview_app_access_response (csil_c : Cbor.t) : preview_app_access_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        allowed = (Cbor.to_bool (csil_req "allowed"));
+        messages = (match (csil_req "messages") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        applied_policies = (match (csil_req "applied_policies") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        blocking_policies = (match (csil_req "blocking_policies") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+      }
+  | _ -> failwith "csilgen: expected map for preview_app_access_response"
+
+and decode_app_access_denial (csil_c : Cbor.t) : app_access_denial =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        domain = (match csil_field "domain" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        messages = (match (csil_req "messages") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+      }
+  | _ -> failwith "csilgen: expected map for app_access_denial"
 
 and decode_purge_local_rp_tickets_request (csil_c : Cbor.t) : purge_local_rp_tickets_request =
   match csil_c with Cbor.Map _ -> () | _ -> failwith "csilgen: expected map for purge_local_rp_tickets_request"
@@ -7089,6 +7392,7 @@ and decode_browser_act_as_inspect_response (csil_c : Cbor.t) : browser_act_as_in
         grantee = (decode_grantee_ref (csil_req "grantee"));
         audience = (decode_application_ref (csil_req "audience"));
         language = (match csil_field "language" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        access_denied = (match csil_field "access_denied" with Some csil_v -> Some (decode_app_access_denial csil_v) | None -> None);
         grantee_party = (decode_browser_act_as_party (csil_req "grantee_party"));
         audience_party = (decode_browser_act_as_party (csil_req "audience_party"));
         max_lifetime_seconds = (Cbor.to_i64 (csil_req "max_lifetime_seconds"));
@@ -8256,6 +8560,54 @@ let decode_sign_in_policy_bytes (b : bytes) : sign_in_policy =
 let encode_set_sign_in_policy_request_bytes (v : set_sign_in_policy_request) : bytes = Cbor.encode (encode_set_sign_in_policy_request v)
 let decode_set_sign_in_policy_request_bytes (b : bytes) : set_sign_in_policy_request =
   match Cbor.decode b with Ok c -> decode_set_sign_in_policy_request c | Error e -> failwith e
+
+let encode_set_user_password_lock_request_bytes (v : set_user_password_lock_request) : bytes = Cbor.encode (encode_set_user_password_lock_request v)
+let decode_set_user_password_lock_request_bytes (b : bytes) : set_user_password_lock_request =
+  match Cbor.decode b with Ok c -> decode_set_user_password_lock_request c | Error e -> failwith e
+
+let encode_set_user_password_lock_response_bytes (v : set_user_password_lock_response) : bytes = Cbor.encode (encode_set_user_password_lock_response v)
+let decode_set_user_password_lock_response_bytes (b : bytes) : set_user_password_lock_response =
+  match Cbor.decode b with Ok c -> decode_set_user_password_lock_response c | Error e -> failwith e
+
+let encode_app_access_target_bytes (v : app_access_target) : bytes = Cbor.encode (encode_app_access_target v)
+let decode_app_access_target_bytes (b : bytes) : app_access_target =
+  match Cbor.decode b with Ok c -> decode_app_access_target c | Error e -> failwith e
+
+let encode_app_access_policy_bytes (v : app_access_policy) : bytes = Cbor.encode (encode_app_access_policy v)
+let decode_app_access_policy_bytes (b : bytes) : app_access_policy =
+  match Cbor.decode b with Ok c -> decode_app_access_policy c | Error e -> failwith e
+
+let encode_list_app_access_policies_response_bytes (v : list_app_access_policies_response) : bytes = Cbor.encode (encode_list_app_access_policies_response v)
+let decode_list_app_access_policies_response_bytes (b : bytes) : list_app_access_policies_response =
+  match Cbor.decode b with Ok c -> decode_list_app_access_policies_response c | Error e -> failwith e
+
+let encode_set_app_access_policy_request_bytes (v : set_app_access_policy_request) : bytes = Cbor.encode (encode_set_app_access_policy_request v)
+let decode_set_app_access_policy_request_bytes (b : bytes) : set_app_access_policy_request =
+  match Cbor.decode b with Ok c -> decode_set_app_access_policy_request c | Error e -> failwith e
+
+let encode_set_app_access_policy_response_bytes (v : set_app_access_policy_response) : bytes = Cbor.encode (encode_set_app_access_policy_response v)
+let decode_set_app_access_policy_response_bytes (b : bytes) : set_app_access_policy_response =
+  match Cbor.decode b with Ok c -> decode_set_app_access_policy_response c | Error e -> failwith e
+
+let encode_remove_app_access_policy_request_bytes (v : remove_app_access_policy_request) : bytes = Cbor.encode (encode_remove_app_access_policy_request v)
+let decode_remove_app_access_policy_request_bytes (b : bytes) : remove_app_access_policy_request =
+  match Cbor.decode b with Ok c -> decode_remove_app_access_policy_request c | Error e -> failwith e
+
+let encode_remove_app_access_policy_response_bytes (v : remove_app_access_policy_response) : bytes = Cbor.encode (encode_remove_app_access_policy_response v)
+let decode_remove_app_access_policy_response_bytes (b : bytes) : remove_app_access_policy_response =
+  match Cbor.decode b with Ok c -> decode_remove_app_access_policy_response c | Error e -> failwith e
+
+let encode_preview_app_access_request_bytes (v : preview_app_access_request) : bytes = Cbor.encode (encode_preview_app_access_request v)
+let decode_preview_app_access_request_bytes (b : bytes) : preview_app_access_request =
+  match Cbor.decode b with Ok c -> decode_preview_app_access_request c | Error e -> failwith e
+
+let encode_preview_app_access_response_bytes (v : preview_app_access_response) : bytes = Cbor.encode (encode_preview_app_access_response v)
+let decode_preview_app_access_response_bytes (b : bytes) : preview_app_access_response =
+  match Cbor.decode b with Ok c -> decode_preview_app_access_response c | Error e -> failwith e
+
+let encode_app_access_denial_bytes (v : app_access_denial) : bytes = Cbor.encode (encode_app_access_denial v)
+let decode_app_access_denial_bytes (b : bytes) : app_access_denial =
+  match Cbor.decode b with Ok c -> decode_app_access_denial c | Error e -> failwith e
 
 let encode_purge_local_rp_tickets_request_bytes (v : purge_local_rp_tickets_request) : bytes = Cbor.encode (encode_purge_local_rp_tickets_request v)
 let decode_purge_local_rp_tickets_request_bytes (b : bytes) : purge_local_rp_tickets_request =

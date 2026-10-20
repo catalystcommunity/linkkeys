@@ -6,7 +6,7 @@ import { RuntimeHost, addStylesheet, loadExtensions, type ExtensionRoute } from 
 import { claimTypeLabel, format, t, useCatalog } from "./i18n";
 import { AdminArea } from "./admin";
 import { Link, Loading, Unavailable, checkPassword, claimText, passwordRule, query, type PageProps } from "./shared";
-import type { BrowserConsentClaim, BrowserLocalRpInspectResponse, MyClaimSetting, Profile, ActAsGrantSummary, BrowserActAsInspectResponse, BrowserActAsParty, BrowserSessionInfo, Claim, GetUiConfigurationResponse, SettableClaimPolicy, VerifiedContactMethod } from "./generated/types.gen";
+import type { AppAccessDenial, BrowserConsentClaim, BrowserLocalRpInspectResponse, MyClaimSetting, Profile, ActAsGrantSummary, BrowserActAsInspectResponse, BrowserActAsParty, BrowserSessionInfo, Claim, GetUiConfigurationResponse, SettableClaimPolicy, VerifiedContactMethod } from "./generated/types.gen";
 import { fromSigningRequestCbor, toSignedSigningRequestCbor } from "./generated/codec.gen";
 import { consentDecision, localRpFailureMessage, reasonText, actAsGrantState, actAsHandoff, base64UrlUnpadded, confirmationDetails, siteDomain, actAsRequestKey, applicationLabel, describeDuration, durationChoices, partyHeadline, partyTitle, partyTrustNotes, authenticationFailed, authorizationHandoff, authorizationRequestIsTerminal, claimValueTooLong, cleanupOnce, currentPasswordMessage, hasBlockedRequiredClaim, hasNewlyRequestedClaim, inputType, loginFailureMessage, passwordLengthError, passwordManagerUsername, recoveryCompletionFailureMessage, recoveryLinkExpired, recoveryValidationFailureMessage, serviceMessage as message, standingAuthorization, transportFailed, verificationFailureMessage, withLoginContext } from "./ui-logic";
 
@@ -71,12 +71,22 @@ const AuthorizeGateway: Component<PageProps> = (props) => {
 /** One requested detail on a consent screen. */
 const ConsentClaimRow: Component<{ claim: BrowserConsentClaim; selected: Record<string, boolean>; values: Record<string, string>; busy: boolean; onSelect(claimType: string, checked: boolean): void; onValue(claimType: string, value: string): void }> = (props) => <div class="consent-claim"><label class="checkbox-label"><input type="checkbox" checked={props.claim.policy === "forced_allow" || props.selected[props.claim.claimType]} disabled={props.claim.policy !== "user" || props.busy} required={props.claim.required && props.claim.policy === "user"} onChange={(event) => props.onSelect(props.claim.claimType, event.currentTarget.checked)} /><span>{props.claim.required ? t("app.consent.required_label", { label: props.claim.label }) : props.claim.label}</span><Show when={props.claim.newlyRequested}><span class="pill new">{t("app.consent.new_badge")}</span></Show></label><Show when={props.claim.policy === "forced_allow"}><small>{t("app.consent.forced_allow")}</small></Show><Show when={props.claim.required && props.claim.policy === "user" && !props.selected[props.claim.claimType]}><small>{t("app.consent.required_unselected")}</small></Show><Show when={!props.claim.available && props.claim.userSettable && (props.claim.policy === "forced_allow" || props.selected[props.claim.claimType])}><label><span>{t("app.consent.add_value", { label: props.claim.label })}</span><Show when={props.claim.datatype === "bool"} fallback={<input type={inputType(props.claim.datatype)} maxlength={props.claim.maxBytes} value={props.values[props.claim.claimType] ?? ""} onInput={(event) => props.onValue(props.claim.claimType, event.currentTarget.value)} required={props.claim.required} />}><select value={props.values[props.claim.claimType] ?? ""} onChange={(event) => props.onValue(props.claim.claimType, event.currentTarget.value)} required={props.claim.required}><option value="">{t("app.common.choose_value")}</option><option value="true">{t("app.common.yes")}</option><option value="false">{t("app.common.no")}</option></select></Show></label></Show><Show when={!props.claim.available && props.claim.requiresApproval}><small>{t("app.consent.needs_approval")}</small></Show><Show when={!props.claim.available && !props.claim.userSettable && !props.claim.requiresApproval}><small>{t("app.consent.not_in_profile")}</small></Show><Show when={props.claim.policy === "forced_deny"}><small>{t("app.consent.forced_deny")}</small></Show></div>;
 
+/** Shown instead of the consent form when an app access policy blocks the
+ * sign-in. The admin messages are plain text from the home domain. */
+const AccessBlocked: Component<{ denial: AppAccessDenial }> = (props) => <section class="card">
+  <p>{props.denial.domain ? t("app.access_blocked.body", { app: props.denial.domain }) : t("app.access_blocked.body_local")}</p>
+  <Show when={props.denial.messages.length}><div class="notice"><p><strong>{t("app.access_blocked.admin_message")}</strong></p><For each={props.denial.messages}>{(text) => <p>{text}</p>}</For></div></Show>
+  <p>{t("app.access_blocked.help")}</p>
+  <Link href="/app/account">{t("app.common.return_to_account")}</Link>
+</section>;
+
 const Consent: Component<PageProps> = (props) => {
   const signedRequest = sessionStorage.getItem("linkkeys-authorization-request") ?? "";
   const [context, setContext] = createSignal<Awaited<ReturnType<typeof api.browserAuthorization.inspect>>>();
   const [selected, setSelected] = createSignal<Record<string, boolean>>({});
   const [values, setValues] = createSignal<Record<string, string>>({});
   const [busy, setBusy] = createSignal(false); const [error, setError] = createSignal(""); const [needsLogin, setNeedsLogin] = createSignal(false); const [restartRequired, setRestartRequired] = createSignal(false);
+  const [denied, setDenied] = createSignal<AppAccessDenial>();
   const blockedRequired = () => hasBlockedRequiredClaim(context()?.claims ?? []);
   const showConsent = (result: NonNullable<ReturnType<typeof context>>) => {
     setContext(result);
@@ -86,6 +96,7 @@ const Consent: Component<PageProps> = (props) => {
     if (!signedRequest) return setError(t("app.consent.missing"));
     try {
       const result = await api.browserAuthorization.inspect({ signedRequest });
+      if (result.accessDenied) { sessionStorage.removeItem("linkkeys-authorization-request"); return setDenied(result.accessDenied); }
       const authorizedClaims = standingAuthorization(result);
       if (authorizedClaims) {
         try {
@@ -129,9 +140,9 @@ const Consent: Component<PageProps> = (props) => {
     }
   };
   const cancel = () => { sessionStorage.removeItem("linkkeys-authorization-request"); props.navigate("/app/consent/cancelled"); };
-  return <main class="wrap narrow"><section class="hero"><p class="eyebrow">{t("app.consent.eyebrow")}</p><h1>{context() ? (hasNewlyRequestedClaim(context()!.claims) ? t("app.consent.new_title", { app: context()!.relyingParty }) : t("app.consent.title")) : error() ? t("app.consent.stopped_title") : t("app.consent.checking_title")}</h1><Show when={context()}><p>{t("app.consent.intro", { app: context()!.relyingParty })}</p></Show></section><Show when={context()} fallback={<section class="card"><p role={error() ? "alert" : "status"}>{error() || t("app.consent.checking")}</p><Show when={needsLogin()}><Link href="/app/login?next=/app/consent">{t("app.consent.sign_in_again")}</Link></Show></section>}>
+  return <Show when={!denied()} fallback={<main class="wrap narrow"><section class="hero"><p class="eyebrow">{t("app.consent.eyebrow")}</p><h1>{t("app.access_blocked.title")}</h1></section><AccessBlocked denial={denied()!} /></main>}><main class="wrap narrow"><section class="hero"><p class="eyebrow">{t("app.consent.eyebrow")}</p><h1>{context() ? (hasNewlyRequestedClaim(context()!.claims) ? t("app.consent.new_title", { app: context()!.relyingParty }) : t("app.consent.title")) : error() ? t("app.consent.stopped_title") : t("app.consent.checking_title")}</h1><Show when={context()}><p>{t("app.consent.intro", { app: context()!.relyingParty })}</p></Show></section><Show when={context()} fallback={<section class="card"><p role={error() ? "alert" : "status"}>{error() || t("app.consent.checking")}</p><Show when={needsLogin()}><Link href="/app/login?next=/app/consent">{t("app.consent.sign_in_again")}</Link></Show></section>}>
     <form class="card" aria-busy={busy()} onSubmit={submit}><Show when={hasNewlyRequestedClaim(context()!.claims)}><p class="notice">{t("app.consent.new_notice")}</p></Show><Show when={context()!.requestReason}><p class="notice">{context()!.requestReason}</p></Show><Show when={context()!.claims.length} fallback={<p>{t("app.consent.no_claims")}</p>}><For each={context()!.claims}>{(claim) => <ConsentClaimRow claim={claim} selected={selected()} values={values()} busy={busy()} onSelect={(claimType, checked) => setSelected((current) => ({ ...current, [claimType]: checked }))} onValue={(claimType, value) => setValues((current) => ({ ...current, [claimType]: value }))} />}</For></Show><div class="button-row"><button type="submit" disabled={busy() || blockedRequired() || restartRequired()}>{busy() ? t("app.consent.continuing") : t("app.consent.continue")}</button><button class="text-button" type="button" disabled={busy()} onClick={cancel}>{t("app.common.cancel")}</button></div><Show when={error()}><p class="notice bad" role="alert">{error()}</p></Show><Show when={needsLogin()}><Link href="/app/login?next=/app/consent">{t("app.consent.sign_in_again")}</Link></Show></form>
-  </Show></main>;
+  </Show></main></Show>;
 };
 
 
@@ -161,6 +172,7 @@ const LocalRpConsent: Component<PageProps> = (props) => {
     if (!signedRequest) return setError(t("app.local_rp.missing"));
     try {
       const result = await api.browserAuthorization.inspectLocalRp({ signedRequest });
+      if (result.accessDenied) sessionStorage.removeItem(localRpRequestKey);
       if (result.admission === "consent" && result.alreadyConsented && result.authorizedClaims) {
         try { return finish((await api.browserAuthorization.completeLocalRp({ signedRequest, authorizedClaims: result.authorizedClaims, claimTypesToSet: [], claimValuesToSet: [], useStandingGrant: true })).redirectUrl); }
         catch { /* Fall back to the consent screen. */ }
@@ -181,9 +193,11 @@ const LocalRpConsent: Component<PageProps> = (props) => {
   };
   const cancel = () => { sessionStorage.removeItem(localRpRequestKey); props.navigate("/app/local-rp/cancelled"); };
   const pending = () => context()?.admission === "pending";
-  const title = () => pending() ? t("app.local_rp.pending_title") : context() ? (hasNewlyRequestedClaim(context()!.claims) ? t("app.consent.new_title", { app: context()!.appName }) : t("app.consent.title")) : error() ? t("app.consent.stopped_title") : t("app.consent.checking_title");
-  return <main class="wrap narrow"><section class="hero"><p class="eyebrow">{t("app.local_rp.eyebrow")}</p><h1>{title()}</h1><Show when={context() && !pending()}><p>{t("app.local_rp.intro", { app: context()!.appName })}</p></Show></section>
+  const denied = () => context()?.accessDenied;
+  const title = () => denied() ? t("app.access_blocked.title") : pending() ? t("app.local_rp.pending_title") : context() ? (hasNewlyRequestedClaim(context()!.claims) ? t("app.consent.new_title", { app: context()!.appName }) : t("app.consent.title")) : error() ? t("app.consent.stopped_title") : t("app.consent.checking_title");
+  return <main class="wrap narrow"><section class="hero"><p class="eyebrow">{t("app.local_rp.eyebrow")}</p><h1>{title()}</h1><Show when={context() && !pending() && !denied()}><p>{t("app.local_rp.intro", { app: context()!.appName })}</p></Show></section>
     <Show when={context()} fallback={<section class="card"><p role={error() ? "alert" : "status"}>{error() || t("app.consent.checking")}</p></section>}>
+      <Show when={!denied()} fallback={<AccessBlocked denial={denied()!} />}>
       <Show when={!pending()} fallback={<section class="card"><p>{t("app.local_rp.pending_body", { app: context()!.appName })}</p><Link href="/app/account">{t("app.common.return_to_account")}</Link></section>}>
         <form class="card" aria-busy={busy()} onSubmit={submit}>
           <div class="notice"><p><strong>{t("app.local_rp.unverified", { app: context()!.appName })}</strong></p><p>{t("app.local_rp.warning")}</p><p>{format<JSX.Element>("app.local_rp.callback_host", { host: <code>{context()!.callbackHost}</code> })}</p><p><small>{format<JSX.Element>("app.local_rp.fingerprint", { fingerprint: <code title={context()!.fingerprint}>{context()!.fingerprint.slice(0, 16)}</code> })}</small></p><Show when={context()!.firstSeenAt}><p><small>{t("app.local_rp.first_seen", { date: new Date(context()!.firstSeenAt!).toLocaleString() })}</small></p></Show></div>
@@ -193,6 +207,7 @@ const LocalRpConsent: Component<PageProps> = (props) => {
           <div class="button-row"><button type="submit" disabled={busy() || hasBlockedRequiredClaim(context()!.claims)}>{busy() ? t("app.consent.continuing") : t("app.consent.continue")}</button><button class="text-button" type="button" disabled={busy()} onClick={cancel}>{t("app.common.cancel")}</button></div>
           <Show when={error()}><p class="notice bad" role="alert">{error()}</p></Show>
         </form>
+      </Show>
       </Show>
     </Show></main>;
 };
@@ -234,6 +249,7 @@ const ActAsConsent: Component<PageProps> = (props) => {
     if (!signedRequest) return setError(t("app.act_as.missing"));
     try {
       const result = await api.browserAuthorization.inspectActAs({ signedRequest });
+      if (result.accessDenied) sessionStorage.removeItem(actAsRequestKey);
       setContext(result);
       setSelected(Object.fromEntries(result.entries.map((entry) => [entry.scope, !entry.removedByPolicy])));
       setLifetime(result.defaultLifetimeSeconds);
@@ -256,7 +272,7 @@ const ActAsConsent: Component<PageProps> = (props) => {
     } finally { setBusy(false); }
   };
   const cancel = () => { sessionStorage.removeItem(actAsRequestKey); props.navigate("/app/act-as/cancelled"); };
-  return <main class="wrap narrow"><section class="hero"><p class="eyebrow">{t("app.act_as.eyebrow")}</p><h1>{t("app.act_as.title")}</h1>
+  return <Show when={!context()?.accessDenied} fallback={<main class="wrap narrow"><section class="hero"><p class="eyebrow">{t("app.act_as.eyebrow")}</p><h1>{t("app.access_blocked.title")}</h1></section><AccessBlocked denial={context()!.accessDenied!} /></main>}><main class="wrap narrow"><section class="hero"><p class="eyebrow">{t("app.act_as.eyebrow")}</p><h1>{t("app.act_as.title")}</h1>
     <Show when={context()}><p>{format<JSX.Element>("app.act_as.intro", { grantee: <strong>{partyHeadline(context()!.granteeParty)}</strong>, audience: <strong>{partyHeadline(context()!.audienceParty)}</strong> })}</p></Show></section>
     <Show when={context()} fallback={<section class="card"><p role={error() ? "alert" : "status"}>{error() || t("app.act_as.checking")}</p></section>}>
       <form class="card" aria-busy={busy()} onSubmit={submit}>
@@ -271,7 +287,7 @@ const ActAsConsent: Component<PageProps> = (props) => {
         <Show when={approved().length === 0}><small>{t("app.act_as.select_one")}</small></Show>
         <Show when={error()}><p class="notice bad" role="alert">{error()}</p></Show>
       </form>
-    </Show></main>;
+    </Show></main></Show>;
 };
 
 const ActAsGrantList: Component<PageProps> = (props) => {
@@ -487,14 +503,14 @@ const Account: Component<PageProps> = (props) => {
     <ProfileList {...props} />
     <ActAsGrantList {...props} />
     <ConfirmationRequest {...props} />
-    <Show when={props.configuration.capabilities.includes("password_login")}><section class="card"><h2>{t("app.account.password_title")}</h2><p id="change-password-rule">{passwordRule(props.configuration)} {t("app.account.password_signout_note")}</p><form id="change-password-form" name="change-password" aria-busy={busy()} onSubmit={changePassword}>
+    <Show when={props.configuration.capabilities.includes("password_login")}><Show when={!props.session?.user.passwordLocked} fallback={<section class="card"><h2>{t("app.account.password_title")}</h2><p>{t("app.account.password_locked")}</p></section>}><section class="card"><h2>{t("app.account.password_title")}</h2><p id="change-password-rule">{passwordRule(props.configuration)} {t("app.account.password_signout_note")}</p><form id="change-password-form" name="change-password" aria-busy={busy()} onSubmit={changePassword}>
       <input class="visually-hidden" type="text" name="username" value={props.session?.user.username ?? ""} autocomplete="username" readonly />
       <label><span>{t("app.password.current")}</span><input type="password" name="current-password" value={oldPassword()} onInput={(event) => setOldPassword(event.currentTarget.value)} autocomplete="current-password" required /></label>
       <label><span>{t("app.password.new")}</span><input type="password" name="new-password" value={newPassword()} onInput={(event) => setNewPassword(event.currentTarget.value)} autocomplete="new-password" aria-describedby="change-password-rule" required /></label>
       <label><span>{t("app.password.confirm_new")}</span><input type="password" name="new-password-confirmation" value={confirmation()} onInput={(event) => setConfirmation(event.currentTarget.value)} autocomplete="new-password" required /></label>
       <button type="submit" disabled={busy()}>{t("app.account.password_submit")}</button></form>
       <Show when={feedbackArea() === "password" && error()}><p class="notice bad" role="alert">{error()}</p></Show>
-    </section></Show>
+    </section></Show></Show>
     <Show when={feedbackArea() === "" && error()}><p class="notice bad" role="alert">{error()}</p></Show></Show>
   </main>;
 };

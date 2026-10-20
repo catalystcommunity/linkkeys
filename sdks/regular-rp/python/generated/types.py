@@ -1579,6 +1579,7 @@ class AdminUser:
     updated_at: str
     purged_at: Optional[str] = None
     purge_reason: Optional[str] = None
+    password_locked: Optional[bool] = None
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {}
@@ -1598,12 +1599,14 @@ class AdminUser:
             result['purged_at'] = self.purged_at
         if hasattr(self, 'purge_reason') and self.purge_reason is not None:
             result['purge_reason'] = self.purge_reason
+        if hasattr(self, 'password_locked') and self.password_locked is not None:
+            result['password_locked'] = self.password_locked
         return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'AdminUser':
         """Create instance from dictionary."""
-        return cls(id=data.get('id'), username=data.get('username'), display_name=data.get('display_name'), is_active=data.get('is_active'), created_at=data.get('created_at'), updated_at=data.get('updated_at'), purged_at=data.get('purged_at'), purge_reason=data.get('purge_reason'))
+        return cls(id=data.get('id'), username=data.get('username'), display_name=data.get('display_name'), is_active=data.get('is_active'), created_at=data.get('created_at'), updated_at=data.get('updated_at'), purged_at=data.get('purged_at'), purge_reason=data.get('purge_reason'), password_locked=data.get('password_locked'))
 
     def to_json(self) -> str:
         """Convert to JSON string."""
@@ -5007,6 +5010,7 @@ class BrowserAuthorizationInspectResponse:
     request_reason: Optional[str] = None
     already_consented: Optional[bool] = None
     authorized_claims: Optional[List[str]] = None
+    access_denied: Optional[AppAccessDenial] = None
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {}
@@ -5020,12 +5024,14 @@ class BrowserAuthorizationInspectResponse:
             result['already_consented'] = self.already_consented
         if hasattr(self, 'authorized_claims') and self.authorized_claims is not None:
             result['authorized_claims'] = self.authorized_claims
+        if hasattr(self, 'access_denied') and self.access_denied is not None:
+            result['access_denied'] = self.access_denied
         return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'BrowserAuthorizationInspectResponse':
         """Create instance from dictionary."""
-        return cls(relying_party=data.get('relying_party'), claims=data.get('claims'), request_reason=data.get('request_reason'), already_consented=data.get('already_consented'), authorized_claims=data.get('authorized_claims'))
+        return cls(relying_party=data.get('relying_party'), claims=data.get('claims'), request_reason=data.get('request_reason'), already_consented=data.get('already_consented'), authorized_claims=data.get('authorized_claims'), access_denied=data.get('access_denied'))
 
     def to_json(self) -> str:
         """Convert to JSON string."""
@@ -5135,6 +5141,7 @@ class BrowserLocalRpInspectResponse:
     request_reason: Optional[str] = None
     already_consented: Optional[bool] = None
     authorized_claims: Optional[List[str]] = None
+    access_denied: Optional[AppAccessDenial] = None
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {}
@@ -5156,12 +5163,14 @@ class BrowserLocalRpInspectResponse:
             result['already_consented'] = self.already_consented
         if hasattr(self, 'authorized_claims') and self.authorized_claims is not None:
             result['authorized_claims'] = self.authorized_claims
+        if hasattr(self, 'access_denied') and self.access_denied is not None:
+            result['access_denied'] = self.access_denied
         return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'BrowserLocalRpInspectResponse':
         """Create instance from dictionary."""
-        return cls(admission=data.get('admission'), app_name=data.get('app_name'), fingerprint=data.get('fingerprint'), callback_host=data.get('callback_host'), first_seen_at=data.get('first_seen_at'), claims=data.get('claims'), request_reason=data.get('request_reason'), already_consented=data.get('already_consented'), authorized_claims=data.get('authorized_claims'))
+        return cls(admission=data.get('admission'), app_name=data.get('app_name'), fingerprint=data.get('fingerprint'), callback_host=data.get('callback_host'), first_seen_at=data.get('first_seen_at'), claims=data.get('claims'), request_reason=data.get('request_reason'), already_consented=data.get('already_consented'), authorized_claims=data.get('authorized_claims'), access_denied=data.get('access_denied'))
 
     def to_json(self) -> str:
         """Convert to JSON string."""
@@ -5668,6 +5677,7 @@ class AuthorizeValidateResponse:
     already_consented: Optional[bool] = None
     authorized_claims: Optional[List[str]] = None
     newly_requested_claims: Optional[List[str]] = None
+    access_denied: Optional[AppAccessDenial] = None
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {}
@@ -5683,12 +5693,14 @@ class AuthorizeValidateResponse:
             result['authorized_claims'] = self.authorized_claims
         if hasattr(self, 'newly_requested_claims') and self.newly_requested_claims is not None:
             result['newly_requested_claims'] = self.newly_requested_claims
+        if hasattr(self, 'access_denied') and self.access_denied is not None:
+            result['access_denied'] = self.access_denied
         return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'AuthorizeValidateResponse':
         """Create instance from dictionary."""
-        return cls(relying_party=data.get('relying_party'), callback_url=data.get('callback_url'), requested_claims=data.get('requested_claims'), already_consented=data.get('already_consented'), authorized_claims=data.get('authorized_claims'), newly_requested_claims=data.get('newly_requested_claims'))
+        return cls(relying_party=data.get('relying_party'), callback_url=data.get('callback_url'), requested_claims=data.get('requested_claims'), already_consented=data.get('already_consented'), authorized_claims=data.get('authorized_claims'), newly_requested_claims=data.get('newly_requested_claims'), access_denied=data.get('access_denied'))
 
     def to_json(self) -> str:
         """Convert to JSON string."""
@@ -6681,6 +6693,369 @@ class SetSignInPolicyRequest:
 
     @classmethod
     def from_json(cls, json_str: str) -> 'SetSignInPolicyRequest':
+        """Create instance from JSON string."""
+        return cls.from_dict(json.loads(json_str))
+
+
+@dataclass
+class SetUserPasswordLockRequest:
+    user_id: str
+    locked: bool
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result = {}
+        if hasattr(self, 'user_id') and self.user_id is not None:
+            result['user_id'] = self.user_id
+        if hasattr(self, 'locked') and self.locked is not None:
+            result['locked'] = self.locked
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'SetUserPasswordLockRequest':
+        """Create instance from dictionary."""
+        return cls(user_id=data.get('user_id'), locked=data.get('locked'))
+
+    def to_json(self) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'SetUserPasswordLockRequest':
+        """Create instance from JSON string."""
+        return cls.from_dict(json.loads(json_str))
+
+
+@dataclass
+class SetUserPasswordLockResponse:
+    user: AdminUser
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result = {}
+        if hasattr(self, 'user') and self.user is not None:
+            result['user'] = self.user
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'SetUserPasswordLockResponse':
+        """Create instance from dictionary."""
+        return cls(user=data.get('user'))
+
+    def to_json(self) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'SetUserPasswordLockResponse':
+        """Create instance from JSON string."""
+        return cls.from_dict(json.loads(json_str))
+
+
+@dataclass
+class AppAccessTarget:
+    kind: str
+    user_id: Optional[str] = None
+    group_name: Optional[str] = None
+    claim_type: Optional[str] = None
+    claim_operator: Optional[str] = None
+    claim_value: Optional[str] = None
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result = {}
+        if hasattr(self, 'kind') and self.kind is not None:
+            result['kind'] = self.kind
+        if hasattr(self, 'user_id') and self.user_id is not None:
+            result['user_id'] = self.user_id
+        if hasattr(self, 'group_name') and self.group_name is not None:
+            result['group_name'] = self.group_name
+        if hasattr(self, 'claim_type') and self.claim_type is not None:
+            result['claim_type'] = self.claim_type
+        if hasattr(self, 'claim_operator') and self.claim_operator is not None:
+            result['claim_operator'] = self.claim_operator
+        if hasattr(self, 'claim_value') and self.claim_value is not None:
+            result['claim_value'] = self.claim_value
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'AppAccessTarget':
+        """Create instance from dictionary."""
+        return cls(kind=data.get('kind'), user_id=data.get('user_id'), group_name=data.get('group_name'), claim_type=data.get('claim_type'), claim_operator=data.get('claim_operator'), claim_value=data.get('claim_value'))
+
+    def to_json(self) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'AppAccessTarget':
+        """Create instance from JSON string."""
+        return cls.from_dict(json.loads(json_str))
+
+
+@dataclass
+class AppAccessPolicy:
+    id: str
+    name: str
+    mode: str
+    patterns: List[str]
+    targets: List[AppAccessTarget]
+    message: Optional[str] = None
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result = {}
+        if hasattr(self, 'id') and self.id is not None:
+            result['id'] = self.id
+        if hasattr(self, 'name') and self.name is not None:
+            result['name'] = self.name
+        if hasattr(self, 'mode') and self.mode is not None:
+            result['mode'] = self.mode
+        if hasattr(self, 'patterns') and self.patterns is not None:
+            result['patterns'] = self.patterns
+        if hasattr(self, 'message') and self.message is not None:
+            result['message'] = self.message
+        if hasattr(self, 'targets') and self.targets is not None:
+            result['targets'] = self.targets
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'AppAccessPolicy':
+        """Create instance from dictionary."""
+        return cls(id=data.get('id'), name=data.get('name'), mode=data.get('mode'), patterns=data.get('patterns'), message=data.get('message'), targets=data.get('targets'))
+
+    def to_json(self) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'AppAccessPolicy':
+        """Create instance from JSON string."""
+        return cls.from_dict(json.loads(json_str))
+
+
+@dataclass
+class ListAppAccessPoliciesResponse:
+    policies: List[AppAccessPolicy]
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result = {}
+        if hasattr(self, 'policies') and self.policies is not None:
+            result['policies'] = self.policies
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'ListAppAccessPoliciesResponse':
+        """Create instance from dictionary."""
+        return cls(policies=data.get('policies'))
+
+    def to_json(self) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'ListAppAccessPoliciesResponse':
+        """Create instance from JSON string."""
+        return cls.from_dict(json.loads(json_str))
+
+
+@dataclass
+class SetAppAccessPolicyRequest:
+    name: str
+    mode: str
+    patterns: List[str]
+    targets: List[AppAccessTarget]
+    id: Optional[str] = None
+    message: Optional[str] = None
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result = {}
+        if hasattr(self, 'id') and self.id is not None:
+            result['id'] = self.id
+        if hasattr(self, 'name') and self.name is not None:
+            result['name'] = self.name
+        if hasattr(self, 'mode') and self.mode is not None:
+            result['mode'] = self.mode
+        if hasattr(self, 'patterns') and self.patterns is not None:
+            result['patterns'] = self.patterns
+        if hasattr(self, 'message') and self.message is not None:
+            result['message'] = self.message
+        if hasattr(self, 'targets') and self.targets is not None:
+            result['targets'] = self.targets
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'SetAppAccessPolicyRequest':
+        """Create instance from dictionary."""
+        return cls(id=data.get('id'), name=data.get('name'), mode=data.get('mode'), patterns=data.get('patterns'), message=data.get('message'), targets=data.get('targets'))
+
+    def to_json(self) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'SetAppAccessPolicyRequest':
+        """Create instance from JSON string."""
+        return cls.from_dict(json.loads(json_str))
+
+
+@dataclass
+class SetAppAccessPolicyResponse:
+    policy: AppAccessPolicy
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result = {}
+        if hasattr(self, 'policy') and self.policy is not None:
+            result['policy'] = self.policy
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'SetAppAccessPolicyResponse':
+        """Create instance from dictionary."""
+        return cls(policy=data.get('policy'))
+
+    def to_json(self) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'SetAppAccessPolicyResponse':
+        """Create instance from JSON string."""
+        return cls.from_dict(json.loads(json_str))
+
+
+@dataclass
+class RemoveAppAccessPolicyRequest:
+    id: str
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result = {}
+        if hasattr(self, 'id') and self.id is not None:
+            result['id'] = self.id
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'RemoveAppAccessPolicyRequest':
+        """Create instance from dictionary."""
+        return cls(id=data.get('id'))
+
+    def to_json(self) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'RemoveAppAccessPolicyRequest':
+        """Create instance from JSON string."""
+        return cls.from_dict(json.loads(json_str))
+
+
+@dataclass
+class RemoveAppAccessPolicyResponse:
+    success: bool
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result = {}
+        if hasattr(self, 'success') and self.success is not None:
+            result['success'] = self.success
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'RemoveAppAccessPolicyResponse':
+        """Create instance from dictionary."""
+        return cls(success=data.get('success'))
+
+    def to_json(self) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'RemoveAppAccessPolicyResponse':
+        """Create instance from JSON string."""
+        return cls.from_dict(json.loads(json_str))
+
+
+@dataclass
+class PreviewAppAccessRequest:
+    user_id: str
+    domain: Optional[str] = None
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result = {}
+        if hasattr(self, 'user_id') and self.user_id is not None:
+            result['user_id'] = self.user_id
+        if hasattr(self, 'domain') and self.domain is not None:
+            result['domain'] = self.domain
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'PreviewAppAccessRequest':
+        """Create instance from dictionary."""
+        return cls(user_id=data.get('user_id'), domain=data.get('domain'))
+
+    def to_json(self) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'PreviewAppAccessRequest':
+        """Create instance from JSON string."""
+        return cls.from_dict(json.loads(json_str))
+
+
+@dataclass
+class PreviewAppAccessResponse:
+    allowed: bool
+    applied_policies: List[str]
+    blocking_policies: List[str]
+    messages: List[str]
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result = {}
+        if hasattr(self, 'allowed') and self.allowed is not None:
+            result['allowed'] = self.allowed
+        if hasattr(self, 'applied_policies') and self.applied_policies is not None:
+            result['applied_policies'] = self.applied_policies
+        if hasattr(self, 'blocking_policies') and self.blocking_policies is not None:
+            result['blocking_policies'] = self.blocking_policies
+        if hasattr(self, 'messages') and self.messages is not None:
+            result['messages'] = self.messages
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'PreviewAppAccessResponse':
+        """Create instance from dictionary."""
+        return cls(allowed=data.get('allowed'), applied_policies=data.get('applied_policies'), blocking_policies=data.get('blocking_policies'), messages=data.get('messages'))
+
+    def to_json(self) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'PreviewAppAccessResponse':
+        """Create instance from JSON string."""
+        return cls.from_dict(json.loads(json_str))
+
+
+@dataclass
+class AppAccessDenial:
+    messages: List[str]
+    domain: Optional[str] = None
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result = {}
+        if hasattr(self, 'domain') and self.domain is not None:
+            result['domain'] = self.domain
+        if hasattr(self, 'messages') and self.messages is not None:
+            result['messages'] = self.messages
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'AppAccessDenial':
+        """Create instance from dictionary."""
+        return cls(domain=data.get('domain'), messages=data.get('messages'))
+
+    def to_json(self) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'AppAccessDenial':
         """Create instance from JSON string."""
         return cls.from_dict(json.loads(json_str))
 
@@ -8552,6 +8927,7 @@ class BrowserActAsInspectResponse:
     default_renewal_window_seconds: int
     max_renewal_window_seconds: int
     language: Optional[str] = None
+    access_denied: Optional[AppAccessDenial] = None
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {}
@@ -8575,12 +8951,14 @@ class BrowserActAsInspectResponse:
             result['default_renewal_window_seconds'] = self.default_renewal_window_seconds
         if hasattr(self, 'max_renewal_window_seconds') and self.max_renewal_window_seconds is not None:
             result['max_renewal_window_seconds'] = self.max_renewal_window_seconds
+        if hasattr(self, 'access_denied') and self.access_denied is not None:
+            result['access_denied'] = self.access_denied
         return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'BrowserActAsInspectResponse':
         """Create instance from dictionary."""
-        return cls(grantee=data.get('grantee'), grantee_party=data.get('grantee_party'), audience=data.get('audience'), audience_party=data.get('audience_party'), entries=data.get('entries'), language=data.get('language'), default_lifetime_seconds=data.get('default_lifetime_seconds'), max_lifetime_seconds=data.get('max_lifetime_seconds'), default_renewal_window_seconds=data.get('default_renewal_window_seconds'), max_renewal_window_seconds=data.get('max_renewal_window_seconds'))
+        return cls(grantee=data.get('grantee'), grantee_party=data.get('grantee_party'), audience=data.get('audience'), audience_party=data.get('audience_party'), entries=data.get('entries'), language=data.get('language'), default_lifetime_seconds=data.get('default_lifetime_seconds'), max_lifetime_seconds=data.get('max_lifetime_seconds'), default_renewal_window_seconds=data.get('default_renewal_window_seconds'), max_renewal_window_seconds=data.get('max_renewal_window_seconds'), access_denied=data.get('access_denied'))
 
     def to_json(self) -> str:
         """Convert to JSON string."""

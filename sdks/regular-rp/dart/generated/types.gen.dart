@@ -3602,6 +3602,7 @@ final class AdminUser {
   final String updatedAt;
   final String? purgedAt;
   final String? purgeReason;
+  final bool? passwordLocked;
 
   const AdminUser({
     required this.id,
@@ -3612,6 +3613,7 @@ final class AdminUser {
     required this.updatedAt,
     this.purgedAt,
     this.purgeReason,
+    this.passwordLocked,
   });
 
   Map<String, Object?> toMap() {
@@ -3624,6 +3626,7 @@ final class AdminUser {
     map['updated_at'] = updatedAt;
     if (purgedAt != null) map['purged_at'] = purgedAt;
     if (purgeReason != null) map['purge_reason'] = purgeReason;
+    if (passwordLocked != null) map['password_locked'] = passwordLocked;
     return map;
   }
 
@@ -3637,6 +3640,7 @@ final class AdminUser {
       updatedAt: map['updated_at'] as String,
       purgedAt: map['purged_at'] as String?,
       purgeReason: map['purge_reason'] as String?,
+      passwordLocked: map['password_locked'] as bool?,
     );
   }
 
@@ -3650,7 +3654,8 @@ final class AdminUser {
         createdAt == other.createdAt &&
         updatedAt == other.updatedAt &&
         purgedAt == other.purgedAt &&
-        purgeReason == other.purgeReason;
+        purgeReason == other.purgeReason &&
+        passwordLocked == other.passwordLocked;
   }
 
   @override
@@ -3663,6 +3668,7 @@ final class AdminUser {
     updatedAt,
     purgedAt,
     purgeReason,
+    passwordLocked,
   ]);
 
   /// The CBOR-encodable dynamic tree for this record (deep).
@@ -3676,6 +3682,7 @@ final class AdminUser {
     map['updated_at'] = updatedAt;
     if (purgedAt != null) map['purged_at'] = purgedAt!;
     if (purgeReason != null) map['purge_reason'] = purgeReason!;
+    if (passwordLocked != null) map['password_locked'] = passwordLocked!;
     return map;
   }
 
@@ -3693,6 +3700,9 @@ final class AdminUser {
       purgeReason: map['purge_reason'] == null
           ? null
           : map['purge_reason'] as String,
+      passwordLocked: map['password_locked'] == null
+          ? null
+          : map['password_locked'] as bool,
     );
   }
 
@@ -10723,6 +10733,7 @@ final class BrowserAuthorizationInspectResponse {
   final String? requestReason;
   final bool? alreadyConsented;
   final List<String>? authorizedClaims;
+  final AppAccessDenial? accessDenied;
 
   const BrowserAuthorizationInspectResponse({
     required this.relyingParty,
@@ -10730,6 +10741,7 @@ final class BrowserAuthorizationInspectResponse {
     this.requestReason,
     this.alreadyConsented,
     this.authorizedClaims,
+    this.accessDenied,
   });
 
   Map<String, Object?> toMap() {
@@ -10739,6 +10751,7 @@ final class BrowserAuthorizationInspectResponse {
     if (requestReason != null) map['request_reason'] = requestReason;
     if (alreadyConsented != null) map['already_consented'] = alreadyConsented;
     if (authorizedClaims != null) map['authorized_claims'] = authorizedClaims;
+    if (accessDenied != null) map['access_denied'] = accessDenied;
     return map;
   }
 
@@ -10751,6 +10764,7 @@ final class BrowserAuthorizationInspectResponse {
       requestReason: map['request_reason'] as String?,
       alreadyConsented: map['already_consented'] as bool?,
       authorizedClaims: map['authorized_claims'] as List<String>?,
+      accessDenied: map['access_denied'] as AppAccessDenial?,
     );
   }
 
@@ -10761,7 +10775,8 @@ final class BrowserAuthorizationInspectResponse {
         claims == other.claims &&
         requestReason == other.requestReason &&
         alreadyConsented == other.alreadyConsented &&
-        authorizedClaims == other.authorizedClaims;
+        authorizedClaims == other.authorizedClaims &&
+        accessDenied == other.accessDenied;
   }
 
   @override
@@ -10771,6 +10786,7 @@ final class BrowserAuthorizationInspectResponse {
     requestReason,
     alreadyConsented,
     authorizedClaims,
+    accessDenied,
   ]);
 
   /// The CBOR-encodable dynamic tree for this record (deep).
@@ -10781,6 +10797,8 @@ final class BrowserAuthorizationInspectResponse {
     if (requestReason != null) map['request_reason'] = requestReason!;
     if (alreadyConsented != null) map['already_consented'] = alreadyConsented!;
     if (authorizedClaims != null) map['authorized_claims'] = authorizedClaims!;
+    if (accessDenied != null)
+      map['access_denied'] = accessDenied!.toCborValue();
     return map;
   }
 
@@ -10805,6 +10823,9 @@ final class BrowserAuthorizationInspectResponse {
                 .map((csilE) => csilE as String)
                 .cast<String>()
                 .toList(),
+      accessDenied: map['access_denied'] == null
+          ? null
+          : AppAccessDenial.fromCborValue(map['access_denied']),
     );
   }
 
@@ -11026,6 +11047,7 @@ final class BrowserLocalRpInspectResponse {
   final String? requestReason;
   final bool? alreadyConsented;
   final List<String>? authorizedClaims;
+  final AppAccessDenial? accessDenied;
 
   const BrowserLocalRpInspectResponse({
     required this.admission,
@@ -11037,6 +11059,7 @@ final class BrowserLocalRpInspectResponse {
     this.requestReason,
     this.alreadyConsented,
     this.authorizedClaims,
+    this.accessDenied,
   });
 
   Map<String, Object?> toMap() {
@@ -11050,6 +11073,7 @@ final class BrowserLocalRpInspectResponse {
     if (requestReason != null) map['request_reason'] = requestReason;
     if (alreadyConsented != null) map['already_consented'] = alreadyConsented;
     if (authorizedClaims != null) map['authorized_claims'] = authorizedClaims;
+    if (accessDenied != null) map['access_denied'] = accessDenied;
     return map;
   }
 
@@ -11064,6 +11088,7 @@ final class BrowserLocalRpInspectResponse {
       requestReason: map['request_reason'] as String?,
       alreadyConsented: map['already_consented'] as bool?,
       authorizedClaims: map['authorized_claims'] as List<String>?,
+      accessDenied: map['access_denied'] as AppAccessDenial?,
     );
   }
 
@@ -11078,7 +11103,8 @@ final class BrowserLocalRpInspectResponse {
         claims == other.claims &&
         requestReason == other.requestReason &&
         alreadyConsented == other.alreadyConsented &&
-        authorizedClaims == other.authorizedClaims;
+        authorizedClaims == other.authorizedClaims &&
+        accessDenied == other.accessDenied;
   }
 
   @override
@@ -11092,6 +11118,7 @@ final class BrowserLocalRpInspectResponse {
     requestReason,
     alreadyConsented,
     authorizedClaims,
+    accessDenied,
   ]);
 
   /// The CBOR-encodable dynamic tree for this record (deep).
@@ -11106,6 +11133,8 @@ final class BrowserLocalRpInspectResponse {
     if (requestReason != null) map['request_reason'] = requestReason!;
     if (alreadyConsented != null) map['already_consented'] = alreadyConsented!;
     if (authorizedClaims != null) map['authorized_claims'] = authorizedClaims!;
+    if (accessDenied != null)
+      map['access_denied'] = accessDenied!.toCborValue();
     return map;
   }
 
@@ -11136,6 +11165,9 @@ final class BrowserLocalRpInspectResponse {
                 .map((csilE) => csilE as String)
                 .cast<String>()
                 .toList(),
+      accessDenied: map['access_denied'] == null
+          ? null
+          : AppAccessDenial.fromCborValue(map['access_denied']),
     );
   }
 
@@ -12214,6 +12246,7 @@ final class AuthorizeValidateResponse {
   final bool? alreadyConsented;
   final List<String>? authorizedClaims;
   final List<String>? newlyRequestedClaims;
+  final AppAccessDenial? accessDenied;
 
   const AuthorizeValidateResponse({
     required this.relyingParty,
@@ -12222,6 +12255,7 @@ final class AuthorizeValidateResponse {
     this.alreadyConsented,
     this.authorizedClaims,
     this.newlyRequestedClaims,
+    this.accessDenied,
   });
 
   Map<String, Object?> toMap() {
@@ -12233,6 +12267,7 @@ final class AuthorizeValidateResponse {
     if (authorizedClaims != null) map['authorized_claims'] = authorizedClaims;
     if (newlyRequestedClaims != null)
       map['newly_requested_claims'] = newlyRequestedClaims;
+    if (accessDenied != null) map['access_denied'] = accessDenied;
     return map;
   }
 
@@ -12244,6 +12279,7 @@ final class AuthorizeValidateResponse {
       alreadyConsented: map['already_consented'] as bool?,
       authorizedClaims: map['authorized_claims'] as List<String>?,
       newlyRequestedClaims: map['newly_requested_claims'] as List<String>?,
+      accessDenied: map['access_denied'] as AppAccessDenial?,
     );
   }
 
@@ -12255,7 +12291,8 @@ final class AuthorizeValidateResponse {
         requestedClaims == other.requestedClaims &&
         alreadyConsented == other.alreadyConsented &&
         authorizedClaims == other.authorizedClaims &&
-        newlyRequestedClaims == other.newlyRequestedClaims;
+        newlyRequestedClaims == other.newlyRequestedClaims &&
+        accessDenied == other.accessDenied;
   }
 
   @override
@@ -12266,6 +12303,7 @@ final class AuthorizeValidateResponse {
     alreadyConsented,
     authorizedClaims,
     newlyRequestedClaims,
+    accessDenied,
   ]);
 
   /// The CBOR-encodable dynamic tree for this record (deep).
@@ -12278,6 +12316,8 @@ final class AuthorizeValidateResponse {
     if (authorizedClaims != null) map['authorized_claims'] = authorizedClaims!;
     if (newlyRequestedClaims != null)
       map['newly_requested_claims'] = newlyRequestedClaims!;
+    if (accessDenied != null)
+      map['access_denied'] = accessDenied!.toCborValue();
     return map;
   }
 
@@ -12306,6 +12346,9 @@ final class AuthorizeValidateResponse {
                 .map((csilE) => csilE as String)
                 .cast<String>()
                 .toList(),
+      accessDenied: map['access_denied'] == null
+          ? null
+          : AppAccessDenial.fromCborValue(map['access_denied']),
     );
   }
 
@@ -14497,6 +14540,775 @@ final class SetSignInPolicyRequest {
   /// Decode a CSIL CBOR byte payload into this record.
   factory SetSignInPolicyRequest.fromCbor(List<int> bytes) =>
       SetSignInPolicyRequest.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class SetUserPasswordLockRequest {
+  final String userId;
+  final bool locked;
+
+  const SetUserPasswordLockRequest({
+    required this.userId,
+    required this.locked,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['user_id'] = userId;
+    map['locked'] = locked;
+    return map;
+  }
+
+  factory SetUserPasswordLockRequest.fromMap(Map<String, Object?> map) {
+    return SetUserPasswordLockRequest(
+      userId: map['user_id'] as String,
+      locked: map['locked'] as bool,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! SetUserPasswordLockRequest) return false;
+    return userId == other.userId && locked == other.locked;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([userId, locked]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['user_id'] = userId;
+    map['locked'] = locked;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory SetUserPasswordLockRequest.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return SetUserPasswordLockRequest(
+      userId: map['user_id'] as String,
+      locked: map['locked'] as bool,
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory SetUserPasswordLockRequest.fromCbor(List<int> bytes) =>
+      SetUserPasswordLockRequest.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class SetUserPasswordLockResponse {
+  final AdminUser user;
+
+  const SetUserPasswordLockResponse({required this.user});
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['user'] = user;
+    return map;
+  }
+
+  factory SetUserPasswordLockResponse.fromMap(Map<String, Object?> map) {
+    return SetUserPasswordLockResponse(user: map['user'] as AdminUser);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! SetUserPasswordLockResponse) return false;
+    return user == other.user;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([user]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['user'] = user.toCborValue();
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory SetUserPasswordLockResponse.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return SetUserPasswordLockResponse(
+      user: AdminUser.fromCborValue(map['user']),
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory SetUserPasswordLockResponse.fromCbor(List<int> bytes) =>
+      SetUserPasswordLockResponse.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class AppAccessTarget {
+  final String kind;
+  final String? userId;
+  final String? groupName;
+  final String? claimType;
+  final String? claimOperator;
+  final String? claimValue;
+
+  const AppAccessTarget({
+    required this.kind,
+    this.userId,
+    this.groupName,
+    this.claimType,
+    this.claimOperator,
+    this.claimValue,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['kind'] = kind;
+    if (userId != null) map['user_id'] = userId;
+    if (groupName != null) map['group_name'] = groupName;
+    if (claimType != null) map['claim_type'] = claimType;
+    if (claimOperator != null) map['claim_operator'] = claimOperator;
+    if (claimValue != null) map['claim_value'] = claimValue;
+    return map;
+  }
+
+  factory AppAccessTarget.fromMap(Map<String, Object?> map) {
+    return AppAccessTarget(
+      kind: map['kind'] as String,
+      userId: map['user_id'] as String?,
+      groupName: map['group_name'] as String?,
+      claimType: map['claim_type'] as String?,
+      claimOperator: map['claim_operator'] as String?,
+      claimValue: map['claim_value'] as String?,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! AppAccessTarget) return false;
+    return kind == other.kind &&
+        userId == other.userId &&
+        groupName == other.groupName &&
+        claimType == other.claimType &&
+        claimOperator == other.claimOperator &&
+        claimValue == other.claimValue;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+    kind,
+    userId,
+    groupName,
+    claimType,
+    claimOperator,
+    claimValue,
+  ]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['kind'] = kind;
+    if (userId != null) map['user_id'] = userId!;
+    if (groupName != null) map['group_name'] = groupName!;
+    if (claimType != null) map['claim_type'] = claimType!;
+    if (claimOperator != null) map['claim_operator'] = claimOperator!;
+    if (claimValue != null) map['claim_value'] = claimValue!;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory AppAccessTarget.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return AppAccessTarget(
+      kind: map['kind'] as String,
+      userId: map['user_id'] == null ? null : map['user_id'] as String,
+      groupName: map['group_name'] == null ? null : map['group_name'] as String,
+      claimType: map['claim_type'] == null ? null : map['claim_type'] as String,
+      claimOperator: map['claim_operator'] == null
+          ? null
+          : map['claim_operator'] as String,
+      claimValue: map['claim_value'] == null
+          ? null
+          : map['claim_value'] as String,
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory AppAccessTarget.fromCbor(List<int> bytes) =>
+      AppAccessTarget.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class AppAccessPolicy {
+  final String id;
+  final String name;
+  final String mode;
+  final List<String> patterns;
+  final String? message;
+  final List<AppAccessTarget> targets;
+
+  const AppAccessPolicy({
+    required this.id,
+    required this.name,
+    required this.mode,
+    required this.patterns,
+    this.message,
+    required this.targets,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['id'] = id;
+    map['name'] = name;
+    map['mode'] = mode;
+    map['patterns'] = patterns;
+    if (message != null) map['message'] = message;
+    map['targets'] = targets;
+    return map;
+  }
+
+  factory AppAccessPolicy.fromMap(Map<String, Object?> map) {
+    return AppAccessPolicy(
+      id: map['id'] as String,
+      name: map['name'] as String,
+      mode: map['mode'] as String,
+      patterns: map['patterns'] as List<String>,
+      message: map['message'] as String?,
+      targets: map['targets'] as List<AppAccessTarget>,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! AppAccessPolicy) return false;
+    return id == other.id &&
+        name == other.name &&
+        mode == other.mode &&
+        patterns == other.patterns &&
+        message == other.message &&
+        targets == other.targets;
+  }
+
+  @override
+  int get hashCode =>
+      Object.hashAll([id, name, mode, patterns, message, targets]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['id'] = id;
+    map['name'] = name;
+    map['mode'] = mode;
+    map['patterns'] = patterns;
+    if (message != null) map['message'] = message!;
+    map['targets'] = targets.map((csilE) => csilE.toCborValue()).toList();
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory AppAccessPolicy.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return AppAccessPolicy(
+      id: map['id'] as String,
+      name: map['name'] as String,
+      mode: map['mode'] as String,
+      patterns: (map['patterns'] as List)
+          .map((csilE) => csilE as String)
+          .cast<String>()
+          .toList(),
+      message: map['message'] == null ? null : map['message'] as String,
+      targets: (map['targets'] as List)
+          .map((csilE) => AppAccessTarget.fromCborValue(csilE))
+          .cast<AppAccessTarget>()
+          .toList(),
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory AppAccessPolicy.fromCbor(List<int> bytes) =>
+      AppAccessPolicy.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class ListAppAccessPoliciesResponse {
+  final List<AppAccessPolicy> policies;
+
+  const ListAppAccessPoliciesResponse({required this.policies});
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['policies'] = policies;
+    return map;
+  }
+
+  factory ListAppAccessPoliciesResponse.fromMap(Map<String, Object?> map) {
+    return ListAppAccessPoliciesResponse(
+      policies: map['policies'] as List<AppAccessPolicy>,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! ListAppAccessPoliciesResponse) return false;
+    return policies == other.policies;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([policies]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['policies'] = policies.map((csilE) => csilE.toCborValue()).toList();
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory ListAppAccessPoliciesResponse.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return ListAppAccessPoliciesResponse(
+      policies: (map['policies'] as List)
+          .map((csilE) => AppAccessPolicy.fromCborValue(csilE))
+          .cast<AppAccessPolicy>()
+          .toList(),
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory ListAppAccessPoliciesResponse.fromCbor(List<int> bytes) =>
+      ListAppAccessPoliciesResponse.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class SetAppAccessPolicyRequest {
+  final String? id;
+  final String name;
+  final String mode;
+  final List<String> patterns;
+  final String? message;
+  final List<AppAccessTarget> targets;
+
+  const SetAppAccessPolicyRequest({
+    this.id,
+    required this.name,
+    required this.mode,
+    required this.patterns,
+    this.message,
+    required this.targets,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    if (id != null) map['id'] = id;
+    map['name'] = name;
+    map['mode'] = mode;
+    map['patterns'] = patterns;
+    if (message != null) map['message'] = message;
+    map['targets'] = targets;
+    return map;
+  }
+
+  factory SetAppAccessPolicyRequest.fromMap(Map<String, Object?> map) {
+    return SetAppAccessPolicyRequest(
+      id: map['id'] as String?,
+      name: map['name'] as String,
+      mode: map['mode'] as String,
+      patterns: map['patterns'] as List<String>,
+      message: map['message'] as String?,
+      targets: map['targets'] as List<AppAccessTarget>,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! SetAppAccessPolicyRequest) return false;
+    return id == other.id &&
+        name == other.name &&
+        mode == other.mode &&
+        patterns == other.patterns &&
+        message == other.message &&
+        targets == other.targets;
+  }
+
+  @override
+  int get hashCode =>
+      Object.hashAll([id, name, mode, patterns, message, targets]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    if (id != null) map['id'] = id!;
+    map['name'] = name;
+    map['mode'] = mode;
+    map['patterns'] = patterns;
+    if (message != null) map['message'] = message!;
+    map['targets'] = targets.map((csilE) => csilE.toCborValue()).toList();
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory SetAppAccessPolicyRequest.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return SetAppAccessPolicyRequest(
+      id: map['id'] == null ? null : map['id'] as String,
+      name: map['name'] as String,
+      mode: map['mode'] as String,
+      patterns: (map['patterns'] as List)
+          .map((csilE) => csilE as String)
+          .cast<String>()
+          .toList(),
+      message: map['message'] == null ? null : map['message'] as String,
+      targets: (map['targets'] as List)
+          .map((csilE) => AppAccessTarget.fromCborValue(csilE))
+          .cast<AppAccessTarget>()
+          .toList(),
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory SetAppAccessPolicyRequest.fromCbor(List<int> bytes) =>
+      SetAppAccessPolicyRequest.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class SetAppAccessPolicyResponse {
+  final AppAccessPolicy policy;
+
+  const SetAppAccessPolicyResponse({required this.policy});
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['policy'] = policy;
+    return map;
+  }
+
+  factory SetAppAccessPolicyResponse.fromMap(Map<String, Object?> map) {
+    return SetAppAccessPolicyResponse(policy: map['policy'] as AppAccessPolicy);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! SetAppAccessPolicyResponse) return false;
+    return policy == other.policy;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([policy]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['policy'] = policy.toCborValue();
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory SetAppAccessPolicyResponse.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return SetAppAccessPolicyResponse(
+      policy: AppAccessPolicy.fromCborValue(map['policy']),
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory SetAppAccessPolicyResponse.fromCbor(List<int> bytes) =>
+      SetAppAccessPolicyResponse.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class RemoveAppAccessPolicyRequest {
+  final String id;
+
+  const RemoveAppAccessPolicyRequest({required this.id});
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['id'] = id;
+    return map;
+  }
+
+  factory RemoveAppAccessPolicyRequest.fromMap(Map<String, Object?> map) {
+    return RemoveAppAccessPolicyRequest(id: map['id'] as String);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! RemoveAppAccessPolicyRequest) return false;
+    return id == other.id;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([id]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['id'] = id;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory RemoveAppAccessPolicyRequest.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return RemoveAppAccessPolicyRequest(id: map['id'] as String);
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory RemoveAppAccessPolicyRequest.fromCbor(List<int> bytes) =>
+      RemoveAppAccessPolicyRequest.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class RemoveAppAccessPolicyResponse {
+  final bool success;
+
+  const RemoveAppAccessPolicyResponse({required this.success});
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['success'] = success;
+    return map;
+  }
+
+  factory RemoveAppAccessPolicyResponse.fromMap(Map<String, Object?> map) {
+    return RemoveAppAccessPolicyResponse(success: map['success'] as bool);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! RemoveAppAccessPolicyResponse) return false;
+    return success == other.success;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([success]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['success'] = success;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory RemoveAppAccessPolicyResponse.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return RemoveAppAccessPolicyResponse(success: map['success'] as bool);
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory RemoveAppAccessPolicyResponse.fromCbor(List<int> bytes) =>
+      RemoveAppAccessPolicyResponse.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class PreviewAppAccessRequest {
+  final String userId;
+  final String? domain;
+
+  const PreviewAppAccessRequest({required this.userId, this.domain});
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['user_id'] = userId;
+    if (domain != null) map['domain'] = domain;
+    return map;
+  }
+
+  factory PreviewAppAccessRequest.fromMap(Map<String, Object?> map) {
+    return PreviewAppAccessRequest(
+      userId: map['user_id'] as String,
+      domain: map['domain'] as String?,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! PreviewAppAccessRequest) return false;
+    return userId == other.userId && domain == other.domain;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([userId, domain]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['user_id'] = userId;
+    if (domain != null) map['domain'] = domain!;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory PreviewAppAccessRequest.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return PreviewAppAccessRequest(
+      userId: map['user_id'] as String,
+      domain: map['domain'] == null ? null : map['domain'] as String,
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory PreviewAppAccessRequest.fromCbor(List<int> bytes) =>
+      PreviewAppAccessRequest.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class PreviewAppAccessResponse {
+  final bool allowed;
+  final List<String> appliedPolicies;
+  final List<String> blockingPolicies;
+  final List<String> messages;
+
+  const PreviewAppAccessResponse({
+    required this.allowed,
+    required this.appliedPolicies,
+    required this.blockingPolicies,
+    required this.messages,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['allowed'] = allowed;
+    map['applied_policies'] = appliedPolicies;
+    map['blocking_policies'] = blockingPolicies;
+    map['messages'] = messages;
+    return map;
+  }
+
+  factory PreviewAppAccessResponse.fromMap(Map<String, Object?> map) {
+    return PreviewAppAccessResponse(
+      allowed: map['allowed'] as bool,
+      appliedPolicies: map['applied_policies'] as List<String>,
+      blockingPolicies: map['blocking_policies'] as List<String>,
+      messages: map['messages'] as List<String>,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! PreviewAppAccessResponse) return false;
+    return allowed == other.allowed &&
+        appliedPolicies == other.appliedPolicies &&
+        blockingPolicies == other.blockingPolicies &&
+        messages == other.messages;
+  }
+
+  @override
+  int get hashCode =>
+      Object.hashAll([allowed, appliedPolicies, blockingPolicies, messages]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['allowed'] = allowed;
+    map['applied_policies'] = appliedPolicies;
+    map['blocking_policies'] = blockingPolicies;
+    map['messages'] = messages;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory PreviewAppAccessResponse.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return PreviewAppAccessResponse(
+      allowed: map['allowed'] as bool,
+      appliedPolicies: (map['applied_policies'] as List)
+          .map((csilE) => csilE as String)
+          .cast<String>()
+          .toList(),
+      blockingPolicies: (map['blocking_policies'] as List)
+          .map((csilE) => csilE as String)
+          .cast<String>()
+          .toList(),
+      messages: (map['messages'] as List)
+          .map((csilE) => csilE as String)
+          .cast<String>()
+          .toList(),
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory PreviewAppAccessResponse.fromCbor(List<int> bytes) =>
+      PreviewAppAccessResponse.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class AppAccessDenial {
+  final String? domain;
+  final List<String> messages;
+
+  const AppAccessDenial({this.domain, required this.messages});
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    if (domain != null) map['domain'] = domain;
+    map['messages'] = messages;
+    return map;
+  }
+
+  factory AppAccessDenial.fromMap(Map<String, Object?> map) {
+    return AppAccessDenial(
+      domain: map['domain'] as String?,
+      messages: map['messages'] as List<String>,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! AppAccessDenial) return false;
+    return domain == other.domain && messages == other.messages;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([domain, messages]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    if (domain != null) map['domain'] = domain!;
+    map['messages'] = messages;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory AppAccessDenial.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return AppAccessDenial(
+      domain: map['domain'] == null ? null : map['domain'] as String,
+      messages: (map['messages'] as List)
+          .map((csilE) => csilE as String)
+          .cast<String>()
+          .toList(),
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory AppAccessDenial.fromCbor(List<int> bytes) =>
+      AppAccessDenial.fromCborValue(CsilCbor.decode(bytes));
 }
 
 final class PurgeLocalRpTicketsRequest {
@@ -18898,6 +19710,7 @@ final class BrowserActAsInspectResponse {
   final int maxLifetimeSeconds;
   final int defaultRenewalWindowSeconds;
   final int maxRenewalWindowSeconds;
+  final AppAccessDenial? accessDenied;
 
   const BrowserActAsInspectResponse({
     required this.grantee,
@@ -18910,6 +19723,7 @@ final class BrowserActAsInspectResponse {
     required this.maxLifetimeSeconds,
     required this.defaultRenewalWindowSeconds,
     required this.maxRenewalWindowSeconds,
+    this.accessDenied,
   });
 
   Map<String, Object?> toMap() {
@@ -18924,6 +19738,7 @@ final class BrowserActAsInspectResponse {
     map['max_lifetime_seconds'] = maxLifetimeSeconds;
     map['default_renewal_window_seconds'] = defaultRenewalWindowSeconds;
     map['max_renewal_window_seconds'] = maxRenewalWindowSeconds;
+    if (accessDenied != null) map['access_denied'] = accessDenied;
     return map;
   }
 
@@ -18939,6 +19754,7 @@ final class BrowserActAsInspectResponse {
       maxLifetimeSeconds: map['max_lifetime_seconds'] as int,
       defaultRenewalWindowSeconds: map['default_renewal_window_seconds'] as int,
       maxRenewalWindowSeconds: map['max_renewal_window_seconds'] as int,
+      accessDenied: map['access_denied'] as AppAccessDenial?,
     );
   }
 
@@ -18954,7 +19770,8 @@ final class BrowserActAsInspectResponse {
         defaultLifetimeSeconds == other.defaultLifetimeSeconds &&
         maxLifetimeSeconds == other.maxLifetimeSeconds &&
         defaultRenewalWindowSeconds == other.defaultRenewalWindowSeconds &&
-        maxRenewalWindowSeconds == other.maxRenewalWindowSeconds;
+        maxRenewalWindowSeconds == other.maxRenewalWindowSeconds &&
+        accessDenied == other.accessDenied;
   }
 
   @override
@@ -18969,6 +19786,7 @@ final class BrowserActAsInspectResponse {
     maxLifetimeSeconds,
     defaultRenewalWindowSeconds,
     maxRenewalWindowSeconds,
+    accessDenied,
   ]);
 
   /// The CBOR-encodable dynamic tree for this record (deep).
@@ -18984,6 +19802,8 @@ final class BrowserActAsInspectResponse {
     map['max_lifetime_seconds'] = maxLifetimeSeconds;
     map['default_renewal_window_seconds'] = defaultRenewalWindowSeconds;
     map['max_renewal_window_seconds'] = maxRenewalWindowSeconds;
+    if (accessDenied != null)
+      map['access_denied'] = accessDenied!.toCborValue();
     return map;
   }
 
@@ -19004,6 +19824,9 @@ final class BrowserActAsInspectResponse {
       maxLifetimeSeconds: map['max_lifetime_seconds'] as int,
       defaultRenewalWindowSeconds: map['default_renewal_window_seconds'] as int,
       maxRenewalWindowSeconds: map['max_renewal_window_seconds'] as int,
+      accessDenied: map['access_denied'] == null
+          ? null
+          : AppAccessDenial.fromCborValue(map['access_denied']),
     );
   }
 

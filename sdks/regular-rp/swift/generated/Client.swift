@@ -613,6 +613,31 @@ public struct AdminClient {
         return try SignInPolicy.fromCbor(csilResp)
     }
 
+    public func setUserPasswordLock(_ request: SetUserPasswordLockRequest) throws -> SetUserPasswordLockResponse {
+        let csilResp = try transport.call(service: "Admin", op: "set-user-password-lock", request: request.toCbor())
+        return try SetUserPasswordLockResponse.fromCbor(csilResp)
+    }
+
+    public func listAppAccessPolicies(_ request: EmptyRequest) throws -> ListAppAccessPoliciesResponse {
+        let csilResp = try transport.call(service: "Admin", op: "list-app-access-policies", request: request.toCbor())
+        return try ListAppAccessPoliciesResponse.fromCbor(csilResp)
+    }
+
+    public func setAppAccessPolicy(_ request: SetAppAccessPolicyRequest) throws -> SetAppAccessPolicyResponse {
+        let csilResp = try transport.call(service: "Admin", op: "set-app-access-policy", request: request.toCbor())
+        return try SetAppAccessPolicyResponse.fromCbor(csilResp)
+    }
+
+    public func removeAppAccessPolicy(_ request: RemoveAppAccessPolicyRequest) throws -> RemoveAppAccessPolicyResponse {
+        let csilResp = try transport.call(service: "Admin", op: "remove-app-access-policy", request: request.toCbor())
+        return try RemoveAppAccessPolicyResponse.fromCbor(csilResp)
+    }
+
+    public func previewAppAccess(_ request: PreviewAppAccessRequest) throws -> PreviewAppAccessResponse {
+        let csilResp = try transport.call(service: "Admin", op: "preview-app-access", request: request.toCbor())
+        return try PreviewAppAccessResponse.fromCbor(csilResp)
+    }
+
 }
 
 /// AccountClient is a typed client for the Account service. The client owns

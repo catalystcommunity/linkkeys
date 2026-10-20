@@ -423,6 +423,7 @@ pub const AdminUser = struct {
     updated_at: []const u8,
     purged_at: ?[]const u8 = null,
     purge_reason: ?[]const u8 = null,
+    password_locked: ?bool = null,
 };
 
 /// ListUsersRequest is a structured data type.
@@ -1172,6 +1173,7 @@ pub const BrowserAuthorizationInspectResponse = struct {
     request_reason: ?[]const u8 = null,
     already_consented: ?bool = null,
     authorized_claims: ?[][]const u8 = null,
+    access_denied: ?AppAccessDenial = null,
 };
 
 /// BrowserAuthorizationCompleteRequest is a structured data type.
@@ -1204,6 +1206,7 @@ pub const BrowserLocalRpInspectResponse = struct {
     request_reason: ?[]const u8 = null,
     already_consented: ?bool = null,
     authorized_claims: ?[][]const u8 = null,
+    access_denied: ?AppAccessDenial = null,
 };
 
 /// BrowserLocalRpCompleteRequest is a structured data type.
@@ -1323,6 +1326,7 @@ pub const AuthorizeValidateResponse = struct {
     already_consented: ?bool = null,
     authorized_claims: ?[][]const u8 = null,
     newly_requested_claims: ?[][]const u8 = null,
+    access_denied: ?AppAccessDenial = null,
 };
 
 /// AuthorizeFinalizeRequest is a structured data type.
@@ -1506,6 +1510,87 @@ pub const SignInPolicy = struct {
 /// SetSignInPolicyRequest is a structured data type.
 pub const SetSignInPolicyRequest = struct {
     sign_in_hours: i64,
+};
+
+/// SetUserPasswordLockRequest is a structured data type.
+pub const SetUserPasswordLockRequest = struct {
+    user_id: []const u8,
+    locked: bool,
+};
+
+/// SetUserPasswordLockResponse is a structured data type.
+pub const SetUserPasswordLockResponse = struct {
+    user: AdminUser,
+};
+
+/// AppAccessTarget is a structured data type.
+pub const AppAccessTarget = struct {
+    kind: []const u8,
+    user_id: ?[]const u8 = null,
+    group_name: ?[]const u8 = null,
+    claim_type: ?[]const u8 = null,
+    claim_operator: ?[]const u8 = null,
+    claim_value: ?[]const u8 = null,
+};
+
+/// AppAccessPolicy is a structured data type.
+pub const AppAccessPolicy = struct {
+    id: []const u8,
+    name: []const u8,
+    mode: []const u8,
+    patterns: [][]const u8,
+    message: ?[]const u8 = null,
+    targets: []AppAccessTarget,
+};
+
+/// ListAppAccessPoliciesResponse is a structured data type.
+pub const ListAppAccessPoliciesResponse = struct {
+    policies: []AppAccessPolicy,
+};
+
+/// SetAppAccessPolicyRequest is a structured data type.
+pub const SetAppAccessPolicyRequest = struct {
+    id: ?[]const u8 = null,
+    name: []const u8,
+    mode: []const u8,
+    patterns: [][]const u8,
+    message: ?[]const u8 = null,
+    targets: []AppAccessTarget,
+};
+
+/// SetAppAccessPolicyResponse is a structured data type.
+pub const SetAppAccessPolicyResponse = struct {
+    policy: AppAccessPolicy,
+};
+
+/// RemoveAppAccessPolicyRequest is a structured data type.
+pub const RemoveAppAccessPolicyRequest = struct {
+    id: []const u8,
+};
+
+/// RemoveAppAccessPolicyResponse is a structured data type.
+pub const RemoveAppAccessPolicyResponse = struct {
+    success: bool,
+};
+
+/// PreviewAppAccessRequest is a structured data type.
+pub const PreviewAppAccessRequest = struct {
+    user_id: []const u8,
+    domain: ?[]const u8 = null,
+};
+
+/// PreviewAppAccessResponse is a structured data type.
+pub const PreviewAppAccessResponse = struct {
+    allowed: bool,
+    applied_policies: [][]const u8,
+    blocking_policies: [][]const u8,
+    messages: [][]const u8,
+};
+
+/// AppAccessDenial is a structured data type.
+pub const AppAccessDenial = struct {
+    domain: ?[]const u8 = null,
+    messages: [][]const u8,
 };
 
 /// PurgeLocalRpTicketsRequest is a structured data type.
@@ -1949,6 +2034,7 @@ pub const BrowserActAsInspectResponse = struct {
     max_lifetime_seconds: i64,
     default_renewal_window_seconds: i64,
     max_renewal_window_seconds: i64,
+    access_denied: ?AppAccessDenial = null,
 };
 
 /// BrowserActAsCompleteRequest is a structured data type.

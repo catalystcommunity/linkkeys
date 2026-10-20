@@ -883,6 +883,41 @@ class AdminClient
         return Codec::decodeSignInPolicy($reply);
     }
 
+    public function setUserPasswordLock($request)
+    {
+        $payload = Codec::encodeSetUserPasswordLockRequest($request);
+        $reply = $this->transport->call('Admin', 'set-user-password-lock', $payload);
+        return Codec::decodeSetUserPasswordLockResponse($reply);
+    }
+
+    public function listAppAccessPolicies($request)
+    {
+        $payload = Codec::encodeEmptyRequest($request);
+        $reply = $this->transport->call('Admin', 'list-app-access-policies', $payload);
+        return Codec::decodeListAppAccessPoliciesResponse($reply);
+    }
+
+    public function setAppAccessPolicy($request)
+    {
+        $payload = Codec::encodeSetAppAccessPolicyRequest($request);
+        $reply = $this->transport->call('Admin', 'set-app-access-policy', $payload);
+        return Codec::decodeSetAppAccessPolicyResponse($reply);
+    }
+
+    public function removeAppAccessPolicy($request)
+    {
+        $payload = Codec::encodeRemoveAppAccessPolicyRequest($request);
+        $reply = $this->transport->call('Admin', 'remove-app-access-policy', $payload);
+        return Codec::decodeRemoveAppAccessPolicyResponse($reply);
+    }
+
+    public function previewAppAccess($request)
+    {
+        $payload = Codec::encodePreviewAppAccessRequest($request);
+        $reply = $this->transport->call('Admin', 'preview-app-access', $payload);
+        return Codec::decodePreviewAppAccessResponse($reply);
+    }
+
 }
 
 /**

@@ -1776,6 +1776,10 @@ class Codec
         if ($field !== null) {
             $out['purge_reason'] = $field;
         }
+        $field = $value instanceof AdminUser ? $value->passwordLocked : (is_array($value) && array_key_exists('password_locked', $value) ? $value['password_locked'] : null);
+        if ($field !== null) {
+            $out['password_locked'] = $field;
+        }
         return $out;
     }
 
@@ -1790,6 +1794,7 @@ class Codec
             'updated_at' => array_key_exists('updated_at', $value) ? $value['updated_at'] : null,
             'purged_at' => array_key_exists('purged_at', $value) ? $value['purged_at'] : null,
             'purge_reason' => array_key_exists('purge_reason', $value) ? $value['purge_reason'] : null,
+            'password_locked' => array_key_exists('password_locked', $value) ? $value['password_locked'] : null,
         ));
     }
 
@@ -5311,6 +5316,10 @@ class Codec
         if ($field !== null) {
             $out['authorized_claims'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
         }
+        $field = $value instanceof BrowserAuthorizationInspectResponse ? $value->accessDenied : (is_array($value) && array_key_exists('access_denied', $value) ? $value['access_denied'] : null);
+        if ($field !== null) {
+            $out['access_denied'] = self::toCborAppAccessDenial($field);
+        }
         return $out;
     }
 
@@ -5322,6 +5331,7 @@ class Codec
             'request_reason' => array_key_exists('request_reason', $value) ? $value['request_reason'] : null,
             'already_consented' => array_key_exists('already_consented', $value) ? $value['already_consented'] : null,
             'authorized_claims' => array_key_exists('authorized_claims', $value) ? array_map(function ($item) { return $item; }, $value['authorized_claims'] === null ? array() : $value['authorized_claims']) : null,
+            'access_denied' => array_key_exists('access_denied', $value) ? self::fromCborAppAccessDenial($value['access_denied']) : null,
         ));
     }
 
@@ -5453,6 +5463,10 @@ class Codec
         if ($field !== null) {
             $out['authorized_claims'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
         }
+        $field = $value instanceof BrowserLocalRpInspectResponse ? $value->accessDenied : (is_array($value) && array_key_exists('access_denied', $value) ? $value['access_denied'] : null);
+        if ($field !== null) {
+            $out['access_denied'] = self::toCborAppAccessDenial($field);
+        }
         return $out;
     }
 
@@ -5468,6 +5482,7 @@ class Codec
             'request_reason' => array_key_exists('request_reason', $value) ? $value['request_reason'] : null,
             'already_consented' => array_key_exists('already_consented', $value) ? $value['already_consented'] : null,
             'authorized_claims' => array_key_exists('authorized_claims', $value) ? array_map(function ($item) { return $item; }, $value['authorized_claims'] === null ? array() : $value['authorized_claims']) : null,
+            'access_denied' => array_key_exists('access_denied', $value) ? self::fromCborAppAccessDenial($value['access_denied']) : null,
         ));
     }
 
@@ -6015,6 +6030,10 @@ class Codec
         if ($field !== null) {
             $out['newly_requested_claims'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
         }
+        $field = $value instanceof AuthorizeValidateResponse ? $value->accessDenied : (is_array($value) && array_key_exists('access_denied', $value) ? $value['access_denied'] : null);
+        if ($field !== null) {
+            $out['access_denied'] = self::toCborAppAccessDenial($field);
+        }
         return $out;
     }
 
@@ -6027,6 +6046,7 @@ class Codec
             'already_consented' => array_key_exists('already_consented', $value) ? $value['already_consented'] : null,
             'authorized_claims' => array_key_exists('authorized_claims', $value) ? array_map(function ($item) { return $item; }, $value['authorized_claims'] === null ? array() : $value['authorized_claims']) : null,
             'newly_requested_claims' => array_key_exists('newly_requested_claims', $value) ? array_map(function ($item) { return $item; }, $value['newly_requested_claims'] === null ? array() : $value['newly_requested_claims']) : null,
+            'access_denied' => array_key_exists('access_denied', $value) ? self::fromCborAppAccessDenial($value['access_denied']) : null,
         ));
     }
 
@@ -7080,6 +7100,389 @@ class Codec
     {
         return new SetSignInPolicyRequest(array(
             'sign_in_hours' => array_key_exists('sign_in_hours', $value) ? $value['sign_in_hours'] : null,
+        ));
+    }
+
+    public static function encodeSetUserPasswordLockRequest($value)
+    {
+        return CBOR::encode(self::toCborSetUserPasswordLockRequest($value));
+    }
+
+    public static function decodeSetUserPasswordLockRequest($bytes)
+    {
+        return self::fromCborSetUserPasswordLockRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborSetUserPasswordLockRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof SetUserPasswordLockRequest ? $value->userId : (is_array($value) && array_key_exists('user_id', $value) ? $value['user_id'] : null);
+        $out['user_id'] = $field;
+        $field = $value instanceof SetUserPasswordLockRequest ? $value->locked : (is_array($value) && array_key_exists('locked', $value) ? $value['locked'] : null);
+        $out['locked'] = $field;
+        return $out;
+    }
+
+    public static function fromCborSetUserPasswordLockRequest($value)
+    {
+        return new SetUserPasswordLockRequest(array(
+            'user_id' => array_key_exists('user_id', $value) ? $value['user_id'] : null,
+            'locked' => array_key_exists('locked', $value) ? $value['locked'] : null,
+        ));
+    }
+
+    public static function encodeSetUserPasswordLockResponse($value)
+    {
+        return CBOR::encode(self::toCborSetUserPasswordLockResponse($value));
+    }
+
+    public static function decodeSetUserPasswordLockResponse($bytes)
+    {
+        return self::fromCborSetUserPasswordLockResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborSetUserPasswordLockResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof SetUserPasswordLockResponse ? $value->user : (is_array($value) && array_key_exists('user', $value) ? $value['user'] : null);
+        $out['user'] = self::toCborAdminUser($field);
+        return $out;
+    }
+
+    public static function fromCborSetUserPasswordLockResponse($value)
+    {
+        return new SetUserPasswordLockResponse(array(
+            'user' => array_key_exists('user', $value) ? self::fromCborAdminUser($value['user']) : null,
+        ));
+    }
+
+    public static function encodeAppAccessTarget($value)
+    {
+        return CBOR::encode(self::toCborAppAccessTarget($value));
+    }
+
+    public static function decodeAppAccessTarget($bytes)
+    {
+        return self::fromCborAppAccessTarget(CBOR::decode($bytes));
+    }
+
+    public static function toCborAppAccessTarget($value)
+    {
+        $out = array();
+        $field = $value instanceof AppAccessTarget ? $value->kind : (is_array($value) && array_key_exists('kind', $value) ? $value['kind'] : null);
+        $out['kind'] = $field;
+        $field = $value instanceof AppAccessTarget ? $value->userId : (is_array($value) && array_key_exists('user_id', $value) ? $value['user_id'] : null);
+        if ($field !== null) {
+            $out['user_id'] = $field;
+        }
+        $field = $value instanceof AppAccessTarget ? $value->groupName : (is_array($value) && array_key_exists('group_name', $value) ? $value['group_name'] : null);
+        if ($field !== null) {
+            $out['group_name'] = $field;
+        }
+        $field = $value instanceof AppAccessTarget ? $value->claimType : (is_array($value) && array_key_exists('claim_type', $value) ? $value['claim_type'] : null);
+        if ($field !== null) {
+            $out['claim_type'] = $field;
+        }
+        $field = $value instanceof AppAccessTarget ? $value->claimOperator : (is_array($value) && array_key_exists('claim_operator', $value) ? $value['claim_operator'] : null);
+        if ($field !== null) {
+            $out['claim_operator'] = $field;
+        }
+        $field = $value instanceof AppAccessTarget ? $value->claimValue : (is_array($value) && array_key_exists('claim_value', $value) ? $value['claim_value'] : null);
+        if ($field !== null) {
+            $out['claim_value'] = $field;
+        }
+        return $out;
+    }
+
+    public static function fromCborAppAccessTarget($value)
+    {
+        return new AppAccessTarget(array(
+            'kind' => array_key_exists('kind', $value) ? $value['kind'] : null,
+            'user_id' => array_key_exists('user_id', $value) ? $value['user_id'] : null,
+            'group_name' => array_key_exists('group_name', $value) ? $value['group_name'] : null,
+            'claim_type' => array_key_exists('claim_type', $value) ? $value['claim_type'] : null,
+            'claim_operator' => array_key_exists('claim_operator', $value) ? $value['claim_operator'] : null,
+            'claim_value' => array_key_exists('claim_value', $value) ? $value['claim_value'] : null,
+        ));
+    }
+
+    public static function encodeAppAccessPolicy($value)
+    {
+        return CBOR::encode(self::toCborAppAccessPolicy($value));
+    }
+
+    public static function decodeAppAccessPolicy($bytes)
+    {
+        return self::fromCborAppAccessPolicy(CBOR::decode($bytes));
+    }
+
+    public static function toCborAppAccessPolicy($value)
+    {
+        $out = array();
+        $field = $value instanceof AppAccessPolicy ? $value->id : (is_array($value) && array_key_exists('id', $value) ? $value['id'] : null);
+        $out['id'] = $field;
+        $field = $value instanceof AppAccessPolicy ? $value->name : (is_array($value) && array_key_exists('name', $value) ? $value['name'] : null);
+        $out['name'] = $field;
+        $field = $value instanceof AppAccessPolicy ? $value->mode : (is_array($value) && array_key_exists('mode', $value) ? $value['mode'] : null);
+        $out['mode'] = $field;
+        $field = $value instanceof AppAccessPolicy ? $value->patterns : (is_array($value) && array_key_exists('patterns', $value) ? $value['patterns'] : null);
+        $out['patterns'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        $field = $value instanceof AppAccessPolicy ? $value->message : (is_array($value) && array_key_exists('message', $value) ? $value['message'] : null);
+        if ($field !== null) {
+            $out['message'] = $field;
+        }
+        $field = $value instanceof AppAccessPolicy ? $value->targets : (is_array($value) && array_key_exists('targets', $value) ? $value['targets'] : null);
+        $out['targets'] = array_map(function ($item) { return self::toCborAppAccessTarget($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborAppAccessPolicy($value)
+    {
+        return new AppAccessPolicy(array(
+            'id' => array_key_exists('id', $value) ? $value['id'] : null,
+            'name' => array_key_exists('name', $value) ? $value['name'] : null,
+            'mode' => array_key_exists('mode', $value) ? $value['mode'] : null,
+            'patterns' => array_key_exists('patterns', $value) ? array_map(function ($item) { return $item; }, $value['patterns'] === null ? array() : $value['patterns']) : null,
+            'message' => array_key_exists('message', $value) ? $value['message'] : null,
+            'targets' => array_key_exists('targets', $value) ? array_map(function ($item) { return self::fromCborAppAccessTarget($item); }, $value['targets'] === null ? array() : $value['targets']) : null,
+        ));
+    }
+
+    public static function encodeListAppAccessPoliciesResponse($value)
+    {
+        return CBOR::encode(self::toCborListAppAccessPoliciesResponse($value));
+    }
+
+    public static function decodeListAppAccessPoliciesResponse($bytes)
+    {
+        return self::fromCborListAppAccessPoliciesResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborListAppAccessPoliciesResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof ListAppAccessPoliciesResponse ? $value->policies : (is_array($value) && array_key_exists('policies', $value) ? $value['policies'] : null);
+        $out['policies'] = array_map(function ($item) { return self::toCborAppAccessPolicy($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborListAppAccessPoliciesResponse($value)
+    {
+        return new ListAppAccessPoliciesResponse(array(
+            'policies' => array_key_exists('policies', $value) ? array_map(function ($item) { return self::fromCborAppAccessPolicy($item); }, $value['policies'] === null ? array() : $value['policies']) : null,
+        ));
+    }
+
+    public static function encodeSetAppAccessPolicyRequest($value)
+    {
+        return CBOR::encode(self::toCborSetAppAccessPolicyRequest($value));
+    }
+
+    public static function decodeSetAppAccessPolicyRequest($bytes)
+    {
+        return self::fromCborSetAppAccessPolicyRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborSetAppAccessPolicyRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof SetAppAccessPolicyRequest ? $value->id : (is_array($value) && array_key_exists('id', $value) ? $value['id'] : null);
+        if ($field !== null) {
+            $out['id'] = $field;
+        }
+        $field = $value instanceof SetAppAccessPolicyRequest ? $value->name : (is_array($value) && array_key_exists('name', $value) ? $value['name'] : null);
+        $out['name'] = $field;
+        $field = $value instanceof SetAppAccessPolicyRequest ? $value->mode : (is_array($value) && array_key_exists('mode', $value) ? $value['mode'] : null);
+        $out['mode'] = $field;
+        $field = $value instanceof SetAppAccessPolicyRequest ? $value->patterns : (is_array($value) && array_key_exists('patterns', $value) ? $value['patterns'] : null);
+        $out['patterns'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        $field = $value instanceof SetAppAccessPolicyRequest ? $value->message : (is_array($value) && array_key_exists('message', $value) ? $value['message'] : null);
+        if ($field !== null) {
+            $out['message'] = $field;
+        }
+        $field = $value instanceof SetAppAccessPolicyRequest ? $value->targets : (is_array($value) && array_key_exists('targets', $value) ? $value['targets'] : null);
+        $out['targets'] = array_map(function ($item) { return self::toCborAppAccessTarget($item); }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborSetAppAccessPolicyRequest($value)
+    {
+        return new SetAppAccessPolicyRequest(array(
+            'id' => array_key_exists('id', $value) ? $value['id'] : null,
+            'name' => array_key_exists('name', $value) ? $value['name'] : null,
+            'mode' => array_key_exists('mode', $value) ? $value['mode'] : null,
+            'patterns' => array_key_exists('patterns', $value) ? array_map(function ($item) { return $item; }, $value['patterns'] === null ? array() : $value['patterns']) : null,
+            'message' => array_key_exists('message', $value) ? $value['message'] : null,
+            'targets' => array_key_exists('targets', $value) ? array_map(function ($item) { return self::fromCborAppAccessTarget($item); }, $value['targets'] === null ? array() : $value['targets']) : null,
+        ));
+    }
+
+    public static function encodeSetAppAccessPolicyResponse($value)
+    {
+        return CBOR::encode(self::toCborSetAppAccessPolicyResponse($value));
+    }
+
+    public static function decodeSetAppAccessPolicyResponse($bytes)
+    {
+        return self::fromCborSetAppAccessPolicyResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborSetAppAccessPolicyResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof SetAppAccessPolicyResponse ? $value->policy : (is_array($value) && array_key_exists('policy', $value) ? $value['policy'] : null);
+        $out['policy'] = self::toCborAppAccessPolicy($field);
+        return $out;
+    }
+
+    public static function fromCborSetAppAccessPolicyResponse($value)
+    {
+        return new SetAppAccessPolicyResponse(array(
+            'policy' => array_key_exists('policy', $value) ? self::fromCborAppAccessPolicy($value['policy']) : null,
+        ));
+    }
+
+    public static function encodeRemoveAppAccessPolicyRequest($value)
+    {
+        return CBOR::encode(self::toCborRemoveAppAccessPolicyRequest($value));
+    }
+
+    public static function decodeRemoveAppAccessPolicyRequest($bytes)
+    {
+        return self::fromCborRemoveAppAccessPolicyRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborRemoveAppAccessPolicyRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RemoveAppAccessPolicyRequest ? $value->id : (is_array($value) && array_key_exists('id', $value) ? $value['id'] : null);
+        $out['id'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRemoveAppAccessPolicyRequest($value)
+    {
+        return new RemoveAppAccessPolicyRequest(array(
+            'id' => array_key_exists('id', $value) ? $value['id'] : null,
+        ));
+    }
+
+    public static function encodeRemoveAppAccessPolicyResponse($value)
+    {
+        return CBOR::encode(self::toCborRemoveAppAccessPolicyResponse($value));
+    }
+
+    public static function decodeRemoveAppAccessPolicyResponse($bytes)
+    {
+        return self::fromCborRemoveAppAccessPolicyResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborRemoveAppAccessPolicyResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof RemoveAppAccessPolicyResponse ? $value->success : (is_array($value) && array_key_exists('success', $value) ? $value['success'] : null);
+        $out['success'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRemoveAppAccessPolicyResponse($value)
+    {
+        return new RemoveAppAccessPolicyResponse(array(
+            'success' => array_key_exists('success', $value) ? $value['success'] : null,
+        ));
+    }
+
+    public static function encodePreviewAppAccessRequest($value)
+    {
+        return CBOR::encode(self::toCborPreviewAppAccessRequest($value));
+    }
+
+    public static function decodePreviewAppAccessRequest($bytes)
+    {
+        return self::fromCborPreviewAppAccessRequest(CBOR::decode($bytes));
+    }
+
+    public static function toCborPreviewAppAccessRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof PreviewAppAccessRequest ? $value->userId : (is_array($value) && array_key_exists('user_id', $value) ? $value['user_id'] : null);
+        $out['user_id'] = $field;
+        $field = $value instanceof PreviewAppAccessRequest ? $value->domain : (is_array($value) && array_key_exists('domain', $value) ? $value['domain'] : null);
+        if ($field !== null) {
+            $out['domain'] = $field;
+        }
+        return $out;
+    }
+
+    public static function fromCborPreviewAppAccessRequest($value)
+    {
+        return new PreviewAppAccessRequest(array(
+            'user_id' => array_key_exists('user_id', $value) ? $value['user_id'] : null,
+            'domain' => array_key_exists('domain', $value) ? $value['domain'] : null,
+        ));
+    }
+
+    public static function encodePreviewAppAccessResponse($value)
+    {
+        return CBOR::encode(self::toCborPreviewAppAccessResponse($value));
+    }
+
+    public static function decodePreviewAppAccessResponse($bytes)
+    {
+        return self::fromCborPreviewAppAccessResponse(CBOR::decode($bytes));
+    }
+
+    public static function toCborPreviewAppAccessResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof PreviewAppAccessResponse ? $value->allowed : (is_array($value) && array_key_exists('allowed', $value) ? $value['allowed'] : null);
+        $out['allowed'] = $field;
+        $field = $value instanceof PreviewAppAccessResponse ? $value->appliedPolicies : (is_array($value) && array_key_exists('applied_policies', $value) ? $value['applied_policies'] : null);
+        $out['applied_policies'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        $field = $value instanceof PreviewAppAccessResponse ? $value->blockingPolicies : (is_array($value) && array_key_exists('blocking_policies', $value) ? $value['blocking_policies'] : null);
+        $out['blocking_policies'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        $field = $value instanceof PreviewAppAccessResponse ? $value->messages : (is_array($value) && array_key_exists('messages', $value) ? $value['messages'] : null);
+        $out['messages'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborPreviewAppAccessResponse($value)
+    {
+        return new PreviewAppAccessResponse(array(
+            'allowed' => array_key_exists('allowed', $value) ? $value['allowed'] : null,
+            'applied_policies' => array_key_exists('applied_policies', $value) ? array_map(function ($item) { return $item; }, $value['applied_policies'] === null ? array() : $value['applied_policies']) : null,
+            'blocking_policies' => array_key_exists('blocking_policies', $value) ? array_map(function ($item) { return $item; }, $value['blocking_policies'] === null ? array() : $value['blocking_policies']) : null,
+            'messages' => array_key_exists('messages', $value) ? array_map(function ($item) { return $item; }, $value['messages'] === null ? array() : $value['messages']) : null,
+        ));
+    }
+
+    public static function encodeAppAccessDenial($value)
+    {
+        return CBOR::encode(self::toCborAppAccessDenial($value));
+    }
+
+    public static function decodeAppAccessDenial($bytes)
+    {
+        return self::fromCborAppAccessDenial(CBOR::decode($bytes));
+    }
+
+    public static function toCborAppAccessDenial($value)
+    {
+        $out = array();
+        $field = $value instanceof AppAccessDenial ? $value->domain : (is_array($value) && array_key_exists('domain', $value) ? $value['domain'] : null);
+        if ($field !== null) {
+            $out['domain'] = $field;
+        }
+        $field = $value instanceof AppAccessDenial ? $value->messages : (is_array($value) && array_key_exists('messages', $value) ? $value['messages'] : null);
+        $out['messages'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        return $out;
+    }
+
+    public static function fromCborAppAccessDenial($value)
+    {
+        return new AppAccessDenial(array(
+            'domain' => array_key_exists('domain', $value) ? $value['domain'] : null,
+            'messages' => array_key_exists('messages', $value) ? array_map(function ($item) { return $item; }, $value['messages'] === null ? array() : $value['messages']) : null,
         ));
     }
 
@@ -9063,6 +9466,10 @@ class Codec
         $out['default_renewal_window_seconds'] = $field;
         $field = $value instanceof BrowserActAsInspectResponse ? $value->maxRenewalWindowSeconds : (is_array($value) && array_key_exists('max_renewal_window_seconds', $value) ? $value['max_renewal_window_seconds'] : null);
         $out['max_renewal_window_seconds'] = $field;
+        $field = $value instanceof BrowserActAsInspectResponse ? $value->accessDenied : (is_array($value) && array_key_exists('access_denied', $value) ? $value['access_denied'] : null);
+        if ($field !== null) {
+            $out['access_denied'] = self::toCborAppAccessDenial($field);
+        }
         return $out;
     }
 
@@ -9079,6 +9486,7 @@ class Codec
             'max_lifetime_seconds' => array_key_exists('max_lifetime_seconds', $value) ? $value['max_lifetime_seconds'] : null,
             'default_renewal_window_seconds' => array_key_exists('default_renewal_window_seconds', $value) ? $value['default_renewal_window_seconds'] : null,
             'max_renewal_window_seconds' => array_key_exists('max_renewal_window_seconds', $value) ? $value['max_renewal_window_seconds'] : null,
+            'access_denied' => array_key_exists('access_denied', $value) ? self::fromCborAppAccessDenial($value['access_denied']) : null,
         ));
     }
 

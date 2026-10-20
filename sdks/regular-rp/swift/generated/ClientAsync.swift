@@ -602,6 +602,31 @@ public struct AdminAsyncClient {
         return try SignInPolicy.fromCbor(csilResp)
     }
 
+    public func setUserPasswordLock(_ request: SetUserPasswordLockRequest) async throws -> SetUserPasswordLockResponse {
+        let csilResp = try await transport.call(service: "Admin", op: "set-user-password-lock", request: request.toCbor())
+        return try SetUserPasswordLockResponse.fromCbor(csilResp)
+    }
+
+    public func listAppAccessPolicies(_ request: EmptyRequest) async throws -> ListAppAccessPoliciesResponse {
+        let csilResp = try await transport.call(service: "Admin", op: "list-app-access-policies", request: request.toCbor())
+        return try ListAppAccessPoliciesResponse.fromCbor(csilResp)
+    }
+
+    public func setAppAccessPolicy(_ request: SetAppAccessPolicyRequest) async throws -> SetAppAccessPolicyResponse {
+        let csilResp = try await transport.call(service: "Admin", op: "set-app-access-policy", request: request.toCbor())
+        return try SetAppAccessPolicyResponse.fromCbor(csilResp)
+    }
+
+    public func removeAppAccessPolicy(_ request: RemoveAppAccessPolicyRequest) async throws -> RemoveAppAccessPolicyResponse {
+        let csilResp = try await transport.call(service: "Admin", op: "remove-app-access-policy", request: request.toCbor())
+        return try RemoveAppAccessPolicyResponse.fromCbor(csilResp)
+    }
+
+    public func previewAppAccess(_ request: PreviewAppAccessRequest) async throws -> PreviewAppAccessResponse {
+        let csilResp = try await transport.call(service: "Admin", op: "preview-app-access", request: request.toCbor())
+        return try PreviewAppAccessResponse.fromCbor(csilResp)
+    }
+
 }
 
 /// AccountAsyncClient is a typed client for the Account service. The client owns

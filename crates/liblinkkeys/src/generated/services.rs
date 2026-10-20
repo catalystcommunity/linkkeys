@@ -616,6 +616,36 @@ pub trait Admin {
         ctx: &Self::Context,
         input: SetSignInPolicyRequest,
     ) -> Result<SignInPolicy, ServiceError>;
+    /// set-user-password-lock (request/response).
+    fn set_user_password_lock(
+        &self,
+        ctx: &Self::Context,
+        input: SetUserPasswordLockRequest,
+    ) -> Result<SetUserPasswordLockResponse, ServiceError>;
+    /// list-app-access-policies (request/response).
+    fn list_app_access_policies(
+        &self,
+        ctx: &Self::Context,
+        input: EmptyRequest,
+    ) -> Result<ListAppAccessPoliciesResponse, ServiceError>;
+    /// set-app-access-policy (request/response).
+    fn set_app_access_policy(
+        &self,
+        ctx: &Self::Context,
+        input: SetAppAccessPolicyRequest,
+    ) -> Result<SetAppAccessPolicyResponse, ServiceError>;
+    /// remove-app-access-policy (request/response).
+    fn remove_app_access_policy(
+        &self,
+        ctx: &Self::Context,
+        input: RemoveAppAccessPolicyRequest,
+    ) -> Result<RemoveAppAccessPolicyResponse, ServiceError>;
+    /// preview-app-access (request/response).
+    fn preview_app_access(
+        &self,
+        ctx: &Self::Context,
+        input: PreviewAppAccessRequest,
+    ) -> Result<PreviewAppAccessResponse, ServiceError>;
 }
 
 /// Account service trait

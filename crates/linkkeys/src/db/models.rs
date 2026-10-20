@@ -44,6 +44,8 @@ pub struct User {
     /// or receive new credentials.
     pub purged_at: Option<String>,
     pub purge_reason: Option<String>,
+    /// The account cannot change its own password or use password recovery.
+    pub password_locked: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -610,6 +612,31 @@ pub struct RpApplicationKeyRevocationCache {
     pub revoked_at: String,
 }
 
+/// An app access policy with its patterns and targets
+/// (`app_access_policies` and its two child tables).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppAccessPolicy {
+    pub id: String,
+    pub name: String,
+    /// `allow` or `deny`.
+    pub mode: String,
+    pub message: Option<String>,
+    pub patterns: Vec<String>,
+    pub targets: Vec<AppAccessTarget>,
+}
+
+/// Who an app access policy applies to. `kind` is `everyone`, `user`, `group`,
+/// or `claim`; only the fields for that kind are set.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppAccessTarget {
+    pub kind: String,
+    pub user_id: Option<String>,
+    pub group_name: Option<String>,
+    pub claim_type: Option<String>,
+    pub claim_operator: Option<String>,
+    pub claim_value: Option<String>,
+}
+
 #[cfg(feature = "postgres")]
 pub mod pg {
     use diesel::prelude::*;
@@ -709,6 +736,7 @@ pub mod pg {
         pub is_admin_account: bool,
         pub purged_at: Option<chrono::DateTime<chrono::Utc>>,
         pub purge_reason: Option<String>,
+        pub password_locked: bool,
     }
 
     impl From<UserRow> for super::User {
@@ -723,6 +751,7 @@ pub mod pg {
                 is_admin_account: row.is_admin_account,
                 purged_at: row.purged_at.map(|t| t.to_rfc3339()),
                 purge_reason: row.purge_reason,
+                password_locked: row.password_locked,
             }
         }
     }
@@ -1728,6 +1757,38 @@ pub mod pg {
 
     // -- Local RP (DNS-less local RP identity) --
 
+    // -- App access policies --
+
+    #[derive(Queryable, Selectable, Insertable, AsChangeset)]
+    #[diesel(table_name = crate::schema::pg::app_access_policies)]
+    pub struct AppAccessPolicyRow {
+        pub id: uuid::Uuid,
+        pub name: String,
+        pub mode: String,
+        #[diesel(treat_none_as_null = true)]
+        pub message: Option<String>,
+    }
+
+    #[derive(Queryable, Selectable, Insertable)]
+    #[diesel(table_name = crate::schema::pg::app_access_policy_patterns)]
+    pub struct AppAccessPatternRow {
+        pub policy_id: uuid::Uuid,
+        pub pattern: String,
+    }
+
+    #[derive(Queryable, Selectable, Insertable)]
+    #[diesel(table_name = crate::schema::pg::app_access_policy_targets)]
+    pub struct AppAccessTargetRow {
+        pub id: uuid::Uuid,
+        pub policy_id: uuid::Uuid,
+        pub kind: String,
+        pub user_id: Option<uuid::Uuid>,
+        pub group_name: Option<String>,
+        pub claim_type: Option<String>,
+        pub claim_operator: Option<String>,
+        pub claim_value: Option<String>,
+    }
+
     #[derive(Queryable, Selectable, Insertable, AsChangeset)]
     #[diesel(table_name = crate::schema::pg::sign_in_policy)]
     #[diesel(primary_key(domain))]
@@ -2048,6 +2109,7 @@ pub mod sqlite {
         pub is_admin_account: i32,
         pub purged_at: Option<String>,
         pub purge_reason: Option<String>,
+        pub password_locked: i32,
     }
 
     impl From<UserRow> for super::User {
@@ -2062,6 +2124,7 @@ pub mod sqlite {
                 is_admin_account: row.is_admin_account != 0,
                 purged_at: row.purged_at,
                 purge_reason: row.purge_reason,
+                password_locked: row.password_locked != 0,
             }
         }
     }
@@ -3063,6 +3126,38 @@ pub mod sqlite {
     }
 
     // -- Local RP (DNS-less local RP identity) --
+
+    // -- App access policies --
+
+    #[derive(Queryable, Selectable, Insertable, AsChangeset)]
+    #[diesel(table_name = crate::schema::sqlite::app_access_policies)]
+    pub struct AppAccessPolicyRow {
+        pub id: String,
+        pub name: String,
+        pub mode: String,
+        #[diesel(treat_none_as_null = true)]
+        pub message: Option<String>,
+    }
+
+    #[derive(Queryable, Selectable, Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::app_access_policy_patterns)]
+    pub struct AppAccessPatternRow {
+        pub policy_id: String,
+        pub pattern: String,
+    }
+
+    #[derive(Queryable, Selectable, Insertable)]
+    #[diesel(table_name = crate::schema::sqlite::app_access_policy_targets)]
+    pub struct AppAccessTargetRow {
+        pub id: String,
+        pub policy_id: String,
+        pub kind: String,
+        pub user_id: Option<String>,
+        pub group_name: Option<String>,
+        pub claim_type: Option<String>,
+        pub claim_operator: Option<String>,
+        pub claim_value: Option<String>,
+    }
 
     #[derive(Queryable, Selectable, Insertable, AsChangeset)]
     #[diesel(table_name = crate::schema::sqlite::sign_in_policy)]

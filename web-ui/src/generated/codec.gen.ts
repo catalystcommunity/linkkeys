@@ -2,7 +2,7 @@
 // Source: <csil spec>
 // Target: typescript-codec
 
-import type { ActAsCredential, ActAsGrant, ActAsGrantRequest, ActAsGrantRevocation, ActAsGrantSummary, ActAsPresentation, ActAsRefreshRequest, ActAsScopeEntry, ActAsScopeSet, ActAsScopeSetRequest, ActivateUserRequest, ActivateUserResponse, AddApplicationKeyRequest, AddApplicationKeyResponse, AddTrustedIssuerRequest, AddTrustedIssuerResponse, AdminIssueAttestationRequest, AdminIssueAttestationResponse, AdminLocalRp, AdminUser, AdminUserClaimsRequest, AdminUserClaimsResponse, AeadSuite, AlgorithmSupport, ApiError, ApiErrorCode, ApplicationKeyAddition, ApplicationKeyAttestation, ApplicationKeyRenewal, ApplicationKeyRevocation, ApplicationKeySignature, ApplicationRef, ApproveClaimRequest, ApproveClaimResponse, ApproveLocalRpRequest, ApproveLocalRpResponse, AuthFlowContext, AuthRequest, AuthenticateRequest, AuthenticateResponse, AuthenticationRequirements, AuthorizeFinalizeRequest, AuthorizeFinalizeResponse, AuthorizeValidateRequest, AuthorizeValidateResponse, BrowserActAsCompleteRequest, BrowserActAsCompleteResponse, BrowserActAsInspectRequest, BrowserActAsInspectResponse, BrowserActAsParty, BrowserActAsScopeEntry, BrowserAuthorizationCompleteRequest, BrowserAuthorizationCompleteResponse, BrowserAuthorizationInspectRequest, BrowserAuthorizationInspectResponse, BrowserConsentClaim, BrowserLocalRpCompleteRequest, BrowserLocalRpCompleteResponse, BrowserLocalRpInspectRequest, BrowserLocalRpInspectResponse, BrowserSessionInfo, ChangePasswordRequest, ChangePasswordResponse, CheckEntries, CheckPermissionRequest, CheckPermissionResponse, CheckResult, CheckValue, Claim, ClaimApproval, ClaimRequest, ClaimSignature, ClaimTypeLabel, ClaimTypePolicy, CompletePasswordRecoveryRequest, CompletePasswordRecoveryResponse, ConfirmContactVerificationRequest, ConfirmContactVerificationResponse, ConsentGrant, CreateGuestbookRequest, CreateProfileRequest, CreateProfileResponse, CreateUserRequest, CreateUserResponse, DeactivateUserRequest, DeactivateUserResponse, DeleteGuestbookRequest, DeleteGuestbookResponse, DenyLocalRpRequest, DenyLocalRpResponse, DepositClaimRequest, DepositClaimResponse, DomainClaim, DomainPublicKey, EmptyRequest, EncryptedToken, EnrollApplicationInstanceRequest, EnrollApplicationInstanceResponse, GetActAsGrantRevocationsRequest, GetActAsGrantRevocationsResponse, GetApplicationKeysRequest, GetApplicationKeysResponse, GetDomainKeysResponse, GetLocalRpPolicyRequest, GetLocalRpPolicyResponse, GetLocalRpRequest, GetLocalRpResponse, GetMyInfoResponse, GetNotificationCapabilitiesResponse, GetRevocationsRequest, GetRevocationsResponse, GetUiConfigurationResponse, GetUserAuthenticationActivityRequest, GetUserAuthenticationActivityResponse, GetUserClaimsRequest, GetUserClaimsResponse, GetUserInfoRequest, GetUserKeysRequest, GetUserKeysResponse, GetUserRequest, GetUserResponse, GrantRelationRequest, GrantRelationResponse, GranteeProof, GranteeRef, GuestbookEntry, GuestbookListRequest, GuestbookListResponse, HandshakeRequest, HandshakeResponse, HelloRequest, HelloResponse, IdentityAssertion, InspectSigningRequestRequest, InspectSigningRequestResponse, IntrospectBrowserSessionRequest, IntrospectBrowserSessionResponse, IssueForSigningRequestRequest, IssueForSigningRequestResponse, IssuedClaimResult, ListActAsGrantsResponse, ListClaimTypeLabelsResponse, ListClaimTypesResponse, ListLocalRpsRequest, ListLocalRpsResponse, ListLocalesResponse, ListPendingClaimApprovalsResponse, ListRelationsRequest, ListRelationsResponse, ListReleaseRulesResponse, ListSettablePoliciesResponse, ListTrustedIssuersResponse, ListUserClaimsRequest, ListUserClaimsResponse, ListUsersRequest, ListUsersResponse, ListVerifiedContactMethodsResponse, LocalRpCallbackHeader, LocalRpCallbackPayload, LocalRpDescriptor, LocalRpEncryptedCallback, LocalRpLoginRequest, LocalRpPolicy, LocalRpTicketRedemptionRequest, LocalRpTicketRedemptionResponse, LocaleMessages, MyClaimSetting, MyClaimSettingsResponse, NotificationCapability, PasswordPolicy, PinRecheckResult, PreviewIssuerPolicyRequest, PreviewIssuerPolicyResponse, PreviewReleasePolicyRequest, PreviewReleasePolicyResponse, PreviewReleaseRow, Profile, PurgeLocalRpTicketsRequest, PurgeLocalRpTicketsResponse, PurgeUserRequest, PurgeUserResponse, RecheckPinsRequest, RecheckPinsResponse, RefreshActAsGrantRequest, RefreshActAsGrantResponse, RejectClaimRequest, RejectClaimResponse, Relation, ReleaseRule, RemoveClaimRequest, RemoveClaimResponse, RemoveClaimTypeLabelRequest, RemoveClaimTypeLabelResponse, RemoveClaimTypeRequest, RemoveClaimTypeResponse, RemoveCredentialRequest, RemoveCredentialResponse, RemoveMyClaimRequest, RemoveMyClaimResponse, RemoveRelationRequest, RemoveRelationResponse, RemoveReleaseRuleRequest, RemoveReleaseRuleResponse, RemoveTrustedIssuerRequest, RemoveTrustedIssuerResponse, RenewApplicationKeyAttestationRequest, RenewApplicationKeyAttestationResponse, RequestContactVerificationRequest, RequestContactVerificationResponse, RequestPasswordRecoveryRequest, RequestPasswordRecoveryResponse, RequestVerificationRequest, RequestVerificationResponse, RequestedClaim, ResetPasswordRequest, ResetPasswordResponse, RevocationCertificate, RevokeActAsGrantRequest, RevokeActAsGrantResponse, RevokeApplicationKeyRequest, RevokeApplicationKeyResponse, RevokeDomainKeyRequest, RevokeDomainKeyResponse, RevokeLocalRpRequest, RevokeLocalRpResponse, RevokeVerifiedContactMethodRequest, RevokeVerifiedContactMethodResponse, RpActAsRefreshRequest, RpDecryptRequest, RpDecryptResponse, RpIssueAttestationRequest, RpIssueAttestationResponse, RpResolveActAsRevocationsRequest, RpResolveApplicationKeysRequest, RpResolveApplicationKeysResponse, RpResolveDomainKeysRequest, RpResolveDomainKeysResponse, RpSignRequest, RpSignResponse, RpUserInfoRequest, RpVerifyRequest, RpVerifyResponse, SessionCurrentResponse, SessionLogoutResponse, SessionPasswordLoginRequest, SessionPasswordLoginResponse, SetClaimRequest, SetClaimResponse, SetClaimTypeLabelRequest, SetClaimTypeLabelResponse, SetClaimTypeRequest, SetClaimTypeResponse, SetLocalRpPolicyRequest, SetLocalRpPolicyResponse, SetMyClaimKeepVerifiedRequest, SetMyClaimKeepVerifiedResponse, SetMyClaimRequest, SetMyClaimResponse, SetMyClaimSharingRequest, SetMyClaimSharingResponse, SetReleaseRuleRequest, SetReleaseRuleResponse, SetSignInPolicyRequest, SetUserClaimRequest, SetUserClaimResponse, SettableClaimPolicy, SignInPolicy, SignedActAsGrant, SignedActAsGrantRequest, SignedActAsGrantRevocation, SignedActAsPresentation, SignedActAsRefreshRequest, SignedActAsScopeSet, SignedApplicationKeyAddition, SignedApplicationKeyAttestation, SignedApplicationKeyRenewal, SignedAuthRequest, SignedConsentGrant, SignedIdentityAssertion, SignedLocalRpCallbackPayload, SignedLocalRpDescriptor, SignedLocalRpLoginRequest, SignedLocalRpTicketRedemptionRequest, SignedSigningRequest, SignedUserInfoRequest, SigningRequest, StartApplicationKeyChallengeRequest, StartApplicationKeyChallengeResponse, TranslationsRequest, TranslationsResponse, TrustedIssuer, UiDisplaySettings, UiExtension, UiTheme, UpdateGuestbookRequest, UpdateUserRequest, UpdateUserResponse, UserAuthenticationActivity, UserInfo, UserInfoRequest, UserPublicKey, ValidatePasswordRecoveryRequest, ValidatePasswordRecoveryResponse, VerifiedContactMethod } from "./types.gen.ts";
+import type { ActAsCredential, ActAsGrant, ActAsGrantRequest, ActAsGrantRevocation, ActAsGrantSummary, ActAsPresentation, ActAsRefreshRequest, ActAsScopeEntry, ActAsScopeSet, ActAsScopeSetRequest, ActivateUserRequest, ActivateUserResponse, AddApplicationKeyRequest, AddApplicationKeyResponse, AddTrustedIssuerRequest, AddTrustedIssuerResponse, AdminIssueAttestationRequest, AdminIssueAttestationResponse, AdminLocalRp, AdminUser, AdminUserClaimsRequest, AdminUserClaimsResponse, AeadSuite, AlgorithmSupport, ApiError, ApiErrorCode, AppAccessDenial, AppAccessPolicy, AppAccessTarget, ApplicationKeyAddition, ApplicationKeyAttestation, ApplicationKeyRenewal, ApplicationKeyRevocation, ApplicationKeySignature, ApplicationRef, ApproveClaimRequest, ApproveClaimResponse, ApproveLocalRpRequest, ApproveLocalRpResponse, AuthFlowContext, AuthRequest, AuthenticateRequest, AuthenticateResponse, AuthenticationRequirements, AuthorizeFinalizeRequest, AuthorizeFinalizeResponse, AuthorizeValidateRequest, AuthorizeValidateResponse, BrowserActAsCompleteRequest, BrowserActAsCompleteResponse, BrowserActAsInspectRequest, BrowserActAsInspectResponse, BrowserActAsParty, BrowserActAsScopeEntry, BrowserAuthorizationCompleteRequest, BrowserAuthorizationCompleteResponse, BrowserAuthorizationInspectRequest, BrowserAuthorizationInspectResponse, BrowserConsentClaim, BrowserLocalRpCompleteRequest, BrowserLocalRpCompleteResponse, BrowserLocalRpInspectRequest, BrowserLocalRpInspectResponse, BrowserSessionInfo, ChangePasswordRequest, ChangePasswordResponse, CheckEntries, CheckPermissionRequest, CheckPermissionResponse, CheckResult, CheckValue, Claim, ClaimApproval, ClaimRequest, ClaimSignature, ClaimTypeLabel, ClaimTypePolicy, CompletePasswordRecoveryRequest, CompletePasswordRecoveryResponse, ConfirmContactVerificationRequest, ConfirmContactVerificationResponse, ConsentGrant, CreateGuestbookRequest, CreateProfileRequest, CreateProfileResponse, CreateUserRequest, CreateUserResponse, DeactivateUserRequest, DeactivateUserResponse, DeleteGuestbookRequest, DeleteGuestbookResponse, DenyLocalRpRequest, DenyLocalRpResponse, DepositClaimRequest, DepositClaimResponse, DomainClaim, DomainPublicKey, EmptyRequest, EncryptedToken, EnrollApplicationInstanceRequest, EnrollApplicationInstanceResponse, GetActAsGrantRevocationsRequest, GetActAsGrantRevocationsResponse, GetApplicationKeysRequest, GetApplicationKeysResponse, GetDomainKeysResponse, GetLocalRpPolicyRequest, GetLocalRpPolicyResponse, GetLocalRpRequest, GetLocalRpResponse, GetMyInfoResponse, GetNotificationCapabilitiesResponse, GetRevocationsRequest, GetRevocationsResponse, GetUiConfigurationResponse, GetUserAuthenticationActivityRequest, GetUserAuthenticationActivityResponse, GetUserClaimsRequest, GetUserClaimsResponse, GetUserInfoRequest, GetUserKeysRequest, GetUserKeysResponse, GetUserRequest, GetUserResponse, GrantRelationRequest, GrantRelationResponse, GranteeProof, GranteeRef, GuestbookEntry, GuestbookListRequest, GuestbookListResponse, HandshakeRequest, HandshakeResponse, HelloRequest, HelloResponse, IdentityAssertion, InspectSigningRequestRequest, InspectSigningRequestResponse, IntrospectBrowserSessionRequest, IntrospectBrowserSessionResponse, IssueForSigningRequestRequest, IssueForSigningRequestResponse, IssuedClaimResult, ListActAsGrantsResponse, ListAppAccessPoliciesResponse, ListClaimTypeLabelsResponse, ListClaimTypesResponse, ListLocalRpsRequest, ListLocalRpsResponse, ListLocalesResponse, ListPendingClaimApprovalsResponse, ListRelationsRequest, ListRelationsResponse, ListReleaseRulesResponse, ListSettablePoliciesResponse, ListTrustedIssuersResponse, ListUserClaimsRequest, ListUserClaimsResponse, ListUsersRequest, ListUsersResponse, ListVerifiedContactMethodsResponse, LocalRpCallbackHeader, LocalRpCallbackPayload, LocalRpDescriptor, LocalRpEncryptedCallback, LocalRpLoginRequest, LocalRpPolicy, LocalRpTicketRedemptionRequest, LocalRpTicketRedemptionResponse, LocaleMessages, MyClaimSetting, MyClaimSettingsResponse, NotificationCapability, PasswordPolicy, PinRecheckResult, PreviewAppAccessRequest, PreviewAppAccessResponse, PreviewIssuerPolicyRequest, PreviewIssuerPolicyResponse, PreviewReleasePolicyRequest, PreviewReleasePolicyResponse, PreviewReleaseRow, Profile, PurgeLocalRpTicketsRequest, PurgeLocalRpTicketsResponse, PurgeUserRequest, PurgeUserResponse, RecheckPinsRequest, RecheckPinsResponse, RefreshActAsGrantRequest, RefreshActAsGrantResponse, RejectClaimRequest, RejectClaimResponse, Relation, ReleaseRule, RemoveAppAccessPolicyRequest, RemoveAppAccessPolicyResponse, RemoveClaimRequest, RemoveClaimResponse, RemoveClaimTypeLabelRequest, RemoveClaimTypeLabelResponse, RemoveClaimTypeRequest, RemoveClaimTypeResponse, RemoveCredentialRequest, RemoveCredentialResponse, RemoveMyClaimRequest, RemoveMyClaimResponse, RemoveRelationRequest, RemoveRelationResponse, RemoveReleaseRuleRequest, RemoveReleaseRuleResponse, RemoveTrustedIssuerRequest, RemoveTrustedIssuerResponse, RenewApplicationKeyAttestationRequest, RenewApplicationKeyAttestationResponse, RequestContactVerificationRequest, RequestContactVerificationResponse, RequestPasswordRecoveryRequest, RequestPasswordRecoveryResponse, RequestVerificationRequest, RequestVerificationResponse, RequestedClaim, ResetPasswordRequest, ResetPasswordResponse, RevocationCertificate, RevokeActAsGrantRequest, RevokeActAsGrantResponse, RevokeApplicationKeyRequest, RevokeApplicationKeyResponse, RevokeDomainKeyRequest, RevokeDomainKeyResponse, RevokeLocalRpRequest, RevokeLocalRpResponse, RevokeVerifiedContactMethodRequest, RevokeVerifiedContactMethodResponse, RpActAsRefreshRequest, RpDecryptRequest, RpDecryptResponse, RpIssueAttestationRequest, RpIssueAttestationResponse, RpResolveActAsRevocationsRequest, RpResolveApplicationKeysRequest, RpResolveApplicationKeysResponse, RpResolveDomainKeysRequest, RpResolveDomainKeysResponse, RpSignRequest, RpSignResponse, RpUserInfoRequest, RpVerifyRequest, RpVerifyResponse, SessionCurrentResponse, SessionLogoutResponse, SessionPasswordLoginRequest, SessionPasswordLoginResponse, SetAppAccessPolicyRequest, SetAppAccessPolicyResponse, SetClaimRequest, SetClaimResponse, SetClaimTypeLabelRequest, SetClaimTypeLabelResponse, SetClaimTypeRequest, SetClaimTypeResponse, SetLocalRpPolicyRequest, SetLocalRpPolicyResponse, SetMyClaimKeepVerifiedRequest, SetMyClaimKeepVerifiedResponse, SetMyClaimRequest, SetMyClaimResponse, SetMyClaimSharingRequest, SetMyClaimSharingResponse, SetReleaseRuleRequest, SetReleaseRuleResponse, SetSignInPolicyRequest, SetUserClaimRequest, SetUserClaimResponse, SetUserPasswordLockRequest, SetUserPasswordLockResponse, SettableClaimPolicy, SignInPolicy, SignedActAsGrant, SignedActAsGrantRequest, SignedActAsGrantRevocation, SignedActAsPresentation, SignedActAsRefreshRequest, SignedActAsScopeSet, SignedApplicationKeyAddition, SignedApplicationKeyAttestation, SignedApplicationKeyRenewal, SignedAuthRequest, SignedConsentGrant, SignedIdentityAssertion, SignedLocalRpCallbackPayload, SignedLocalRpDescriptor, SignedLocalRpLoginRequest, SignedLocalRpTicketRedemptionRequest, SignedSigningRequest, SignedUserInfoRequest, SigningRequest, StartApplicationKeyChallengeRequest, StartApplicationKeyChallengeResponse, TranslationsRequest, TranslationsResponse, TrustedIssuer, UiDisplaySettings, UiExtension, UiTheme, UpdateGuestbookRequest, UpdateUserRequest, UpdateUserResponse, UserAuthenticationActivity, UserInfo, UserInfoRequest, UserPublicKey, ValidatePasswordRecoveryRequest, ValidatePasswordRecoveryResponse, VerifiedContactMethod } from "./types.gen.ts";
 
 /** A CBOR semantic tag wrapping an inner value (e.g. tag 0 timestamp, tag 4 decimal). */
 export type CborTag = { readonly tag: number; readonly value: CborValue };
@@ -1599,6 +1599,7 @@ export function toAdminUserCborValue(v: AdminUser): CborValue {
   csilMap.set("updated_at", v.updatedAt);
   csilMap.set("display_name", v.displayName);
   if (v.purgeReason !== undefined) csilMap.set("purge_reason", v.purgeReason);
+  if (v.passwordLocked !== undefined) csilMap.set("password_locked", v.passwordLocked);
   return csilMap;
 }
 
@@ -1612,6 +1613,7 @@ export function fromAdminUserCborValue(value: CborValue): AdminUser {
     updatedAt: asString(requireKey(value, "updated_at")),
     purgedAt: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "purged_at")),
     purgeReason: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "purge_reason")),
+    passwordLocked: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asBool(csilV))(mapGet(value, "password_locked")),
   };
 }
 
@@ -4322,6 +4324,7 @@ export function fromBrowserConsentClaimCbor(bytes: Uint8Array): BrowserConsentCl
 export function toBrowserAuthorizationInspectResponseCborValue(v: BrowserAuthorizationInspectResponse): CborValue {
   const csilMap = new Map<CborValue, CborValue>();
   csilMap.set("claims", v.claims.map((csilE): CborValue => toBrowserConsentClaimCborValue(csilE)));
+  if (v.accessDenied !== undefined) csilMap.set("access_denied", toAppAccessDenialCborValue(v.accessDenied));
   csilMap.set("relying_party", v.relyingParty);
   if (v.requestReason !== undefined) csilMap.set("request_reason", v.requestReason);
   if (v.alreadyConsented !== undefined) csilMap.set("already_consented", v.alreadyConsented);
@@ -4336,6 +4339,7 @@ export function fromBrowserAuthorizationInspectResponseCborValue(value: CborValu
     requestReason: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "request_reason")),
     alreadyConsented: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asBool(csilV))(mapGet(value, "already_consented")),
     authorizedClaims: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asArray(csilV).map((csilE) => asString(csilE)))(mapGet(value, "authorized_claims")),
+    accessDenied: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : fromAppAccessDenialCborValue(csilV))(mapGet(value, "access_denied")),
   };
 }
 
@@ -4421,6 +4425,7 @@ export function toBrowserLocalRpInspectResponseCborValue(v: BrowserLocalRpInspec
   csilMap.set("app_name", v.appName);
   csilMap.set("admission", v.admission);
   csilMap.set("fingerprint", v.fingerprint);
+  if (v.accessDenied !== undefined) csilMap.set("access_denied", toAppAccessDenialCborValue(v.accessDenied));
   csilMap.set("callback_host", v.callbackHost);
   if (v.firstSeenAt !== undefined) csilMap.set("first_seen_at", v.firstSeenAt);
   if (v.requestReason !== undefined) csilMap.set("request_reason", v.requestReason);
@@ -4440,6 +4445,7 @@ export function fromBrowserLocalRpInspectResponseCborValue(value: CborValue): Br
     requestReason: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "request_reason")),
     alreadyConsented: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asBool(csilV))(mapGet(value, "already_consented")),
     authorizedClaims: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asArray(csilV).map((csilE) => asString(csilE)))(mapGet(value, "authorized_claims")),
+    accessDenied: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : fromAppAccessDenialCborValue(csilV))(mapGet(value, "access_denied")),
   };
 }
 
@@ -4832,6 +4838,7 @@ export function fromAuthorizeValidateRequestCbor(bytes: Uint8Array): AuthorizeVa
 export function toAuthorizeValidateResponseCborValue(v: AuthorizeValidateResponse): CborValue {
   const csilMap = new Map<CborValue, CborValue>();
   csilMap.set("callback_url", v.callbackUrl);
+  if (v.accessDenied !== undefined) csilMap.set("access_denied", toAppAccessDenialCborValue(v.accessDenied));
   csilMap.set("relying_party", v.relyingParty);
   csilMap.set("requested_claims", v.requestedClaims);
   if (v.alreadyConsented !== undefined) csilMap.set("already_consented", v.alreadyConsented);
@@ -4848,6 +4855,7 @@ export function fromAuthorizeValidateResponseCborValue(value: CborValue): Author
     alreadyConsented: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asBool(csilV))(mapGet(value, "already_consented")),
     authorizedClaims: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asArray(csilV).map((csilE) => asString(csilE)))(mapGet(value, "authorized_claims")),
     newlyRequestedClaims: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asArray(csilV).map((csilE) => asString(csilE)))(mapGet(value, "newly_requested_claims")),
+    accessDenied: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : fromAppAccessDenialCborValue(csilV))(mapGet(value, "access_denied")),
   };
 }
 
@@ -5601,6 +5609,288 @@ export function toSetSignInPolicyRequestCbor(v: SetSignInPolicyRequest): Uint8Ar
 
 export function fromSetSignInPolicyRequestCbor(bytes: Uint8Array): SetSignInPolicyRequest {
   return fromSetSignInPolicyRequestCborValue(decode(bytes));
+}
+
+export function toSetUserPasswordLockRequestCborValue(v: SetUserPasswordLockRequest): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("locked", v.locked);
+  csilMap.set("user_id", v.userId);
+  return csilMap;
+}
+
+export function fromSetUserPasswordLockRequestCborValue(value: CborValue): SetUserPasswordLockRequest {
+  return {
+    userId: asString(requireKey(value, "user_id")),
+    locked: asBool(requireKey(value, "locked")),
+  };
+}
+
+export function toSetUserPasswordLockRequestCbor(v: SetUserPasswordLockRequest): Uint8Array {
+  return encodeValue(toSetUserPasswordLockRequestCborValue(v));
+}
+
+export function fromSetUserPasswordLockRequestCbor(bytes: Uint8Array): SetUserPasswordLockRequest {
+  return fromSetUserPasswordLockRequestCborValue(decode(bytes));
+}
+
+export function toSetUserPasswordLockResponseCborValue(v: SetUserPasswordLockResponse): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("user", toAdminUserCborValue(v.user));
+  return csilMap;
+}
+
+export function fromSetUserPasswordLockResponseCborValue(value: CborValue): SetUserPasswordLockResponse {
+  return {
+    user: fromAdminUserCborValue(requireKey(value, "user")),
+  };
+}
+
+export function toSetUserPasswordLockResponseCbor(v: SetUserPasswordLockResponse): Uint8Array {
+  return encodeValue(toSetUserPasswordLockResponseCborValue(v));
+}
+
+export function fromSetUserPasswordLockResponseCbor(bytes: Uint8Array): SetUserPasswordLockResponse {
+  return fromSetUserPasswordLockResponseCborValue(decode(bytes));
+}
+
+export function toAppAccessTargetCborValue(v: AppAccessTarget): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("kind", v.kind);
+  if (v.userId !== undefined) csilMap.set("user_id", v.userId);
+  if (v.claimType !== undefined) csilMap.set("claim_type", v.claimType);
+  if (v.groupName !== undefined) csilMap.set("group_name", v.groupName);
+  if (v.claimValue !== undefined) csilMap.set("claim_value", v.claimValue);
+  if (v.claimOperator !== undefined) csilMap.set("claim_operator", v.claimOperator);
+  return csilMap;
+}
+
+export function fromAppAccessTargetCborValue(value: CborValue): AppAccessTarget {
+  return {
+    kind: asString(requireKey(value, "kind")),
+    userId: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "user_id")),
+    groupName: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "group_name")),
+    claimType: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "claim_type")),
+    claimOperator: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "claim_operator")),
+    claimValue: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "claim_value")),
+  };
+}
+
+export function toAppAccessTargetCbor(v: AppAccessTarget): Uint8Array {
+  return encodeValue(toAppAccessTargetCborValue(v));
+}
+
+export function fromAppAccessTargetCbor(bytes: Uint8Array): AppAccessTarget {
+  return fromAppAccessTargetCborValue(decode(bytes));
+}
+
+export function toAppAccessPolicyCborValue(v: AppAccessPolicy): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("id", v.id);
+  csilMap.set("mode", v.mode);
+  csilMap.set("name", v.name);
+  if (v.message !== undefined) csilMap.set("message", v.message);
+  csilMap.set("targets", v.targets.map((csilE): CborValue => toAppAccessTargetCborValue(csilE)));
+  csilMap.set("patterns", v.patterns);
+  return csilMap;
+}
+
+export function fromAppAccessPolicyCborValue(value: CborValue): AppAccessPolicy {
+  return {
+    id: asString(requireKey(value, "id")),
+    name: asString(requireKey(value, "name")),
+    mode: asString(requireKey(value, "mode")),
+    patterns: asArray(requireKey(value, "patterns")).map((csilE) => asString(csilE)),
+    message: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "message")),
+    targets: asArray(requireKey(value, "targets")).map((csilE) => fromAppAccessTargetCborValue(csilE)),
+  };
+}
+
+export function toAppAccessPolicyCbor(v: AppAccessPolicy): Uint8Array {
+  return encodeValue(toAppAccessPolicyCborValue(v));
+}
+
+export function fromAppAccessPolicyCbor(bytes: Uint8Array): AppAccessPolicy {
+  return fromAppAccessPolicyCborValue(decode(bytes));
+}
+
+export function toListAppAccessPoliciesResponseCborValue(v: ListAppAccessPoliciesResponse): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("policies", v.policies.map((csilE): CborValue => toAppAccessPolicyCborValue(csilE)));
+  return csilMap;
+}
+
+export function fromListAppAccessPoliciesResponseCborValue(value: CborValue): ListAppAccessPoliciesResponse {
+  return {
+    policies: asArray(requireKey(value, "policies")).map((csilE) => fromAppAccessPolicyCborValue(csilE)),
+  };
+}
+
+export function toListAppAccessPoliciesResponseCbor(v: ListAppAccessPoliciesResponse): Uint8Array {
+  return encodeValue(toListAppAccessPoliciesResponseCborValue(v));
+}
+
+export function fromListAppAccessPoliciesResponseCbor(bytes: Uint8Array): ListAppAccessPoliciesResponse {
+  return fromListAppAccessPoliciesResponseCborValue(decode(bytes));
+}
+
+export function toSetAppAccessPolicyRequestCborValue(v: SetAppAccessPolicyRequest): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  if (v.id !== undefined) csilMap.set("id", v.id);
+  csilMap.set("mode", v.mode);
+  csilMap.set("name", v.name);
+  if (v.message !== undefined) csilMap.set("message", v.message);
+  csilMap.set("targets", v.targets.map((csilE): CborValue => toAppAccessTargetCborValue(csilE)));
+  csilMap.set("patterns", v.patterns);
+  return csilMap;
+}
+
+export function fromSetAppAccessPolicyRequestCborValue(value: CborValue): SetAppAccessPolicyRequest {
+  return {
+    id: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "id")),
+    name: asString(requireKey(value, "name")),
+    mode: asString(requireKey(value, "mode")),
+    patterns: asArray(requireKey(value, "patterns")).map((csilE) => asString(csilE)),
+    message: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "message")),
+    targets: asArray(requireKey(value, "targets")).map((csilE) => fromAppAccessTargetCborValue(csilE)),
+  };
+}
+
+export function toSetAppAccessPolicyRequestCbor(v: SetAppAccessPolicyRequest): Uint8Array {
+  return encodeValue(toSetAppAccessPolicyRequestCborValue(v));
+}
+
+export function fromSetAppAccessPolicyRequestCbor(bytes: Uint8Array): SetAppAccessPolicyRequest {
+  return fromSetAppAccessPolicyRequestCborValue(decode(bytes));
+}
+
+export function toSetAppAccessPolicyResponseCborValue(v: SetAppAccessPolicyResponse): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("policy", toAppAccessPolicyCborValue(v.policy));
+  return csilMap;
+}
+
+export function fromSetAppAccessPolicyResponseCborValue(value: CborValue): SetAppAccessPolicyResponse {
+  return {
+    policy: fromAppAccessPolicyCborValue(requireKey(value, "policy")),
+  };
+}
+
+export function toSetAppAccessPolicyResponseCbor(v: SetAppAccessPolicyResponse): Uint8Array {
+  return encodeValue(toSetAppAccessPolicyResponseCborValue(v));
+}
+
+export function fromSetAppAccessPolicyResponseCbor(bytes: Uint8Array): SetAppAccessPolicyResponse {
+  return fromSetAppAccessPolicyResponseCborValue(decode(bytes));
+}
+
+export function toRemoveAppAccessPolicyRequestCborValue(v: RemoveAppAccessPolicyRequest): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("id", v.id);
+  return csilMap;
+}
+
+export function fromRemoveAppAccessPolicyRequestCborValue(value: CborValue): RemoveAppAccessPolicyRequest {
+  return {
+    id: asString(requireKey(value, "id")),
+  };
+}
+
+export function toRemoveAppAccessPolicyRequestCbor(v: RemoveAppAccessPolicyRequest): Uint8Array {
+  return encodeValue(toRemoveAppAccessPolicyRequestCborValue(v));
+}
+
+export function fromRemoveAppAccessPolicyRequestCbor(bytes: Uint8Array): RemoveAppAccessPolicyRequest {
+  return fromRemoveAppAccessPolicyRequestCborValue(decode(bytes));
+}
+
+export function toRemoveAppAccessPolicyResponseCborValue(v: RemoveAppAccessPolicyResponse): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("success", v.success);
+  return csilMap;
+}
+
+export function fromRemoveAppAccessPolicyResponseCborValue(value: CborValue): RemoveAppAccessPolicyResponse {
+  return {
+    success: asBool(requireKey(value, "success")),
+  };
+}
+
+export function toRemoveAppAccessPolicyResponseCbor(v: RemoveAppAccessPolicyResponse): Uint8Array {
+  return encodeValue(toRemoveAppAccessPolicyResponseCborValue(v));
+}
+
+export function fromRemoveAppAccessPolicyResponseCbor(bytes: Uint8Array): RemoveAppAccessPolicyResponse {
+  return fromRemoveAppAccessPolicyResponseCborValue(decode(bytes));
+}
+
+export function toPreviewAppAccessRequestCborValue(v: PreviewAppAccessRequest): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  if (v.domain !== undefined) csilMap.set("domain", v.domain);
+  csilMap.set("user_id", v.userId);
+  return csilMap;
+}
+
+export function fromPreviewAppAccessRequestCborValue(value: CborValue): PreviewAppAccessRequest {
+  return {
+    userId: asString(requireKey(value, "user_id")),
+    domain: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "domain")),
+  };
+}
+
+export function toPreviewAppAccessRequestCbor(v: PreviewAppAccessRequest): Uint8Array {
+  return encodeValue(toPreviewAppAccessRequestCborValue(v));
+}
+
+export function fromPreviewAppAccessRequestCbor(bytes: Uint8Array): PreviewAppAccessRequest {
+  return fromPreviewAppAccessRequestCborValue(decode(bytes));
+}
+
+export function toPreviewAppAccessResponseCborValue(v: PreviewAppAccessResponse): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("allowed", v.allowed);
+  csilMap.set("messages", v.messages);
+  csilMap.set("applied_policies", v.appliedPolicies);
+  csilMap.set("blocking_policies", v.blockingPolicies);
+  return csilMap;
+}
+
+export function fromPreviewAppAccessResponseCborValue(value: CborValue): PreviewAppAccessResponse {
+  return {
+    allowed: asBool(requireKey(value, "allowed")),
+    appliedPolicies: asArray(requireKey(value, "applied_policies")).map((csilE) => asString(csilE)),
+    blockingPolicies: asArray(requireKey(value, "blocking_policies")).map((csilE) => asString(csilE)),
+    messages: asArray(requireKey(value, "messages")).map((csilE) => asString(csilE)),
+  };
+}
+
+export function toPreviewAppAccessResponseCbor(v: PreviewAppAccessResponse): Uint8Array {
+  return encodeValue(toPreviewAppAccessResponseCborValue(v));
+}
+
+export function fromPreviewAppAccessResponseCbor(bytes: Uint8Array): PreviewAppAccessResponse {
+  return fromPreviewAppAccessResponseCborValue(decode(bytes));
+}
+
+export function toAppAccessDenialCborValue(v: AppAccessDenial): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  if (v.domain !== undefined) csilMap.set("domain", v.domain);
+  csilMap.set("messages", v.messages);
+  return csilMap;
+}
+
+export function fromAppAccessDenialCborValue(value: CborValue): AppAccessDenial {
+  return {
+    domain: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "domain")),
+    messages: asArray(requireKey(value, "messages")).map((csilE) => asString(csilE)),
+  };
+}
+
+export function toAppAccessDenialCbor(v: AppAccessDenial): Uint8Array {
+  return encodeValue(toAppAccessDenialCborValue(v));
+}
+
+export function fromAppAccessDenialCbor(bytes: Uint8Array): AppAccessDenial {
+  return fromAppAccessDenialCborValue(decode(bytes));
 }
 
 export function toPurgeLocalRpTicketsRequestCborValue(v: PurgeLocalRpTicketsRequest): CborValue {
@@ -7043,6 +7333,7 @@ export function toBrowserActAsInspectResponseCborValue(v: BrowserActAsInspectRes
   csilMap.set("grantee", toGranteeRefCborValue(v.grantee));
   csilMap.set("audience", toApplicationRefCborValue(v.audience));
   if (v.language !== undefined) csilMap.set("language", v.language);
+  if (v.accessDenied !== undefined) csilMap.set("access_denied", toAppAccessDenialCborValue(v.accessDenied));
   csilMap.set("grantee_party", toBrowserActAsPartyCborValue(v.granteeParty));
   csilMap.set("audience_party", toBrowserActAsPartyCborValue(v.audienceParty));
   csilMap.set("max_lifetime_seconds", v.maxLifetimeSeconds);
@@ -7064,6 +7355,7 @@ export function fromBrowserActAsInspectResponseCborValue(value: CborValue): Brow
     maxLifetimeSeconds: asNumber(requireKey(value, "max_lifetime_seconds")),
     defaultRenewalWindowSeconds: asNumber(requireKey(value, "default_renewal_window_seconds")),
     maxRenewalWindowSeconds: asNumber(requireKey(value, "max_renewal_window_seconds")),
+    accessDenied: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : fromAppAccessDenialCborValue(csilV))(mapGet(value, "access_denied")),
   };
 }
 

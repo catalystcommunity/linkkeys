@@ -1308,6 +1308,76 @@ impl<T: Transport> AdminClient<T> {
         )?;
         decode_sign_in_policy(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
     }
+
+    /// set-user-password-lock (request/response).
+    pub fn set_user_password_lock(
+        &self,
+        req: SetUserPasswordLockRequest,
+    ) -> Result<SetUserPasswordLockResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "Admin",
+            "set-user-password-lock",
+            &encode_set_user_password_lock_request(&req),
+        )?;
+        decode_set_user_password_lock_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
+    /// list-app-access-policies (request/response).
+    pub fn list_app_access_policies(
+        &self,
+        req: EmptyRequest,
+    ) -> Result<ListAppAccessPoliciesResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "Admin",
+            "list-app-access-policies",
+            &encode_empty_request(&req),
+        )?;
+        decode_list_app_access_policies_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
+    /// set-app-access-policy (request/response).
+    pub fn set_app_access_policy(
+        &self,
+        req: SetAppAccessPolicyRequest,
+    ) -> Result<SetAppAccessPolicyResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "Admin",
+            "set-app-access-policy",
+            &encode_set_app_access_policy_request(&req),
+        )?;
+        decode_set_app_access_policy_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
+    /// remove-app-access-policy (request/response).
+    pub fn remove_app_access_policy(
+        &self,
+        req: RemoveAppAccessPolicyRequest,
+    ) -> Result<RemoveAppAccessPolicyResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "Admin",
+            "remove-app-access-policy",
+            &encode_remove_app_access_policy_request(&req),
+        )?;
+        decode_remove_app_access_policy_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
+
+    /// preview-app-access (request/response).
+    pub fn preview_app_access(
+        &self,
+        req: PreviewAppAccessRequest,
+    ) -> Result<PreviewAppAccessResponse, ClientError> {
+        let csil_resp = self.transport.call(
+            "Admin",
+            "preview-app-access",
+            &encode_preview_app_access_request(&req),
+        )?;
+        decode_preview_app_access_response(&csil_resp)
+            .map_err(|e| ClientError::Transport(e.to_string()))
+    }
 }
 
 /// Typed client for the Account service.

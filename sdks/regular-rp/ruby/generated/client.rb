@@ -554,6 +554,31 @@ class AdminClient
   def set_sign_in_policy(req)
     SignInPolicy.from_cbor(@transport.call("Admin", "set-sign-in-policy", req.to_cbor))
   end
+
+  # set-user-password-lock: -> SetUserPasswordLockResponse
+  def set_user_password_lock(req)
+    SetUserPasswordLockResponse.from_cbor(@transport.call("Admin", "set-user-password-lock", req.to_cbor))
+  end
+
+  # list-app-access-policies: -> ListAppAccessPoliciesResponse
+  def list_app_access_policies(req)
+    ListAppAccessPoliciesResponse.from_cbor(@transport.call("Admin", "list-app-access-policies", req.to_cbor))
+  end
+
+  # set-app-access-policy: -> SetAppAccessPolicyResponse
+  def set_app_access_policy(req)
+    SetAppAccessPolicyResponse.from_cbor(@transport.call("Admin", "set-app-access-policy", req.to_cbor))
+  end
+
+  # remove-app-access-policy: -> RemoveAppAccessPolicyResponse
+  def remove_app_access_policy(req)
+    RemoveAppAccessPolicyResponse.from_cbor(@transport.call("Admin", "remove-app-access-policy", req.to_cbor))
+  end
+
+  # preview-app-access: -> PreviewAppAccessResponse
+  def preview_app_access(req)
+    PreviewAppAccessResponse.from_cbor(@transport.call("Admin", "preview-app-access", req.to_cbor))
+  end
 end
 
 # Typed client for the Account service.

@@ -49,6 +49,7 @@ pub mod pg {
             is_admin_account -> Bool,
             purged_at -> Nullable<Timestamptz>,
             purge_reason -> Nullable<Varchar>,
+            password_locked -> Bool,
         }
     }
 
@@ -569,7 +570,43 @@ pub mod pg {
     diesel::joinable!(browser_sessions -> users (user_id));
     diesel::joinable!(user_authentication_activity -> users (user_id));
     diesel::joinable!(notification_outbox -> users (user_id));
+
+    diesel::table! {
+        app_access_policies (id) {
+            id -> Uuid,
+            name -> Varchar,
+            mode -> Varchar,
+            message -> Nullable<Text>,
+            created_at -> Timestamptz,
+            updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        app_access_policy_patterns (policy_id, pattern) {
+            policy_id -> Uuid,
+            pattern -> Varchar,
+        }
+    }
+
+    diesel::table! {
+        app_access_policy_targets (id) {
+            id -> Uuid,
+            policy_id -> Uuid,
+            kind -> Varchar,
+            user_id -> Nullable<Uuid>,
+            group_name -> Nullable<Varchar>,
+            claim_type -> Nullable<Varchar>,
+            claim_operator -> Nullable<Varchar>,
+            claim_value -> Nullable<Varchar>,
+            created_at -> Timestamptz,
+        }
+    }
+
     diesel::joinable!(act_as_grants -> users (user_id));
+    diesel::joinable!(app_access_policy_patterns -> app_access_policies (policy_id));
+    diesel::joinable!(app_access_policy_targets -> app_access_policies (policy_id));
+    diesel::joinable!(app_access_policy_targets -> users (user_id));
     diesel::joinable!(application_instances -> users (subject_user_id));
     diesel::joinable!(application_keys -> application_instances (instance_row_id));
     diesel::joinable!(application_key_attestations -> application_keys (application_key_row_id));
@@ -618,6 +655,9 @@ pub mod pg {
         local_rps,
         local_rp_claim_tickets,
         act_as_grants,
+        app_access_policies,
+        app_access_policy_patterns,
+        app_access_policy_targets,
     );
 }
 
@@ -669,6 +709,7 @@ pub mod sqlite {
             is_admin_account -> Integer,
             purged_at -> Nullable<Text>,
             purge_reason -> Nullable<Text>,
+            password_locked -> Integer,
         }
     }
 
@@ -1189,7 +1230,43 @@ pub mod sqlite {
     diesel::joinable!(browser_sessions -> users (user_id));
     diesel::joinable!(user_authentication_activity -> users (user_id));
     diesel::joinable!(notification_outbox -> users (user_id));
+
+    diesel::table! {
+        app_access_policies (id) {
+            id -> Text,
+            name -> Text,
+            mode -> Text,
+            message -> Nullable<Text>,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        app_access_policy_patterns (policy_id, pattern) {
+            policy_id -> Text,
+            pattern -> Text,
+        }
+    }
+
+    diesel::table! {
+        app_access_policy_targets (id) {
+            id -> Text,
+            policy_id -> Text,
+            kind -> Text,
+            user_id -> Nullable<Text>,
+            group_name -> Nullable<Text>,
+            claim_type -> Nullable<Text>,
+            claim_operator -> Nullable<Text>,
+            claim_value -> Nullable<Text>,
+            created_at -> Text,
+        }
+    }
+
     diesel::joinable!(act_as_grants -> users (user_id));
+    diesel::joinable!(app_access_policy_patterns -> app_access_policies (policy_id));
+    diesel::joinable!(app_access_policy_targets -> app_access_policies (policy_id));
+    diesel::joinable!(app_access_policy_targets -> users (user_id));
     diesel::joinable!(application_instances -> users (subject_user_id));
     diesel::joinable!(application_keys -> application_instances (instance_row_id));
     diesel::joinable!(application_key_attestations -> application_keys (application_key_row_id));
@@ -1238,5 +1315,8 @@ pub mod sqlite {
         local_rps,
         local_rp_claim_tickets,
         act_as_grants,
+        app_access_policies,
+        app_access_policy_patterns,
+        app_access_policy_targets,
     );
 }

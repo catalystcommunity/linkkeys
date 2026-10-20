@@ -559,6 +559,8 @@ public sealed record AdminUser
     public string? PurgedAt { get; init; }
     // CBOR key: purge_reason
     public string? PurgeReason { get; init; }
+    // CBOR key: password_locked
+    public bool? PasswordLocked { get; init; }
 }
 
 public sealed record ListUsersRequest
@@ -1575,6 +1577,8 @@ public sealed record BrowserAuthorizationInspectResponse
     public bool? AlreadyConsented { get; init; }
     // CBOR key: authorized_claims
     public System.Collections.Generic.List<string>? AuthorizedClaims { get; init; }
+    // CBOR key: access_denied
+    public AppAccessDenial? AccessDenied { get; init; }
 }
 
 public sealed record BrowserAuthorizationCompleteRequest
@@ -1623,6 +1627,8 @@ public sealed record BrowserLocalRpInspectResponse
     public bool? AlreadyConsented { get; init; }
     // CBOR key: authorized_claims
     public System.Collections.Generic.List<string>? AuthorizedClaims { get; init; }
+    // CBOR key: access_denied
+    public AppAccessDenial? AccessDenied { get; init; }
 }
 
 public sealed record BrowserLocalRpCompleteRequest
@@ -1793,6 +1799,8 @@ public sealed record AuthorizeValidateResponse
     public System.Collections.Generic.List<string>? AuthorizedClaims { get; init; }
     // CBOR key: newly_requested_claims
     public System.Collections.Generic.List<string>? NewlyRequestedClaims { get; init; }
+    // CBOR key: access_denied
+    public AppAccessDenial? AccessDenied { get; init; }
 }
 
 public sealed record AuthorizeFinalizeRequest
@@ -2166,6 +2174,120 @@ public sealed record SetSignInPolicyRequest
 {
     // CBOR key: sign_in_hours
     public required long SignInHours { get; init; }
+}
+
+public sealed record SetUserPasswordLockRequest
+{
+    // CBOR key: user_id
+    public required string UserId { get; init; }
+    // CBOR key: locked
+    public required bool Locked { get; init; }
+}
+
+public sealed record SetUserPasswordLockResponse
+{
+    // CBOR key: user
+    public required AdminUser User { get; init; }
+}
+
+public sealed record AppAccessTarget
+{
+    // CBOR key: kind
+    public required string Kind { get; init; }
+    // CBOR key: user_id
+    public string? UserId { get; init; }
+    // CBOR key: group_name
+    public string? GroupName { get; init; }
+    // CBOR key: claim_type
+    public string? ClaimType { get; init; }
+    // CBOR key: claim_operator
+    public string? ClaimOperator { get; init; }
+    // CBOR key: claim_value
+    public string? ClaimValue { get; init; }
+}
+
+public sealed record AppAccessPolicy
+{
+    // CBOR key: id
+    public required string Id { get; init; }
+    // CBOR key: name
+    public required string Name { get; init; }
+    // CBOR key: mode
+    public required string Mode { get; init; }
+    // CBOR key: patterns
+    public required System.Collections.Generic.List<string> Patterns { get; init; }
+    // CBOR key: message
+    public string? Message { get; init; }
+    // CBOR key: targets
+    public required System.Collections.Generic.List<AppAccessTarget> Targets { get; init; }
+}
+
+public sealed record ListAppAccessPoliciesResponse
+{
+    // CBOR key: policies
+    public required System.Collections.Generic.List<AppAccessPolicy> Policies { get; init; }
+}
+
+public sealed record SetAppAccessPolicyRequest
+{
+    // CBOR key: id
+    public string? Id { get; init; }
+    // CBOR key: name
+    public required string Name { get; init; }
+    // CBOR key: mode
+    public required string Mode { get; init; }
+    // CBOR key: patterns
+    public required System.Collections.Generic.List<string> Patterns { get; init; }
+    // CBOR key: message
+    public string? Message { get; init; }
+    // CBOR key: targets
+    public required System.Collections.Generic.List<AppAccessTarget> Targets { get; init; }
+}
+
+public sealed record SetAppAccessPolicyResponse
+{
+    // CBOR key: policy
+    public required AppAccessPolicy Policy { get; init; }
+}
+
+public sealed record RemoveAppAccessPolicyRequest
+{
+    // CBOR key: id
+    public required string Id { get; init; }
+}
+
+public sealed record RemoveAppAccessPolicyResponse
+{
+    // CBOR key: success
+    public required bool Success { get; init; }
+}
+
+public sealed record PreviewAppAccessRequest
+{
+    // CBOR key: user_id
+    public required string UserId { get; init; }
+    // CBOR key: domain
+    public string? Domain { get; init; }
+}
+
+public sealed record PreviewAppAccessResponse
+{
+    // CBOR key: allowed
+    public required bool Allowed { get; init; }
+    // CBOR key: applied_policies
+    public required System.Collections.Generic.List<string> AppliedPolicies { get; init; }
+    // CBOR key: blocking_policies
+    public required System.Collections.Generic.List<string> BlockingPolicies { get; init; }
+    // CBOR key: messages
+    public required System.Collections.Generic.List<string> Messages { get; init; }
+}
+
+public sealed record AppAccessDenial
+{
+    // CBOR key: domain
+    public string? Domain { get; init; }
+    // CBOR key: messages
+    public required System.Collections.Generic.List<string> Messages { get; init; }
 }
 
 public sealed record PurgeLocalRpTicketsRequest
@@ -2840,6 +2962,8 @@ public sealed record BrowserActAsInspectResponse
     public required long DefaultRenewalWindowSeconds { get; init; }
     // CBOR key: max_renewal_window_seconds
     public required long MaxRenewalWindowSeconds { get; init; }
+    // CBOR key: access_denied
+    public AppAccessDenial? AccessDenied { get; init; }
 }
 
 public sealed record BrowserActAsCompleteRequest

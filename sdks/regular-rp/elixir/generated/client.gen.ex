@@ -1412,6 +1412,76 @@ defmodule Csilgen.Generated.AdminClient do
 
     Csilgen.Generated.SignInPolicy.from_cbor(resp)
   end
+
+  @spec set_user_password_lock(t(), Csilgen.Generated.SetUserPasswordLockRequest.t()) ::
+          Csilgen.Generated.SetUserPasswordLockResponse.t()
+  def set_user_password_lock(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Admin",
+        "set-user-password-lock",
+        Csilgen.Generated.SetUserPasswordLockRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.SetUserPasswordLockResponse.from_cbor(resp)
+  end
+
+  @spec list_app_access_policies(t(), Csilgen.Generated.EmptyRequest.t()) ::
+          Csilgen.Generated.ListAppAccessPoliciesResponse.t()
+  def list_app_access_policies(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Admin",
+        "list-app-access-policies",
+        Csilgen.Generated.EmptyRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.ListAppAccessPoliciesResponse.from_cbor(resp)
+  end
+
+  @spec set_app_access_policy(t(), Csilgen.Generated.SetAppAccessPolicyRequest.t()) ::
+          Csilgen.Generated.SetAppAccessPolicyResponse.t()
+  def set_app_access_policy(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Admin",
+        "set-app-access-policy",
+        Csilgen.Generated.SetAppAccessPolicyRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.SetAppAccessPolicyResponse.from_cbor(resp)
+  end
+
+  @spec remove_app_access_policy(t(), Csilgen.Generated.RemoveAppAccessPolicyRequest.t()) ::
+          Csilgen.Generated.RemoveAppAccessPolicyResponse.t()
+  def remove_app_access_policy(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Admin",
+        "remove-app-access-policy",
+        Csilgen.Generated.RemoveAppAccessPolicyRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.RemoveAppAccessPolicyResponse.from_cbor(resp)
+  end
+
+  @spec preview_app_access(t(), Csilgen.Generated.PreviewAppAccessRequest.t()) ::
+          Csilgen.Generated.PreviewAppAccessResponse.t()
+  def preview_app_access(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Admin",
+        "preview-app-access",
+        Csilgen.Generated.PreviewAppAccessRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.PreviewAppAccessResponse.from_cbor(resp)
+  end
 end
 
 defmodule Csilgen.Generated.AccountClient do

@@ -1113,6 +1113,61 @@ pub const AdminClient = struct {
         defer alloc.free(csil_respb);
         try codec.decode_SignInPolicy(alloc, csil_respb, out);
     }
+
+    /// Invoke Admin/set-user-password-lock with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn set_user_password_lock(self: AdminClient, alloc: std.mem.Allocator, req: *const types.SetUserPasswordLockRequest, out: *types.SetUserPasswordLockResponse) anyerror!void {
+        const csil_reqb = try codec.encode_SetUserPasswordLockRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Admin", "set-user-password-lock", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_SetUserPasswordLockResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke Admin/list-app-access-policies with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn list_app_access_policies(self: AdminClient, alloc: std.mem.Allocator, req: *const types.EmptyRequest, out: *types.ListAppAccessPoliciesResponse) anyerror!void {
+        const csil_reqb = try codec.encode_EmptyRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Admin", "list-app-access-policies", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_ListAppAccessPoliciesResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke Admin/set-app-access-policy with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn set_app_access_policy(self: AdminClient, alloc: std.mem.Allocator, req: *const types.SetAppAccessPolicyRequest, out: *types.SetAppAccessPolicyResponse) anyerror!void {
+        const csil_reqb = try codec.encode_SetAppAccessPolicyRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Admin", "set-app-access-policy", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_SetAppAccessPolicyResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke Admin/remove-app-access-policy with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn remove_app_access_policy(self: AdminClient, alloc: std.mem.Allocator, req: *const types.RemoveAppAccessPolicyRequest, out: *types.RemoveAppAccessPolicyResponse) anyerror!void {
+        const csil_reqb = try codec.encode_RemoveAppAccessPolicyRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Admin", "remove-app-access-policy", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_RemoveAppAccessPolicyResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke Admin/preview-app-access with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn preview_app_access(self: AdminClient, alloc: std.mem.Allocator, req: *const types.PreviewAppAccessRequest, out: *types.PreviewAppAccessResponse) anyerror!void {
+        const csil_reqb = try codec.encode_PreviewAppAccessRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Admin", "preview-app-access", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_PreviewAppAccessResponse(alloc, csil_respb, out);
+    }
 };
 
 /// AccountClient is a typed client for the Account service over a CsilgenTransport.

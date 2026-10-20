@@ -29,8 +29,8 @@ use liblinkkeys::generated::types::{
     SetClaimResponse, SetClaimTypeLabelRequest, SetClaimTypeLabelResponse, SetClaimTypeRequest,
     SetClaimTypeResponse, SetLocalRpPolicyRequest, SetLocalRpPolicyResponse, SetReleaseRuleRequest,
     SetReleaseRuleResponse, SetSignInPolicyRequest, SetUserClaimRequest, SetUserClaimResponse,
-    SettableClaimPolicy, SignInPolicy, TrustedIssuer, UpdateUserRequest, UpdateUserResponse,
-    UserAuthenticationActivity,
+    SetUserPasswordLockRequest, SetUserPasswordLockResponse, SettableClaimPolicy, SignInPolicy,
+    TrustedIssuer, UpdateUserRequest, UpdateUserResponse, UserAuthenticationActivity,
 };
 
 use crate::db::models;
@@ -63,7 +63,7 @@ const VALID_RELATIONS: &[&str] = &[
 const VALID_SUBJECT_TYPES: &[&str] = &["user", "group"];
 const VALID_OBJECT_TYPES: &[&str] = &["domain", "group", "user", "claim_type"];
 
-fn user_to_admin_user(user: &models::User) -> AdminUser {
+pub(crate) fn user_to_admin_user(user: &models::User) -> AdminUser {
     AdminUser {
         id: user.id.clone(),
         username: user.username.clone(),
@@ -73,6 +73,7 @@ fn user_to_admin_user(user: &models::User) -> AdminUser {
         updated_at: user.updated_at.clone(),
         purged_at: user.purged_at.clone(),
         purge_reason: user.purge_reason.clone(),
+        password_locked: user.password_locked.then_some(true),
     }
 }
 
@@ -481,6 +482,24 @@ pub fn reset_password(
     pool.replace_password(&req.user_id, &hash).map_err(db_err)?;
 
     Ok(ResetPasswordResponse { success: true })
+}
+
+/// Lock or unlock an account's password. A locked account cannot change its
+/// own password or use password recovery; `reset_password` still works.
+pub fn set_user_password_lock(
+    pool: &DbPool,
+    req: SetUserPasswordLockRequest,
+) -> Result<SetUserPasswordLockResponse, ServiceError> {
+    let user = pool.find_user_by_id(&req.user_id).map_err(db_err)?;
+    if user.purged_at.is_some() {
+        return Err(svc_err("cannot change the password lock of a purged user"));
+    }
+    let user = pool
+        .set_password_locked(&req.user_id, req.locked)
+        .map_err(db_err)?;
+    Ok(SetUserPasswordLockResponse {
+        user: user_to_admin_user(&user),
+    })
 }
 
 pub fn remove_credential(

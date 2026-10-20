@@ -1,6 +1,6 @@
 use liblinkkeys::generated::services::ServiceError;
 use liblinkkeys::generated::types::{
-    AdminUser, ChangePasswordRequest, ChangePasswordResponse, Claim, CreateProfileRequest,
+    ChangePasswordRequest, ChangePasswordResponse, Claim, CreateProfileRequest,
     CreateProfileResponse, GetMyInfoResponse, MyClaimSetting, MyClaimSettingsResponse,
     RemoveMyClaimRequest, RemoveMyClaimResponse, RequestVerificationRequest,
     RequestVerificationResponse, SetMyClaimKeepVerifiedRequest, SetMyClaimKeepVerifiedResponse,
@@ -32,6 +32,12 @@ pub fn change_password(
         });
     }
     let user = pool.find_user_by_id(user_id).map_err(db_err)?;
+    if user.password_locked {
+        return Err(ServiceError {
+            code: 403,
+            message: "An administrator locked the password of this account".to_string(),
+        });
+    }
     let authenticator = auth::PasswordAuthenticator::new(pool.clone());
     let authentication = authenticator
         .authenticate_with_evidence(&user.username, &req.current_password)
@@ -65,16 +71,7 @@ pub fn get_my_info(pool: &DbPool, user_id: &str) -> Result<GetMyInfoResponse, Se
     let claims = pool.list_active_claims(user_id).map_err(db_err)?;
 
     Ok(GetMyInfoResponse {
-        user: AdminUser {
-            id: user.id,
-            username: user.username,
-            display_name: user.display_name,
-            is_active: user.is_active,
-            created_at: user.created_at,
-            updated_at: user.updated_at,
-            purged_at: user.purged_at,
-            purge_reason: user.purge_reason,
-        },
+        user: crate::services::admin::user_to_admin_user(&user),
         relations: relations
             .iter()
             .map(|r| liblinkkeys::generated::types::Relation {

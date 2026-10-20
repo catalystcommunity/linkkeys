@@ -1780,7 +1780,7 @@ public final class CsilCbor {
     }
 
     static CborValue encAdminUser(AdminUser v) {
-        List<CborEntry> csilEntries = new ArrayList<>(8);
+        List<CborEntry> csilEntries = new ArrayList<>(9);
         csilEntries.add(new CborEntry(new CborText("id"), new CborText(v.id())));
         csilEntries.add(new CborEntry(new CborText("username"), new CborText(v.username())));
         csilEntries.add(new CborEntry(new CborText("is_active"), new CborBool(v.isActive())));
@@ -1792,6 +1792,9 @@ public final class CsilCbor {
         csilEntries.add(new CborEntry(new CborText("display_name"), new CborText(v.displayName())));
         if (v.purgeReason() != null) {
             csilEntries.add(new CborEntry(new CborText("purge_reason"), new CborText(v.purgeReason())));
+        }
+        if (v.passwordLocked() != null) {
+            csilEntries.add(new CborEntry(new CborText("password_locked"), new CborBool(v.passwordLocked())));
         }
         return new CborMap(csilEntries);
     }
@@ -1813,7 +1816,12 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "purge_reason");
             purgeReason = csilField != null ? asText(csilField) : null;
         }
-        return new AdminUser(id, username, displayName, isActive, createdAt, updatedAt, purgedAt, purgeReason);
+        Boolean passwordLocked;
+        {
+            CborValue csilField = mapGet(csilRoot, "password_locked");
+            passwordLocked = csilField != null ? asBool(csilField) : null;
+        }
+        return new AdminUser(id, username, displayName, isActive, createdAt, updatedAt, purgedAt, purgeReason, passwordLocked);
     }
 
     public static byte[] encodeAdminUser(AdminUser v) {
@@ -4550,8 +4558,11 @@ public final class CsilCbor {
     }
 
     static CborValue encBrowserAuthorizationInspectResponse(BrowserAuthorizationInspectResponse v) {
-        List<CborEntry> csilEntries = new ArrayList<>(5);
+        List<CborEntry> csilEntries = new ArrayList<>(6);
         csilEntries.add(new CborEntry(new CborText("claims"), encArray(v.claims(), csilElem0 -> encBrowserConsentClaim(csilElem0))));
+        if (v.accessDenied() != null) {
+            csilEntries.add(new CborEntry(new CborText("access_denied"), encAppAccessDenial(v.accessDenied())));
+        }
         csilEntries.add(new CborEntry(new CborText("relying_party"), new CborText(v.relyingParty())));
         if (v.requestReason() != null) {
             csilEntries.add(new CborEntry(new CborText("request_reason"), new CborText(v.requestReason())));
@@ -4583,7 +4594,12 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "authorized_claims");
             authorizedClaims = csilField != null ? decArray(csilField, csilE0 -> asText(csilE0)) : null;
         }
-        return new BrowserAuthorizationInspectResponse(relyingParty, claims, requestReason, alreadyConsented, authorizedClaims);
+        AppAccessDenial accessDenied;
+        {
+            CborValue csilField = mapGet(csilRoot, "access_denied");
+            accessDenied = csilField != null ? decAppAccessDenial(csilField) : null;
+        }
+        return new BrowserAuthorizationInspectResponse(relyingParty, claims, requestReason, alreadyConsented, authorizedClaims, accessDenied);
     }
 
     public static byte[] encodeBrowserAuthorizationInspectResponse(BrowserAuthorizationInspectResponse v) {
@@ -4666,11 +4682,14 @@ public final class CsilCbor {
     }
 
     static CborValue encBrowserLocalRpInspectResponse(BrowserLocalRpInspectResponse v) {
-        List<CborEntry> csilEntries = new ArrayList<>(9);
+        List<CborEntry> csilEntries = new ArrayList<>(10);
         csilEntries.add(new CborEntry(new CborText("claims"), encArray(v.claims(), csilElem0 -> encBrowserConsentClaim(csilElem0))));
         csilEntries.add(new CborEntry(new CborText("app_name"), new CborText(v.appName())));
         csilEntries.add(new CborEntry(new CborText("admission"), new CborText(v.admission())));
         csilEntries.add(new CborEntry(new CborText("fingerprint"), new CborText(v.fingerprint())));
+        if (v.accessDenied() != null) {
+            csilEntries.add(new CborEntry(new CborText("access_denied"), encAppAccessDenial(v.accessDenied())));
+        }
         csilEntries.add(new CborEntry(new CborText("callback_host"), new CborText(v.callbackHost())));
         if (v.firstSeenAt() != null) {
             csilEntries.add(new CborEntry(new CborText("first_seen_at"), new CborText(v.firstSeenAt())));
@@ -4713,7 +4732,12 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "authorized_claims");
             authorizedClaims = csilField != null ? decArray(csilField, csilE0 -> asText(csilE0)) : null;
         }
-        return new BrowserLocalRpInspectResponse(admission, appName, fingerprint, callbackHost, firstSeenAt, claims, requestReason, alreadyConsented, authorizedClaims);
+        AppAccessDenial accessDenied;
+        {
+            CborValue csilField = mapGet(csilRoot, "access_denied");
+            accessDenied = csilField != null ? decAppAccessDenial(csilField) : null;
+        }
+        return new BrowserLocalRpInspectResponse(admission, appName, fingerprint, callbackHost, firstSeenAt, claims, requestReason, alreadyConsented, authorizedClaims, accessDenied);
     }
 
     public static byte[] encodeBrowserLocalRpInspectResponse(BrowserLocalRpInspectResponse v) {
@@ -5165,8 +5189,11 @@ public final class CsilCbor {
     }
 
     static CborValue encAuthorizeValidateResponse(AuthorizeValidateResponse v) {
-        List<CborEntry> csilEntries = new ArrayList<>(6);
+        List<CborEntry> csilEntries = new ArrayList<>(7);
         csilEntries.add(new CborEntry(new CborText("callback_url"), new CborText(v.callbackUrl())));
+        if (v.accessDenied() != null) {
+            csilEntries.add(new CborEntry(new CborText("access_denied"), encAppAccessDenial(v.accessDenied())));
+        }
         csilEntries.add(new CborEntry(new CborText("relying_party"), new CborText(v.relyingParty())));
         csilEntries.add(new CborEntry(new CborText("requested_claims"), encArray(v.requestedClaims(), csilElem0 -> new CborText(csilElem0))));
         if (v.alreadyConsented() != null) {
@@ -5200,7 +5227,12 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "newly_requested_claims");
             newlyRequestedClaims = csilField != null ? decArray(csilField, csilE0 -> asText(csilE0)) : null;
         }
-        return new AuthorizeValidateResponse(relyingParty, callbackUrl, requestedClaims, alreadyConsented, authorizedClaims, newlyRequestedClaims);
+        AppAccessDenial accessDenied;
+        {
+            CborValue csilField = mapGet(csilRoot, "access_denied");
+            accessDenied = csilField != null ? decAppAccessDenial(csilField) : null;
+        }
+        return new AuthorizeValidateResponse(relyingParty, callbackUrl, requestedClaims, alreadyConsented, authorizedClaims, newlyRequestedClaims, accessDenied);
     }
 
     public static byte[] encodeAuthorizeValidateResponse(AuthorizeValidateResponse v) {
@@ -6000,6 +6032,336 @@ public final class CsilCbor {
 
     public static SetSignInPolicyRequest decodeSetSignInPolicyRequest(byte[] data) {
         return decSetSignInPolicyRequest(decode(data));
+    }
+
+    static CborValue encSetUserPasswordLockRequest(SetUserPasswordLockRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("locked"), new CborBool(v.locked())));
+        csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
+        return new CborMap(csilEntries);
+    }
+
+    static SetUserPasswordLockRequest decSetUserPasswordLockRequest(CborValue csilRoot) {
+        String userId = asText(require(csilRoot, "user_id"));
+        boolean locked = asBool(require(csilRoot, "locked"));
+        return new SetUserPasswordLockRequest(userId, locked);
+    }
+
+    public static byte[] encodeSetUserPasswordLockRequest(SetUserPasswordLockRequest v) {
+        return encode(encSetUserPasswordLockRequest(v));
+    }
+
+    public static SetUserPasswordLockRequest decodeSetUserPasswordLockRequest(byte[] data) {
+        return decSetUserPasswordLockRequest(decode(data));
+    }
+
+    static CborValue encSetUserPasswordLockResponse(SetUserPasswordLockResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("user"), encAdminUser(v.user())));
+        return new CborMap(csilEntries);
+    }
+
+    static SetUserPasswordLockResponse decSetUserPasswordLockResponse(CborValue csilRoot) {
+        AdminUser user = decAdminUser(require(csilRoot, "user"));
+        return new SetUserPasswordLockResponse(user);
+    }
+
+    public static byte[] encodeSetUserPasswordLockResponse(SetUserPasswordLockResponse v) {
+        return encode(encSetUserPasswordLockResponse(v));
+    }
+
+    public static SetUserPasswordLockResponse decodeSetUserPasswordLockResponse(byte[] data) {
+        return decSetUserPasswordLockResponse(decode(data));
+    }
+
+    static CborValue encAppAccessTarget(AppAccessTarget v) {
+        List<CborEntry> csilEntries = new ArrayList<>(6);
+        csilEntries.add(new CborEntry(new CborText("kind"), new CborText(v.kind())));
+        if (v.userId() != null) {
+            csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
+        }
+        if (v.claimType() != null) {
+            csilEntries.add(new CborEntry(new CborText("claim_type"), new CborText(v.claimType())));
+        }
+        if (v.groupName() != null) {
+            csilEntries.add(new CborEntry(new CborText("group_name"), new CborText(v.groupName())));
+        }
+        if (v.claimValue() != null) {
+            csilEntries.add(new CborEntry(new CborText("claim_value"), new CborText(v.claimValue())));
+        }
+        if (v.claimOperator() != null) {
+            csilEntries.add(new CborEntry(new CborText("claim_operator"), new CborText(v.claimOperator())));
+        }
+        return new CborMap(csilEntries);
+    }
+
+    static AppAccessTarget decAppAccessTarget(CborValue csilRoot) {
+        String kind = asText(require(csilRoot, "kind"));
+        String userId;
+        {
+            CborValue csilField = mapGet(csilRoot, "user_id");
+            userId = csilField != null ? asText(csilField) : null;
+        }
+        String groupName;
+        {
+            CborValue csilField = mapGet(csilRoot, "group_name");
+            groupName = csilField != null ? asText(csilField) : null;
+        }
+        String claimType;
+        {
+            CborValue csilField = mapGet(csilRoot, "claim_type");
+            claimType = csilField != null ? asText(csilField) : null;
+        }
+        String claimOperator;
+        {
+            CborValue csilField = mapGet(csilRoot, "claim_operator");
+            claimOperator = csilField != null ? asText(csilField) : null;
+        }
+        String claimValue;
+        {
+            CborValue csilField = mapGet(csilRoot, "claim_value");
+            claimValue = csilField != null ? asText(csilField) : null;
+        }
+        return new AppAccessTarget(kind, userId, groupName, claimType, claimOperator, claimValue);
+    }
+
+    public static byte[] encodeAppAccessTarget(AppAccessTarget v) {
+        return encode(encAppAccessTarget(v));
+    }
+
+    public static AppAccessTarget decodeAppAccessTarget(byte[] data) {
+        return decAppAccessTarget(decode(data));
+    }
+
+    static CborValue encAppAccessPolicy(AppAccessPolicy v) {
+        List<CborEntry> csilEntries = new ArrayList<>(6);
+        csilEntries.add(new CborEntry(new CborText("id"), new CborText(v.id())));
+        csilEntries.add(new CborEntry(new CborText("mode"), new CborText(v.mode())));
+        csilEntries.add(new CborEntry(new CborText("name"), new CborText(v.name())));
+        if (v.message() != null) {
+            csilEntries.add(new CborEntry(new CborText("message"), new CborText(v.message())));
+        }
+        csilEntries.add(new CborEntry(new CborText("targets"), encArray(v.targets(), csilElem0 -> encAppAccessTarget(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("patterns"), encArray(v.patterns(), csilElem0 -> new CborText(csilElem0))));
+        return new CborMap(csilEntries);
+    }
+
+    static AppAccessPolicy decAppAccessPolicy(CborValue csilRoot) {
+        String id = asText(require(csilRoot, "id"));
+        String name = asText(require(csilRoot, "name"));
+        String mode = asText(require(csilRoot, "mode"));
+        List<String> patterns = decArray(require(csilRoot, "patterns"), csilE0 -> asText(csilE0));
+        String message;
+        {
+            CborValue csilField = mapGet(csilRoot, "message");
+            message = csilField != null ? asText(csilField) : null;
+        }
+        List<AppAccessTarget> targets = decArray(require(csilRoot, "targets"), csilE0 -> decAppAccessTarget(csilE0));
+        return new AppAccessPolicy(id, name, mode, patterns, message, targets);
+    }
+
+    public static byte[] encodeAppAccessPolicy(AppAccessPolicy v) {
+        return encode(encAppAccessPolicy(v));
+    }
+
+    public static AppAccessPolicy decodeAppAccessPolicy(byte[] data) {
+        return decAppAccessPolicy(decode(data));
+    }
+
+    static CborValue encListAppAccessPoliciesResponse(ListAppAccessPoliciesResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("policies"), encArray(v.policies(), csilElem0 -> encAppAccessPolicy(csilElem0))));
+        return new CborMap(csilEntries);
+    }
+
+    static ListAppAccessPoliciesResponse decListAppAccessPoliciesResponse(CborValue csilRoot) {
+        List<AppAccessPolicy> policies = decArray(require(csilRoot, "policies"), csilE0 -> decAppAccessPolicy(csilE0));
+        return new ListAppAccessPoliciesResponse(policies);
+    }
+
+    public static byte[] encodeListAppAccessPoliciesResponse(ListAppAccessPoliciesResponse v) {
+        return encode(encListAppAccessPoliciesResponse(v));
+    }
+
+    public static ListAppAccessPoliciesResponse decodeListAppAccessPoliciesResponse(byte[] data) {
+        return decListAppAccessPoliciesResponse(decode(data));
+    }
+
+    static CborValue encSetAppAccessPolicyRequest(SetAppAccessPolicyRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(6);
+        if (v.id() != null) {
+            csilEntries.add(new CborEntry(new CborText("id"), new CborText(v.id())));
+        }
+        csilEntries.add(new CborEntry(new CborText("mode"), new CborText(v.mode())));
+        csilEntries.add(new CborEntry(new CborText("name"), new CborText(v.name())));
+        if (v.message() != null) {
+            csilEntries.add(new CborEntry(new CborText("message"), new CborText(v.message())));
+        }
+        csilEntries.add(new CborEntry(new CborText("targets"), encArray(v.targets(), csilElem0 -> encAppAccessTarget(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("patterns"), encArray(v.patterns(), csilElem0 -> new CborText(csilElem0))));
+        return new CborMap(csilEntries);
+    }
+
+    static SetAppAccessPolicyRequest decSetAppAccessPolicyRequest(CborValue csilRoot) {
+        String id;
+        {
+            CborValue csilField = mapGet(csilRoot, "id");
+            id = csilField != null ? asText(csilField) : null;
+        }
+        String name = asText(require(csilRoot, "name"));
+        String mode = asText(require(csilRoot, "mode"));
+        List<String> patterns = decArray(require(csilRoot, "patterns"), csilE0 -> asText(csilE0));
+        String message;
+        {
+            CborValue csilField = mapGet(csilRoot, "message");
+            message = csilField != null ? asText(csilField) : null;
+        }
+        List<AppAccessTarget> targets = decArray(require(csilRoot, "targets"), csilE0 -> decAppAccessTarget(csilE0));
+        return new SetAppAccessPolicyRequest(id, name, mode, patterns, message, targets);
+    }
+
+    public static byte[] encodeSetAppAccessPolicyRequest(SetAppAccessPolicyRequest v) {
+        return encode(encSetAppAccessPolicyRequest(v));
+    }
+
+    public static SetAppAccessPolicyRequest decodeSetAppAccessPolicyRequest(byte[] data) {
+        return decSetAppAccessPolicyRequest(decode(data));
+    }
+
+    static CborValue encSetAppAccessPolicyResponse(SetAppAccessPolicyResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("policy"), encAppAccessPolicy(v.policy())));
+        return new CborMap(csilEntries);
+    }
+
+    static SetAppAccessPolicyResponse decSetAppAccessPolicyResponse(CborValue csilRoot) {
+        AppAccessPolicy policy = decAppAccessPolicy(require(csilRoot, "policy"));
+        return new SetAppAccessPolicyResponse(policy);
+    }
+
+    public static byte[] encodeSetAppAccessPolicyResponse(SetAppAccessPolicyResponse v) {
+        return encode(encSetAppAccessPolicyResponse(v));
+    }
+
+    public static SetAppAccessPolicyResponse decodeSetAppAccessPolicyResponse(byte[] data) {
+        return decSetAppAccessPolicyResponse(decode(data));
+    }
+
+    static CborValue encRemoveAppAccessPolicyRequest(RemoveAppAccessPolicyRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("id"), new CborText(v.id())));
+        return new CborMap(csilEntries);
+    }
+
+    static RemoveAppAccessPolicyRequest decRemoveAppAccessPolicyRequest(CborValue csilRoot) {
+        String id = asText(require(csilRoot, "id"));
+        return new RemoveAppAccessPolicyRequest(id);
+    }
+
+    public static byte[] encodeRemoveAppAccessPolicyRequest(RemoveAppAccessPolicyRequest v) {
+        return encode(encRemoveAppAccessPolicyRequest(v));
+    }
+
+    public static RemoveAppAccessPolicyRequest decodeRemoveAppAccessPolicyRequest(byte[] data) {
+        return decRemoveAppAccessPolicyRequest(decode(data));
+    }
+
+    static CborValue encRemoveAppAccessPolicyResponse(RemoveAppAccessPolicyResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("success"), new CborBool(v.success())));
+        return new CborMap(csilEntries);
+    }
+
+    static RemoveAppAccessPolicyResponse decRemoveAppAccessPolicyResponse(CborValue csilRoot) {
+        boolean success = asBool(require(csilRoot, "success"));
+        return new RemoveAppAccessPolicyResponse(success);
+    }
+
+    public static byte[] encodeRemoveAppAccessPolicyResponse(RemoveAppAccessPolicyResponse v) {
+        return encode(encRemoveAppAccessPolicyResponse(v));
+    }
+
+    public static RemoveAppAccessPolicyResponse decodeRemoveAppAccessPolicyResponse(byte[] data) {
+        return decRemoveAppAccessPolicyResponse(decode(data));
+    }
+
+    static CborValue encPreviewAppAccessRequest(PreviewAppAccessRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        if (v.domain() != null) {
+            csilEntries.add(new CborEntry(new CborText("domain"), new CborText(v.domain())));
+        }
+        csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
+        return new CborMap(csilEntries);
+    }
+
+    static PreviewAppAccessRequest decPreviewAppAccessRequest(CborValue csilRoot) {
+        String userId = asText(require(csilRoot, "user_id"));
+        String domain;
+        {
+            CborValue csilField = mapGet(csilRoot, "domain");
+            domain = csilField != null ? asText(csilField) : null;
+        }
+        return new PreviewAppAccessRequest(userId, domain);
+    }
+
+    public static byte[] encodePreviewAppAccessRequest(PreviewAppAccessRequest v) {
+        return encode(encPreviewAppAccessRequest(v));
+    }
+
+    public static PreviewAppAccessRequest decodePreviewAppAccessRequest(byte[] data) {
+        return decPreviewAppAccessRequest(decode(data));
+    }
+
+    static CborValue encPreviewAppAccessResponse(PreviewAppAccessResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(4);
+        csilEntries.add(new CborEntry(new CborText("allowed"), new CborBool(v.allowed())));
+        csilEntries.add(new CborEntry(new CborText("messages"), encArray(v.messages(), csilElem0 -> new CborText(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("applied_policies"), encArray(v.appliedPolicies(), csilElem0 -> new CborText(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("blocking_policies"), encArray(v.blockingPolicies(), csilElem0 -> new CborText(csilElem0))));
+        return new CborMap(csilEntries);
+    }
+
+    static PreviewAppAccessResponse decPreviewAppAccessResponse(CborValue csilRoot) {
+        boolean allowed = asBool(require(csilRoot, "allowed"));
+        List<String> appliedPolicies = decArray(require(csilRoot, "applied_policies"), csilE0 -> asText(csilE0));
+        List<String> blockingPolicies = decArray(require(csilRoot, "blocking_policies"), csilE0 -> asText(csilE0));
+        List<String> messages = decArray(require(csilRoot, "messages"), csilE0 -> asText(csilE0));
+        return new PreviewAppAccessResponse(allowed, appliedPolicies, blockingPolicies, messages);
+    }
+
+    public static byte[] encodePreviewAppAccessResponse(PreviewAppAccessResponse v) {
+        return encode(encPreviewAppAccessResponse(v));
+    }
+
+    public static PreviewAppAccessResponse decodePreviewAppAccessResponse(byte[] data) {
+        return decPreviewAppAccessResponse(decode(data));
+    }
+
+    static CborValue encAppAccessDenial(AppAccessDenial v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        if (v.domain() != null) {
+            csilEntries.add(new CborEntry(new CborText("domain"), new CborText(v.domain())));
+        }
+        csilEntries.add(new CborEntry(new CborText("messages"), encArray(v.messages(), csilElem0 -> new CborText(csilElem0))));
+        return new CborMap(csilEntries);
+    }
+
+    static AppAccessDenial decAppAccessDenial(CborValue csilRoot) {
+        String domain;
+        {
+            CborValue csilField = mapGet(csilRoot, "domain");
+            domain = csilField != null ? asText(csilField) : null;
+        }
+        List<String> messages = decArray(require(csilRoot, "messages"), csilE0 -> asText(csilE0));
+        return new AppAccessDenial(domain, messages);
+    }
+
+    public static byte[] encodeAppAccessDenial(AppAccessDenial v) {
+        return encode(encAppAccessDenial(v));
+    }
+
+    public static AppAccessDenial decodeAppAccessDenial(byte[] data) {
+        return decAppAccessDenial(decode(data));
     }
 
     static CborValue encPurgeLocalRpTicketsRequest(PurgeLocalRpTicketsRequest v) {
@@ -7543,12 +7905,15 @@ public final class CsilCbor {
     }
 
     static CborValue encBrowserActAsInspectResponse(BrowserActAsInspectResponse v) {
-        List<CborEntry> csilEntries = new ArrayList<>(10);
+        List<CborEntry> csilEntries = new ArrayList<>(11);
         csilEntries.add(new CborEntry(new CborText("entries"), encArray(v.entries(), csilElem0 -> encBrowserActAsScopeEntry(csilElem0))));
         csilEntries.add(new CborEntry(new CborText("grantee"), encGranteeRef(v.grantee())));
         csilEntries.add(new CborEntry(new CborText("audience"), encApplicationRef(v.audience())));
         if (v.language() != null) {
             csilEntries.add(new CborEntry(new CborText("language"), new CborText(v.language())));
+        }
+        if (v.accessDenied() != null) {
+            csilEntries.add(new CborEntry(new CborText("access_denied"), encAppAccessDenial(v.accessDenied())));
         }
         csilEntries.add(new CborEntry(new CborText("grantee_party"), encBrowserActAsParty(v.granteeParty())));
         csilEntries.add(new CborEntry(new CborText("audience_party"), encBrowserActAsParty(v.audienceParty())));
@@ -7574,7 +7939,12 @@ public final class CsilCbor {
         long maxLifetimeSeconds = asI64(require(csilRoot, "max_lifetime_seconds"));
         long defaultRenewalWindowSeconds = asI64(require(csilRoot, "default_renewal_window_seconds"));
         long maxRenewalWindowSeconds = asI64(require(csilRoot, "max_renewal_window_seconds"));
-        return new BrowserActAsInspectResponse(grantee, granteeParty, audience, audienceParty, entries, language, defaultLifetimeSeconds, maxLifetimeSeconds, defaultRenewalWindowSeconds, maxRenewalWindowSeconds);
+        AppAccessDenial accessDenied;
+        {
+            CborValue csilField = mapGet(csilRoot, "access_denied");
+            accessDenied = csilField != null ? decAppAccessDenial(csilField) : null;
+        }
+        return new BrowserActAsInspectResponse(grantee, granteeParty, audience, audienceParty, entries, language, defaultLifetimeSeconds, maxLifetimeSeconds, defaultRenewalWindowSeconds, maxRenewalWindowSeconds, accessDenied);
     }
 
     public static byte[] encodeBrowserActAsInspectResponse(BrowserActAsInspectResponse v) {

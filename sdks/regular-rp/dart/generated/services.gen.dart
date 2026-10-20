@@ -913,6 +913,61 @@ final class AdminClient {
     );
     return SignInPolicy.fromCborValue(CsilCbor.decode(csilResp));
   }
+
+  SetUserPasswordLockResponse setUserPasswordLock(
+    SetUserPasswordLockRequest request,
+  ) {
+    final csilResp = transport.call(
+      'Admin',
+      'set-user-password-lock',
+      request.toCbor(),
+    );
+    return SetUserPasswordLockResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
+  ListAppAccessPoliciesResponse listAppAccessPolicies(EmptyRequest request) {
+    final csilResp = transport.call(
+      'Admin',
+      'list-app-access-policies',
+      request.toCbor(),
+    );
+    return ListAppAccessPoliciesResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
+
+  SetAppAccessPolicyResponse setAppAccessPolicy(
+    SetAppAccessPolicyRequest request,
+  ) {
+    final csilResp = transport.call(
+      'Admin',
+      'set-app-access-policy',
+      request.toCbor(),
+    );
+    return SetAppAccessPolicyResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
+  RemoveAppAccessPolicyResponse removeAppAccessPolicy(
+    RemoveAppAccessPolicyRequest request,
+  ) {
+    final csilResp = transport.call(
+      'Admin',
+      'remove-app-access-policy',
+      request.toCbor(),
+    );
+    return RemoveAppAccessPolicyResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
+
+  PreviewAppAccessResponse previewAppAccess(PreviewAppAccessRequest request) {
+    final csilResp = transport.call(
+      'Admin',
+      'preview-app-access',
+      request.toCbor(),
+    );
+    return PreviewAppAccessResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
 }
 
 /// A typed, transport-agnostic client for the Account service. The client owns

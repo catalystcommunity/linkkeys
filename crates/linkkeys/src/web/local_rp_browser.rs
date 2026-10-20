@@ -418,6 +418,22 @@ pub(super) fn inspect(
     let user = check_person(pool, user, session, &request)?;
     let callback_host =
         extract_host(&request.callback_url).unwrap_or_else(|| request.callback_url.clone());
+    // A local app has no domain. Checked before admission so that a blocked
+    // account does not register the app.
+    if let Some(denial) = crate::services::app_access::denial_for(pool, &user.id, None)? {
+        return Ok(BrowserLocalRpInspectResponse {
+            admission: "blocked".to_string(),
+            app_name: descriptor.app_name,
+            fingerprint: descriptor.fingerprint,
+            callback_host,
+            first_seen_at: None,
+            claims: Vec::new(),
+            request_reason: None,
+            already_consented: None,
+            authorized_claims: None,
+            access_denied: Some(denial),
+        });
+    }
     let rp = match resolve_local_rp_admission(pool, &user.id, &descriptor) {
         Admission::Refused(r) => return Err(refused(403, r)),
         Admission::Pending => {
@@ -431,6 +447,7 @@ pub(super) fn inspect(
                 request_reason: None,
                 already_consented: None,
                 authorized_claims: None,
+                access_denied: None,
             })
         }
         Admission::Approved(rp) => rp,
@@ -458,6 +475,7 @@ pub(super) fn inspect(
             .and_then(|context| context.request_reason),
         already_consented: authorized_claims.as_ref().map(|_| true),
         authorized_claims,
+        access_denied: None,
     })
 }
 
@@ -473,6 +491,10 @@ pub(super) fn complete(
         validate_signed_local_rp_request(&value.signed_request, chrono::Utc::now())
             .map_err(|r| refused(400, r))?;
     let user = check_person(pool, user, session, &request)?;
+    // Before any claim write. Finalize checks again before it issues.
+    if let Some(denial) = crate::services::app_access::denial_for(pool, &user.id, None)? {
+        return Err(crate::services::app_access::denial_error(&denial));
+    }
 
     // The admission policy or the app's status may have changed since the
     // consent screen was shown.
@@ -572,6 +594,9 @@ fn finalize_local_rp_login(
     .unwrap_or(false)
     {
         return Err(refused(403, reason::SESSION_ENDED));
+    }
+    if let Some(denial) = crate::services::app_access::denial_for(pool, &user.id, None)? {
+        return Err(crate::services::app_access::denial_error(&denial));
     }
 
     // Single-use: burn the nonce now, at ticket issuance, so an abandoned

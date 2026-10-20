@@ -331,6 +331,7 @@ export interface AdminUser {
   updatedAt: string;
   purgedAt?: string;
   purgeReason?: string;
+  passwordLocked?: boolean;
 }
 
 export interface ListUsersRequest {
@@ -961,6 +962,7 @@ export interface BrowserAuthorizationInspectResponse {
   requestReason?: string;
   alreadyConsented?: boolean;
   authorizedClaims?: string[];
+  accessDenied?: AppAccessDenial;
 }
 
 export interface BrowserAuthorizationCompleteRequest {
@@ -989,6 +991,7 @@ export interface BrowserLocalRpInspectResponse {
   requestReason?: string;
   alreadyConsented?: boolean;
   authorizedClaims?: string[];
+  accessDenied?: AppAccessDenial;
 }
 
 export interface BrowserLocalRpCompleteRequest {
@@ -1091,6 +1094,7 @@ export interface AuthorizeValidateResponse {
   alreadyConsented?: boolean;
   authorizedClaims?: string[];
   newlyRequestedClaims?: string[];
+  accessDenied?: AppAccessDenial;
 }
 
 export interface AuthorizeFinalizeRequest {
@@ -1283,6 +1287,75 @@ export interface SignInPolicy {
 
 export interface SetSignInPolicyRequest {
   signInHours: number;
+}
+
+export interface SetUserPasswordLockRequest {
+  userId: string;
+  locked: boolean;
+}
+
+export interface SetUserPasswordLockResponse {
+  user: AdminUser;
+}
+
+export interface AppAccessTarget {
+  kind: string;
+  userId?: string;
+  groupName?: string;
+  claimType?: string;
+  claimOperator?: string;
+  claimValue?: string;
+}
+
+export interface AppAccessPolicy {
+  id: string;
+  name: string;
+  mode: string;
+  patterns: string[];
+  message?: string;
+  targets: AppAccessTarget[];
+}
+
+export interface ListAppAccessPoliciesResponse {
+  policies: AppAccessPolicy[];
+}
+
+export interface SetAppAccessPolicyRequest {
+  id?: string;
+  name: string;
+  mode: string;
+  patterns: string[];
+  message?: string;
+  targets: AppAccessTarget[];
+}
+
+export interface SetAppAccessPolicyResponse {
+  policy: AppAccessPolicy;
+}
+
+export interface RemoveAppAccessPolicyRequest {
+  id: string;
+}
+
+export interface RemoveAppAccessPolicyResponse {
+  success: boolean;
+}
+
+export interface PreviewAppAccessRequest {
+  userId: string;
+  domain?: string;
+}
+
+export interface PreviewAppAccessResponse {
+  allowed: boolean;
+  appliedPolicies: string[];
+  blockingPolicies: string[];
+  messages: string[];
+}
+
+export interface AppAccessDenial {
+  domain?: string;
+  messages: string[];
 }
 
 export interface PurgeLocalRpTicketsRequest {
@@ -1679,6 +1752,7 @@ export interface BrowserActAsInspectResponse {
   maxLifetimeSeconds: number;
   defaultRenewalWindowSeconds: number;
   maxRenewalWindowSeconds: number;
+  accessDenied?: AppAccessDenial;
 }
 
 export interface BrowserActAsCompleteRequest {

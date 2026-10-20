@@ -372,14 +372,15 @@ type Relation struct {
 
 // AdminUser represents a structured data type
 type AdminUser struct {
-	Id          string  `json:"id" yaml:"id"`
-	Username    string  `json:"username" yaml:"username"`
-	DisplayName string  `json:"display_name" yaml:"display_name"`
-	IsActive    bool    `json:"is_active" yaml:"is_active"`
-	CreatedAt   string  `json:"created_at" yaml:"created_at"`
-	UpdatedAt   string  `json:"updated_at" yaml:"updated_at"`
-	PurgedAt    *string `json:"purged_at,omitempty" yaml:"purged_at,omitempty"`
-	PurgeReason *string `json:"purge_reason,omitempty" yaml:"purge_reason,omitempty"`
+	Id             string  `json:"id" yaml:"id"`
+	Username       string  `json:"username" yaml:"username"`
+	DisplayName    string  `json:"display_name" yaml:"display_name"`
+	IsActive       bool    `json:"is_active" yaml:"is_active"`
+	CreatedAt      string  `json:"created_at" yaml:"created_at"`
+	UpdatedAt      string  `json:"updated_at" yaml:"updated_at"`
+	PurgedAt       *string `json:"purged_at,omitempty" yaml:"purged_at,omitempty"`
+	PurgeReason    *string `json:"purge_reason,omitempty" yaml:"purge_reason,omitempty"`
+	PasswordLocked *bool   `json:"password_locked,omitempty" yaml:"password_locked,omitempty"`
 }
 
 // ListUsersRequest represents a structured data type
@@ -1132,6 +1133,7 @@ type BrowserAuthorizationInspectResponse struct {
 	RequestReason    *string               `json:"request_reason,omitempty" yaml:"request_reason,omitempty"`
 	AlreadyConsented *bool                 `json:"already_consented,omitempty" yaml:"already_consented,omitempty"`
 	AuthorizedClaims []string              `json:"authorized_claims,omitempty" yaml:"authorized_claims,omitempty"`
+	AccessDenied     *AppAccessDenial      `json:"access_denied,omitempty" yaml:"access_denied,omitempty"`
 }
 
 // BrowserAuthorizationCompleteRequest represents a structured data type
@@ -1164,6 +1166,7 @@ type BrowserLocalRpInspectResponse struct {
 	RequestReason    *string               `json:"request_reason,omitempty" yaml:"request_reason,omitempty"`
 	AlreadyConsented *bool                 `json:"already_consented,omitempty" yaml:"already_consented,omitempty"`
 	AuthorizedClaims []string              `json:"authorized_claims,omitempty" yaml:"authorized_claims,omitempty"`
+	AccessDenied     *AppAccessDenial      `json:"access_denied,omitempty" yaml:"access_denied,omitempty"`
 }
 
 // BrowserLocalRpCompleteRequest represents a structured data type
@@ -1277,12 +1280,13 @@ type AuthorizeValidateRequest struct {
 
 // AuthorizeValidateResponse represents a structured data type
 type AuthorizeValidateResponse struct {
-	RelyingParty         string   `json:"relying_party" yaml:"relying_party"`
-	CallbackUrl          string   `json:"callback_url" yaml:"callback_url"`
-	RequestedClaims      []string `json:"requested_claims" yaml:"requested_claims"`
-	AlreadyConsented     *bool    `json:"already_consented,omitempty" yaml:"already_consented,omitempty"`
-	AuthorizedClaims     []string `json:"authorized_claims,omitempty" yaml:"authorized_claims,omitempty"`
-	NewlyRequestedClaims []string `json:"newly_requested_claims,omitempty" yaml:"newly_requested_claims,omitempty"`
+	RelyingParty         string           `json:"relying_party" yaml:"relying_party"`
+	CallbackUrl          string           `json:"callback_url" yaml:"callback_url"`
+	RequestedClaims      []string         `json:"requested_claims" yaml:"requested_claims"`
+	AlreadyConsented     *bool            `json:"already_consented,omitempty" yaml:"already_consented,omitempty"`
+	AuthorizedClaims     []string         `json:"authorized_claims,omitempty" yaml:"authorized_claims,omitempty"`
+	NewlyRequestedClaims []string         `json:"newly_requested_claims,omitempty" yaml:"newly_requested_claims,omitempty"`
+	AccessDenied         *AppAccessDenial `json:"access_denied,omitempty" yaml:"access_denied,omitempty"`
 }
 
 // AuthorizeFinalizeRequest represents a structured data type
@@ -1509,6 +1513,87 @@ type SignInPolicy struct {
 // SetSignInPolicyRequest represents a structured data type
 type SetSignInPolicyRequest struct {
 	SignInHours int64 `json:"sign_in_hours" yaml:"sign_in_hours"`
+}
+
+// SetUserPasswordLockRequest represents a structured data type
+type SetUserPasswordLockRequest struct {
+	UserId string `json:"user_id" yaml:"user_id"`
+	Locked bool   `json:"locked" yaml:"locked"`
+}
+
+// SetUserPasswordLockResponse represents a structured data type
+type SetUserPasswordLockResponse struct {
+	User AdminUser `json:"user" yaml:"user"`
+}
+
+// AppAccessTarget represents a structured data type
+type AppAccessTarget struct {
+	Kind          string  `json:"kind" yaml:"kind"`
+	UserId        *string `json:"user_id,omitempty" yaml:"user_id,omitempty"`
+	GroupName     *string `json:"group_name,omitempty" yaml:"group_name,omitempty"`
+	ClaimType     *string `json:"claim_type,omitempty" yaml:"claim_type,omitempty"`
+	ClaimOperator *string `json:"claim_operator,omitempty" yaml:"claim_operator,omitempty"`
+	ClaimValue    *string `json:"claim_value,omitempty" yaml:"claim_value,omitempty"`
+}
+
+// AppAccessPolicy represents a structured data type
+type AppAccessPolicy struct {
+	Id       string            `json:"id" yaml:"id"`
+	Name     string            `json:"name" yaml:"name"`
+	Mode     string            `json:"mode" yaml:"mode"`
+	Patterns []string          `json:"patterns" yaml:"patterns"`
+	Message  *string           `json:"message,omitempty" yaml:"message,omitempty"`
+	Targets  []AppAccessTarget `json:"targets" yaml:"targets"`
+}
+
+// ListAppAccessPoliciesResponse represents a structured data type
+type ListAppAccessPoliciesResponse struct {
+	Policies []AppAccessPolicy `json:"policies" yaml:"policies"`
+}
+
+// SetAppAccessPolicyRequest represents a structured data type
+type SetAppAccessPolicyRequest struct {
+	Id       *string           `json:"id,omitempty" yaml:"id,omitempty"`
+	Name     string            `json:"name" yaml:"name"`
+	Mode     string            `json:"mode" yaml:"mode"`
+	Patterns []string          `json:"patterns" yaml:"patterns"`
+	Message  *string           `json:"message,omitempty" yaml:"message,omitempty"`
+	Targets  []AppAccessTarget `json:"targets" yaml:"targets"`
+}
+
+// SetAppAccessPolicyResponse represents a structured data type
+type SetAppAccessPolicyResponse struct {
+	Policy AppAccessPolicy `json:"policy" yaml:"policy"`
+}
+
+// RemoveAppAccessPolicyRequest represents a structured data type
+type RemoveAppAccessPolicyRequest struct {
+	Id string `json:"id" yaml:"id"`
+}
+
+// RemoveAppAccessPolicyResponse represents a structured data type
+type RemoveAppAccessPolicyResponse struct {
+	Success bool `json:"success" yaml:"success"`
+}
+
+// PreviewAppAccessRequest represents a structured data type
+type PreviewAppAccessRequest struct {
+	UserId string  `json:"user_id" yaml:"user_id"`
+	Domain *string `json:"domain,omitempty" yaml:"domain,omitempty"`
+}
+
+// PreviewAppAccessResponse represents a structured data type
+type PreviewAppAccessResponse struct {
+	Allowed          bool     `json:"allowed" yaml:"allowed"`
+	AppliedPolicies  []string `json:"applied_policies" yaml:"applied_policies"`
+	BlockingPolicies []string `json:"blocking_policies" yaml:"blocking_policies"`
+	Messages         []string `json:"messages" yaml:"messages"`
+}
+
+// AppAccessDenial represents a structured data type
+type AppAccessDenial struct {
+	Domain   *string  `json:"domain,omitempty" yaml:"domain,omitempty"`
+	Messages []string `json:"messages" yaml:"messages"`
 }
 
 // PurgeLocalRpTicketsRequest represents a structured data type
@@ -1963,6 +2048,7 @@ type BrowserActAsInspectResponse struct {
 	MaxLifetimeSeconds          int64                    `json:"max_lifetime_seconds" yaml:"max_lifetime_seconds"`
 	DefaultRenewalWindowSeconds int64                    `json:"default_renewal_window_seconds" yaml:"default_renewal_window_seconds"`
 	MaxRenewalWindowSeconds     int64                    `json:"max_renewal_window_seconds" yaml:"max_renewal_window_seconds"`
+	AccessDenied                *AppAccessDenial         `json:"access_denied,omitempty" yaml:"access_denied,omitempty"`
 }
 
 // BrowserActAsCompleteRequest represents a structured data type

@@ -1145,8 +1145,10 @@ public struct AdminUser: Equatable, Sendable {
     public let purgedAt: String?
     /// wire key: purge_reason
     public let purgeReason: String?
+    /// wire key: password_locked
+    public let passwordLocked: Bool?
 
-    public init(id: String, username: String, displayName: String, isActive: Bool, createdAt: String, updatedAt: String, purgedAt: String? = nil, purgeReason: String? = nil) {
+    public init(id: String, username: String, displayName: String, isActive: Bool, createdAt: String, updatedAt: String, purgedAt: String? = nil, purgeReason: String? = nil, passwordLocked: Bool? = nil) {
         self.id = id
         self.username = username
         self.displayName = displayName
@@ -1155,6 +1157,7 @@ public struct AdminUser: Equatable, Sendable {
         self.updatedAt = updatedAt
         self.purgedAt = purgedAt
         self.purgeReason = purgeReason
+        self.passwordLocked = passwordLocked
     }
 
     /// CBOR wire keys (verbatim) keyed by Swift property name.
@@ -1166,7 +1169,8 @@ public struct AdminUser: Equatable, Sendable {
         "createdAt": "created_at",
         "updatedAt": "updated_at",
         "purgedAt": "purged_at",
-        "purgeReason": "purge_reason"
+        "purgeReason": "purge_reason",
+        "passwordLocked": "password_locked"
     ]
 }
 
@@ -3431,13 +3435,16 @@ public struct BrowserAuthorizationInspectResponse: Equatable, Sendable {
     public let alreadyConsented: Bool?
     /// wire key: authorized_claims
     public let authorizedClaims: [String]?
+    /// wire key: access_denied
+    public let accessDenied: AppAccessDenial?
 
-    public init(relyingParty: String, claims: [BrowserConsentClaim], requestReason: String? = nil, alreadyConsented: Bool? = nil, authorizedClaims: [String]? = nil) {
+    public init(relyingParty: String, claims: [BrowserConsentClaim], requestReason: String? = nil, alreadyConsented: Bool? = nil, authorizedClaims: [String]? = nil, accessDenied: AppAccessDenial? = nil) {
         self.relyingParty = relyingParty
         self.claims = claims
         self.requestReason = requestReason
         self.alreadyConsented = alreadyConsented
         self.authorizedClaims = authorizedClaims
+        self.accessDenied = accessDenied
     }
 
     /// CBOR wire keys (verbatim) keyed by Swift property name.
@@ -3446,7 +3453,8 @@ public struct BrowserAuthorizationInspectResponse: Equatable, Sendable {
         "claims": "claims",
         "requestReason": "request_reason",
         "alreadyConsented": "already_consented",
-        "authorizedClaims": "authorized_claims"
+        "authorizedClaims": "authorized_claims",
+        "accessDenied": "access_denied"
     ]
 }
 
@@ -3528,8 +3536,10 @@ public struct BrowserLocalRpInspectResponse: Equatable, Sendable {
     public let alreadyConsented: Bool?
     /// wire key: authorized_claims
     public let authorizedClaims: [String]?
+    /// wire key: access_denied
+    public let accessDenied: AppAccessDenial?
 
-    public init(admission: String, appName: String, fingerprint: String, callbackHost: String, firstSeenAt: String? = nil, claims: [BrowserConsentClaim], requestReason: String? = nil, alreadyConsented: Bool? = nil, authorizedClaims: [String]? = nil) {
+    public init(admission: String, appName: String, fingerprint: String, callbackHost: String, firstSeenAt: String? = nil, claims: [BrowserConsentClaim], requestReason: String? = nil, alreadyConsented: Bool? = nil, authorizedClaims: [String]? = nil, accessDenied: AppAccessDenial? = nil) {
         self.admission = admission
         self.appName = appName
         self.fingerprint = fingerprint
@@ -3539,6 +3549,7 @@ public struct BrowserLocalRpInspectResponse: Equatable, Sendable {
         self.requestReason = requestReason
         self.alreadyConsented = alreadyConsented
         self.authorizedClaims = authorizedClaims
+        self.accessDenied = accessDenied
     }
 
     /// CBOR wire keys (verbatim) keyed by Swift property name.
@@ -3551,7 +3562,8 @@ public struct BrowserLocalRpInspectResponse: Equatable, Sendable {
         "claims": "claims",
         "requestReason": "request_reason",
         "alreadyConsented": "already_consented",
-        "authorizedClaims": "authorized_claims"
+        "authorizedClaims": "authorized_claims",
+        "accessDenied": "access_denied"
     ]
 }
 
@@ -3912,14 +3924,17 @@ public struct AuthorizeValidateResponse: Equatable, Sendable {
     public let authorizedClaims: [String]?
     /// wire key: newly_requested_claims
     public let newlyRequestedClaims: [String]?
+    /// wire key: access_denied
+    public let accessDenied: AppAccessDenial?
 
-    public init(relyingParty: String, callbackUrl: String, requestedClaims: [String], alreadyConsented: Bool? = nil, authorizedClaims: [String]? = nil, newlyRequestedClaims: [String]? = nil) {
+    public init(relyingParty: String, callbackUrl: String, requestedClaims: [String], alreadyConsented: Bool? = nil, authorizedClaims: [String]? = nil, newlyRequestedClaims: [String]? = nil, accessDenied: AppAccessDenial? = nil) {
         self.relyingParty = relyingParty
         self.callbackUrl = callbackUrl
         self.requestedClaims = requestedClaims
         self.alreadyConsented = alreadyConsented
         self.authorizedClaims = authorizedClaims
         self.newlyRequestedClaims = newlyRequestedClaims
+        self.accessDenied = accessDenied
     }
 
     /// CBOR wire keys (verbatim) keyed by Swift property name.
@@ -3929,7 +3944,8 @@ public struct AuthorizeValidateResponse: Equatable, Sendable {
         "requestedClaims": "requested_claims",
         "alreadyConsented": "already_consented",
         "authorizedClaims": "authorized_claims",
-        "newlyRequestedClaims": "newly_requested_claims"
+        "newlyRequestedClaims": "newly_requested_claims",
+        "accessDenied": "access_denied"
     ]
 }
 
@@ -4651,6 +4667,246 @@ public struct SetSignInPolicyRequest: Equatable, Sendable {
     /// CBOR wire keys (verbatim) keyed by Swift property name.
     public static let wireKeys: [String: String] = [
         "signInHours": "sign_in_hours"
+    ]
+}
+
+/// SetUserPasswordLockRequest is a generated CSIL record type.
+public struct SetUserPasswordLockRequest: Equatable, Sendable {
+    /// wire key: user_id
+    public let userId: String
+    public let locked: Bool
+
+    public init(userId: String, locked: Bool) {
+        self.userId = userId
+        self.locked = locked
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "userId": "user_id",
+        "locked": "locked"
+    ]
+}
+
+/// SetUserPasswordLockResponse is a generated CSIL record type.
+public struct SetUserPasswordLockResponse: Equatable, Sendable {
+    public let user: AdminUser
+
+    public init(user: AdminUser) {
+        self.user = user
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "user": "user"
+    ]
+}
+
+/// AppAccessTarget is a generated CSIL record type.
+public struct AppAccessTarget: Equatable, Sendable {
+    public let kind: String
+    /// wire key: user_id
+    public let userId: String?
+    /// wire key: group_name
+    public let groupName: String?
+    /// wire key: claim_type
+    public let claimType: String?
+    /// wire key: claim_operator
+    public let claimOperator: String?
+    /// wire key: claim_value
+    public let claimValue: String?
+
+    public init(kind: String, userId: String? = nil, groupName: String? = nil, claimType: String? = nil, claimOperator: String? = nil, claimValue: String? = nil) {
+        self.kind = kind
+        self.userId = userId
+        self.groupName = groupName
+        self.claimType = claimType
+        self.claimOperator = claimOperator
+        self.claimValue = claimValue
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "kind": "kind",
+        "userId": "user_id",
+        "groupName": "group_name",
+        "claimType": "claim_type",
+        "claimOperator": "claim_operator",
+        "claimValue": "claim_value"
+    ]
+}
+
+/// AppAccessPolicy is a generated CSIL record type.
+public struct AppAccessPolicy: Equatable, Sendable {
+    public let id: String
+    public let name: String
+    public let mode: String
+    public let patterns: [String]
+    public let message: String?
+    public let targets: [AppAccessTarget]
+
+    public init(id: String, name: String, mode: String, patterns: [String], message: String? = nil, targets: [AppAccessTarget]) {
+        self.id = id
+        self.name = name
+        self.mode = mode
+        self.patterns = patterns
+        self.message = message
+        self.targets = targets
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "id": "id",
+        "name": "name",
+        "mode": "mode",
+        "patterns": "patterns",
+        "message": "message",
+        "targets": "targets"
+    ]
+}
+
+/// ListAppAccessPoliciesResponse is a generated CSIL record type.
+public struct ListAppAccessPoliciesResponse: Equatable, Sendable {
+    public let policies: [AppAccessPolicy]
+
+    public init(policies: [AppAccessPolicy]) {
+        self.policies = policies
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "policies": "policies"
+    ]
+}
+
+/// SetAppAccessPolicyRequest is a generated CSIL record type.
+public struct SetAppAccessPolicyRequest: Equatable, Sendable {
+    public let id: String?
+    public let name: String
+    public let mode: String
+    public let patterns: [String]
+    public let message: String?
+    public let targets: [AppAccessTarget]
+
+    public init(id: String? = nil, name: String, mode: String, patterns: [String], message: String? = nil, targets: [AppAccessTarget]) {
+        self.id = id
+        self.name = name
+        self.mode = mode
+        self.patterns = patterns
+        self.message = message
+        self.targets = targets
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "id": "id",
+        "name": "name",
+        "mode": "mode",
+        "patterns": "patterns",
+        "message": "message",
+        "targets": "targets"
+    ]
+}
+
+/// SetAppAccessPolicyResponse is a generated CSIL record type.
+public struct SetAppAccessPolicyResponse: Equatable, Sendable {
+    public let policy: AppAccessPolicy
+
+    public init(policy: AppAccessPolicy) {
+        self.policy = policy
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "policy": "policy"
+    ]
+}
+
+/// RemoveAppAccessPolicyRequest is a generated CSIL record type.
+public struct RemoveAppAccessPolicyRequest: Equatable, Sendable {
+    public let id: String
+
+    public init(id: String) {
+        self.id = id
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "id": "id"
+    ]
+}
+
+/// RemoveAppAccessPolicyResponse is a generated CSIL record type.
+public struct RemoveAppAccessPolicyResponse: Equatable, Sendable {
+    public let success: Bool
+
+    public init(success: Bool) {
+        self.success = success
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "success": "success"
+    ]
+}
+
+/// PreviewAppAccessRequest is a generated CSIL record type.
+public struct PreviewAppAccessRequest: Equatable, Sendable {
+    /// wire key: user_id
+    public let userId: String
+    public let domain: String?
+
+    public init(userId: String, domain: String? = nil) {
+        self.userId = userId
+        self.domain = domain
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "userId": "user_id",
+        "domain": "domain"
+    ]
+}
+
+/// PreviewAppAccessResponse is a generated CSIL record type.
+public struct PreviewAppAccessResponse: Equatable, Sendable {
+    public let allowed: Bool
+    /// wire key: applied_policies
+    public let appliedPolicies: [String]
+    /// wire key: blocking_policies
+    public let blockingPolicies: [String]
+    public let messages: [String]
+
+    public init(allowed: Bool, appliedPolicies: [String], blockingPolicies: [String], messages: [String]) {
+        self.allowed = allowed
+        self.appliedPolicies = appliedPolicies
+        self.blockingPolicies = blockingPolicies
+        self.messages = messages
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "allowed": "allowed",
+        "appliedPolicies": "applied_policies",
+        "blockingPolicies": "blocking_policies",
+        "messages": "messages"
+    ]
+}
+
+/// AppAccessDenial is a generated CSIL record type.
+public struct AppAccessDenial: Equatable, Sendable {
+    public let domain: String?
+    public let messages: [String]
+
+    public init(domain: String? = nil, messages: [String]) {
+        self.domain = domain
+        self.messages = messages
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "domain": "domain",
+        "messages": "messages"
     ]
 }
 
@@ -6064,8 +6320,10 @@ public struct BrowserActAsInspectResponse: Equatable, Sendable {
     public let defaultRenewalWindowSeconds: Int64
     /// wire key: max_renewal_window_seconds
     public let maxRenewalWindowSeconds: Int64
+    /// wire key: access_denied
+    public let accessDenied: AppAccessDenial?
 
-    public init(grantee: GranteeRef, granteeParty: BrowserActAsParty, audience: ApplicationRef, audienceParty: BrowserActAsParty, entries: [BrowserActAsScopeEntry], language: String? = nil, defaultLifetimeSeconds: Int64, maxLifetimeSeconds: Int64, defaultRenewalWindowSeconds: Int64, maxRenewalWindowSeconds: Int64) {
+    public init(grantee: GranteeRef, granteeParty: BrowserActAsParty, audience: ApplicationRef, audienceParty: BrowserActAsParty, entries: [BrowserActAsScopeEntry], language: String? = nil, defaultLifetimeSeconds: Int64, maxLifetimeSeconds: Int64, defaultRenewalWindowSeconds: Int64, maxRenewalWindowSeconds: Int64, accessDenied: AppAccessDenial? = nil) {
         self.grantee = grantee
         self.granteeParty = granteeParty
         self.audience = audience
@@ -6076,6 +6334,7 @@ public struct BrowserActAsInspectResponse: Equatable, Sendable {
         self.maxLifetimeSeconds = maxLifetimeSeconds
         self.defaultRenewalWindowSeconds = defaultRenewalWindowSeconds
         self.maxRenewalWindowSeconds = maxRenewalWindowSeconds
+        self.accessDenied = accessDenied
     }
 
     /// CBOR wire keys (verbatim) keyed by Swift property name.
@@ -6089,7 +6348,8 @@ public struct BrowserActAsInspectResponse: Equatable, Sendable {
         "defaultLifetimeSeconds": "default_lifetime_seconds",
         "maxLifetimeSeconds": "max_lifetime_seconds",
         "defaultRenewalWindowSeconds": "default_renewal_window_seconds",
-        "maxRenewalWindowSeconds": "max_renewal_window_seconds"
+        "maxRenewalWindowSeconds": "max_renewal_window_seconds",
+        "accessDenied": "access_denied"
     ]
 }
 

@@ -477,6 +477,31 @@ module Admin = struct
     match c.call ~service:"Admin" ~op:"set-sign-in-policy" ~payload:(Codec.encode_set_sign_in_policy_request_bytes req) with
     | Ok payload -> Ok (Codec.decode_sign_in_policy_bytes payload)
     | Error _ as e -> e
+
+  let set_user_password_lock (c : client) (req : set_user_password_lock_request) : (set_user_password_lock_response, string) result =
+    match c.call ~service:"Admin" ~op:"set-user-password-lock" ~payload:(Codec.encode_set_user_password_lock_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_set_user_password_lock_response_bytes payload)
+    | Error _ as e -> e
+
+  let list_app_access_policies (c : client) (req : empty_request) : (list_app_access_policies_response, string) result =
+    match c.call ~service:"Admin" ~op:"list-app-access-policies" ~payload:(Codec.encode_empty_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_list_app_access_policies_response_bytes payload)
+    | Error _ as e -> e
+
+  let set_app_access_policy (c : client) (req : set_app_access_policy_request) : (set_app_access_policy_response, string) result =
+    match c.call ~service:"Admin" ~op:"set-app-access-policy" ~payload:(Codec.encode_set_app_access_policy_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_set_app_access_policy_response_bytes payload)
+    | Error _ as e -> e
+
+  let remove_app_access_policy (c : client) (req : remove_app_access_policy_request) : (remove_app_access_policy_response, string) result =
+    match c.call ~service:"Admin" ~op:"remove-app-access-policy" ~payload:(Codec.encode_remove_app_access_policy_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_remove_app_access_policy_response_bytes payload)
+    | Error _ as e -> e
+
+  let preview_app_access (c : client) (req : preview_app_access_request) : (preview_app_access_response, string) result =
+    match c.call ~service:"Admin" ~op:"preview-app-access" ~payload:(Codec.encode_preview_app_access_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_preview_app_access_response_bytes payload)
+    | Error _ as e -> e
 end
 
 module Account = struct
