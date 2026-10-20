@@ -3,9 +3,7 @@
 use base64ct::{Base64UrlUnpadded, Encoding};
 use chrono::{DateTime, Utc};
 use liblinkkeys::generated::services::ServiceError;
-use liblinkkeys::generated::types::{
-    AdminUser, BrowserSessionInfo, IntrospectBrowserSessionResponse,
-};
+use liblinkkeys::generated::types::{BrowserSessionInfo, IntrospectBrowserSessionResponse};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 
@@ -214,16 +212,7 @@ pub fn info(
         .map(|value| value.to_rfc3339())
         .unwrap_or_else(|| session.expires_at.clone());
     Ok(BrowserSessionInfo {
-        user: AdminUser {
-            id: user.id,
-            username: user.username,
-            display_name: user.display_name,
-            is_active: user.is_active,
-            created_at: user.created_at,
-            updated_at: user.updated_at,
-            purged_at: user.purged_at,
-            purge_reason: user.purge_reason,
-        },
+        user: crate::services::admin::user_to_admin_user(&user),
         issued_at: session.issued_at.clone(),
         authenticated_at: session.authenticated_at.clone(),
         expires_at: effective_expires,

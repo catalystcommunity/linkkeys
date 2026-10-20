@@ -259,6 +259,11 @@ const SNAPSHOT_TABLES: &[&str] = &[
     // Act-as grants: the user's signed decisions and revocations. A restore
     // without them would silently cancel every grant.
     "act_as_grants",
+    // App access policies: a restore without them would lift every sign-in
+    // restriction.
+    "app_access_policies",
+    "app_access_policy_patterns",
+    "app_access_policy_targets",
 ];
 
 #[cfg(feature = "sqlite")]
@@ -296,7 +301,7 @@ mod sqlite_backend {
     backup_row!(UserRow => users {
         id: String, username: String, display_name: String, is_active: i32,
         created_at: String, updated_at: String, is_admin_account: i32,
-        purged_at: Option<String>, purge_reason: Option<String>,
+        purged_at: Option<String>, purge_reason: Option<String>, password_locked: i32,
     });
     backup_row!(AuthCredentialRow => auth_credentials {
         id: String, user_id: String, credential_type: String, credential_hash: String,
@@ -451,6 +456,18 @@ mod sqlite_backend {
         issued_at: String, expires_at: String, revoked_at: Option<String>,
         signed_revocation: Option<Vec<u8>>, created_at: String, updated_at: String,
     });
+    backup_row!(AppAccessPolicyBackupRow => app_access_policies {
+        id: String, name: String, mode: String, message: Option<String>, created_at: String,
+        updated_at: String,
+    });
+    backup_row!(AppAccessPatternBackupRow => app_access_policy_patterns {
+        policy_id: String, pattern: String,
+    });
+    backup_row!(AppAccessTargetBackupRow => app_access_policy_targets {
+        id: String, policy_id: String, kind: String, user_id: Option<String>,
+        group_name: Option<String>, claim_type: Option<String>, claim_operator: Option<String>,
+        claim_value: Option<String>, created_at: String,
+    });
     backup_row!(LocalRpClaimTicketBackupRow => local_rp_claim_tickets {
         ticket_hash: String, fingerprint: String, user_id: String, user_domain: String,
         granted_claims: String, issued_at: String, expires_at: String,
@@ -499,6 +516,9 @@ mod sqlite_backend {
             $op!("local_rps", local_rps, LocalRpBackupRow, $($arg)*);
             $op!("local_rp_claim_tickets", local_rp_claim_tickets, LocalRpClaimTicketBackupRow, $($arg)*);
             $op!("act_as_grants", act_as_grants, ActAsGrantBackupRow, $($arg)*);
+            $op!("app_access_policies", app_access_policies, AppAccessPolicyBackupRow, $($arg)*);
+            $op!("app_access_policy_patterns", app_access_policy_patterns, AppAccessPatternBackupRow, $($arg)*);
+            $op!("app_access_policy_targets", app_access_policy_targets, AppAccessTargetBackupRow, $($arg)*);
         };
     }
 

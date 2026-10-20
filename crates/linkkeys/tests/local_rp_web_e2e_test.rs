@@ -13,7 +13,8 @@
 mod common;
 
 use common::data_factory::{
-    create_auth_credential, create_local_rp_with_signing_key, create_user, DataMap,
+    create_app_access_policy, create_auth_credential, create_local_rp_with_signing_key,
+    create_user, DataMap,
 };
 use csilgen_transport::rpc::{RpcRequest, RpcResponse};
 use csilgen_transport::Status as RpcStatus;
@@ -628,6 +629,70 @@ async fn disabled_policy_between_consent_render_and_submit_rejected() {
         .await,
         "policy_disabled",
     );
+}
+
+// ---------------------------------------------------------------------
+// App access policies
+// ---------------------------------------------------------------------
+
+#[rocket::async_test]
+async fn allow_list_policy_blocks_local_apps_but_deny_list_does_not() {
+    let pool = setup();
+    let user = seed_idp_and_user(&pool);
+    let fx = default_fixture("http://127.0.0.1:9999/callback");
+    approve(&pool, &fx, "Test Jukebox");
+    let client = build_client(&pool).await;
+    sign_in(&client, &user).await;
+
+    // A local app has no domain, so a deny list never matches it.
+    let mut deny_all = DataMap::new();
+    deny_all.insert("patterns".to_string(), serde_json::json!(["*"]));
+    create_app_access_policy(&pool, &deny_all);
+    assert_eq!(
+        inspected(&inspect(&client, &fx.signed_request).await).admission,
+        "consent"
+    );
+
+    // An allow list blocks it: no allow pattern can match it.
+    let mut allow_only = DataMap::new();
+    allow_only.insert("mode".to_string(), serde_json::json!("allow"));
+    allow_only.insert("patterns".to_string(), serde_json::json!(["only.example"]));
+    allow_only.insert("message".to_string(), serde_json::json!("Demo account."));
+    allow_only.insert(
+        "targets".to_string(),
+        serde_json::json!([{ "kind": "user", "user_id": user.id }]),
+    );
+    create_app_access_policy(&pool, &allow_only);
+    let screen = inspected(&inspect(&client, &fx.signed_request).await);
+    assert_eq!(screen.admission, "blocked");
+    let denial = screen.access_denied.expect("the denial");
+    assert_eq!(denial.domain, None);
+    assert_eq!(denial.messages, vec!["Demo account.".to_string()]);
+    assert!(screen.claims.is_empty());
+
+    let refused = complete(
+        &client,
+        &fx.signed_request,
+        &["display_name", "email", "handle"],
+        false,
+    )
+    .await;
+    assert_eq!(refused.status, RpcStatus::Forbidden);
+    assert!(
+        refused
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("Demo account."),
+        "{:?}",
+        refused.error
+    );
+
+    // A blocked account does not register an unknown app.
+    let unknown = default_fixture("http://127.0.0.1:9998/callback");
+    let screen = inspected(&inspect(&client, &unknown.signed_request).await);
+    assert_eq!(screen.admission, "blocked");
+    assert!(pool.find_local_rp(&unknown.fingerprint).unwrap().is_none());
 }
 
 // ---------------------------------------------------------------------

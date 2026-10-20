@@ -737,7 +737,9 @@ data class AdminUser(
     // wire key: purged_at
     val purgedAt: String? = null,
     // wire key: purge_reason
-    val purgeReason: String? = null
+    val purgeReason: String? = null,
+    // wire key: password_locked
+    val passwordLocked: Boolean? = null
 )
 
 /** ListUsersRequest record. */
@@ -1686,7 +1688,9 @@ data class BrowserAuthorizationInspectResponse(
     // wire key: already_consented
     val alreadyConsented: Boolean? = null,
     // wire key: authorized_claims
-    val authorizedClaims: List<String>? = null
+    val authorizedClaims: List<String>? = null,
+    // wire key: access_denied
+    val accessDenied: AppAccessDenial? = null
 )
 
 /** BrowserAuthorizationCompleteRequest record. */
@@ -1731,7 +1735,9 @@ data class BrowserLocalRpInspectResponse(
     // wire key: already_consented
     val alreadyConsented: Boolean? = null,
     // wire key: authorized_claims
-    val authorizedClaims: List<String>? = null
+    val authorizedClaims: List<String>? = null,
+    // wire key: access_denied
+    val accessDenied: AppAccessDenial? = null
 )
 
 /** BrowserLocalRpCompleteRequest record. */
@@ -1904,7 +1910,9 @@ data class AuthorizeValidateResponse(
     // wire key: authorized_claims
     val authorizedClaims: List<String>? = null,
     // wire key: newly_requested_claims
-    val newlyRequestedClaims: List<String>? = null
+    val newlyRequestedClaims: List<String>? = null,
+    // wire key: access_denied
+    val accessDenied: AppAccessDenial? = null
 )
 
 /** AuthorizeFinalizeRequest record. */
@@ -2417,6 +2425,96 @@ data class SignInPolicy(
 data class SetSignInPolicyRequest(
     // wire key: sign_in_hours
     val signInHours: Long
+)
+
+/** SetUserPasswordLockRequest record. */
+data class SetUserPasswordLockRequest(
+    // wire key: user_id
+    val userId: String,
+    val locked: Boolean
+)
+
+/** SetUserPasswordLockResponse record. */
+data class SetUserPasswordLockResponse(
+    val user: AdminUser
+)
+
+/** AppAccessTarget record. */
+data class AppAccessTarget(
+    val kind: String,
+    // wire key: user_id
+    val userId: String? = null,
+    // wire key: group_name
+    val groupName: String? = null,
+    // wire key: claim_type
+    val claimType: String? = null,
+    // wire key: claim_operator
+    val claimOperator: String? = null,
+    // wire key: claim_value
+    val claimValue: String? = null
+)
+
+/** AppAccessPolicy record. */
+data class AppAccessPolicy(
+    val id: String,
+    val name: String,
+    val mode: String,
+    val patterns: List<String>,
+    val message: String? = null,
+    val targets: List<AppAccessTarget>
+)
+
+/** ListAppAccessPoliciesResponse record. */
+data class ListAppAccessPoliciesResponse(
+    val policies: List<AppAccessPolicy>
+)
+
+/** SetAppAccessPolicyRequest record. */
+data class SetAppAccessPolicyRequest(
+    val id: String? = null,
+    val name: String,
+    val mode: String,
+    val patterns: List<String>,
+    val message: String? = null,
+    val targets: List<AppAccessTarget>
+)
+
+/** SetAppAccessPolicyResponse record. */
+data class SetAppAccessPolicyResponse(
+    val policy: AppAccessPolicy
+)
+
+/** RemoveAppAccessPolicyRequest record. */
+data class RemoveAppAccessPolicyRequest(
+    val id: String
+)
+
+/** RemoveAppAccessPolicyResponse record. */
+data class RemoveAppAccessPolicyResponse(
+    val success: Boolean
+)
+
+/** PreviewAppAccessRequest record. */
+data class PreviewAppAccessRequest(
+    // wire key: user_id
+    val userId: String,
+    val domain: String? = null
+)
+
+/** PreviewAppAccessResponse record. */
+data class PreviewAppAccessResponse(
+    val allowed: Boolean,
+    // wire key: applied_policies
+    val appliedPolicies: List<String>,
+    // wire key: blocking_policies
+    val blockingPolicies: List<String>,
+    val messages: List<String>
+)
+
+/** AppAccessDenial record. */
+data class AppAccessDenial(
+    val domain: String? = null,
+    val messages: List<String>
 )
 
 /** PurgeLocalRpTicketsRequest record. */
@@ -3324,7 +3422,9 @@ data class BrowserActAsInspectResponse(
     // wire key: default_renewal_window_seconds
     val defaultRenewalWindowSeconds: Long,
     // wire key: max_renewal_window_seconds
-    val maxRenewalWindowSeconds: Long
+    val maxRenewalWindowSeconds: Long,
+    // wire key: access_denied
+    val accessDenied: AppAccessDenial? = null
 )
 
 /** BrowserActAsCompleteRequest record. */

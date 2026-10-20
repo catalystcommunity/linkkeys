@@ -10,6 +10,7 @@ public record AuthorizeValidateResponse(
     List<String> requestedClaims /* wire: "requested_claims" */,
     Boolean alreadyConsented /* wire: "already_consented" */,
     List<String> authorizedClaims /* wire: "authorized_claims" */,
-    List<String> newlyRequestedClaims /* wire: "newly_requested_claims" */
+    List<String> newlyRequestedClaims /* wire: "newly_requested_claims" */,
+    AppAccessDenial accessDenied /* wire: "access_denied" */
 ) {
 }

@@ -17,6 +17,7 @@ import {
   currentPasswordMessage,
   hasBlockedRequiredClaim,
   hasNewlyRequestedClaim,
+  patternList,
   inputType,
   loginFailureMessage,
   passwordLengthError,
@@ -61,6 +62,11 @@ describe("browser UI decisions", () => {
     expect(hasNewlyRequestedClaim([claim({}), claim({ newlyRequested: true })])).toBe(true);
     expect(hasNewlyRequestedClaim([claim({}), claim({ newlyRequested: false })])).toBe(false);
     expect(hasNewlyRequestedClaim([])).toBe(false);
+  });
+
+  it("reads domain patterns from lines, commas, and spaces", () => {
+    expect(patternList(" *.ru,\nshop.example  demo.example\n\n")).toEqual(["*.ru", "shop.example", "demo.example"]);
+    expect(patternList("  ")).toEqual([]);
   });
 
   it("uses a standing grant only after the first claim disclosure", () => {

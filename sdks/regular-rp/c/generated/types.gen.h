@@ -254,6 +254,18 @@ typedef struct SetLocalRpPolicyRequest SetLocalRpPolicyRequest;
 typedef struct SetLocalRpPolicyResponse SetLocalRpPolicyResponse;
 typedef struct SignInPolicy SignInPolicy;
 typedef struct SetSignInPolicyRequest SetSignInPolicyRequest;
+typedef struct SetUserPasswordLockRequest SetUserPasswordLockRequest;
+typedef struct SetUserPasswordLockResponse SetUserPasswordLockResponse;
+typedef struct AppAccessTarget AppAccessTarget;
+typedef struct AppAccessPolicy AppAccessPolicy;
+typedef struct ListAppAccessPoliciesResponse ListAppAccessPoliciesResponse;
+typedef struct SetAppAccessPolicyRequest SetAppAccessPolicyRequest;
+typedef struct SetAppAccessPolicyResponse SetAppAccessPolicyResponse;
+typedef struct RemoveAppAccessPolicyRequest RemoveAppAccessPolicyRequest;
+typedef struct RemoveAppAccessPolicyResponse RemoveAppAccessPolicyResponse;
+typedef struct PreviewAppAccessRequest PreviewAppAccessRequest;
+typedef struct PreviewAppAccessResponse PreviewAppAccessResponse;
+typedef struct AppAccessDenial AppAccessDenial;
 typedef struct PurgeLocalRpTicketsRequest PurgeLocalRpTicketsRequest;
 typedef struct PurgeLocalRpTicketsResponse PurgeLocalRpTicketsResponse;
 typedef struct LocaleMessages LocaleMessages;
@@ -750,6 +762,7 @@ typedef struct AdminUser {
     char *updated_at;
     char *purged_at;
     char *purge_reason;
+    bool *password_locked;
 } AdminUser;
 
 /* ListUsersRequest is a structured data type. */
@@ -1525,6 +1538,7 @@ typedef struct BrowserAuthorizationInspectResponse {
     bool *already_consented;
     char **authorized_claims;
     size_t authorized_claims_count;
+    AppAccessDenial *access_denied;
 } BrowserAuthorizationInspectResponse;
 
 /* BrowserAuthorizationCompleteRequest is a structured data type. */
@@ -1562,6 +1576,7 @@ typedef struct BrowserLocalRpInspectResponse {
     bool *already_consented;
     char **authorized_claims;
     size_t authorized_claims_count;
+    AppAccessDenial *access_denied;
 } BrowserLocalRpInspectResponse;
 
 /* BrowserLocalRpCompleteRequest is a structured data type. */
@@ -1689,6 +1704,7 @@ typedef struct AuthorizeValidateResponse {
     size_t authorized_claims_count;
     char **newly_requested_claims;
     size_t newly_requested_claims_count;
+    AppAccessDenial *access_denied;
 } AuthorizeValidateResponse;
 
 /* AuthorizeFinalizeRequest is a structured data type. */
@@ -1913,6 +1929,96 @@ typedef struct SignInPolicy {
 typedef struct SetSignInPolicyRequest {
     int64_t sign_in_hours;
 } SetSignInPolicyRequest;
+
+/* SetUserPasswordLockRequest is a structured data type. */
+typedef struct SetUserPasswordLockRequest {
+    char *user_id;
+    bool locked;
+} SetUserPasswordLockRequest;
+
+/* SetUserPasswordLockResponse is a structured data type. */
+typedef struct SetUserPasswordLockResponse {
+    AdminUser user;
+} SetUserPasswordLockResponse;
+
+/* AppAccessTarget is a structured data type. */
+typedef struct AppAccessTarget {
+    char *kind;
+    char *user_id;
+    char *group_name;
+    char *claim_type;
+    char *claim_operator;
+    char *claim_value;
+} AppAccessTarget;
+
+/* AppAccessPolicy is a structured data type. */
+typedef struct AppAccessPolicy {
+    char *id;
+    char *name;
+    char *mode;
+    char **patterns;
+    size_t patterns_count;
+    char *message;
+    AppAccessTarget *targets;
+    size_t targets_count;
+} AppAccessPolicy;
+
+/* ListAppAccessPoliciesResponse is a structured data type. */
+typedef struct ListAppAccessPoliciesResponse {
+    AppAccessPolicy *policies;
+    size_t policies_count;
+} ListAppAccessPoliciesResponse;
+
+/* SetAppAccessPolicyRequest is a structured data type. */
+typedef struct SetAppAccessPolicyRequest {
+    char *id;
+    char *name;
+    char *mode;
+    char **patterns;
+    size_t patterns_count;
+    char *message;
+    AppAccessTarget *targets;
+    size_t targets_count;
+} SetAppAccessPolicyRequest;
+
+/* SetAppAccessPolicyResponse is a structured data type. */
+typedef struct SetAppAccessPolicyResponse {
+    AppAccessPolicy policy;
+} SetAppAccessPolicyResponse;
+
+/* RemoveAppAccessPolicyRequest is a structured data type. */
+typedef struct RemoveAppAccessPolicyRequest {
+    char *id;
+} RemoveAppAccessPolicyRequest;
+
+/* RemoveAppAccessPolicyResponse is a structured data type. */
+typedef struct RemoveAppAccessPolicyResponse {
+    bool success;
+} RemoveAppAccessPolicyResponse;
+
+/* PreviewAppAccessRequest is a structured data type. */
+typedef struct PreviewAppAccessRequest {
+    char *user_id;
+    char *domain;
+} PreviewAppAccessRequest;
+
+/* PreviewAppAccessResponse is a structured data type. */
+typedef struct PreviewAppAccessResponse {
+    bool allowed;
+    char **applied_policies;
+    size_t applied_policies_count;
+    char **blocking_policies;
+    size_t blocking_policies_count;
+    char **messages;
+    size_t messages_count;
+} PreviewAppAccessResponse;
+
+/* AppAccessDenial is a structured data type. */
+typedef struct AppAccessDenial {
+    char *domain;
+    char **messages;
+    size_t messages_count;
+} AppAccessDenial;
 
 /* PurgeLocalRpTicketsRequest is a structured data type. */
 typedef struct PurgeLocalRpTicketsRequest {
@@ -2397,6 +2503,7 @@ typedef struct BrowserActAsInspectResponse {
     int64_t max_lifetime_seconds;
     int64_t default_renewal_window_seconds;
     int64_t max_renewal_window_seconds;
+    AppAccessDenial *access_denied;
 } BrowserActAsInspectResponse;
 
 /* BrowserActAsCompleteRequest is a structured data type. */

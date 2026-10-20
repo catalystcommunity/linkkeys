@@ -1,4 +1,5 @@
 pub mod act_as;
+pub mod app_access;
 pub mod application_keys;
 pub mod assertions;
 pub mod auth_request;

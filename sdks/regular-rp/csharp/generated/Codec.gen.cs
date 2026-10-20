@@ -572,6 +572,18 @@ public static class Codec
         SetLocalRpPolicyResponse csilTyped => SetLocalRpPolicyResponseToCborValue(csilTyped),
         SignInPolicy csilTyped => SignInPolicyToCborValue(csilTyped),
         SetSignInPolicyRequest csilTyped => SetSignInPolicyRequestToCborValue(csilTyped),
+        SetUserPasswordLockRequest csilTyped => SetUserPasswordLockRequestToCborValue(csilTyped),
+        SetUserPasswordLockResponse csilTyped => SetUserPasswordLockResponseToCborValue(csilTyped),
+        AppAccessTarget csilTyped => AppAccessTargetToCborValue(csilTyped),
+        AppAccessPolicy csilTyped => AppAccessPolicyToCborValue(csilTyped),
+        ListAppAccessPoliciesResponse csilTyped => ListAppAccessPoliciesResponseToCborValue(csilTyped),
+        SetAppAccessPolicyRequest csilTyped => SetAppAccessPolicyRequestToCborValue(csilTyped),
+        SetAppAccessPolicyResponse csilTyped => SetAppAccessPolicyResponseToCborValue(csilTyped),
+        RemoveAppAccessPolicyRequest csilTyped => RemoveAppAccessPolicyRequestToCborValue(csilTyped),
+        RemoveAppAccessPolicyResponse csilTyped => RemoveAppAccessPolicyResponseToCborValue(csilTyped),
+        PreviewAppAccessRequest csilTyped => PreviewAppAccessRequestToCborValue(csilTyped),
+        PreviewAppAccessResponse csilTyped => PreviewAppAccessResponseToCborValue(csilTyped),
+        AppAccessDenial csilTyped => AppAccessDenialToCborValue(csilTyped),
         PurgeLocalRpTicketsRequest csilTyped => PurgeLocalRpTicketsRequestToCborValue(csilTyped),
         PurgeLocalRpTicketsResponse csilTyped => PurgeLocalRpTicketsResponseToCborValue(csilTyped),
         TranslationsRequest csilTyped => TranslationsRequestToCborValue(csilTyped),
@@ -877,6 +889,18 @@ public static class Codec
         if (csilType == typeof(SetLocalRpPolicyResponse)) return SetLocalRpPolicyResponseFromCborValue(value);
         if (csilType == typeof(SignInPolicy)) return SignInPolicyFromCborValue(value);
         if (csilType == typeof(SetSignInPolicyRequest)) return SetSignInPolicyRequestFromCborValue(value);
+        if (csilType == typeof(SetUserPasswordLockRequest)) return SetUserPasswordLockRequestFromCborValue(value);
+        if (csilType == typeof(SetUserPasswordLockResponse)) return SetUserPasswordLockResponseFromCborValue(value);
+        if (csilType == typeof(AppAccessTarget)) return AppAccessTargetFromCborValue(value);
+        if (csilType == typeof(AppAccessPolicy)) return AppAccessPolicyFromCborValue(value);
+        if (csilType == typeof(ListAppAccessPoliciesResponse)) return ListAppAccessPoliciesResponseFromCborValue(value);
+        if (csilType == typeof(SetAppAccessPolicyRequest)) return SetAppAccessPolicyRequestFromCborValue(value);
+        if (csilType == typeof(SetAppAccessPolicyResponse)) return SetAppAccessPolicyResponseFromCborValue(value);
+        if (csilType == typeof(RemoveAppAccessPolicyRequest)) return RemoveAppAccessPolicyRequestFromCborValue(value);
+        if (csilType == typeof(RemoveAppAccessPolicyResponse)) return RemoveAppAccessPolicyResponseFromCborValue(value);
+        if (csilType == typeof(PreviewAppAccessRequest)) return PreviewAppAccessRequestFromCborValue(value);
+        if (csilType == typeof(PreviewAppAccessResponse)) return PreviewAppAccessResponseFromCborValue(value);
+        if (csilType == typeof(AppAccessDenial)) return AppAccessDenialFromCborValue(value);
         if (csilType == typeof(PurgeLocalRpTicketsRequest)) return PurgeLocalRpTicketsRequestFromCborValue(value);
         if (csilType == typeof(PurgeLocalRpTicketsResponse)) return PurgeLocalRpTicketsResponseFromCborValue(value);
         if (csilType == typeof(TranslationsRequest)) return TranslationsRequestFromCborValue(value);
@@ -2310,6 +2334,10 @@ public static class Codec
         {
             csilEntries.Add((new CborValue.Text("purge_reason"), new CborValue.Text(csilV7)));
         }
+        if (value.PasswordLocked is { } csilV8)
+        {
+            csilEntries.Add((new CborValue.Text("password_locked"), new CborValue.Bool(csilV8)));
+        }
         return new CborValue.Map(csilEntries);
     }
 
@@ -2324,6 +2352,7 @@ public static class Codec
         var csilField5 = Cbor.AsText(Cbor.Require(value, "updated_at"));
         string? csilField6 = Cbor.MapGet(value, "purged_at") is { } csilRaw6 ? Cbor.AsText(csilRaw6) : null;
         string? csilField7 = Cbor.MapGet(value, "purge_reason") is { } csilRaw7 ? Cbor.AsText(csilRaw7) : null;
+        bool? csilField8 = Cbor.MapGet(value, "password_locked") is { } csilRaw8 ? Cbor.AsBool(csilRaw8) : null;
         return new AdminUser
         {
             Id = csilField0,
@@ -2334,6 +2363,7 @@ public static class Codec
             UpdatedAt = csilField5,
             PurgedAt = csilField6,
             PurgeReason = csilField7,
+            PasswordLocked = csilField8,
         };
     }
 
@@ -5009,18 +5039,22 @@ public static class Codec
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("claims"), new CborValue.Array(value.Claims.Select(csilElem => (CborValue)BrowserConsentClaimToCborValue(csilElem)).ToList())));
+        if (value.AccessDenied is { } csilV1)
+        {
+            csilEntries.Add((new CborValue.Text("access_denied"), AppAccessDenialToCborValue(csilV1)));
+        }
         csilEntries.Add((new CborValue.Text("relying_party"), new CborValue.Text(value.RelyingParty)));
-        if (value.RequestReason is { } csilV2)
+        if (value.RequestReason is { } csilV3)
         {
-            csilEntries.Add((new CborValue.Text("request_reason"), new CborValue.Text(csilV2)));
+            csilEntries.Add((new CborValue.Text("request_reason"), new CborValue.Text(csilV3)));
         }
-        if (value.AlreadyConsented is { } csilV3)
+        if (value.AlreadyConsented is { } csilV4)
         {
-            csilEntries.Add((new CborValue.Text("already_consented"), new CborValue.Bool(csilV3)));
+            csilEntries.Add((new CborValue.Text("already_consented"), new CborValue.Bool(csilV4)));
         }
-        if (value.AuthorizedClaims is { } csilV4)
+        if (value.AuthorizedClaims is { } csilV5)
         {
-            csilEntries.Add((new CborValue.Text("authorized_claims"), new CborValue.Array(csilV4.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+            csilEntries.Add((new CborValue.Text("authorized_claims"), new CborValue.Array(csilV5.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
         }
         return new CborValue.Map(csilEntries);
     }
@@ -5033,6 +5067,7 @@ public static class Codec
         string? csilField2 = Cbor.MapGet(value, "request_reason") is { } csilRaw2 ? Cbor.AsText(csilRaw2) : null;
         bool? csilField3 = Cbor.MapGet(value, "already_consented") is { } csilRaw3 ? Cbor.AsBool(csilRaw3) : null;
         System.Collections.Generic.List<string>? csilField4 = Cbor.MapGet(value, "authorized_claims") is { } csilRaw4 ? Cbor.AsArray(csilRaw4).Select(csilElem => Cbor.AsText(csilElem)).ToList() : null;
+        AppAccessDenial? csilField5 = Cbor.MapGet(value, "access_denied") is { } csilRaw5 ? AppAccessDenialFromCborValue(csilRaw5) : null;
         return new BrowserAuthorizationInspectResponse
         {
             RelyingParty = csilField0,
@@ -5040,6 +5075,7 @@ public static class Codec
             RequestReason = csilField2,
             AlreadyConsented = csilField3,
             AuthorizedClaims = csilField4,
+            AccessDenied = csilField5,
         };
     }
 
@@ -5120,22 +5156,26 @@ public static class Codec
         csilEntries.Add((new CborValue.Text("app_name"), new CborValue.Text(value.AppName)));
         csilEntries.Add((new CborValue.Text("admission"), new CborValue.Text(value.Admission)));
         csilEntries.Add((new CborValue.Text("fingerprint"), new CborValue.Text(value.Fingerprint)));
+        if (value.AccessDenied is { } csilV4)
+        {
+            csilEntries.Add((new CborValue.Text("access_denied"), AppAccessDenialToCborValue(csilV4)));
+        }
         csilEntries.Add((new CborValue.Text("callback_host"), new CborValue.Text(value.CallbackHost)));
-        if (value.FirstSeenAt is { } csilV5)
+        if (value.FirstSeenAt is { } csilV6)
         {
-            csilEntries.Add((new CborValue.Text("first_seen_at"), new CborValue.Text(csilV5)));
+            csilEntries.Add((new CborValue.Text("first_seen_at"), new CborValue.Text(csilV6)));
         }
-        if (value.RequestReason is { } csilV6)
+        if (value.RequestReason is { } csilV7)
         {
-            csilEntries.Add((new CborValue.Text("request_reason"), new CborValue.Text(csilV6)));
+            csilEntries.Add((new CborValue.Text("request_reason"), new CborValue.Text(csilV7)));
         }
-        if (value.AlreadyConsented is { } csilV7)
+        if (value.AlreadyConsented is { } csilV8)
         {
-            csilEntries.Add((new CborValue.Text("already_consented"), new CborValue.Bool(csilV7)));
+            csilEntries.Add((new CborValue.Text("already_consented"), new CborValue.Bool(csilV8)));
         }
-        if (value.AuthorizedClaims is { } csilV8)
+        if (value.AuthorizedClaims is { } csilV9)
         {
-            csilEntries.Add((new CborValue.Text("authorized_claims"), new CborValue.Array(csilV8.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+            csilEntries.Add((new CborValue.Text("authorized_claims"), new CborValue.Array(csilV9.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
         }
         return new CborValue.Map(csilEntries);
     }
@@ -5152,6 +5192,7 @@ public static class Codec
         string? csilField6 = Cbor.MapGet(value, "request_reason") is { } csilRaw6 ? Cbor.AsText(csilRaw6) : null;
         bool? csilField7 = Cbor.MapGet(value, "already_consented") is { } csilRaw7 ? Cbor.AsBool(csilRaw7) : null;
         System.Collections.Generic.List<string>? csilField8 = Cbor.MapGet(value, "authorized_claims") is { } csilRaw8 ? Cbor.AsArray(csilRaw8).Select(csilElem => Cbor.AsText(csilElem)).ToList() : null;
+        AppAccessDenial? csilField9 = Cbor.MapGet(value, "access_denied") is { } csilRaw9 ? AppAccessDenialFromCborValue(csilRaw9) : null;
         return new BrowserLocalRpInspectResponse
         {
             Admission = csilField0,
@@ -5163,6 +5204,7 @@ public static class Codec
             RequestReason = csilField6,
             AlreadyConsented = csilField7,
             AuthorizedClaims = csilField8,
+            AccessDenied = csilField9,
         };
     }
 
@@ -5585,19 +5627,23 @@ public static class Codec
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("callback_url"), new CborValue.Text(value.CallbackUrl)));
+        if (value.AccessDenied is { } csilV1)
+        {
+            csilEntries.Add((new CborValue.Text("access_denied"), AppAccessDenialToCborValue(csilV1)));
+        }
         csilEntries.Add((new CborValue.Text("relying_party"), new CborValue.Text(value.RelyingParty)));
         csilEntries.Add((new CborValue.Text("requested_claims"), new CborValue.Array(value.RequestedClaims.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
-        if (value.AlreadyConsented is { } csilV3)
+        if (value.AlreadyConsented is { } csilV4)
         {
-            csilEntries.Add((new CborValue.Text("already_consented"), new CborValue.Bool(csilV3)));
+            csilEntries.Add((new CborValue.Text("already_consented"), new CborValue.Bool(csilV4)));
         }
-        if (value.AuthorizedClaims is { } csilV4)
+        if (value.AuthorizedClaims is { } csilV5)
         {
-            csilEntries.Add((new CborValue.Text("authorized_claims"), new CborValue.Array(csilV4.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+            csilEntries.Add((new CborValue.Text("authorized_claims"), new CborValue.Array(csilV5.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
         }
-        if (value.NewlyRequestedClaims is { } csilV5)
+        if (value.NewlyRequestedClaims is { } csilV6)
         {
-            csilEntries.Add((new CborValue.Text("newly_requested_claims"), new CborValue.Array(csilV5.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+            csilEntries.Add((new CborValue.Text("newly_requested_claims"), new CborValue.Array(csilV6.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
         }
         return new CborValue.Map(csilEntries);
     }
@@ -5611,6 +5657,7 @@ public static class Codec
         bool? csilField3 = Cbor.MapGet(value, "already_consented") is { } csilRaw3 ? Cbor.AsBool(csilRaw3) : null;
         System.Collections.Generic.List<string>? csilField4 = Cbor.MapGet(value, "authorized_claims") is { } csilRaw4 ? Cbor.AsArray(csilRaw4).Select(csilElem => Cbor.AsText(csilElem)).ToList() : null;
         System.Collections.Generic.List<string>? csilField5 = Cbor.MapGet(value, "newly_requested_claims") is { } csilRaw5 ? Cbor.AsArray(csilRaw5).Select(csilElem => Cbor.AsText(csilElem)).ToList() : null;
+        AppAccessDenial? csilField6 = Cbor.MapGet(value, "access_denied") is { } csilRaw6 ? AppAccessDenialFromCborValue(csilRaw6) : null;
         return new AuthorizeValidateResponse
         {
             RelyingParty = csilField0,
@@ -5619,6 +5666,7 @@ public static class Codec
             AlreadyConsented = csilField3,
             AuthorizedClaims = csilField4,
             NewlyRequestedClaims = csilField5,
+            AccessDenied = csilField6,
         };
     }
 
@@ -6434,6 +6482,315 @@ public static class Codec
         return new SetSignInPolicyRequest
         {
             SignInHours = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a SetUserPasswordLockRequest.</summary>
+    public static CborValue SetUserPasswordLockRequestToCborValue(SetUserPasswordLockRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("locked"), new CborValue.Bool(value.Locked)));
+        csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a SetUserPasswordLockRequest from a decoded CBOR value tree.</summary>
+    public static SetUserPasswordLockRequest SetUserPasswordLockRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "user_id"));
+        var csilField1 = Cbor.AsBool(Cbor.Require(value, "locked"));
+        return new SetUserPasswordLockRequest
+        {
+            UserId = csilField0,
+            Locked = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a SetUserPasswordLockResponse.</summary>
+    public static CborValue SetUserPasswordLockResponseToCborValue(SetUserPasswordLockResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("user"), AdminUserToCborValue(value.User)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a SetUserPasswordLockResponse from a decoded CBOR value tree.</summary>
+    public static SetUserPasswordLockResponse SetUserPasswordLockResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = AdminUserFromCborValue(Cbor.Require(value, "user"));
+        return new SetUserPasswordLockResponse
+        {
+            User = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a AppAccessTarget.</summary>
+    public static CborValue AppAccessTargetToCborValue(AppAccessTarget value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("kind"), new CborValue.Text(value.Kind)));
+        if (value.UserId is { } csilV1)
+        {
+            csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(csilV1)));
+        }
+        if (value.ClaimType is { } csilV2)
+        {
+            csilEntries.Add((new CborValue.Text("claim_type"), new CborValue.Text(csilV2)));
+        }
+        if (value.GroupName is { } csilV3)
+        {
+            csilEntries.Add((new CborValue.Text("group_name"), new CborValue.Text(csilV3)));
+        }
+        if (value.ClaimValue is { } csilV4)
+        {
+            csilEntries.Add((new CborValue.Text("claim_value"), new CborValue.Text(csilV4)));
+        }
+        if (value.ClaimOperator is { } csilV5)
+        {
+            csilEntries.Add((new CborValue.Text("claim_operator"), new CborValue.Text(csilV5)));
+        }
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a AppAccessTarget from a decoded CBOR value tree.</summary>
+    public static AppAccessTarget AppAccessTargetFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "kind"));
+        string? csilField1 = Cbor.MapGet(value, "user_id") is { } csilRaw1 ? Cbor.AsText(csilRaw1) : null;
+        string? csilField2 = Cbor.MapGet(value, "group_name") is { } csilRaw2 ? Cbor.AsText(csilRaw2) : null;
+        string? csilField3 = Cbor.MapGet(value, "claim_type") is { } csilRaw3 ? Cbor.AsText(csilRaw3) : null;
+        string? csilField4 = Cbor.MapGet(value, "claim_operator") is { } csilRaw4 ? Cbor.AsText(csilRaw4) : null;
+        string? csilField5 = Cbor.MapGet(value, "claim_value") is { } csilRaw5 ? Cbor.AsText(csilRaw5) : null;
+        return new AppAccessTarget
+        {
+            Kind = csilField0,
+            UserId = csilField1,
+            GroupName = csilField2,
+            ClaimType = csilField3,
+            ClaimOperator = csilField4,
+            ClaimValue = csilField5,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a AppAccessPolicy.</summary>
+    public static CborValue AppAccessPolicyToCborValue(AppAccessPolicy value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("id"), new CborValue.Text(value.Id)));
+        csilEntries.Add((new CborValue.Text("mode"), new CborValue.Text(value.Mode)));
+        csilEntries.Add((new CborValue.Text("name"), new CborValue.Text(value.Name)));
+        if (value.Message is { } csilV3)
+        {
+            csilEntries.Add((new CborValue.Text("message"), new CborValue.Text(csilV3)));
+        }
+        csilEntries.Add((new CborValue.Text("targets"), new CborValue.Array(value.Targets.Select(csilElem => (CborValue)AppAccessTargetToCborValue(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("patterns"), new CborValue.Array(value.Patterns.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a AppAccessPolicy from a decoded CBOR value tree.</summary>
+    public static AppAccessPolicy AppAccessPolicyFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "id"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "name"));
+        var csilField2 = Cbor.AsText(Cbor.Require(value, "mode"));
+        var csilField3 = Cbor.AsArray(Cbor.Require(value, "patterns")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        string? csilField4 = Cbor.MapGet(value, "message") is { } csilRaw4 ? Cbor.AsText(csilRaw4) : null;
+        var csilField5 = Cbor.AsArray(Cbor.Require(value, "targets")).Select(csilElem => AppAccessTargetFromCborValue(csilElem)).ToList();
+        return new AppAccessPolicy
+        {
+            Id = csilField0,
+            Name = csilField1,
+            Mode = csilField2,
+            Patterns = csilField3,
+            Message = csilField4,
+            Targets = csilField5,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a ListAppAccessPoliciesResponse.</summary>
+    public static CborValue ListAppAccessPoliciesResponseToCborValue(ListAppAccessPoliciesResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("policies"), new CborValue.Array(value.Policies.Select(csilElem => (CborValue)AppAccessPolicyToCborValue(csilElem)).ToList())));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a ListAppAccessPoliciesResponse from a decoded CBOR value tree.</summary>
+    public static ListAppAccessPoliciesResponse ListAppAccessPoliciesResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsArray(Cbor.Require(value, "policies")).Select(csilElem => AppAccessPolicyFromCborValue(csilElem)).ToList();
+        return new ListAppAccessPoliciesResponse
+        {
+            Policies = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a SetAppAccessPolicyRequest.</summary>
+    public static CborValue SetAppAccessPolicyRequestToCborValue(SetAppAccessPolicyRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        if (value.Id is { } csilV0)
+        {
+            csilEntries.Add((new CborValue.Text("id"), new CborValue.Text(csilV0)));
+        }
+        csilEntries.Add((new CborValue.Text("mode"), new CborValue.Text(value.Mode)));
+        csilEntries.Add((new CborValue.Text("name"), new CborValue.Text(value.Name)));
+        if (value.Message is { } csilV3)
+        {
+            csilEntries.Add((new CborValue.Text("message"), new CborValue.Text(csilV3)));
+        }
+        csilEntries.Add((new CborValue.Text("targets"), new CborValue.Array(value.Targets.Select(csilElem => (CborValue)AppAccessTargetToCborValue(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("patterns"), new CborValue.Array(value.Patterns.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a SetAppAccessPolicyRequest from a decoded CBOR value tree.</summary>
+    public static SetAppAccessPolicyRequest SetAppAccessPolicyRequestFromCborValue(CborValue value)
+    {
+        string? csilField0 = Cbor.MapGet(value, "id") is { } csilRaw0 ? Cbor.AsText(csilRaw0) : null;
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "name"));
+        var csilField2 = Cbor.AsText(Cbor.Require(value, "mode"));
+        var csilField3 = Cbor.AsArray(Cbor.Require(value, "patterns")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        string? csilField4 = Cbor.MapGet(value, "message") is { } csilRaw4 ? Cbor.AsText(csilRaw4) : null;
+        var csilField5 = Cbor.AsArray(Cbor.Require(value, "targets")).Select(csilElem => AppAccessTargetFromCborValue(csilElem)).ToList();
+        return new SetAppAccessPolicyRequest
+        {
+            Id = csilField0,
+            Name = csilField1,
+            Mode = csilField2,
+            Patterns = csilField3,
+            Message = csilField4,
+            Targets = csilField5,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a SetAppAccessPolicyResponse.</summary>
+    public static CborValue SetAppAccessPolicyResponseToCborValue(SetAppAccessPolicyResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("policy"), AppAccessPolicyToCborValue(value.Policy)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a SetAppAccessPolicyResponse from a decoded CBOR value tree.</summary>
+    public static SetAppAccessPolicyResponse SetAppAccessPolicyResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = AppAccessPolicyFromCborValue(Cbor.Require(value, "policy"));
+        return new SetAppAccessPolicyResponse
+        {
+            Policy = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RemoveAppAccessPolicyRequest.</summary>
+    public static CborValue RemoveAppAccessPolicyRequestToCborValue(RemoveAppAccessPolicyRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("id"), new CborValue.Text(value.Id)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RemoveAppAccessPolicyRequest from a decoded CBOR value tree.</summary>
+    public static RemoveAppAccessPolicyRequest RemoveAppAccessPolicyRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "id"));
+        return new RemoveAppAccessPolicyRequest
+        {
+            Id = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RemoveAppAccessPolicyResponse.</summary>
+    public static CborValue RemoveAppAccessPolicyResponseToCborValue(RemoveAppAccessPolicyResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("success"), new CborValue.Bool(value.Success)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RemoveAppAccessPolicyResponse from a decoded CBOR value tree.</summary>
+    public static RemoveAppAccessPolicyResponse RemoveAppAccessPolicyResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsBool(Cbor.Require(value, "success"));
+        return new RemoveAppAccessPolicyResponse
+        {
+            Success = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a PreviewAppAccessRequest.</summary>
+    public static CborValue PreviewAppAccessRequestToCborValue(PreviewAppAccessRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        if (value.Domain is { } csilV0)
+        {
+            csilEntries.Add((new CborValue.Text("domain"), new CborValue.Text(csilV0)));
+        }
+        csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a PreviewAppAccessRequest from a decoded CBOR value tree.</summary>
+    public static PreviewAppAccessRequest PreviewAppAccessRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "user_id"));
+        string? csilField1 = Cbor.MapGet(value, "domain") is { } csilRaw1 ? Cbor.AsText(csilRaw1) : null;
+        return new PreviewAppAccessRequest
+        {
+            UserId = csilField0,
+            Domain = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a PreviewAppAccessResponse.</summary>
+    public static CborValue PreviewAppAccessResponseToCborValue(PreviewAppAccessResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("allowed"), new CborValue.Bool(value.Allowed)));
+        csilEntries.Add((new CborValue.Text("messages"), new CborValue.Array(value.Messages.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("applied_policies"), new CborValue.Array(value.AppliedPolicies.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("blocking_policies"), new CborValue.Array(value.BlockingPolicies.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a PreviewAppAccessResponse from a decoded CBOR value tree.</summary>
+    public static PreviewAppAccessResponse PreviewAppAccessResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsBool(Cbor.Require(value, "allowed"));
+        var csilField1 = Cbor.AsArray(Cbor.Require(value, "applied_policies")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        var csilField2 = Cbor.AsArray(Cbor.Require(value, "blocking_policies")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        var csilField3 = Cbor.AsArray(Cbor.Require(value, "messages")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        return new PreviewAppAccessResponse
+        {
+            Allowed = csilField0,
+            AppliedPolicies = csilField1,
+            BlockingPolicies = csilField2,
+            Messages = csilField3,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a AppAccessDenial.</summary>
+    public static CborValue AppAccessDenialToCborValue(AppAccessDenial value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        if (value.Domain is { } csilV0)
+        {
+            csilEntries.Add((new CborValue.Text("domain"), new CborValue.Text(csilV0)));
+        }
+        csilEntries.Add((new CborValue.Text("messages"), new CborValue.Array(value.Messages.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a AppAccessDenial from a decoded CBOR value tree.</summary>
+    public static AppAccessDenial AppAccessDenialFromCborValue(CborValue value)
+    {
+        string? csilField0 = Cbor.MapGet(value, "domain") is { } csilRaw0 ? Cbor.AsText(csilRaw0) : null;
+        var csilField1 = Cbor.AsArray(Cbor.Require(value, "messages")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
+        return new AppAccessDenial
+        {
+            Domain = csilField0,
+            Messages = csilField1,
         };
     }
 
@@ -8008,6 +8365,10 @@ public static class Codec
         {
             csilEntries.Add((new CborValue.Text("language"), new CborValue.Text(csilV3)));
         }
+        if (value.AccessDenied is { } csilV4)
+        {
+            csilEntries.Add((new CborValue.Text("access_denied"), AppAccessDenialToCborValue(csilV4)));
+        }
         csilEntries.Add((new CborValue.Text("grantee_party"), BrowserActAsPartyToCborValue(value.GranteeParty)));
         csilEntries.Add((new CborValue.Text("audience_party"), BrowserActAsPartyToCborValue(value.AudienceParty)));
         csilEntries.Add((new CborValue.Text("max_lifetime_seconds"), new CborValue.Int(value.MaxLifetimeSeconds)));
@@ -8030,6 +8391,7 @@ public static class Codec
         var csilField7 = Cbor.AsI64(Cbor.Require(value, "max_lifetime_seconds"));
         var csilField8 = Cbor.AsI64(Cbor.Require(value, "default_renewal_window_seconds"));
         var csilField9 = Cbor.AsI64(Cbor.Require(value, "max_renewal_window_seconds"));
+        AppAccessDenial? csilField10 = Cbor.MapGet(value, "access_denied") is { } csilRaw10 ? AppAccessDenialFromCborValue(csilRaw10) : null;
         return new BrowserActAsInspectResponse
         {
             Grantee = csilField0,
@@ -8042,6 +8404,7 @@ public static class Codec
             MaxLifetimeSeconds = csilField7,
             DefaultRenewalWindowSeconds = csilField8,
             MaxRenewalWindowSeconds = csilField9,
+            AccessDenied = csilField10,
         };
     }
 

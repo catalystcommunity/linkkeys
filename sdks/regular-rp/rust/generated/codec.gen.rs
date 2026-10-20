@@ -2982,7 +2982,7 @@ pub fn decode_relation(csil_data: &[u8]) -> Result<Relation, CsilCborError> {
 
 /// Build the canonical CBOR value tree for a AdminUser.
 fn csil_enc_admin_user(csil_v: &AdminUser) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(8);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(9);
     csil_entries.push((cbor_text("id"), cbor_text(&csil_v.id)));
     csil_entries.push((cbor_text("username"), cbor_text(&csil_v.username)));
     csil_entries.push((cbor_text("is_active"), cbor_bool(csil_v.is_active)));
@@ -2994,6 +2994,9 @@ fn csil_enc_admin_user(csil_v: &AdminUser) -> CsilCborValue {
     csil_entries.push((cbor_text("display_name"), cbor_text(&csil_v.display_name)));
     if let Some(csil_inner) = &csil_v.purge_reason {
         csil_entries.push((cbor_text("purge_reason"), cbor_text(csil_inner)));
+    }
+    if let Some(csil_inner) = &csil_v.password_locked {
+        csil_entries.push((cbor_text("password_locked"), cbor_bool(*csil_inner)));
     }
     CsilCborValue::Map(csil_entries)
 }
@@ -3044,6 +3047,13 @@ fn csil_dec_admin_user(csil_root: &CsilCborValue) -> Result<AdminUser, CsilCborE
         }
         None => None,
     };
+    let password_locked = match cbor_map_get(csil_root, "password_locked") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_bool;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
     Ok(AdminUser {
         id,
         username,
@@ -3053,6 +3063,7 @@ fn csil_dec_admin_user(csil_root: &CsilCborValue) -> Result<AdminUser, CsilCborE
         updated_at,
         purged_at,
         purge_reason,
+        password_locked,
     })
 }
 
@@ -8297,11 +8308,17 @@ pub fn decode_browser_consent_claim(
 fn csil_enc_browser_authorization_inspect_response(
     csil_v: &BrowserAuthorizationInspectResponse,
 ) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(5);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(6);
     csil_entries.push((
         cbor_text("claims"),
         cbor_enc_array(&csil_v.claims, csil_enc_browser_consent_claim),
     ));
+    if let Some(csil_inner) = &csil_v.access_denied {
+        csil_entries.push((
+            cbor_text("access_denied"),
+            csil_enc_app_access_denial(csil_inner),
+        ));
+    }
     csil_entries.push((cbor_text("relying_party"), cbor_text(&csil_v.relying_party)));
     if let Some(csil_inner) = &csil_v.request_reason {
         csil_entries.push((cbor_text("request_reason"), cbor_text(csil_inner)));
@@ -8353,12 +8370,20 @@ fn csil_dec_browser_authorization_inspect_response(
         }
         None => None,
     };
+    let access_denied = match cbor_map_get(csil_root, "access_denied") {
+        Some(csil_field) => {
+            let csil_decode = csil_dec_app_access_denial;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
     Ok(BrowserAuthorizationInspectResponse {
         relying_party,
         claims,
         request_reason,
         already_consented,
         authorized_claims,
+        access_denied,
     })
 }
 
@@ -8538,7 +8563,7 @@ pub fn decode_browser_local_rp_inspect_request(
 fn csil_enc_browser_local_rp_inspect_response(
     csil_v: &BrowserLocalRpInspectResponse,
 ) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(9);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(10);
     csil_entries.push((
         cbor_text("claims"),
         cbor_enc_array(&csil_v.claims, csil_enc_browser_consent_claim),
@@ -8546,6 +8571,12 @@ fn csil_enc_browser_local_rp_inspect_response(
     csil_entries.push((cbor_text("app_name"), cbor_text(&csil_v.app_name)));
     csil_entries.push((cbor_text("admission"), cbor_text(&csil_v.admission)));
     csil_entries.push((cbor_text("fingerprint"), cbor_text(&csil_v.fingerprint)));
+    if let Some(csil_inner) = &csil_v.access_denied {
+        csil_entries.push((
+            cbor_text("access_denied"),
+            csil_enc_app_access_denial(csil_inner),
+        ));
+    }
     csil_entries.push((cbor_text("callback_host"), cbor_text(&csil_v.callback_host)));
     if let Some(csil_inner) = &csil_v.first_seen_at {
         csil_entries.push((cbor_text("first_seen_at"), cbor_text(csil_inner)));
@@ -8622,6 +8653,13 @@ fn csil_dec_browser_local_rp_inspect_response(
         }
         None => None,
     };
+    let access_denied = match cbor_map_get(csil_root, "access_denied") {
+        Some(csil_field) => {
+            let csil_decode = csil_dec_app_access_denial;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
     Ok(BrowserLocalRpInspectResponse {
         admission,
         app_name,
@@ -8632,6 +8670,7 @@ fn csil_dec_browser_local_rp_inspect_response(
         request_reason,
         already_consented,
         authorized_claims,
+        access_denied,
     })
 }
 
@@ -9476,8 +9515,14 @@ pub fn decode_authorize_validate_request(
 
 /// Build the canonical CBOR value tree for a AuthorizeValidateResponse.
 fn csil_enc_authorize_validate_response(csil_v: &AuthorizeValidateResponse) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(6);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(7);
     csil_entries.push((cbor_text("callback_url"), cbor_text(&csil_v.callback_url)));
+    if let Some(csil_inner) = &csil_v.access_denied {
+        csil_entries.push((
+            cbor_text("access_denied"),
+            csil_enc_app_access_denial(csil_inner),
+        ));
+    }
     csil_entries.push((cbor_text("relying_party"), cbor_text(&csil_v.relying_party)));
     csil_entries.push((
         cbor_text("requested_claims"),
@@ -9541,6 +9586,13 @@ fn csil_dec_authorize_validate_response(
         }
         None => None,
     };
+    let access_denied = match cbor_map_get(csil_root, "access_denied") {
+        Some(csil_field) => {
+            let csil_decode = csil_dec_app_access_denial;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
     Ok(AuthorizeValidateResponse {
         relying_party,
         callback_url,
@@ -9548,6 +9600,7 @@ fn csil_dec_authorize_validate_response(
         already_consented,
         authorized_claims,
         newly_requested_claims,
+        access_denied,
     })
 }
 
@@ -11135,6 +11188,606 @@ pub fn decode_set_sign_in_policy_request(
 ) -> Result<SetSignInPolicyRequest, CsilCborError> {
     let csil_root = cbor_decode(csil_data)?;
     csil_dec_set_sign_in_policy_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SetUserPasswordLockRequest.
+fn csil_enc_set_user_password_lock_request(csil_v: &SetUserPasswordLockRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("locked"), cbor_bool(csil_v.locked)));
+    csil_entries.push((cbor_text("user_id"), cbor_text(&csil_v.user_id)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SetUserPasswordLockRequest from a decoded CBOR value tree.
+fn csil_dec_set_user_password_lock_request(
+    csil_root: &CsilCborValue,
+) -> Result<SetUserPasswordLockRequest, CsilCborError> {
+    let user_id = {
+        let csil_field = cbor_require(csil_root, "user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let locked = {
+        let csil_field = cbor_require(csil_root, "locked")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    Ok(SetUserPasswordLockRequest { user_id, locked })
+}
+
+/// Encode a SetUserPasswordLockRequest to canonical CSIL CBOR bytes.
+pub fn encode_set_user_password_lock_request(csil_v: &SetUserPasswordLockRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_set_user_password_lock_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SetUserPasswordLockRequest.
+pub fn decode_set_user_password_lock_request(
+    csil_data: &[u8],
+) -> Result<SetUserPasswordLockRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_set_user_password_lock_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SetUserPasswordLockResponse.
+fn csil_enc_set_user_password_lock_response(csil_v: &SetUserPasswordLockResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("user"), csil_enc_admin_user(&csil_v.user)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SetUserPasswordLockResponse from a decoded CBOR value tree.
+fn csil_dec_set_user_password_lock_response(
+    csil_root: &CsilCborValue,
+) -> Result<SetUserPasswordLockResponse, CsilCborError> {
+    let user = {
+        let csil_field = cbor_require(csil_root, "user")?;
+        let csil_decode = csil_dec_admin_user;
+        csil_decode(csil_field)?
+    };
+    Ok(SetUserPasswordLockResponse { user })
+}
+
+/// Encode a SetUserPasswordLockResponse to canonical CSIL CBOR bytes.
+pub fn encode_set_user_password_lock_response(csil_v: &SetUserPasswordLockResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_set_user_password_lock_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SetUserPasswordLockResponse.
+pub fn decode_set_user_password_lock_response(
+    csil_data: &[u8],
+) -> Result<SetUserPasswordLockResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_set_user_password_lock_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a AppAccessTarget.
+fn csil_enc_app_access_target(csil_v: &AppAccessTarget) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(6);
+    csil_entries.push((cbor_text("kind"), cbor_text(&csil_v.kind)));
+    if let Some(csil_inner) = &csil_v.user_id {
+        csil_entries.push((cbor_text("user_id"), cbor_text(csil_inner)));
+    }
+    if let Some(csil_inner) = &csil_v.claim_type {
+        csil_entries.push((cbor_text("claim_type"), cbor_text(csil_inner)));
+    }
+    if let Some(csil_inner) = &csil_v.group_name {
+        csil_entries.push((cbor_text("group_name"), cbor_text(csil_inner)));
+    }
+    if let Some(csil_inner) = &csil_v.claim_value {
+        csil_entries.push((cbor_text("claim_value"), cbor_text(csil_inner)));
+    }
+    if let Some(csil_inner) = &csil_v.claim_operator {
+        csil_entries.push((cbor_text("claim_operator"), cbor_text(csil_inner)));
+    }
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a AppAccessTarget from a decoded CBOR value tree.
+fn csil_dec_app_access_target(csil_root: &CsilCborValue) -> Result<AppAccessTarget, CsilCborError> {
+    let kind = {
+        let csil_field = cbor_require(csil_root, "kind")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let user_id = match cbor_map_get(csil_root, "user_id") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let group_name = match cbor_map_get(csil_root, "group_name") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let claim_type = match cbor_map_get(csil_root, "claim_type") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let claim_operator = match cbor_map_get(csil_root, "claim_operator") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let claim_value = match cbor_map_get(csil_root, "claim_value") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(AppAccessTarget {
+        kind,
+        user_id,
+        group_name,
+        claim_type,
+        claim_operator,
+        claim_value,
+    })
+}
+
+/// Encode a AppAccessTarget to canonical CSIL CBOR bytes.
+pub fn encode_app_access_target(csil_v: &AppAccessTarget) -> Vec<u8> {
+    cbor_encode(&csil_enc_app_access_target(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a AppAccessTarget.
+pub fn decode_app_access_target(csil_data: &[u8]) -> Result<AppAccessTarget, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_app_access_target(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a AppAccessPolicy.
+fn csil_enc_app_access_policy(csil_v: &AppAccessPolicy) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(6);
+    csil_entries.push((cbor_text("id"), cbor_text(&csil_v.id)));
+    csil_entries.push((cbor_text("mode"), cbor_text(&csil_v.mode)));
+    csil_entries.push((cbor_text("name"), cbor_text(&csil_v.name)));
+    if let Some(csil_inner) = &csil_v.message {
+        csil_entries.push((cbor_text("message"), cbor_text(csil_inner)));
+    }
+    csil_entries.push((
+        cbor_text("targets"),
+        cbor_enc_array(&csil_v.targets, csil_enc_app_access_target),
+    ));
+    csil_entries.push((
+        cbor_text("patterns"),
+        cbor_enc_array(&csil_v.patterns, |csil_elem| cbor_text(csil_elem)),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a AppAccessPolicy from a decoded CBOR value tree.
+fn csil_dec_app_access_policy(csil_root: &CsilCborValue) -> Result<AppAccessPolicy, CsilCborError> {
+    let id = {
+        let csil_field = cbor_require(csil_root, "id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let name = {
+        let csil_field = cbor_require(csil_root, "name")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let mode = {
+        let csil_field = cbor_require(csil_root, "mode")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let patterns = {
+        let csil_field = cbor_require(csil_root, "patterns")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+        csil_decode(csil_field)?
+    };
+    let message = match cbor_map_get(csil_root, "message") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let targets = {
+        let csil_field = cbor_require(csil_root, "targets")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_app_access_target);
+        csil_decode(csil_field)?
+    };
+    Ok(AppAccessPolicy {
+        id,
+        name,
+        mode,
+        patterns,
+        message,
+        targets,
+    })
+}
+
+/// Encode a AppAccessPolicy to canonical CSIL CBOR bytes.
+pub fn encode_app_access_policy(csil_v: &AppAccessPolicy) -> Vec<u8> {
+    cbor_encode(&csil_enc_app_access_policy(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a AppAccessPolicy.
+pub fn decode_app_access_policy(csil_data: &[u8]) -> Result<AppAccessPolicy, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_app_access_policy(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ListAppAccessPoliciesResponse.
+fn csil_enc_list_app_access_policies_response(
+    csil_v: &ListAppAccessPoliciesResponse,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("policies"),
+        cbor_enc_array(&csil_v.policies, csil_enc_app_access_policy),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a ListAppAccessPoliciesResponse from a decoded CBOR value tree.
+fn csil_dec_list_app_access_policies_response(
+    csil_root: &CsilCborValue,
+) -> Result<ListAppAccessPoliciesResponse, CsilCborError> {
+    let policies = {
+        let csil_field = cbor_require(csil_root, "policies")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_app_access_policy);
+        csil_decode(csil_field)?
+    };
+    Ok(ListAppAccessPoliciesResponse { policies })
+}
+
+/// Encode a ListAppAccessPoliciesResponse to canonical CSIL CBOR bytes.
+pub fn encode_list_app_access_policies_response(csil_v: &ListAppAccessPoliciesResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_list_app_access_policies_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ListAppAccessPoliciesResponse.
+pub fn decode_list_app_access_policies_response(
+    csil_data: &[u8],
+) -> Result<ListAppAccessPoliciesResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_list_app_access_policies_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SetAppAccessPolicyRequest.
+fn csil_enc_set_app_access_policy_request(csil_v: &SetAppAccessPolicyRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(6);
+    if let Some(csil_inner) = &csil_v.id {
+        csil_entries.push((cbor_text("id"), cbor_text(csil_inner)));
+    }
+    csil_entries.push((cbor_text("mode"), cbor_text(&csil_v.mode)));
+    csil_entries.push((cbor_text("name"), cbor_text(&csil_v.name)));
+    if let Some(csil_inner) = &csil_v.message {
+        csil_entries.push((cbor_text("message"), cbor_text(csil_inner)));
+    }
+    csil_entries.push((
+        cbor_text("targets"),
+        cbor_enc_array(&csil_v.targets, csil_enc_app_access_target),
+    ));
+    csil_entries.push((
+        cbor_text("patterns"),
+        cbor_enc_array(&csil_v.patterns, |csil_elem| cbor_text(csil_elem)),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SetAppAccessPolicyRequest from a decoded CBOR value tree.
+fn csil_dec_set_app_access_policy_request(
+    csil_root: &CsilCborValue,
+) -> Result<SetAppAccessPolicyRequest, CsilCborError> {
+    let id = match cbor_map_get(csil_root, "id") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let name = {
+        let csil_field = cbor_require(csil_root, "name")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let mode = {
+        let csil_field = cbor_require(csil_root, "mode")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let patterns = {
+        let csil_field = cbor_require(csil_root, "patterns")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+        csil_decode(csil_field)?
+    };
+    let message = match cbor_map_get(csil_root, "message") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let targets = {
+        let csil_field = cbor_require(csil_root, "targets")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_app_access_target);
+        csil_decode(csil_field)?
+    };
+    Ok(SetAppAccessPolicyRequest {
+        id,
+        name,
+        mode,
+        patterns,
+        message,
+        targets,
+    })
+}
+
+/// Encode a SetAppAccessPolicyRequest to canonical CSIL CBOR bytes.
+pub fn encode_set_app_access_policy_request(csil_v: &SetAppAccessPolicyRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_set_app_access_policy_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SetAppAccessPolicyRequest.
+pub fn decode_set_app_access_policy_request(
+    csil_data: &[u8],
+) -> Result<SetAppAccessPolicyRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_set_app_access_policy_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a SetAppAccessPolicyResponse.
+fn csil_enc_set_app_access_policy_response(csil_v: &SetAppAccessPolicyResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("policy"),
+        csil_enc_app_access_policy(&csil_v.policy),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a SetAppAccessPolicyResponse from a decoded CBOR value tree.
+fn csil_dec_set_app_access_policy_response(
+    csil_root: &CsilCborValue,
+) -> Result<SetAppAccessPolicyResponse, CsilCborError> {
+    let policy = {
+        let csil_field = cbor_require(csil_root, "policy")?;
+        let csil_decode = csil_dec_app_access_policy;
+        csil_decode(csil_field)?
+    };
+    Ok(SetAppAccessPolicyResponse { policy })
+}
+
+/// Encode a SetAppAccessPolicyResponse to canonical CSIL CBOR bytes.
+pub fn encode_set_app_access_policy_response(csil_v: &SetAppAccessPolicyResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_set_app_access_policy_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a SetAppAccessPolicyResponse.
+pub fn decode_set_app_access_policy_response(
+    csil_data: &[u8],
+) -> Result<SetAppAccessPolicyResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_set_app_access_policy_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RemoveAppAccessPolicyRequest.
+fn csil_enc_remove_app_access_policy_request(
+    csil_v: &RemoveAppAccessPolicyRequest,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("id"), cbor_text(&csil_v.id)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RemoveAppAccessPolicyRequest from a decoded CBOR value tree.
+fn csil_dec_remove_app_access_policy_request(
+    csil_root: &CsilCborValue,
+) -> Result<RemoveAppAccessPolicyRequest, CsilCborError> {
+    let id = {
+        let csil_field = cbor_require(csil_root, "id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(RemoveAppAccessPolicyRequest { id })
+}
+
+/// Encode a RemoveAppAccessPolicyRequest to canonical CSIL CBOR bytes.
+pub fn encode_remove_app_access_policy_request(csil_v: &RemoveAppAccessPolicyRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_remove_app_access_policy_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RemoveAppAccessPolicyRequest.
+pub fn decode_remove_app_access_policy_request(
+    csil_data: &[u8],
+) -> Result<RemoveAppAccessPolicyRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_remove_app_access_policy_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RemoveAppAccessPolicyResponse.
+fn csil_enc_remove_app_access_policy_response(
+    csil_v: &RemoveAppAccessPolicyResponse,
+) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((cbor_text("success"), cbor_bool(csil_v.success)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RemoveAppAccessPolicyResponse from a decoded CBOR value tree.
+fn csil_dec_remove_app_access_policy_response(
+    csil_root: &CsilCborValue,
+) -> Result<RemoveAppAccessPolicyResponse, CsilCborError> {
+    let success = {
+        let csil_field = cbor_require(csil_root, "success")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    Ok(RemoveAppAccessPolicyResponse { success })
+}
+
+/// Encode a RemoveAppAccessPolicyResponse to canonical CSIL CBOR bytes.
+pub fn encode_remove_app_access_policy_response(csil_v: &RemoveAppAccessPolicyResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_remove_app_access_policy_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RemoveAppAccessPolicyResponse.
+pub fn decode_remove_app_access_policy_response(
+    csil_data: &[u8],
+) -> Result<RemoveAppAccessPolicyResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_remove_app_access_policy_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a PreviewAppAccessRequest.
+fn csil_enc_preview_app_access_request(csil_v: &PreviewAppAccessRequest) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    if let Some(csil_inner) = &csil_v.domain {
+        csil_entries.push((cbor_text("domain"), cbor_text(csil_inner)));
+    }
+    csil_entries.push((cbor_text("user_id"), cbor_text(&csil_v.user_id)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a PreviewAppAccessRequest from a decoded CBOR value tree.
+fn csil_dec_preview_app_access_request(
+    csil_root: &CsilCborValue,
+) -> Result<PreviewAppAccessRequest, CsilCborError> {
+    let user_id = {
+        let csil_field = cbor_require(csil_root, "user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let domain = match cbor_map_get(csil_root, "domain") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    Ok(PreviewAppAccessRequest { user_id, domain })
+}
+
+/// Encode a PreviewAppAccessRequest to canonical CSIL CBOR bytes.
+pub fn encode_preview_app_access_request(csil_v: &PreviewAppAccessRequest) -> Vec<u8> {
+    cbor_encode(&csil_enc_preview_app_access_request(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a PreviewAppAccessRequest.
+pub fn decode_preview_app_access_request(
+    csil_data: &[u8],
+) -> Result<PreviewAppAccessRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_preview_app_access_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a PreviewAppAccessResponse.
+fn csil_enc_preview_app_access_response(csil_v: &PreviewAppAccessResponse) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(4);
+    csil_entries.push((cbor_text("allowed"), cbor_bool(csil_v.allowed)));
+    csil_entries.push((
+        cbor_text("messages"),
+        cbor_enc_array(&csil_v.messages, |csil_elem| cbor_text(csil_elem)),
+    ));
+    csil_entries.push((
+        cbor_text("applied_policies"),
+        cbor_enc_array(&csil_v.applied_policies, |csil_elem| cbor_text(csil_elem)),
+    ));
+    csil_entries.push((
+        cbor_text("blocking_policies"),
+        cbor_enc_array(&csil_v.blocking_policies, |csil_elem| cbor_text(csil_elem)),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a PreviewAppAccessResponse from a decoded CBOR value tree.
+fn csil_dec_preview_app_access_response(
+    csil_root: &CsilCborValue,
+) -> Result<PreviewAppAccessResponse, CsilCborError> {
+    let allowed = {
+        let csil_field = cbor_require(csil_root, "allowed")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    let applied_policies = {
+        let csil_field = cbor_require(csil_root, "applied_policies")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+        csil_decode(csil_field)?
+    };
+    let blocking_policies = {
+        let csil_field = cbor_require(csil_root, "blocking_policies")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+        csil_decode(csil_field)?
+    };
+    let messages = {
+        let csil_field = cbor_require(csil_root, "messages")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+        csil_decode(csil_field)?
+    };
+    Ok(PreviewAppAccessResponse {
+        allowed,
+        applied_policies,
+        blocking_policies,
+        messages,
+    })
+}
+
+/// Encode a PreviewAppAccessResponse to canonical CSIL CBOR bytes.
+pub fn encode_preview_app_access_response(csil_v: &PreviewAppAccessResponse) -> Vec<u8> {
+    cbor_encode(&csil_enc_preview_app_access_response(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a PreviewAppAccessResponse.
+pub fn decode_preview_app_access_response(
+    csil_data: &[u8],
+) -> Result<PreviewAppAccessResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_preview_app_access_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a AppAccessDenial.
+fn csil_enc_app_access_denial(csil_v: &AppAccessDenial) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    if let Some(csil_inner) = &csil_v.domain {
+        csil_entries.push((cbor_text("domain"), cbor_text(csil_inner)));
+    }
+    csil_entries.push((
+        cbor_text("messages"),
+        cbor_enc_array(&csil_v.messages, |csil_elem| cbor_text(csil_elem)),
+    ));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a AppAccessDenial from a decoded CBOR value tree.
+fn csil_dec_app_access_denial(csil_root: &CsilCborValue) -> Result<AppAccessDenial, CsilCborError> {
+    let domain = match cbor_map_get(csil_root, "domain") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let messages = {
+        let csil_field = cbor_require(csil_root, "messages")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, cbor_as_text);
+        csil_decode(csil_field)?
+    };
+    Ok(AppAccessDenial { domain, messages })
+}
+
+/// Encode a AppAccessDenial to canonical CSIL CBOR bytes.
+pub fn encode_app_access_denial(csil_v: &AppAccessDenial) -> Vec<u8> {
+    cbor_encode(&csil_enc_app_access_denial(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a AppAccessDenial.
+pub fn decode_app_access_denial(csil_data: &[u8]) -> Result<AppAccessDenial, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_app_access_denial(&csil_root)
 }
 
 /// Build the canonical CBOR value tree for a PurgeLocalRpTicketsRequest.
@@ -14557,7 +15210,7 @@ pub fn decode_browser_act_as_party(csil_data: &[u8]) -> Result<BrowserActAsParty
 
 /// Build the canonical CBOR value tree for a BrowserActAsInspectResponse.
 fn csil_enc_browser_act_as_inspect_response(csil_v: &BrowserActAsInspectResponse) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(10);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(11);
     csil_entries.push((
         cbor_text("entries"),
         cbor_enc_array(&csil_v.entries, csil_enc_browser_act_as_scope_entry),
@@ -14569,6 +15222,12 @@ fn csil_enc_browser_act_as_inspect_response(csil_v: &BrowserActAsInspectResponse
     ));
     if let Some(csil_inner) = &csil_v.language {
         csil_entries.push((cbor_text("language"), cbor_text(csil_inner)));
+    }
+    if let Some(csil_inner) = &csil_v.access_denied {
+        csil_entries.push((
+            cbor_text("access_denied"),
+            csil_enc_app_access_denial(csil_inner),
+        ));
     }
     csil_entries.push((
         cbor_text("grantee_party"),
@@ -14653,6 +15312,13 @@ fn csil_dec_browser_act_as_inspect_response(
         let csil_decode = cbor_as_i64;
         csil_decode(csil_field)?
     };
+    let access_denied = match cbor_map_get(csil_root, "access_denied") {
+        Some(csil_field) => {
+            let csil_decode = csil_dec_app_access_denial;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
     Ok(BrowserActAsInspectResponse {
         grantee,
         grantee_party,
@@ -14664,6 +15330,7 @@ fn csil_dec_browser_act_as_inspect_response(
         max_lifetime_seconds,
         default_renewal_window_seconds,
         max_renewal_window_seconds,
+        access_denied,
     })
 }
 

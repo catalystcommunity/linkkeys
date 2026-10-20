@@ -1654,6 +1654,9 @@ fn admin_op_protected_target(op: &str, payload: &[u8], db_pool: &DbPool) -> Opti
         "deactivate-user" => codec::decode_deactivate_user_request(payload)
             .ok()
             .map(|r| r.user_id),
+        "set-user-password-lock" => codec::decode_set_user_password_lock_request(payload)
+            .ok()
+            .map(|r| r.user_id),
         "remove-credential" => {
             let req = codec::decode_remove_credential_request(payload).ok()?;
             db_pool
@@ -1893,7 +1896,7 @@ fn dispatch_local_rp_redeem_claim_ticket(payload: &[u8], db_pool: &DbPool) -> Ve
 }
 
 fn dispatch_admin(op: &str, payload: &[u8], db_pool: &DbPool, caller_id: &str) -> Vec<u8> {
-    use crate::services::admin;
+    use crate::services::{admin, app_access};
     use liblinkkeys::generated::codec;
 
     macro_rules! admin_op {
@@ -2094,6 +2097,31 @@ fn dispatch_admin(op: &str, payload: &[u8], db_pool: &DbPool, caller_id: &str) -
             codec::decode_set_sign_in_policy_request,
             admin::set_sign_in_policy,
             codec::encode_sign_in_policy
+        ),
+        "set-user-password-lock" => admin_op!(
+            codec::decode_set_user_password_lock_request,
+            admin::set_user_password_lock,
+            codec::encode_set_user_password_lock_response
+        ),
+        "list-app-access-policies" => admin_op!(
+            codec::decode_empty_request,
+            app_access::list_app_access_policies,
+            codec::encode_list_app_access_policies_response
+        ),
+        "set-app-access-policy" => admin_op!(
+            codec::decode_set_app_access_policy_request,
+            app_access::set_app_access_policy,
+            codec::encode_set_app_access_policy_response
+        ),
+        "remove-app-access-policy" => admin_op!(
+            codec::decode_remove_app_access_policy_request,
+            app_access::remove_app_access_policy,
+            codec::encode_remove_app_access_policy_response
+        ),
+        "preview-app-access" => admin_op!(
+            codec::decode_preview_app_access_request,
+            app_access::preview_app_access,
+            codec::encode_preview_app_access_response
         ),
         // Claim-type registry admin. The browser app's `/app/admin/policy`
         // page reaches these same arms through the browser carrier.

@@ -180,6 +180,8 @@ pub enum FinalizeError {
     Signing(String),
     /// Persisting the consent grant failed.
     Storage(String),
+    /// An app access policy blocks this account from the relying party.
+    AppAccessDenied(liblinkkeys::generated::types::AppAccessDenial),
 }
 
 impl FinalizeError {
@@ -193,6 +195,7 @@ impl FinalizeError {
             FinalizeError::RpEncryptKeyUntrusted => ApiErrorCode::RpEncryptKeyUntrusted,
             FinalizeError::Signing(_) => ApiErrorCode::SigningFailed,
             FinalizeError::Storage(_) => ApiErrorCode::StorageFailed,
+            FinalizeError::AppAccessDenied(_) => ApiErrorCode::Forbidden,
         }
     }
 
@@ -201,6 +204,7 @@ impl FinalizeError {
             FinalizeError::AlreadyUsed => Status::Conflict,
             FinalizeError::AuthenticationLost => Status::Forbidden,
             FinalizeError::ApiAuthorizationLost => Status::Forbidden,
+            FinalizeError::AppAccessDenied(_) => Status::Forbidden,
             // The RP side is unreachable/untrustworthy, not this server.
             FinalizeError::RpKeyFetch(_) | FinalizeError::RpEncryptKeyUntrusted => {
                 Status::BadGateway
@@ -237,6 +241,9 @@ impl FinalizeError {
             FinalizeError::Storage(_) => {
                 "Storing the consent grant failed on this server. Contact its operator.".to_string()
             }
+            FinalizeError::AppAccessDenied(denial) => {
+                crate::services::app_access::denial_error(denial).message
+            }
         }
     }
 
@@ -265,6 +272,9 @@ impl FinalizeError {
             }
             FinalizeError::Storage(cause) => {
                 log::error!("finalize for {relying_party}: consent-grant store failed: {cause}")
+            }
+            FinalizeError::AppAccessDenied(_) => {
+                log::warn!("finalize for {relying_party}: blocked by an app access policy")
             }
         }
     }
@@ -980,6 +990,20 @@ async fn inspect_browser_authorization(
             message: "This account cannot sign in to applications".to_string(),
         });
     }
+    if let Some(denial) =
+        crate::services::app_access::denial_for(pool, &user.id, Some(&request.relying_party))?
+    {
+        return Ok(
+            liblinkkeys::generated::types::BrowserAuthorizationInspectResponse {
+                relying_party: request.relying_party,
+                claims: Vec::new(),
+                request_reason: None,
+                already_consented: None,
+                authorized_claims: None,
+                access_denied: Some(denial),
+            },
+        );
+    }
     let requirement = crate::services::auth::resolve_assurance_requirement(
         request.authentication_requirements.as_ref(),
         1,
@@ -1024,6 +1048,7 @@ async fn inspect_browser_authorization(
             request_reason: request.flow_context.and_then(|value| value.request_reason),
             already_consented,
             authorized_claims,
+            access_denied: None,
         },
     )
 }
@@ -1070,6 +1095,12 @@ async fn complete_browser_authorization(
             code: 403,
             message: "Authentication required".to_string(),
         });
+    }
+    // Before any claim write. Finalize checks again before it signs.
+    if let Some(denial) =
+        crate::services::app_access::denial_for(pool, &fresh_user.id, Some(&request.relying_party))?
+    {
+        return Err(crate::services::app_access::denial_error(&denial));
     }
     let requirement = crate::services::auth::resolve_assurance_requirement(
         request.authentication_requirements.as_ref(),
@@ -1238,6 +1269,14 @@ async fn do_finalize_login_url(input: LoginFinalization<'_>) -> Result<String, F
             return Err(FinalizeError::AuthenticationLost);
         }
     }
+    // Every sign-in to a domain RP issues its assertion here, so this is the
+    // check that cannot be skipped. It runs before the nonce burns.
+    if let Some(denial) =
+        crate::services::app_access::denial_for(pool, &fresh_user.id, Some(&request.relying_party))
+            .map_err(|e| FinalizeError::Storage(format!("app access check: {}", e.message)))?
+    {
+        return Err(FinalizeError::AppAccessDenied(denial));
+    }
 
     // Single-use: burn the trusted CBOR nonce now, at token issuance, so an
     // abandoned consent screen doesn't consume the login request prematurely.
@@ -1394,16 +1433,26 @@ async fn rp_authorize_validate(
     // response fields stay absent so a client on an older CSIL subset that
     // never sends user_id sees a byte-identical response to before this field
     // existed. `newly_requested_claims` is only present when non-empty, and
-    // then silent consent is never possible.
+    // then silent consent is never possible. `access_denied` replaces all
+    // three when an app access policy blocks the user; finalize enforces it.
     let mut already_consented = None;
     let mut authorized_claims = None;
     let mut newly_requested_claims = None;
+    let mut access_denied = None;
     if let Some(user_id) = req.user_id.as_deref() {
         if let (Ok(user), Ok(policy)) = (
             pool.find_user_by_id(user_id),
             domain_policy_for(pool, &validated.relying_party),
         ) {
-            if let Some(authorized) = silent_authorization(pool, &policy, &user.id, &validated) {
+            if let Ok(Some(denial)) = crate::services::app_access::denial_for(
+                pool,
+                &user.id,
+                Some(&validated.relying_party),
+            ) {
+                access_denied = Some(denial);
+            } else if let Some(authorized) =
+                silent_authorization(pool, &policy, &user.id, &validated)
+            {
                 already_consented = Some(true);
                 authorized_claims = Some(authorized);
             } else {
@@ -1426,6 +1475,7 @@ async fn rp_authorize_validate(
                 already_consented,
                 authorized_claims,
                 newly_requested_claims,
+                access_denied,
             },
         ),
     ))

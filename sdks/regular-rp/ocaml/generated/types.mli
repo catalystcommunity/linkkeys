@@ -252,6 +252,7 @@ and admin_user = {
   updated_at : string;
   purged_at : string option;
   purge_reason : string option;
+  password_locked : bool option;
 }
 
 and list_users_request = {
@@ -661,6 +662,7 @@ and browser_authorization_inspect_response = {
   request_reason : string option;
   already_consented : bool option;
   authorized_claims : string list option;
+  access_denied : app_access_denial option;
 }
 
 and browser_authorization_complete_request = {
@@ -684,6 +686,7 @@ and browser_local_rp_inspect_response = {
   request_reason : string option;
   already_consented : bool option;
   authorized_claims : string list option;
+  access_denied : app_access_denial option;
 }
 
 and browser_local_rp_complete_request = {
@@ -762,6 +765,7 @@ and authorize_validate_response = {
   already_consented : bool option;
   authorized_claims : string list option;
   newly_requested_claims : string list option;
+  access_denied : app_access_denial option;
 }
 
 and authorize_finalize_request = {
@@ -922,6 +926,51 @@ and sign_in_policy = {
 }
 
 and set_sign_in_policy_request = { sign_in_hours : int64 }
+and set_user_password_lock_request = { user_id : string; locked : bool }
+and set_user_password_lock_response = { user : admin_user }
+
+and app_access_target = {
+  kind : string;
+  user_id : string option;
+  group_name : string option;
+  claim_type : string option;
+  claim_operator : string option;
+  claim_value : string option;
+}
+
+and app_access_policy = {
+  id : string;
+  name : string;
+  mode : string;
+  patterns : string list;
+  message : string option;
+  targets : app_access_target list;
+}
+
+and list_app_access_policies_response = { policies : app_access_policy list }
+
+and set_app_access_policy_request = {
+  id : string option;
+  name : string;
+  mode : string;
+  patterns : string list;
+  message : string option;
+  targets : app_access_target list;
+}
+
+and set_app_access_policy_response = { policy : app_access_policy }
+and remove_app_access_policy_request = { id : string }
+and remove_app_access_policy_response = { success : bool }
+and preview_app_access_request = { user_id : string; domain : string option }
+
+and preview_app_access_response = {
+  allowed : bool;
+  applied_policies : string list;
+  blocking_policies : string list;
+  messages : string list;
+}
+
+and app_access_denial = { domain : string option; messages : string list }
 and purge_local_rp_tickets_request = unit
 and purge_local_rp_tickets_response = { purged_count : int64 }
 and locale_messages = (string * string) list
@@ -1286,6 +1335,7 @@ and browser_act_as_inspect_response = {
   max_lifetime_seconds : int64;
   default_renewal_window_seconds : int64;
   max_renewal_window_seconds : int64;
+  access_denied : app_access_denial option;
 }
 
 and browser_act_as_complete_request = {

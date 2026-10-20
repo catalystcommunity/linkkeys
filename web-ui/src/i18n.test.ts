@@ -52,8 +52,8 @@ describe("UI catalog coverage", () => {
   const literal = [...sources.matchAll(/\b(t|format(?:<[^>]+>)?)\("(app\.[^"]+)"/g)].map((match) => match[2]);
   const plurals = [...sources.matchAll(/\bplural\("(app\.[^"]+)"/g)].map((match) => match[1]);
   // Keys built at run time: `plural(`app.duration.${name}`)`, `pageTitle`,
-  // and `reasonText`.
-  const dynamicPrefixes = ["app.duration.", "app.page_title.", "app.error.reason."];
+  // `reasonText`, and the app access condition and target-kind labels.
+  const dynamicPrefixes = ["app.duration.", "app.page_title.", "app.error.reason.", "app.access.operator_", "app.access.kind_"];
 
   it("has an en-US message for every key the UI uses", () => {
     const missing = [

@@ -95,6 +95,23 @@ pub mod pg {
             .map(Into::into)
     }
 
+    pub fn set_password_locked(
+        conn: &mut diesel::PgConnection,
+        user_id: &str,
+        locked: bool,
+    ) -> QueryResult<User> {
+        let id: uuid::Uuid = user_id
+            .parse()
+            .map_err(|_| diesel::result::Error::NotFound)?;
+        diesel::update(users::table.find(id).filter(users::purged_at.is_null()))
+            .set((
+                users::password_locked.eq(locked),
+                users::updated_at.eq(chrono::Utc::now()),
+            ))
+            .get_result::<UserRow>(conn)
+            .map(Into::into)
+    }
+
     pub fn activate(conn: &mut diesel::PgConnection, user_id: &str) -> QueryResult<User> {
         let id: uuid::Uuid = user_id
             .parse()
@@ -176,6 +193,30 @@ pub mod sqlite {
         )
         .set((
             users::display_name.eq(new_display_name),
+            users::updated_at.eq(&now),
+        ))
+        .execute(conn)?;
+
+        users::table
+            .find(user_id)
+            .filter(users::purged_at.is_null())
+            .first::<UserRow>(conn)
+            .map(Into::into)
+    }
+
+    pub fn set_password_locked(
+        conn: &mut diesel::SqliteConnection,
+        user_id: &str,
+        locked: bool,
+    ) -> QueryResult<User> {
+        let now = chrono::Utc::now().to_rfc3339();
+        diesel::update(
+            users::table
+                .find(user_id)
+                .filter(users::purged_at.is_null()),
+        )
+        .set((
+            users::password_locked.eq(i32::from(locked)),
             users::updated_at.eq(&now),
         ))
         .execute(conn)?;

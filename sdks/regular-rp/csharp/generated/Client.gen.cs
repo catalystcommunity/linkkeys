@@ -293,6 +293,16 @@ public sealed class AdminClient(ICsilTransport transport)
         Codec.Decode<SignInPolicy>(transport.Call("Admin", "get-sign-in-policy", Codec.Encode(emptyRequest)));
     public SignInPolicy SetSignInPolicy(SetSignInPolicyRequest setSignInPolicyRequest) =>
         Codec.Decode<SignInPolicy>(transport.Call("Admin", "set-sign-in-policy", Codec.Encode(setSignInPolicyRequest)));
+    public SetUserPasswordLockResponse SetUserPasswordLock(SetUserPasswordLockRequest setUserPasswordLockRequest) =>
+        Codec.Decode<SetUserPasswordLockResponse>(transport.Call("Admin", "set-user-password-lock", Codec.Encode(setUserPasswordLockRequest)));
+    public ListAppAccessPoliciesResponse ListAppAccessPolicies(EmptyRequest emptyRequest) =>
+        Codec.Decode<ListAppAccessPoliciesResponse>(transport.Call("Admin", "list-app-access-policies", Codec.Encode(emptyRequest)));
+    public SetAppAccessPolicyResponse SetAppAccessPolicy(SetAppAccessPolicyRequest setAppAccessPolicyRequest) =>
+        Codec.Decode<SetAppAccessPolicyResponse>(transport.Call("Admin", "set-app-access-policy", Codec.Encode(setAppAccessPolicyRequest)));
+    public RemoveAppAccessPolicyResponse RemoveAppAccessPolicy(RemoveAppAccessPolicyRequest removeAppAccessPolicyRequest) =>
+        Codec.Decode<RemoveAppAccessPolicyResponse>(transport.Call("Admin", "remove-app-access-policy", Codec.Encode(removeAppAccessPolicyRequest)));
+    public PreviewAppAccessResponse PreviewAppAccess(PreviewAppAccessRequest previewAppAccessRequest) =>
+        Codec.Decode<PreviewAppAccessResponse>(transport.Call("Admin", "preview-app-access", Codec.Encode(previewAppAccessRequest)));
 }
 
 /// <summary>Typed RPC client for the Account service. The client owns

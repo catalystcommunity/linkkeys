@@ -10,6 +10,7 @@ public record AdminUser(
     String createdAt /* wire: "created_at" */,
     String updatedAt /* wire: "updated_at" */,
     String purgedAt /* wire: "purged_at" */,
-    String purgeReason /* wire: "purge_reason" */
+    String purgeReason /* wire: "purge_reason" */,
+    Boolean passwordLocked /* wire: "password_locked" */
 ) {
 }

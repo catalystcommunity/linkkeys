@@ -61,6 +61,10 @@ fn decode_admin_user_tolerates_missing_optional_purge_fields() {
     assert_eq!(user.username, "alice");
     assert!(user.purged_at.is_none());
     assert!(user.purge_reason.is_none());
+    assert!(
+        user.password_locked.is_none(),
+        "an older server never sends the lock"
+    );
 }
 
 #[test]
@@ -94,19 +98,23 @@ fn decode_admin_user_round_trips_through_encode() {
         updated_at: "2026-01-02T00:00:00Z".to_string(),
         purged_at: Some("2026-01-02T00:00:00Z".to_string()),
         purge_reason: Some("requested".to_string()),
+        password_locked: Some(true),
     };
     let encoded = generated::encode_admin_user(&with_purge);
     let decoded = generated::decode_admin_user(&encoded).expect("round-trip decode");
     assert_eq!(decoded.purged_at, with_purge.purged_at);
     assert_eq!(decoded.purge_reason, with_purge.purge_reason);
+    assert_eq!(decoded.password_locked, Some(true));
 
     let without_purge = AdminUser {
         purged_at: None,
         purge_reason: None,
+        password_locked: None,
         ..with_purge
     };
     let encoded = generated::encode_admin_user(&without_purge);
     let decoded = generated::decode_admin_user(&encoded).expect("round-trip decode");
     assert!(decoded.purged_at.is_none());
     assert!(decoded.purge_reason.is_none());
+    assert!(decoded.password_locked.is_none());
 }

@@ -1584,6 +1584,9 @@ class AdminUser
     /** @var mixed */
     public $purgeReason;
 
+    /** @var mixed */
+    public $passwordLocked;
+
     /** @param array<string,mixed> $values */
     public function __construct(array $values = array())
     {
@@ -1595,6 +1598,7 @@ class AdminUser
         $this->updatedAt = array_key_exists('updated_at', $values) ? $values['updated_at'] : null;
         $this->purgedAt = array_key_exists('purged_at', $values) ? $values['purged_at'] : null;
         $this->purgeReason = array_key_exists('purge_reason', $values) ? $values['purge_reason'] : null;
+        $this->passwordLocked = array_key_exists('password_locked', $values) ? $values['password_locked'] : null;
     }
 
     /** @return array<string,mixed> */
@@ -1609,6 +1613,7 @@ class AdminUser
             'updated_at' => $this->updatedAt,
             'purged_at' => $this->purgedAt,
             'purge_reason' => $this->purgeReason,
+            'password_locked' => $this->passwordLocked,
         );
     }
 }
@@ -4740,6 +4745,9 @@ class BrowserAuthorizationInspectResponse
     /** @var mixed */
     public $authorizedClaims;
 
+    /** @var mixed */
+    public $accessDenied;
+
     /** @param array<string,mixed> $values */
     public function __construct(array $values = array())
     {
@@ -4748,6 +4756,7 @@ class BrowserAuthorizationInspectResponse
         $this->requestReason = array_key_exists('request_reason', $values) ? $values['request_reason'] : null;
         $this->alreadyConsented = array_key_exists('already_consented', $values) ? $values['already_consented'] : null;
         $this->authorizedClaims = array_key_exists('authorized_claims', $values) ? $values['authorized_claims'] : null;
+        $this->accessDenied = array_key_exists('access_denied', $values) ? $values['access_denied'] : null;
     }
 
     /** @return array<string,mixed> */
@@ -4759,6 +4768,7 @@ class BrowserAuthorizationInspectResponse
             'request_reason' => $this->requestReason,
             'already_consented' => $this->alreadyConsented,
             'authorized_claims' => $this->authorizedClaims,
+            'access_denied' => $this->accessDenied,
         );
     }
 }
@@ -4872,6 +4882,9 @@ class BrowserLocalRpInspectResponse
     /** @var mixed */
     public $authorizedClaims;
 
+    /** @var mixed */
+    public $accessDenied;
+
     /** @param array<string,mixed> $values */
     public function __construct(array $values = array())
     {
@@ -4884,6 +4897,7 @@ class BrowserLocalRpInspectResponse
         $this->requestReason = array_key_exists('request_reason', $values) ? $values['request_reason'] : null;
         $this->alreadyConsented = array_key_exists('already_consented', $values) ? $values['already_consented'] : null;
         $this->authorizedClaims = array_key_exists('authorized_claims', $values) ? $values['authorized_claims'] : null;
+        $this->accessDenied = array_key_exists('access_denied', $values) ? $values['access_denied'] : null;
     }
 
     /** @return array<string,mixed> */
@@ -4899,6 +4913,7 @@ class BrowserLocalRpInspectResponse
             'request_reason' => $this->requestReason,
             'already_consented' => $this->alreadyConsented,
             'authorized_claims' => $this->authorizedClaims,
+            'access_denied' => $this->accessDenied,
         );
     }
 }
@@ -5388,6 +5403,9 @@ class AuthorizeValidateResponse
     /** @var mixed */
     public $newlyRequestedClaims;
 
+    /** @var mixed */
+    public $accessDenied;
+
     /** @param array<string,mixed> $values */
     public function __construct(array $values = array())
     {
@@ -5397,6 +5415,7 @@ class AuthorizeValidateResponse
         $this->alreadyConsented = array_key_exists('already_consented', $values) ? $values['already_consented'] : null;
         $this->authorizedClaims = array_key_exists('authorized_claims', $values) ? $values['authorized_claims'] : null;
         $this->newlyRequestedClaims = array_key_exists('newly_requested_claims', $values) ? $values['newly_requested_claims'] : null;
+        $this->accessDenied = array_key_exists('access_denied', $values) ? $values['access_denied'] : null;
     }
 
     /** @return array<string,mixed> */
@@ -5409,6 +5428,7 @@ class AuthorizeValidateResponse
             'already_consented' => $this->alreadyConsented,
             'authorized_claims' => $this->authorizedClaims,
             'newly_requested_claims' => $this->newlyRequestedClaims,
+            'access_denied' => $this->accessDenied,
         );
     }
 }
@@ -6339,6 +6359,351 @@ class SetSignInPolicyRequest
     {
         return array(
             'sign_in_hours' => $this->signInHours,
+        );
+    }
+}
+
+class SetUserPasswordLockRequest
+{
+    /** @var mixed */
+    public $userId;
+
+    /** @var mixed */
+    public $locked;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->userId = array_key_exists('user_id', $values) ? $values['user_id'] : null;
+        $this->locked = array_key_exists('locked', $values) ? $values['locked'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'user_id' => $this->userId,
+            'locked' => $this->locked,
+        );
+    }
+}
+
+class SetUserPasswordLockResponse
+{
+    /** @var mixed */
+    public $user;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->user = array_key_exists('user', $values) ? $values['user'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'user' => $this->user,
+        );
+    }
+}
+
+class AppAccessTarget
+{
+    /** @var mixed */
+    public $kind;
+
+    /** @var mixed */
+    public $userId;
+
+    /** @var mixed */
+    public $groupName;
+
+    /** @var mixed */
+    public $claimType;
+
+    /** @var mixed */
+    public $claimOperator;
+
+    /** @var mixed */
+    public $claimValue;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->kind = array_key_exists('kind', $values) ? $values['kind'] : null;
+        $this->userId = array_key_exists('user_id', $values) ? $values['user_id'] : null;
+        $this->groupName = array_key_exists('group_name', $values) ? $values['group_name'] : null;
+        $this->claimType = array_key_exists('claim_type', $values) ? $values['claim_type'] : null;
+        $this->claimOperator = array_key_exists('claim_operator', $values) ? $values['claim_operator'] : null;
+        $this->claimValue = array_key_exists('claim_value', $values) ? $values['claim_value'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'kind' => $this->kind,
+            'user_id' => $this->userId,
+            'group_name' => $this->groupName,
+            'claim_type' => $this->claimType,
+            'claim_operator' => $this->claimOperator,
+            'claim_value' => $this->claimValue,
+        );
+    }
+}
+
+class AppAccessPolicy
+{
+    /** @var mixed */
+    public $id;
+
+    /** @var mixed */
+    public $name;
+
+    /** @var mixed */
+    public $mode;
+
+    /** @var mixed */
+    public $patterns;
+
+    /** @var mixed */
+    public $message;
+
+    /** @var mixed */
+    public $targets;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->id = array_key_exists('id', $values) ? $values['id'] : null;
+        $this->name = array_key_exists('name', $values) ? $values['name'] : null;
+        $this->mode = array_key_exists('mode', $values) ? $values['mode'] : null;
+        $this->patterns = array_key_exists('patterns', $values) ? $values['patterns'] : null;
+        $this->message = array_key_exists('message', $values) ? $values['message'] : null;
+        $this->targets = array_key_exists('targets', $values) ? $values['targets'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'id' => $this->id,
+            'name' => $this->name,
+            'mode' => $this->mode,
+            'patterns' => $this->patterns,
+            'message' => $this->message,
+            'targets' => $this->targets,
+        );
+    }
+}
+
+class ListAppAccessPoliciesResponse
+{
+    /** @var mixed */
+    public $policies;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->policies = array_key_exists('policies', $values) ? $values['policies'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'policies' => $this->policies,
+        );
+    }
+}
+
+class SetAppAccessPolicyRequest
+{
+    /** @var mixed */
+    public $id;
+
+    /** @var mixed */
+    public $name;
+
+    /** @var mixed */
+    public $mode;
+
+    /** @var mixed */
+    public $patterns;
+
+    /** @var mixed */
+    public $message;
+
+    /** @var mixed */
+    public $targets;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->id = array_key_exists('id', $values) ? $values['id'] : null;
+        $this->name = array_key_exists('name', $values) ? $values['name'] : null;
+        $this->mode = array_key_exists('mode', $values) ? $values['mode'] : null;
+        $this->patterns = array_key_exists('patterns', $values) ? $values['patterns'] : null;
+        $this->message = array_key_exists('message', $values) ? $values['message'] : null;
+        $this->targets = array_key_exists('targets', $values) ? $values['targets'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'id' => $this->id,
+            'name' => $this->name,
+            'mode' => $this->mode,
+            'patterns' => $this->patterns,
+            'message' => $this->message,
+            'targets' => $this->targets,
+        );
+    }
+}
+
+class SetAppAccessPolicyResponse
+{
+    /** @var mixed */
+    public $policy;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->policy = array_key_exists('policy', $values) ? $values['policy'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'policy' => $this->policy,
+        );
+    }
+}
+
+class RemoveAppAccessPolicyRequest
+{
+    /** @var mixed */
+    public $id;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->id = array_key_exists('id', $values) ? $values['id'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'id' => $this->id,
+        );
+    }
+}
+
+class RemoveAppAccessPolicyResponse
+{
+    /** @var mixed */
+    public $success;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->success = array_key_exists('success', $values) ? $values['success'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'success' => $this->success,
+        );
+    }
+}
+
+class PreviewAppAccessRequest
+{
+    /** @var mixed */
+    public $userId;
+
+    /** @var mixed */
+    public $domain;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->userId = array_key_exists('user_id', $values) ? $values['user_id'] : null;
+        $this->domain = array_key_exists('domain', $values) ? $values['domain'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'user_id' => $this->userId,
+            'domain' => $this->domain,
+        );
+    }
+}
+
+class PreviewAppAccessResponse
+{
+    /** @var mixed */
+    public $allowed;
+
+    /** @var mixed */
+    public $appliedPolicies;
+
+    /** @var mixed */
+    public $blockingPolicies;
+
+    /** @var mixed */
+    public $messages;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->allowed = array_key_exists('allowed', $values) ? $values['allowed'] : null;
+        $this->appliedPolicies = array_key_exists('applied_policies', $values) ? $values['applied_policies'] : null;
+        $this->blockingPolicies = array_key_exists('blocking_policies', $values) ? $values['blocking_policies'] : null;
+        $this->messages = array_key_exists('messages', $values) ? $values['messages'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'allowed' => $this->allowed,
+            'applied_policies' => $this->appliedPolicies,
+            'blocking_policies' => $this->blockingPolicies,
+            'messages' => $this->messages,
+        );
+    }
+}
+
+class AppAccessDenial
+{
+    /** @var mixed */
+    public $domain;
+
+    /** @var mixed */
+    public $messages;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->domain = array_key_exists('domain', $values) ? $values['domain'] : null;
+        $this->messages = array_key_exists('messages', $values) ? $values['messages'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'domain' => $this->domain,
+            'messages' => $this->messages,
         );
     }
 }
@@ -8280,6 +8645,9 @@ class BrowserActAsInspectResponse
     /** @var mixed */
     public $maxRenewalWindowSeconds;
 
+    /** @var mixed */
+    public $accessDenied;
+
     /** @param array<string,mixed> $values */
     public function __construct(array $values = array())
     {
@@ -8293,6 +8661,7 @@ class BrowserActAsInspectResponse
         $this->maxLifetimeSeconds = array_key_exists('max_lifetime_seconds', $values) ? $values['max_lifetime_seconds'] : null;
         $this->defaultRenewalWindowSeconds = array_key_exists('default_renewal_window_seconds', $values) ? $values['default_renewal_window_seconds'] : null;
         $this->maxRenewalWindowSeconds = array_key_exists('max_renewal_window_seconds', $values) ? $values['max_renewal_window_seconds'] : null;
+        $this->accessDenied = array_key_exists('access_denied', $values) ? $values['access_denied'] : null;
     }
 
     /** @return array<string,mixed> */
@@ -8309,6 +8678,7 @@ class BrowserActAsInspectResponse
             'max_lifetime_seconds' => $this->maxLifetimeSeconds,
             'default_renewal_window_seconds' => $this->defaultRenewalWindowSeconds,
             'max_renewal_window_seconds' => $this->maxRenewalWindowSeconds,
+            'access_denied' => $this->accessDenied,
         );
     }
 }

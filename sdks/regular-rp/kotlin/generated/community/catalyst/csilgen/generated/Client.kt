@@ -362,6 +362,21 @@ class AdminClient(private val transport: Transport) {
     fun setSignInPolicy(request: SetSignInPolicyRequest): SignInPolicy {
         return decode<SignInPolicy>(transport.call("Admin", "set-sign-in-policy", encode(request)))
     }
+    fun setUserPasswordLock(request: SetUserPasswordLockRequest): SetUserPasswordLockResponse {
+        return decode<SetUserPasswordLockResponse>(transport.call("Admin", "set-user-password-lock", encode(request)))
+    }
+    fun listAppAccessPolicies(request: EmptyRequest): ListAppAccessPoliciesResponse {
+        return decode<ListAppAccessPoliciesResponse>(transport.call("Admin", "list-app-access-policies", encode(request)))
+    }
+    fun setAppAccessPolicy(request: SetAppAccessPolicyRequest): SetAppAccessPolicyResponse {
+        return decode<SetAppAccessPolicyResponse>(transport.call("Admin", "set-app-access-policy", encode(request)))
+    }
+    fun removeAppAccessPolicy(request: RemoveAppAccessPolicyRequest): RemoveAppAccessPolicyResponse {
+        return decode<RemoveAppAccessPolicyResponse>(transport.call("Admin", "remove-app-access-policy", encode(request)))
+    }
+    fun previewAppAccess(request: PreviewAppAccessRequest): PreviewAppAccessResponse {
+        return decode<PreviewAppAccessResponse>(transport.call("Admin", "preview-app-access", encode(request)))
+    }
 }
 
 /** Typed client for the Account service. The client owns (de)serialization;

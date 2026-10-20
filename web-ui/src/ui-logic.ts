@@ -70,6 +70,11 @@ export function hasNewlyRequestedClaim(claims: BrowserConsentClaim[]): boolean {
   return claims.some((claim) => claim.newlyRequested === true);
 }
 
+/** Domain patterns typed one per line or separated by commas or spaces. */
+export function patternList(text: string): string[] {
+  return text.split(/[\s,]+/).filter(Boolean);
+}
+
 export function hasBlockedRequiredClaim(claims: BrowserConsentClaim[]): boolean {
   return claims.some((claim) => claim.required
     && (claim.policy === "forced_deny" || (!claim.available && !claim.userSettable)));

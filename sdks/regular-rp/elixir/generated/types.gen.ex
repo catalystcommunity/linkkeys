@@ -3309,7 +3309,8 @@ defmodule Csilgen.Generated.AdminUser do
     :created_at,
     :updated_at,
     :purged_at,
-    :purge_reason
+    :purge_reason,
+    :password_locked
   ]
 
   @type t :: %__MODULE__{
@@ -3320,7 +3321,8 @@ defmodule Csilgen.Generated.AdminUser do
           created_at: String.t(),
           updated_at: String.t(),
           purged_at: String.t() | nil,
-          purge_reason: String.t() | nil
+          purge_reason: String.t() | nil,
+          password_locked: boolean() | nil
         }
 
   @wire_keys [
@@ -3331,7 +3333,8 @@ defmodule Csilgen.Generated.AdminUser do
     created_at: "created_at",
     updated_at: "updated_at",
     purged_at: "purged_at",
-    purge_reason: "purge_reason"
+    purge_reason: "purge_reason",
+    password_locked: "password_locked"
   ]
   @doc "Maps struct field atoms to their verbatim CBOR wire keys."
   @spec wire_keys() :: keyword()
@@ -3353,6 +3356,10 @@ defmodule Csilgen.Generated.AdminUser do
          if(is_nil(v.purge_reason),
            do: nil,
            else: {{:text, "purge_reason"}, {:text, v.purge_reason}}
+         ),
+         if(is_nil(v.password_locked),
+           do: nil,
+           else: {{:text, "password_locked"}, {:bool, v.password_locked}}
          )
        ],
        &is_nil/1
@@ -3381,6 +3388,11 @@ defmodule Csilgen.Generated.AdminUser do
         case Map.get(csil_fields, {:text, "purge_reason"}) do
           nil -> nil
           csil_v -> Csilgen.Generated.Cbor.to_text(csil_v)
+        end,
+      password_locked:
+        case Map.get(csil_fields, {:text, "password_locked"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.Cbor.to_bool(csil_v)
         end
     }
   end
@@ -10034,14 +10046,22 @@ defmodule Csilgen.Generated.BrowserAuthorizationInspectResponse do
   @moduledoc "Generated struct for the BrowserAuthorizationInspectResponse type."
 
   @enforce_keys [:relying_party, :claims]
-  defstruct [:relying_party, :claims, :request_reason, :already_consented, :authorized_claims]
+  defstruct [
+    :relying_party,
+    :claims,
+    :request_reason,
+    :already_consented,
+    :authorized_claims,
+    :access_denied
+  ]
 
   @type t :: %__MODULE__{
           relying_party: String.t(),
           claims: [Csilgen.Generated.BrowserConsentClaim.t()],
           request_reason: String.t() | nil,
           already_consented: boolean() | nil,
-          authorized_claims: [String.t()] | nil
+          authorized_claims: [String.t()] | nil,
+          access_denied: Csilgen.Generated.AppAccessDenial.t() | nil
         }
 
   @wire_keys [
@@ -10049,7 +10069,8 @@ defmodule Csilgen.Generated.BrowserAuthorizationInspectResponse do
     claims: "claims",
     request_reason: "request_reason",
     already_consented: "already_consented",
-    authorized_claims: "authorized_claims"
+    authorized_claims: "authorized_claims",
+    access_denied: "access_denied"
   ]
   @doc "Maps struct field atoms to their verbatim CBOR wire keys."
   @spec wire_keys() :: keyword()
@@ -10066,6 +10087,12 @@ defmodule Csilgen.Generated.BrowserAuthorizationInspectResponse do
            Enum.map(v.claims, fn csil_e ->
              Csilgen.Generated.BrowserConsentClaim.to_cbor_value(csil_e)
            end)}},
+         if(is_nil(v.access_denied),
+           do: nil,
+           else:
+             {{:text, "access_denied"},
+              Csilgen.Generated.AppAccessDenial.to_cbor_value(v.access_denied)}
+         ),
          {{:text, "relying_party"}, {:text, v.relying_party}},
          if(is_nil(v.request_reason),
            do: nil,
@@ -10098,6 +10125,11 @@ defmodule Csilgen.Generated.BrowserAuthorizationInspectResponse do
             Enum.map(csil_xs, fn csil_e ->
               Csilgen.Generated.BrowserConsentClaim.from_cbor_value(csil_e)
             end)
+        end,
+      access_denied:
+        case Map.get(csil_fields, {:text, "access_denied"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.AppAccessDenial.from_cbor_value(csil_v)
         end,
       relying_party:
         Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "relying_party"})),
@@ -10334,7 +10366,8 @@ defmodule Csilgen.Generated.BrowserLocalRpInspectResponse do
     :claims,
     :request_reason,
     :already_consented,
-    :authorized_claims
+    :authorized_claims,
+    :access_denied
   ]
 
   @type t :: %__MODULE__{
@@ -10346,7 +10379,8 @@ defmodule Csilgen.Generated.BrowserLocalRpInspectResponse do
           claims: [Csilgen.Generated.BrowserConsentClaim.t()],
           request_reason: String.t() | nil,
           already_consented: boolean() | nil,
-          authorized_claims: [String.t()] | nil
+          authorized_claims: [String.t()] | nil,
+          access_denied: Csilgen.Generated.AppAccessDenial.t() | nil
         }
 
   @wire_keys [
@@ -10358,7 +10392,8 @@ defmodule Csilgen.Generated.BrowserLocalRpInspectResponse do
     claims: "claims",
     request_reason: "request_reason",
     already_consented: "already_consented",
-    authorized_claims: "authorized_claims"
+    authorized_claims: "authorized_claims",
+    access_denied: "access_denied"
   ]
   @doc "Maps struct field atoms to their verbatim CBOR wire keys."
   @spec wire_keys() :: keyword()
@@ -10378,6 +10413,12 @@ defmodule Csilgen.Generated.BrowserLocalRpInspectResponse do
          {{:text, "app_name"}, {:text, v.app_name}},
          {{:text, "admission"}, {:text, v.admission}},
          {{:text, "fingerprint"}, {:text, v.fingerprint}},
+         if(is_nil(v.access_denied),
+           do: nil,
+           else:
+             {{:text, "access_denied"},
+              Csilgen.Generated.AppAccessDenial.to_cbor_value(v.access_denied)}
+         ),
          {{:text, "callback_host"}, {:text, v.callback_host}},
          if(is_nil(v.first_seen_at),
            do: nil,
@@ -10419,6 +10460,11 @@ defmodule Csilgen.Generated.BrowserLocalRpInspectResponse do
       admission: Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "admission"})),
       fingerprint:
         Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "fingerprint"})),
+      access_denied:
+        case Map.get(csil_fields, {:text, "access_denied"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.AppAccessDenial.from_cbor_value(csil_v)
+        end,
       callback_host:
         Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "callback_host"})),
       first_seen_at:
@@ -11488,7 +11534,8 @@ defmodule Csilgen.Generated.AuthorizeValidateResponse do
     :requested_claims,
     :already_consented,
     :authorized_claims,
-    :newly_requested_claims
+    :newly_requested_claims,
+    :access_denied
   ]
 
   @type t :: %__MODULE__{
@@ -11497,7 +11544,8 @@ defmodule Csilgen.Generated.AuthorizeValidateResponse do
           requested_claims: [String.t()],
           already_consented: boolean() | nil,
           authorized_claims: [String.t()] | nil,
-          newly_requested_claims: [String.t()] | nil
+          newly_requested_claims: [String.t()] | nil,
+          access_denied: Csilgen.Generated.AppAccessDenial.t() | nil
         }
 
   @wire_keys [
@@ -11506,7 +11554,8 @@ defmodule Csilgen.Generated.AuthorizeValidateResponse do
     requested_claims: "requested_claims",
     already_consented: "already_consented",
     authorized_claims: "authorized_claims",
-    newly_requested_claims: "newly_requested_claims"
+    newly_requested_claims: "newly_requested_claims",
+    access_denied: "access_denied"
   ]
   @doc "Maps struct field atoms to their verbatim CBOR wire keys."
   @spec wire_keys() :: keyword()
@@ -11519,6 +11568,12 @@ defmodule Csilgen.Generated.AuthorizeValidateResponse do
      Enum.reject(
        [
          {{:text, "callback_url"}, {:text, v.callback_url}},
+         if(is_nil(v.access_denied),
+           do: nil,
+           else:
+             {{:text, "access_denied"},
+              Csilgen.Generated.AppAccessDenial.to_cbor_value(v.access_denied)}
+         ),
          {{:text, "relying_party"}, {:text, v.relying_party}},
          {{:text, "requested_claims"},
           {:array, Enum.map(v.requested_claims, fn csil_e -> {:text, csil_e} end)}},
@@ -11551,6 +11606,11 @@ defmodule Csilgen.Generated.AuthorizeValidateResponse do
     %__MODULE__{
       callback_url:
         Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "callback_url"})),
+      access_denied:
+        case Map.get(csil_fields, {:text, "access_denied"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.AppAccessDenial.from_cbor_value(csil_v)
+        end,
       relying_party:
         Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "relying_party"})),
       requested_claims:
@@ -13540,6 +13600,752 @@ defmodule Csilgen.Generated.SetSignInPolicyRequest do
     %__MODULE__{
       sign_in_hours:
         Csilgen.Generated.Cbor.to_int(Map.fetch!(csil_fields, {:text, "sign_in_hours"}))
+    }
+  end
+
+  @doc "Encodes this struct to canonical CBOR bytes."
+  @spec to_cbor(t()) :: binary()
+  def to_cbor(v), do: Csilgen.Generated.Cbor.encode(to_cbor_value(v))
+
+  @doc "Decodes canonical CBOR bytes into this struct."
+  @spec from_cbor(binary()) :: t()
+  def from_cbor(bytes), do: from_cbor_value(Csilgen.Generated.Cbor.decode(bytes))
+end
+
+defmodule Csilgen.Generated.SetUserPasswordLockRequest do
+  @moduledoc "Generated struct for the SetUserPasswordLockRequest type."
+
+  @enforce_keys [:user_id, :locked]
+  defstruct [:user_id, :locked]
+
+  @type t :: %__MODULE__{
+          user_id: String.t(),
+          locked: boolean()
+        }
+
+  @wire_keys [user_id: "user_id", locked: "locked"]
+  @doc "Maps struct field atoms to their verbatim CBOR wire keys."
+  @spec wire_keys() :: keyword()
+  def wire_keys, do: @wire_keys
+
+  @doc "Builds the canonical CBOR value tree for this struct."
+  @spec to_cbor_value(t()) :: Csilgen.Generated.Cbor.value()
+  def to_cbor_value(%__MODULE__{} = v) do
+    {:map,
+     Enum.reject(
+       [
+         {{:text, "locked"}, {:bool, v.locked}},
+         {{:text, "user_id"}, {:text, v.user_id}}
+       ],
+       &is_nil/1
+     )}
+  end
+
+  @doc "Reconstructs this struct from a decoded CBOR value tree."
+  @spec from_cbor_value(term()) :: t()
+  def from_cbor_value({:map, csil_kvs}) do
+    csil_fields = Map.new(csil_kvs)
+
+    %__MODULE__{
+      locked: Csilgen.Generated.Cbor.to_bool(Map.fetch!(csil_fields, {:text, "locked"})),
+      user_id: Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "user_id"}))
+    }
+  end
+
+  @doc "Encodes this struct to canonical CBOR bytes."
+  @spec to_cbor(t()) :: binary()
+  def to_cbor(v), do: Csilgen.Generated.Cbor.encode(to_cbor_value(v))
+
+  @doc "Decodes canonical CBOR bytes into this struct."
+  @spec from_cbor(binary()) :: t()
+  def from_cbor(bytes), do: from_cbor_value(Csilgen.Generated.Cbor.decode(bytes))
+end
+
+defmodule Csilgen.Generated.SetUserPasswordLockResponse do
+  @moduledoc "Generated struct for the SetUserPasswordLockResponse type."
+
+  @enforce_keys [:user]
+  defstruct [:user]
+
+  @type t :: %__MODULE__{
+          user: Csilgen.Generated.AdminUser.t()
+        }
+
+  @wire_keys [user: "user"]
+  @doc "Maps struct field atoms to their verbatim CBOR wire keys."
+  @spec wire_keys() :: keyword()
+  def wire_keys, do: @wire_keys
+
+  @doc "Builds the canonical CBOR value tree for this struct."
+  @spec to_cbor_value(t()) :: Csilgen.Generated.Cbor.value()
+  def to_cbor_value(%__MODULE__{} = v) do
+    {:map,
+     Enum.reject(
+       [
+         {{:text, "user"}, Csilgen.Generated.AdminUser.to_cbor_value(v.user)}
+       ],
+       &is_nil/1
+     )}
+  end
+
+  @doc "Reconstructs this struct from a decoded CBOR value tree."
+  @spec from_cbor_value(term()) :: t()
+  def from_cbor_value({:map, csil_kvs}) do
+    csil_fields = Map.new(csil_kvs)
+
+    %__MODULE__{
+      user: Csilgen.Generated.AdminUser.from_cbor_value(Map.fetch!(csil_fields, {:text, "user"}))
+    }
+  end
+
+  @doc "Encodes this struct to canonical CBOR bytes."
+  @spec to_cbor(t()) :: binary()
+  def to_cbor(v), do: Csilgen.Generated.Cbor.encode(to_cbor_value(v))
+
+  @doc "Decodes canonical CBOR bytes into this struct."
+  @spec from_cbor(binary()) :: t()
+  def from_cbor(bytes), do: from_cbor_value(Csilgen.Generated.Cbor.decode(bytes))
+end
+
+defmodule Csilgen.Generated.AppAccessTarget do
+  @moduledoc "Generated struct for the AppAccessTarget type."
+
+  @enforce_keys [:kind]
+  defstruct [:kind, :user_id, :group_name, :claim_type, :claim_operator, :claim_value]
+
+  @type t :: %__MODULE__{
+          kind: String.t(),
+          user_id: String.t() | nil,
+          group_name: String.t() | nil,
+          claim_type: String.t() | nil,
+          claim_operator: String.t() | nil,
+          claim_value: String.t() | nil
+        }
+
+  @wire_keys [
+    kind: "kind",
+    user_id: "user_id",
+    group_name: "group_name",
+    claim_type: "claim_type",
+    claim_operator: "claim_operator",
+    claim_value: "claim_value"
+  ]
+  @doc "Maps struct field atoms to their verbatim CBOR wire keys."
+  @spec wire_keys() :: keyword()
+  def wire_keys, do: @wire_keys
+
+  @doc "Builds the canonical CBOR value tree for this struct."
+  @spec to_cbor_value(t()) :: Csilgen.Generated.Cbor.value()
+  def to_cbor_value(%__MODULE__{} = v) do
+    {:map,
+     Enum.reject(
+       [
+         {{:text, "kind"}, {:text, v.kind}},
+         if(is_nil(v.user_id), do: nil, else: {{:text, "user_id"}, {:text, v.user_id}}),
+         if(is_nil(v.claim_type), do: nil, else: {{:text, "claim_type"}, {:text, v.claim_type}}),
+         if(is_nil(v.group_name), do: nil, else: {{:text, "group_name"}, {:text, v.group_name}}),
+         if(is_nil(v.claim_value),
+           do: nil,
+           else: {{:text, "claim_value"}, {:text, v.claim_value}}
+         ),
+         if(is_nil(v.claim_operator),
+           do: nil,
+           else: {{:text, "claim_operator"}, {:text, v.claim_operator}}
+         )
+       ],
+       &is_nil/1
+     )}
+  end
+
+  @doc "Reconstructs this struct from a decoded CBOR value tree."
+  @spec from_cbor_value(term()) :: t()
+  def from_cbor_value({:map, csil_kvs}) do
+    csil_fields = Map.new(csil_kvs)
+
+    %__MODULE__{
+      kind: Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "kind"})),
+      user_id:
+        case Map.get(csil_fields, {:text, "user_id"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.Cbor.to_text(csil_v)
+        end,
+      claim_type:
+        case Map.get(csil_fields, {:text, "claim_type"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.Cbor.to_text(csil_v)
+        end,
+      group_name:
+        case Map.get(csil_fields, {:text, "group_name"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.Cbor.to_text(csil_v)
+        end,
+      claim_value:
+        case Map.get(csil_fields, {:text, "claim_value"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.Cbor.to_text(csil_v)
+        end,
+      claim_operator:
+        case Map.get(csil_fields, {:text, "claim_operator"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.Cbor.to_text(csil_v)
+        end
+    }
+  end
+
+  @doc "Encodes this struct to canonical CBOR bytes."
+  @spec to_cbor(t()) :: binary()
+  def to_cbor(v), do: Csilgen.Generated.Cbor.encode(to_cbor_value(v))
+
+  @doc "Decodes canonical CBOR bytes into this struct."
+  @spec from_cbor(binary()) :: t()
+  def from_cbor(bytes), do: from_cbor_value(Csilgen.Generated.Cbor.decode(bytes))
+end
+
+defmodule Csilgen.Generated.AppAccessPolicy do
+  @moduledoc "Generated struct for the AppAccessPolicy type."
+
+  @enforce_keys [:id, :name, :mode, :patterns, :targets]
+  defstruct [:id, :name, :mode, :patterns, :message, :targets]
+
+  @type t :: %__MODULE__{
+          id: String.t(),
+          name: String.t(),
+          mode: String.t(),
+          patterns: [String.t()],
+          message: String.t() | nil,
+          targets: [Csilgen.Generated.AppAccessTarget.t()]
+        }
+
+  @wire_keys [
+    id: "id",
+    name: "name",
+    mode: "mode",
+    patterns: "patterns",
+    message: "message",
+    targets: "targets"
+  ]
+  @doc "Maps struct field atoms to their verbatim CBOR wire keys."
+  @spec wire_keys() :: keyword()
+  def wire_keys, do: @wire_keys
+
+  @doc "Builds the canonical CBOR value tree for this struct."
+  @spec to_cbor_value(t()) :: Csilgen.Generated.Cbor.value()
+  def to_cbor_value(%__MODULE__{} = v) do
+    {:map,
+     Enum.reject(
+       [
+         {{:text, "id"}, {:text, v.id}},
+         {{:text, "mode"}, {:text, v.mode}},
+         {{:text, "name"}, {:text, v.name}},
+         if(is_nil(v.message), do: nil, else: {{:text, "message"}, {:text, v.message}}),
+         {{:text, "targets"},
+          {:array,
+           Enum.map(v.targets, fn csil_e ->
+             Csilgen.Generated.AppAccessTarget.to_cbor_value(csil_e)
+           end)}},
+         {{:text, "patterns"}, {:array, Enum.map(v.patterns, fn csil_e -> {:text, csil_e} end)}}
+       ],
+       &is_nil/1
+     )}
+  end
+
+  @doc "Reconstructs this struct from a decoded CBOR value tree."
+  @spec from_cbor_value(term()) :: t()
+  def from_cbor_value({:map, csil_kvs}) do
+    csil_fields = Map.new(csil_kvs)
+
+    %__MODULE__{
+      id: Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "id"})),
+      mode: Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "mode"})),
+      name: Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "name"})),
+      message:
+        case Map.get(csil_fields, {:text, "message"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.Cbor.to_text(csil_v)
+        end,
+      targets:
+        case Map.fetch!(csil_fields, {:text, "targets"}) do
+          {:array, csil_xs} ->
+            Enum.map(csil_xs, fn csil_e ->
+              Csilgen.Generated.AppAccessTarget.from_cbor_value(csil_e)
+            end)
+        end,
+      patterns:
+        case Map.fetch!(csil_fields, {:text, "patterns"}) do
+          {:array, csil_xs} ->
+            Enum.map(csil_xs, fn csil_e -> Csilgen.Generated.Cbor.to_text(csil_e) end)
+        end
+    }
+  end
+
+  @doc "Encodes this struct to canonical CBOR bytes."
+  @spec to_cbor(t()) :: binary()
+  def to_cbor(v), do: Csilgen.Generated.Cbor.encode(to_cbor_value(v))
+
+  @doc "Decodes canonical CBOR bytes into this struct."
+  @spec from_cbor(binary()) :: t()
+  def from_cbor(bytes), do: from_cbor_value(Csilgen.Generated.Cbor.decode(bytes))
+end
+
+defmodule Csilgen.Generated.ListAppAccessPoliciesResponse do
+  @moduledoc "Generated struct for the ListAppAccessPoliciesResponse type."
+
+  @enforce_keys [:policies]
+  defstruct [:policies]
+
+  @type t :: %__MODULE__{
+          policies: [Csilgen.Generated.AppAccessPolicy.t()]
+        }
+
+  @wire_keys [policies: "policies"]
+  @doc "Maps struct field atoms to their verbatim CBOR wire keys."
+  @spec wire_keys() :: keyword()
+  def wire_keys, do: @wire_keys
+
+  @doc "Builds the canonical CBOR value tree for this struct."
+  @spec to_cbor_value(t()) :: Csilgen.Generated.Cbor.value()
+  def to_cbor_value(%__MODULE__{} = v) do
+    {:map,
+     Enum.reject(
+       [
+         {{:text, "policies"},
+          {:array,
+           Enum.map(v.policies, fn csil_e ->
+             Csilgen.Generated.AppAccessPolicy.to_cbor_value(csil_e)
+           end)}}
+       ],
+       &is_nil/1
+     )}
+  end
+
+  @doc "Reconstructs this struct from a decoded CBOR value tree."
+  @spec from_cbor_value(term()) :: t()
+  def from_cbor_value({:map, csil_kvs}) do
+    csil_fields = Map.new(csil_kvs)
+
+    %__MODULE__{
+      policies:
+        case Map.fetch!(csil_fields, {:text, "policies"}) do
+          {:array, csil_xs} ->
+            Enum.map(csil_xs, fn csil_e ->
+              Csilgen.Generated.AppAccessPolicy.from_cbor_value(csil_e)
+            end)
+        end
+    }
+  end
+
+  @doc "Encodes this struct to canonical CBOR bytes."
+  @spec to_cbor(t()) :: binary()
+  def to_cbor(v), do: Csilgen.Generated.Cbor.encode(to_cbor_value(v))
+
+  @doc "Decodes canonical CBOR bytes into this struct."
+  @spec from_cbor(binary()) :: t()
+  def from_cbor(bytes), do: from_cbor_value(Csilgen.Generated.Cbor.decode(bytes))
+end
+
+defmodule Csilgen.Generated.SetAppAccessPolicyRequest do
+  @moduledoc "Generated struct for the SetAppAccessPolicyRequest type."
+
+  @enforce_keys [:name, :mode, :patterns, :targets]
+  defstruct [:id, :name, :mode, :patterns, :message, :targets]
+
+  @type t :: %__MODULE__{
+          id: String.t() | nil,
+          name: String.t(),
+          mode: String.t(),
+          patterns: [String.t()],
+          message: String.t() | nil,
+          targets: [Csilgen.Generated.AppAccessTarget.t()]
+        }
+
+  @wire_keys [
+    id: "id",
+    name: "name",
+    mode: "mode",
+    patterns: "patterns",
+    message: "message",
+    targets: "targets"
+  ]
+  @doc "Maps struct field atoms to their verbatim CBOR wire keys."
+  @spec wire_keys() :: keyword()
+  def wire_keys, do: @wire_keys
+
+  @doc "Builds the canonical CBOR value tree for this struct."
+  @spec to_cbor_value(t()) :: Csilgen.Generated.Cbor.value()
+  def to_cbor_value(%__MODULE__{} = v) do
+    {:map,
+     Enum.reject(
+       [
+         if(is_nil(v.id), do: nil, else: {{:text, "id"}, {:text, v.id}}),
+         {{:text, "mode"}, {:text, v.mode}},
+         {{:text, "name"}, {:text, v.name}},
+         if(is_nil(v.message), do: nil, else: {{:text, "message"}, {:text, v.message}}),
+         {{:text, "targets"},
+          {:array,
+           Enum.map(v.targets, fn csil_e ->
+             Csilgen.Generated.AppAccessTarget.to_cbor_value(csil_e)
+           end)}},
+         {{:text, "patterns"}, {:array, Enum.map(v.patterns, fn csil_e -> {:text, csil_e} end)}}
+       ],
+       &is_nil/1
+     )}
+  end
+
+  @doc "Reconstructs this struct from a decoded CBOR value tree."
+  @spec from_cbor_value(term()) :: t()
+  def from_cbor_value({:map, csil_kvs}) do
+    csil_fields = Map.new(csil_kvs)
+
+    %__MODULE__{
+      id:
+        case Map.get(csil_fields, {:text, "id"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.Cbor.to_text(csil_v)
+        end,
+      mode: Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "mode"})),
+      name: Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "name"})),
+      message:
+        case Map.get(csil_fields, {:text, "message"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.Cbor.to_text(csil_v)
+        end,
+      targets:
+        case Map.fetch!(csil_fields, {:text, "targets"}) do
+          {:array, csil_xs} ->
+            Enum.map(csil_xs, fn csil_e ->
+              Csilgen.Generated.AppAccessTarget.from_cbor_value(csil_e)
+            end)
+        end,
+      patterns:
+        case Map.fetch!(csil_fields, {:text, "patterns"}) do
+          {:array, csil_xs} ->
+            Enum.map(csil_xs, fn csil_e -> Csilgen.Generated.Cbor.to_text(csil_e) end)
+        end
+    }
+  end
+
+  @doc "Encodes this struct to canonical CBOR bytes."
+  @spec to_cbor(t()) :: binary()
+  def to_cbor(v), do: Csilgen.Generated.Cbor.encode(to_cbor_value(v))
+
+  @doc "Decodes canonical CBOR bytes into this struct."
+  @spec from_cbor(binary()) :: t()
+  def from_cbor(bytes), do: from_cbor_value(Csilgen.Generated.Cbor.decode(bytes))
+end
+
+defmodule Csilgen.Generated.SetAppAccessPolicyResponse do
+  @moduledoc "Generated struct for the SetAppAccessPolicyResponse type."
+
+  @enforce_keys [:policy]
+  defstruct [:policy]
+
+  @type t :: %__MODULE__{
+          policy: Csilgen.Generated.AppAccessPolicy.t()
+        }
+
+  @wire_keys [policy: "policy"]
+  @doc "Maps struct field atoms to their verbatim CBOR wire keys."
+  @spec wire_keys() :: keyword()
+  def wire_keys, do: @wire_keys
+
+  @doc "Builds the canonical CBOR value tree for this struct."
+  @spec to_cbor_value(t()) :: Csilgen.Generated.Cbor.value()
+  def to_cbor_value(%__MODULE__{} = v) do
+    {:map,
+     Enum.reject(
+       [
+         {{:text, "policy"}, Csilgen.Generated.AppAccessPolicy.to_cbor_value(v.policy)}
+       ],
+       &is_nil/1
+     )}
+  end
+
+  @doc "Reconstructs this struct from a decoded CBOR value tree."
+  @spec from_cbor_value(term()) :: t()
+  def from_cbor_value({:map, csil_kvs}) do
+    csil_fields = Map.new(csil_kvs)
+
+    %__MODULE__{
+      policy:
+        Csilgen.Generated.AppAccessPolicy.from_cbor_value(
+          Map.fetch!(csil_fields, {:text, "policy"})
+        )
+    }
+  end
+
+  @doc "Encodes this struct to canonical CBOR bytes."
+  @spec to_cbor(t()) :: binary()
+  def to_cbor(v), do: Csilgen.Generated.Cbor.encode(to_cbor_value(v))
+
+  @doc "Decodes canonical CBOR bytes into this struct."
+  @spec from_cbor(binary()) :: t()
+  def from_cbor(bytes), do: from_cbor_value(Csilgen.Generated.Cbor.decode(bytes))
+end
+
+defmodule Csilgen.Generated.RemoveAppAccessPolicyRequest do
+  @moduledoc "Generated struct for the RemoveAppAccessPolicyRequest type."
+
+  @enforce_keys [:id]
+  defstruct [:id]
+
+  @type t :: %__MODULE__{
+          id: String.t()
+        }
+
+  @wire_keys [id: "id"]
+  @doc "Maps struct field atoms to their verbatim CBOR wire keys."
+  @spec wire_keys() :: keyword()
+  def wire_keys, do: @wire_keys
+
+  @doc "Builds the canonical CBOR value tree for this struct."
+  @spec to_cbor_value(t()) :: Csilgen.Generated.Cbor.value()
+  def to_cbor_value(%__MODULE__{} = v) do
+    {:map,
+     Enum.reject(
+       [
+         {{:text, "id"}, {:text, v.id}}
+       ],
+       &is_nil/1
+     )}
+  end
+
+  @doc "Reconstructs this struct from a decoded CBOR value tree."
+  @spec from_cbor_value(term()) :: t()
+  def from_cbor_value({:map, csil_kvs}) do
+    csil_fields = Map.new(csil_kvs)
+
+    %__MODULE__{
+      id: Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "id"}))
+    }
+  end
+
+  @doc "Encodes this struct to canonical CBOR bytes."
+  @spec to_cbor(t()) :: binary()
+  def to_cbor(v), do: Csilgen.Generated.Cbor.encode(to_cbor_value(v))
+
+  @doc "Decodes canonical CBOR bytes into this struct."
+  @spec from_cbor(binary()) :: t()
+  def from_cbor(bytes), do: from_cbor_value(Csilgen.Generated.Cbor.decode(bytes))
+end
+
+defmodule Csilgen.Generated.RemoveAppAccessPolicyResponse do
+  @moduledoc "Generated struct for the RemoveAppAccessPolicyResponse type."
+
+  @enforce_keys [:success]
+  defstruct [:success]
+
+  @type t :: %__MODULE__{
+          success: boolean()
+        }
+
+  @wire_keys [success: "success"]
+  @doc "Maps struct field atoms to their verbatim CBOR wire keys."
+  @spec wire_keys() :: keyword()
+  def wire_keys, do: @wire_keys
+
+  @doc "Builds the canonical CBOR value tree for this struct."
+  @spec to_cbor_value(t()) :: Csilgen.Generated.Cbor.value()
+  def to_cbor_value(%__MODULE__{} = v) do
+    {:map,
+     Enum.reject(
+       [
+         {{:text, "success"}, {:bool, v.success}}
+       ],
+       &is_nil/1
+     )}
+  end
+
+  @doc "Reconstructs this struct from a decoded CBOR value tree."
+  @spec from_cbor_value(term()) :: t()
+  def from_cbor_value({:map, csil_kvs}) do
+    csil_fields = Map.new(csil_kvs)
+
+    %__MODULE__{
+      success: Csilgen.Generated.Cbor.to_bool(Map.fetch!(csil_fields, {:text, "success"}))
+    }
+  end
+
+  @doc "Encodes this struct to canonical CBOR bytes."
+  @spec to_cbor(t()) :: binary()
+  def to_cbor(v), do: Csilgen.Generated.Cbor.encode(to_cbor_value(v))
+
+  @doc "Decodes canonical CBOR bytes into this struct."
+  @spec from_cbor(binary()) :: t()
+  def from_cbor(bytes), do: from_cbor_value(Csilgen.Generated.Cbor.decode(bytes))
+end
+
+defmodule Csilgen.Generated.PreviewAppAccessRequest do
+  @moduledoc "Generated struct for the PreviewAppAccessRequest type."
+
+  @enforce_keys [:user_id]
+  defstruct [:user_id, :domain]
+
+  @type t :: %__MODULE__{
+          user_id: String.t(),
+          domain: String.t() | nil
+        }
+
+  @wire_keys [user_id: "user_id", domain: "domain"]
+  @doc "Maps struct field atoms to their verbatim CBOR wire keys."
+  @spec wire_keys() :: keyword()
+  def wire_keys, do: @wire_keys
+
+  @doc "Builds the canonical CBOR value tree for this struct."
+  @spec to_cbor_value(t()) :: Csilgen.Generated.Cbor.value()
+  def to_cbor_value(%__MODULE__{} = v) do
+    {:map,
+     Enum.reject(
+       [
+         if(is_nil(v.domain), do: nil, else: {{:text, "domain"}, {:text, v.domain}}),
+         {{:text, "user_id"}, {:text, v.user_id}}
+       ],
+       &is_nil/1
+     )}
+  end
+
+  @doc "Reconstructs this struct from a decoded CBOR value tree."
+  @spec from_cbor_value(term()) :: t()
+  def from_cbor_value({:map, csil_kvs}) do
+    csil_fields = Map.new(csil_kvs)
+
+    %__MODULE__{
+      domain:
+        case Map.get(csil_fields, {:text, "domain"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.Cbor.to_text(csil_v)
+        end,
+      user_id: Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "user_id"}))
+    }
+  end
+
+  @doc "Encodes this struct to canonical CBOR bytes."
+  @spec to_cbor(t()) :: binary()
+  def to_cbor(v), do: Csilgen.Generated.Cbor.encode(to_cbor_value(v))
+
+  @doc "Decodes canonical CBOR bytes into this struct."
+  @spec from_cbor(binary()) :: t()
+  def from_cbor(bytes), do: from_cbor_value(Csilgen.Generated.Cbor.decode(bytes))
+end
+
+defmodule Csilgen.Generated.PreviewAppAccessResponse do
+  @moduledoc "Generated struct for the PreviewAppAccessResponse type."
+
+  @enforce_keys [:allowed, :applied_policies, :blocking_policies, :messages]
+  defstruct [:allowed, :applied_policies, :blocking_policies, :messages]
+
+  @type t :: %__MODULE__{
+          allowed: boolean(),
+          applied_policies: [String.t()],
+          blocking_policies: [String.t()],
+          messages: [String.t()]
+        }
+
+  @wire_keys [
+    allowed: "allowed",
+    applied_policies: "applied_policies",
+    blocking_policies: "blocking_policies",
+    messages: "messages"
+  ]
+  @doc "Maps struct field atoms to their verbatim CBOR wire keys."
+  @spec wire_keys() :: keyword()
+  def wire_keys, do: @wire_keys
+
+  @doc "Builds the canonical CBOR value tree for this struct."
+  @spec to_cbor_value(t()) :: Csilgen.Generated.Cbor.value()
+  def to_cbor_value(%__MODULE__{} = v) do
+    {:map,
+     Enum.reject(
+       [
+         {{:text, "allowed"}, {:bool, v.allowed}},
+         {{:text, "messages"}, {:array, Enum.map(v.messages, fn csil_e -> {:text, csil_e} end)}},
+         {{:text, "applied_policies"},
+          {:array, Enum.map(v.applied_policies, fn csil_e -> {:text, csil_e} end)}},
+         {{:text, "blocking_policies"},
+          {:array, Enum.map(v.blocking_policies, fn csil_e -> {:text, csil_e} end)}}
+       ],
+       &is_nil/1
+     )}
+  end
+
+  @doc "Reconstructs this struct from a decoded CBOR value tree."
+  @spec from_cbor_value(term()) :: t()
+  def from_cbor_value({:map, csil_kvs}) do
+    csil_fields = Map.new(csil_kvs)
+
+    %__MODULE__{
+      allowed: Csilgen.Generated.Cbor.to_bool(Map.fetch!(csil_fields, {:text, "allowed"})),
+      messages:
+        case Map.fetch!(csil_fields, {:text, "messages"}) do
+          {:array, csil_xs} ->
+            Enum.map(csil_xs, fn csil_e -> Csilgen.Generated.Cbor.to_text(csil_e) end)
+        end,
+      applied_policies:
+        case Map.fetch!(csil_fields, {:text, "applied_policies"}) do
+          {:array, csil_xs} ->
+            Enum.map(csil_xs, fn csil_e -> Csilgen.Generated.Cbor.to_text(csil_e) end)
+        end,
+      blocking_policies:
+        case Map.fetch!(csil_fields, {:text, "blocking_policies"}) do
+          {:array, csil_xs} ->
+            Enum.map(csil_xs, fn csil_e -> Csilgen.Generated.Cbor.to_text(csil_e) end)
+        end
+    }
+  end
+
+  @doc "Encodes this struct to canonical CBOR bytes."
+  @spec to_cbor(t()) :: binary()
+  def to_cbor(v), do: Csilgen.Generated.Cbor.encode(to_cbor_value(v))
+
+  @doc "Decodes canonical CBOR bytes into this struct."
+  @spec from_cbor(binary()) :: t()
+  def from_cbor(bytes), do: from_cbor_value(Csilgen.Generated.Cbor.decode(bytes))
+end
+
+defmodule Csilgen.Generated.AppAccessDenial do
+  @moduledoc "Generated struct for the AppAccessDenial type."
+
+  @enforce_keys [:messages]
+  defstruct [:domain, :messages]
+
+  @type t :: %__MODULE__{
+          domain: String.t() | nil,
+          messages: [String.t()]
+        }
+
+  @wire_keys [domain: "domain", messages: "messages"]
+  @doc "Maps struct field atoms to their verbatim CBOR wire keys."
+  @spec wire_keys() :: keyword()
+  def wire_keys, do: @wire_keys
+
+  @doc "Builds the canonical CBOR value tree for this struct."
+  @spec to_cbor_value(t()) :: Csilgen.Generated.Cbor.value()
+  def to_cbor_value(%__MODULE__{} = v) do
+    {:map,
+     Enum.reject(
+       [
+         if(is_nil(v.domain), do: nil, else: {{:text, "domain"}, {:text, v.domain}}),
+         {{:text, "messages"}, {:array, Enum.map(v.messages, fn csil_e -> {:text, csil_e} end)}}
+       ],
+       &is_nil/1
+     )}
+  end
+
+  @doc "Reconstructs this struct from a decoded CBOR value tree."
+  @spec from_cbor_value(term()) :: t()
+  def from_cbor_value({:map, csil_kvs}) do
+    csil_fields = Map.new(csil_kvs)
+
+    %__MODULE__{
+      domain:
+        case Map.get(csil_fields, {:text, "domain"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.Cbor.to_text(csil_v)
+        end,
+      messages:
+        case Map.fetch!(csil_fields, {:text, "messages"}) do
+          {:array, csil_xs} ->
+            Enum.map(csil_xs, fn csil_e -> Csilgen.Generated.Cbor.to_text(csil_e) end)
+        end
     }
   end
 
@@ -17587,7 +18393,8 @@ defmodule Csilgen.Generated.BrowserActAsInspectResponse do
     :default_lifetime_seconds,
     :max_lifetime_seconds,
     :default_renewal_window_seconds,
-    :max_renewal_window_seconds
+    :max_renewal_window_seconds,
+    :access_denied
   ]
 
   @type t :: %__MODULE__{
@@ -17600,7 +18407,8 @@ defmodule Csilgen.Generated.BrowserActAsInspectResponse do
           default_lifetime_seconds: integer(),
           max_lifetime_seconds: integer(),
           default_renewal_window_seconds: integer(),
-          max_renewal_window_seconds: integer()
+          max_renewal_window_seconds: integer(),
+          access_denied: Csilgen.Generated.AppAccessDenial.t() | nil
         }
 
   @wire_keys [
@@ -17613,7 +18421,8 @@ defmodule Csilgen.Generated.BrowserActAsInspectResponse do
     default_lifetime_seconds: "default_lifetime_seconds",
     max_lifetime_seconds: "max_lifetime_seconds",
     default_renewal_window_seconds: "default_renewal_window_seconds",
-    max_renewal_window_seconds: "max_renewal_window_seconds"
+    max_renewal_window_seconds: "max_renewal_window_seconds",
+    access_denied: "access_denied"
   ]
   @doc "Maps struct field atoms to their verbatim CBOR wire keys."
   @spec wire_keys() :: keyword()
@@ -17633,6 +18442,12 @@ defmodule Csilgen.Generated.BrowserActAsInspectResponse do
          {{:text, "grantee"}, Csilgen.Generated.GranteeRef.to_cbor_value(v.grantee)},
          {{:text, "audience"}, Csilgen.Generated.ApplicationRef.to_cbor_value(v.audience)},
          if(is_nil(v.language), do: nil, else: {{:text, "language"}, {:text, v.language}}),
+         if(is_nil(v.access_denied),
+           do: nil,
+           else:
+             {{:text, "access_denied"},
+              Csilgen.Generated.AppAccessDenial.to_cbor_value(v.access_denied)}
+         ),
          {{:text, "grantee_party"},
           Csilgen.Generated.BrowserActAsParty.to_cbor_value(v.grantee_party)},
          {{:text, "audience_party"},
@@ -17669,6 +18484,11 @@ defmodule Csilgen.Generated.BrowserActAsInspectResponse do
         case Map.get(csil_fields, {:text, "language"}) do
           nil -> nil
           csil_v -> Csilgen.Generated.Cbor.to_text(csil_v)
+        end,
+      access_denied:
+        case Map.get(csil_fields, {:text, "access_denied"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.AppAccessDenial.from_cbor_value(csil_v)
         end,
       grantee_party:
         Csilgen.Generated.BrowserActAsParty.from_cbor_value(

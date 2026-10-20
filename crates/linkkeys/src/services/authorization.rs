@@ -82,7 +82,10 @@ pub fn required_relation_for_op(service: &str, op: &str) -> Option<&'static str>
             | "authenticate" => RELATION_MANAGE_USERS,
             // These operations can take over or disable an account. Requiring
             // full admin authority avoids a race with concurrent admin grants.
-            "deactivate-user" | "reset-password" | "remove-credential" => RELATION_ADMIN,
+            "deactivate-user"
+            | "reset-password"
+            | "remove-credential"
+            | "set-user-password-lock" => RELATION_ADMIN,
             "set-claim"
             | "remove-claim"
             | "list-user-claims"
@@ -106,6 +109,12 @@ pub fn required_relation_for_op(service: &str, op: &str) -> Option<&'static str>
             | "purge-local-rp-tickets" => RELATION_ADMIN,
             // Domain sign-in length: changes how long every sign-in lasts.
             "get-sign-in-policy" | "set-sign-in-policy" => RELATION_ADMIN,
+            // App access policies decide which applications every account
+            // may sign in to.
+            "list-app-access-policies"
+            | "set-app-access-policy"
+            | "remove-app-access-policy"
+            | "preview-app-access" => RELATION_ADMIN,
             // Read-only policy previews (the policy page's test panels).
             "preview-release-policy" | "preview-issuer-policy" => RELATION_MANAGE_CLAIMS,
             // Claim-type registry admin (the browser app's policy page and

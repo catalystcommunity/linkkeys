@@ -107,6 +107,9 @@ language). The approval queue is on `/app/admin/approvals`:
 4. **Pending approvals** — queue of user‑set claims awaiting approval; **Approve**
    signs with the domain keys and stores, **Reject** discards.
 
+Which applications an account can sign in to is set on `/app/admin/access`.
+See [app-access-policies.md](app-access-policies.md).
+
 ---
 
 ## 4. Privacy consent — "even my mom"

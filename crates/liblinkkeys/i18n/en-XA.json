@@ -38,5 +38,7 @@
   "app.account.eyebrow": "[Åĉĉöůñţ]",
   "app.account.details_title": "[Pŕöfíĺé ðéţåíĺš]",
   "app.account.contacts_title": "[Véŕífíéð ĉöñţåĉţš]",
-  "app.account.fallback_title": "[Ýöůŕ åĉĉöůñţ]"
+  "app.account.fallback_title": "[Ýöůŕ åĉĉöůñţ]",
+  "app.access_blocked.title": "[Ýöů ĉåññöţ šíğñ íñ ţö ţĥíš åþþļíĉåţíöñ]",
+  "app.admin_nav.access": "[Åþþ åĉĉéšš]"
 }

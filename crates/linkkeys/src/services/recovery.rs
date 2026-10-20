@@ -63,7 +63,7 @@ pub fn request(
     };
     let account_is_active = pool
         .find_user_by_id(&contact.user_id)
-        .is_ok_and(|user| user.is_active && user.purged_at.is_none());
+        .is_ok_and(|user| user.is_active && user.purged_at.is_none() && !user.password_locked);
     if !account_is_active {
         return Ok(RequestPasswordRecoveryResponse {});
     }
@@ -114,6 +114,7 @@ pub fn validate(
         .find_account_challenge(&verification::token_digest(token), "reset_password")
         .map_err(db_err)?
         .ok_or_else(invalid)?;
+    require_unlocked(pool, &challenge.user_id)?;
     Ok(ValidatePasswordRecoveryResponse {
         expires_at: challenge.expires_at,
         password_policy: PasswordPolicy {
@@ -137,6 +138,7 @@ pub fn complete(
         .find_account_challenge(&verification::token_digest(token), "reset_password")
         .map_err(db_err)?
         .ok_or_else(invalid)?;
+    require_unlocked(pool, &challenge.user_id)?;
     let hash = password::hash_for_storage(new_password)?;
     pool.complete_password_recovery(&challenge.id, &hash)
         .map_err(|error| match error {
@@ -144,6 +146,22 @@ pub fn complete(
             other => db_err(other),
         })?;
     Ok(CompletePasswordRecoveryResponse { success: true })
+}
+
+/// An admin can lock an account's password after a recovery link was sent.
+/// Only the mailbox owner holds the link, so the refusal can say why.
+fn require_unlocked(pool: &DbPool, user_id: &str) -> Result<(), ServiceError> {
+    let user = pool.find_user_by_id(user_id).map_err(|error| match error {
+        diesel::result::Error::NotFound => invalid(),
+        other => db_err(other),
+    })?;
+    if user.password_locked {
+        return Err(svc_err(
+            403,
+            "An administrator locked the password of this account. Ask an administrator to change it",
+        ));
+    }
+    Ok(())
 }
 
 fn require_password_authentication() -> Result<(), ServiceError> {

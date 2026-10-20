@@ -1,5 +1,6 @@
 pub mod account_security;
 pub mod act_as;
+pub mod app_access;
 pub mod application_keys;
 pub mod auth_credentials;
 pub mod claim_policy;
@@ -3573,6 +3574,47 @@ impl DbPool {
                     user.is_admin_account = true;
                     Ok(user)
                 })
+            }
+        }
+    }
+
+    pub fn list_app_access_policies(&self) -> QueryResult<Vec<models::AppAccessPolicy>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => app_access::pg::list(&mut *pg_conn(p)?),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => app_access::sqlite::list(&mut *sqlite_conn(p)?),
+        }
+    }
+
+    /// Create or replace a policy, with all of its patterns and targets.
+    pub fn save_app_access_policy(&self, policy: &models::AppAccessPolicy) -> QueryResult<()> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => app_access::pg::save(&mut *pg_conn(p)?, policy),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => app_access::sqlite::save(&mut *sqlite_conn(p)?, policy),
+        }
+    }
+
+    pub fn delete_app_access_policy(&self, id: &str) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => app_access::pg::delete(&mut *pg_conn(p)?, id),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => app_access::sqlite::delete(&mut *sqlite_conn(p)?, id),
+        }
+    }
+
+    pub fn set_password_locked(&self, user_id: &str, locked: bool) -> QueryResult<models::User> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                users::pg::set_password_locked(&mut *pg_conn(p)?, user_id, locked)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                users::sqlite::set_password_locked(&mut *sqlite_conn(p)?, user_id, locked)
             }
         }
     }

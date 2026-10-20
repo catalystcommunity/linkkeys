@@ -1054,6 +1054,65 @@ final class AdminAsyncClient {
     );
     return SignInPolicy.fromCborValue(CsilCbor.decode(csilResp));
   }
+
+  Future<SetUserPasswordLockResponse> setUserPasswordLock(
+    SetUserPasswordLockRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'Admin',
+      'set-user-password-lock',
+      request.toCbor(),
+    );
+    return SetUserPasswordLockResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
+  Future<ListAppAccessPoliciesResponse> listAppAccessPolicies(
+    EmptyRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'Admin',
+      'list-app-access-policies',
+      request.toCbor(),
+    );
+    return ListAppAccessPoliciesResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
+
+  Future<SetAppAccessPolicyResponse> setAppAccessPolicy(
+    SetAppAccessPolicyRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'Admin',
+      'set-app-access-policy',
+      request.toCbor(),
+    );
+    return SetAppAccessPolicyResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
+
+  Future<RemoveAppAccessPolicyResponse> removeAppAccessPolicy(
+    RemoveAppAccessPolicyRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'Admin',
+      'remove-app-access-policy',
+      request.toCbor(),
+    );
+    return RemoveAppAccessPolicyResponse.fromCborValue(
+      CsilCbor.decode(csilResp),
+    );
+  }
+
+  Future<PreviewAppAccessResponse> previewAppAccess(
+    PreviewAppAccessRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'Admin',
+      'preview-app-access',
+      request.toCbor(),
+    );
+    return PreviewAppAccessResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
 }
 
 /// A typed, transport-agnostic client for the Account service. The client owns

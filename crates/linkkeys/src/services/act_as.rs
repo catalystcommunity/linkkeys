@@ -19,13 +19,13 @@ use liblinkkeys::act_as::{
 use liblinkkeys::application_keys::{self as ak, ApplicationKeyRef, InstanceRef};
 use liblinkkeys::generated::services::ServiceError;
 use liblinkkeys::generated::types::{
-    ActAsGrantRequest, ActAsGrantRevocation, ActAsGrantSummary, ActAsScopeSet, ApplicationRef,
-    BrowserActAsCompleteRequest, BrowserActAsCompleteResponse, BrowserActAsInspectResponse,
-    BrowserActAsParty, BrowserActAsScopeEntry, DomainPublicKey, GetActAsGrantRevocationsRequest,
-    GetActAsGrantRevocationsResponse, GranteeRef, ListActAsGrantsResponse,
-    RefreshActAsGrantRequest, RefreshActAsGrantResponse, RevokeActAsGrantRequest,
-    RevokeActAsGrantResponse, RpResolveApplicationKeysRequest, SignedActAsGrant,
-    SignedActAsGrantRequest,
+    ActAsGrantRequest, ActAsGrantRevocation, ActAsGrantSummary, ActAsScopeSet, AppAccessDenial,
+    ApplicationRef, BrowserActAsCompleteRequest, BrowserActAsCompleteResponse,
+    BrowserActAsInspectResponse, BrowserActAsParty, BrowserActAsScopeEntry, DomainPublicKey,
+    GetActAsGrantRevocationsRequest, GetActAsGrantRevocationsResponse, GranteeRef,
+    ListActAsGrantsResponse, RefreshActAsGrantRequest, RefreshActAsGrantResponse,
+    RevokeActAsGrantRequest, RevokeActAsGrantResponse, RpResolveApplicationKeysRequest,
+    SignedActAsGrant, SignedActAsGrantRequest,
 };
 
 use crate::conversions::get_domain_name;
@@ -590,6 +590,27 @@ fn callback_scheme_ok(url: &str) -> bool {
     }
 }
 
+/// An app access policy that blocks this user from the grantee or the
+/// audience. A local-app grantee has no domain.
+fn app_access_denial(
+    pool: &DbPool,
+    user_id: &str,
+    grantee: &GranteeRef,
+    audience: &ApplicationRef,
+) -> Result<Option<AppAccessDenial>, ServiceError> {
+    crate::services::app_access::denial_for_any(
+        pool,
+        user_id,
+        &[
+            grantee
+                .application
+                .as_ref()
+                .map(|app| app.subject_domain.as_str()),
+            Some(audience.subject_domain.as_str()),
+        ],
+    )
+}
+
 fn require_grantor(user: &User) -> Result<(), ServiceError> {
     if !user.is_active || user.purged_at.is_some() {
         return Err(error(403, "this account is not active"));
@@ -651,6 +672,12 @@ pub fn inspect(
         max_lifetime_seconds: v.offered.max_lifetime_seconds,
         default_renewal_window_seconds: v.offered.default_renewal_window_seconds,
         max_renewal_window_seconds: v.offered.max_renewal_window_seconds,
+        access_denied: app_access_denial(
+            pool,
+            &user.id,
+            &v.request.grantee,
+            &v.scope_set.audience,
+        )?,
     })
 }
 
@@ -766,6 +793,11 @@ pub fn complete(
 ) -> Result<BrowserActAsCompleteResponse, ServiceError> {
     require_grantor(user)?;
     let v = validate_request(pool, keys, &req.signed_request, now)?;
+    if let Some(denial) =
+        app_access_denial(pool, &user.id, &v.request.grantee, &v.scope_set.audience)?
+    {
+        return Err(crate::services::app_access::denial_error(&denial));
+    }
     aa::check_approved_scope(&v.scope_set, &req.approved_scope).map_err(protocol)?;
     for (entry, removed) in v.scope_set.entries.iter().zip(&v.removed_by_policy) {
         if *removed && req.approved_scope.contains(&entry.scope) {
@@ -944,6 +976,13 @@ pub fn refresh(
         .map_err(|e| internal("reading grant owner", e))?;
     if !user.is_active || user.purged_at.is_some() {
         return Err(error(403, "the user's account is not active"));
+    }
+    // A policy added after the grant also stops its renewal.
+    if app_access_denial(pool, &user.id, &grant.grantee, &grant.audience)?.is_some() {
+        return Err(error(
+            403,
+            "an app access policy blocks this user from this application",
+        ));
     }
 
     match aa::refresh_decision(&grant, record.lifetime_seconds, now).map_err(protocol)? {

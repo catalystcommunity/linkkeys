@@ -976,6 +976,51 @@ func (c *AdminClient) SetSignInPolicy(ctx context.Context, req SetSignInPolicyRe
 	return DecodeSignInPolicy(csilResp)
 }
 
+func (c *AdminClient) SetUserPasswordLock(ctx context.Context, req SetUserPasswordLockRequest) (SetUserPasswordLockResponse, error) {
+	var csilZero SetUserPasswordLockResponse
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-user-password-lock", EncodeSetUserPasswordLockRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeSetUserPasswordLockResponse(csilResp)
+}
+
+func (c *AdminClient) ListAppAccessPolicies(ctx context.Context, req EmptyRequest) (ListAppAccessPoliciesResponse, error) {
+	var csilZero ListAppAccessPoliciesResponse
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-app-access-policies", EncodeEmptyRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeListAppAccessPoliciesResponse(csilResp)
+}
+
+func (c *AdminClient) SetAppAccessPolicy(ctx context.Context, req SetAppAccessPolicyRequest) (SetAppAccessPolicyResponse, error) {
+	var csilZero SetAppAccessPolicyResponse
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-app-access-policy", EncodeSetAppAccessPolicyRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeSetAppAccessPolicyResponse(csilResp)
+}
+
+func (c *AdminClient) RemoveAppAccessPolicy(ctx context.Context, req RemoveAppAccessPolicyRequest) (RemoveAppAccessPolicyResponse, error) {
+	var csilZero RemoveAppAccessPolicyResponse
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "remove-app-access-policy", EncodeRemoveAppAccessPolicyRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodeRemoveAppAccessPolicyResponse(csilResp)
+}
+
+func (c *AdminClient) PreviewAppAccess(ctx context.Context, req PreviewAppAccessRequest) (PreviewAppAccessResponse, error) {
+	var csilZero PreviewAppAccessResponse
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "preview-app-access", EncodePreviewAppAccessRequest(req))
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	return DecodePreviewAppAccessResponse(csilResp)
+}
+
 // AccountClient is a typed client for the Account service. The client owns
 // (de)serialization via the generated codec; the transport only moves bytes.
 type AccountClient struct {

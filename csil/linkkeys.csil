@@ -539,7 +539,10 @@ AdminUser = {
     updated_at: text,
     ;; Tombstone marker. Present only on a purged user.
     ? purged_at: text,
-    ? purge_reason: text
+    ? purge_reason: text,
+    ;; Present and true only when an admin locked the password. The user
+    ;; cannot change it or use password recovery; an admin can still reset it.
+    ? password_locked: bool
 }
 
 ListUsersRequest = {
@@ -1397,7 +1400,10 @@ BrowserAuthorizationInspectResponse = {
     ;; forces all claim choices, so the user sees the initial disclosure.
     ? already_consented: bool,
     ;; The claim types that a silent completion can release.
-    ? authorized_claims: [* text]
+    ? authorized_claims: [* text],
+    ;; Present when an app access policy blocks this sign-in. claims is then
+    ;; empty and the other optional fields are absent.
+    ? access_denied: AppAccessDenial
 }
 
 BrowserAuthorizationCompleteRequest = {
@@ -1424,7 +1430,7 @@ BrowserLocalRpInspectRequest = {
 }
 
 BrowserLocalRpInspectResponse = {
-    ;; "consent" or "pending".
+    ;; "consent", "pending", or "blocked" (with access_denied).
     admission: text,
     ;; The name the app chose for itself. It is not verified.
     app_name: text,
@@ -1438,7 +1444,10 @@ BrowserLocalRpInspectResponse = {
     ? request_reason: text,
     ;; True when a standing grant covers this normal sign-in.
     ? already_consented: bool,
-    ? authorized_claims: [* text]
+    ? authorized_claims: [* text],
+    ;; Present when an app access policy blocks this sign-in. claims is then
+    ;; empty and the other optional fields are absent.
+    ? access_denied: AppAccessDenial
 }
 
 ;; Same shape and rules as BrowserAuthorizationCompleteRequest. A declined
@@ -1600,7 +1609,12 @@ AuthorizeValidateResponse = {
     ;; requested at the user's last consent. Only computed when user_id was
     ;; sent and a prior grant exists. Absent when empty. Any entry means
     ;; already_consented is absent, and the consent UI should mark these new.
-    ? newly_requested_claims: [* text]
+    ? newly_requested_claims: [* text],
+    ;; Present when user_id was sent and an app access policy blocks this
+    ;; user from the relying party. already_consented, authorized_claims, and
+    ;; newly_requested_claims are then absent, and finalize fails with
+    ;; `forbidden`. The consent UI should show a blocked page.
+    ? access_denied: AppAccessDenial
 }
 
 ;; Finalize a login the consent UI approved: burn the request nonce, persist
@@ -1892,6 +1906,109 @@ SignInPolicy = {
 
 SetSignInPolicyRequest = {
     sign_in_hours: int
+}
+
+;; Lock or unlock an account's password. A locked account cannot change its
+;; own password or use password recovery. Admin reset-password still works.
+SetUserPasswordLockRequest = {
+    user_id: text,
+    locked: bool
+}
+
+SetUserPasswordLockResponse = {
+    user: AdminUser
+}
+
+;; ============================================================
+;; App access policies
+;; ============================================================
+;;
+;; Which applications an account may sign in to. A policy is an allow list or
+;; a deny list of application domain patterns. In a pattern, `*` matches any
+;; run of characters, dots included: `*.ru` covers `shop.ru` and `a.b.ru` but
+;; not `ru`. A deny policy with a matching pattern blocks the sign-in, and deny
+;; wins. When an allow policy applies, the domain must match one of the allow
+;; patterns. A local app has no domain, so it matches no pattern. See
+;; liblinkkeys::app_access for the full rules.
+
+;; Who a policy applies to. `kind` is "everyone", "user" (with user_id),
+;; "group" (with group_name: members through the `member` relation), or
+;; "claim" (with claim_type and claim_operator). claim_operator is "present",
+;; "absent", "equals", "age_under", or "age_at_least". The last three need
+;; claim_value; the age operators read a YYYY-MM-DD birth date and take a
+;; whole number of years.
+AppAccessTarget = {
+    kind: text,
+    ? user_id: text,
+    ? group_name: text,
+    ? claim_type: text,
+    ? claim_operator: text,
+    ? claim_value: text
+}
+
+AppAccessPolicy = {
+    id: text,
+    name: text,
+    ;; "allow" or "deny".
+    mode: text,
+    ;; Canonical patterns: lowercase, no trailing dot.
+    patterns: [* text],
+    ;; Optional extra text shown to a user that this policy blocks.
+    ? message: text,
+    targets: [* AppAccessTarget]
+}
+
+ListAppAccessPoliciesResponse = {
+    policies: [* AppAccessPolicy]
+}
+
+;; Create a policy (omit id) or replace one whole (send its id). The server
+;; validates and canonicalizes the patterns and targets.
+SetAppAccessPolicyRequest = {
+    ? id: text,
+    name: text,
+    mode: text,
+    patterns: [* text],
+    ? message: text,
+    targets: [* AppAccessTarget]
+}
+
+SetAppAccessPolicyResponse = {
+    policy: AppAccessPolicy
+}
+
+RemoveAppAccessPolicyRequest = {
+    id: text
+}
+
+RemoveAppAccessPolicyResponse = {
+    success: bool
+}
+
+;; Test one account against the stored policies. Omit domain to test a local
+;; app, which has no domain.
+PreviewAppAccessRequest = {
+    user_id: text,
+    ? domain: text
+}
+
+PreviewAppAccessResponse = {
+    allowed: bool,
+    ;; Names of every policy that applies to the account.
+    applied_policies: [* text],
+    ;; Names of the policies that block this domain. Empty when allowed.
+    blocking_policies: [* text],
+    ;; The admin messages the user would see.
+    messages: [* text]
+}
+
+;; Present on a sign-in response when an app access policy blocks the
+;; account. `domain` is the blocked application domain, absent for a local
+;; app. `messages` holds the admin messages of the blocking policies; it can
+;; be empty. The consent UI shows a blocked page and does not complete.
+AppAccessDenial = {
+    ? domain: text,
+    messages: [* text]
 }
 
 ;; Admin-triggered claim-ticket cleanup (mirrors RecheckPinsRequest/Response's
@@ -2490,7 +2607,10 @@ BrowserActAsInspectResponse = {
     default_lifetime_seconds: int,
     max_lifetime_seconds: int,
     default_renewal_window_seconds: int,
-    max_renewal_window_seconds: int
+    max_renewal_window_seconds: int,
+    ;; Present when an app access policy blocks the grantee or the audience
+    ;; for this user. The consent UI shows a blocked page; complete fails.
+    ? access_denied: AppAccessDenial
 }
 
 BrowserActAsCompleteRequest = {
@@ -2795,7 +2915,12 @@ service Admin {
     set-local-rp-policy: SetLocalRpPolicyRequest -> SetLocalRpPolicyResponse,
     purge-local-rp-tickets: PurgeLocalRpTicketsRequest -> PurgeLocalRpTicketsResponse,
     get-sign-in-policy: EmptyRequest -> SignInPolicy,
-    set-sign-in-policy: SetSignInPolicyRequest -> SignInPolicy
+    set-sign-in-policy: SetSignInPolicyRequest -> SignInPolicy,
+    set-user-password-lock: SetUserPasswordLockRequest -> SetUserPasswordLockResponse,
+    list-app-access-policies: EmptyRequest -> ListAppAccessPoliciesResponse,
+    set-app-access-policy: SetAppAccessPolicyRequest -> SetAppAccessPolicyResponse,
+    remove-app-access-policy: RemoveAppAccessPolicyRequest -> RemoveAppAccessPolicyResponse,
+    preview-app-access: PreviewAppAccessRequest -> PreviewAppAccessResponse
 }
 
 service Account {

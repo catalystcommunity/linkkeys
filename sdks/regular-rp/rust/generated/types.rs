@@ -402,6 +402,7 @@ pub struct AdminUser {
     pub updated_at: String,
     pub purged_at: Option<String>,
     pub purge_reason: Option<String>,
+    pub password_locked: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1151,6 +1152,7 @@ pub struct BrowserAuthorizationInspectResponse {
     pub request_reason: Option<String>,
     pub already_consented: Option<bool>,
     pub authorized_claims: Option<Vec<String>>,
+    pub access_denied: Option<AppAccessDenial>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1183,6 +1185,7 @@ pub struct BrowserLocalRpInspectResponse {
     pub request_reason: Option<String>,
     pub already_consented: Option<bool>,
     pub authorized_claims: Option<Vec<String>>,
+    pub access_denied: Option<AppAccessDenial>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1302,6 +1305,7 @@ pub struct AuthorizeValidateResponse {
     pub already_consented: Option<bool>,
     pub authorized_claims: Option<Vec<String>>,
     pub newly_requested_claims: Option<Vec<String>>,
+    pub access_denied: Option<AppAccessDenial>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1618,6 +1622,87 @@ pub struct SignInPolicy {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SetSignInPolicyRequest {
     pub sign_in_hours: i64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetUserPasswordLockRequest {
+    pub user_id: String,
+    pub locked: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetUserPasswordLockResponse {
+    pub user: AdminUser,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AppAccessTarget {
+    pub kind: String,
+    pub user_id: Option<String>,
+    pub group_name: Option<String>,
+    pub claim_type: Option<String>,
+    pub claim_operator: Option<String>,
+    pub claim_value: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AppAccessPolicy {
+    pub id: String,
+    pub name: String,
+    pub mode: String,
+    pub patterns: Vec<String>,
+    pub message: Option<String>,
+    pub targets: Vec<AppAccessTarget>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListAppAccessPoliciesResponse {
+    pub policies: Vec<AppAccessPolicy>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetAppAccessPolicyRequest {
+    pub id: Option<String>,
+    pub name: String,
+    pub mode: String,
+    pub patterns: Vec<String>,
+    pub message: Option<String>,
+    pub targets: Vec<AppAccessTarget>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetAppAccessPolicyResponse {
+    pub policy: AppAccessPolicy,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoveAppAccessPolicyRequest {
+    pub id: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoveAppAccessPolicyResponse {
+    pub success: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PreviewAppAccessRequest {
+    pub user_id: String,
+    pub domain: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PreviewAppAccessResponse {
+    pub allowed: bool,
+    pub applied_policies: Vec<String>,
+    pub blocking_policies: Vec<String>,
+    pub messages: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AppAccessDenial {
+    pub domain: Option<String>,
+    pub messages: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2070,6 +2155,7 @@ pub struct BrowserActAsInspectResponse {
     pub max_lifetime_seconds: i64,
     pub default_renewal_window_seconds: i64,
     pub max_renewal_window_seconds: i64,
+    pub access_denied: Option<AppAccessDenial>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

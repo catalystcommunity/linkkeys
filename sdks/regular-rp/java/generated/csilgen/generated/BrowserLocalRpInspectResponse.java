@@ -13,6 +13,7 @@ public record BrowserLocalRpInspectResponse(
     List<BrowserConsentClaim> claims /* wire: "claims" */,
     String requestReason /* wire: "request_reason" */,
     Boolean alreadyConsented /* wire: "already_consented" */,
-    List<String> authorizedClaims /* wire: "authorized_claims" */
+    List<String> authorizedClaims /* wire: "authorized_claims" */,
+    AppAccessDenial accessDenied /* wire: "access_denied" */
 ) {
 }

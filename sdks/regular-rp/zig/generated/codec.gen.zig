@@ -2144,6 +2144,7 @@ fn enc_AdminUser(out: *std.ArrayList(u8), v: *const types.AdminUser) CodecError!
     var csil_n: usize = 6;
     if (v.purged_at != null) csil_n += 1;
     if (v.purge_reason != null) csil_n += 1;
+    if (v.password_locked != null) csil_n += 1;
     try w_map_head(out, csil_n);
     try w_text(out, "id");
     try w_text(out, v.id);
@@ -2164,6 +2165,10 @@ fn enc_AdminUser(out: *std.ArrayList(u8), v: *const types.AdminUser) CodecError!
     if (v.purge_reason) |csil_x| {
         try w_text(out, "purge_reason");
         try w_text(out, csil_x);
+    }
+    if (v.password_locked) |csil_x| {
+        try w_text(out, "password_locked");
+        try w_bool(out, csil_x);
     }
 }
 
@@ -2206,6 +2211,13 @@ fn dec_AdminUser(alloc: std.mem.Allocator, m: Value, out: *types.AdminUser) Code
             out.purge_reason = try as_text(csil_fv);
         } else {
             out.purge_reason = null;
+        }
+    }
+    {
+        if (mget(m, "password_locked")) |csil_fv| {
+            out.password_locked = try as_bool(csil_fv);
+        } else {
+            out.password_locked = null;
         }
     }
 }
@@ -5138,6 +5150,7 @@ fn dec_BrowserConsentClaim(alloc: std.mem.Allocator, m: Value, out: *types.Brows
 
 fn enc_BrowserAuthorizationInspectResponse(out: *std.ArrayList(u8), v: *const types.BrowserAuthorizationInspectResponse) CodecError!void {
     var csil_n: usize = 2;
+    if (v.access_denied != null) csil_n += 1;
     if (v.request_reason != null) csil_n += 1;
     if (v.already_consented != null) csil_n += 1;
     if (v.authorized_claims != null) csil_n += 1;
@@ -5146,6 +5159,10 @@ fn enc_BrowserAuthorizationInspectResponse(out: *std.ArrayList(u8), v: *const ty
     try w_array_head(out, v.claims.len);
     for (v.claims) |csil_it| {
         try enc_BrowserConsentClaim(out, &(csil_it));
+    }
+    if (v.access_denied) |csil_x| {
+        try w_text(out, "access_denied");
+        try enc_AppAccessDenial(out, &(csil_x));
     }
     try w_text(out, "relying_party");
     try w_text(out, v.relying_party);
@@ -5174,6 +5191,15 @@ fn dec_BrowserAuthorizationInspectResponse(alloc: std.mem.Allocator, m: Value, o
         out.claims = try alloc.alloc(types.BrowserConsentClaim, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
             try dec_BrowserConsentClaim(alloc, csil_it, &(out.claims[csil_i]));
+        }
+    }
+    {
+        if (mget(m, "access_denied")) |csil_fv| {
+            var csil_tmp: types.AppAccessDenial = undefined;
+            try dec_AppAccessDenial(alloc, csil_fv, &csil_tmp);
+            out.access_denied = csil_tmp;
+        } else {
+            out.access_denied = null;
         }
     }
     {
@@ -5306,6 +5332,7 @@ fn dec_BrowserLocalRpInspectRequest(alloc: std.mem.Allocator, m: Value, out: *ty
 
 fn enc_BrowserLocalRpInspectResponse(out: *std.ArrayList(u8), v: *const types.BrowserLocalRpInspectResponse) CodecError!void {
     var csil_n: usize = 5;
+    if (v.access_denied != null) csil_n += 1;
     if (v.first_seen_at != null) csil_n += 1;
     if (v.request_reason != null) csil_n += 1;
     if (v.already_consented != null) csil_n += 1;
@@ -5322,6 +5349,10 @@ fn enc_BrowserLocalRpInspectResponse(out: *std.ArrayList(u8), v: *const types.Br
     try w_text(out, v.admission);
     try w_text(out, "fingerprint");
     try w_text(out, v.fingerprint);
+    if (v.access_denied) |csil_x| {
+        try w_text(out, "access_denied");
+        try enc_AppAccessDenial(out, &(csil_x));
+    }
     try w_text(out, "callback_host");
     try w_text(out, v.callback_host);
     if (v.first_seen_at) |csil_x| {
@@ -5366,6 +5397,15 @@ fn dec_BrowserLocalRpInspectResponse(alloc: std.mem.Allocator, m: Value, out: *t
     {
         const csil_fv = try req(m, "fingerprint");
         out.fingerprint = try as_text(csil_fv);
+    }
+    {
+        if (mget(m, "access_denied")) |csil_fv| {
+            var csil_tmp: types.AppAccessDenial = undefined;
+            try dec_AppAccessDenial(alloc, csil_fv, &csil_tmp);
+            out.access_denied = csil_tmp;
+        } else {
+            out.access_denied = null;
+        }
     }
     {
         const csil_fv = try req(m, "callback_host");
@@ -5946,12 +5986,17 @@ fn dec_AuthorizeValidateRequest(alloc: std.mem.Allocator, m: Value, out: *types.
 
 fn enc_AuthorizeValidateResponse(out: *std.ArrayList(u8), v: *const types.AuthorizeValidateResponse) CodecError!void {
     var csil_n: usize = 3;
+    if (v.access_denied != null) csil_n += 1;
     if (v.already_consented != null) csil_n += 1;
     if (v.authorized_claims != null) csil_n += 1;
     if (v.newly_requested_claims != null) csil_n += 1;
     try w_map_head(out, csil_n);
     try w_text(out, "callback_url");
     try w_text(out, v.callback_url);
+    if (v.access_denied) |csil_x| {
+        try w_text(out, "access_denied");
+        try enc_AppAccessDenial(out, &(csil_x));
+    }
     try w_text(out, "relying_party");
     try w_text(out, v.relying_party);
     try w_text(out, "requested_claims");
@@ -5984,6 +6029,15 @@ fn dec_AuthorizeValidateResponse(alloc: std.mem.Allocator, m: Value, out: *types
     {
         const csil_fv = try req(m, "callback_url");
         out.callback_url = try as_text(csil_fv);
+    }
+    {
+        if (mget(m, "access_denied")) |csil_fv| {
+            var csil_tmp: types.AppAccessDenial = undefined;
+            try dec_AppAccessDenial(alloc, csil_fv, &csil_tmp);
+            out.access_denied = csil_tmp;
+        } else {
+            out.access_denied = null;
+        }
     }
     {
         const csil_fv = try req(m, "relying_party");
@@ -7037,6 +7091,433 @@ fn dec_SetSignInPolicyRequest(alloc: std.mem.Allocator, m: Value, out: *types.Se
     {
         const csil_fv = try req(m, "sign_in_hours");
         out.sign_in_hours = try as_i64(csil_fv);
+    }
+}
+
+fn enc_SetUserPasswordLockRequest(out: *std.ArrayList(u8), v: *const types.SetUserPasswordLockRequest) CodecError!void {
+    try w_map_head(out, 2);
+    try w_text(out, "locked");
+    try w_bool(out, v.locked);
+    try w_text(out, "user_id");
+    try w_text(out, v.user_id);
+}
+
+fn dec_SetUserPasswordLockRequest(alloc: std.mem.Allocator, m: Value, out: *types.SetUserPasswordLockRequest) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "locked");
+        out.locked = try as_bool(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "user_id");
+        out.user_id = try as_text(csil_fv);
+    }
+}
+
+fn enc_SetUserPasswordLockResponse(out: *std.ArrayList(u8), v: *const types.SetUserPasswordLockResponse) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "user");
+    try enc_AdminUser(out, &(v.user));
+}
+
+fn dec_SetUserPasswordLockResponse(alloc: std.mem.Allocator, m: Value, out: *types.SetUserPasswordLockResponse) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "user");
+        try dec_AdminUser(alloc, csil_fv, &(out.user));
+    }
+}
+
+fn enc_AppAccessTarget(out: *std.ArrayList(u8), v: *const types.AppAccessTarget) CodecError!void {
+    var csil_n: usize = 1;
+    if (v.user_id != null) csil_n += 1;
+    if (v.claim_type != null) csil_n += 1;
+    if (v.group_name != null) csil_n += 1;
+    if (v.claim_value != null) csil_n += 1;
+    if (v.claim_operator != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    try w_text(out, "kind");
+    try w_text(out, v.kind);
+    if (v.user_id) |csil_x| {
+        try w_text(out, "user_id");
+        try w_text(out, csil_x);
+    }
+    if (v.claim_type) |csil_x| {
+        try w_text(out, "claim_type");
+        try w_text(out, csil_x);
+    }
+    if (v.group_name) |csil_x| {
+        try w_text(out, "group_name");
+        try w_text(out, csil_x);
+    }
+    if (v.claim_value) |csil_x| {
+        try w_text(out, "claim_value");
+        try w_text(out, csil_x);
+    }
+    if (v.claim_operator) |csil_x| {
+        try w_text(out, "claim_operator");
+        try w_text(out, csil_x);
+    }
+}
+
+fn dec_AppAccessTarget(alloc: std.mem.Allocator, m: Value, out: *types.AppAccessTarget) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "kind");
+        out.kind = try as_text(csil_fv);
+    }
+    {
+        if (mget(m, "user_id")) |csil_fv| {
+            out.user_id = try as_text(csil_fv);
+        } else {
+            out.user_id = null;
+        }
+    }
+    {
+        if (mget(m, "claim_type")) |csil_fv| {
+            out.claim_type = try as_text(csil_fv);
+        } else {
+            out.claim_type = null;
+        }
+    }
+    {
+        if (mget(m, "group_name")) |csil_fv| {
+            out.group_name = try as_text(csil_fv);
+        } else {
+            out.group_name = null;
+        }
+    }
+    {
+        if (mget(m, "claim_value")) |csil_fv| {
+            out.claim_value = try as_text(csil_fv);
+        } else {
+            out.claim_value = null;
+        }
+    }
+    {
+        if (mget(m, "claim_operator")) |csil_fv| {
+            out.claim_operator = try as_text(csil_fv);
+        } else {
+            out.claim_operator = null;
+        }
+    }
+}
+
+fn enc_AppAccessPolicy(out: *std.ArrayList(u8), v: *const types.AppAccessPolicy) CodecError!void {
+    var csil_n: usize = 5;
+    if (v.message != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    try w_text(out, "id");
+    try w_text(out, v.id);
+    try w_text(out, "mode");
+    try w_text(out, v.mode);
+    try w_text(out, "name");
+    try w_text(out, v.name);
+    if (v.message) |csil_x| {
+        try w_text(out, "message");
+        try w_text(out, csil_x);
+    }
+    try w_text(out, "targets");
+    try w_array_head(out, v.targets.len);
+    for (v.targets) |csil_it| {
+        try enc_AppAccessTarget(out, &(csil_it));
+    }
+    try w_text(out, "patterns");
+    try w_array_head(out, v.patterns.len);
+    for (v.patterns) |csil_it| {
+        try w_text(out, csil_it);
+    }
+}
+
+fn dec_AppAccessPolicy(alloc: std.mem.Allocator, m: Value, out: *types.AppAccessPolicy) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "id");
+        out.id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "mode");
+        out.mode = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "name");
+        out.name = try as_text(csil_fv);
+    }
+    {
+        if (mget(m, "message")) |csil_fv| {
+            out.message = try as_text(csil_fv);
+        } else {
+            out.message = null;
+        }
+    }
+    {
+        const csil_fv = try req(m, "targets");
+        if (csil_fv != .array) return error.WrongType;
+        out.targets = try alloc.alloc(types.AppAccessTarget, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_AppAccessTarget(alloc, csil_it, &(out.targets[csil_i]));
+        }
+    }
+    {
+        const csil_fv = try req(m, "patterns");
+        if (csil_fv != .array) return error.WrongType;
+        out.patterns = try alloc.alloc([]const u8, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            out.patterns[csil_i] = try as_text(csil_it);
+        }
+    }
+}
+
+fn enc_ListAppAccessPoliciesResponse(out: *std.ArrayList(u8), v: *const types.ListAppAccessPoliciesResponse) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "policies");
+    try w_array_head(out, v.policies.len);
+    for (v.policies) |csil_it| {
+        try enc_AppAccessPolicy(out, &(csil_it));
+    }
+}
+
+fn dec_ListAppAccessPoliciesResponse(alloc: std.mem.Allocator, m: Value, out: *types.ListAppAccessPoliciesResponse) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "policies");
+        if (csil_fv != .array) return error.WrongType;
+        out.policies = try alloc.alloc(types.AppAccessPolicy, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_AppAccessPolicy(alloc, csil_it, &(out.policies[csil_i]));
+        }
+    }
+}
+
+fn enc_SetAppAccessPolicyRequest(out: *std.ArrayList(u8), v: *const types.SetAppAccessPolicyRequest) CodecError!void {
+    var csil_n: usize = 4;
+    if (v.id != null) csil_n += 1;
+    if (v.message != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    if (v.id) |csil_x| {
+        try w_text(out, "id");
+        try w_text(out, csil_x);
+    }
+    try w_text(out, "mode");
+    try w_text(out, v.mode);
+    try w_text(out, "name");
+    try w_text(out, v.name);
+    if (v.message) |csil_x| {
+        try w_text(out, "message");
+        try w_text(out, csil_x);
+    }
+    try w_text(out, "targets");
+    try w_array_head(out, v.targets.len);
+    for (v.targets) |csil_it| {
+        try enc_AppAccessTarget(out, &(csil_it));
+    }
+    try w_text(out, "patterns");
+    try w_array_head(out, v.patterns.len);
+    for (v.patterns) |csil_it| {
+        try w_text(out, csil_it);
+    }
+}
+
+fn dec_SetAppAccessPolicyRequest(alloc: std.mem.Allocator, m: Value, out: *types.SetAppAccessPolicyRequest) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        if (mget(m, "id")) |csil_fv| {
+            out.id = try as_text(csil_fv);
+        } else {
+            out.id = null;
+        }
+    }
+    {
+        const csil_fv = try req(m, "mode");
+        out.mode = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "name");
+        out.name = try as_text(csil_fv);
+    }
+    {
+        if (mget(m, "message")) |csil_fv| {
+            out.message = try as_text(csil_fv);
+        } else {
+            out.message = null;
+        }
+    }
+    {
+        const csil_fv = try req(m, "targets");
+        if (csil_fv != .array) return error.WrongType;
+        out.targets = try alloc.alloc(types.AppAccessTarget, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_AppAccessTarget(alloc, csil_it, &(out.targets[csil_i]));
+        }
+    }
+    {
+        const csil_fv = try req(m, "patterns");
+        if (csil_fv != .array) return error.WrongType;
+        out.patterns = try alloc.alloc([]const u8, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            out.patterns[csil_i] = try as_text(csil_it);
+        }
+    }
+}
+
+fn enc_SetAppAccessPolicyResponse(out: *std.ArrayList(u8), v: *const types.SetAppAccessPolicyResponse) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "policy");
+    try enc_AppAccessPolicy(out, &(v.policy));
+}
+
+fn dec_SetAppAccessPolicyResponse(alloc: std.mem.Allocator, m: Value, out: *types.SetAppAccessPolicyResponse) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "policy");
+        try dec_AppAccessPolicy(alloc, csil_fv, &(out.policy));
+    }
+}
+
+fn enc_RemoveAppAccessPolicyRequest(out: *std.ArrayList(u8), v: *const types.RemoveAppAccessPolicyRequest) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "id");
+    try w_text(out, v.id);
+}
+
+fn dec_RemoveAppAccessPolicyRequest(alloc: std.mem.Allocator, m: Value, out: *types.RemoveAppAccessPolicyRequest) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "id");
+        out.id = try as_text(csil_fv);
+    }
+}
+
+fn enc_RemoveAppAccessPolicyResponse(out: *std.ArrayList(u8), v: *const types.RemoveAppAccessPolicyResponse) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "success");
+    try w_bool(out, v.success);
+}
+
+fn dec_RemoveAppAccessPolicyResponse(alloc: std.mem.Allocator, m: Value, out: *types.RemoveAppAccessPolicyResponse) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "success");
+        out.success = try as_bool(csil_fv);
+    }
+}
+
+fn enc_PreviewAppAccessRequest(out: *std.ArrayList(u8), v: *const types.PreviewAppAccessRequest) CodecError!void {
+    var csil_n: usize = 1;
+    if (v.domain != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    if (v.domain) |csil_x| {
+        try w_text(out, "domain");
+        try w_text(out, csil_x);
+    }
+    try w_text(out, "user_id");
+    try w_text(out, v.user_id);
+}
+
+fn dec_PreviewAppAccessRequest(alloc: std.mem.Allocator, m: Value, out: *types.PreviewAppAccessRequest) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        if (mget(m, "domain")) |csil_fv| {
+            out.domain = try as_text(csil_fv);
+        } else {
+            out.domain = null;
+        }
+    }
+    {
+        const csil_fv = try req(m, "user_id");
+        out.user_id = try as_text(csil_fv);
+    }
+}
+
+fn enc_PreviewAppAccessResponse(out: *std.ArrayList(u8), v: *const types.PreviewAppAccessResponse) CodecError!void {
+    try w_map_head(out, 4);
+    try w_text(out, "allowed");
+    try w_bool(out, v.allowed);
+    try w_text(out, "messages");
+    try w_array_head(out, v.messages.len);
+    for (v.messages) |csil_it| {
+        try w_text(out, csil_it);
+    }
+    try w_text(out, "applied_policies");
+    try w_array_head(out, v.applied_policies.len);
+    for (v.applied_policies) |csil_it| {
+        try w_text(out, csil_it);
+    }
+    try w_text(out, "blocking_policies");
+    try w_array_head(out, v.blocking_policies.len);
+    for (v.blocking_policies) |csil_it| {
+        try w_text(out, csil_it);
+    }
+}
+
+fn dec_PreviewAppAccessResponse(alloc: std.mem.Allocator, m: Value, out: *types.PreviewAppAccessResponse) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "allowed");
+        out.allowed = try as_bool(csil_fv);
+    }
+    {
+        const csil_fv = try req(m, "messages");
+        if (csil_fv != .array) return error.WrongType;
+        out.messages = try alloc.alloc([]const u8, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            out.messages[csil_i] = try as_text(csil_it);
+        }
+    }
+    {
+        const csil_fv = try req(m, "applied_policies");
+        if (csil_fv != .array) return error.WrongType;
+        out.applied_policies = try alloc.alloc([]const u8, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            out.applied_policies[csil_i] = try as_text(csil_it);
+        }
+    }
+    {
+        const csil_fv = try req(m, "blocking_policies");
+        if (csil_fv != .array) return error.WrongType;
+        out.blocking_policies = try alloc.alloc([]const u8, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            out.blocking_policies[csil_i] = try as_text(csil_it);
+        }
+    }
+}
+
+fn enc_AppAccessDenial(out: *std.ArrayList(u8), v: *const types.AppAccessDenial) CodecError!void {
+    var csil_n: usize = 1;
+    if (v.domain != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    if (v.domain) |csil_x| {
+        try w_text(out, "domain");
+        try w_text(out, csil_x);
+    }
+    try w_text(out, "messages");
+    try w_array_head(out, v.messages.len);
+    for (v.messages) |csil_it| {
+        try w_text(out, csil_it);
+    }
+}
+
+fn dec_AppAccessDenial(alloc: std.mem.Allocator, m: Value, out: *types.AppAccessDenial) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        if (mget(m, "domain")) |csil_fv| {
+            out.domain = try as_text(csil_fv);
+        } else {
+            out.domain = null;
+        }
+    }
+    {
+        const csil_fv = try req(m, "messages");
+        if (csil_fv != .array) return error.WrongType;
+        out.messages = try alloc.alloc([]const u8, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            out.messages[csil_i] = try as_text(csil_it);
+        }
     }
 }
 
@@ -9172,6 +9653,7 @@ fn dec_BrowserActAsParty(alloc: std.mem.Allocator, m: Value, out: *types.Browser
 fn enc_BrowserActAsInspectResponse(out: *std.ArrayList(u8), v: *const types.BrowserActAsInspectResponse) CodecError!void {
     var csil_n: usize = 9;
     if (v.language != null) csil_n += 1;
+    if (v.access_denied != null) csil_n += 1;
     try w_map_head(out, csil_n);
     try w_text(out, "entries");
     try w_array_head(out, v.entries.len);
@@ -9185,6 +9667,10 @@ fn enc_BrowserActAsInspectResponse(out: *std.ArrayList(u8), v: *const types.Brow
     if (v.language) |csil_x| {
         try w_text(out, "language");
         try w_text(out, csil_x);
+    }
+    if (v.access_denied) |csil_x| {
+        try w_text(out, "access_denied");
+        try enc_AppAccessDenial(out, &(csil_x));
     }
     try w_text(out, "grantee_party");
     try enc_BrowserActAsParty(out, &(v.grantee_party));
@@ -9223,6 +9709,15 @@ fn dec_BrowserActAsInspectResponse(alloc: std.mem.Allocator, m: Value, out: *typ
             out.language = try as_text(csil_fv);
         } else {
             out.language = null;
+        }
+    }
+    {
+        if (mget(m, "access_denied")) |csil_fv| {
+            var csil_tmp: types.AppAccessDenial = undefined;
+            try dec_AppAccessDenial(alloc, csil_fv, &csil_tmp);
+            out.access_denied = csil_tmp;
+        } else {
+            out.access_denied = null;
         }
     }
     {
@@ -13582,6 +14077,198 @@ pub fn encode_SetSignInPolicyRequest(alloc: std.mem.Allocator, v: *const types.S
 pub fn decode_SetSignInPolicyRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.SetSignInPolicyRequest) CodecError!void {
     const root = try decode(alloc, bytes);
     try dec_SetSignInPolicyRequest(alloc, root, out);
+}
+
+/// Encode a SetUserPasswordLockRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_SetUserPasswordLockRequest(alloc: std.mem.Allocator, v: *const types.SetUserPasswordLockRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_SetUserPasswordLockRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a SetUserPasswordLockRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_SetUserPasswordLockRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.SetUserPasswordLockRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_SetUserPasswordLockRequest(alloc, root, out);
+}
+
+/// Encode a SetUserPasswordLockResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_SetUserPasswordLockResponse(alloc: std.mem.Allocator, v: *const types.SetUserPasswordLockResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_SetUserPasswordLockResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a SetUserPasswordLockResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_SetUserPasswordLockResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.SetUserPasswordLockResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_SetUserPasswordLockResponse(alloc, root, out);
+}
+
+/// Encode a AppAccessTarget to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_AppAccessTarget(alloc: std.mem.Allocator, v: *const types.AppAccessTarget) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_AppAccessTarget(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a AppAccessTarget. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_AppAccessTarget(alloc: std.mem.Allocator, bytes: []const u8, out: *types.AppAccessTarget) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_AppAccessTarget(alloc, root, out);
+}
+
+/// Encode a AppAccessPolicy to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_AppAccessPolicy(alloc: std.mem.Allocator, v: *const types.AppAccessPolicy) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_AppAccessPolicy(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a AppAccessPolicy. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_AppAccessPolicy(alloc: std.mem.Allocator, bytes: []const u8, out: *types.AppAccessPolicy) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_AppAccessPolicy(alloc, root, out);
+}
+
+/// Encode a ListAppAccessPoliciesResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ListAppAccessPoliciesResponse(alloc: std.mem.Allocator, v: *const types.ListAppAccessPoliciesResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ListAppAccessPoliciesResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ListAppAccessPoliciesResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ListAppAccessPoliciesResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ListAppAccessPoliciesResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ListAppAccessPoliciesResponse(alloc, root, out);
+}
+
+/// Encode a SetAppAccessPolicyRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_SetAppAccessPolicyRequest(alloc: std.mem.Allocator, v: *const types.SetAppAccessPolicyRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_SetAppAccessPolicyRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a SetAppAccessPolicyRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_SetAppAccessPolicyRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.SetAppAccessPolicyRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_SetAppAccessPolicyRequest(alloc, root, out);
+}
+
+/// Encode a SetAppAccessPolicyResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_SetAppAccessPolicyResponse(alloc: std.mem.Allocator, v: *const types.SetAppAccessPolicyResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_SetAppAccessPolicyResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a SetAppAccessPolicyResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_SetAppAccessPolicyResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.SetAppAccessPolicyResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_SetAppAccessPolicyResponse(alloc, root, out);
+}
+
+/// Encode a RemoveAppAccessPolicyRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RemoveAppAccessPolicyRequest(alloc: std.mem.Allocator, v: *const types.RemoveAppAccessPolicyRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RemoveAppAccessPolicyRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RemoveAppAccessPolicyRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RemoveAppAccessPolicyRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RemoveAppAccessPolicyRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RemoveAppAccessPolicyRequest(alloc, root, out);
+}
+
+/// Encode a RemoveAppAccessPolicyResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RemoveAppAccessPolicyResponse(alloc: std.mem.Allocator, v: *const types.RemoveAppAccessPolicyResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RemoveAppAccessPolicyResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RemoveAppAccessPolicyResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RemoveAppAccessPolicyResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RemoveAppAccessPolicyResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RemoveAppAccessPolicyResponse(alloc, root, out);
+}
+
+/// Encode a PreviewAppAccessRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_PreviewAppAccessRequest(alloc: std.mem.Allocator, v: *const types.PreviewAppAccessRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_PreviewAppAccessRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a PreviewAppAccessRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_PreviewAppAccessRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.PreviewAppAccessRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_PreviewAppAccessRequest(alloc, root, out);
+}
+
+/// Encode a PreviewAppAccessResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_PreviewAppAccessResponse(alloc: std.mem.Allocator, v: *const types.PreviewAppAccessResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_PreviewAppAccessResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a PreviewAppAccessResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_PreviewAppAccessResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.PreviewAppAccessResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_PreviewAppAccessResponse(alloc, root, out);
+}
+
+/// Encode a AppAccessDenial to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_AppAccessDenial(alloc: std.mem.Allocator, v: *const types.AppAccessDenial) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_AppAccessDenial(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a AppAccessDenial. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_AppAccessDenial(alloc: std.mem.Allocator, bytes: []const u8, out: *types.AppAccessDenial) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_AppAccessDenial(alloc, root, out);
 }
 
 /// Encode a PurgeLocalRpTicketsRequest to CBOR. The returned slice is owned by the caller

@@ -347,8 +347,9 @@ end
 # updated_at [String]
 # purged_at [String]
 # purge_reason [String]
-AdminUser = Data.define(:id, :username, :display_name, :is_active, :created_at, :updated_at, :purged_at, :purge_reason) do
-  def initialize(id:, username:, display_name:, is_active:, created_at:, updated_at:, purged_at: nil, purge_reason: nil)
+# password_locked [Boolean]
+AdminUser = Data.define(:id, :username, :display_name, :is_active, :created_at, :updated_at, :purged_at, :purge_reason, :password_locked) do
+  def initialize(id:, username:, display_name:, is_active:, created_at:, updated_at:, purged_at: nil, purge_reason: nil, password_locked: nil)
     super
   end
 end
@@ -931,8 +932,9 @@ end
 # request_reason [String]
 # already_consented [Boolean]
 # authorized_claims [Array<String>]
-BrowserAuthorizationInspectResponse = Data.define(:relying_party, :claims, :request_reason, :already_consented, :authorized_claims) do
-  def initialize(relying_party:, claims:, request_reason: nil, already_consented: nil, authorized_claims: nil)
+# access_denied [AppAccessDenial]
+BrowserAuthorizationInspectResponse = Data.define(:relying_party, :claims, :request_reason, :already_consented, :authorized_claims, :access_denied) do
+  def initialize(relying_party:, claims:, request_reason: nil, already_consented: nil, authorized_claims: nil, access_denied: nil)
     super
   end
 end
@@ -963,8 +965,9 @@ BrowserLocalRpInspectRequest = Data.define(:signed_request)
 # request_reason [String]
 # already_consented [Boolean]
 # authorized_claims [Array<String>]
-BrowserLocalRpInspectResponse = Data.define(:admission, :app_name, :fingerprint, :callback_host, :first_seen_at, :claims, :request_reason, :already_consented, :authorized_claims) do
-  def initialize(admission:, app_name:, fingerprint:, callback_host:, claims:, first_seen_at: nil, request_reason: nil, already_consented: nil, authorized_claims: nil)
+# access_denied [AppAccessDenial]
+BrowserLocalRpInspectResponse = Data.define(:admission, :app_name, :fingerprint, :callback_host, :first_seen_at, :claims, :request_reason, :already_consented, :authorized_claims, :access_denied) do
+  def initialize(admission:, app_name:, fingerprint:, callback_host:, claims:, first_seen_at: nil, request_reason: nil, already_consented: nil, authorized_claims: nil, access_denied: nil)
     super
   end
 end
@@ -1080,8 +1083,9 @@ end
 # already_consented [Boolean]
 # authorized_claims [Array<String>]
 # newly_requested_claims [Array<String>]
-AuthorizeValidateResponse = Data.define(:relying_party, :callback_url, :requested_claims, :already_consented, :authorized_claims, :newly_requested_claims) do
-  def initialize(relying_party:, callback_url:, requested_claims:, already_consented: nil, authorized_claims: nil, newly_requested_claims: nil)
+# access_denied [AppAccessDenial]
+AuthorizeValidateResponse = Data.define(:relying_party, :callback_url, :requested_claims, :already_consented, :authorized_claims, :newly_requested_claims, :access_denied) do
+  def initialize(relying_party:, callback_url:, requested_claims:, already_consented: nil, authorized_claims: nil, newly_requested_claims: nil, access_denied: nil)
     super
   end
 end
@@ -1295,6 +1299,83 @@ SignInPolicy = Data.define(:sign_in_hours, :default_sign_in_hours, :min_sign_in_
 
 # sign_in_hours [Integer]
 SetSignInPolicyRequest = Data.define(:sign_in_hours)
+
+# user_id [String]
+# locked [Boolean]
+SetUserPasswordLockRequest = Data.define(:user_id, :locked)
+
+# user [AdminUser]
+SetUserPasswordLockResponse = Data.define(:user)
+
+# kind [String]
+# user_id [String]
+# group_name [String]
+# claim_type [String]
+# claim_operator [String]
+# claim_value [String]
+AppAccessTarget = Data.define(:kind, :user_id, :group_name, :claim_type, :claim_operator, :claim_value) do
+  def initialize(kind:, user_id: nil, group_name: nil, claim_type: nil, claim_operator: nil, claim_value: nil)
+    super
+  end
+end
+
+# id [String]
+# name [String]
+# mode [String]
+# patterns [Array<String>]
+# message [String]
+# targets [Array<AppAccessTarget>]
+AppAccessPolicy = Data.define(:id, :name, :mode, :patterns, :message, :targets) do
+  def initialize(id:, name:, mode:, patterns:, targets:, message: nil)
+    super
+  end
+end
+
+# policies [Array<AppAccessPolicy>]
+ListAppAccessPoliciesResponse = Data.define(:policies)
+
+# id [String]
+# name [String]
+# mode [String]
+# patterns [Array<String>]
+# message [String]
+# targets [Array<AppAccessTarget>]
+SetAppAccessPolicyRequest = Data.define(:id, :name, :mode, :patterns, :message, :targets) do
+  def initialize(name:, mode:, patterns:, targets:, id: nil, message: nil)
+    super
+  end
+end
+
+# policy [AppAccessPolicy]
+SetAppAccessPolicyResponse = Data.define(:policy)
+
+# id [String]
+RemoveAppAccessPolicyRequest = Data.define(:id)
+
+# success [Boolean]
+RemoveAppAccessPolicyResponse = Data.define(:success)
+
+# user_id [String]
+# domain [String]
+PreviewAppAccessRequest = Data.define(:user_id, :domain) do
+  def initialize(user_id:, domain: nil)
+    super
+  end
+end
+
+# allowed [Boolean]
+# applied_policies [Array<String>]
+# blocking_policies [Array<String>]
+# messages [Array<String>]
+PreviewAppAccessResponse = Data.define(:allowed, :applied_policies, :blocking_policies, :messages)
+
+# domain [String]
+# messages [Array<String>]
+AppAccessDenial = Data.define(:domain, :messages) do
+  def initialize(messages:, domain: nil)
+    super
+  end
+end
 
 PurgeLocalRpTicketsRequest = Data.define
 
@@ -1693,8 +1774,9 @@ end
 # max_lifetime_seconds [Integer]
 # default_renewal_window_seconds [Integer]
 # max_renewal_window_seconds [Integer]
-BrowserActAsInspectResponse = Data.define(:grantee, :grantee_party, :audience, :audience_party, :entries, :language, :default_lifetime_seconds, :max_lifetime_seconds, :default_renewal_window_seconds, :max_renewal_window_seconds) do
-  def initialize(grantee:, grantee_party:, audience:, audience_party:, entries:, default_lifetime_seconds:, max_lifetime_seconds:, default_renewal_window_seconds:, max_renewal_window_seconds:, language: nil)
+# access_denied [AppAccessDenial]
+BrowserActAsInspectResponse = Data.define(:grantee, :grantee_party, :audience, :audience_party, :entries, :language, :default_lifetime_seconds, :max_lifetime_seconds, :default_renewal_window_seconds, :max_renewal_window_seconds, :access_denied) do
+  def initialize(grantee:, grantee_party:, audience:, audience_party:, entries:, default_lifetime_seconds:, max_lifetime_seconds:, default_renewal_window_seconds:, max_renewal_window_seconds:, language: nil, access_denied: nil)
     super
   end
 end

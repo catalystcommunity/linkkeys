@@ -1635,6 +1635,7 @@ class AdminUser
     csil_map["updated_at"] = updated_at
     csil_map["display_name"] = display_name
     csil_map["purge_reason"] = purge_reason unless purge_reason.nil?
+    csil_map["password_locked"] = password_locked unless password_locked.nil?
     csil_map
   end
 
@@ -1651,7 +1652,8 @@ class AdminUser
       created_at: node["created_at"],
       updated_at: node["updated_at"],
       purged_at: (node.key?("purged_at") ? node["purged_at"] : nil),
-      purge_reason: (node.key?("purge_reason") ? node["purge_reason"] : nil)
+      purge_reason: (node.key?("purge_reason") ? node["purge_reason"] : nil),
+      password_locked: (node.key?("password_locked") ? node["password_locked"] : nil)
     )
   end
 end
@@ -4843,6 +4845,7 @@ class BrowserAuthorizationInspectResponse
   def csil_to_tree
     csil_map = {}
     csil_map["claims"] = (claims).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["access_denied"] = (access_denied).csil_to_tree unless access_denied.nil?
     csil_map["relying_party"] = relying_party
     csil_map["request_reason"] = request_reason unless request_reason.nil?
     csil_map["already_consented"] = already_consented unless already_consented.nil?
@@ -4860,7 +4863,8 @@ class BrowserAuthorizationInspectResponse
       claims: (node["claims"]).map { |csil_e| BrowserConsentClaim.csil_from_tree(csil_e) },
       request_reason: (node.key?("request_reason") ? node["request_reason"] : nil),
       already_consented: (node.key?("already_consented") ? node["already_consented"] : nil),
-      authorized_claims: (node.key?("authorized_claims") ? (node["authorized_claims"]).map { |csil_e| csil_e } : nil)
+      authorized_claims: (node.key?("authorized_claims") ? (node["authorized_claims"]).map { |csil_e| csil_e } : nil),
+      access_denied: (node.key?("access_denied") ? AppAccessDenial.csil_from_tree(node["access_denied"]) : nil)
     )
   end
 end
@@ -4958,6 +4962,7 @@ class BrowserLocalRpInspectResponse
     csil_map["app_name"] = app_name
     csil_map["admission"] = admission
     csil_map["fingerprint"] = fingerprint
+    csil_map["access_denied"] = (access_denied).csil_to_tree unless access_denied.nil?
     csil_map["callback_host"] = callback_host
     csil_map["first_seen_at"] = first_seen_at unless first_seen_at.nil?
     csil_map["request_reason"] = request_reason unless request_reason.nil?
@@ -4980,7 +4985,8 @@ class BrowserLocalRpInspectResponse
       claims: (node["claims"]).map { |csil_e| BrowserConsentClaim.csil_from_tree(csil_e) },
       request_reason: (node.key?("request_reason") ? node["request_reason"] : nil),
       already_consented: (node.key?("already_consented") ? node["already_consented"] : nil),
-      authorized_claims: (node.key?("authorized_claims") ? (node["authorized_claims"]).map { |csil_e| csil_e } : nil)
+      authorized_claims: (node.key?("authorized_claims") ? (node["authorized_claims"]).map { |csil_e| csil_e } : nil),
+      access_denied: (node.key?("access_denied") ? AppAccessDenial.csil_from_tree(node["access_denied"]) : nil)
     )
   end
 end
@@ -5437,6 +5443,7 @@ class AuthorizeValidateResponse
   def csil_to_tree
     csil_map = {}
     csil_map["callback_url"] = callback_url
+    csil_map["access_denied"] = (access_denied).csil_to_tree unless access_denied.nil?
     csil_map["relying_party"] = relying_party
     csil_map["requested_claims"] = (requested_claims).map { |csil_e| csil_e }
     csil_map["already_consented"] = already_consented unless already_consented.nil?
@@ -5456,7 +5463,8 @@ class AuthorizeValidateResponse
       requested_claims: (node["requested_claims"]).map { |csil_e| csil_e },
       already_consented: (node.key?("already_consented") ? node["already_consented"] : nil),
       authorized_claims: (node.key?("authorized_claims") ? (node["authorized_claims"]).map { |csil_e| csil_e } : nil),
-      newly_requested_claims: (node.key?("newly_requested_claims") ? (node["newly_requested_claims"]).map { |csil_e| csil_e } : nil)
+      newly_requested_claims: (node.key?("newly_requested_claims") ? (node["newly_requested_claims"]).map { |csil_e| csil_e } : nil),
+      access_denied: (node.key?("access_denied") ? AppAccessDenial.csil_from_tree(node["access_denied"]) : nil)
     )
   end
 end
@@ -6337,6 +6345,336 @@ class SetSignInPolicyRequest
   def self.csil_from_tree(node)
     new(
       sign_in_hours: node["sign_in_hours"]
+    )
+  end
+end
+
+# CBOR codec for SetUserPasswordLockRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class SetUserPasswordLockRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["locked"] = locked
+    csil_map["user_id"] = user_id
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      user_id: node["user_id"],
+      locked: node["locked"]
+    )
+  end
+end
+
+# CBOR codec for SetUserPasswordLockResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class SetUserPasswordLockResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["user"] = (user).csil_to_tree
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      user: AdminUser.csil_from_tree(node["user"])
+    )
+  end
+end
+
+# CBOR codec for AppAccessTarget: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class AppAccessTarget
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["kind"] = kind
+    csil_map["user_id"] = user_id unless user_id.nil?
+    csil_map["claim_type"] = claim_type unless claim_type.nil?
+    csil_map["group_name"] = group_name unless group_name.nil?
+    csil_map["claim_value"] = claim_value unless claim_value.nil?
+    csil_map["claim_operator"] = claim_operator unless claim_operator.nil?
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      kind: node["kind"],
+      user_id: (node.key?("user_id") ? node["user_id"] : nil),
+      group_name: (node.key?("group_name") ? node["group_name"] : nil),
+      claim_type: (node.key?("claim_type") ? node["claim_type"] : nil),
+      claim_operator: (node.key?("claim_operator") ? node["claim_operator"] : nil),
+      claim_value: (node.key?("claim_value") ? node["claim_value"] : nil)
+    )
+  end
+end
+
+# CBOR codec for AppAccessPolicy: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class AppAccessPolicy
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["id"] = id
+    csil_map["mode"] = mode
+    csil_map["name"] = name
+    csil_map["message"] = message unless message.nil?
+    csil_map["targets"] = (targets).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["patterns"] = (patterns).map { |csil_e| csil_e }
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      id: node["id"],
+      name: node["name"],
+      mode: node["mode"],
+      patterns: (node["patterns"]).map { |csil_e| csil_e },
+      message: (node.key?("message") ? node["message"] : nil),
+      targets: (node["targets"]).map { |csil_e| AppAccessTarget.csil_from_tree(csil_e) }
+    )
+  end
+end
+
+# CBOR codec for ListAppAccessPoliciesResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class ListAppAccessPoliciesResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["policies"] = (policies).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      policies: (node["policies"]).map { |csil_e| AppAccessPolicy.csil_from_tree(csil_e) }
+    )
+  end
+end
+
+# CBOR codec for SetAppAccessPolicyRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class SetAppAccessPolicyRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["id"] = id unless id.nil?
+    csil_map["mode"] = mode
+    csil_map["name"] = name
+    csil_map["message"] = message unless message.nil?
+    csil_map["targets"] = (targets).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["patterns"] = (patterns).map { |csil_e| csil_e }
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      id: (node.key?("id") ? node["id"] : nil),
+      name: node["name"],
+      mode: node["mode"],
+      patterns: (node["patterns"]).map { |csil_e| csil_e },
+      message: (node.key?("message") ? node["message"] : nil),
+      targets: (node["targets"]).map { |csil_e| AppAccessTarget.csil_from_tree(csil_e) }
+    )
+  end
+end
+
+# CBOR codec for SetAppAccessPolicyResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class SetAppAccessPolicyResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["policy"] = (policy).csil_to_tree
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      policy: AppAccessPolicy.csil_from_tree(node["policy"])
+    )
+  end
+end
+
+# CBOR codec for RemoveAppAccessPolicyRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class RemoveAppAccessPolicyRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["id"] = id
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      id: node["id"]
+    )
+  end
+end
+
+# CBOR codec for RemoveAppAccessPolicyResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class RemoveAppAccessPolicyResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["success"] = success
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      success: node["success"]
+    )
+  end
+end
+
+# CBOR codec for PreviewAppAccessRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class PreviewAppAccessRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["domain"] = domain unless domain.nil?
+    csil_map["user_id"] = user_id
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      user_id: node["user_id"],
+      domain: (node.key?("domain") ? node["domain"] : nil)
+    )
+  end
+end
+
+# CBOR codec for PreviewAppAccessResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class PreviewAppAccessResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["allowed"] = allowed
+    csil_map["messages"] = (messages).map { |csil_e| csil_e }
+    csil_map["applied_policies"] = (applied_policies).map { |csil_e| csil_e }
+    csil_map["blocking_policies"] = (blocking_policies).map { |csil_e| csil_e }
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      allowed: node["allowed"],
+      applied_policies: (node["applied_policies"]).map { |csil_e| csil_e },
+      blocking_policies: (node["blocking_policies"]).map { |csil_e| csil_e },
+      messages: (node["messages"]).map { |csil_e| csil_e }
+    )
+  end
+end
+
+# CBOR codec for AppAccessDenial: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class AppAccessDenial
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["domain"] = domain unless domain.nil?
+    csil_map["messages"] = (messages).map { |csil_e| csil_e }
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      domain: (node.key?("domain") ? node["domain"] : nil),
+      messages: (node["messages"]).map { |csil_e| csil_e }
     )
   end
 end
@@ -8011,6 +8349,7 @@ class BrowserActAsInspectResponse
     csil_map["grantee"] = (grantee).csil_to_tree
     csil_map["audience"] = (audience).csil_to_tree
     csil_map["language"] = language unless language.nil?
+    csil_map["access_denied"] = (access_denied).csil_to_tree unless access_denied.nil?
     csil_map["grantee_party"] = (grantee_party).csil_to_tree
     csil_map["audience_party"] = (audience_party).csil_to_tree
     csil_map["max_lifetime_seconds"] = max_lifetime_seconds
@@ -8035,7 +8374,8 @@ class BrowserActAsInspectResponse
       default_lifetime_seconds: node["default_lifetime_seconds"],
       max_lifetime_seconds: node["max_lifetime_seconds"],
       default_renewal_window_seconds: node["default_renewal_window_seconds"],
-      max_renewal_window_seconds: node["max_renewal_window_seconds"]
+      max_renewal_window_seconds: node["max_renewal_window_seconds"],
+      access_denied: (node.key?("access_denied") ? AppAccessDenial.csil_from_tree(node["access_denied"]) : nil)
     )
   end
 end

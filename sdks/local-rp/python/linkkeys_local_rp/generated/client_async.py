@@ -454,6 +454,26 @@ class AdminAsyncClient:
         """set-sign-in-policy"""
         return SignInPolicy.from_cbor(await self._transport.call("Admin", "set-sign-in-policy", req.to_cbor()))
 
+    async def set_user_password_lock(self, req: SetUserPasswordLockRequest) -> SetUserPasswordLockResponse:
+        """set-user-password-lock"""
+        return SetUserPasswordLockResponse.from_cbor(await self._transport.call("Admin", "set-user-password-lock", req.to_cbor()))
+
+    async def list_app_access_policies(self, req: EmptyRequest) -> ListAppAccessPoliciesResponse:
+        """list-app-access-policies"""
+        return ListAppAccessPoliciesResponse.from_cbor(await self._transport.call("Admin", "list-app-access-policies", req.to_cbor()))
+
+    async def set_app_access_policy(self, req: SetAppAccessPolicyRequest) -> SetAppAccessPolicyResponse:
+        """set-app-access-policy"""
+        return SetAppAccessPolicyResponse.from_cbor(await self._transport.call("Admin", "set-app-access-policy", req.to_cbor()))
+
+    async def remove_app_access_policy(self, req: RemoveAppAccessPolicyRequest) -> RemoveAppAccessPolicyResponse:
+        """remove-app-access-policy"""
+        return RemoveAppAccessPolicyResponse.from_cbor(await self._transport.call("Admin", "remove-app-access-policy", req.to_cbor()))
+
+    async def preview_app_access(self, req: PreviewAppAccessRequest) -> PreviewAppAccessResponse:
+        """preview-app-access"""
+        return PreviewAppAccessResponse.from_cbor(await self._transport.call("Admin", "preview-app-access", req.to_cbor()))
+
 class AccountAsyncClient:
     """Typed client for the Account service."""
     def __init__(self, transport: AsyncTransport):
