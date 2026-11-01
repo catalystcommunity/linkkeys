@@ -171,6 +171,84 @@ The addition tag and the possession tag are different on purpose. The two
 signatures cover the same bytes. A shared tag would let one signature be used
 as the other.
 
+## To sign a call to a different application
+
+An application can call a second application as itself, with no user in the
+call. LinkKeys does not define the message for this call. The application that
+receives the call (the audience) defines the message in its own protocol. All
+callers of that audience use the same definition.
+
+Do not use an act-as presentation for this call. An act-as presentation
+requires a grant from a user.
+
+### The message
+
+The signed message must contain these items:
+
+| Item | Purpose |
+| --- | --- |
+| The signer's account UUID, home domain, and application ID | Identifies the caller. |
+| The signer's instance ID | Identifies the instance whose keys to resolve. |
+| The audience's account UUID, home domain, and application ID | Prevents use of the message at a different audience. |
+| A digest of the request | Binds the message to one operation. The audience defines the digest. |
+| A timestamp | Limits the age of the message. |
+| A random nonce | Prevents a replay. |
+
+The key ID goes with the signature. Send the signed bytes without a change. The
+audience verifies the received bytes. It does not encode them again.
+
+### The signature
+
+Sign the deterministic CBOR encoding of `[tag, payload]`. The tag is a text
+string and the payload is a byte string that holds the message.
+
+The audience owns the tag. The tag must name the audience and the message, for
+example `example-calendar-application-call-v1`. Do not use a tag that starts
+with `linkkeys-`. This prefix is for LinkKeys structures. Each type of signed
+message must have a different tag, so that one signature cannot be used as a
+different message.
+
+### How the audience verifies a call
+
+Do these steps in this sequence. Refuse the call if a step fails.
+
+1. Decode the message. The values are not verified yet.
+2. Make sure that the audience in the message is your own application. Get your
+   own identity from your configuration, not from the request.
+3. Make sure that the digest is equal to the digest that you expect.
+4. Make sure that the timestamp is not older than your maximum age and is not
+   in the future. Permit your clock skew on each limit.
+5. Make sure that the signer is an application that you know. Do this step
+   before you resolve keys, so that an unknown caller cannot start a remote
+   key read.
+6. Resolve the keys of the signer's instance through your RP. Select the key by
+   key ID. The key must be usable and must be a `sign` key with the `ed25519`
+   algorithm. In the Go SDK, use `CachedResolver.Resolve` and `KeyForUse`.
+7. Verify the signature over your tag and the received bytes.
+8. Record the nonce. Refuse the call if the nonce is already recorded for this
+   signer.
+
+The name of the application is not sufficient to identify the signer. Any
+account can enroll an application with the same application ID. Compare the
+account UUID, the home domain, and the application ID.
+
+Keep each nonce for the maximum age plus two times the clock skew. A nonce that
+you remove earlier lets a replay succeed.
+
+Decide what to do with a stale result from the RP. A stale result is the last
+verified record. It is not current trust. Refuse it for an operation that gives
+authority, such as an exchange for a bearer token.
+
+A valid signature proves the origin of the call. It does not give authority.
+The audience decides what the signer can do.
+
+### Test the negative cases
+
+Test that the audience refuses each of these cases: a different audience, an
+incorrect digest, an old timestamp, a future timestamp, a different tag, an
+act-as tag, an unknown signer, an unknown key, an `agree` key, a revoked key, an
+expired attestation, an incorrect signature, and a replayed nonce.
+
 ## Operations
 
 All of these operations are available on the TCP CSIL-RPC carrier.
