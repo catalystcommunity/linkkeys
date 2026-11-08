@@ -53,7 +53,11 @@ fn default_bucket_allows_100_then_blocks() {
 fn refill_restores_capacity() {
     let config = PublicReadLimiterConfig {
         per_source_capacity: 2.0,
-        per_source_refill_per_sec: 1000.0, // refills almost immediately
+        // One token per 100 ms: slow enough that the three back-to-back
+        // checks below cannot see a refill even on a loaded CI runner (at
+        // 1000/s a 1 ms scheduling stall refilled a token and flaked), fast
+        // enough that the sleep below restores capacity.
+        per_source_refill_per_sec: 10.0,
         ..generous_config()
     };
     let limiter = PublicReadLimiter::new(config);
@@ -67,7 +71,7 @@ fn refill_restores_capacity() {
             ..
         }
     ));
-    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::thread::sleep(std::time::Duration::from_millis(250));
     assert_eq!(limiter.check(&source), PublicReadDecision::Allow);
 }
 
