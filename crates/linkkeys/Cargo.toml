@@ -76,9 +76,10 @@ zeroize = { version = "1.8", features = ["zeroize_derive"] }
 
 # `mlock`/`munlock` for the warm domain-signing-key cache (services::warm_signer),
 # so decrypted key pages are kept out of swap/hibernation. Already in the tree
-# transitively (e.g. via rustls' platform bits); pinned to the resolved
-# Cargo.lock version and promoted to a direct dependency for that unsafe call.
-libc = "=0.2.182"
+# transitively (e.g. via rustls' platform bits); promoted to a direct
+# dependency for that unsafe call. Not exact-pinned: an exact pin blocks
+# security updates of crates that need a newer libc (e.g. tokio).
+libc = "0.2"
 
 # Password hashing
 bcrypt = "0.17"
