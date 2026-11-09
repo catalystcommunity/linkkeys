@@ -1,6 +1,5 @@
 import type { AsyncApiClient } from "./generated/client.async.gen";
 import type { GetUiConfigurationResponse, BrowserSessionInfo } from "./generated/types.gen";
-import { createSignal, type Accessor, type Setter } from "solid-js";
 
 const CORE_PREFIXES = [
   "/app/login",
@@ -65,20 +64,24 @@ export class RuntimeHost implements LinkKeysHostApiV1 {
   private disabledExtensions = new Set<string>();
   private activationGenerations = new Map<string, number>();
   private activators = new Map<string, ExtensionActivator>();
-  private readonly revision: Accessor<number>;
-  private readonly setRevision: Setter<number>;
+  private readonly listeners = new Set<() => void>();
 
   constructor(
     readonly clients: AsyncApiClient,
     readonly configuration: GetUiConfigurationResponse,
     private readonly navigateFn: (path: string) => void,
     private readonly sessionFn: () => BrowserSessionInfo | undefined
-  ) {
-    [this.revision, this.setRevision] = createSignal(0);
+  ) {}
+
+  /** Call `listener` after each change to the registered routes or
+   * navigation. Returns the function that removes the listener. */
+  onChange(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
   }
 
   private changed(): void {
-    this.setRevision((value) => value + 1);
+    for (const listener of [...this.listeners]) listener();
   }
 
   registerRoute(route: ExtensionRoute): void {
@@ -116,21 +119,18 @@ export class RuntimeHost implements LinkKeysHostApiV1 {
   navigate(path: string): void { this.navigateFn(path); }
   getSession(): BrowserSessionInfo | undefined { return this.sessionFn(); }
   route(path: string): ExtensionRoute | undefined {
-    this.revision();
     const match = [...this.routes.entries()]
       .filter(([prefix]) => path === prefix || path.startsWith(`${prefix}/`))
       .sort(([left], [right]) => right.length - left.length)[0];
     return match?.[1];
   }
   routeOwner(path: string): string | undefined {
-    this.revision();
     const match = [...this.routeOwners.entries()]
       .filter(([prefix]) => path === prefix || path.startsWith(`${prefix}/`))
       .sort(([left], [right]) => right.length - left.length)[0];
     return match?.[1];
   }
   navigationItems(): ExtensionNavigation[] {
-    this.revision();
     return [...this.navigation.values()].sort((left, right) => (left.order ?? 100) - (right.order ?? 100));
   }
 
