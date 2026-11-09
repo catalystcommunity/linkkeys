@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createMemo, createRoot } from "solid-js";
 import type { AsyncApiClient } from "./generated/client.async.gen";
 import type { BrowserSessionInfo, GetUiConfigurationResponse } from "./generated/types.gen";
 import { RuntimeHost, type LinkKeysHostApiV1 } from "./host";
@@ -26,28 +25,35 @@ beforeEach(() => {
 describe("RuntimeHost", () => {
   it("updates extension contributions after registration and removal", async () => {
     const host = makeHost();
-    await createRoot(async (dispose) => {
-      try {
-        const navigationLabels = createMemo(() => host.navigationItems().map((item) => item.label));
-        const routeTitle = createMemo(() => host.route("/app/example")?.title);
+    let changes = 0;
+    const stop = host.onChange(() => { changes += 1; });
+    const navigationLabels = () => host.navigationItems().map((item) => item.label);
+    const routeTitle = () => host.route("/app/example")?.title;
 
-        expect(navigationLabels()).toEqual([]);
-        expect(routeTitle()).toBeUndefined();
+    expect(navigationLabels()).toEqual([]);
+    expect(routeTitle()).toBeUndefined();
 
-        await host.activate("example", (api) => {
-          api.registerRoute({ path: "/app/example", title: "Example", render: () => undefined });
-          api.registerNavigation({ path: "/app/example", label: "Example" });
-        });
-        expect(navigationLabels()).toEqual(["Example"]);
-        expect(routeTitle()).toBe("Example");
-
-        host.removeExtension("example");
-        expect(navigationLabels()).toEqual([]);
-        expect(routeTitle()).toBeUndefined();
-      } finally {
-        dispose();
-      }
+    await host.activate("example", (api) => {
+      api.registerRoute({ path: "/app/example", title: "Example", render: () => undefined });
+      api.registerNavigation({ path: "/app/example", label: "Example" });
     });
+    expect(navigationLabels()).toEqual(["Example"]);
+    expect(routeTitle()).toBe("Example");
+    const afterRegistration = changes;
+    expect(afterRegistration).toBeGreaterThan(0);
+
+    host.removeExtension("example");
+    expect(navigationLabels()).toEqual([]);
+    expect(routeTitle()).toBeUndefined();
+    expect(changes).toBeGreaterThan(afterRegistration);
+
+    stop();
+    const afterStop = changes;
+    await host.activate("example", (api) => {
+      api.registerRoute({ path: "/app/example", title: "Example", render: () => undefined });
+    });
+    expect(routeTitle()).toBe("Example");
+    expect(changes).toBe(afterStop);
   });
 
   it("removes partial contributions after activation fails", async () => {

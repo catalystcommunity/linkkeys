@@ -1,12 +1,9 @@
 import { defineConfig } from "vitest/config";
-import solid from "vite-plugin-solid";
 
 export default defineConfig({
-  plugins: [solid()],
-  resolve: {
-    conditions: ["development", "browser"],
-  },
   test: {
+    // Pure logic tests run in Node. A DOM test opts in with
+    // `// @vitest-environment happy-dom` at the top of its file.
     environment: "node",
   },
 });

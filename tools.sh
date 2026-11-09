@@ -15,7 +15,7 @@
 #   ./tools.sh smtp-demo  # run a disposable LinkKeys + Mailpit browser demo
 #   ./tools.sh fmt        # cargo fmt
 #   ./tools.sh clippy     # cargo clippy (workspace, all targets)
-#   ./tools.sh ui-build   # check and build the embedded SolidJS UI
+#   ./tools.sh ui-build   # check and build the embedded Zest UI
 #   ./tools.sh audit      # dependency advisories and license policy
 #   ./tools.sh generate-regular-rp-bindings # regenerate CSIL client bindings
 #   ./tools.sh test-regular-rp-typescript # test the web application SDK
@@ -755,7 +755,7 @@ Commands:
   test-smtp  Test SMTP delivery with an in-process relay and no SMTP account
   fmt        Run cargo fmt
   clippy     Run cargo clippy (workspace, all targets)
-  ui-build   Check and build the embedded SolidJS UI
+  ui-build   Check and build the embedded Zest UI
   audit      Check dependency advisories, licenses, and sources
   load-test  Build and run a connection/handshake/cache/DDoS load-test smoke
              run (NOT part of test/test-all; see docs/load-testing.md)

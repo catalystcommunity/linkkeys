@@ -35,7 +35,8 @@ directory paths. `UI_DIST_DIR` must name an existing directory when it is set.
 For each file request, LinkKeys resolves the configured root and target. It
 rejects a target that resolves outside the configured root.
 
-The binary embeds a SolidJS host and its generated TypeScript CSIL client. The
+The binary embeds a Zest web-component host and its generated TypeScript CSIL
+client. The
 server supplies SPA fallback routing, strict security headers, theme assets,
 runtime extension assets, and full UI replacement. The host provides login,
 account and claim functions, application authorization and consent (DNS-pinned
@@ -64,8 +65,9 @@ functions that LinkKeys already provides.
 
 ## Embedded host
 
-LinkKeys embeds a compiled SolidJS single-page application. This application is
-the UI host. It includes the default theme and all core LinkKeys pages.
+LinkKeys embeds a compiled single-page application. It uses Zest web
+components (`@catalystcommunity/*`) and plain TypeScript, with no application
+framework. This application is the UI host. It includes the default theme and all core LinkKeys pages.
 
 The host must provide:
 
@@ -287,8 +289,8 @@ export function activate(host) {
 ```
 
 The host API is framework-neutral. It passes a DOM container and a small
-context object. It does not pass a SolidJS owner, signal, or component. An
-extension can use SolidJS, another framework, or plain DOM code. This rule
+context object. It does not pass a component, a signal, or a framework
+object. An extension can use plain DOM code, Zest, or another framework. This rule
 prevents the host and extension from sharing a framework version.
 
 Host API version 1 supports these contributions:
@@ -416,7 +418,7 @@ Tests must cover:
 - an en-US catalog entry for every UI message key;
 - browser tests for the oldest supported mobile browser engines.
 
-Use a small test extension that does not depend on SolidJS. Add a separate
+Use a small test extension that does not depend on a UI framework. Add a separate
 Catalyst contract test for its route and navigation registrations.
 
 ## Build and deploy

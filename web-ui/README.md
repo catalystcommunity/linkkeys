@@ -1,8 +1,38 @@
 # LinkKeys web UI
 
-This directory contains the source for the embedded SolidJS UI. The generated
-TypeScript CSIL client is in `src/generated/`. The build output is in
+This directory contains the source for the embedded LinkKeys UI. The UI uses
+Zest web components (`@catalystcommunity/*`) and plain TypeScript. It uses no
+application framework. The generated TypeScript CSIL client is in
+`src/generated/`. The build output is in
 `../crates/linkkeys/assets/ui/` and is part of the server binary.
+
+## Structure
+
+- `src/main.ts` defines the Zest controls, loads the configuration and the
+  message catalog, and starts the app shell.
+- `src/app.ts` is the shell: header, navigation, session state, and routing.
+  `SimpleRouter` keeps the browser history. The shell selects the page for a
+  path, because the page depends on the session and the admin permission.
+- `src/pages/` holds the pages. Each page is a light DOM Zest
+  `BaseComponent` that extends `Page` (`src/page.ts`).
+- `src/dom.ts` holds the DOM builder `h()` and the helpers for Zest controls.
+
+Rules for a page:
+
+- Build the elements one time in `build()`. Keep references to the parts that
+  change, and change only those parts. Do not build all of the page again for a
+  small change, because that loses the focus and the scroll position.
+- Use Zest controls for form controls (`text-field`, `text-area`,
+  `check-box`, `combo-box`, `push-button`, `date-time-picker`). Credential
+  fields are `text-field` elements with the correct `autocomplete` value. Use
+  a native element only when Zest has no control for it and the native element
+  needs no extra behavior. If a page needs a control that Zest does not have,
+  make a component in this repository.
+- After each `await`, stop if `this.isActive()` is false.
+- Get each text from the message catalog (`t`, `plural`, `formatted`).
+- Keep the CSS class names in `src/styles.css`. Operator theme stylesheets use
+  them. Zest controls read the `--zest-*` tokens, which `styles.css` maps from
+  the LinkKeys colors.
 
 ## Build
 

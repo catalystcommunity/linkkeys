@@ -38,7 +38,7 @@ database.
 ./tools.sh smtp-demo  # disposable LinkKeys and Mailpit browser demo
 ./tools.sh fmt        # cargo fmt
 ./tools.sh clippy     # cargo clippy (workspace, all targets)
-./tools.sh ui-build   # check and build the embedded SolidJS UI
+./tools.sh ui-build   # check and build the embedded Zest UI
 ./tools.sh audit      # dependency and license audit
 ```
 

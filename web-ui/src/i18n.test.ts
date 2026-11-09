@@ -45,11 +45,12 @@ describe("message lookup", () => {
 
 describe("UI catalog coverage", () => {
   const catalog = enUS as Record<string, string>;
-  const sources = readdirSync(new URL(".", import.meta.url))
-    .filter((name) => /\.tsx?$/.test(name) && !name.endsWith(".test.ts"))
+  // Every UI source file under src/, including src/pages/.
+  const sources = (readdirSync(new URL(".", import.meta.url), { recursive: true }) as string[])
+    .filter((name) => /\.ts$/.test(name) && !name.endsWith(".test.ts") && !name.startsWith("generated"))
     .map((name) => readFileSync(new URL(name, import.meta.url), "utf8"))
     .join("\n");
-  const literal = [...sources.matchAll(/\b(t|format(?:<[^>]+>)?)\("(app\.[^"]+)"/g)].map((match) => match[2]);
+  const literal = [...sources.matchAll(/\b(t|formatted|format(?:<[^>]+>)?)\("(app\.[^"]+)"/g)].map((match) => match[2]);
   const plurals = [...sources.matchAll(/\bplural\("(app\.[^"]+)"/g)].map((match) => match[1]);
   // Keys built at run time: `plural(`app.duration.${name}`)`, `pageTitle`,
   // `reasonText`, and the app access condition and target-kind labels.
