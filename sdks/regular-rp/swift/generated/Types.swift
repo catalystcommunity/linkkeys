@@ -636,8 +636,9 @@ public struct ConsentGrant: Equatable, Sendable {
     public let expiresAt: String
     /// wire key: revoked_at
     public let revokedAt: String?
+    public let application: ApplicationRef?
 
-    public init(grantId: String, userId: String, subjectDomain: String, audience: String, claimTypes: [String], issuedAt: String, expiresAt: String, revokedAt: String? = nil) {
+    public init(grantId: String, userId: String, subjectDomain: String, audience: String, claimTypes: [String], issuedAt: String, expiresAt: String, revokedAt: String? = nil, application: ApplicationRef? = nil) {
         self.grantId = grantId
         self.userId = userId
         self.subjectDomain = subjectDomain
@@ -646,6 +647,7 @@ public struct ConsentGrant: Equatable, Sendable {
         self.issuedAt = issuedAt
         self.expiresAt = expiresAt
         self.revokedAt = revokedAt
+        self.application = application
     }
 
     /// CBOR wire keys (verbatim) keyed by Swift property name.
@@ -657,7 +659,8 @@ public struct ConsentGrant: Equatable, Sendable {
         "claimTypes": "claim_types",
         "issuedAt": "issued_at",
         "expiresAt": "expires_at",
-        "revokedAt": "revoked_at"
+        "revokedAt": "revoked_at",
+        "application": "application"
     ]
 }
 
@@ -947,6 +950,24 @@ public struct UserInfo: Equatable, Sendable {
     ]
 }
 
+/// RelyingPartyApplication is a generated CSIL record type.
+public struct RelyingPartyApplication: Equatable, Sendable {
+    public let application: ApplicationRef
+    /// wire key: display_name
+    public let displayName: String
+
+    public init(application: ApplicationRef, displayName: String) {
+        self.application = application
+        self.displayName = displayName
+    }
+
+    /// CBOR wire keys (verbatim) keyed by Swift property name.
+    public static let wireKeys: [String: String] = [
+        "application": "application",
+        "displayName": "display_name"
+    ]
+}
+
 /// AuthRequest is a generated CSIL record type.
 public struct AuthRequest: Equatable, Sendable {
     /// wire key: relying_party
@@ -965,8 +986,9 @@ public struct AuthRequest: Equatable, Sendable {
     public let flowContext: AuthFlowContext?
     /// wire key: relying_party_claims
     public let relyingPartyClaims: [DomainClaim]?
+    public let application: RelyingPartyApplication?
 
-    public init(relyingParty: String, callbackUrl: String, nonce: String, timestamp: String, signingKeyId: String, requestedClaims: ClaimRequest? = nil, authenticationRequirements: AuthenticationRequirements? = nil, flowContext: AuthFlowContext? = nil, relyingPartyClaims: [DomainClaim]? = nil) {
+    public init(relyingParty: String, callbackUrl: String, nonce: String, timestamp: String, signingKeyId: String, requestedClaims: ClaimRequest? = nil, authenticationRequirements: AuthenticationRequirements? = nil, flowContext: AuthFlowContext? = nil, relyingPartyClaims: [DomainClaim]? = nil, application: RelyingPartyApplication? = nil) {
         self.relyingParty = relyingParty
         self.callbackUrl = callbackUrl
         self.nonce = nonce
@@ -976,6 +998,7 @@ public struct AuthRequest: Equatable, Sendable {
         self.authenticationRequirements = authenticationRequirements
         self.flowContext = flowContext
         self.relyingPartyClaims = relyingPartyClaims
+        self.application = application
     }
 
     /// CBOR wire keys (verbatim) keyed by Swift property name.
@@ -988,7 +1011,8 @@ public struct AuthRequest: Equatable, Sendable {
         "requestedClaims": "requested_claims",
         "authenticationRequirements": "authentication_requirements",
         "flowContext": "flow_context",
-        "relyingPartyClaims": "relying_party_claims"
+        "relyingPartyClaims": "relying_party_claims",
+        "application": "application"
     ]
 }
 
@@ -3437,14 +3461,19 @@ public struct BrowserAuthorizationInspectResponse: Equatable, Sendable {
     public let authorizedClaims: [String]?
     /// wire key: access_denied
     public let accessDenied: AppAccessDenial?
+    public let application: RelyingPartyApplication?
+    /// wire key: callback_host
+    public let callbackHost: String?
 
-    public init(relyingParty: String, claims: [BrowserConsentClaim], requestReason: String? = nil, alreadyConsented: Bool? = nil, authorizedClaims: [String]? = nil, accessDenied: AppAccessDenial? = nil) {
+    public init(relyingParty: String, claims: [BrowserConsentClaim], requestReason: String? = nil, alreadyConsented: Bool? = nil, authorizedClaims: [String]? = nil, accessDenied: AppAccessDenial? = nil, application: RelyingPartyApplication? = nil, callbackHost: String? = nil) {
         self.relyingParty = relyingParty
         self.claims = claims
         self.requestReason = requestReason
         self.alreadyConsented = alreadyConsented
         self.authorizedClaims = authorizedClaims
         self.accessDenied = accessDenied
+        self.application = application
+        self.callbackHost = callbackHost
     }
 
     /// CBOR wire keys (verbatim) keyed by Swift property name.
@@ -3454,7 +3483,9 @@ public struct BrowserAuthorizationInspectResponse: Equatable, Sendable {
         "requestReason": "request_reason",
         "alreadyConsented": "already_consented",
         "authorizedClaims": "authorized_claims",
-        "accessDenied": "access_denied"
+        "accessDenied": "access_denied",
+        "application": "application",
+        "callbackHost": "callback_host"
     ]
 }
 
@@ -3724,6 +3755,8 @@ public struct RpSignRequest: Equatable, Sendable {
     /// wire key: callback_url
     public let callbackUrl: String
     public let nonce: String
+    /// wire key: application_id
+    public let applicationId: String?
     /// wire key: requested_claims
     public let requestedClaims: ClaimRequest?
     /// wire key: authentication_requirements
@@ -3731,9 +3764,10 @@ public struct RpSignRequest: Equatable, Sendable {
     /// wire key: flow_context
     public let flowContext: AuthFlowContext?
 
-    public init(callbackUrl: String, nonce: String, requestedClaims: ClaimRequest? = nil, authenticationRequirements: AuthenticationRequirements? = nil, flowContext: AuthFlowContext? = nil) {
+    public init(callbackUrl: String, nonce: String, applicationId: String? = nil, requestedClaims: ClaimRequest? = nil, authenticationRequirements: AuthenticationRequirements? = nil, flowContext: AuthFlowContext? = nil) {
         self.callbackUrl = callbackUrl
         self.nonce = nonce
+        self.applicationId = applicationId
         self.requestedClaims = requestedClaims
         self.authenticationRequirements = authenticationRequirements
         self.flowContext = flowContext
@@ -3743,6 +3777,7 @@ public struct RpSignRequest: Equatable, Sendable {
     public static let wireKeys: [String: String] = [
         "callbackUrl": "callback_url",
         "nonce": "nonce",
+        "applicationId": "application_id",
         "requestedClaims": "requested_claims",
         "authenticationRequirements": "authentication_requirements",
         "flowContext": "flow_context"
@@ -3926,8 +3961,9 @@ public struct AuthorizeValidateResponse: Equatable, Sendable {
     public let newlyRequestedClaims: [String]?
     /// wire key: access_denied
     public let accessDenied: AppAccessDenial?
+    public let application: RelyingPartyApplication?
 
-    public init(relyingParty: String, callbackUrl: String, requestedClaims: [String], alreadyConsented: Bool? = nil, authorizedClaims: [String]? = nil, newlyRequestedClaims: [String]? = nil, accessDenied: AppAccessDenial? = nil) {
+    public init(relyingParty: String, callbackUrl: String, requestedClaims: [String], alreadyConsented: Bool? = nil, authorizedClaims: [String]? = nil, newlyRequestedClaims: [String]? = nil, accessDenied: AppAccessDenial? = nil, application: RelyingPartyApplication? = nil) {
         self.relyingParty = relyingParty
         self.callbackUrl = callbackUrl
         self.requestedClaims = requestedClaims
@@ -3935,6 +3971,7 @@ public struct AuthorizeValidateResponse: Equatable, Sendable {
         self.authorizedClaims = authorizedClaims
         self.newlyRequestedClaims = newlyRequestedClaims
         self.accessDenied = accessDenied
+        self.application = application
     }
 
     /// CBOR wire keys (verbatim) keyed by Swift property name.
@@ -3945,7 +3982,8 @@ public struct AuthorizeValidateResponse: Equatable, Sendable {
         "alreadyConsented": "already_consented",
         "authorizedClaims": "authorized_claims",
         "newlyRequestedClaims": "newly_requested_claims",
-        "accessDenied": "access_denied"
+        "accessDenied": "access_denied",
+        "application": "application"
     ]
 }
 

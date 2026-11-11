@@ -389,6 +389,7 @@ public static class Codec
         UserInfoRequest csilTyped => UserInfoRequestToCborValue(csilTyped),
         SignedUserInfoRequest csilTyped => SignedUserInfoRequestToCborValue(csilTyped),
         UserInfo csilTyped => UserInfoToCborValue(csilTyped),
+        RelyingPartyApplication csilTyped => RelyingPartyApplicationToCborValue(csilTyped),
         AuthRequest csilTyped => AuthRequestToCborValue(csilTyped),
         SignedAuthRequest csilTyped => SignedAuthRequestToCborValue(csilTyped),
         EncryptedToken csilTyped => EncryptedTokenToCborValue(csilTyped),
@@ -706,6 +707,7 @@ public static class Codec
         if (csilType == typeof(UserInfoRequest)) return UserInfoRequestFromCborValue(value);
         if (csilType == typeof(SignedUserInfoRequest)) return SignedUserInfoRequestFromCborValue(value);
         if (csilType == typeof(UserInfo)) return UserInfoFromCborValue(value);
+        if (csilType == typeof(RelyingPartyApplication)) return RelyingPartyApplicationFromCborValue(value);
         if (csilType == typeof(AuthRequest)) return AuthRequestFromCborValue(value);
         if (csilType == typeof(SignedAuthRequest)) return SignedAuthRequestFromCborValue(value);
         if (csilType == typeof(EncryptedToken)) return EncryptedTokenFromCborValue(value);
@@ -1747,6 +1749,10 @@ public static class Codec
         {
             csilEntries.Add((new CborValue.Text("revoked_at"), new CborValue.Text(csilV5)));
         }
+        if (value.Application is { } csilV6)
+        {
+            csilEntries.Add((new CborValue.Text("application"), ApplicationRefToCborValue(csilV6)));
+        }
         csilEntries.Add((new CborValue.Text("claim_types"), new CborValue.Array(value.ClaimTypes.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
         csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
         return new CborValue.Map(csilEntries);
@@ -1763,6 +1769,7 @@ public static class Codec
         var csilField5 = Cbor.AsText(Cbor.Require(value, "issued_at"));
         var csilField6 = Cbor.AsText(Cbor.Require(value, "expires_at"));
         string? csilField7 = Cbor.MapGet(value, "revoked_at") is { } csilRaw7 ? Cbor.AsText(csilRaw7) : null;
+        ApplicationRef? csilField8 = Cbor.MapGet(value, "application") is { } csilRaw8 ? ApplicationRefFromCborValue(csilRaw8) : null;
         return new ConsentGrant
         {
             GrantId = csilField0,
@@ -1773,6 +1780,7 @@ public static class Codec
             IssuedAt = csilField5,
             ExpiresAt = csilField6,
             RevokedAt = csilField7,
+            Application = csilField8,
         };
     }
 
@@ -2100,30 +2108,55 @@ public static class Codec
         };
     }
 
+    /// <summary>The canonical CBOR value tree for a RelyingPartyApplication.</summary>
+    public static CborValue RelyingPartyApplicationToCborValue(RelyingPartyApplication value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("application"), ApplicationRefToCborValue(value.Application)));
+        csilEntries.Add((new CborValue.Text("display_name"), new CborValue.Text(value.DisplayName)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RelyingPartyApplication from a decoded CBOR value tree.</summary>
+    public static RelyingPartyApplication RelyingPartyApplicationFromCborValue(CborValue value)
+    {
+        var csilField0 = ApplicationRefFromCborValue(Cbor.Require(value, "application"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "display_name"));
+        return new RelyingPartyApplication
+        {
+            Application = csilField0,
+            DisplayName = csilField1,
+        };
+    }
+
     /// <summary>The canonical CBOR value tree for a AuthRequest.</summary>
     public static CborValue AuthRequestToCborValue(AuthRequest value)
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("nonce"), new CborValue.Text(value.Nonce)));
         csilEntries.Add((new CborValue.Text("timestamp"), new CborValue.Text(value.Timestamp)));
-        csilEntries.Add((new CborValue.Text("callback_url"), new CborValue.Text(value.CallbackUrl)));
-        if (value.FlowContext is { } csilV3)
+        if (value.Application is { } csilV2)
         {
-            csilEntries.Add((new CborValue.Text("flow_context"), AuthFlowContextToCborValue(csilV3)));
+            csilEntries.Add((new CborValue.Text("application"), RelyingPartyApplicationToCborValue(csilV2)));
+        }
+        csilEntries.Add((new CborValue.Text("callback_url"), new CborValue.Text(value.CallbackUrl)));
+        if (value.FlowContext is { } csilV4)
+        {
+            csilEntries.Add((new CborValue.Text("flow_context"), AuthFlowContextToCborValue(csilV4)));
         }
         csilEntries.Add((new CborValue.Text("relying_party"), new CborValue.Text(value.RelyingParty)));
         csilEntries.Add((new CborValue.Text("signing_key_id"), new CborValue.Text(value.SigningKeyId)));
-        if (value.RequestedClaims is { } csilV6)
+        if (value.RequestedClaims is { } csilV7)
         {
-            csilEntries.Add((new CborValue.Text("requested_claims"), ClaimRequestToCborValue(csilV6)));
+            csilEntries.Add((new CborValue.Text("requested_claims"), ClaimRequestToCborValue(csilV7)));
         }
-        if (value.RelyingPartyClaims is { } csilV7)
+        if (value.RelyingPartyClaims is { } csilV8)
         {
-            csilEntries.Add((new CborValue.Text("relying_party_claims"), new CborValue.Array(csilV7.Select(csilElem => (CborValue)DomainClaimToCborValue(csilElem)).ToList())));
+            csilEntries.Add((new CborValue.Text("relying_party_claims"), new CborValue.Array(csilV8.Select(csilElem => (CborValue)DomainClaimToCborValue(csilElem)).ToList())));
         }
-        if (value.AuthenticationRequirements is { } csilV8)
+        if (value.AuthenticationRequirements is { } csilV9)
         {
-            csilEntries.Add((new CborValue.Text("authentication_requirements"), AuthenticationRequirementsToCborValue(csilV8)));
+            csilEntries.Add((new CborValue.Text("authentication_requirements"), AuthenticationRequirementsToCborValue(csilV9)));
         }
         return new CborValue.Map(csilEntries);
     }
@@ -2140,6 +2173,7 @@ public static class Codec
         AuthenticationRequirements? csilField6 = Cbor.MapGet(value, "authentication_requirements") is { } csilRaw6 ? AuthenticationRequirementsFromCborValue(csilRaw6) : null;
         AuthFlowContext? csilField7 = Cbor.MapGet(value, "flow_context") is { } csilRaw7 ? AuthFlowContextFromCborValue(csilRaw7) : null;
         System.Collections.Generic.List<DomainClaim>? csilField8 = Cbor.MapGet(value, "relying_party_claims") is { } csilRaw8 ? Cbor.AsArray(csilRaw8).Select(csilElem => DomainClaimFromCborValue(csilElem)).ToList() : null;
+        RelyingPartyApplication? csilField9 = Cbor.MapGet(value, "application") is { } csilRaw9 ? RelyingPartyApplicationFromCborValue(csilRaw9) : null;
         return new AuthRequest
         {
             RelyingParty = csilField0,
@@ -2151,6 +2185,7 @@ public static class Codec
             AuthenticationRequirements = csilField6,
             FlowContext = csilField7,
             RelyingPartyClaims = csilField8,
+            Application = csilField9,
         };
     }
 
@@ -5039,22 +5074,30 @@ public static class Codec
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("claims"), new CborValue.Array(value.Claims.Select(csilElem => (CborValue)BrowserConsentClaimToCborValue(csilElem)).ToList())));
-        if (value.AccessDenied is { } csilV1)
+        if (value.Application is { } csilV1)
         {
-            csilEntries.Add((new CborValue.Text("access_denied"), AppAccessDenialToCborValue(csilV1)));
+            csilEntries.Add((new CborValue.Text("application"), RelyingPartyApplicationToCborValue(csilV1)));
+        }
+        if (value.AccessDenied is { } csilV2)
+        {
+            csilEntries.Add((new CborValue.Text("access_denied"), AppAccessDenialToCborValue(csilV2)));
+        }
+        if (value.CallbackHost is { } csilV3)
+        {
+            csilEntries.Add((new CborValue.Text("callback_host"), new CborValue.Text(csilV3)));
         }
         csilEntries.Add((new CborValue.Text("relying_party"), new CborValue.Text(value.RelyingParty)));
-        if (value.RequestReason is { } csilV3)
+        if (value.RequestReason is { } csilV5)
         {
-            csilEntries.Add((new CborValue.Text("request_reason"), new CborValue.Text(csilV3)));
+            csilEntries.Add((new CborValue.Text("request_reason"), new CborValue.Text(csilV5)));
         }
-        if (value.AlreadyConsented is { } csilV4)
+        if (value.AlreadyConsented is { } csilV6)
         {
-            csilEntries.Add((new CborValue.Text("already_consented"), new CborValue.Bool(csilV4)));
+            csilEntries.Add((new CborValue.Text("already_consented"), new CborValue.Bool(csilV6)));
         }
-        if (value.AuthorizedClaims is { } csilV5)
+        if (value.AuthorizedClaims is { } csilV7)
         {
-            csilEntries.Add((new CborValue.Text("authorized_claims"), new CborValue.Array(csilV5.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+            csilEntries.Add((new CborValue.Text("authorized_claims"), new CborValue.Array(csilV7.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
         }
         return new CborValue.Map(csilEntries);
     }
@@ -5068,6 +5111,8 @@ public static class Codec
         bool? csilField3 = Cbor.MapGet(value, "already_consented") is { } csilRaw3 ? Cbor.AsBool(csilRaw3) : null;
         System.Collections.Generic.List<string>? csilField4 = Cbor.MapGet(value, "authorized_claims") is { } csilRaw4 ? Cbor.AsArray(csilRaw4).Select(csilElem => Cbor.AsText(csilElem)).ToList() : null;
         AppAccessDenial? csilField5 = Cbor.MapGet(value, "access_denied") is { } csilRaw5 ? AppAccessDenialFromCborValue(csilRaw5) : null;
+        RelyingPartyApplication? csilField6 = Cbor.MapGet(value, "application") is { } csilRaw6 ? RelyingPartyApplicationFromCborValue(csilRaw6) : null;
+        string? csilField7 = Cbor.MapGet(value, "callback_host") is { } csilRaw7 ? Cbor.AsText(csilRaw7) : null;
         return new BrowserAuthorizationInspectResponse
         {
             RelyingParty = csilField0,
@@ -5076,6 +5121,8 @@ public static class Codec
             AlreadyConsented = csilField3,
             AuthorizedClaims = csilField4,
             AccessDenied = csilField5,
+            Application = csilField6,
+            CallbackHost = csilField7,
         };
     }
 
@@ -5404,13 +5451,17 @@ public static class Codec
         {
             csilEntries.Add((new CborValue.Text("flow_context"), AuthFlowContextToCborValue(csilV2)));
         }
-        if (value.RequestedClaims is { } csilV3)
+        if (value.ApplicationId is { } csilV3)
         {
-            csilEntries.Add((new CborValue.Text("requested_claims"), ClaimRequestToCborValue(csilV3)));
+            csilEntries.Add((new CborValue.Text("application_id"), new CborValue.Text(csilV3)));
         }
-        if (value.AuthenticationRequirements is { } csilV4)
+        if (value.RequestedClaims is { } csilV4)
         {
-            csilEntries.Add((new CborValue.Text("authentication_requirements"), AuthenticationRequirementsToCborValue(csilV4)));
+            csilEntries.Add((new CborValue.Text("requested_claims"), ClaimRequestToCborValue(csilV4)));
+        }
+        if (value.AuthenticationRequirements is { } csilV5)
+        {
+            csilEntries.Add((new CborValue.Text("authentication_requirements"), AuthenticationRequirementsToCborValue(csilV5)));
         }
         return new CborValue.Map(csilEntries);
     }
@@ -5420,16 +5471,18 @@ public static class Codec
     {
         var csilField0 = Cbor.AsText(Cbor.Require(value, "callback_url"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "nonce"));
-        ClaimRequest? csilField2 = Cbor.MapGet(value, "requested_claims") is { } csilRaw2 ? ClaimRequestFromCborValue(csilRaw2) : null;
-        AuthenticationRequirements? csilField3 = Cbor.MapGet(value, "authentication_requirements") is { } csilRaw3 ? AuthenticationRequirementsFromCborValue(csilRaw3) : null;
-        AuthFlowContext? csilField4 = Cbor.MapGet(value, "flow_context") is { } csilRaw4 ? AuthFlowContextFromCborValue(csilRaw4) : null;
+        string? csilField2 = Cbor.MapGet(value, "application_id") is { } csilRaw2 ? Cbor.AsText(csilRaw2) : null;
+        ClaimRequest? csilField3 = Cbor.MapGet(value, "requested_claims") is { } csilRaw3 ? ClaimRequestFromCborValue(csilRaw3) : null;
+        AuthenticationRequirements? csilField4 = Cbor.MapGet(value, "authentication_requirements") is { } csilRaw4 ? AuthenticationRequirementsFromCborValue(csilRaw4) : null;
+        AuthFlowContext? csilField5 = Cbor.MapGet(value, "flow_context") is { } csilRaw5 ? AuthFlowContextFromCborValue(csilRaw5) : null;
         return new RpSignRequest
         {
             CallbackUrl = csilField0,
             Nonce = csilField1,
-            RequestedClaims = csilField2,
-            AuthenticationRequirements = csilField3,
-            FlowContext = csilField4,
+            ApplicationId = csilField2,
+            RequestedClaims = csilField3,
+            AuthenticationRequirements = csilField4,
+            FlowContext = csilField5,
         };
     }
 
@@ -5626,24 +5679,28 @@ public static class Codec
     public static CborValue AuthorizeValidateResponseToCborValue(AuthorizeValidateResponse value)
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
-        csilEntries.Add((new CborValue.Text("callback_url"), new CborValue.Text(value.CallbackUrl)));
-        if (value.AccessDenied is { } csilV1)
+        if (value.Application is { } csilV0)
         {
-            csilEntries.Add((new CborValue.Text("access_denied"), AppAccessDenialToCborValue(csilV1)));
+            csilEntries.Add((new CborValue.Text("application"), RelyingPartyApplicationToCborValue(csilV0)));
+        }
+        csilEntries.Add((new CborValue.Text("callback_url"), new CborValue.Text(value.CallbackUrl)));
+        if (value.AccessDenied is { } csilV2)
+        {
+            csilEntries.Add((new CborValue.Text("access_denied"), AppAccessDenialToCborValue(csilV2)));
         }
         csilEntries.Add((new CborValue.Text("relying_party"), new CborValue.Text(value.RelyingParty)));
         csilEntries.Add((new CborValue.Text("requested_claims"), new CborValue.Array(value.RequestedClaims.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
-        if (value.AlreadyConsented is { } csilV4)
+        if (value.AlreadyConsented is { } csilV5)
         {
-            csilEntries.Add((new CborValue.Text("already_consented"), new CborValue.Bool(csilV4)));
+            csilEntries.Add((new CborValue.Text("already_consented"), new CborValue.Bool(csilV5)));
         }
-        if (value.AuthorizedClaims is { } csilV5)
+        if (value.AuthorizedClaims is { } csilV6)
         {
-            csilEntries.Add((new CborValue.Text("authorized_claims"), new CborValue.Array(csilV5.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+            csilEntries.Add((new CborValue.Text("authorized_claims"), new CborValue.Array(csilV6.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
         }
-        if (value.NewlyRequestedClaims is { } csilV6)
+        if (value.NewlyRequestedClaims is { } csilV7)
         {
-            csilEntries.Add((new CborValue.Text("newly_requested_claims"), new CborValue.Array(csilV6.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+            csilEntries.Add((new CborValue.Text("newly_requested_claims"), new CborValue.Array(csilV7.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
         }
         return new CborValue.Map(csilEntries);
     }
@@ -5658,6 +5715,7 @@ public static class Codec
         System.Collections.Generic.List<string>? csilField4 = Cbor.MapGet(value, "authorized_claims") is { } csilRaw4 ? Cbor.AsArray(csilRaw4).Select(csilElem => Cbor.AsText(csilElem)).ToList() : null;
         System.Collections.Generic.List<string>? csilField5 = Cbor.MapGet(value, "newly_requested_claims") is { } csilRaw5 ? Cbor.AsArray(csilRaw5).Select(csilElem => Cbor.AsText(csilElem)).ToList() : null;
         AppAccessDenial? csilField6 = Cbor.MapGet(value, "access_denied") is { } csilRaw6 ? AppAccessDenialFromCborValue(csilRaw6) : null;
+        RelyingPartyApplication? csilField7 = Cbor.MapGet(value, "application") is { } csilRaw7 ? RelyingPartyApplicationFromCborValue(csilRaw7) : null;
         return new AuthorizeValidateResponse
         {
             RelyingParty = csilField0,
@@ -5667,6 +5725,7 @@ public static class Codec
             AuthorizedClaims = csilField4,
             NewlyRequestedClaims = csilField5,
             AccessDenied = csilField6,
+            Application = csilField7,
         };
     }
 

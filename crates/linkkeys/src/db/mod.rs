@@ -3835,7 +3835,9 @@ impl DbPool {
     }
 
     /// Store a consent grant, replacing any prior grant for the same
-    /// (user, audience). `claim_types`/`requested_types` are persisted as JSON
+    /// (user, audience, application). `application` is the audience's
+    /// application (`None`: the grant covers requests with no application).
+    /// `claim_types`/`requested_types` are persisted as JSON
     /// arrays; `signed_grant` is CBOR(SignedConsentGrant). `issued_at` and
     /// `expires_at` are RFC3339 strings.
     #[allow(clippy::too_many_arguments)]
@@ -3845,6 +3847,7 @@ impl DbPool {
         user_id: &str,
         subject_domain: &str,
         audience: &str,
+        application: Option<&liblinkkeys::generated::types::ApplicationRef>,
         claim_types: &[String],
         requested_types: &[String],
         signed_grant: &[u8],
@@ -3856,6 +3859,7 @@ impl DbPool {
             .map_err(|_| diesel::result::Error::RollbackTransaction)?;
         let requested_types_json = serde_json::to_string(requested_types)
             .map_err(|_| diesel::result::Error::RollbackTransaction)?;
+        let app = grant_app(application);
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
@@ -3883,6 +3887,7 @@ impl DbPool {
                     uid,
                     subject_domain,
                     audience,
+                    app,
                     &claim_types_json,
                     &requested_types_json,
                     signed_grant,
@@ -3905,6 +3910,7 @@ impl DbPool {
                     user_id,
                     subject_domain,
                     audience,
+                    app,
                     &claim_types_json,
                     &requested_types_json,
                     signed_grant,
@@ -3916,14 +3922,17 @@ impl DbPool {
         }
     }
 
-    /// The current valid consent grant for (user, audience), if any (not revoked,
-    /// not expired).
+    /// The current valid consent grant for (user, audience, application), if
+    /// any (not revoked, not expired). `application: None` finds only a grant
+    /// that covers requests with no application.
     pub fn find_active_consent_grant(
         &self,
         user_id: &str,
         audience: &str,
+        application: Option<&liblinkkeys::generated::types::ApplicationRef>,
     ) -> QueryResult<Option<models::ConsentGrantRow>> {
         let now = chrono::Utc::now();
+        let app = grant_app(application);
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
@@ -3936,7 +3945,7 @@ impl DbPool {
                 let uid: uuid::Uuid = user_id
                     .parse()
                     .map_err(|_| diesel::result::Error::NotFound)?;
-                consent_grants::pg::find_active(&mut conn, uid, audience, now)
+                consent_grants::pg::find_active(&mut conn, uid, audience, app, now)
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
@@ -3946,8 +3955,40 @@ impl DbPool {
                         Box::new(e.to_string()),
                     )
                 })?;
-                consent_grants::sqlite::find_active(&mut conn, user_id, audience, &now.to_rfc3339())
+                consent_grants::sqlite::find_active(
+                    &mut conn,
+                    user_id,
+                    audience,
+                    app,
+                    &now.to_rfc3339(),
+                )
             }
+        }
+    }
+
+    /// True when the user has any current consent grant for `audience`, for any
+    /// of its applications or none.
+    pub fn has_active_consent_grant_for_audience(
+        &self,
+        user_id: &str,
+        audience: &str,
+    ) -> QueryResult<bool> {
+        let now = chrono::Utc::now();
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let Ok(uid) = user_id.parse::<uuid::Uuid>() else {
+                    return Ok(false);
+                };
+                consent_grants::pg::any_active(&mut *pg_conn(p)?, uid, audience, now)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => consent_grants::sqlite::any_active(
+                &mut *sqlite_conn(p)?,
+                user_id,
+                audience,
+                &now.to_rfc3339(),
+            ),
         }
     }
 
@@ -4947,4 +4988,12 @@ impl DbPool {
             }
         }
     }
+}
+
+/// The stored application key of a consent grant. `subject_domain` is not
+/// stored: it always equals the grant's audience.
+fn grant_app(
+    application: Option<&liblinkkeys::generated::types::ApplicationRef>,
+) -> consent_grants::GrantApp<'_> {
+    application.map(|a| (a.subject_user_id.as_str(), a.application_id.as_str()))
 }

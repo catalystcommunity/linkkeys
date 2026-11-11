@@ -92,6 +92,29 @@ describe("consent page", () => {
     expect(sessionStorage.getItem("linkkeys-authorization-request")).toBeNull();
   });
 
+  it("names the application and shows a callback host outside the RP domain", async () => {
+    sessionStorage.setItem("linkkeys-authorization-request", "signed");
+    api.browserAuthorization.inspect.mockResolvedValue({
+      relyingParty: "todandlorna.com",
+      claims: [],
+      application: { application: { subjectUserId: "acct-1", subjectDomain: "todandlorna.com", applicationId: "homegrafana" }, displayName: "Home Grafana" },
+      callbackHost: "homegrafana.catalystsquad.com",
+    });
+    const page = mount(consentPage(context()));
+    await settle();
+    expect(page.textContent).toContain(t("app.consent.intro_application", { app: "Home Grafana", domain: "todandlorna.com" }));
+    expect(page.querySelector(".notice code")!.textContent).toBe("homegrafana.catalystsquad.com");
+  });
+
+  it("shows no callback host notice for a callback in the RP domain", async () => {
+    sessionStorage.setItem("linkkeys-authorization-request", "signed");
+    api.browserAuthorization.inspect.mockResolvedValue({ relyingParty: "app.test", claims: [] });
+    const page = mount(consentPage(context()));
+    await settle();
+    expect(page.textContent).toContain(t("app.consent.intro", { app: "app.test" }));
+    expect(page.querySelector(".notice code")).toBeNull();
+  });
+
   it("disables the row controls and shows the error from a failed completion", async () => {
     sessionStorage.setItem("linkkeys-authorization-request", "signed");
     api.browserAuthorization.inspect.mockResolvedValue({ relyingParty: "app.test", claims });

@@ -210,14 +210,15 @@ type AuthFlowContext struct {
 
 // ConsentGrant represents a structured data type
 type ConsentGrant struct {
-	GrantId       string   `json:"grant_id" yaml:"grant_id"`
-	UserId        string   `json:"user_id" yaml:"user_id"`
-	SubjectDomain string   `json:"subject_domain" yaml:"subject_domain"`
-	Audience      string   `json:"audience" yaml:"audience"`
-	ClaimTypes    []string `json:"claim_types" yaml:"claim_types"`
-	IssuedAt      string   `json:"issued_at" yaml:"issued_at"`
-	ExpiresAt     string   `json:"expires_at" yaml:"expires_at"`
-	RevokedAt     *string  `json:"revoked_at,omitempty" yaml:"revoked_at,omitempty"`
+	GrantId       string          `json:"grant_id" yaml:"grant_id"`
+	UserId        string          `json:"user_id" yaml:"user_id"`
+	SubjectDomain string          `json:"subject_domain" yaml:"subject_domain"`
+	Audience      string          `json:"audience" yaml:"audience"`
+	ClaimTypes    []string        `json:"claim_types" yaml:"claim_types"`
+	IssuedAt      string          `json:"issued_at" yaml:"issued_at"`
+	ExpiresAt     string          `json:"expires_at" yaml:"expires_at"`
+	RevokedAt     *string         `json:"revoked_at,omitempty" yaml:"revoked_at,omitempty"`
+	Application   *ApplicationRef `json:"application,omitempty" yaml:"application,omitempty"`
 }
 
 // SignedConsentGrant represents a structured data type
@@ -312,6 +313,12 @@ type UserInfo struct {
 	Claims      []Claim `json:"claims" yaml:"claims"`
 }
 
+// RelyingPartyApplication represents a structured data type
+type RelyingPartyApplication struct {
+	Application ApplicationRef `json:"application" yaml:"application"`
+	DisplayName string         `json:"display_name" yaml:"display_name"`
+}
+
 // AuthRequest represents a structured data type
 type AuthRequest struct {
 	RelyingParty               string                      `json:"relying_party" yaml:"relying_party"`
@@ -323,6 +330,7 @@ type AuthRequest struct {
 	AuthenticationRequirements *AuthenticationRequirements `json:"authentication_requirements,omitempty" yaml:"authentication_requirements,omitempty"`
 	FlowContext                *AuthFlowContext            `json:"flow_context,omitempty" yaml:"flow_context,omitempty"`
 	RelyingPartyClaims         []DomainClaim               `json:"relying_party_claims,omitempty" yaml:"relying_party_claims,omitempty"`
+	Application                *RelyingPartyApplication    `json:"application,omitempty" yaml:"application,omitempty"`
 }
 
 // SignedAuthRequest represents a structured data type
@@ -1128,12 +1136,14 @@ type BrowserConsentClaim struct {
 
 // BrowserAuthorizationInspectResponse represents a structured data type
 type BrowserAuthorizationInspectResponse struct {
-	RelyingParty     string                `json:"relying_party" yaml:"relying_party"`
-	Claims           []BrowserConsentClaim `json:"claims" yaml:"claims"`
-	RequestReason    *string               `json:"request_reason,omitempty" yaml:"request_reason,omitempty"`
-	AlreadyConsented *bool                 `json:"already_consented,omitempty" yaml:"already_consented,omitempty"`
-	AuthorizedClaims []string              `json:"authorized_claims,omitempty" yaml:"authorized_claims,omitempty"`
-	AccessDenied     *AppAccessDenial      `json:"access_denied,omitempty" yaml:"access_denied,omitempty"`
+	RelyingParty     string                   `json:"relying_party" yaml:"relying_party"`
+	Claims           []BrowserConsentClaim    `json:"claims" yaml:"claims"`
+	RequestReason    *string                  `json:"request_reason,omitempty" yaml:"request_reason,omitempty"`
+	AlreadyConsented *bool                    `json:"already_consented,omitempty" yaml:"already_consented,omitempty"`
+	AuthorizedClaims []string                 `json:"authorized_claims,omitempty" yaml:"authorized_claims,omitempty"`
+	AccessDenied     *AppAccessDenial         `json:"access_denied,omitempty" yaml:"access_denied,omitempty"`
+	Application      *RelyingPartyApplication `json:"application,omitempty" yaml:"application,omitempty"`
+	CallbackHost     *string                  `json:"callback_host,omitempty" yaml:"callback_host,omitempty"`
 }
 
 // BrowserAuthorizationCompleteRequest represents a structured data type
@@ -1220,6 +1230,7 @@ type GetUiConfigurationResponse struct {
 type RpSignRequest struct {
 	CallbackUrl                string                      `json:"callback_url" yaml:"callback_url"`
 	Nonce                      string                      `json:"nonce" yaml:"nonce"`
+	ApplicationId              *string                     `json:"application_id,omitempty" yaml:"application_id,omitempty"`
 	RequestedClaims            *ClaimRequest               `json:"requested_claims,omitempty" yaml:"requested_claims,omitempty"`
 	AuthenticationRequirements *AuthenticationRequirements `json:"authentication_requirements,omitempty" yaml:"authentication_requirements,omitempty"`
 	FlowContext                *AuthFlowContext            `json:"flow_context,omitempty" yaml:"flow_context,omitempty"`
@@ -1280,13 +1291,14 @@ type AuthorizeValidateRequest struct {
 
 // AuthorizeValidateResponse represents a structured data type
 type AuthorizeValidateResponse struct {
-	RelyingParty         string           `json:"relying_party" yaml:"relying_party"`
-	CallbackUrl          string           `json:"callback_url" yaml:"callback_url"`
-	RequestedClaims      []string         `json:"requested_claims" yaml:"requested_claims"`
-	AlreadyConsented     *bool            `json:"already_consented,omitempty" yaml:"already_consented,omitempty"`
-	AuthorizedClaims     []string         `json:"authorized_claims,omitempty" yaml:"authorized_claims,omitempty"`
-	NewlyRequestedClaims []string         `json:"newly_requested_claims,omitempty" yaml:"newly_requested_claims,omitempty"`
-	AccessDenied         *AppAccessDenial `json:"access_denied,omitempty" yaml:"access_denied,omitempty"`
+	RelyingParty         string                   `json:"relying_party" yaml:"relying_party"`
+	CallbackUrl          string                   `json:"callback_url" yaml:"callback_url"`
+	RequestedClaims      []string                 `json:"requested_claims" yaml:"requested_claims"`
+	AlreadyConsented     *bool                    `json:"already_consented,omitempty" yaml:"already_consented,omitempty"`
+	AuthorizedClaims     []string                 `json:"authorized_claims,omitempty" yaml:"authorized_claims,omitempty"`
+	NewlyRequestedClaims []string                 `json:"newly_requested_claims,omitempty" yaml:"newly_requested_claims,omitempty"`
+	AccessDenied         *AppAccessDenial         `json:"access_denied,omitempty" yaml:"access_denied,omitempty"`
+	Application          *RelyingPartyApplication `json:"application,omitempty" yaml:"application,omitempty"`
 }
 
 // AuthorizeFinalizeRequest represents a structured data type

@@ -1064,6 +1064,10 @@ class Codec
         if ($field !== null) {
             $out['revoked_at'] = $field;
         }
+        $field = $value instanceof ConsentGrant ? $value->application : (is_array($value) && array_key_exists('application', $value) ? $value['application'] : null);
+        if ($field !== null) {
+            $out['application'] = self::toCborApplicationRef($field);
+        }
         return $out;
     }
 
@@ -1078,6 +1082,7 @@ class Codec
             'issued_at' => array_key_exists('issued_at', $value) ? $value['issued_at'] : null,
             'expires_at' => array_key_exists('expires_at', $value) ? $value['expires_at'] : null,
             'revoked_at' => array_key_exists('revoked_at', $value) ? $value['revoked_at'] : null,
+            'application' => array_key_exists('application', $value) ? self::fromCborApplicationRef($value['application']) : null,
         ));
     }
 
@@ -1485,6 +1490,34 @@ class Codec
         ));
     }
 
+    public static function encodeRelyingPartyApplication($value)
+    {
+        return CBOR::encode(self::toCborRelyingPartyApplication($value));
+    }
+
+    public static function decodeRelyingPartyApplication($bytes)
+    {
+        return self::fromCborRelyingPartyApplication(CBOR::decode($bytes));
+    }
+
+    public static function toCborRelyingPartyApplication($value)
+    {
+        $out = array();
+        $field = $value instanceof RelyingPartyApplication ? $value->application : (is_array($value) && array_key_exists('application', $value) ? $value['application'] : null);
+        $out['application'] = self::toCborApplicationRef($field);
+        $field = $value instanceof RelyingPartyApplication ? $value->displayName : (is_array($value) && array_key_exists('display_name', $value) ? $value['display_name'] : null);
+        $out['display_name'] = $field;
+        return $out;
+    }
+
+    public static function fromCborRelyingPartyApplication($value)
+    {
+        return new RelyingPartyApplication(array(
+            'application' => array_key_exists('application', $value) ? self::fromCborApplicationRef($value['application']) : null,
+            'display_name' => array_key_exists('display_name', $value) ? $value['display_name'] : null,
+        ));
+    }
+
     public static function encodeAuthRequest($value)
     {
         return CBOR::encode(self::toCborAuthRequest($value));
@@ -1524,6 +1557,10 @@ class Codec
         if ($field !== null) {
             $out['relying_party_claims'] = array_map(function ($item) { return self::toCborDomainClaim($item); }, $field === null ? array() : $field);
         }
+        $field = $value instanceof AuthRequest ? $value->application : (is_array($value) && array_key_exists('application', $value) ? $value['application'] : null);
+        if ($field !== null) {
+            $out['application'] = self::toCborRelyingPartyApplication($field);
+        }
         return $out;
     }
 
@@ -1539,6 +1576,7 @@ class Codec
             'authentication_requirements' => array_key_exists('authentication_requirements', $value) ? self::fromCborAuthenticationRequirements($value['authentication_requirements']) : null,
             'flow_context' => array_key_exists('flow_context', $value) ? self::fromCborAuthFlowContext($value['flow_context']) : null,
             'relying_party_claims' => array_key_exists('relying_party_claims', $value) ? array_map(function ($item) { return self::fromCborDomainClaim($item); }, $value['relying_party_claims'] === null ? array() : $value['relying_party_claims']) : null,
+            'application' => array_key_exists('application', $value) ? self::fromCborRelyingPartyApplication($value['application']) : null,
         ));
     }
 
@@ -5320,6 +5358,14 @@ class Codec
         if ($field !== null) {
             $out['access_denied'] = self::toCborAppAccessDenial($field);
         }
+        $field = $value instanceof BrowserAuthorizationInspectResponse ? $value->application : (is_array($value) && array_key_exists('application', $value) ? $value['application'] : null);
+        if ($field !== null) {
+            $out['application'] = self::toCborRelyingPartyApplication($field);
+        }
+        $field = $value instanceof BrowserAuthorizationInspectResponse ? $value->callbackHost : (is_array($value) && array_key_exists('callback_host', $value) ? $value['callback_host'] : null);
+        if ($field !== null) {
+            $out['callback_host'] = $field;
+        }
         return $out;
     }
 
@@ -5332,6 +5378,8 @@ class Codec
             'already_consented' => array_key_exists('already_consented', $value) ? $value['already_consented'] : null,
             'authorized_claims' => array_key_exists('authorized_claims', $value) ? array_map(function ($item) { return $item; }, $value['authorized_claims'] === null ? array() : $value['authorized_claims']) : null,
             'access_denied' => array_key_exists('access_denied', $value) ? self::fromCborAppAccessDenial($value['access_denied']) : null,
+            'application' => array_key_exists('application', $value) ? self::fromCborRelyingPartyApplication($value['application']) : null,
+            'callback_host' => array_key_exists('callback_host', $value) ? $value['callback_host'] : null,
         ));
     }
 
@@ -5722,6 +5770,10 @@ class Codec
         $out['callback_url'] = $field;
         $field = $value instanceof RpSignRequest ? $value->nonce : (is_array($value) && array_key_exists('nonce', $value) ? $value['nonce'] : null);
         $out['nonce'] = $field;
+        $field = $value instanceof RpSignRequest ? $value->applicationId : (is_array($value) && array_key_exists('application_id', $value) ? $value['application_id'] : null);
+        if ($field !== null) {
+            $out['application_id'] = $field;
+        }
         $field = $value instanceof RpSignRequest ? $value->requestedClaims : (is_array($value) && array_key_exists('requested_claims', $value) ? $value['requested_claims'] : null);
         if ($field !== null) {
             $out['requested_claims'] = self::toCborClaimRequest($field);
@@ -5742,6 +5794,7 @@ class Codec
         return new RpSignRequest(array(
             'callback_url' => array_key_exists('callback_url', $value) ? $value['callback_url'] : null,
             'nonce' => array_key_exists('nonce', $value) ? $value['nonce'] : null,
+            'application_id' => array_key_exists('application_id', $value) ? $value['application_id'] : null,
             'requested_claims' => array_key_exists('requested_claims', $value) ? self::fromCborClaimRequest($value['requested_claims']) : null,
             'authentication_requirements' => array_key_exists('authentication_requirements', $value) ? self::fromCborAuthenticationRequirements($value['authentication_requirements']) : null,
             'flow_context' => array_key_exists('flow_context', $value) ? self::fromCborAuthFlowContext($value['flow_context']) : null,
@@ -6034,6 +6087,10 @@ class Codec
         if ($field !== null) {
             $out['access_denied'] = self::toCborAppAccessDenial($field);
         }
+        $field = $value instanceof AuthorizeValidateResponse ? $value->application : (is_array($value) && array_key_exists('application', $value) ? $value['application'] : null);
+        if ($field !== null) {
+            $out['application'] = self::toCborRelyingPartyApplication($field);
+        }
         return $out;
     }
 
@@ -6047,6 +6104,7 @@ class Codec
             'authorized_claims' => array_key_exists('authorized_claims', $value) ? array_map(function ($item) { return $item; }, $value['authorized_claims'] === null ? array() : $value['authorized_claims']) : null,
             'newly_requested_claims' => array_key_exists('newly_requested_claims', $value) ? array_map(function ($item) { return $item; }, $value['newly_requested_claims'] === null ? array() : $value['newly_requested_claims']) : null,
             'access_denied' => array_key_exists('access_denied', $value) ? self::fromCborAppAccessDenial($value['access_denied']) : null,
+            'application' => array_key_exists('application', $value) ? self::fromCborRelyingPartyApplication($value['application']) : null,
         ));
     }
 

@@ -805,7 +805,7 @@ async fn blocked_user_gets_a_denial_and_cannot_complete_a_browser_sign_in() {
         refused.error
     );
     assert!(
-        pool.find_active_consent_grant(&user.id, TEST_DOMAIN)
+        pool.find_active_consent_grant(&user.id, TEST_DOMAIN, None)
             .unwrap()
             .is_none(),
         "a refused sign-in stores no consent"
@@ -886,7 +886,7 @@ async fn app_owned_consent_api_reports_and_enforces_the_denial() {
     assert_eq!(err.code, ApiErrorCode::Forbidden);
     assert!(err.message.contains("Demo account."), "{}", err.message);
     assert!(pool
-        .find_active_consent_grant(&user.id, TEST_DOMAIN)
+        .find_active_consent_grant(&user.id, TEST_DOMAIN, None)
         .unwrap()
         .is_none());
 }

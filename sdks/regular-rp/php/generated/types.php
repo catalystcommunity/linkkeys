@@ -874,6 +874,9 @@ class ConsentGrant
     /** @var mixed */
     public $revokedAt;
 
+    /** @var mixed */
+    public $application;
+
     /** @param array<string,mixed> $values */
     public function __construct(array $values = array())
     {
@@ -885,6 +888,7 @@ class ConsentGrant
         $this->issuedAt = array_key_exists('issued_at', $values) ? $values['issued_at'] : null;
         $this->expiresAt = array_key_exists('expires_at', $values) ? $values['expires_at'] : null;
         $this->revokedAt = array_key_exists('revoked_at', $values) ? $values['revoked_at'] : null;
+        $this->application = array_key_exists('application', $values) ? $values['application'] : null;
     }
 
     /** @return array<string,mixed> */
@@ -899,6 +903,7 @@ class ConsentGrant
             'issued_at' => $this->issuedAt,
             'expires_at' => $this->expiresAt,
             'revoked_at' => $this->revokedAt,
+            'application' => $this->application,
         );
     }
 }
@@ -1303,6 +1308,31 @@ class UserInfo
     }
 }
 
+class RelyingPartyApplication
+{
+    /** @var mixed */
+    public $application;
+
+    /** @var mixed */
+    public $displayName;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->application = array_key_exists('application', $values) ? $values['application'] : null;
+        $this->displayName = array_key_exists('display_name', $values) ? $values['display_name'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'application' => $this->application,
+            'display_name' => $this->displayName,
+        );
+    }
+}
+
 class AuthRequest
 {
     /** @var mixed */
@@ -1332,6 +1362,9 @@ class AuthRequest
     /** @var mixed */
     public $relyingPartyClaims;
 
+    /** @var mixed */
+    public $application;
+
     /** @param array<string,mixed> $values */
     public function __construct(array $values = array())
     {
@@ -1344,6 +1377,7 @@ class AuthRequest
         $this->authenticationRequirements = array_key_exists('authentication_requirements', $values) ? $values['authentication_requirements'] : null;
         $this->flowContext = array_key_exists('flow_context', $values) ? $values['flow_context'] : null;
         $this->relyingPartyClaims = array_key_exists('relying_party_claims', $values) ? $values['relying_party_claims'] : null;
+        $this->application = array_key_exists('application', $values) ? $values['application'] : null;
     }
 
     /** @return array<string,mixed> */
@@ -1359,6 +1393,7 @@ class AuthRequest
             'authentication_requirements' => $this->authenticationRequirements,
             'flow_context' => $this->flowContext,
             'relying_party_claims' => $this->relyingPartyClaims,
+            'application' => $this->application,
         );
     }
 }
@@ -4748,6 +4783,12 @@ class BrowserAuthorizationInspectResponse
     /** @var mixed */
     public $accessDenied;
 
+    /** @var mixed */
+    public $application;
+
+    /** @var mixed */
+    public $callbackHost;
+
     /** @param array<string,mixed> $values */
     public function __construct(array $values = array())
     {
@@ -4757,6 +4798,8 @@ class BrowserAuthorizationInspectResponse
         $this->alreadyConsented = array_key_exists('already_consented', $values) ? $values['already_consented'] : null;
         $this->authorizedClaims = array_key_exists('authorized_claims', $values) ? $values['authorized_claims'] : null;
         $this->accessDenied = array_key_exists('access_denied', $values) ? $values['access_denied'] : null;
+        $this->application = array_key_exists('application', $values) ? $values['application'] : null;
+        $this->callbackHost = array_key_exists('callback_host', $values) ? $values['callback_host'] : null;
     }
 
     /** @return array<string,mixed> */
@@ -4769,6 +4812,8 @@ class BrowserAuthorizationInspectResponse
             'already_consented' => $this->alreadyConsented,
             'authorized_claims' => $this->authorizedClaims,
             'access_denied' => $this->accessDenied,
+            'application' => $this->application,
+            'callback_host' => $this->callbackHost,
         );
     }
 }
@@ -5132,6 +5177,9 @@ class RpSignRequest
     public $nonce;
 
     /** @var mixed */
+    public $applicationId;
+
+    /** @var mixed */
     public $requestedClaims;
 
     /** @var mixed */
@@ -5145,6 +5193,7 @@ class RpSignRequest
     {
         $this->callbackUrl = array_key_exists('callback_url', $values) ? $values['callback_url'] : null;
         $this->nonce = array_key_exists('nonce', $values) ? $values['nonce'] : null;
+        $this->applicationId = array_key_exists('application_id', $values) ? $values['application_id'] : null;
         $this->requestedClaims = array_key_exists('requested_claims', $values) ? $values['requested_claims'] : null;
         $this->authenticationRequirements = array_key_exists('authentication_requirements', $values) ? $values['authentication_requirements'] : null;
         $this->flowContext = array_key_exists('flow_context', $values) ? $values['flow_context'] : null;
@@ -5156,6 +5205,7 @@ class RpSignRequest
         return array(
             'callback_url' => $this->callbackUrl,
             'nonce' => $this->nonce,
+            'application_id' => $this->applicationId,
             'requested_claims' => $this->requestedClaims,
             'authentication_requirements' => $this->authenticationRequirements,
             'flow_context' => $this->flowContext,
@@ -5406,6 +5456,9 @@ class AuthorizeValidateResponse
     /** @var mixed */
     public $accessDenied;
 
+    /** @var mixed */
+    public $application;
+
     /** @param array<string,mixed> $values */
     public function __construct(array $values = array())
     {
@@ -5416,6 +5469,7 @@ class AuthorizeValidateResponse
         $this->authorizedClaims = array_key_exists('authorized_claims', $values) ? $values['authorized_claims'] : null;
         $this->newlyRequestedClaims = array_key_exists('newly_requested_claims', $values) ? $values['newly_requested_claims'] : null;
         $this->accessDenied = array_key_exists('access_denied', $values) ? $values['access_denied'] : null;
+        $this->application = array_key_exists('application', $values) ? $values['application'] : null;
     }
 
     /** @return array<string,mixed> */
@@ -5429,6 +5483,7 @@ class AuthorizeValidateResponse
             'authorized_claims' => $this->authorizedClaims,
             'newly_requested_claims' => $this->newlyRequestedClaims,
             'access_denied' => $this->accessDenied,
+            'application' => $this->application,
         );
     }
 }

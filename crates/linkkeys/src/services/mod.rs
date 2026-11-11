@@ -7,6 +7,7 @@ pub mod attestation;
 pub mod auth;
 pub mod authorization;
 pub mod browser_session;
+pub mod callback_url;
 pub mod domain_keys;
 pub mod handshake;
 pub mod hello;

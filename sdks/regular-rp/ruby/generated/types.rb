@@ -189,8 +189,9 @@ end
 # issued_at [String]
 # expires_at [String]
 # revoked_at [String]
-ConsentGrant = Data.define(:grant_id, :user_id, :subject_domain, :audience, :claim_types, :issued_at, :expires_at, :revoked_at) do
-  def initialize(grant_id:, user_id:, subject_domain:, audience:, claim_types:, issued_at:, expires_at:, revoked_at: nil)
+# application [ApplicationRef]
+ConsentGrant = Data.define(:grant_id, :user_id, :subject_domain, :audience, :claim_types, :issued_at, :expires_at, :revoked_at, :application) do
+  def initialize(grant_id:, user_id:, subject_domain:, audience:, claim_types:, issued_at:, expires_at:, revoked_at: nil, application: nil)
     super
   end
 end
@@ -279,6 +280,10 @@ end
 # claims [Array<Claim>]
 UserInfo = Data.define(:user_id, :domain, :display_name, :claims)
 
+# application [ApplicationRef]
+# display_name [String]
+RelyingPartyApplication = Data.define(:application, :display_name)
+
 # relying_party [String]
 # callback_url [String]
 # nonce [String]
@@ -288,8 +293,9 @@ UserInfo = Data.define(:user_id, :domain, :display_name, :claims)
 # authentication_requirements [AuthenticationRequirements]
 # flow_context [AuthFlowContext]
 # relying_party_claims [Array<DomainClaim>]
-AuthRequest = Data.define(:relying_party, :callback_url, :nonce, :timestamp, :signing_key_id, :requested_claims, :authentication_requirements, :flow_context, :relying_party_claims) do
-  def initialize(relying_party:, callback_url:, nonce:, timestamp:, signing_key_id:, requested_claims: nil, authentication_requirements: nil, flow_context: nil, relying_party_claims: nil)
+# application [RelyingPartyApplication]
+AuthRequest = Data.define(:relying_party, :callback_url, :nonce, :timestamp, :signing_key_id, :requested_claims, :authentication_requirements, :flow_context, :relying_party_claims, :application) do
+  def initialize(relying_party:, callback_url:, nonce:, timestamp:, signing_key_id:, requested_claims: nil, authentication_requirements: nil, flow_context: nil, relying_party_claims: nil, application: nil)
     super
   end
 end
@@ -933,8 +939,10 @@ end
 # already_consented [Boolean]
 # authorized_claims [Array<String>]
 # access_denied [AppAccessDenial]
-BrowserAuthorizationInspectResponse = Data.define(:relying_party, :claims, :request_reason, :already_consented, :authorized_claims, :access_denied) do
-  def initialize(relying_party:, claims:, request_reason: nil, already_consented: nil, authorized_claims: nil, access_denied: nil)
+# application [RelyingPartyApplication]
+# callback_host [String]
+BrowserAuthorizationInspectResponse = Data.define(:relying_party, :claims, :request_reason, :already_consented, :authorized_claims, :access_denied, :application, :callback_host) do
+  def initialize(relying_party:, claims:, request_reason: nil, already_consented: nil, authorized_claims: nil, access_denied: nil, application: nil, callback_host: nil)
     super
   end
 end
@@ -1029,11 +1037,12 @@ end
 
 # callback_url [String]
 # nonce [String]
+# application_id [String]
 # requested_claims [ClaimRequest]
 # authentication_requirements [AuthenticationRequirements]
 # flow_context [AuthFlowContext]
-RpSignRequest = Data.define(:callback_url, :nonce, :requested_claims, :authentication_requirements, :flow_context) do
-  def initialize(callback_url:, nonce:, requested_claims: nil, authentication_requirements: nil, flow_context: nil)
+RpSignRequest = Data.define(:callback_url, :nonce, :application_id, :requested_claims, :authentication_requirements, :flow_context) do
+  def initialize(callback_url:, nonce:, application_id: nil, requested_claims: nil, authentication_requirements: nil, flow_context: nil)
     super
   end
 end
@@ -1084,8 +1093,9 @@ end
 # authorized_claims [Array<String>]
 # newly_requested_claims [Array<String>]
 # access_denied [AppAccessDenial]
-AuthorizeValidateResponse = Data.define(:relying_party, :callback_url, :requested_claims, :already_consented, :authorized_claims, :newly_requested_claims, :access_denied) do
-  def initialize(relying_party:, callback_url:, requested_claims:, already_consented: nil, authorized_claims: nil, newly_requested_claims: nil, access_denied: nil)
+# application [RelyingPartyApplication]
+AuthorizeValidateResponse = Data.define(:relying_party, :callback_url, :requested_claims, :already_consented, :authorized_claims, :newly_requested_claims, :access_denied, :application) do
+  def initialize(relying_party:, callback_url:, requested_claims:, already_consented: nil, authorized_claims: nil, newly_requested_claims: nil, access_denied: nil, application: nil)
     super
   end
 end

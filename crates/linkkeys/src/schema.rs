@@ -171,6 +171,8 @@ pub mod pg {
             revoked_at -> Nullable<Timestamptz>,
             created_at -> Timestamptz,
             updated_at -> Timestamptz,
+            app_subject_user_id -> Nullable<Varchar>,
+            app_application_id -> Nullable<Varchar>,
         }
     }
 
@@ -831,6 +833,8 @@ pub mod sqlite {
             revoked_at -> Nullable<Text>,
             created_at -> Text,
             updated_at -> Text,
+            app_subject_user_id -> Nullable<Text>,
+            app_application_id -> Nullable<Text>,
         }
     }
 

@@ -19,7 +19,7 @@ the IDP server.
 - Node.js 22.18 or later
 - A LinkKeys RP server for your application domain
 - The RP TCP address, TLS key fingerprints, and application API key
-- An HTTPS callback URL on the RP domain or a subdomain
+- An HTTPS callback URL (any host; the RP domain signs it)
 - A datastore that can atomically save and take pending login records
 
 See the [RP deployment guide](../../../docs/DEPLOYING-RP.md) before you use the

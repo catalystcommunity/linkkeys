@@ -28,6 +28,8 @@ pub fn build_auth_request(
         // The caller sets `relying_party_claims` on the returned request if it
         // wants to assert claims about itself (signed self/third-party).
         relying_party_claims: None,
+        // The RP server sets this from the calling application's registration.
+        application: None,
     }
 }
 
@@ -161,6 +163,7 @@ mod tests {
             authentication_requirements: None,
             flow_context: None,
             relying_party_claims: None,
+            application: None,
         };
 
         let signed = sign_auth_request(&request, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();

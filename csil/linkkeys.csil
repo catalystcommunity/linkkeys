@@ -278,8 +278,9 @@ AuthFlowContext = {
     ? request_reason: text
 }
 
-;; A user's standing authorization for one relying party (audience) to receive
-;; a specific set of claim_types. Captured on a trusted surface (in the browser
+;; A user's standing authorization for one relying party (audience), and one
+;; application of it when `application` is present, to receive a specific set
+;; of claim_types. Captured on a trusted surface (in the browser
 ;; flow, the IDP's own login/consent page) and attested by the user's home
 ;; domain. user_id@subject_domain AND audience are bound into the signature
 ;; (see liblinkkeys::consent): a grant for one RP cannot be replayed at another,
@@ -294,7 +295,12 @@ ConsentGrant = {
     claim_types: [* text],
     issued_at: text,
     expires_at: text,
-    ? revoked_at: text
+    ? revoked_at: text,
+    ;; The application of `audience` that this grant is for. Present when the
+    ;; login request named an application; the grant then covers only that
+    ;; application. Absent: the grant covers requests with no application.
+    ;; Bound into the signature when present.
+    ? application: ApplicationRef
 }
 
 ;; Same envelope shape as SignedIdentityAssertion, but carrying a signature
@@ -449,8 +455,24 @@ UserInfo = {
 ;; Auth Request (relying party -> domain server)
 ;; ============================================================
 
+;; The application principal of a regular RP domain that started a login. It
+;; is the same identity that act-as grants use (`ApplicationRef`):
+;; `subject_user_id` is the API-key account that called `Rp/sign-request`,
+;; `subject_domain` is the RP domain, and `application_id` names an
+;; application under that account. The RP server sets `subject_user_id` from
+;; the authenticated caller, so an application cannot name a sibling. The IDP
+;; refuses a request whose `subject_domain` is not `relying_party`. Standing
+;; consent is per application (see `ConsentGrant.application`).
+RelyingPartyApplication = {
+    application: ApplicationRef,
+    ;; The calling account's display name, for the consent screen.
+    display_name: text
+}
+
 AuthRequest = {
     relying_party: text,
+    ;; An https URL on any host. The RP signature is the authorization; the
+    ;; host does not have to be in the RP domain.
     callback_url: text,
     nonce: text,
     timestamp: text,
@@ -468,7 +490,10 @@ AuthRequest = {
     ;; keys, may apply policy on them, and records them with the consent grant —
     ;; making the RP's offered terms (e.g. a named privacy policy) a
     ;; non-repudiable agreement even if no user data is released.
-    ? relying_party_claims: [* DomainClaim]
+    ? relying_party_claims: [* DomainClaim],
+    ;; The application principal that started this login. A LinkKeys RP
+    ;; server always sets it.
+    ? application: RelyingPartyApplication
 }
 
 SignedAuthRequest = {
@@ -1403,7 +1428,13 @@ BrowserAuthorizationInspectResponse = {
     ? authorized_claims: [* text],
     ;; Present when an app access policy blocks this sign-in. claims is then
     ;; empty and the other optional fields are absent.
-    ? access_denied: AppAccessDenial
+    ? access_denied: AppAccessDenial,
+    ;; The application principal that started this login, from the signed
+    ;; request.
+    ? application: RelyingPartyApplication,
+    ;; The callback host, present only when it is not the RP domain or a
+    ;; subdomain of it. The browser returns to this host after sign-in.
+    ? callback_host: text
 }
 
 BrowserAuthorizationCompleteRequest = {
@@ -1517,6 +1548,10 @@ GetUiConfigurationResponse = {
 RpSignRequest = {
     callback_url: text,
     nonce: text,
+    ;; The application under the calling account (1-128 of A-Z a-z 0-9 - _ .).
+    ;; Use the same value as the application's act-as `ApplicationRef`.
+    ;; Absent: the calling account's username.
+    ? application_id: text,
     ;; Optional per-request override. Absent => use RP_CLAIMS_CONFIG.
     ? requested_claims: ClaimRequest,
     ;; Optional factor-count request. The RP cannot name provider methods.
@@ -1614,7 +1649,11 @@ AuthorizeValidateResponse = {
     ;; user from the relying party. already_consented, authorized_claims, and
     ;; newly_requested_claims are then absent, and finalize fails with
     ;; `forbidden`. The consent UI should show a blocked page.
-    ? access_denied: AppAccessDenial
+    ? access_denied: AppAccessDenial,
+    ;; The application principal that started this login, from the signed
+    ;; request. A consent UI should show its name, and should show the
+    ;; callback_url host when it is outside relying_party.
+    ? application: RelyingPartyApplication
 }
 
 ;; Finalize a login the consent UI approved: burn the request nonce, persist

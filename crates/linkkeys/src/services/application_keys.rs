@@ -640,20 +640,13 @@ fn store_key(
 /// Identifiers appear in cache keys, log lines, and the public read. Bound
 /// them so a caller cannot use one as a payload.
 fn check_identifier(field: &str, value: &str) -> Result<(), ServiceError> {
-    if value.is_empty() || value.len() > 128 {
-        return Err(bad_request(format!(
-            "{field} must be between 1 and 128 characters"
-        )));
+    if liblinkkeys::application_keys::is_valid_identifier(value) {
+        Ok(())
+    } else {
+        Err(bad_request(format!(
+            "{field} must be 1-128 characters of letters, digits, '-', '_', and '.'"
+        )))
     }
-    if !value
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
-    {
-        return Err(bad_request(format!(
-            "{field} may contain only letters, digits, '-', '_', and '.'"
-        )));
-    }
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------

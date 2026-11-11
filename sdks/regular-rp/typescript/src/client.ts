@@ -97,7 +97,15 @@ export interface RegularRpClientOptions {
 
 export interface BeginLoginInput {
   identity: string;
+  /** Any HTTPS URL. The RP domain signs it; it does not have to be in the RP domain. */
   callbackUrl: string;
+  /**
+   * The application under the API-key account (1-128 of A-Z a-z 0-9 - _ .).
+   * Use the same value as the application's act-as ApplicationRef. Absent:
+   * the RP server uses the account's username. Standing consent is per
+   * application.
+   */
+  applicationId?: string;
   /** A stable value from the application session that started this login. */
   sessionBinding: string;
   requestedClaims?: ClaimRequest;
@@ -135,16 +143,15 @@ function normalizeRpDomain(domain: string): string {
   return normalized;
 }
 
-function callbackForState(raw: string, rpDomain: string, state: string): URL {
+function callbackForState(raw: string, state: string): URL {
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
     throw new LoginError("invalid-callback", "callbackUrl is not a URL");
   }
-  const host = url.hostname.toLowerCase().replace(/\.$/, "");
-  if (url.protocol !== "https:" || (host !== rpDomain && !host.endsWith(`.${rpDomain}`))) {
-    throw new LoginError("invalid-callback", "callbackUrl must use HTTPS on the RP domain or a subdomain");
+  if (url.protocol !== "https:" || !url.hostname) {
+    throw new LoginError("invalid-callback", "callbackUrl must be an HTTPS URL");
   }
   if (url.username || url.password || url.hash || url.searchParams.has("lk_state") || url.searchParams.has("encrypted_token")) {
     throw new LoginError("invalid-callback", "callbackUrl contains a reserved or unsafe URL component");
@@ -241,13 +248,14 @@ export class RegularRpClient {
     const state = this.stateFactory();
     if (state.length === 0 || state.length > 256) throw new LoginError("missing-state");
     const nonce = randomUUID();
-    const callbackUrl = callbackForState(input.callbackUrl, this.rpDomain, state);
+    const callbackUrl = callbackForState(input.callbackUrl, state);
     const apiBase = await resolveBrowserBase(this.dns, identity.domain);
     const now = this.now();
 
     const signed = await this.rp.signRequest({
       callbackUrl: callbackUrl.href,
       nonce,
+      applicationId: input.applicationId,
       requestedClaims: input.requestedClaims,
       authenticationRequirements: input.authenticationRequirements,
       flowContext: input.flowContext,

@@ -348,6 +348,7 @@ mod sqlite_backend {
         claim_types: String, requested_types: String, signed_grant: Vec<u8>,
         offered_claims: Option<Vec<u8>>, issued_at: String, expires_at: String,
         revoked_at: Option<String>, created_at: String, updated_at: String,
+        app_subject_user_id: Option<String>, app_application_id: Option<String>,
     });
     backup_row!(ClaimTypePolicyRow => claim_type_policies {
         claim_type: String, label: String, description: String, value_type: String,

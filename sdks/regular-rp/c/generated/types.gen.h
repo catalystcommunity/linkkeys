@@ -72,6 +72,7 @@ typedef struct GetUserInfoRequest GetUserInfoRequest;
 typedef struct UserInfoRequest UserInfoRequest;
 typedef struct SignedUserInfoRequest SignedUserInfoRequest;
 typedef struct UserInfo UserInfo;
+typedef struct RelyingPartyApplication RelyingPartyApplication;
 typedef struct AuthRequest AuthRequest;
 typedef struct SignedAuthRequest SignedAuthRequest;
 typedef struct EncryptedToken EncryptedToken;
@@ -590,6 +591,7 @@ typedef struct ConsentGrant {
     char *issued_at;
     char *expires_at;
     char *revoked_at;
+    ApplicationRef *application;
 } ConsentGrant;
 
 /* SignedConsentGrant is a structured data type. */
@@ -703,6 +705,7 @@ typedef struct AuthRequest {
     AuthFlowContext *flow_context;
     DomainClaim *relying_party_claims;
     size_t relying_party_claims_count;
+    RelyingPartyApplication *application;
 } AuthRequest;
 
 /* SignedAuthRequest is a structured data type. */
@@ -1539,6 +1542,8 @@ typedef struct BrowserAuthorizationInspectResponse {
     char **authorized_claims;
     size_t authorized_claims_count;
     AppAccessDenial *access_denied;
+    RelyingPartyApplication *application;
+    char *callback_host;
 } BrowserAuthorizationInspectResponse;
 
 /* BrowserAuthorizationCompleteRequest is a structured data type. */
@@ -1635,6 +1640,7 @@ typedef struct GetUiConfigurationResponse {
 typedef struct RpSignRequest {
     char *callback_url;
     char *nonce;
+    char *application_id;
     ClaimRequest *requested_claims;
     AuthenticationRequirements *authentication_requirements;
     AuthFlowContext *flow_context;
@@ -1705,6 +1711,7 @@ typedef struct AuthorizeValidateResponse {
     char **newly_requested_claims;
     size_t newly_requested_claims_count;
     AppAccessDenial *access_denied;
+    RelyingPartyApplication *application;
 } AuthorizeValidateResponse;
 
 /* AuthorizeFinalizeRequest is a structured data type. */
@@ -2648,5 +2655,11 @@ typedef struct IssueForSigningRequestResponse {
     IssuedClaimResult *results;
     size_t results_count;
 } IssueForSigningRequestResponse;
+
+/* RelyingPartyApplication is a structured data type. */
+typedef struct RelyingPartyApplication {
+    ApplicationRef application;
+    char *display_name;
+} RelyingPartyApplication;
 
 #endif /* CSILGEN_TYPES_GEN_H */

@@ -37,9 +37,18 @@ fn api_key_for(pool: &linkkeys::db::DbPool, user_id: &str) -> String {
 }
 
 fn sign_request_payload() -> Vec<u8> {
+    sign_request_payload_for("https://rp.test/callback")
+}
+
+fn sign_request_payload_for(callback_url: &str) -> Vec<u8> {
+    sign_request_payload_with(callback_url, None)
+}
+
+fn sign_request_payload_with(callback_url: &str, application_id: Option<&str>) -> Vec<u8> {
     liblinkkeys::generated::encode_rp_sign_request(&RpSignRequest {
-        callback_url: "https://rp.test/callback".to_string(),
+        callback_url: callback_url.to_string(),
         nonce: "nonce-1".to_string(),
+        application_id: application_id.map(str::to_string),
         requested_claims: None,
         authentication_requirements: None,
         flow_context: None,
@@ -88,6 +97,118 @@ fn rp_sign_request_happy_path() {
         !resp.signed_request.is_empty(),
         "a signed auth request is returned"
     );
+}
+
+/// An api_access API-key account with a domain signing key, ready to call
+/// sign-request. Returns the pool, the account id, and the raw API key.
+fn rp_caller() -> (linkkeys::db::DbPool, String, String) {
+    let pool = setup();
+    let mut overrides = DataMap::new();
+    overrides.insert("username".to_string(), serde_json::json!("homegrafana"));
+    overrides.insert(
+        "display_name".to_string(),
+        serde_json::json!("Home Grafana"),
+    );
+    let user = create_user(&pool, &overrides);
+    let api_key = api_key_for(&pool, &user.id);
+    grant_api_access(&pool, &user.id);
+    create_domain_key(&pool);
+    (pool, user.id, api_key)
+}
+
+fn sign(
+    pool: &linkkeys::db::DbPool,
+    api_key: &str,
+    callback_url: &str,
+) -> Result<liblinkkeys::generated::types::AuthRequest, i32> {
+    sign_as(pool, api_key, callback_url, None)
+}
+
+fn sign_as(
+    pool: &linkkeys::db::DbPool,
+    api_key: &str,
+    callback_url: &str,
+    application_id: Option<&str>,
+) -> Result<liblinkkeys::generated::types::AuthRequest, i32> {
+    let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
+        "Rp",
+        "sign-request",
+        sign_request_payload_with(callback_url, application_id),
+        Some(api_key),
+        pool,
+        None,
+    );
+    if status != 0 {
+        return Err(status);
+    }
+    let resp =
+        liblinkkeys::generated::decode_rp_sign_response(&body).expect("decode RpSignResponse");
+    let envelope = liblinkkeys::encoding::signed_auth_request_from_url_param(&resp.signed_request)
+        .expect("decode signed request");
+    Ok(liblinkkeys::generated::decode_auth_request(&envelope.request).expect("decode request"))
+}
+
+#[test]
+fn rp_sign_request_signs_callback_on_another_domain_and_names_the_caller() {
+    // The application is the API-key principal of rp.test. It can live at
+    // any https URL: the domain signature authorizes the callback.
+    let (pool, user_id, api_key) = rp_caller();
+
+    let request = sign(
+        &pool,
+        &api_key,
+        "https://homegrafana.catalystsquad.com/login/callback?lk_state=x",
+    )
+    .expect("off-domain https callback is signed");
+    assert_eq!(request.relying_party, TEST_DOMAIN);
+    assert_eq!(
+        request.callback_url,
+        "https://homegrafana.catalystsquad.com/login/callback?lk_state=x"
+    );
+    let app = request.application.expect("the calling principal is named");
+    // The same identity shape as an act-as ApplicationRef. With no
+    // application_id, the account's username names the application.
+    assert_eq!(app.application.subject_user_id, user_id);
+    assert_eq!(app.application.subject_domain, TEST_DOMAIN);
+    assert_eq!(app.application.application_id, "homegrafana");
+    assert_eq!(app.display_name, "Home Grafana");
+}
+
+#[test]
+fn rp_sign_request_names_an_application_under_the_caller_only() {
+    let (pool, user_id, api_key) = rp_caller();
+
+    let request = sign_as(&pool, &api_key, "https://rp.test/cb", Some("dashboards"))
+        .expect("an explicit application_id is signed");
+    let app = request
+        .application
+        .expect("application is named")
+        .application;
+    assert_eq!(app.application_id, "dashboards");
+    // The account is always the authenticated caller: no request field can
+    // name a sibling account's application.
+    assert_eq!(app.subject_user_id, user_id);
+
+    for bad in ["", "has space", "slash/no"] {
+        assert_eq!(
+            sign_as(&pool, &api_key, "https://rp.test/cb", Some(bad)).err(),
+            Some(1),
+            "{bad:?}"
+        );
+    }
+}
+
+#[test]
+fn rp_sign_request_refuses_non_https_callback() {
+    let (pool, _user_id, api_key) = rp_caller();
+    for url in [
+        "http://rp.test/callback",
+        "https://rp.test@attacker.example/cb",
+        "not a url",
+    ] {
+        // A bad-request refusal travels as the MalformedEnvelope wire status.
+        assert_eq!(sign(&pool, &api_key, url).err(), Some(1), "{url}");
+    }
 }
 
 #[test]

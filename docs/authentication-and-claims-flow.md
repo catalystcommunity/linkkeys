@@ -88,11 +88,48 @@ LinkKeys has two relying-party models.
 | Key location | A LinkKeys RP server | Application secret storage |
 | Application connection | TCP CSIL-RPC to its RP server | Local SDK calls and direct TCP CSIL-RPC to the IDP |
 | Admission | Other domains verify the RP through DNS anchors | The user's domain applies its local-RP policy and can require administrator approval |
-| Browser callback | HTTPS URL under the RP domain | HTTP or HTTPS callback with a signed and encrypted payload |
+| Browser callback | Any HTTPS URL that the RP domain signs | HTTP or HTTPS callback with a signed and encrypted payload |
 
 Use the regular RP model for a normal public website. Use the
 [local-RP application guide](local-rp-app-developer-guide.md) when the
 application cannot publish a domain identity.
+
+### Applications and callback hosts of a regular RP
+
+The RP domain is the identity of a regular RP. Each application is a
+principal of that domain. It has the same identity as an application in an
+act-as grant, an `ApplicationRef`:
+
+| Field | Value |
+| --- | --- |
+| `subject_user_id` | The API-key account that calls `Rp/sign-request` |
+| `subject_domain` | The RP domain |
+| `application_id` | `RpSignRequest.application_id`, or the account username when it is absent |
+
+- The RP server sets `subject_user_id` from the authenticated caller. An
+  application can name only applications under its own account.
+- The RP server signs any https callback URL that its `api_access` caller
+  sends. The RP domain signature authorizes the callback. The application URL
+  does not have to be in the RP domain.
+- The signed `AuthRequest` carries the application and the account display
+  name. The IDP refuses a request whose application `subject_domain` is not
+  the RP domain.
+- The consent screen shows the application name. When the callback host is
+  not in the RP domain, the consent screen also shows that host.
+- The token at the callback is sealed to the RP domain key. Only the RP server
+  can open it.
+
+Standing consent is per application. A grant for one application does not
+cover a sibling application of the same RP domain. The user sees the consent
+screen once for each application. The RP domain can still read the claims
+that each of its applications receives; the user trusts the domain not to
+share them with applications that the user did not approve.
+
+App access policies and the assertion audience use the RP domain.
+
+An application that also uses act-as grants should send the same
+`application_id` that it enrolled with, so that its login principal and its
+act-as `ApplicationRef` are one identity.
 
 ## Regular-RP API map
 
@@ -274,7 +311,7 @@ sequenceDiagram
     IDP-->>Browser: Show prior choices and new claims
     User->>Browser: Approve, decline, or cancel
     Browser->>IDP: Complete authorization
-    IDP->>IDP: Replace the standing grant for this RP
+    IDP->>IDP: Replace the standing grant for this RP application
     IDP-->>Browser: Redirect with encrypted_token
     Browser->>App: Application callback
     App->>RP: Decrypt, verify, and fetch current claims
@@ -334,6 +371,7 @@ The RP signs an `AuthRequest`. It binds these values:
 
 - RP domain;
 - callback URL;
+- application principal, when present;
 - nonce;
 - timestamp;
 - requested claims;
@@ -400,7 +438,8 @@ the application needs current data.
   pending state.
 - Bind pending state to the application browser session that started login.
 - Consume pending state once, before callback verification.
-- Use a callback host in the RP domain or one of its subdomains.
+- Use an https callback URL. Give the API-key account a display name that
+  users recognize; the consent screen shows it.
 - Keep the RP API key in a secret store.
 - Pin the application-to-RP connection to configured LinkKeys fingerprints.
 - Check assertion verification, audience, nonce, identity domain, and expiry.
@@ -418,7 +457,7 @@ These records have different purposes and lifetimes:
 | --- | --- | --- |
 | Pending login | Web application | Bind one callback to one login attempt. |
 | IDP browser session | User's IDP | Avoid repeated IDP authentication while policy permits it. |
-| Consent grant | User's IDP | Record the claim types approved for one user and one RP. |
+| Consent grant | User's IDP | Record the claim types approved for one user and one RP application. |
 | Identity assertion | User's IDP and RP | Prove one authentication result to one audience. |
 | Application session | Web application | Keep the user logged in to that application. |
 | Cached claims | Web application | Support application features that need claim data. |
@@ -430,6 +469,7 @@ the IDP browser session or revoke the IDP consent grant.
 
 | Failure | Required action |
 | --- | --- |
+| `Rp/sign-request` refuses the callback URL | Use an https URL with no user information. |
 | Pending login is missing or already used | Start a new login. |
 | Signed request is expired or already used | Start a new login. |
 | RP key fetch or pin check fails | Check the RP DNS records, endpoint, and pin history. |

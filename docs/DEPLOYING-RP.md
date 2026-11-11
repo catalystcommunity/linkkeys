@@ -70,6 +70,13 @@ kubectl exec -n linkkeys-rp deploy/linkkeys-rp -- \
 # Save the printed API key — it won't be shown again
 ```
 
+The web app can be on any https host. It does not have to be in the RP
+domain. The service account and an application ID are the application
+principal. `Rp/sign-request` uses the account username (`my-webapp` above) as
+the application ID, or the `application_id` field when the app sends it. The
+IDP consent screen shows the account display name ("My Web Application"), and
+users give standing consent to each application separately.
+
 Then check your DNS TXT record:
 ```bash
 kubectl exec -n linkkeys-rp deploy/linkkeys-rp -- \

@@ -10,6 +10,8 @@ public record BrowserAuthorizationInspectResponse(
     String requestReason /* wire: "request_reason" */,
     Boolean alreadyConsented /* wire: "already_consented" */,
     List<String> authorizedClaims /* wire: "authorized_claims" */,
-    AppAccessDenial accessDenied /* wire: "access_denied" */
+    AppAccessDenial accessDenied /* wire: "access_denied" */,
+    RelyingPartyApplication application /* wire: "application" */,
+    String callbackHost /* wire: "callback_host" */
 ) {
 }

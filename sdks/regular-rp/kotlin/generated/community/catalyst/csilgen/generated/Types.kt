@@ -386,7 +386,8 @@ data class ConsentGrant(
     // wire key: expires_at
     val expiresAt: String,
     // wire key: revoked_at
-    val revokedAt: String? = null
+    val revokedAt: String? = null,
+    val application: ApplicationRef? = null
 )
 
 /** SignedConsentGrant record. */
@@ -615,6 +616,13 @@ data class UserInfo(
     val claims: List<Claim>
 )
 
+/** RelyingPartyApplication record. */
+data class RelyingPartyApplication(
+    val application: ApplicationRef,
+    // wire key: display_name
+    val displayName: String
+)
+
 /** AuthRequest record. */
 data class AuthRequest(
     // wire key: relying_party
@@ -632,7 +640,8 @@ data class AuthRequest(
     // wire key: flow_context
     val flowContext: AuthFlowContext? = null,
     // wire key: relying_party_claims
-    val relyingPartyClaims: List<DomainClaim>? = null
+    val relyingPartyClaims: List<DomainClaim>? = null,
+    val application: RelyingPartyApplication? = null
 )
 
 /** SignedAuthRequest record. */
@@ -1690,7 +1699,10 @@ data class BrowserAuthorizationInspectResponse(
     // wire key: authorized_claims
     val authorizedClaims: List<String>? = null,
     // wire key: access_denied
-    val accessDenied: AppAccessDenial? = null
+    val accessDenied: AppAccessDenial? = null,
+    val application: RelyingPartyApplication? = null,
+    // wire key: callback_host
+    val callbackHost: String? = null
 )
 
 /** BrowserAuthorizationCompleteRequest record. */
@@ -1809,6 +1821,8 @@ data class RpSignRequest(
     // wire key: callback_url
     val callbackUrl: String,
     val nonce: String,
+    // wire key: application_id
+    val applicationId: String? = null,
     // wire key: requested_claims
     val requestedClaims: ClaimRequest? = null,
     // wire key: authentication_requirements
@@ -1912,7 +1926,8 @@ data class AuthorizeValidateResponse(
     // wire key: newly_requested_claims
     val newlyRequestedClaims: List<String>? = null,
     // wire key: access_denied
-    val accessDenied: AppAccessDenial? = null
+    val accessDenied: AppAccessDenial? = null,
+    val application: RelyingPartyApplication? = null
 )
 
 /** AuthorizeFinalizeRequest record. */

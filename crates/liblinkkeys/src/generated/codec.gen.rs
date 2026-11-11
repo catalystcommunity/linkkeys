@@ -1801,7 +1801,7 @@ pub fn decode_auth_flow_context(csil_data: &[u8]) -> Result<AuthFlowContext, Csi
 
 /// Build the canonical CBOR value tree for a ConsentGrant.
 fn csil_enc_consent_grant(csil_v: &ConsentGrant) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(8);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(9);
     csil_entries.push((cbor_text("user_id"), cbor_text(&csil_v.user_id)));
     csil_entries.push((cbor_text("audience"), cbor_text(&csil_v.audience)));
     csil_entries.push((cbor_text("grant_id"), cbor_text(&csil_v.grant_id)));
@@ -1809,6 +1809,12 @@ fn csil_enc_consent_grant(csil_v: &ConsentGrant) -> CsilCborValue {
     csil_entries.push((cbor_text("expires_at"), cbor_text(&csil_v.expires_at)));
     if let Some(csil_inner) = &csil_v.revoked_at {
         csil_entries.push((cbor_text("revoked_at"), cbor_text(csil_inner)));
+    }
+    if let Some(csil_inner) = &csil_v.application {
+        csil_entries.push((
+            cbor_text("application"),
+            csil_enc_application_ref(csil_inner),
+        ));
     }
     csil_entries.push((
         cbor_text("claim_types"),
@@ -1865,6 +1871,13 @@ fn csil_dec_consent_grant(csil_root: &CsilCborValue) -> Result<ConsentGrant, Csi
         }
         None => None,
     };
+    let application = match cbor_map_get(csil_root, "application") {
+        Some(csil_field) => {
+            let csil_decode = csil_dec_application_ref;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
     Ok(ConsentGrant {
         grant_id,
         user_id,
@@ -1874,6 +1887,7 @@ fn csil_dec_consent_grant(csil_root: &CsilCborValue) -> Result<ConsentGrant, Csi
         issued_at,
         expires_at,
         revoked_at,
+        application,
     })
 }
 
@@ -2540,11 +2554,61 @@ pub fn decode_user_info(csil_data: &[u8]) -> Result<UserInfo, CsilCborError> {
     csil_dec_user_info(&csil_root)
 }
 
+/// Build the canonical CBOR value tree for a RelyingPartyApplication.
+fn csil_enc_relying_party_application(csil_v: &RelyingPartyApplication) -> CsilCborValue {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((
+        cbor_text("application"),
+        csil_enc_application_ref(&csil_v.application),
+    ));
+    csil_entries.push((cbor_text("display_name"), cbor_text(&csil_v.display_name)));
+    CsilCborValue::Map(csil_entries)
+}
+
+/// Reconstruct a RelyingPartyApplication from a decoded CBOR value tree.
+fn csil_dec_relying_party_application(
+    csil_root: &CsilCborValue,
+) -> Result<RelyingPartyApplication, CsilCborError> {
+    let application = {
+        let csil_field = cbor_require(csil_root, "application")?;
+        let csil_decode = csil_dec_application_ref;
+        csil_decode(csil_field)?
+    };
+    let display_name = {
+        let csil_field = cbor_require(csil_root, "display_name")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    Ok(RelyingPartyApplication {
+        application,
+        display_name,
+    })
+}
+
+/// Encode a RelyingPartyApplication to canonical CSIL CBOR bytes.
+pub fn encode_relying_party_application(csil_v: &RelyingPartyApplication) -> Vec<u8> {
+    cbor_encode(&csil_enc_relying_party_application(csil_v))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RelyingPartyApplication.
+pub fn decode_relying_party_application(
+    csil_data: &[u8],
+) -> Result<RelyingPartyApplication, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_relying_party_application(&csil_root)
+}
+
 /// Build the canonical CBOR value tree for a AuthRequest.
 fn csil_enc_auth_request(csil_v: &AuthRequest) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(9);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(10);
     csil_entries.push((cbor_text("nonce"), cbor_text(&csil_v.nonce)));
     csil_entries.push((cbor_text("timestamp"), cbor_text(&csil_v.timestamp)));
+    if let Some(csil_inner) = &csil_v.application {
+        csil_entries.push((
+            cbor_text("application"),
+            csil_enc_relying_party_application(csil_inner),
+        ));
+    }
     csil_entries.push((cbor_text("callback_url"), cbor_text(&csil_v.callback_url)));
     if let Some(csil_inner) = &csil_v.flow_context {
         csil_entries.push((
@@ -2633,6 +2697,13 @@ fn csil_dec_auth_request(csil_root: &CsilCborValue) -> Result<AuthRequest, CsilC
         }
         None => None,
     };
+    let application = match cbor_map_get(csil_root, "application") {
+        Some(csil_field) => {
+            let csil_decode = csil_dec_relying_party_application;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
     Ok(AuthRequest {
         relying_party,
         callback_url,
@@ -2643,6 +2714,7 @@ fn csil_dec_auth_request(csil_root: &CsilCborValue) -> Result<AuthRequest, CsilC
         authentication_requirements,
         flow_context,
         relying_party_claims,
+        application,
     })
 }
 
@@ -8308,16 +8380,25 @@ pub fn decode_browser_consent_claim(
 fn csil_enc_browser_authorization_inspect_response(
     csil_v: &BrowserAuthorizationInspectResponse,
 ) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(6);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(8);
     csil_entries.push((
         cbor_text("claims"),
         cbor_enc_array(&csil_v.claims, csil_enc_browser_consent_claim),
     ));
+    if let Some(csil_inner) = &csil_v.application {
+        csil_entries.push((
+            cbor_text("application"),
+            csil_enc_relying_party_application(csil_inner),
+        ));
+    }
     if let Some(csil_inner) = &csil_v.access_denied {
         csil_entries.push((
             cbor_text("access_denied"),
             csil_enc_app_access_denial(csil_inner),
         ));
+    }
+    if let Some(csil_inner) = &csil_v.callback_host {
+        csil_entries.push((cbor_text("callback_host"), cbor_text(csil_inner)));
     }
     csil_entries.push((cbor_text("relying_party"), cbor_text(&csil_v.relying_party)));
     if let Some(csil_inner) = &csil_v.request_reason {
@@ -8377,6 +8458,20 @@ fn csil_dec_browser_authorization_inspect_response(
         }
         None => None,
     };
+    let application = match cbor_map_get(csil_root, "application") {
+        Some(csil_field) => {
+            let csil_decode = csil_dec_relying_party_application;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
+    let callback_host = match cbor_map_get(csil_root, "callback_host") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
     Ok(BrowserAuthorizationInspectResponse {
         relying_party,
         claims,
@@ -8384,6 +8479,8 @@ fn csil_dec_browser_authorization_inspect_response(
         already_consented,
         authorized_claims,
         access_denied,
+        application,
+        callback_host,
     })
 }
 
@@ -9071,7 +9168,7 @@ pub fn decode_get_ui_configuration_response(
 
 /// Build the canonical CBOR value tree for a RpSignRequest.
 fn csil_enc_rp_sign_request(csil_v: &RpSignRequest) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(5);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(6);
     csil_entries.push((cbor_text("nonce"), cbor_text(&csil_v.nonce)));
     csil_entries.push((cbor_text("callback_url"), cbor_text(&csil_v.callback_url)));
     if let Some(csil_inner) = &csil_v.flow_context {
@@ -9079,6 +9176,9 @@ fn csil_enc_rp_sign_request(csil_v: &RpSignRequest) -> CsilCborValue {
             cbor_text("flow_context"),
             csil_enc_auth_flow_context(csil_inner),
         ));
+    }
+    if let Some(csil_inner) = &csil_v.application_id {
+        csil_entries.push((cbor_text("application_id"), cbor_text(csil_inner)));
     }
     if let Some(csil_inner) = &csil_v.requested_claims {
         csil_entries.push((
@@ -9107,6 +9207,13 @@ fn csil_dec_rp_sign_request(csil_root: &CsilCborValue) -> Result<RpSignRequest, 
         let csil_decode = cbor_as_text;
         csil_decode(csil_field)?
     };
+    let application_id = match cbor_map_get(csil_root, "application_id") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
     let requested_claims = match cbor_map_get(csil_root, "requested_claims") {
         Some(csil_field) => {
             let csil_decode = csil_dec_claim_request;
@@ -9131,6 +9238,7 @@ fn csil_dec_rp_sign_request(csil_root: &CsilCborValue) -> Result<RpSignRequest, 
     Ok(RpSignRequest {
         callback_url,
         nonce,
+        application_id,
         requested_claims,
         authentication_requirements,
         flow_context,
@@ -9515,7 +9623,13 @@ pub fn decode_authorize_validate_request(
 
 /// Build the canonical CBOR value tree for a AuthorizeValidateResponse.
 fn csil_enc_authorize_validate_response(csil_v: &AuthorizeValidateResponse) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(7);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(8);
+    if let Some(csil_inner) = &csil_v.application {
+        csil_entries.push((
+            cbor_text("application"),
+            csil_enc_relying_party_application(csil_inner),
+        ));
+    }
     csil_entries.push((cbor_text("callback_url"), cbor_text(&csil_v.callback_url)));
     if let Some(csil_inner) = &csil_v.access_denied {
         csil_entries.push((
@@ -9593,6 +9707,13 @@ fn csil_dec_authorize_validate_response(
         }
         None => None,
     };
+    let application = match cbor_map_get(csil_root, "application") {
+        Some(csil_field) => {
+            let csil_decode = csil_dec_relying_party_application;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
     Ok(AuthorizeValidateResponse {
         relying_party,
         callback_url,
@@ -9601,6 +9722,7 @@ fn csil_dec_authorize_validate_response(
         authorized_claims,
         newly_requested_claims,
         access_denied,
+        application,
     })
 }
 

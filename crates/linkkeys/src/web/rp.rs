@@ -56,17 +56,51 @@ fn core_forbidden(message: &str) -> CoreError {
 }
 
 /// Core of sign-request: build and sign an auth request for the login redirect
-/// using this server's domain key. Shared by the web JSON route and the
-/// `Rp/sign-request` TCP op.
+/// using this server's domain key. Used by the `Rp/sign-request` TCP op.
+///
+/// `caller_user_id` is the API-key account that called. The signed request
+/// names the application principal as an `ApplicationRef`: that account, this
+/// domain, and `req.application_id` (default: the account's username). The
+/// caller can name only applications under its own account. The IDP keys
+/// standing consent by this application and shows its name. The callback may
+/// be any https URL; this domain's signature authorizes it (see
+/// `services::callback_url`).
 pub(crate) fn sign_request_core(
     pool: &DbPool,
     rp_config: &crate::rp_config::RpClaimsConfig,
-    callback_url: &str,
-    nonce: &str,
-    requested_claims: Option<liblinkkeys::generated::types::ClaimRequest>,
-    authentication_requirements: Option<liblinkkeys::generated::types::AuthenticationRequirements>,
-    flow_context: Option<liblinkkeys::generated::types::AuthFlowContext>,
+    caller_user_id: &str,
+    req: liblinkkeys::generated::types::RpSignRequest,
 ) -> Result<liblinkkeys::generated::types::RpSignResponse, CoreError> {
+    use crate::services::callback_url::{callback_host, CallbackUrlError};
+    match callback_host(&req.callback_url) {
+        Ok(_) => {}
+        Err(CallbackUrlError::NotHttps) => {
+            return Err(core_bad_request("callback_url must use https"))
+        }
+        Err(CallbackUrlError::Unparseable) => {
+            return Err(core_bad_request("callback_url is not a valid https URL"))
+        }
+    }
+    let caller = pool
+        .find_user_by_id(caller_user_id)
+        .map_err(|e| core_internal("sign-request: loading the calling account", e))?;
+    let application_id = req.application_id.clone().unwrap_or(caller.username);
+    if !liblinkkeys::application_keys::is_valid_identifier(&application_id) {
+        return Err(core_bad_request(if req.application_id.is_some() {
+            "application_id must be 1-128 characters of letters, digits, '-', '_', and '.'"
+        } else {
+            "the calling account's username is not a valid application_id; send application_id"
+        }));
+    }
+    let application = liblinkkeys::generated::types::RelyingPartyApplication {
+        application: liblinkkeys::generated::types::ApplicationRef {
+            subject_user_id: caller.id,
+            subject_domain: get_domain_name(),
+            application_id,
+        },
+        display_name: caller.display_name,
+    };
+
     let domain_keys = pool
         .list_active_domain_keys()
         .map_err(|e| core_internal("sign-request: listing domain keys", e))?;
@@ -89,13 +123,15 @@ pub(crate) fn sign_request_core(
 
     let mut request = liblinkkeys::auth_request::build_auth_request(
         &get_domain_name(),
-        callback_url,
-        nonce,
+        &req.callback_url,
+        &req.nonce,
         &dk.id,
-        requested_claims.or_else(|| rp_config.to_claim_request()),
-        flow_context,
+        req.requested_claims
+            .or_else(|| rp_config.to_claim_request()),
+        req.flow_context,
     );
-    request.authentication_requirements = authentication_requirements;
+    request.authentication_requirements = req.authentication_requirements;
+    request.application = Some(application);
 
     // Attach claims the RP asserts about itself: self-asserted ones signed now
     // with our domain key, plus any pre-signed third-party claims loaded from a

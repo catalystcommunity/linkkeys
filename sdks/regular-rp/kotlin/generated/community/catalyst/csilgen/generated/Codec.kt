@@ -1020,6 +1020,7 @@ fun ConsentGrant.toCborValue(): CborValue {
     csilEntries.add(CborValue.CText("issued_at") to CborValue.CText(this.issuedAt))
     csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
     this.revokedAt?.let { csilV -> csilEntries.add(CborValue.CText("revoked_at") to CborValue.CText(csilV)) }
+    this.application?.let { csilV -> csilEntries.add(CborValue.CText("application") to csilV.toCborValue()) }
     csilEntries.add(CborValue.CText("claim_types") to CborValue.CArray((this.claimTypes).map { csilE -> CborValue.CText(csilE) }))
     csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
     return CborValue.CMap(csilEntries)
@@ -1038,7 +1039,8 @@ fun consentGrantFromCborValue(cbor: CborValue): ConsentGrant {
     val issuedAt = CsilCbor.asText(CsilCbor.require(cbor, "issued_at"))
     val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
     val revokedAt = CsilCbor.mapGet(cbor, "revoked_at")?.let { csilV -> CsilCbor.asText(csilV) }
-    return ConsentGrant(grantId = grantId, userId = userId, subjectDomain = subjectDomain, audience = audience, claimTypes = claimTypes, issuedAt = issuedAt, expiresAt = expiresAt, revokedAt = revokedAt)
+    val application = CsilCbor.mapGet(cbor, "application")?.let { csilV -> applicationRefFromCborValue(csilV) }
+    return ConsentGrant(grantId = grantId, userId = userId, subjectDomain = subjectDomain, audience = audience, claimTypes = claimTypes, issuedAt = issuedAt, expiresAt = expiresAt, revokedAt = revokedAt, application = application)
 }
 
 /** Decode CSIL CBOR bytes into a ConsentGrant. */
@@ -1336,11 +1338,33 @@ fun userInfoFromCborValue(cbor: CborValue): UserInfo {
 /** Decode CSIL CBOR bytes into a UserInfo. */
 fun userInfoFromCbor(bytes: ByteArray): UserInfo = userInfoFromCborValue(CsilCbor.decode(bytes))
 
+/** The CBOR value tree for a RelyingPartyApplication (deep, canonical key order). */
+fun RelyingPartyApplication.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("application") to this.application.toCborValue())
+    csilEntries.add(CborValue.CText("display_name") to CborValue.CText(this.displayName))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a RelyingPartyApplication to canonical CSIL CBOR bytes. */
+fun RelyingPartyApplication.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a RelyingPartyApplication from a decoded CBOR value tree. */
+fun relyingPartyApplicationFromCborValue(cbor: CborValue): RelyingPartyApplication {
+    val application = applicationRefFromCborValue(CsilCbor.require(cbor, "application"))
+    val displayName = CsilCbor.asText(CsilCbor.require(cbor, "display_name"))
+    return RelyingPartyApplication(application = application, displayName = displayName)
+}
+
+/** Decode CSIL CBOR bytes into a RelyingPartyApplication. */
+fun relyingPartyApplicationFromCbor(bytes: ByteArray): RelyingPartyApplication = relyingPartyApplicationFromCborValue(CsilCbor.decode(bytes))
+
 /** The CBOR value tree for a AuthRequest (deep, canonical key order). */
 fun AuthRequest.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("nonce") to CborValue.CText(this.nonce))
     csilEntries.add(CborValue.CText("timestamp") to CborValue.CText(this.timestamp))
+    this.application?.let { csilV -> csilEntries.add(CborValue.CText("application") to csilV.toCborValue()) }
     csilEntries.add(CborValue.CText("callback_url") to CborValue.CText(this.callbackUrl))
     this.flowContext?.let { csilV -> csilEntries.add(CborValue.CText("flow_context") to csilV.toCborValue()) }
     csilEntries.add(CborValue.CText("relying_party") to CborValue.CText(this.relyingParty))
@@ -1365,7 +1389,8 @@ fun authRequestFromCborValue(cbor: CborValue): AuthRequest {
     val authenticationRequirements = CsilCbor.mapGet(cbor, "authentication_requirements")?.let { csilV -> authenticationRequirementsFromCborValue(csilV) }
     val flowContext = CsilCbor.mapGet(cbor, "flow_context")?.let { csilV -> authFlowContextFromCborValue(csilV) }
     val relyingPartyClaims = CsilCbor.mapGet(cbor, "relying_party_claims")?.let { csilV -> CsilCbor.asArray(csilV).map { csilE -> domainClaimFromCborValue(csilE) } }
-    return AuthRequest(relyingParty = relyingParty, callbackUrl = callbackUrl, nonce = nonce, timestamp = timestamp, signingKeyId = signingKeyId, requestedClaims = requestedClaims, authenticationRequirements = authenticationRequirements, flowContext = flowContext, relyingPartyClaims = relyingPartyClaims)
+    val application = CsilCbor.mapGet(cbor, "application")?.let { csilV -> relyingPartyApplicationFromCborValue(csilV) }
+    return AuthRequest(relyingParty = relyingParty, callbackUrl = callbackUrl, nonce = nonce, timestamp = timestamp, signingKeyId = signingKeyId, requestedClaims = requestedClaims, authenticationRequirements = authenticationRequirements, flowContext = flowContext, relyingPartyClaims = relyingPartyClaims, application = application)
 }
 
 /** Decode CSIL CBOR bytes into a AuthRequest. */
@@ -4129,7 +4154,9 @@ fun browserConsentClaimFromCbor(bytes: ByteArray): BrowserConsentClaim = browser
 fun BrowserAuthorizationInspectResponse.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("claims") to CborValue.CArray((this.claims).map { csilE -> csilE.toCborValue() }))
+    this.application?.let { csilV -> csilEntries.add(CborValue.CText("application") to csilV.toCborValue()) }
     this.accessDenied?.let { csilV -> csilEntries.add(CborValue.CText("access_denied") to csilV.toCborValue()) }
+    this.callbackHost?.let { csilV -> csilEntries.add(CborValue.CText("callback_host") to CborValue.CText(csilV)) }
     csilEntries.add(CborValue.CText("relying_party") to CborValue.CText(this.relyingParty))
     this.requestReason?.let { csilV -> csilEntries.add(CborValue.CText("request_reason") to CborValue.CText(csilV)) }
     this.alreadyConsented?.let { csilV -> csilEntries.add(CborValue.CText("already_consented") to CborValue.CBool(csilV)) }
@@ -4148,7 +4175,9 @@ fun browserAuthorizationInspectResponseFromCborValue(cbor: CborValue): BrowserAu
     val alreadyConsented = CsilCbor.mapGet(cbor, "already_consented")?.let { csilV -> CsilCbor.asBoolean(csilV) }
     val authorizedClaims = CsilCbor.mapGet(cbor, "authorized_claims")?.let { csilV -> CsilCbor.asArray(csilV).map { csilE -> CsilCbor.asText(csilE) } }
     val accessDenied = CsilCbor.mapGet(cbor, "access_denied")?.let { csilV -> appAccessDenialFromCborValue(csilV) }
-    return BrowserAuthorizationInspectResponse(relyingParty = relyingParty, claims = claims, requestReason = requestReason, alreadyConsented = alreadyConsented, authorizedClaims = authorizedClaims, accessDenied = accessDenied)
+    val application = CsilCbor.mapGet(cbor, "application")?.let { csilV -> relyingPartyApplicationFromCborValue(csilV) }
+    val callbackHost = CsilCbor.mapGet(cbor, "callback_host")?.let { csilV -> CsilCbor.asText(csilV) }
+    return BrowserAuthorizationInspectResponse(relyingParty = relyingParty, claims = claims, requestReason = requestReason, alreadyConsented = alreadyConsented, authorizedClaims = authorizedClaims, accessDenied = accessDenied, application = application, callbackHost = callbackHost)
 }
 
 /** Decode CSIL CBOR bytes into a BrowserAuthorizationInspectResponse. */
@@ -4410,6 +4439,7 @@ fun RpSignRequest.toCborValue(): CborValue {
     csilEntries.add(CborValue.CText("nonce") to CborValue.CText(this.nonce))
     csilEntries.add(CborValue.CText("callback_url") to CborValue.CText(this.callbackUrl))
     this.flowContext?.let { csilV -> csilEntries.add(CborValue.CText("flow_context") to csilV.toCborValue()) }
+    this.applicationId?.let { csilV -> csilEntries.add(CborValue.CText("application_id") to CborValue.CText(csilV)) }
     this.requestedClaims?.let { csilV -> csilEntries.add(CborValue.CText("requested_claims") to csilV.toCborValue()) }
     this.authenticationRequirements?.let { csilV -> csilEntries.add(CborValue.CText("authentication_requirements") to csilV.toCborValue()) }
     return CborValue.CMap(csilEntries)
@@ -4422,10 +4452,11 @@ fun RpSignRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
 fun rpSignRequestFromCborValue(cbor: CborValue): RpSignRequest {
     val callbackUrl = CsilCbor.asText(CsilCbor.require(cbor, "callback_url"))
     val nonce = CsilCbor.asText(CsilCbor.require(cbor, "nonce"))
+    val applicationId = CsilCbor.mapGet(cbor, "application_id")?.let { csilV -> CsilCbor.asText(csilV) }
     val requestedClaims = CsilCbor.mapGet(cbor, "requested_claims")?.let { csilV -> claimRequestFromCborValue(csilV) }
     val authenticationRequirements = CsilCbor.mapGet(cbor, "authentication_requirements")?.let { csilV -> authenticationRequirementsFromCborValue(csilV) }
     val flowContext = CsilCbor.mapGet(cbor, "flow_context")?.let { csilV -> authFlowContextFromCborValue(csilV) }
-    return RpSignRequest(callbackUrl = callbackUrl, nonce = nonce, requestedClaims = requestedClaims, authenticationRequirements = authenticationRequirements, flowContext = flowContext)
+    return RpSignRequest(callbackUrl = callbackUrl, nonce = nonce, applicationId = applicationId, requestedClaims = requestedClaims, authenticationRequirements = authenticationRequirements, flowContext = flowContext)
 }
 
 /** Decode CSIL CBOR bytes into a RpSignRequest. */
@@ -4621,6 +4652,7 @@ fun authorizeValidateRequestFromCbor(bytes: ByteArray): AuthorizeValidateRequest
 /** The CBOR value tree for a AuthorizeValidateResponse (deep, canonical key order). */
 fun AuthorizeValidateResponse.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    this.application?.let { csilV -> csilEntries.add(CborValue.CText("application") to csilV.toCborValue()) }
     csilEntries.add(CborValue.CText("callback_url") to CborValue.CText(this.callbackUrl))
     this.accessDenied?.let { csilV -> csilEntries.add(CborValue.CText("access_denied") to csilV.toCborValue()) }
     csilEntries.add(CborValue.CText("relying_party") to CborValue.CText(this.relyingParty))
@@ -4643,7 +4675,8 @@ fun authorizeValidateResponseFromCborValue(cbor: CborValue): AuthorizeValidateRe
     val authorizedClaims = CsilCbor.mapGet(cbor, "authorized_claims")?.let { csilV -> CsilCbor.asArray(csilV).map { csilE -> CsilCbor.asText(csilE) } }
     val newlyRequestedClaims = CsilCbor.mapGet(cbor, "newly_requested_claims")?.let { csilV -> CsilCbor.asArray(csilV).map { csilE -> CsilCbor.asText(csilE) } }
     val accessDenied = CsilCbor.mapGet(cbor, "access_denied")?.let { csilV -> appAccessDenialFromCborValue(csilV) }
-    return AuthorizeValidateResponse(relyingParty = relyingParty, callbackUrl = callbackUrl, requestedClaims = requestedClaims, alreadyConsented = alreadyConsented, authorizedClaims = authorizedClaims, newlyRequestedClaims = newlyRequestedClaims, accessDenied = accessDenied)
+    val application = CsilCbor.mapGet(cbor, "application")?.let { csilV -> relyingPartyApplicationFromCborValue(csilV) }
+    return AuthorizeValidateResponse(relyingParty = relyingParty, callbackUrl = callbackUrl, requestedClaims = requestedClaims, alreadyConsented = alreadyConsented, authorizedClaims = authorizedClaims, newlyRequestedClaims = newlyRequestedClaims, accessDenied = accessDenied, application = application)
 }
 
 /** Decode CSIL CBOR bytes into a AuthorizeValidateResponse. */
@@ -7516,6 +7549,7 @@ private fun csilToCborValue(value: Any?): CborValue = when (value) {
     is UserInfoRequest -> value.toCborValue()
     is SignedUserInfoRequest -> value.toCborValue()
     is UserInfo -> value.toCborValue()
+    is RelyingPartyApplication -> value.toCborValue()
     is AuthRequest -> value.toCborValue()
     is SignedAuthRequest -> value.toCborValue()
     is EncryptedToken -> value.toCborValue()
@@ -7834,6 +7868,7 @@ fun csilFromCborValue(type: kotlin.reflect.KClass<*>, cbor: CborValue): Any = wh
     UserInfoRequest::class -> userInfoRequestFromCborValue(cbor)
     SignedUserInfoRequest::class -> signedUserInfoRequestFromCborValue(cbor)
     UserInfo::class -> userInfoFromCborValue(cbor)
+    RelyingPartyApplication::class -> relyingPartyApplicationFromCborValue(cbor)
     AuthRequest::class -> authRequestFromCborValue(cbor)
     SignedAuthRequest::class -> signedAuthRequestFromCborValue(cbor)
     EncryptedToken::class -> encryptedTokenFromCborValue(cbor)

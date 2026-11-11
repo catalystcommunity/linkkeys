@@ -703,10 +703,8 @@ fn user_has_history_with_domain(
     if in_grants {
         return Ok(true);
     }
-    Ok(pool
-        .find_active_consent_grant(&user.id, domain)
-        .map_err(|e| internal("reading consent grants", e))?
-        .is_some())
+    pool.has_active_consent_grant_for_audience(&user.id, domain)
+        .map_err(|e| internal("reading consent grants", e))
 }
 
 /// One application on the consent screen: its domain first, the three trust

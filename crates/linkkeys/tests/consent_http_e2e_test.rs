@@ -311,7 +311,7 @@ async fn spa_consent_flow_end_to_end() {
     assert!(completion.redirect_url.contains("encrypted_token="));
 
     let grant = pool
-        .find_active_consent_grant(&user.id, TEST_DOMAIN)
+        .find_active_consent_grant(&user.id, TEST_DOMAIN, None)
         .expect("query grant")
         .expect("stored grant");
     assert_eq!(grant.claim_types, vec!["email"]);
@@ -525,5 +525,240 @@ async fn spa_consent_flow_end_to_end() {
         response.headers().get_one("Location"),
         Some("/app/error?reason=assurance"),
         "an assurance this provider cannot meet goes to the error page"
+    );
+}
+
+/// An email login request from application `application_id` of the RP
+/// domain, with its callback on another domain.
+fn signed_app_request(
+    signing_key_id: &str,
+    signing_key: &[u8],
+    nonce: &str,
+    application_id: &str,
+) -> String {
+    let mut request = build_auth_request(
+        TEST_DOMAIN,
+        "https://homegrafana.catalystsquad.com/login/callback",
+        nonce,
+        signing_key_id,
+        Some(ClaimRequest {
+            required: vec![RequestedClaim {
+                claim_type: "email".to_string(),
+                datatype: "email".to_string(),
+            }],
+            optional: Vec::new(),
+        }),
+        None,
+    );
+    request.relying_party_claims = None;
+    request.application = Some(liblinkkeys::generated::types::RelyingPartyApplication {
+        application: liblinkkeys::generated::types::ApplicationRef {
+            subject_user_id: "00000000-0000-0000-0000-0000000000aa".to_string(),
+            subject_domain: TEST_DOMAIN.to_string(),
+            application_id: application_id.to_string(),
+        },
+        display_name: "Home Grafana".to_string(),
+    });
+    let signed = sign_auth_request(
+        &request,
+        signing_key_id,
+        SigningAlgorithm::Ed25519,
+        signing_key,
+    )
+    .expect("sign authorization request");
+    signed_auth_request_to_url_param(&signed).expect("encode request")
+}
+
+async fn inspect(
+    client: &Client,
+    signed_request: &str,
+) -> liblinkkeys::generated::types::BrowserAuthorizationInspectResponse {
+    let response = rpc(
+        client,
+        "BrowserAuthorization",
+        "inspect",
+        liblinkkeys::generated::encode_browser_authorization_inspect_request(
+            &BrowserAuthorizationInspectRequest {
+                signed_request: signed_request.to_string(),
+            },
+        ),
+    )
+    .await;
+    assert_eq!(response.status, RpcStatus::Ok);
+    liblinkkeys::generated::decode_browser_authorization_inspect_response(&response.payload)
+        .expect("decode inspection")
+}
+
+/// An application principal of the RP domain lives on another domain. The IDP
+/// accepts the signed off-domain callback, shows the application and the
+/// callback host, and sends the browser to that host after consent. The
+/// standing consent then covers that application only, not a sibling.
+#[rocket::async_test]
+async fn off_domain_application_signs_in_with_per_application_consent() {
+    std::env::set_var("DOMAIN_NAME", TEST_DOMAIN);
+    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
+    std::env::set_var("ENABLE_PASSWORD_AUTH", "true");
+
+    let pool = common::create_test_pool();
+    pool.seed_default_policies().expect("seed policies");
+
+    let (verification_key, signing_key) = crypto::generate_ed25519_keypair();
+    let public_key = verification_key.as_bytes().to_vec();
+    let signing_key_bytes = signing_key.to_bytes().to_vec();
+    let encrypted_signing_key =
+        crypto::encrypt_private_key(&signing_key_bytes, PASSPHRASE).unwrap();
+    let expires = chrono::Utc::now() + chrono::Duration::days(365);
+    let signing = pool
+        .create_domain_key(
+            &public_key,
+            &encrypted_signing_key,
+            &crypto::fingerprint(&public_key),
+            "ed25519",
+            expires,
+        )
+        .expect("signing key");
+    let (encryption_public_key, encryption_private_key) = crypto::generate_x25519_keypair();
+    let encryption_fingerprint = crypto::fingerprint(&encryption_public_key);
+    let vouch = liblinkkeys::dns::sign_key_vouch(
+        &encryption_fingerprint,
+        &expires.to_rfc3339(),
+        SigningAlgorithm::Ed25519,
+        &signing_key_bytes,
+    )
+    .unwrap();
+    pool.create_domain_encryption_key(
+        &encryption_public_key,
+        &crypto::encrypt_private_key(&encryption_private_key, PASSPHRASE).unwrap(),
+        &encryption_fingerprint,
+        &signing.id,
+        &vouch,
+        expires,
+    )
+    .expect("encryption key");
+
+    let mut overrides = DataMap::new();
+    overrides.insert("username".to_string(), serde_json::json!(USERNAME));
+    let user = create_user(&pool, &overrides);
+    let hash = linkkeys::services::password::hash_for_storage(PASSWORD).unwrap();
+    create_auth_credential(&pool, &user.id, "password", &hash);
+    pool.create_claim(
+        &uuid::Uuid::now_v7().to_string(),
+        &user.id,
+        "email",
+        b"a@b.com",
+        &[],
+        None,
+        chrono::Utc::now(),
+    )
+    .expect("claim");
+
+    let authorization = signed_app_request(
+        &signing.id,
+        &signing_key_bytes,
+        "app-nonce-1",
+        "homegrafana",
+    );
+
+    let config = rocket::Config {
+        secret_key: rocket::config::SecretKey::derive_from(&[7_u8; 64]),
+        ..rocket::Config::debug_default()
+    };
+    let rocket = linkkeys::web::build_rocket(
+        pool.clone(),
+        Arc::new(AtomicBool::new(true)),
+        common::net::offline_net(),
+        config,
+    );
+    let client = Client::tracked(rocket).await.expect("Rocket client");
+
+    let response = client
+        .get(format!("/auth/authorize?signed_request={authorization}"))
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Found);
+    assert_eq!(
+        response.headers().get_one("Location"),
+        Some(format!("/app/authorize#request={authorization}").as_str()),
+        "an off-domain signed callback is not refused"
+    );
+
+    let login = rpc(
+        &client,
+        "Session",
+        "login-password",
+        liblinkkeys::generated::encode_session_password_login_request(
+            &SessionPasswordLoginRequest {
+                username: USERNAME.to_string(),
+                password: PASSWORD.to_string(),
+            },
+        ),
+    )
+    .await;
+    assert_eq!(login.status, RpcStatus::Ok);
+
+    let inspection = inspect(&client, &authorization).await;
+    assert_eq!(inspection.relying_party, TEST_DOMAIN);
+    assert_eq!(inspection.already_consented, None, "first consent shows");
+    assert_eq!(
+        inspection.application.map(|a| a.display_name),
+        Some("Home Grafana".to_string())
+    );
+    assert_eq!(
+        inspection.callback_host.as_deref(),
+        Some("homegrafana.catalystsquad.com")
+    );
+
+    let response = rpc(
+        &client,
+        "BrowserAuthorization",
+        "complete",
+        liblinkkeys::generated::encode_browser_authorization_complete_request(
+            &BrowserAuthorizationCompleteRequest {
+                signed_request: authorization,
+                authorized_claims: vec!["email".to_string()],
+                claim_types_to_set: Vec::new(),
+                claim_values_to_set: Vec::new(),
+                use_standing_grant: None,
+            },
+        ),
+    )
+    .await;
+    assert_eq!(response.status, RpcStatus::Ok);
+    let completion =
+        liblinkkeys::generated::decode_browser_authorization_complete_response(&response.payload)
+            .expect("decode completion");
+    assert!(completion
+        .redirect_url
+        .starts_with("https://homegrafana.catalystsquad.com/login/callback?encrypted_token="));
+
+    // The grant is stored for this application, not for the whole domain.
+    let grant_app = liblinkkeys::generated::types::ApplicationRef {
+        subject_user_id: "00000000-0000-0000-0000-0000000000aa".to_string(),
+        subject_domain: TEST_DOMAIN.to_string(),
+        application_id: "homegrafana".to_string(),
+    };
+    assert!(pool
+        .find_active_consent_grant(&user.id, TEST_DOMAIN, Some(&grant_app))
+        .expect("query")
+        .is_some());
+    assert!(pool
+        .find_active_consent_grant(&user.id, TEST_DOMAIN, None)
+        .expect("query")
+        .is_none());
+
+    // The same application signs in again silently.
+    let again = signed_app_request(
+        &signing.id,
+        &signing_key_bytes,
+        "app-nonce-2",
+        "homegrafana",
+    );
+    assert_eq!(inspect(&client, &again).await.already_consented, Some(true));
+    // A sibling application of the same domain must show consent.
+    let sibling = signed_app_request(&signing.id, &signing_key_bytes, "app-nonce-3", "wiki");
+    assert_eq!(
+        inspect(&client, &sibling).await.already_consented,
+        None,
+        "a sibling application does not inherit the grant"
     );
 }

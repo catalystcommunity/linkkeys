@@ -1029,6 +1029,7 @@ class ConsentGrant
     csil_map["issued_at"] = issued_at
     csil_map["expires_at"] = expires_at
     csil_map["revoked_at"] = revoked_at unless revoked_at.nil?
+    csil_map["application"] = (application).csil_to_tree unless application.nil?
     csil_map["claim_types"] = (claim_types).map { |csil_e| csil_e }
     csil_map["subject_domain"] = subject_domain
     csil_map
@@ -1047,7 +1048,8 @@ class ConsentGrant
       claim_types: (node["claim_types"]).map { |csil_e| csil_e },
       issued_at: node["issued_at"],
       expires_at: node["expires_at"],
-      revoked_at: (node.key?("revoked_at") ? node["revoked_at"] : nil)
+      revoked_at: (node.key?("revoked_at") ? node["revoked_at"] : nil),
+      application: (node.key?("application") ? ApplicationRef.csil_from_tree(node["application"]) : nil)
     )
   end
 end
@@ -1404,6 +1406,32 @@ class UserInfo
   end
 end
 
+# CBOR codec for RelyingPartyApplication: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class RelyingPartyApplication
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["application"] = (application).csil_to_tree
+    csil_map["display_name"] = display_name
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    new(
+      application: ApplicationRef.csil_from_tree(node["application"]),
+      display_name: node["display_name"]
+    )
+  end
+end
+
 # CBOR codec for AuthRequest: a map keyed by the verbatim CSIL field names in
 # canonical RFC 8949 order.
 class AuthRequest
@@ -1415,6 +1443,7 @@ class AuthRequest
     csil_map = {}
     csil_map["nonce"] = nonce
     csil_map["timestamp"] = timestamp
+    csil_map["application"] = (application).csil_to_tree unless application.nil?
     csil_map["callback_url"] = callback_url
     csil_map["flow_context"] = (flow_context).csil_to_tree unless flow_context.nil?
     csil_map["relying_party"] = relying_party
@@ -1439,7 +1468,8 @@ class AuthRequest
       requested_claims: (node.key?("requested_claims") ? ClaimRequest.csil_from_tree(node["requested_claims"]) : nil),
       authentication_requirements: (node.key?("authentication_requirements") ? AuthenticationRequirements.csil_from_tree(node["authentication_requirements"]) : nil),
       flow_context: (node.key?("flow_context") ? AuthFlowContext.csil_from_tree(node["flow_context"]) : nil),
-      relying_party_claims: (node.key?("relying_party_claims") ? (node["relying_party_claims"]).map { |csil_e| DomainClaim.csil_from_tree(csil_e) } : nil)
+      relying_party_claims: (node.key?("relying_party_claims") ? (node["relying_party_claims"]).map { |csil_e| DomainClaim.csil_from_tree(csil_e) } : nil),
+      application: (node.key?("application") ? RelyingPartyApplication.csil_from_tree(node["application"]) : nil)
     )
   end
 end
@@ -4845,7 +4875,9 @@ class BrowserAuthorizationInspectResponse
   def csil_to_tree
     csil_map = {}
     csil_map["claims"] = (claims).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["application"] = (application).csil_to_tree unless application.nil?
     csil_map["access_denied"] = (access_denied).csil_to_tree unless access_denied.nil?
+    csil_map["callback_host"] = callback_host unless callback_host.nil?
     csil_map["relying_party"] = relying_party
     csil_map["request_reason"] = request_reason unless request_reason.nil?
     csil_map["already_consented"] = already_consented unless already_consented.nil?
@@ -4864,7 +4896,9 @@ class BrowserAuthorizationInspectResponse
       request_reason: (node.key?("request_reason") ? node["request_reason"] : nil),
       already_consented: (node.key?("already_consented") ? node["already_consented"] : nil),
       authorized_claims: (node.key?("authorized_claims") ? (node["authorized_claims"]).map { |csil_e| csil_e } : nil),
-      access_denied: (node.key?("access_denied") ? AppAccessDenial.csil_from_tree(node["access_denied"]) : nil)
+      access_denied: (node.key?("access_denied") ? AppAccessDenial.csil_from_tree(node["access_denied"]) : nil),
+      application: (node.key?("application") ? RelyingPartyApplication.csil_from_tree(node["application"]) : nil),
+      callback_host: (node.key?("callback_host") ? node["callback_host"] : nil)
     )
   end
 end
@@ -5181,6 +5215,7 @@ class RpSignRequest
     csil_map["nonce"] = nonce
     csil_map["callback_url"] = callback_url
     csil_map["flow_context"] = (flow_context).csil_to_tree unless flow_context.nil?
+    csil_map["application_id"] = application_id unless application_id.nil?
     csil_map["requested_claims"] = (requested_claims).csil_to_tree unless requested_claims.nil?
     csil_map["authentication_requirements"] = (authentication_requirements).csil_to_tree unless authentication_requirements.nil?
     csil_map
@@ -5194,6 +5229,7 @@ class RpSignRequest
     new(
       callback_url: node["callback_url"],
       nonce: node["nonce"],
+      application_id: (node.key?("application_id") ? node["application_id"] : nil),
       requested_claims: (node.key?("requested_claims") ? ClaimRequest.csil_from_tree(node["requested_claims"]) : nil),
       authentication_requirements: (node.key?("authentication_requirements") ? AuthenticationRequirements.csil_from_tree(node["authentication_requirements"]) : nil),
       flow_context: (node.key?("flow_context") ? AuthFlowContext.csil_from_tree(node["flow_context"]) : nil)
@@ -5442,6 +5478,7 @@ class AuthorizeValidateResponse
 
   def csil_to_tree
     csil_map = {}
+    csil_map["application"] = (application).csil_to_tree unless application.nil?
     csil_map["callback_url"] = callback_url
     csil_map["access_denied"] = (access_denied).csil_to_tree unless access_denied.nil?
     csil_map["relying_party"] = relying_party
@@ -5464,7 +5501,8 @@ class AuthorizeValidateResponse
       already_consented: (node.key?("already_consented") ? node["already_consented"] : nil),
       authorized_claims: (node.key?("authorized_claims") ? (node["authorized_claims"]).map { |csil_e| csil_e } : nil),
       newly_requested_claims: (node.key?("newly_requested_claims") ? (node["newly_requested_claims"]).map { |csil_e| csil_e } : nil),
-      access_denied: (node.key?("access_denied") ? AppAccessDenial.csil_from_tree(node["access_denied"]) : nil)
+      access_denied: (node.key?("access_denied") ? AppAccessDenial.csil_from_tree(node["access_denied"]) : nil),
+      application: (node.key?("application") ? RelyingPartyApplication.csil_from_tree(node["application"]) : nil)
     )
   end
 end

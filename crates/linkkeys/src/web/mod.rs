@@ -518,7 +518,7 @@ pub(crate) fn silent_authorization(
         return None;
     }
     let prior = pool
-        .find_active_consent_grant(user_id, &request.relying_party)
+        .find_active_consent_grant(user_id, &request.relying_party, request_app(request))
         .ok()
         .flatten()?;
     // A claim the user has never been shown reopens consent once, even when
@@ -559,17 +559,36 @@ fn newly_requested_for_user(
 ) -> Option<Vec<String>> {
     let req = request.requested_claims.as_ref()?;
     let prior = pool
-        .find_active_consent_grant(user_id, &request.relying_party)
+        .find_active_consent_grant(user_id, &request.relying_party, request_app(request))
         .ok()
         .flatten()?;
     let new = consent::newly_requested_claims(req, &prior.requested_types, policy);
     (!new.is_empty()).then_some(new)
 }
 
+/// The application of a request's relying party, the key of its standing
+/// consent. `None` for a request that names no application.
+pub(crate) fn request_app(
+    request: &AuthRequest,
+) -> Option<&liblinkkeys::generated::types::ApplicationRef> {
+    request.application.as_ref().map(|a| &a.application)
+}
+
 /// Reconstruct the protocol `ConsentGrant` from a stored row for the consent
 /// screen (only `claim_types` drives pre-checking).
 fn prior_grant_object(row: &crate::db::models::ConsentGrantRow) -> ConsentGrant {
+    let application = match (&row.app_subject_user_id, &row.app_application_id) {
+        (Some(subject_user_id), Some(application_id)) => {
+            Some(liblinkkeys::generated::types::ApplicationRef {
+                subject_user_id: subject_user_id.clone(),
+                subject_domain: row.audience.clone(),
+                application_id: application_id.clone(),
+            })
+        }
+        _ => None,
+    };
     ConsentGrant {
+        application,
         grant_id: row.id.clone(),
         user_id: row.user_id.clone(),
         subject_domain: row.subject_domain.clone(),
@@ -583,11 +602,12 @@ fn prior_grant_object(row: &crate::db::models::ConsentGrantRow) -> ConsentGrant 
 
 /// Build the consent screen for (user, request) under the current policy:
 /// resolves the user's available claims and any prior standing grant for the
-/// requesting `audience`.
+/// requesting `audience` and `application`.
 pub(super) fn build_consent_screen(
     pool: &DbPool,
     user_id: &str,
     audience: &str,
+    application: Option<&liblinkkeys::generated::types::ApplicationRef>,
     req: &ClaimRequest,
     policy: &DomainPolicy,
 ) -> ConsentScreen {
@@ -596,7 +616,7 @@ pub(super) fn build_consent_screen(
         .map(|c| c.iter().map(Into::into).collect())
         .unwrap_or_default();
     let prior = pool
-        .find_active_consent_grant(user_id, audience)
+        .find_active_consent_grant(user_id, audience, application)
         .ok()
         .flatten();
     let prior_obj = prior.as_ref().map(prior_grant_object);
@@ -628,11 +648,13 @@ pub(super) fn build_consent_screen(
 /// Sign a consent grant for the user with **all** active domain signing keys
 /// (mirroring claim signing: multiple keys give rotation resilience while the
 /// verification quorum needs only one valid signature per domain).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn sign_consent_grant_for_user(
     pool: &DbPool,
     grant_id: &str,
     user_id: &str,
     audience: &str,
+    application: Option<&liblinkkeys::generated::types::ApplicationRef>,
     claim_types: &[String],
     issued_at: &str,
     expires_at: &str,
@@ -687,6 +709,7 @@ pub(super) fn sign_consent_grant_for_user(
         claim_types,
         issued_at,
         expires_at,
+        application,
     };
     consent::sign_consent(&spec, &signers)
         .map_err(|e| internal_error("consent grant signing", format!("{e:?}")))
@@ -909,18 +932,19 @@ pub(super) fn session_evidence(
     })
 }
 
-/// The consent-screen rows for `claim_request` to `audience`, as the browser
-/// app renders them.
+/// The consent-screen rows for `claim_request` to `audience` (and its
+/// `application`, when the request names one), as the browser app renders them.
 pub(super) fn consent_claims(
     pool: &DbPool,
     user_id: &str,
     audience: &str,
+    application: Option<&liblinkkeys::generated::types::ApplicationRef>,
     claim_request: &ClaimRequest,
     policy: &DomainPolicy,
 ) -> Vec<liblinkkeys::generated::types::BrowserConsentClaim> {
     use liblinkkeys::consent::PolicyDisposition;
     use liblinkkeys::generated::types::BrowserConsentClaim;
-    build_consent_screen(pool, user_id, audience, claim_request, policy)
+    build_consent_screen(pool, user_id, audience, application, claim_request, policy)
         .rows
         .into_iter()
         .map(|row| {
@@ -1001,6 +1025,8 @@ async fn inspect_browser_authorization(
                 already_consented: None,
                 authorized_claims: None,
                 access_denied: Some(denial),
+                application: None,
+                callback_host: None,
             },
         );
     }
@@ -1035,12 +1061,14 @@ async fn inspect_browser_authorization(
             pool,
             &user.id,
             &request.relying_party,
+            request_app(&request),
             claim_request,
             &policy,
         )
     } else {
         Vec::new()
     };
+    let callback_host = callback_host_outside_rp_domain(&request);
     Ok(
         liblinkkeys::generated::types::BrowserAuthorizationInspectResponse {
             relying_party: request.relying_party,
@@ -1049,6 +1077,8 @@ async fn inspect_browser_authorization(
             already_consented,
             authorized_claims,
             access_denied: None,
+            application: request.application,
+            callback_host,
         },
     )
 }
@@ -1304,6 +1334,7 @@ async fn do_finalize_login_url(input: LoginFinalization<'_>) -> Result<String, F
             &grant_id,
             &fresh_user.id,
             &request.relying_party,
+            request_app(request),
             &authorized_claims,
             &issued_at,
             &expires_at,
@@ -1315,6 +1346,7 @@ async fn do_finalize_login_url(input: LoginFinalization<'_>) -> Result<String, F
             &fresh_user.id,
             &get_domain_name(),
             &request.relying_party,
+            request_app(request),
             &authorized_claims,
             &requested,
             &grant_bytes,
@@ -1476,6 +1508,7 @@ async fn rp_authorize_validate(
                 authorized_claims,
                 newly_requested_claims,
                 access_denied,
+                application: validated.application.clone(),
             },
         ),
     ))
@@ -1659,7 +1692,6 @@ pub enum ValidateAuthRequestError {
     SignatureInvalid,
     Expired,
     CallbackNotHttps,
-    CallbackOffDomain,
     CallbackUnparseable,
 }
 
@@ -1672,7 +1704,6 @@ impl ValidateAuthRequestError {
             Self::SignatureInvalid => "signature_invalid",
             Self::Expired => "expired",
             Self::CallbackNotHttps => "callback_not_https",
-            Self::CallbackOffDomain => "callback_off_domain",
             Self::CallbackUnparseable => "callback_unparseable",
         }
     }
@@ -1684,26 +1715,9 @@ impl ValidateAuthRequestError {
             Self::SignatureInvalid => "The login request signature is invalid.",
             Self::Expired => "The login request has expired. Please start a new login.",
             Self::CallbackNotHttps => "The callback URL must use https.",
-            Self::CallbackOffDomain => "The callback URL is not within the relying party's domain.",
             Self::CallbackUnparseable => "The callback URL is malformed.",
         }
     }
-}
-
-/// True when the callback URL is `https://` and its host equals
-/// `rp_domain` or is a strict subdomain of it. Used as a defense-in-depth
-/// check on top of the RP's signature: even a misbehaving RP cannot
-/// authorize callbacks to a domain it doesn't own.
-fn callback_within_rp_domain(callback_url: &str, rp_domain: &str) -> Result<bool, ()> {
-    let url = reqwest::Url::parse(callback_url).map_err(|_| ())?;
-    if url.scheme() != "https" {
-        return Ok(false);
-    }
-    if !url.username().is_empty() || url.password().is_some() {
-        return Ok(false);
-    }
-    let host = url.host_str().ok_or(())?;
-    Ok(host == rp_domain || host.ends_with(&format!(".{}", rp_domain)))
 }
 
 /// Validate a `signed_request` URL parameter end-to-end:
@@ -1711,7 +1725,10 @@ fn callback_within_rp_domain(callback_url: &str, rp_domain: &str) -> Result<bool
 /// 2. Peek at `relying_party` so we know which RP's keys to fetch.
 /// 3. Fetch RP keys (local DB or DNS+HTTP).
 /// 4. Verify signature + timestamp via `verify_auth_request`.
-/// 5. Defense-in-depth: callback must be https and within rp_domain.
+/// 5. The callback must be a plain `https` URL. Its host is not limited:
+///    the RP signature is the authorization (`services::callback_url`). The
+///    consent screen shows a host that is outside the RP domain
+///    (`callback_host_outside_rp_domain`).
 ///
 /// On success returns the trusted `AuthRequest`. The URL/form-supplied
 /// `relying_party`, `callback_url`, and `nonce` are *not* consulted —
@@ -1754,16 +1771,35 @@ pub async fn validate_signed_request(
         _ => ValidateAuthRequestError::SignatureInvalid,
     })?;
 
-    if !request.callback_url.starts_with("https://") {
-        return Err(ValidateAuthRequestError::CallbackNotHttps);
+    use crate::services::callback_url::{callback_host, CallbackUrlError};
+    match callback_host(&request.callback_url) {
+        Ok(_) => {}
+        Err(CallbackUrlError::NotHttps) => return Err(ValidateAuthRequestError::CallbackNotHttps),
+        Err(CallbackUrlError::Unparseable) => {
+            return Err(ValidateAuthRequestError::CallbackUnparseable)
+        }
     }
-    match callback_within_rp_domain(&request.callback_url, &request.relying_party) {
-        Ok(true) => {}
-        Ok(false) => return Err(ValidateAuthRequestError::CallbackOffDomain),
-        Err(()) => return Err(ValidateAuthRequestError::CallbackUnparseable),
+    // An application principal belongs to the domain that signed the request.
+    if let Some(app) = &request.application {
+        if !app
+            .application
+            .subject_domain
+            .eq_ignore_ascii_case(&request.relying_party)
+        {
+            return Err(ValidateAuthRequestError::Malformed);
+        }
     }
 
     Ok(request)
+}
+
+/// The callback host of a validated request when it is not the RP domain or a
+/// subdomain of it. The consent screen shows it so the person knows where the
+/// browser goes after sign-in.
+pub fn callback_host_outside_rp_domain(request: &AuthRequest) -> Option<String> {
+    use crate::services::callback_url::{callback_host, host_in_domain};
+    let host = callback_host(&request.callback_url).ok()?;
+    (!host_in_domain(&host, &request.relying_party)).then_some(host)
 }
 
 /// Encrypt a signed assertion token for a relying party.
@@ -2868,70 +2904,43 @@ fn build_rocket_with_ui(
 mod tests {
     use super::*;
 
-    #[test]
-    fn callback_host_exact_match() {
-        assert_eq!(
-            callback_within_rp_domain("https://todandlorna.com/cb", "todandlorna.com"),
-            Ok(true)
-        );
+    fn request_with_callback(callback_url: &str) -> AuthRequest {
+        liblinkkeys::auth_request::build_auth_request(
+            "todandlorna.com",
+            callback_url,
+            "n",
+            "k",
+            None,
+            None,
+        )
     }
 
     #[test]
-    fn callback_host_subdomain_match() {
-        assert_eq!(
-            callback_within_rp_domain(
-                "https://longhouse.todandlorna.com/auth/callback",
-                "todandlorna.com",
-            ),
-            Ok(true)
-        );
+    fn callback_host_in_rp_domain_is_not_shown() {
+        for url in [
+            "https://todandlorna.com/cb",
+            "https://longhouse.todandlorna.com/auth/callback",
+        ] {
+            assert_eq!(
+                callback_host_outside_rp_domain(&request_with_callback(url)),
+                None
+            );
+        }
     }
 
     #[test]
-    fn callback_host_off_domain_rejected() {
+    fn callback_host_outside_rp_domain_is_shown() {
         assert_eq!(
-            callback_within_rp_domain("https://attacker.com/x", "todandlorna.com"),
-            Ok(false)
-        );
-    }
-
-    #[test]
-    fn callback_host_lookalike_rejected() {
-        // "evil-todandlorna.com" must NOT match — the dot is required.
-        assert_eq!(
-            callback_within_rp_domain("https://evil-todandlorna.com/x", "todandlorna.com"),
-            Ok(false)
-        );
-    }
-
-    #[test]
-    fn callback_non_https_rejected() {
-        assert_eq!(
-            callback_within_rp_domain("http://todandlorna.com/cb", "todandlorna.com"),
-            Ok(false)
-        );
-    }
-
-    #[test]
-    fn callback_with_port_accepted() {
-        assert_eq!(
-            callback_within_rp_domain("https://app.example.com:8443/cb", "example.com"),
-            Ok(true)
-        );
-    }
-
-    #[test]
-    fn callback_with_userinfo_is_rejected() {
-        assert_eq!(
-            callback_within_rp_domain(
-                "https://user.attacker.com@todandlorna.com/cb",
-                "todandlorna.com"
-            ),
-            Ok(false)
+            callback_host_outside_rp_domain(&request_with_callback(
+                "https://homegrafana.catalystsquad.com/login/callback"
+            )),
+            Some("homegrafana.catalystsquad.com".to_string())
         );
         assert_eq!(
-            callback_within_rp_domain("https://todandlorna.com@attacker.com/cb", "todandlorna.com"),
-            Ok(false)
+            callback_host_outside_rp_domain(&request_with_callback(
+                "https://evil-todandlorna.com/cb"
+            )),
+            Some("evil-todandlorna.com".to_string())
         );
     }
 }

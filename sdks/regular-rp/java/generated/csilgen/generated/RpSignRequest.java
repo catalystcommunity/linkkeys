@@ -5,6 +5,7 @@ package csilgen.generated;
 public record RpSignRequest(
     String callbackUrl /* wire: "callback_url" */,
     String nonce /* wire: "nonce" */,
+    String applicationId /* wire: "application_id" */,
     ClaimRequest requestedClaims /* wire: "requested_claims" */,
     AuthenticationRequirements authenticationRequirements /* wire: "authentication_requirements" */,
     AuthFlowContext flowContext /* wire: "flow_context" */

@@ -13,6 +13,7 @@ public record AuthRequest(
     ClaimRequest requestedClaims /* wire: "requested_claims" */,
     AuthenticationRequirements authenticationRequirements /* wire: "authentication_requirements" */,
     AuthFlowContext flowContext /* wire: "flow_context" */,
-    List<DomainClaim> relyingPartyClaims /* wire: "relying_party_claims" */
+    List<DomainClaim> relyingPartyClaims /* wire: "relying_party_claims" */,
+    RelyingPartyApplication application /* wire: "application" */
 ) {
 }

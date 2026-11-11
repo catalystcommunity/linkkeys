@@ -1,7 +1,8 @@
 //! Consent (claim-release) grants.
 //!
 //! A consent grant is a user's standing authorization for one relying party
-//! (the `audience`) to receive a specific set of claim types. It is the scoped,
+//! (the `audience`), and for one application of it when the grant names one,
+//! to receive a specific set of claim types. It is the scoped,
 //! signed object that turns "release everything" into "release exactly what the
 //! user agreed to for this audience".
 //!
@@ -18,7 +19,7 @@
 use crate::claims::{verify_signature_quorum, ClaimError, ClaimSigner, DomainKeySet};
 use crate::crypto::CryptoError;
 use crate::generated::types::{
-    Claim, ClaimRequest, ClaimSignature, ConsentGrant, SignedConsentGrant,
+    ApplicationRef, Claim, ClaimRequest, ClaimSignature, ConsentGrant, SignedConsentGrant,
 };
 use chrono::Utc;
 use std::collections::BTreeSet;
@@ -93,6 +94,11 @@ fn canonical_types(types: &[String]) -> Vec<String> {
 /// domain), and `audience` is bound so a grant authorizing RP-X cannot be
 /// replayed to authorize RP-Y. `claim_types` must be canonical (sorted/deduped).
 /// `signing_domain` — the attestor for *this* signature — is bound per-signature.
+/// `application`, when present, is appended as a ninth element
+/// `(subject_user_id, subject_domain, application_id)`, so a grant for one
+/// application of the audience cannot be replayed for a sibling application.
+/// A grant without an application keeps the eight-element payload; the array
+/// length keeps the two forms distinct.
 /// `revoked_at` is deliberately NOT signed: it is a mutable post-issuance field.
 #[allow(clippy::too_many_arguments)]
 fn consent_sign_payload(
@@ -104,21 +110,44 @@ fn consent_sign_payload(
     issued_at: &str,
     expires_at: &str,
     signing_domain: &str,
+    application: Option<&ApplicationRef>,
 ) -> Vec<u8> {
     let subject = format!("{}@{}", user_id, subject_domain);
-    let payload = (
-        CONSENT_PAYLOAD_TAG,
-        grant_id,
-        subject.as_str(),
-        audience,
-        claim_types,
-        issued_at,
-        expires_at,
-        signing_domain,
-    );
     let mut out = Vec::new();
-    ciborium::ser::into_writer(&payload, &mut out)
-        .expect("CBOR serialization of consent payload cannot fail");
+    let result = match application {
+        None => ciborium::ser::into_writer(
+            &(
+                CONSENT_PAYLOAD_TAG,
+                grant_id,
+                subject.as_str(),
+                audience,
+                claim_types,
+                issued_at,
+                expires_at,
+                signing_domain,
+            ),
+            &mut out,
+        ),
+        Some(app) => ciborium::ser::into_writer(
+            &(
+                CONSENT_PAYLOAD_TAG,
+                grant_id,
+                subject.as_str(),
+                audience,
+                claim_types,
+                issued_at,
+                expires_at,
+                signing_domain,
+                (
+                    app.subject_user_id.as_str(),
+                    app.subject_domain.as_str(),
+                    app.application_id.as_str(),
+                ),
+            ),
+            &mut out,
+        ),
+    };
+    result.expect("CBOR serialization of consent payload cannot fail");
     out
 }
 
@@ -134,6 +163,9 @@ pub struct ConsentSpec<'a> {
     pub claim_types: &'a [String],
     pub issued_at: &'a str,
     pub expires_at: &'a str,
+    /// The application of `audience` the grant is for, when the login request
+    /// named one.
+    pub application: Option<&'a ApplicationRef>,
 }
 
 /// Sign a consent grant with one or more domain keys, producing a
@@ -156,6 +188,7 @@ pub fn sign_consent(
         issued_at: spec.issued_at.to_string(),
         expires_at: spec.expires_at.to_string(),
         revoked_at: None,
+        application: spec.application.cloned(),
     };
 
     let grant_bytes = crate::generated::encode_consent_grant(&grant);
@@ -171,6 +204,7 @@ pub fn sign_consent(
             spec.issued_at,
             spec.expires_at,
             signer.domain,
+            spec.application,
         );
         let signature = crate::crypto::sign_with_algorithm(
             signer.algorithm,
@@ -192,9 +226,10 @@ pub fn sign_consent(
 
 /// Verify a signed consent grant and return the decoded [`ConsentGrant`].
 ///
-/// `subject_domain` and `audience` are the authoritative context the verifier
-/// holds (its own domain; the RP it is releasing claims to) — never taken from
-/// attacker-controlled input. The grant's own fields must match them, and the
+/// `subject_domain`, `audience`, and `application` are the authoritative
+/// context the verifier holds (its own domain; the RP and the application it
+/// is releasing claims to) — never taken from attacker-controlled input. The
+/// grant's own fields must match them, and the
 /// per-domain signature quorum must pass over the reconstructed payload, and the
 /// grant must be neither revoked nor expired. `domain_keys` supplies candidate
 /// keys per signing domain; a missing domain yields
@@ -204,6 +239,7 @@ pub fn verify_consent(
     signed: &SignedConsentGrant,
     subject_domain: &str,
     audience: &str,
+    application: Option<&ApplicationRef>,
     domain_keys: &[DomainKeySet],
 ) -> Result<ConsentGrant, ConsentError> {
     let grant = crate::generated::decode_consent_grant(&signed.grant[..])
@@ -213,7 +249,10 @@ pub fn verify_consent(
         return Err(ConsentError::Unsigned);
     }
 
-    if grant.subject_domain != subject_domain || grant.audience != audience {
+    if grant.subject_domain != subject_domain
+        || grant.audience != audience
+        || grant.application.as_ref() != application
+    {
         return Err(ConsentError::ContextMismatch);
     }
 
@@ -230,6 +269,7 @@ pub fn verify_consent(
             &grant.issued_at,
             &grant.expires_at,
             signing_domain,
+            application,
         )
     })
     .map_err(ConsentError::Signature)?;
@@ -511,6 +551,7 @@ mod tests {
                 claim_types,
                 issued_at: &issued_at,
                 expires_at: &expires_at,
+                application: None,
             },
             &[signer(key_id, sk)],
         )
@@ -525,6 +566,7 @@ mod tests {
             &signed,
             HOME,
             RP,
+            None,
             &keyset(vec![make_domain_key("key-1", &pk)]),
         )
         .unwrap();
@@ -543,9 +585,61 @@ mod tests {
                 &signed,
                 HOME,
                 "other.example",
+                None,
                 &keyset(vec![make_domain_key("key-1", &pk)])
             ),
             Err(ConsentError::ContextMismatch)
+        ));
+    }
+
+    fn app(application_id: &str) -> ApplicationRef {
+        ApplicationRef {
+            subject_user_id: "acct-1".into(),
+            subject_domain: RP.into(),
+            application_id: application_id.into(),
+        }
+    }
+
+    #[test]
+    fn test_consent_bound_to_application() {
+        let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
+        let (issued_at, expires_at) = issued_and_expiry();
+        let grafana = app("homegrafana");
+        let signed = sign_consent(
+            &ConsentSpec {
+                grant_id: "grant-1",
+                user_id: USER,
+                subject_domain: HOME,
+                audience: RP,
+                claim_types: &types(&["email"]),
+                issued_at: &issued_at,
+                expires_at: &expires_at,
+                application: Some(&grafana),
+            },
+            &[signer("key-1", &sk)],
+        )
+        .unwrap();
+        let keys = keyset(vec![make_domain_key("key-1", &pk)]);
+
+        let grant = verify_consent(&signed, HOME, RP, Some(&grafana), &keys).unwrap();
+        assert_eq!(grant.application, Some(grafana.clone()));
+        // A sibling application, or a request with no application, does not match.
+        for other in [Some(app("wiki")), None] {
+            assert!(matches!(
+                verify_consent(&signed, HOME, RP, other.as_ref(), &keys),
+                Err(ConsentError::ContextMismatch)
+            ));
+        }
+        // Swapping the application in the grant bytes breaks the signature.
+        let mut tampered = crate::generated::decode_consent_grant(&signed.grant[..]).unwrap();
+        tampered.application = Some(app("wiki"));
+        let tampered = SignedConsentGrant {
+            grant: crate::generated::encode_consent_grant(&tampered),
+            signatures: signed.signatures.clone(),
+        };
+        assert!(matches!(
+            verify_consent(&tampered, HOME, RP, Some(&app("wiki")), &keys),
+            Err(ConsentError::Signature(_))
         ));
     }
 
@@ -558,6 +652,7 @@ mod tests {
                 &signed,
                 "evil.example",
                 RP,
+                None,
                 &keyset(vec![make_domain_key("key-1", &pk)])
             ),
             Err(ConsentError::ContextMismatch)
@@ -582,6 +677,7 @@ mod tests {
                 &tampered,
                 HOME,
                 RP,
+                None,
                 &keyset(vec![make_domain_key("key-1", &pk)])
             ),
             Err(ConsentError::Signature(ClaimError::SignatureInvalid))
@@ -609,6 +705,7 @@ mod tests {
                 &tampered,
                 HOME,
                 "other.example",
+                None,
                 &keyset(vec![make_domain_key("key-1", &pk)])
             ),
             Err(ConsentError::Signature(ClaimError::SignatureInvalid))
@@ -629,6 +726,7 @@ mod tests {
                 claim_types: &types(&["email"]),
                 issued_at: &issued,
                 expires_at: &past,
+                application: None,
             },
             &[signer("key-1", &sk)],
         )
@@ -638,6 +736,7 @@ mod tests {
                 &signed,
                 HOME,
                 RP,
+                None,
                 &keyset(vec![make_domain_key("key-1", &pk)])
             ),
             Err(ConsentError::Expired)
@@ -662,6 +761,7 @@ mod tests {
                 &revoked,
                 HOME,
                 RP,
+                None,
                 &keyset(vec![make_domain_key("key-1", &pk)])
             ),
             Err(ConsentError::Revoked)
@@ -680,12 +780,13 @@ mod tests {
                 claim_types: &types(&["email"]),
                 issued_at: &issued_at,
                 expires_at: &expires_at,
+                application: None,
             },
             &[],
         )
         .unwrap();
         assert!(matches!(
-            verify_consent(&signed, HOME, RP, &keyset(vec![])),
+            verify_consent(&signed, HOME, RP, None, &keyset(vec![])),
             Err(ConsentError::Unsigned)
         ));
     }
@@ -695,7 +796,7 @@ mod tests {
         let (_pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let signed = signed_grant("key-1", &sk, &types(&["email"]), RP);
         assert!(matches!(
-            verify_consent(&signed, HOME, RP, &[]),
+            verify_consent(&signed, HOME, RP, None, &[]),
             Err(ConsentError::Signature(ClaimError::DomainKeysUnavailable(
                 _
             )))
@@ -709,7 +810,7 @@ mod tests {
             signatures: vec![],
         };
         assert!(matches!(
-            verify_consent(&signed, HOME, RP, &[]),
+            verify_consent(&signed, HOME, RP, None, &[]),
             Err(ConsentError::Malformed)
         ));
     }
@@ -785,6 +886,7 @@ mod tests {
             issued_at: Utc::now().to_rfc3339(),
             expires_at: Utc::now().to_rfc3339(),
             revoked_at: None,
+            application: None,
         };
         let available = vec![
             Claim {

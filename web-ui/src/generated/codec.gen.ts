@@ -2,7 +2,7 @@
 // Source: <csil spec>
 // Target: typescript-codec
 
-import type { ActAsCredential, ActAsGrant, ActAsGrantRequest, ActAsGrantRevocation, ActAsGrantSummary, ActAsPresentation, ActAsRefreshRequest, ActAsScopeEntry, ActAsScopeSet, ActAsScopeSetRequest, ActivateUserRequest, ActivateUserResponse, AddApplicationKeyRequest, AddApplicationKeyResponse, AddTrustedIssuerRequest, AddTrustedIssuerResponse, AdminIssueAttestationRequest, AdminIssueAttestationResponse, AdminLocalRp, AdminUser, AdminUserClaimsRequest, AdminUserClaimsResponse, AeadSuite, AlgorithmSupport, ApiError, ApiErrorCode, AppAccessDenial, AppAccessPolicy, AppAccessTarget, ApplicationKeyAddition, ApplicationKeyAttestation, ApplicationKeyRenewal, ApplicationKeyRevocation, ApplicationKeySignature, ApplicationRef, ApproveClaimRequest, ApproveClaimResponse, ApproveLocalRpRequest, ApproveLocalRpResponse, AuthFlowContext, AuthRequest, AuthenticateRequest, AuthenticateResponse, AuthenticationRequirements, AuthorizeFinalizeRequest, AuthorizeFinalizeResponse, AuthorizeValidateRequest, AuthorizeValidateResponse, BrowserActAsCompleteRequest, BrowserActAsCompleteResponse, BrowserActAsInspectRequest, BrowserActAsInspectResponse, BrowserActAsParty, BrowserActAsScopeEntry, BrowserAuthorizationCompleteRequest, BrowserAuthorizationCompleteResponse, BrowserAuthorizationInspectRequest, BrowserAuthorizationInspectResponse, BrowserConsentClaim, BrowserLocalRpCompleteRequest, BrowserLocalRpCompleteResponse, BrowserLocalRpInspectRequest, BrowserLocalRpInspectResponse, BrowserSessionInfo, ChangePasswordRequest, ChangePasswordResponse, CheckEntries, CheckPermissionRequest, CheckPermissionResponse, CheckResult, CheckValue, Claim, ClaimApproval, ClaimRequest, ClaimSignature, ClaimTypeLabel, ClaimTypePolicy, CompletePasswordRecoveryRequest, CompletePasswordRecoveryResponse, ConfirmContactVerificationRequest, ConfirmContactVerificationResponse, ConsentGrant, CreateGuestbookRequest, CreateProfileRequest, CreateProfileResponse, CreateUserRequest, CreateUserResponse, DeactivateUserRequest, DeactivateUserResponse, DeleteGuestbookRequest, DeleteGuestbookResponse, DenyLocalRpRequest, DenyLocalRpResponse, DepositClaimRequest, DepositClaimResponse, DomainClaim, DomainPublicKey, EmptyRequest, EncryptedToken, EnrollApplicationInstanceRequest, EnrollApplicationInstanceResponse, GetActAsGrantRevocationsRequest, GetActAsGrantRevocationsResponse, GetApplicationKeysRequest, GetApplicationKeysResponse, GetDomainKeysResponse, GetLocalRpPolicyRequest, GetLocalRpPolicyResponse, GetLocalRpRequest, GetLocalRpResponse, GetMyInfoResponse, GetNotificationCapabilitiesResponse, GetRevocationsRequest, GetRevocationsResponse, GetUiConfigurationResponse, GetUserAuthenticationActivityRequest, GetUserAuthenticationActivityResponse, GetUserClaimsRequest, GetUserClaimsResponse, GetUserInfoRequest, GetUserKeysRequest, GetUserKeysResponse, GetUserRequest, GetUserResponse, GrantRelationRequest, GrantRelationResponse, GranteeProof, GranteeRef, GuestbookEntry, GuestbookListRequest, GuestbookListResponse, HandshakeRequest, HandshakeResponse, HelloRequest, HelloResponse, IdentityAssertion, InspectSigningRequestRequest, InspectSigningRequestResponse, IntrospectBrowserSessionRequest, IntrospectBrowserSessionResponse, IssueForSigningRequestRequest, IssueForSigningRequestResponse, IssuedClaimResult, ListActAsGrantsResponse, ListAppAccessPoliciesResponse, ListClaimTypeLabelsResponse, ListClaimTypesResponse, ListLocalRpsRequest, ListLocalRpsResponse, ListLocalesResponse, ListPendingClaimApprovalsResponse, ListRelationsRequest, ListRelationsResponse, ListReleaseRulesResponse, ListSettablePoliciesResponse, ListTrustedIssuersResponse, ListUserClaimsRequest, ListUserClaimsResponse, ListUsersRequest, ListUsersResponse, ListVerifiedContactMethodsResponse, LocalRpCallbackHeader, LocalRpCallbackPayload, LocalRpDescriptor, LocalRpEncryptedCallback, LocalRpLoginRequest, LocalRpPolicy, LocalRpTicketRedemptionRequest, LocalRpTicketRedemptionResponse, LocaleMessages, MyClaimSetting, MyClaimSettingsResponse, NotificationCapability, PasswordPolicy, PinRecheckResult, PreviewAppAccessRequest, PreviewAppAccessResponse, PreviewIssuerPolicyRequest, PreviewIssuerPolicyResponse, PreviewReleasePolicyRequest, PreviewReleasePolicyResponse, PreviewReleaseRow, Profile, PurgeLocalRpTicketsRequest, PurgeLocalRpTicketsResponse, PurgeUserRequest, PurgeUserResponse, RecheckPinsRequest, RecheckPinsResponse, RefreshActAsGrantRequest, RefreshActAsGrantResponse, RejectClaimRequest, RejectClaimResponse, Relation, ReleaseRule, RemoveAppAccessPolicyRequest, RemoveAppAccessPolicyResponse, RemoveClaimRequest, RemoveClaimResponse, RemoveClaimTypeLabelRequest, RemoveClaimTypeLabelResponse, RemoveClaimTypeRequest, RemoveClaimTypeResponse, RemoveCredentialRequest, RemoveCredentialResponse, RemoveMyClaimRequest, RemoveMyClaimResponse, RemoveRelationRequest, RemoveRelationResponse, RemoveReleaseRuleRequest, RemoveReleaseRuleResponse, RemoveTrustedIssuerRequest, RemoveTrustedIssuerResponse, RenewApplicationKeyAttestationRequest, RenewApplicationKeyAttestationResponse, RequestContactVerificationRequest, RequestContactVerificationResponse, RequestPasswordRecoveryRequest, RequestPasswordRecoveryResponse, RequestVerificationRequest, RequestVerificationResponse, RequestedClaim, ResetPasswordRequest, ResetPasswordResponse, RevocationCertificate, RevokeActAsGrantRequest, RevokeActAsGrantResponse, RevokeApplicationKeyRequest, RevokeApplicationKeyResponse, RevokeDomainKeyRequest, RevokeDomainKeyResponse, RevokeLocalRpRequest, RevokeLocalRpResponse, RevokeVerifiedContactMethodRequest, RevokeVerifiedContactMethodResponse, RpActAsRefreshRequest, RpDecryptRequest, RpDecryptResponse, RpIssueAttestationRequest, RpIssueAttestationResponse, RpResolveActAsRevocationsRequest, RpResolveApplicationKeysRequest, RpResolveApplicationKeysResponse, RpResolveDomainKeysRequest, RpResolveDomainKeysResponse, RpSignRequest, RpSignResponse, RpUserInfoRequest, RpVerifyRequest, RpVerifyResponse, SessionCurrentResponse, SessionLogoutResponse, SessionPasswordLoginRequest, SessionPasswordLoginResponse, SetAppAccessPolicyRequest, SetAppAccessPolicyResponse, SetClaimRequest, SetClaimResponse, SetClaimTypeLabelRequest, SetClaimTypeLabelResponse, SetClaimTypeRequest, SetClaimTypeResponse, SetLocalRpPolicyRequest, SetLocalRpPolicyResponse, SetMyClaimKeepVerifiedRequest, SetMyClaimKeepVerifiedResponse, SetMyClaimRequest, SetMyClaimResponse, SetMyClaimSharingRequest, SetMyClaimSharingResponse, SetReleaseRuleRequest, SetReleaseRuleResponse, SetSignInPolicyRequest, SetUserClaimRequest, SetUserClaimResponse, SetUserPasswordLockRequest, SetUserPasswordLockResponse, SettableClaimPolicy, SignInPolicy, SignedActAsGrant, SignedActAsGrantRequest, SignedActAsGrantRevocation, SignedActAsPresentation, SignedActAsRefreshRequest, SignedActAsScopeSet, SignedApplicationKeyAddition, SignedApplicationKeyAttestation, SignedApplicationKeyRenewal, SignedAuthRequest, SignedConsentGrant, SignedIdentityAssertion, SignedLocalRpCallbackPayload, SignedLocalRpDescriptor, SignedLocalRpLoginRequest, SignedLocalRpTicketRedemptionRequest, SignedSigningRequest, SignedUserInfoRequest, SigningRequest, StartApplicationKeyChallengeRequest, StartApplicationKeyChallengeResponse, TranslationsRequest, TranslationsResponse, TrustedIssuer, UiDisplaySettings, UiExtension, UiTheme, UpdateGuestbookRequest, UpdateUserRequest, UpdateUserResponse, UserAuthenticationActivity, UserInfo, UserInfoRequest, UserPublicKey, ValidatePasswordRecoveryRequest, ValidatePasswordRecoveryResponse, VerifiedContactMethod } from "./types.gen.ts";
+import type { ActAsCredential, ActAsGrant, ActAsGrantRequest, ActAsGrantRevocation, ActAsGrantSummary, ActAsPresentation, ActAsRefreshRequest, ActAsScopeEntry, ActAsScopeSet, ActAsScopeSetRequest, ActivateUserRequest, ActivateUserResponse, AddApplicationKeyRequest, AddApplicationKeyResponse, AddTrustedIssuerRequest, AddTrustedIssuerResponse, AdminIssueAttestationRequest, AdminIssueAttestationResponse, AdminLocalRp, AdminUser, AdminUserClaimsRequest, AdminUserClaimsResponse, AeadSuite, AlgorithmSupport, ApiError, ApiErrorCode, AppAccessDenial, AppAccessPolicy, AppAccessTarget, ApplicationKeyAddition, ApplicationKeyAttestation, ApplicationKeyRenewal, ApplicationKeyRevocation, ApplicationKeySignature, ApplicationRef, ApproveClaimRequest, ApproveClaimResponse, ApproveLocalRpRequest, ApproveLocalRpResponse, AuthFlowContext, AuthRequest, AuthenticateRequest, AuthenticateResponse, AuthenticationRequirements, AuthorizeFinalizeRequest, AuthorizeFinalizeResponse, AuthorizeValidateRequest, AuthorizeValidateResponse, BrowserActAsCompleteRequest, BrowserActAsCompleteResponse, BrowserActAsInspectRequest, BrowserActAsInspectResponse, BrowserActAsParty, BrowserActAsScopeEntry, BrowserAuthorizationCompleteRequest, BrowserAuthorizationCompleteResponse, BrowserAuthorizationInspectRequest, BrowserAuthorizationInspectResponse, BrowserConsentClaim, BrowserLocalRpCompleteRequest, BrowserLocalRpCompleteResponse, BrowserLocalRpInspectRequest, BrowserLocalRpInspectResponse, BrowserSessionInfo, ChangePasswordRequest, ChangePasswordResponse, CheckEntries, CheckPermissionRequest, CheckPermissionResponse, CheckResult, CheckValue, Claim, ClaimApproval, ClaimRequest, ClaimSignature, ClaimTypeLabel, ClaimTypePolicy, CompletePasswordRecoveryRequest, CompletePasswordRecoveryResponse, ConfirmContactVerificationRequest, ConfirmContactVerificationResponse, ConsentGrant, CreateGuestbookRequest, CreateProfileRequest, CreateProfileResponse, CreateUserRequest, CreateUserResponse, DeactivateUserRequest, DeactivateUserResponse, DeleteGuestbookRequest, DeleteGuestbookResponse, DenyLocalRpRequest, DenyLocalRpResponse, DepositClaimRequest, DepositClaimResponse, DomainClaim, DomainPublicKey, EmptyRequest, EncryptedToken, EnrollApplicationInstanceRequest, EnrollApplicationInstanceResponse, GetActAsGrantRevocationsRequest, GetActAsGrantRevocationsResponse, GetApplicationKeysRequest, GetApplicationKeysResponse, GetDomainKeysResponse, GetLocalRpPolicyRequest, GetLocalRpPolicyResponse, GetLocalRpRequest, GetLocalRpResponse, GetMyInfoResponse, GetNotificationCapabilitiesResponse, GetRevocationsRequest, GetRevocationsResponse, GetUiConfigurationResponse, GetUserAuthenticationActivityRequest, GetUserAuthenticationActivityResponse, GetUserClaimsRequest, GetUserClaimsResponse, GetUserInfoRequest, GetUserKeysRequest, GetUserKeysResponse, GetUserRequest, GetUserResponse, GrantRelationRequest, GrantRelationResponse, GranteeProof, GranteeRef, GuestbookEntry, GuestbookListRequest, GuestbookListResponse, HandshakeRequest, HandshakeResponse, HelloRequest, HelloResponse, IdentityAssertion, InspectSigningRequestRequest, InspectSigningRequestResponse, IntrospectBrowserSessionRequest, IntrospectBrowserSessionResponse, IssueForSigningRequestRequest, IssueForSigningRequestResponse, IssuedClaimResult, ListActAsGrantsResponse, ListAppAccessPoliciesResponse, ListClaimTypeLabelsResponse, ListClaimTypesResponse, ListLocalRpsRequest, ListLocalRpsResponse, ListLocalesResponse, ListPendingClaimApprovalsResponse, ListRelationsRequest, ListRelationsResponse, ListReleaseRulesResponse, ListSettablePoliciesResponse, ListTrustedIssuersResponse, ListUserClaimsRequest, ListUserClaimsResponse, ListUsersRequest, ListUsersResponse, ListVerifiedContactMethodsResponse, LocalRpCallbackHeader, LocalRpCallbackPayload, LocalRpDescriptor, LocalRpEncryptedCallback, LocalRpLoginRequest, LocalRpPolicy, LocalRpTicketRedemptionRequest, LocalRpTicketRedemptionResponse, LocaleMessages, MyClaimSetting, MyClaimSettingsResponse, NotificationCapability, PasswordPolicy, PinRecheckResult, PreviewAppAccessRequest, PreviewAppAccessResponse, PreviewIssuerPolicyRequest, PreviewIssuerPolicyResponse, PreviewReleasePolicyRequest, PreviewReleasePolicyResponse, PreviewReleaseRow, Profile, PurgeLocalRpTicketsRequest, PurgeLocalRpTicketsResponse, PurgeUserRequest, PurgeUserResponse, RecheckPinsRequest, RecheckPinsResponse, RefreshActAsGrantRequest, RefreshActAsGrantResponse, RejectClaimRequest, RejectClaimResponse, Relation, ReleaseRule, RelyingPartyApplication, RemoveAppAccessPolicyRequest, RemoveAppAccessPolicyResponse, RemoveClaimRequest, RemoveClaimResponse, RemoveClaimTypeLabelRequest, RemoveClaimTypeLabelResponse, RemoveClaimTypeRequest, RemoveClaimTypeResponse, RemoveCredentialRequest, RemoveCredentialResponse, RemoveMyClaimRequest, RemoveMyClaimResponse, RemoveRelationRequest, RemoveRelationResponse, RemoveReleaseRuleRequest, RemoveReleaseRuleResponse, RemoveTrustedIssuerRequest, RemoveTrustedIssuerResponse, RenewApplicationKeyAttestationRequest, RenewApplicationKeyAttestationResponse, RequestContactVerificationRequest, RequestContactVerificationResponse, RequestPasswordRecoveryRequest, RequestPasswordRecoveryResponse, RequestVerificationRequest, RequestVerificationResponse, RequestedClaim, ResetPasswordRequest, ResetPasswordResponse, RevocationCertificate, RevokeActAsGrantRequest, RevokeActAsGrantResponse, RevokeApplicationKeyRequest, RevokeApplicationKeyResponse, RevokeDomainKeyRequest, RevokeDomainKeyResponse, RevokeLocalRpRequest, RevokeLocalRpResponse, RevokeVerifiedContactMethodRequest, RevokeVerifiedContactMethodResponse, RpActAsRefreshRequest, RpDecryptRequest, RpDecryptResponse, RpIssueAttestationRequest, RpIssueAttestationResponse, RpResolveActAsRevocationsRequest, RpResolveApplicationKeysRequest, RpResolveApplicationKeysResponse, RpResolveDomainKeysRequest, RpResolveDomainKeysResponse, RpSignRequest, RpSignResponse, RpUserInfoRequest, RpVerifyRequest, RpVerifyResponse, SessionCurrentResponse, SessionLogoutResponse, SessionPasswordLoginRequest, SessionPasswordLoginResponse, SetAppAccessPolicyRequest, SetAppAccessPolicyResponse, SetClaimRequest, SetClaimResponse, SetClaimTypeLabelRequest, SetClaimTypeLabelResponse, SetClaimTypeRequest, SetClaimTypeResponse, SetLocalRpPolicyRequest, SetLocalRpPolicyResponse, SetMyClaimKeepVerifiedRequest, SetMyClaimKeepVerifiedResponse, SetMyClaimRequest, SetMyClaimResponse, SetMyClaimSharingRequest, SetMyClaimSharingResponse, SetReleaseRuleRequest, SetReleaseRuleResponse, SetSignInPolicyRequest, SetUserClaimRequest, SetUserClaimResponse, SetUserPasswordLockRequest, SetUserPasswordLockResponse, SettableClaimPolicy, SignInPolicy, SignedActAsGrant, SignedActAsGrantRequest, SignedActAsGrantRevocation, SignedActAsPresentation, SignedActAsRefreshRequest, SignedActAsScopeSet, SignedApplicationKeyAddition, SignedApplicationKeyAttestation, SignedApplicationKeyRenewal, SignedAuthRequest, SignedConsentGrant, SignedIdentityAssertion, SignedLocalRpCallbackPayload, SignedLocalRpDescriptor, SignedLocalRpLoginRequest, SignedLocalRpTicketRedemptionRequest, SignedSigningRequest, SignedUserInfoRequest, SigningRequest, StartApplicationKeyChallengeRequest, StartApplicationKeyChallengeResponse, TranslationsRequest, TranslationsResponse, TrustedIssuer, UiDisplaySettings, UiExtension, UiTheme, UpdateGuestbookRequest, UpdateUserRequest, UpdateUserResponse, UserAuthenticationActivity, UserInfo, UserInfoRequest, UserPublicKey, ValidatePasswordRecoveryRequest, ValidatePasswordRecoveryResponse, VerifiedContactMethod } from "./types.gen.ts";
 
 /** A CBOR semantic tag wrapping an inner value (e.g. tag 0 timestamp, tag 4 decimal). */
 export type CborTag = { readonly tag: number; readonly value: CborValue };
@@ -1073,6 +1073,7 @@ export function toConsentGrantCborValue(v: ConsentGrant): CborValue {
   csilMap.set("issued_at", v.issuedAt);
   csilMap.set("expires_at", v.expiresAt);
   if (v.revokedAt !== undefined) csilMap.set("revoked_at", v.revokedAt);
+  if (v.application !== undefined) csilMap.set("application", toApplicationRefCborValue(v.application));
   csilMap.set("claim_types", v.claimTypes);
   csilMap.set("subject_domain", v.subjectDomain);
   return csilMap;
@@ -1088,6 +1089,7 @@ export function fromConsentGrantCborValue(value: CborValue): ConsentGrant {
     issuedAt: asString(requireKey(value, "issued_at")),
     expiresAt: asString(requireKey(value, "expires_at")),
     revokedAt: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "revoked_at")),
+    application: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : fromApplicationRefCborValue(csilV))(mapGet(value, "application")),
   };
 }
 
@@ -1403,10 +1405,33 @@ export function fromUserInfoCbor(bytes: Uint8Array): UserInfo {
   return fromUserInfoCborValue(decode(bytes));
 }
 
+export function toRelyingPartyApplicationCborValue(v: RelyingPartyApplication): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("application", toApplicationRefCborValue(v.application));
+  csilMap.set("display_name", v.displayName);
+  return csilMap;
+}
+
+export function fromRelyingPartyApplicationCborValue(value: CborValue): RelyingPartyApplication {
+  return {
+    application: fromApplicationRefCborValue(requireKey(value, "application")),
+    displayName: asString(requireKey(value, "display_name")),
+  };
+}
+
+export function toRelyingPartyApplicationCbor(v: RelyingPartyApplication): Uint8Array {
+  return encodeValue(toRelyingPartyApplicationCborValue(v));
+}
+
+export function fromRelyingPartyApplicationCbor(bytes: Uint8Array): RelyingPartyApplication {
+  return fromRelyingPartyApplicationCborValue(decode(bytes));
+}
+
 export function toAuthRequestCborValue(v: AuthRequest): CborValue {
   const csilMap = new Map<CborValue, CborValue>();
   csilMap.set("nonce", v.nonce);
   csilMap.set("timestamp", v.timestamp);
+  if (v.application !== undefined) csilMap.set("application", toRelyingPartyApplicationCborValue(v.application));
   csilMap.set("callback_url", v.callbackUrl);
   if (v.flowContext !== undefined) csilMap.set("flow_context", toAuthFlowContextCborValue(v.flowContext));
   csilMap.set("relying_party", v.relyingParty);
@@ -1428,6 +1453,7 @@ export function fromAuthRequestCborValue(value: CborValue): AuthRequest {
     authenticationRequirements: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : fromAuthenticationRequirementsCborValue(csilV))(mapGet(value, "authentication_requirements")),
     flowContext: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : fromAuthFlowContextCborValue(csilV))(mapGet(value, "flow_context")),
     relyingPartyClaims: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asArray(csilV).map((csilE) => fromDomainClaimCborValue(csilE)))(mapGet(value, "relying_party_claims")),
+    application: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : fromRelyingPartyApplicationCborValue(csilV))(mapGet(value, "application")),
   };
 }
 
@@ -4324,7 +4350,9 @@ export function fromBrowserConsentClaimCbor(bytes: Uint8Array): BrowserConsentCl
 export function toBrowserAuthorizationInspectResponseCborValue(v: BrowserAuthorizationInspectResponse): CborValue {
   const csilMap = new Map<CborValue, CborValue>();
   csilMap.set("claims", v.claims.map((csilE): CborValue => toBrowserConsentClaimCborValue(csilE)));
+  if (v.application !== undefined) csilMap.set("application", toRelyingPartyApplicationCborValue(v.application));
   if (v.accessDenied !== undefined) csilMap.set("access_denied", toAppAccessDenialCborValue(v.accessDenied));
+  if (v.callbackHost !== undefined) csilMap.set("callback_host", v.callbackHost);
   csilMap.set("relying_party", v.relyingParty);
   if (v.requestReason !== undefined) csilMap.set("request_reason", v.requestReason);
   if (v.alreadyConsented !== undefined) csilMap.set("already_consented", v.alreadyConsented);
@@ -4340,6 +4368,8 @@ export function fromBrowserAuthorizationInspectResponseCborValue(value: CborValu
     alreadyConsented: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asBool(csilV))(mapGet(value, "already_consented")),
     authorizedClaims: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asArray(csilV).map((csilE) => asString(csilE)))(mapGet(value, "authorized_claims")),
     accessDenied: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : fromAppAccessDenialCborValue(csilV))(mapGet(value, "access_denied")),
+    application: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : fromRelyingPartyApplicationCborValue(csilV))(mapGet(value, "application")),
+    callbackHost: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "callback_host")),
   };
 }
 
@@ -4616,6 +4646,7 @@ export function toRpSignRequestCborValue(v: RpSignRequest): CborValue {
   csilMap.set("nonce", v.nonce);
   csilMap.set("callback_url", v.callbackUrl);
   if (v.flowContext !== undefined) csilMap.set("flow_context", toAuthFlowContextCborValue(v.flowContext));
+  if (v.applicationId !== undefined) csilMap.set("application_id", v.applicationId);
   if (v.requestedClaims !== undefined) csilMap.set("requested_claims", toClaimRequestCborValue(v.requestedClaims));
   if (v.authenticationRequirements !== undefined) csilMap.set("authentication_requirements", toAuthenticationRequirementsCborValue(v.authenticationRequirements));
   return csilMap;
@@ -4625,6 +4656,7 @@ export function fromRpSignRequestCborValue(value: CborValue): RpSignRequest {
   return {
     callbackUrl: asString(requireKey(value, "callback_url")),
     nonce: asString(requireKey(value, "nonce")),
+    applicationId: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asString(csilV))(mapGet(value, "application_id")),
     requestedClaims: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : fromClaimRequestCborValue(csilV))(mapGet(value, "requested_claims")),
     authenticationRequirements: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : fromAuthenticationRequirementsCborValue(csilV))(mapGet(value, "authentication_requirements")),
     flowContext: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : fromAuthFlowContextCborValue(csilV))(mapGet(value, "flow_context")),
@@ -4837,6 +4869,7 @@ export function fromAuthorizeValidateRequestCbor(bytes: Uint8Array): AuthorizeVa
 
 export function toAuthorizeValidateResponseCborValue(v: AuthorizeValidateResponse): CborValue {
   const csilMap = new Map<CborValue, CborValue>();
+  if (v.application !== undefined) csilMap.set("application", toRelyingPartyApplicationCborValue(v.application));
   csilMap.set("callback_url", v.callbackUrl);
   if (v.accessDenied !== undefined) csilMap.set("access_denied", toAppAccessDenialCborValue(v.accessDenied));
   csilMap.set("relying_party", v.relyingParty);
@@ -4856,6 +4889,7 @@ export function fromAuthorizeValidateResponseCborValue(value: CborValue): Author
     authorizedClaims: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asArray(csilV).map((csilE) => asString(csilE)))(mapGet(value, "authorized_claims")),
     newlyRequestedClaims: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asArray(csilV).map((csilE) => asString(csilE)))(mapGet(value, "newly_requested_claims")),
     accessDenied: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : fromAppAccessDenialCborValue(csilV))(mapGet(value, "access_denied")),
+    application: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : fromRelyingPartyApplicationCborValue(csilV))(mapGet(value, "application")),
   };
 }
 

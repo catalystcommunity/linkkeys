@@ -43,14 +43,13 @@ decrypts tokens; your Java app never touches key material, only an API key.
 └──────────────────────────────────────────────────┘
 ```
 
-Your app's public URL (its `callback_url`) must live under the RP server's
-own registered domain — the IDP-side handler rejects a callback host that
-isn't the RP's domain or a subdomain of it (`callback_within_rp_domain` in
-`crates/linkkeys/src/web/mod.rs`). In practice this means your app and its RP
-server share a hostname, split by path at the gateway/ingress (the RP serves
-`/v1alpha/*` and `/auth/*`; your app serves everything else) — exactly the
-`demoappsite`/`linkidspec.com` reference deployment (`deploy/values-rp.yaml`,
-`deploy/values-demoappsite.yaml`) does.
+Your app's `callback_url` must be an https URL. It can be on any host: the RP
+domain signs it, and that signature authorizes it. The IDP consent screen shows
+the display name of your API-key account, and the callback host when it is not
+in the RP domain. Standing consent is per application (your API-key account
+plus `application_id`, which defaults to the account username). The `demoappsite`/`linkidspec.com` reference deployment
+(`deploy/values-rp.yaml`, `deploy/values-demoappsite.yaml`) shares one hostname
+between the app and its RP server.
 
 ## Prerequisites
 

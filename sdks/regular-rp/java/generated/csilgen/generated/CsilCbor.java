@@ -1204,7 +1204,7 @@ public final class CsilCbor {
     }
 
     static CborValue encConsentGrant(ConsentGrant v) {
-        List<CborEntry> csilEntries = new ArrayList<>(8);
+        List<CborEntry> csilEntries = new ArrayList<>(9);
         csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
         csilEntries.add(new CborEntry(new CborText("audience"), new CborText(v.audience())));
         csilEntries.add(new CborEntry(new CborText("grant_id"), new CborText(v.grantId())));
@@ -1212,6 +1212,9 @@ public final class CsilCbor {
         csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
         if (v.revokedAt() != null) {
             csilEntries.add(new CborEntry(new CborText("revoked_at"), new CborText(v.revokedAt())));
+        }
+        if (v.application() != null) {
+            csilEntries.add(new CborEntry(new CborText("application"), encApplicationRef(v.application())));
         }
         csilEntries.add(new CborEntry(new CborText("claim_types"), encArray(v.claimTypes(), csilElem0 -> new CborText(csilElem0))));
         csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
@@ -1231,7 +1234,12 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "revoked_at");
             revokedAt = csilField != null ? asText(csilField) : null;
         }
-        return new ConsentGrant(grantId, userId, subjectDomain, audience, claimTypes, issuedAt, expiresAt, revokedAt);
+        ApplicationRef application;
+        {
+            CborValue csilField = mapGet(csilRoot, "application");
+            application = csilField != null ? decApplicationRef(csilField) : null;
+        }
+        return new ConsentGrant(grantId, userId, subjectDomain, audience, claimTypes, issuedAt, expiresAt, revokedAt, application);
     }
 
     public static byte[] encodeConsentGrant(ConsentGrant v) {
@@ -1558,10 +1566,34 @@ public final class CsilCbor {
         return decUserInfo(decode(data));
     }
 
+    static CborValue encRelyingPartyApplication(RelyingPartyApplication v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("application"), encApplicationRef(v.application())));
+        csilEntries.add(new CborEntry(new CborText("display_name"), new CborText(v.displayName())));
+        return new CborMap(csilEntries);
+    }
+
+    static RelyingPartyApplication decRelyingPartyApplication(CborValue csilRoot) {
+        ApplicationRef application = decApplicationRef(require(csilRoot, "application"));
+        String displayName = asText(require(csilRoot, "display_name"));
+        return new RelyingPartyApplication(application, displayName);
+    }
+
+    public static byte[] encodeRelyingPartyApplication(RelyingPartyApplication v) {
+        return encode(encRelyingPartyApplication(v));
+    }
+
+    public static RelyingPartyApplication decodeRelyingPartyApplication(byte[] data) {
+        return decRelyingPartyApplication(decode(data));
+    }
+
     static CborValue encAuthRequest(AuthRequest v) {
-        List<CborEntry> csilEntries = new ArrayList<>(9);
+        List<CborEntry> csilEntries = new ArrayList<>(10);
         csilEntries.add(new CborEntry(new CborText("nonce"), new CborText(v.nonce())));
         csilEntries.add(new CborEntry(new CborText("timestamp"), new CborText(v.timestamp())));
+        if (v.application() != null) {
+            csilEntries.add(new CborEntry(new CborText("application"), encRelyingPartyApplication(v.application())));
+        }
         csilEntries.add(new CborEntry(new CborText("callback_url"), new CborText(v.callbackUrl())));
         if (v.flowContext() != null) {
             csilEntries.add(new CborEntry(new CborText("flow_context"), encAuthFlowContext(v.flowContext())));
@@ -1606,7 +1638,12 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "relying_party_claims");
             relyingPartyClaims = csilField != null ? decArray(csilField, csilE0 -> decDomainClaim(csilE0)) : null;
         }
-        return new AuthRequest(relyingParty, callbackUrl, nonce, timestamp, signingKeyId, requestedClaims, authenticationRequirements, flowContext, relyingPartyClaims);
+        RelyingPartyApplication application;
+        {
+            CborValue csilField = mapGet(csilRoot, "application");
+            application = csilField != null ? decRelyingPartyApplication(csilField) : null;
+        }
+        return new AuthRequest(relyingParty, callbackUrl, nonce, timestamp, signingKeyId, requestedClaims, authenticationRequirements, flowContext, relyingPartyClaims, application);
     }
 
     public static byte[] encodeAuthRequest(AuthRequest v) {
@@ -4558,10 +4595,16 @@ public final class CsilCbor {
     }
 
     static CborValue encBrowserAuthorizationInspectResponse(BrowserAuthorizationInspectResponse v) {
-        List<CborEntry> csilEntries = new ArrayList<>(6);
+        List<CborEntry> csilEntries = new ArrayList<>(8);
         csilEntries.add(new CborEntry(new CborText("claims"), encArray(v.claims(), csilElem0 -> encBrowserConsentClaim(csilElem0))));
+        if (v.application() != null) {
+            csilEntries.add(new CborEntry(new CborText("application"), encRelyingPartyApplication(v.application())));
+        }
         if (v.accessDenied() != null) {
             csilEntries.add(new CborEntry(new CborText("access_denied"), encAppAccessDenial(v.accessDenied())));
+        }
+        if (v.callbackHost() != null) {
+            csilEntries.add(new CborEntry(new CborText("callback_host"), new CborText(v.callbackHost())));
         }
         csilEntries.add(new CborEntry(new CborText("relying_party"), new CborText(v.relyingParty())));
         if (v.requestReason() != null) {
@@ -4599,7 +4642,17 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "access_denied");
             accessDenied = csilField != null ? decAppAccessDenial(csilField) : null;
         }
-        return new BrowserAuthorizationInspectResponse(relyingParty, claims, requestReason, alreadyConsented, authorizedClaims, accessDenied);
+        RelyingPartyApplication application;
+        {
+            CborValue csilField = mapGet(csilRoot, "application");
+            application = csilField != null ? decRelyingPartyApplication(csilField) : null;
+        }
+        String callbackHost;
+        {
+            CborValue csilField = mapGet(csilRoot, "callback_host");
+            callbackHost = csilField != null ? asText(csilField) : null;
+        }
+        return new BrowserAuthorizationInspectResponse(relyingParty, claims, requestReason, alreadyConsented, authorizedClaims, accessDenied, application, callbackHost);
     }
 
     public static byte[] encodeBrowserAuthorizationInspectResponse(BrowserAuthorizationInspectResponse v) {
@@ -4951,11 +5004,14 @@ public final class CsilCbor {
     }
 
     static CborValue encRpSignRequest(RpSignRequest v) {
-        List<CborEntry> csilEntries = new ArrayList<>(5);
+        List<CborEntry> csilEntries = new ArrayList<>(6);
         csilEntries.add(new CborEntry(new CborText("nonce"), new CborText(v.nonce())));
         csilEntries.add(new CborEntry(new CborText("callback_url"), new CborText(v.callbackUrl())));
         if (v.flowContext() != null) {
             csilEntries.add(new CborEntry(new CborText("flow_context"), encAuthFlowContext(v.flowContext())));
+        }
+        if (v.applicationId() != null) {
+            csilEntries.add(new CborEntry(new CborText("application_id"), new CborText(v.applicationId())));
         }
         if (v.requestedClaims() != null) {
             csilEntries.add(new CborEntry(new CborText("requested_claims"), encClaimRequest(v.requestedClaims())));
@@ -4969,6 +5025,11 @@ public final class CsilCbor {
     static RpSignRequest decRpSignRequest(CborValue csilRoot) {
         String callbackUrl = asText(require(csilRoot, "callback_url"));
         String nonce = asText(require(csilRoot, "nonce"));
+        String applicationId;
+        {
+            CborValue csilField = mapGet(csilRoot, "application_id");
+            applicationId = csilField != null ? asText(csilField) : null;
+        }
         ClaimRequest requestedClaims;
         {
             CborValue csilField = mapGet(csilRoot, "requested_claims");
@@ -4984,7 +5045,7 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "flow_context");
             flowContext = csilField != null ? decAuthFlowContext(csilField) : null;
         }
-        return new RpSignRequest(callbackUrl, nonce, requestedClaims, authenticationRequirements, flowContext);
+        return new RpSignRequest(callbackUrl, nonce, applicationId, requestedClaims, authenticationRequirements, flowContext);
     }
 
     public static byte[] encodeRpSignRequest(RpSignRequest v) {
@@ -5189,7 +5250,10 @@ public final class CsilCbor {
     }
 
     static CborValue encAuthorizeValidateResponse(AuthorizeValidateResponse v) {
-        List<CborEntry> csilEntries = new ArrayList<>(7);
+        List<CborEntry> csilEntries = new ArrayList<>(8);
+        if (v.application() != null) {
+            csilEntries.add(new CborEntry(new CborText("application"), encRelyingPartyApplication(v.application())));
+        }
         csilEntries.add(new CborEntry(new CborText("callback_url"), new CborText(v.callbackUrl())));
         if (v.accessDenied() != null) {
             csilEntries.add(new CborEntry(new CborText("access_denied"), encAppAccessDenial(v.accessDenied())));
@@ -5232,7 +5296,12 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "access_denied");
             accessDenied = csilField != null ? decAppAccessDenial(csilField) : null;
         }
-        return new AuthorizeValidateResponse(relyingParty, callbackUrl, requestedClaims, alreadyConsented, authorizedClaims, newlyRequestedClaims, accessDenied);
+        RelyingPartyApplication application;
+        {
+            CborValue csilField = mapGet(csilRoot, "application");
+            application = csilField != null ? decRelyingPartyApplication(csilField) : null;
+        }
+        return new AuthorizeValidateResponse(relyingParty, callbackUrl, requestedClaims, alreadyConsented, authorizedClaims, newlyRequestedClaims, accessDenied, application);
     }
 
     public static byte[] encodeAuthorizeValidateResponse(AuthorizeValidateResponse v) {

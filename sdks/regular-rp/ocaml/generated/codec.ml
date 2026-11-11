@@ -305,6 +305,7 @@ and encode_consent_grant (v : consent_grant) : Cbor.t =
          Some (Cbor.Text "issued_at", (Cbor.Text v.issued_at));
          Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
          (match v.revoked_at with Some csil_x -> Some (Cbor.Text "revoked_at", (Cbor.Text csil_x)) | None -> None);
+         (match v.application with Some csil_x -> Some (Cbor.Text "application", (encode_application_ref csil_x)) | None -> None);
          Some (Cbor.Text "claim_types", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.claim_types)));
          Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
        ])
@@ -437,6 +438,15 @@ and encode_user_info (v : user_info) : Cbor.t =
          Some (Cbor.Text "display_name", (Cbor.Text v.display_name));
        ])
 
+and encode_relying_party_application (v : relying_party_application) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "application", (encode_application_ref v.application));
+         Some (Cbor.Text "display_name", (Cbor.Text v.display_name));
+       ])
+
 and encode_auth_request (v : auth_request) : Cbor.t =
   Cbor.Map
     (List.filter_map
@@ -444,6 +454,7 @@ and encode_auth_request (v : auth_request) : Cbor.t =
        [
          Some (Cbor.Text "nonce", (Cbor.Text v.nonce));
          Some (Cbor.Text "timestamp", (Cbor.Text v.timestamp));
+         (match v.application with Some csil_x -> Some (Cbor.Text "application", (encode_relying_party_application csil_x)) | None -> None);
          Some (Cbor.Text "callback_url", (Cbor.Text v.callback_url));
          (match v.flow_context with Some csil_x -> Some (Cbor.Text "flow_context", (encode_auth_flow_context csil_x)) | None -> None);
          Some (Cbor.Text "relying_party", (Cbor.Text v.relying_party));
@@ -1629,7 +1640,9 @@ and encode_browser_authorization_inspect_response (v : browser_authorization_ins
        (fun x -> x)
        [
          Some (Cbor.Text "claims", (Cbor.Array (List.map (fun csil_e -> (encode_browser_consent_claim csil_e)) v.claims)));
+         (match v.application with Some csil_x -> Some (Cbor.Text "application", (encode_relying_party_application csil_x)) | None -> None);
          (match v.access_denied with Some csil_x -> Some (Cbor.Text "access_denied", (encode_app_access_denial csil_x)) | None -> None);
+         (match v.callback_host with Some csil_x -> Some (Cbor.Text "callback_host", (Cbor.Text csil_x)) | None -> None);
          Some (Cbor.Text "relying_party", (Cbor.Text v.relying_party));
          (match v.request_reason with Some csil_x -> Some (Cbor.Text "request_reason", (Cbor.Text csil_x)) | None -> None);
          (match v.already_consented with Some csil_x -> Some (Cbor.Text "already_consented", (Cbor.Bool csil_x)) | None -> None);
@@ -1754,6 +1767,7 @@ and encode_rp_sign_request (v : rp_sign_request) : Cbor.t =
          Some (Cbor.Text "nonce", (Cbor.Text v.nonce));
          Some (Cbor.Text "callback_url", (Cbor.Text v.callback_url));
          (match v.flow_context with Some csil_x -> Some (Cbor.Text "flow_context", (encode_auth_flow_context csil_x)) | None -> None);
+         (match v.application_id with Some csil_x -> Some (Cbor.Text "application_id", (Cbor.Text csil_x)) | None -> None);
          (match v.requested_claims with Some csil_x -> Some (Cbor.Text "requested_claims", (encode_claim_request csil_x)) | None -> None);
          (match v.authentication_requirements with Some csil_x -> Some (Cbor.Text "authentication_requirements", (encode_authentication_requirements csil_x)) | None -> None);
        ])
@@ -1843,6 +1857,7 @@ and encode_authorize_validate_response (v : authorize_validate_response) : Cbor.
     (List.filter_map
        (fun x -> x)
        [
+         (match v.application with Some csil_x -> Some (Cbor.Text "application", (encode_relying_party_application csil_x)) | None -> None);
          Some (Cbor.Text "callback_url", (Cbor.Text v.callback_url));
          (match v.access_denied with Some csil_x -> Some (Cbor.Text "access_denied", (encode_app_access_denial csil_x)) | None -> None);
          Some (Cbor.Text "relying_party", (Cbor.Text v.relying_party));
@@ -3516,6 +3531,7 @@ and decode_consent_grant (csil_c : Cbor.t) : consent_grant =
         issued_at = (Cbor.to_text (csil_req "issued_at"));
         expires_at = (Cbor.to_text (csil_req "expires_at"));
         revoked_at = (match csil_field "revoked_at" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        application = (match csil_field "application" with Some csil_v -> Some (decode_application_ref csil_v) | None -> None);
         claim_types = (match (csil_req "claim_types") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
         subject_domain = (Cbor.to_text (csil_req "subject_domain"));
       }
@@ -3709,6 +3725,20 @@ and decode_user_info (csil_c : Cbor.t) : user_info =
       }
   | _ -> failwith "csilgen: expected map for user_info"
 
+and decode_relying_party_application (csil_c : Cbor.t) : relying_party_application =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        application = (decode_application_ref (csil_req "application"));
+        display_name = (Cbor.to_text (csil_req "display_name"));
+      }
+  | _ -> failwith "csilgen: expected map for relying_party_application"
+
 and decode_auth_request (csil_c : Cbor.t) : auth_request =
   match csil_c with
   | Cbor.Map csil_kvs ->
@@ -3720,6 +3750,7 @@ and decode_auth_request (csil_c : Cbor.t) : auth_request =
       {
         nonce = (Cbor.to_text (csil_req "nonce"));
         timestamp = (Cbor.to_text (csil_req "timestamp"));
+        application = (match csil_field "application" with Some csil_v -> Some (decode_relying_party_application csil_v) | None -> None);
         callback_url = (Cbor.to_text (csil_req "callback_url"));
         flow_context = (match csil_field "flow_context" with Some csil_v -> Some (decode_auth_flow_context csil_v) | None -> None);
         relying_party = (Cbor.to_text (csil_req "relying_party"));
@@ -5538,7 +5569,9 @@ and decode_browser_authorization_inspect_response (csil_c : Cbor.t) : browser_au
       ignore csil_req;
       {
         claims = (match (csil_req "claims") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_browser_consent_claim csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        application = (match csil_field "application" with Some csil_v -> Some (decode_relying_party_application csil_v) | None -> None);
         access_denied = (match csil_field "access_denied" with Some csil_v -> Some (decode_app_access_denial csil_v) | None -> None);
+        callback_host = (match csil_field "callback_host" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
         relying_party = (Cbor.to_text (csil_req "relying_party"));
         request_reason = (match csil_field "request_reason" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
         already_consented = (match csil_field "already_consented" with Some csil_v -> Some (Cbor.to_bool csil_v) | None -> None);
@@ -5718,6 +5751,7 @@ and decode_rp_sign_request (csil_c : Cbor.t) : rp_sign_request =
         nonce = (Cbor.to_text (csil_req "nonce"));
         callback_url = (Cbor.to_text (csil_req "callback_url"));
         flow_context = (match csil_field "flow_context" with Some csil_v -> Some (decode_auth_flow_context csil_v) | None -> None);
+        application_id = (match csil_field "application_id" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
         requested_claims = (match csil_field "requested_claims" with Some csil_v -> Some (decode_claim_request csil_v) | None -> None);
         authentication_requirements = (match csil_field "authentication_requirements" with Some csil_v -> Some (decode_authentication_requirements csil_v) | None -> None);
       }
@@ -5857,6 +5891,7 @@ and decode_authorize_validate_response (csil_c : Cbor.t) : authorize_validate_re
       in
       ignore csil_req;
       {
+        application = (match csil_field "application" with Some csil_v -> Some (decode_relying_party_application csil_v) | None -> None);
         callback_url = (Cbor.to_text (csil_req "callback_url"));
         access_denied = (match csil_field "access_denied" with Some csil_v -> Some (decode_app_access_denial csil_v) | None -> None);
         relying_party = (Cbor.to_text (csil_req "relying_party"));
@@ -7828,6 +7863,10 @@ let decode_signed_user_info_request_bytes (b : bytes) : signed_user_info_request
 let encode_user_info_bytes (v : user_info) : bytes = Cbor.encode (encode_user_info v)
 let decode_user_info_bytes (b : bytes) : user_info =
   match Cbor.decode b with Ok c -> decode_user_info c | Error e -> failwith e
+
+let encode_relying_party_application_bytes (v : relying_party_application) : bytes = Cbor.encode (encode_relying_party_application v)
+let decode_relying_party_application_bytes (b : bytes) : relying_party_application =
+  match Cbor.decode b with Ok c -> decode_relying_party_application c | Error e -> failwith e
 
 let encode_auth_request_bytes (v : auth_request) : bytes = Cbor.encode (encode_auth_request v)
 let decode_auth_request_bytes (b : bytes) : auth_request =

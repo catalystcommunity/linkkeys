@@ -1317,6 +1317,7 @@ fn dec_AuthFlowContext(alloc: std.mem.Allocator, m: Value, out: *types.AuthFlowC
 fn enc_ConsentGrant(out: *std.ArrayList(u8), v: *const types.ConsentGrant) CodecError!void {
     var csil_n: usize = 7;
     if (v.revoked_at != null) csil_n += 1;
+    if (v.application != null) csil_n += 1;
     try w_map_head(out, csil_n);
     try w_text(out, "user_id");
     try w_text(out, v.user_id);
@@ -1331,6 +1332,10 @@ fn enc_ConsentGrant(out: *std.ArrayList(u8), v: *const types.ConsentGrant) Codec
     if (v.revoked_at) |csil_x| {
         try w_text(out, "revoked_at");
         try w_text(out, csil_x);
+    }
+    if (v.application) |csil_x| {
+        try w_text(out, "application");
+        try enc_ApplicationRef(out, &(csil_x));
     }
     try w_text(out, "claim_types");
     try w_array_head(out, v.claim_types.len);
@@ -1368,6 +1373,15 @@ fn dec_ConsentGrant(alloc: std.mem.Allocator, m: Value, out: *types.ConsentGrant
             out.revoked_at = try as_text(csil_fv);
         } else {
             out.revoked_at = null;
+        }
+    }
+    {
+        if (mget(m, "application")) |csil_fv| {
+            var csil_tmp: types.ApplicationRef = undefined;
+            try dec_ApplicationRef(alloc, csil_fv, &csil_tmp);
+            out.application = csil_tmp;
+        } else {
+            out.application = null;
         }
     }
     {
@@ -1826,8 +1840,29 @@ fn dec_UserInfo(alloc: std.mem.Allocator, m: Value, out: *types.UserInfo) CodecE
     }
 }
 
+fn enc_RelyingPartyApplication(out: *std.ArrayList(u8), v: *const types.RelyingPartyApplication) CodecError!void {
+    try w_map_head(out, 2);
+    try w_text(out, "application");
+    try enc_ApplicationRef(out, &(v.application));
+    try w_text(out, "display_name");
+    try w_text(out, v.display_name);
+}
+
+fn dec_RelyingPartyApplication(alloc: std.mem.Allocator, m: Value, out: *types.RelyingPartyApplication) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try req(m, "application");
+        try dec_ApplicationRef(alloc, csil_fv, &(out.application));
+    }
+    {
+        const csil_fv = try req(m, "display_name");
+        out.display_name = try as_text(csil_fv);
+    }
+}
+
 fn enc_AuthRequest(out: *std.ArrayList(u8), v: *const types.AuthRequest) CodecError!void {
     var csil_n: usize = 5;
+    if (v.application != null) csil_n += 1;
     if (v.flow_context != null) csil_n += 1;
     if (v.requested_claims != null) csil_n += 1;
     if (v.relying_party_claims != null) csil_n += 1;
@@ -1837,6 +1872,10 @@ fn enc_AuthRequest(out: *std.ArrayList(u8), v: *const types.AuthRequest) CodecEr
     try w_text(out, v.nonce);
     try w_text(out, "timestamp");
     try w_text(out, v.timestamp);
+    if (v.application) |csil_x| {
+        try w_text(out, "application");
+        try enc_RelyingPartyApplication(out, &(csil_x));
+    }
     try w_text(out, "callback_url");
     try w_text(out, v.callback_url);
     if (v.flow_context) |csil_x| {
@@ -1873,6 +1912,15 @@ fn dec_AuthRequest(alloc: std.mem.Allocator, m: Value, out: *types.AuthRequest) 
     {
         const csil_fv = try req(m, "timestamp");
         out.timestamp = try as_text(csil_fv);
+    }
+    {
+        if (mget(m, "application")) |csil_fv| {
+            var csil_tmp: types.RelyingPartyApplication = undefined;
+            try dec_RelyingPartyApplication(alloc, csil_fv, &csil_tmp);
+            out.application = csil_tmp;
+        } else {
+            out.application = null;
+        }
     }
     {
         const csil_fv = try req(m, "callback_url");
@@ -5150,7 +5198,9 @@ fn dec_BrowserConsentClaim(alloc: std.mem.Allocator, m: Value, out: *types.Brows
 
 fn enc_BrowserAuthorizationInspectResponse(out: *std.ArrayList(u8), v: *const types.BrowserAuthorizationInspectResponse) CodecError!void {
     var csil_n: usize = 2;
+    if (v.application != null) csil_n += 1;
     if (v.access_denied != null) csil_n += 1;
+    if (v.callback_host != null) csil_n += 1;
     if (v.request_reason != null) csil_n += 1;
     if (v.already_consented != null) csil_n += 1;
     if (v.authorized_claims != null) csil_n += 1;
@@ -5160,9 +5210,17 @@ fn enc_BrowserAuthorizationInspectResponse(out: *std.ArrayList(u8), v: *const ty
     for (v.claims) |csil_it| {
         try enc_BrowserConsentClaim(out, &(csil_it));
     }
+    if (v.application) |csil_x| {
+        try w_text(out, "application");
+        try enc_RelyingPartyApplication(out, &(csil_x));
+    }
     if (v.access_denied) |csil_x| {
         try w_text(out, "access_denied");
         try enc_AppAccessDenial(out, &(csil_x));
+    }
+    if (v.callback_host) |csil_x| {
+        try w_text(out, "callback_host");
+        try w_text(out, csil_x);
     }
     try w_text(out, "relying_party");
     try w_text(out, v.relying_party);
@@ -5194,12 +5252,28 @@ fn dec_BrowserAuthorizationInspectResponse(alloc: std.mem.Allocator, m: Value, o
         }
     }
     {
+        if (mget(m, "application")) |csil_fv| {
+            var csil_tmp: types.RelyingPartyApplication = undefined;
+            try dec_RelyingPartyApplication(alloc, csil_fv, &csil_tmp);
+            out.application = csil_tmp;
+        } else {
+            out.application = null;
+        }
+    }
+    {
         if (mget(m, "access_denied")) |csil_fv| {
             var csil_tmp: types.AppAccessDenial = undefined;
             try dec_AppAccessDenial(alloc, csil_fv, &csil_tmp);
             out.access_denied = csil_tmp;
         } else {
             out.access_denied = null;
+        }
+    }
+    {
+        if (mget(m, "callback_host")) |csil_fv| {
+            out.callback_host = try as_text(csil_fv);
+        } else {
+            out.callback_host = null;
         }
     }
     {
@@ -5737,6 +5811,7 @@ fn dec_GetUiConfigurationResponse(alloc: std.mem.Allocator, m: Value, out: *type
 fn enc_RpSignRequest(out: *std.ArrayList(u8), v: *const types.RpSignRequest) CodecError!void {
     var csil_n: usize = 2;
     if (v.flow_context != null) csil_n += 1;
+    if (v.application_id != null) csil_n += 1;
     if (v.requested_claims != null) csil_n += 1;
     if (v.authentication_requirements != null) csil_n += 1;
     try w_map_head(out, csil_n);
@@ -5747,6 +5822,10 @@ fn enc_RpSignRequest(out: *std.ArrayList(u8), v: *const types.RpSignRequest) Cod
     if (v.flow_context) |csil_x| {
         try w_text(out, "flow_context");
         try enc_AuthFlowContext(out, &(csil_x));
+    }
+    if (v.application_id) |csil_x| {
+        try w_text(out, "application_id");
+        try w_text(out, csil_x);
     }
     if (v.requested_claims) |csil_x| {
         try w_text(out, "requested_claims");
@@ -5775,6 +5854,13 @@ fn dec_RpSignRequest(alloc: std.mem.Allocator, m: Value, out: *types.RpSignReque
             out.flow_context = csil_tmp;
         } else {
             out.flow_context = null;
+        }
+    }
+    {
+        if (mget(m, "application_id")) |csil_fv| {
+            out.application_id = try as_text(csil_fv);
+        } else {
+            out.application_id = null;
         }
     }
     {
@@ -5986,11 +6072,16 @@ fn dec_AuthorizeValidateRequest(alloc: std.mem.Allocator, m: Value, out: *types.
 
 fn enc_AuthorizeValidateResponse(out: *std.ArrayList(u8), v: *const types.AuthorizeValidateResponse) CodecError!void {
     var csil_n: usize = 3;
+    if (v.application != null) csil_n += 1;
     if (v.access_denied != null) csil_n += 1;
     if (v.already_consented != null) csil_n += 1;
     if (v.authorized_claims != null) csil_n += 1;
     if (v.newly_requested_claims != null) csil_n += 1;
     try w_map_head(out, csil_n);
+    if (v.application) |csil_x| {
+        try w_text(out, "application");
+        try enc_RelyingPartyApplication(out, &(csil_x));
+    }
     try w_text(out, "callback_url");
     try w_text(out, v.callback_url);
     if (v.access_denied) |csil_x| {
@@ -6026,6 +6117,15 @@ fn enc_AuthorizeValidateResponse(out: *std.ArrayList(u8), v: *const types.Author
 
 fn dec_AuthorizeValidateResponse(alloc: std.mem.Allocator, m: Value, out: *types.AuthorizeValidateResponse) CodecError!void {
     if (m != .map) return error.WrongType;
+    {
+        if (mget(m, "application")) |csil_fv| {
+            var csil_tmp: types.RelyingPartyApplication = undefined;
+            try dec_RelyingPartyApplication(alloc, csil_fv, &csil_tmp);
+            out.application = csil_tmp;
+        } else {
+            out.application = null;
+        }
+    }
     {
         const csil_fv = try req(m, "callback_url");
         out.callback_url = try as_text(csil_fv);
@@ -11149,6 +11249,22 @@ pub fn encode_UserInfo(alloc: std.mem.Allocator, v: *const types.UserInfo) Codec
 pub fn decode_UserInfo(alloc: std.mem.Allocator, bytes: []const u8, out: *types.UserInfo) CodecError!void {
     const root = try decode(alloc, bytes);
     try dec_UserInfo(alloc, root, out);
+}
+
+/// Encode a RelyingPartyApplication to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RelyingPartyApplication(alloc: std.mem.Allocator, v: *const types.RelyingPartyApplication) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RelyingPartyApplication(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RelyingPartyApplication. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RelyingPartyApplication(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RelyingPartyApplication) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RelyingPartyApplication(alloc, root, out);
 }
 
 /// Encode a AuthRequest to CBOR. The returned slice is owned by the caller

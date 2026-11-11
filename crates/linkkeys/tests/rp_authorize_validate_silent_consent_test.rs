@@ -276,7 +276,7 @@ async fn validate_reports_silent_consent_from_a_standing_grant() {
     let sr_login = signed_email_request(&signing.id, &sk_bytes, "validate-nonce-2", false);
     consent_once(&client, &sr_login, &["email"]).await;
     let grant = pool
-        .find_active_consent_grant(&user.id, TEST_DOMAIN)
+        .find_active_consent_grant(&user.id, TEST_DOMAIN, None)
         .expect("query grant")
         .expect("a grant was stored");
     assert_eq!(grant.claim_types, vec!["email".to_string()]);
@@ -415,7 +415,7 @@ async fn forced_claim_without_a_value_does_not_reopen_consent() {
     );
     consent_once(&client, &sr_login, &["email", "over_21"]).await;
     let grant = pool
-        .find_active_consent_grant(&user.id, TEST_DOMAIN)
+        .find_active_consent_grant(&user.id, TEST_DOMAIN, None)
         .expect("query grant")
         .expect("a grant was stored");
     assert_eq!(grant.claim_types, vec!["email".to_string()]);
@@ -648,7 +648,7 @@ async fn new_optional_claim_reopens_consent_once() {
     );
     consent_once(&client, &sr, &["email"]).await;
     let grant = pool
-        .find_active_consent_grant(&user.id, TEST_DOMAIN)
+        .find_active_consent_grant(&user.id, TEST_DOMAIN, None)
         .expect("query grant")
         .expect("grant stored");
     assert_eq!(grant.claim_types, vec!["email".to_string()]);
