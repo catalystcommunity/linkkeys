@@ -59,6 +59,17 @@ pub mod pg {
         ))
         .get_result(conn)
     }
+
+    /// Replace the stored certificate of one issued revocation.
+    pub fn update_cert(
+        conn: &mut diesel::PgConnection,
+        id: uuid::Uuid,
+        cert: &[u8],
+    ) -> QueryResult<usize> {
+        diesel::update(issued_revocations::table.find(id))
+            .set(issued_revocations::cert.eq(cert.to_vec()))
+            .execute(conn)
+    }
 }
 
 #[cfg(feature = "sqlite")]
@@ -113,5 +124,15 @@ pub mod sqlite {
             issued_revocations::table.filter(issued_revocations::revoked_at.ge(since.to_rfc3339())),
         ))
         .get_result(conn)
+    }
+
+    pub fn update_cert(
+        conn: &mut diesel::SqliteConnection,
+        id: &str,
+        cert: &[u8],
+    ) -> QueryResult<usize> {
+        diesel::update(issued_revocations::table.find(id))
+            .set(issued_revocations::cert.eq(cert.to_vec()))
+            .execute(conn)
     }
 }

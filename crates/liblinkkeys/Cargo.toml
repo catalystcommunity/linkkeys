@@ -48,3 +48,10 @@ base64ct = { version = "1", features = ["alloc"] }
 
 # Date/time
 chrono = { version = "0.4", features = ["serde"] }
+
+[features]
+# Builders for signed payload formats from before the `-v1alpha` epoch. Only the
+# server's re-sign transform uses them, to prove that a stored signature is the
+# domain's own work before it re-signs it. Verifiers never accept these formats,
+# so SDKs and WASM builds leave this off.
+legacy-formats = []

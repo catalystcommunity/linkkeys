@@ -145,3 +145,33 @@ fn revouch_skips_revoked_encryption_keys() {
         "a revoked encryption key must not appear in the re-vouch pass"
     );
 }
+
+/// A vouch that no signing key of this domain made (here: signed under an
+/// unknown tag, as a forged or tampered row would be) is reported and left as
+/// it is. Re-vouching it would vouch for a key the domain never vouched for.
+#[test]
+fn revouch_refuses_a_vouch_this_domain_did_not_make() {
+    let pool = common::create_test_pool();
+    let (_signing_key, enc_key_id) = setup_keys(&pool, "not-a-linkkeys-tag");
+    let before = pool
+        .list_all_domain_keys()
+        .unwrap()
+        .into_iter()
+        .find(|k| k.id == enc_key_id)
+        .unwrap()
+        .key_signature;
+
+    let results = revouch_encryption_keys(&pool, TEST_PASSPHRASE).expect("revouch");
+    assert_eq!(
+        results[0],
+        (enc_key_id.clone(), RevouchOutcome::Unverifiable)
+    );
+    let after = pool
+        .list_all_domain_keys()
+        .unwrap()
+        .into_iter()
+        .find(|k| k.id == enc_key_id)
+        .unwrap()
+        .key_signature;
+    assert_eq!(before, after, "an unverifiable vouch must not be re-signed");
+}

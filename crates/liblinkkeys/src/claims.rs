@@ -64,6 +64,9 @@ impl std::error::Error for ClaimError {}
 /// than migrate old signatures, so there is no need to bump within alpha. The
 /// epoch (and thus this tag) changes when we leave alpha, which is the point at
 /// which invalidating older signatures becomes a deliberate compatibility act.
+/// "Re-sign" is not automatic: a change to this tag or to the payload below
+/// must add the old builder to `legacy_signatures` (with a test), so the
+/// server's start-up signature upgrade can re-sign stored claims.
 /// `pub` so conformance-vector generation and consumers can reference the exact
 /// tag string rather than retyping it.
 pub const CLAIM_PAYLOAD_TAG: &str = "linkkeys-claim-v1alpha";

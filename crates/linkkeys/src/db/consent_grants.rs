@@ -118,6 +118,31 @@ pub mod pg {
         ))
         .get_result(conn)
     }
+
+    /// Every current grant of every user: not revoked, not expired.
+    pub fn list_active_all(
+        conn: &mut diesel::PgConnection,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> QueryResult<Vec<ConsentGrantRow>> {
+        consent_grants::table
+            .filter(consent_grants::revoked_at.is_null())
+            .filter(consent_grants::expires_at.gt(now))
+            .order(consent_grants::issued_at.asc())
+            .select(ConsentGrantDbRow::as_select())
+            .load::<ConsentGrantDbRow>(conn)
+            .map(|rows| rows.into_iter().map(Into::into).collect())
+    }
+
+    /// Replace the stored `CBOR(SignedConsentGrant)` of one grant.
+    pub fn update_signed_grant(
+        conn: &mut diesel::PgConnection,
+        id: uuid::Uuid,
+        signed_grant: &[u8],
+    ) -> QueryResult<usize> {
+        diesel::update(consent_grants::table.find(id))
+            .set(consent_grants::signed_grant.eq(signed_grant.to_vec()))
+            .execute(conn)
+    }
 }
 
 #[cfg(feature = "sqlite")]
@@ -223,5 +248,28 @@ pub mod sqlite {
                 .filter(consent_grants::expires_at.gt(now)),
         ))
         .get_result(conn)
+    }
+
+    pub fn list_active_all(
+        conn: &mut diesel::SqliteConnection,
+        now: &str,
+    ) -> QueryResult<Vec<ConsentGrantRow>> {
+        consent_grants::table
+            .filter(consent_grants::revoked_at.is_null())
+            .filter(consent_grants::expires_at.gt(now))
+            .order(consent_grants::issued_at.asc())
+            .select(ConsentGrantDbRow::as_select())
+            .load::<ConsentGrantDbRow>(conn)
+            .map(|rows| rows.into_iter().map(Into::into).collect())
+    }
+
+    pub fn update_signed_grant(
+        conn: &mut diesel::SqliteConnection,
+        id: &str,
+        signed_grant: &[u8],
+    ) -> QueryResult<usize> {
+        diesel::update(consent_grants::table.find(id))
+            .set(consent_grants::signed_grant.eq(signed_grant.to_vec()))
+            .execute(conn)
     }
 }
