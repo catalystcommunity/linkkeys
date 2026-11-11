@@ -297,3 +297,76 @@ into the consent signature. Grants without it keep their signatures.
 
 An application that also uses act-as grants should send the `application_id`
 that it enrolled with.
+
+## Upgrading to the release after 0.16.7
+
+### Records signed in older formats are re-signed (automatic, no action)
+
+No operator action is necessary. Start the new release. The server repairs
+the records at start-up, as it applies a migration.
+
+Releases before 0.14.1 signed claims, consent grants, and key revocation
+certificates in older payload formats. Release 0.14.1 changed every
+domain-separation tag to the `-v1alpha` epoch. Current verifiers accept only
+the current format, and no release re-signed the stored records. Thus, claims
+from before 2026-07-16 do not verify. A relying party that verifies claim
+signatures (for example, `grafana-linkkeys-login` with the Go SDK
+`VerifyClaim`) rejects them with `signature_invalid`. Relying parties that do
+not verify signatures show no error.
+
+The known older formats are:
+
+| Record | Format | Commit |
+|---|---|---|
+| Claim | `linkkeys-claim-v1`, bare user ID and signing domain | 05b7588 |
+| Claim | `linkkeys-claim-v1`, `user@domain` subject | 54b4873 |
+| Claim | `linkkeys-claim-v2`, adds `attested_at` | 59428af |
+| Consent grant | `linkkeys-consent-v1` | 0026221 |
+| Key revocation | `linkkeys-key-revocation-v1` | 4a8b759 |
+| Key vouch | `linkkeys-key-vouch-v1` | cdd5009 |
+
+On start, `serve` examines each active claim about a local user, each active
+consent grant, and each issued key revocation:
+
+- If the current verifier accepts the signatures of this domain, the server
+  does not change the record.
+- If each signature of this domain verifies with a key of this domain (active
+  or retired) in the current format or a known older format, the server
+  re-signs the record with the active signing keys. The claim ID, type,
+  value, expiry, and attestation time do not change.
+- If no signature of this domain verifies, the server does not change the
+  record and logs a warning with its ID. A re-sign would make a tampered row
+  valid. Remove or re-issue the record.
+- Signatures of other domains stay as they are. The server logs the record ID.
+  Only the issuer can re-sign them.
+
+The server logs one summary line for each kind of record: checked, current,
+stale, re-signed, unverifiable, and foreign. The pass is idempotent, so it
+does nothing on later starts. A server without `DOMAIN_KEY_PASSPHRASE` has no
+signing keys, so it only reports.
+
+Some SQLite claims from before 2026-07-02 have an `attested_at` value in the
+form `YYYY-MM-DD HH:MM:SS`. This value is not RFC 3339, and no verifier can
+use it. The server re-signs these claims with a new attestation time, and
+writes a `claim.reattested` audit entry for each one.
+
+An unverifiable record is the only case that needs an operator. The server
+cannot prove that it signed the record, so it must not re-sign it. Find these
+records in the start-up log.
+
+For diagnosis only, `linkkeys domain verify-signatures` shows the same report
+without a restart. It does not change data, and it exits with status 1 when a
+record needs attention. Do not use it as an upgrade step.
+
+`domain re-vouch` and the start-up re-vouch use the same rule. They re-sign a
+vouch only when a signing key of this domain made it, in the current format
+or as `linkkeys-key-vouch-v1`. The server logs any other vouch and does not change the key. That is a
+security event, not an upgrade step: revoke that key with
+`linkkeys domain revoke-key`, and then run `linkkeys domain init` to make a
+new encryption key.
+
+Two kinds of signed data are not stored, so they need no repair. Sealed boxes
+and login proofs are single-use. The server signs domain claims about an RP
+again for each request. But a file of pre-signed domain claims
+(`RP_DOMAIN_CLAIMS_SIGNED`) that was signed before 0.14.1 does not verify. Only
+the issuer can sign it again.

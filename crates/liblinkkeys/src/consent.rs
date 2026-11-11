@@ -77,7 +77,7 @@ impl std::error::Error for ConsentError {}
 
 /// Canonicalize a set of claim types: deduplicated and sorted, so the signed
 /// payload is independent of input order and multiplicity.
-fn canonical_types(types: &[String]) -> Vec<String> {
+pub(crate) fn canonical_types(types: &[String]) -> Vec<String> {
     types
         .iter()
         .map(String::as_str)
@@ -101,7 +101,7 @@ fn canonical_types(types: &[String]) -> Vec<String> {
 /// length keeps the two forms distinct.
 /// `revoked_at` is deliberately NOT signed: it is a mutable post-issuance field.
 #[allow(clippy::too_many_arguments)]
-fn consent_sign_payload(
+pub(crate) fn consent_sign_payload(
     grant_id: &str,
     user_id: &str,
     subject_domain: &str,

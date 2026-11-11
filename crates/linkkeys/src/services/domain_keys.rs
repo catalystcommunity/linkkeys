@@ -6,6 +6,10 @@
 //! epoch changes (e.g. `-v1` → `-v1alpha`), every stored vouch stops verifying
 //! on current peers and cross-domain logins fail at the encryption step. The
 //! alpha policy is to re-sign, not to accept old tags — this module re-signs.
+//! It re-signs only a vouch that verifies, under the current or a known older
+//! tag, with a signing key of this domain (see
+//! `liblinkkeys::legacy_signatures`). Any other vouch is reported and left as
+//! it is: re-signing it would vouch for a key this domain never vouched for.
 
 use crate::db::models::DomainKey;
 use crate::db::DbPool;
@@ -18,6 +22,9 @@ pub enum RevouchOutcome {
     AlreadyValid,
     /// A new vouch was signed and stored, by the named signing key.
     Revouched { signed_by_key_id: String },
+    /// The stored vouch is missing, or no signing key of this domain made it
+    /// in a known format. It was not re-signed.
+    Unverifiable,
 }
 
 /// Verify every non-revoked encryption key's stored vouch under the current
@@ -66,6 +73,25 @@ pub fn revouch_encryption_keys(
                 results.push((enc.id.clone(), RevouchOutcome::AlreadyValid));
                 continue;
             }
+        }
+
+        // Re-sign only a vouch this domain made: the named signer, active or
+        // retired, signed it under the current or a known older tag.
+        let made_here = enc
+            .signed_by_key_id
+            .as_deref()
+            .and_then(|id| all_keys.iter().find(|k| k.id == id))
+            .is_some_and(|signer| {
+                liblinkkeys::legacy_signatures::vouch_provenance(&enc_pub, &signer.into()).is_some()
+            });
+        if !made_here {
+            log::warn!(
+                "encryption key {} has a vouch that no signing key of this domain made; \
+                 not re-vouching it (revoke the key, or create a new one with `domain init`)",
+                enc.id
+            );
+            results.push((enc.id.clone(), RevouchOutcome::Unverifiable));
+            continue;
         }
 
         // Re-sign: prefer the originally named signer when it is still active,

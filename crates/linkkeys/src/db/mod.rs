@@ -4052,6 +4052,102 @@ impl DbPool {
         }
     }
 
+    // -- Signature-format upgrade (services::signature_upgrade) --
+
+    /// Every claim, with its signatures, oldest first.
+    pub fn list_all_claims(&self) -> QueryResult<Vec<models::ClaimRow>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => claims::pg::list_all(&mut *pg_conn(p)?),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => claims::sqlite::list_all(&mut *sqlite_conn(p)?),
+        }
+    }
+
+    /// Replace a claim's signatures with a re-signed set and, when
+    /// `attested_at` is given (RFC3339), set a new attestation time, in one
+    /// transaction.
+    pub fn resign_claim(
+        &self,
+        claim_id: &str,
+        attested_at: Option<&str>,
+        signatures: &[liblinkkeys::generated::types::ClaimSignature],
+    ) -> QueryResult<()> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let id: uuid::Uuid = claim_id
+                    .parse()
+                    .map_err(|_| diesel::result::Error::NotFound)?;
+                let at = attested_at
+                    .map(|s| {
+                        chrono::DateTime::parse_from_rfc3339(s)
+                            .map(|t| t.with_timezone(&chrono::Utc))
+                            .map_err(|e| diesel::result::Error::SerializationError(Box::new(e)))
+                    })
+                    .transpose()?;
+                claims::pg::resign(&mut *pg_conn(p)?, id, at, signatures)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                claims::sqlite::resign(&mut *sqlite_conn(p)?, claim_id, attested_at, signatures)
+            }
+        }
+    }
+
+    /// Every current consent grant of every user.
+    pub fn list_all_active_consent_grants(&self) -> QueryResult<Vec<models::ConsentGrantRow>> {
+        let now = chrono::Utc::now();
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => consent_grants::pg::list_active_all(&mut *pg_conn(p)?, now),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                consent_grants::sqlite::list_active_all(&mut *sqlite_conn(p)?, &now.to_rfc3339())
+            }
+        }
+    }
+
+    /// Replace the stored `CBOR(SignedConsentGrant)` of one grant.
+    pub fn update_consent_grant_signature(&self, id: &str, signed_grant: &[u8]) -> QueryResult<()> {
+        let updated = match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let id: uuid::Uuid = id.parse().map_err(|_| diesel::result::Error::NotFound)?;
+                consent_grants::pg::update_signed_grant(&mut *pg_conn(p)?, id, signed_grant)?
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => consent_grants::sqlite::update_signed_grant(
+                &mut *sqlite_conn(p)?,
+                id,
+                signed_grant,
+            )?,
+        };
+        if updated == 0 {
+            return Err(diesel::result::Error::NotFound);
+        }
+        Ok(())
+    }
+
+    /// Replace the stored certificate of one issued revocation.
+    pub fn update_issued_revocation_cert(&self, id: &str, cert: &[u8]) -> QueryResult<()> {
+        let updated = match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                let id: uuid::Uuid = id.parse().map_err(|_| diesel::result::Error::NotFound)?;
+                issued_revocations::pg::update_cert(&mut *pg_conn(p)?, id, cert)?
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                issued_revocations::sqlite::update_cert(&mut *sqlite_conn(p)?, id, cert)?
+            }
+        };
+        if updated == 0 {
+            return Err(diesel::result::Error::NotFound);
+        }
+        Ok(())
+    }
+
     /// Record a nonce as used (durable, shared replay protection).
     /// Returns Ok(true) on first use, Ok(false) if already used (replay).
     pub fn record_nonce(&self, nonce: &str, ttl: std::time::Duration) -> QueryResult<bool> {

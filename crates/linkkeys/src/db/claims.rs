@@ -53,6 +53,25 @@ pub mod pg {
         })
     }
 
+    /// Replace a claim's signatures with a re-signed set and, when given, set
+    /// a new `attested_at`, in one transaction. Used by the signature-format
+    /// upgrade (`services::signature_upgrade`).
+    pub fn resign(
+        conn: &mut diesel::PgConnection,
+        claim_id: uuid::Uuid,
+        attested_at: Option<chrono::DateTime<chrono::Utc>>,
+        signatures: &[ClaimSignature],
+    ) -> QueryResult<()> {
+        conn.transaction(|conn| {
+            if let Some(at) = attested_at {
+                diesel::update(claims::table.find(claim_id))
+                    .set(claims::attested_at.eq(at))
+                    .execute(conn)?;
+            }
+            replace_signatures(conn, claim_id, signatures)
+        })
+    }
+
     fn insert_signatures(
         conn: &mut diesel::PgConnection,
         claim_id: uuid::Uuid,
@@ -304,6 +323,22 @@ pub mod sqlite {
             diesel::delete(claim_signatures::table.filter(claim_signatures::claim_id.eq(claim_id)))
                 .execute(conn)?;
             insert_signatures(conn, claim_id, signatures)
+        })
+    }
+
+    pub fn resign(
+        conn: &mut diesel::SqliteConnection,
+        claim_id: &str,
+        attested_at: Option<&str>,
+        signatures: &[ClaimSignature],
+    ) -> QueryResult<()> {
+        conn.transaction(|conn| {
+            if let Some(at) = attested_at {
+                diesel::update(claims::table.find(claim_id))
+                    .set(claims::attested_at.eq(at))
+                    .execute(conn)?;
+            }
+            replace_signatures(conn, claim_id, signatures)
         })
     }
 

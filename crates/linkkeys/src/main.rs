@@ -76,6 +76,7 @@ async fn main() {
         Commands::Domain(DomainCommands::ListKeys) => domain_list_keys(),
         Commands::Domain(DomainCommands::RevokeKey { key_id }) => domain_revoke_key(&key_id),
         Commands::Domain(DomainCommands::ReVouch) => domain_re_vouch(),
+        Commands::Domain(DomainCommands::VerifySignatures) => domain_verify_signatures(),
         Commands::Domain(DomainCommands::RevokeKeyRemote { key_id, server }) => {
             domain_revoke_key_remote(&key_id, server.as_deref())
         }
@@ -307,6 +308,10 @@ fn run_startup_transforms(pool: &linkkeys::db::DbPool) {
     // Self-heal encryption-key vouches whose tag epoch is stale (they stop
     // verifying on peers after a KEY_VOUCH_TAG change). Idempotent.
     linkkeys::services::domain_keys::revouch_on_startup(pool);
+    // Re-sign claims, consent grants, and key revocations that this domain
+    // signed in an older payload format (verifiers accept only the current
+    // one). Idempotent; reports what it cannot prove it signed.
+    linkkeys::services::signature_upgrade::upgrade_on_startup(pool);
 }
 
 fn get_passphrase() -> String {
@@ -467,7 +472,43 @@ fn domain_re_vouch() {
             linkkeys::services::domain_keys::RevouchOutcome::Revouched { signed_by_key_id } => {
                 println!("Encryption key {key_id}: re-vouched (signed by {signed_by_key_id}).");
             }
+            linkkeys::services::domain_keys::RevouchOutcome::Unverifiable => {
+                println!(
+                    "Encryption key {key_id}: NOT re-vouched. No signing key of this domain \
+                     made its stored vouch. Revoke it and run `linkkeys domain init`."
+                );
+            }
         }
+    }
+}
+
+/// Report stored records whose signatures do not verify under the current
+/// payload format (`domain verify-signatures`). Read-only diagnostic: `serve`
+/// re-signs stale records at startup, so this is never an upgrade step.
+fn domain_verify_signatures() {
+    let db_pool = pool_with_migrations();
+    let report = linkkeys::services::signature_upgrade::run(&db_pool, None).unwrap_or_else(|e| {
+        eprintln!("Signature check failed: {e}");
+        std::process::exit(1);
+    });
+    for (kind, r) in report.kinds() {
+        println!("{kind}: {r}");
+        for id in &r.stale {
+            println!(
+                "  stale (signed here in an older format; the next server start re-signs it): {id}"
+            );
+        }
+        for id in &r.unverifiable {
+            println!("  UNVERIFIABLE (no signature of this domain verifies; not changed): {id}");
+        }
+        for id in &r.foreign {
+            println!("  has signatures of other domains (not checked): {id}");
+        }
+    }
+    if report.is_clean() {
+        println!("Every record this domain signed verifies under the current format.");
+    } else {
+        std::process::exit(1);
     }
 }
 

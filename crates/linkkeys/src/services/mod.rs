@@ -23,6 +23,7 @@ pub mod recovery;
 pub mod revocations;
 pub mod rp_cache;
 pub mod self_service;
+pub mod signature_upgrade;
 pub mod ui;
 pub mod verification;
 pub mod warm_signer;

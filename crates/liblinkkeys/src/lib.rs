@@ -13,6 +13,8 @@ pub mod encoding;
 pub mod generated;
 pub mod i18n;
 pub mod identity_input;
+#[cfg(any(test, feature = "legacy-formats"))]
+pub mod legacy_signatures;
 pub mod local_rp;
 pub mod revocation;
 pub mod signing_request;

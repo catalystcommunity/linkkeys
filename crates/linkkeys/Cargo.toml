@@ -12,7 +12,7 @@ sqlite = ["diesel/sqlite"]
 smtp-native-tls = ["lettre/tokio1-native-tls"]
 
 [dependencies]
-liblinkkeys = { path = "../liblinkkeys" }
+liblinkkeys = { path = "../liblinkkeys", features = ["legacy-formats"] }
 linkkeys-rpc-client = { path = "../linkkeys-rpc-client" }
 # CSIL transport family. Vendored copy for now while the crate is iterated; the
 # git dep is verified working (public repo) — SWAP at the end:
