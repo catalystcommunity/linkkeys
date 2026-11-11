@@ -1869,7 +1869,8 @@ defmodule Csilgen.Generated.ConsentGrant do
     :claim_types,
     :issued_at,
     :expires_at,
-    :revoked_at
+    :revoked_at,
+    :application
   ]
 
   @type t :: %__MODULE__{
@@ -1880,7 +1881,8 @@ defmodule Csilgen.Generated.ConsentGrant do
           claim_types: [String.t()],
           issued_at: String.t(),
           expires_at: String.t(),
-          revoked_at: String.t() | nil
+          revoked_at: String.t() | nil,
+          application: Csilgen.Generated.ApplicationRef.t() | nil
         }
 
   @wire_keys [
@@ -1891,7 +1893,8 @@ defmodule Csilgen.Generated.ConsentGrant do
     claim_types: "claim_types",
     issued_at: "issued_at",
     expires_at: "expires_at",
-    revoked_at: "revoked_at"
+    revoked_at: "revoked_at",
+    application: "application"
   ]
   @doc "Maps struct field atoms to their verbatim CBOR wire keys."
   @spec wire_keys() :: keyword()
@@ -1909,6 +1912,12 @@ defmodule Csilgen.Generated.ConsentGrant do
          {{:text, "issued_at"}, {:text, v.issued_at}},
          {{:text, "expires_at"}, {:text, v.expires_at}},
          if(is_nil(v.revoked_at), do: nil, else: {{:text, "revoked_at"}, {:text, v.revoked_at}}),
+         if(is_nil(v.application),
+           do: nil,
+           else:
+             {{:text, "application"},
+              Csilgen.Generated.ApplicationRef.to_cbor_value(v.application)}
+         ),
          {{:text, "claim_types"},
           {:array, Enum.map(v.claim_types, fn csil_e -> {:text, csil_e} end)}},
          {{:text, "subject_domain"}, {:text, v.subject_domain}}
@@ -1932,6 +1941,11 @@ defmodule Csilgen.Generated.ConsentGrant do
         case Map.get(csil_fields, {:text, "revoked_at"}) do
           nil -> nil
           csil_v -> Csilgen.Generated.Cbor.to_text(csil_v)
+        end,
+      application:
+        case Map.get(csil_fields, {:text, "application"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.ApplicationRef.from_cbor_value(csil_v)
         end,
       claim_types:
         case Map.fetch!(csil_fields, {:text, "claim_types"}) do
@@ -2766,6 +2780,59 @@ defmodule Csilgen.Generated.UserInfo do
   def from_cbor(bytes), do: from_cbor_value(Csilgen.Generated.Cbor.decode(bytes))
 end
 
+defmodule Csilgen.Generated.RelyingPartyApplication do
+  @moduledoc "Generated struct for the RelyingPartyApplication type."
+
+  @enforce_keys [:application, :display_name]
+  defstruct [:application, :display_name]
+
+  @type t :: %__MODULE__{
+          application: Csilgen.Generated.ApplicationRef.t(),
+          display_name: String.t()
+        }
+
+  @wire_keys [application: "application", display_name: "display_name"]
+  @doc "Maps struct field atoms to their verbatim CBOR wire keys."
+  @spec wire_keys() :: keyword()
+  def wire_keys, do: @wire_keys
+
+  @doc "Builds the canonical CBOR value tree for this struct."
+  @spec to_cbor_value(t()) :: Csilgen.Generated.Cbor.value()
+  def to_cbor_value(%__MODULE__{} = v) do
+    {:map,
+     Enum.reject(
+       [
+         {{:text, "application"}, Csilgen.Generated.ApplicationRef.to_cbor_value(v.application)},
+         {{:text, "display_name"}, {:text, v.display_name}}
+       ],
+       &is_nil/1
+     )}
+  end
+
+  @doc "Reconstructs this struct from a decoded CBOR value tree."
+  @spec from_cbor_value(term()) :: t()
+  def from_cbor_value({:map, csil_kvs}) do
+    csil_fields = Map.new(csil_kvs)
+
+    %__MODULE__{
+      application:
+        Csilgen.Generated.ApplicationRef.from_cbor_value(
+          Map.fetch!(csil_fields, {:text, "application"})
+        ),
+      display_name:
+        Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "display_name"}))
+    }
+  end
+
+  @doc "Encodes this struct to canonical CBOR bytes."
+  @spec to_cbor(t()) :: binary()
+  def to_cbor(v), do: Csilgen.Generated.Cbor.encode(to_cbor_value(v))
+
+  @doc "Decodes canonical CBOR bytes into this struct."
+  @spec from_cbor(binary()) :: t()
+  def from_cbor(bytes), do: from_cbor_value(Csilgen.Generated.Cbor.decode(bytes))
+end
+
 defmodule Csilgen.Generated.AuthRequest do
   @moduledoc "Generated struct for the AuthRequest type."
 
@@ -2779,7 +2846,8 @@ defmodule Csilgen.Generated.AuthRequest do
     :requested_claims,
     :authentication_requirements,
     :flow_context,
-    :relying_party_claims
+    :relying_party_claims,
+    :application
   ]
 
   @type t :: %__MODULE__{
@@ -2791,7 +2859,8 @@ defmodule Csilgen.Generated.AuthRequest do
           requested_claims: Csilgen.Generated.ClaimRequest.t() | nil,
           authentication_requirements: Csilgen.Generated.AuthenticationRequirements.t() | nil,
           flow_context: Csilgen.Generated.AuthFlowContext.t() | nil,
-          relying_party_claims: [Csilgen.Generated.DomainClaim.t()] | nil
+          relying_party_claims: [Csilgen.Generated.DomainClaim.t()] | nil,
+          application: Csilgen.Generated.RelyingPartyApplication.t() | nil
         }
 
   @wire_keys [
@@ -2803,7 +2872,8 @@ defmodule Csilgen.Generated.AuthRequest do
     requested_claims: "requested_claims",
     authentication_requirements: "authentication_requirements",
     flow_context: "flow_context",
-    relying_party_claims: "relying_party_claims"
+    relying_party_claims: "relying_party_claims",
+    application: "application"
   ]
   @doc "Maps struct field atoms to their verbatim CBOR wire keys."
   @spec wire_keys() :: keyword()
@@ -2817,6 +2887,12 @@ defmodule Csilgen.Generated.AuthRequest do
        [
          {{:text, "nonce"}, {:text, v.nonce}},
          {{:text, "timestamp"}, {:text, v.timestamp}},
+         if(is_nil(v.application),
+           do: nil,
+           else:
+             {{:text, "application"},
+              Csilgen.Generated.RelyingPartyApplication.to_cbor_value(v.application)}
+         ),
          {{:text, "callback_url"}, {:text, v.callback_url}},
          if(is_nil(v.flow_context),
            do: nil,
@@ -2862,6 +2938,11 @@ defmodule Csilgen.Generated.AuthRequest do
     %__MODULE__{
       nonce: Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "nonce"})),
       timestamp: Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "timestamp"})),
+      application:
+        case Map.get(csil_fields, {:text, "application"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.RelyingPartyApplication.from_cbor_value(csil_v)
+        end,
       callback_url:
         Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "callback_url"})),
       flow_context:
@@ -10052,7 +10133,9 @@ defmodule Csilgen.Generated.BrowserAuthorizationInspectResponse do
     :request_reason,
     :already_consented,
     :authorized_claims,
-    :access_denied
+    :access_denied,
+    :application,
+    :callback_host
   ]
 
   @type t :: %__MODULE__{
@@ -10061,7 +10144,9 @@ defmodule Csilgen.Generated.BrowserAuthorizationInspectResponse do
           request_reason: String.t() | nil,
           already_consented: boolean() | nil,
           authorized_claims: [String.t()] | nil,
-          access_denied: Csilgen.Generated.AppAccessDenial.t() | nil
+          access_denied: Csilgen.Generated.AppAccessDenial.t() | nil,
+          application: Csilgen.Generated.RelyingPartyApplication.t() | nil,
+          callback_host: String.t() | nil
         }
 
   @wire_keys [
@@ -10070,7 +10155,9 @@ defmodule Csilgen.Generated.BrowserAuthorizationInspectResponse do
     request_reason: "request_reason",
     already_consented: "already_consented",
     authorized_claims: "authorized_claims",
-    access_denied: "access_denied"
+    access_denied: "access_denied",
+    application: "application",
+    callback_host: "callback_host"
   ]
   @doc "Maps struct field atoms to their verbatim CBOR wire keys."
   @spec wire_keys() :: keyword()
@@ -10087,11 +10174,21 @@ defmodule Csilgen.Generated.BrowserAuthorizationInspectResponse do
            Enum.map(v.claims, fn csil_e ->
              Csilgen.Generated.BrowserConsentClaim.to_cbor_value(csil_e)
            end)}},
+         if(is_nil(v.application),
+           do: nil,
+           else:
+             {{:text, "application"},
+              Csilgen.Generated.RelyingPartyApplication.to_cbor_value(v.application)}
+         ),
          if(is_nil(v.access_denied),
            do: nil,
            else:
              {{:text, "access_denied"},
               Csilgen.Generated.AppAccessDenial.to_cbor_value(v.access_denied)}
+         ),
+         if(is_nil(v.callback_host),
+           do: nil,
+           else: {{:text, "callback_host"}, {:text, v.callback_host}}
          ),
          {{:text, "relying_party"}, {:text, v.relying_party}},
          if(is_nil(v.request_reason),
@@ -10126,10 +10223,20 @@ defmodule Csilgen.Generated.BrowserAuthorizationInspectResponse do
               Csilgen.Generated.BrowserConsentClaim.from_cbor_value(csil_e)
             end)
         end,
+      application:
+        case Map.get(csil_fields, {:text, "application"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.RelyingPartyApplication.from_cbor_value(csil_v)
+        end,
       access_denied:
         case Map.get(csil_fields, {:text, "access_denied"}) do
           nil -> nil
           csil_v -> Csilgen.Generated.AppAccessDenial.from_cbor_value(csil_v)
+        end,
+      callback_host:
+        case Map.get(csil_fields, {:text, "callback_host"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.Cbor.to_text(csil_v)
         end,
       relying_party:
         Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "relying_party"})),
@@ -10971,6 +11078,7 @@ defmodule Csilgen.Generated.RpSignRequest do
   defstruct [
     :callback_url,
     :nonce,
+    :application_id,
     :requested_claims,
     :authentication_requirements,
     :flow_context
@@ -10979,6 +11087,7 @@ defmodule Csilgen.Generated.RpSignRequest do
   @type t :: %__MODULE__{
           callback_url: String.t(),
           nonce: String.t(),
+          application_id: String.t() | nil,
           requested_claims: Csilgen.Generated.ClaimRequest.t() | nil,
           authentication_requirements: Csilgen.Generated.AuthenticationRequirements.t() | nil,
           flow_context: Csilgen.Generated.AuthFlowContext.t() | nil
@@ -10987,6 +11096,7 @@ defmodule Csilgen.Generated.RpSignRequest do
   @wire_keys [
     callback_url: "callback_url",
     nonce: "nonce",
+    application_id: "application_id",
     requested_claims: "requested_claims",
     authentication_requirements: "authentication_requirements",
     flow_context: "flow_context"
@@ -11008,6 +11118,10 @@ defmodule Csilgen.Generated.RpSignRequest do
            else:
              {{:text, "flow_context"},
               Csilgen.Generated.AuthFlowContext.to_cbor_value(v.flow_context)}
+         ),
+         if(is_nil(v.application_id),
+           do: nil,
+           else: {{:text, "application_id"}, {:text, v.application_id}}
          ),
          if(is_nil(v.requested_claims),
            do: nil,
@@ -11041,6 +11155,11 @@ defmodule Csilgen.Generated.RpSignRequest do
         case Map.get(csil_fields, {:text, "flow_context"}) do
           nil -> nil
           csil_v -> Csilgen.Generated.AuthFlowContext.from_cbor_value(csil_v)
+        end,
+      application_id:
+        case Map.get(csil_fields, {:text, "application_id"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.Cbor.to_text(csil_v)
         end,
       requested_claims:
         case Map.get(csil_fields, {:text, "requested_claims"}) do
@@ -11535,7 +11654,8 @@ defmodule Csilgen.Generated.AuthorizeValidateResponse do
     :already_consented,
     :authorized_claims,
     :newly_requested_claims,
-    :access_denied
+    :access_denied,
+    :application
   ]
 
   @type t :: %__MODULE__{
@@ -11545,7 +11665,8 @@ defmodule Csilgen.Generated.AuthorizeValidateResponse do
           already_consented: boolean() | nil,
           authorized_claims: [String.t()] | nil,
           newly_requested_claims: [String.t()] | nil,
-          access_denied: Csilgen.Generated.AppAccessDenial.t() | nil
+          access_denied: Csilgen.Generated.AppAccessDenial.t() | nil,
+          application: Csilgen.Generated.RelyingPartyApplication.t() | nil
         }
 
   @wire_keys [
@@ -11555,7 +11676,8 @@ defmodule Csilgen.Generated.AuthorizeValidateResponse do
     already_consented: "already_consented",
     authorized_claims: "authorized_claims",
     newly_requested_claims: "newly_requested_claims",
-    access_denied: "access_denied"
+    access_denied: "access_denied",
+    application: "application"
   ]
   @doc "Maps struct field atoms to their verbatim CBOR wire keys."
   @spec wire_keys() :: keyword()
@@ -11567,6 +11689,12 @@ defmodule Csilgen.Generated.AuthorizeValidateResponse do
     {:map,
      Enum.reject(
        [
+         if(is_nil(v.application),
+           do: nil,
+           else:
+             {{:text, "application"},
+              Csilgen.Generated.RelyingPartyApplication.to_cbor_value(v.application)}
+         ),
          {{:text, "callback_url"}, {:text, v.callback_url}},
          if(is_nil(v.access_denied),
            do: nil,
@@ -11604,6 +11732,11 @@ defmodule Csilgen.Generated.AuthorizeValidateResponse do
     csil_fields = Map.new(csil_kvs)
 
     %__MODULE__{
+      application:
+        case Map.get(csil_fields, {:text, "application"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.RelyingPartyApplication.from_cbor_value(csil_v)
+        end,
       callback_url:
         Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "callback_url"})),
       access_denied:

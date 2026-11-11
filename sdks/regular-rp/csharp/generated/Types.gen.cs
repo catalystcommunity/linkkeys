@@ -315,6 +315,8 @@ public sealed record ConsentGrant
     public required string ExpiresAt { get; init; }
     // CBOR key: revoked_at
     public string? RevokedAt { get; init; }
+    // CBOR key: application
+    public ApplicationRef? Application { get; init; }
 }
 
 public sealed record SignedConsentGrant
@@ -453,6 +455,14 @@ public sealed record UserInfo
     public required System.Collections.Generic.List<Claim> Claims { get; init; }
 }
 
+public sealed record RelyingPartyApplication
+{
+    // CBOR key: application
+    public required ApplicationRef Application { get; init; }
+    // CBOR key: display_name
+    public required string DisplayName { get; init; }
+}
+
 public sealed record AuthRequest
 {
     // CBOR key: relying_party
@@ -473,6 +483,8 @@ public sealed record AuthRequest
     public AuthFlowContext? FlowContext { get; init; }
     // CBOR key: relying_party_claims
     public System.Collections.Generic.List<DomainClaim>? RelyingPartyClaims { get; init; }
+    // CBOR key: application
+    public RelyingPartyApplication? Application { get; init; }
 }
 
 public sealed record SignedAuthRequest
@@ -1579,6 +1591,10 @@ public sealed record BrowserAuthorizationInspectResponse
     public System.Collections.Generic.List<string>? AuthorizedClaims { get; init; }
     // CBOR key: access_denied
     public AppAccessDenial? AccessDenied { get; init; }
+    // CBOR key: application
+    public RelyingPartyApplication? Application { get; init; }
+    // CBOR key: callback_host
+    public string? CallbackHost { get; init; }
 }
 
 public sealed record BrowserAuthorizationCompleteRequest
@@ -1707,6 +1723,8 @@ public sealed record RpSignRequest
     public required string CallbackUrl { get; init; }
     // CBOR key: nonce
     public required string Nonce { get; init; }
+    // CBOR key: application_id
+    public string? ApplicationId { get; init; }
     // CBOR key: requested_claims
     public ClaimRequest? RequestedClaims { get; init; }
     // CBOR key: authentication_requirements
@@ -1801,6 +1819,8 @@ public sealed record AuthorizeValidateResponse
     public System.Collections.Generic.List<string>? NewlyRequestedClaims { get; init; }
     // CBOR key: access_denied
     public AppAccessDenial? AccessDenied { get; init; }
+    // CBOR key: application
+    public RelyingPartyApplication? Application { get; init; }
 }
 
 public sealed record AuthorizeFinalizeRequest

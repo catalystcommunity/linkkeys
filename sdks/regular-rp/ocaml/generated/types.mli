@@ -127,6 +127,7 @@ and consent_grant = {
   issued_at : string;
   expires_at : string;
   revoked_at : string option;
+  application : application_ref option;
 }
 
 and signed_consent_grant = { grant : bytes; signatures : claim_signature list }
@@ -199,6 +200,11 @@ and user_info = {
   claims : claim list;
 }
 
+and relying_party_application = {
+  application : application_ref;
+  display_name : string;
+}
+
 and auth_request = {
   relying_party : string;
   callback_url : string;
@@ -209,6 +215,7 @@ and auth_request = {
   authentication_requirements : authentication_requirements option;
   flow_context : auth_flow_context option;
   relying_party_claims : domain_claim list option;
+  application : relying_party_application option;
 }
 
 and signed_auth_request = {
@@ -663,6 +670,8 @@ and browser_authorization_inspect_response = {
   already_consented : bool option;
   authorized_claims : string list option;
   access_denied : app_access_denial option;
+  application : relying_party_application option;
+  callback_host : string option;
 }
 
 and browser_authorization_complete_request = {
@@ -728,6 +737,7 @@ and get_ui_configuration_response = {
 and rp_sign_request = {
   callback_url : string;
   nonce : string;
+  application_id : string option;
   requested_claims : claim_request option;
   authentication_requirements : authentication_requirements option;
   flow_context : auth_flow_context option;
@@ -766,6 +776,7 @@ and authorize_validate_response = {
   authorized_claims : string list option;
   newly_requested_claims : string list option;
   access_denied : app_access_denial option;
+  application : relying_party_application option;
 }
 
 and authorize_finalize_request = {

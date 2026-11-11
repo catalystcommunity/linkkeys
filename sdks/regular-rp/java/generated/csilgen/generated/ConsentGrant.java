@@ -12,6 +12,7 @@ public record ConsentGrant(
     List<String> claimTypes /* wire: "claim_types" */,
     String issuedAt /* wire: "issued_at" */,
     String expiresAt /* wire: "expires_at" */,
-    String revokedAt /* wire: "revoked_at" */
+    String revokedAt /* wire: "revoked_at" */,
+    ApplicationRef application /* wire: "application" */
 ) {
 }

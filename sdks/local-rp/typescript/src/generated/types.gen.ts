@@ -189,6 +189,7 @@ export interface ConsentGrant {
   issuedAt: string;
   expiresAt: string;
   revokedAt?: string;
+  application?: ApplicationRef;
 }
 
 export interface SignedConsentGrant {
@@ -271,6 +272,11 @@ export interface UserInfo {
   claims: Claim[];
 }
 
+export interface RelyingPartyApplication {
+  application: ApplicationRef;
+  displayName: string;
+}
+
 export interface AuthRequest {
   relyingParty: string;
   callbackUrl: string;
@@ -281,6 +287,7 @@ export interface AuthRequest {
   authenticationRequirements?: AuthenticationRequirements;
   flowContext?: AuthFlowContext;
   relyingPartyClaims?: DomainClaim[];
+  application?: RelyingPartyApplication;
 }
 
 export interface SignedAuthRequest {
@@ -963,6 +970,8 @@ export interface BrowserAuthorizationInspectResponse {
   alreadyConsented?: boolean;
   authorizedClaims?: string[];
   accessDenied?: AppAccessDenial;
+  application?: RelyingPartyApplication;
+  callbackHost?: string;
 }
 
 export interface BrowserAuthorizationCompleteRequest {
@@ -1038,6 +1047,7 @@ export interface GetUiConfigurationResponse {
 export interface RpSignRequest {
   callbackUrl: string;
   nonce: string;
+  applicationId?: string;
   requestedClaims?: ClaimRequest;
   authenticationRequirements?: AuthenticationRequirements;
   flowContext?: AuthFlowContext;
@@ -1095,6 +1105,7 @@ export interface AuthorizeValidateResponse {
   authorizedClaims?: string[];
   newlyRequestedClaims?: string[];
   accessDenied?: AppAccessDenial;
+  application?: RelyingPartyApplication;
 }
 
 export interface AuthorizeFinalizeRequest {

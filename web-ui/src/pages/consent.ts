@@ -305,6 +305,7 @@ class ConsentPage extends Page {
   private showConsent(result: BrowserAuthorizationInspectResponse): void {
     this.consentContext = result;
     this.claimForm = new ClaimForm(result.claims, [
+      result.callbackHost && h("p", { class: "notice" }, formatted("app.consent.callback_host", { host: h("code", null, result.callbackHost) })),
       hasNewlyRequestedClaim(result.claims) && h("p", { class: "notice" }, t("app.consent.new_notice")),
       result.requestReason && h("p", { class: "notice" }, result.requestReason),
     ], () => void this.submit(), () => this.cancel());
@@ -319,9 +320,12 @@ class ConsentPage extends Page {
   private refresh(): void {
     const context = this.consentContext;
     const title = context
-      ? (hasNewlyRequestedClaim(context.claims) ? t("app.consent.new_title", { app: context.relyingParty }) : t("app.consent.title"))
+      ? (hasNewlyRequestedClaim(context.claims) ? t("app.consent.new_title", { app: context.application?.displayName ?? context.relyingParty }) : t("app.consent.title"))
       : this.error ? t("app.consent.stopped_title") : t("app.consent.checking_title");
-    fill(this.hero, h("p", { class: "eyebrow" }, t("app.consent.eyebrow")), h("h1", null, title), context && h("p", null, t("app.consent.intro", { app: context.relyingParty })));
+    const intro = context && (context.application
+      ? t("app.consent.intro_application", { app: context.application.displayName, domain: context.relyingParty })
+      : t("app.consent.intro", { app: context.relyingParty }));
+    fill(this.hero, h("p", { class: "eyebrow" }, t("app.consent.eyebrow")), h("h1", null, title), intro && h("p", null, intro));
     if (context && this.claimForm) {
       this.content = swap(this.content, this.claimForm.element);
       this.claimForm.update({ busy: this.busy, submitDisabled: hasBlockedRequiredClaim(context.claims) || this.restartRequired, error: this.error, needsLogin: this.needsLogin });

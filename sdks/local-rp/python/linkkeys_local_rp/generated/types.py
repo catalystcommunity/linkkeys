@@ -893,6 +893,7 @@ class ConsentGrant:
     issued_at: str
     expires_at: str
     revoked_at: Optional[str] = None
+    application: Optional[ApplicationRef] = None
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {}
@@ -912,12 +913,14 @@ class ConsentGrant:
             result['expires_at'] = self.expires_at
         if hasattr(self, 'revoked_at') and self.revoked_at is not None:
             result['revoked_at'] = self.revoked_at
+        if hasattr(self, 'application') and self.application is not None:
+            result['application'] = self.application
         return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ConsentGrant':
         """Create instance from dictionary."""
-        return cls(grant_id=data.get('grant_id'), user_id=data.get('user_id'), subject_domain=data.get('subject_domain'), audience=data.get('audience'), claim_types=data.get('claim_types'), issued_at=data.get('issued_at'), expires_at=data.get('expires_at'), revoked_at=data.get('revoked_at'))
+        return cls(grant_id=data.get('grant_id'), user_id=data.get('user_id'), subject_domain=data.get('subject_domain'), audience=data.get('audience'), claim_types=data.get('claim_types'), issued_at=data.get('issued_at'), expires_at=data.get('expires_at'), revoked_at=data.get('revoked_at'), application=data.get('application'))
 
     def to_json(self) -> str:
         """Convert to JSON string."""
@@ -1326,6 +1329,34 @@ class UserInfo:
 
 
 @dataclass
+class RelyingPartyApplication:
+    application: ApplicationRef
+    display_name: str
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result = {}
+        if hasattr(self, 'application') and self.application is not None:
+            result['application'] = self.application
+        if hasattr(self, 'display_name') and self.display_name is not None:
+            result['display_name'] = self.display_name
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'RelyingPartyApplication':
+        """Create instance from dictionary."""
+        return cls(application=data.get('application'), display_name=data.get('display_name'))
+
+    def to_json(self) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'RelyingPartyApplication':
+        """Create instance from JSON string."""
+        return cls.from_dict(json.loads(json_str))
+
+
+@dataclass
 class AuthRequest:
     relying_party: str
     callback_url: str
@@ -1336,6 +1367,7 @@ class AuthRequest:
     authentication_requirements: Optional[AuthenticationRequirements] = None
     flow_context: Optional[AuthFlowContext] = None
     relying_party_claims: Optional[List[DomainClaim]] = None
+    application: Optional[RelyingPartyApplication] = None
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {}
@@ -1357,12 +1389,14 @@ class AuthRequest:
             result['flow_context'] = self.flow_context
         if hasattr(self, 'relying_party_claims') and self.relying_party_claims is not None:
             result['relying_party_claims'] = self.relying_party_claims
+        if hasattr(self, 'application') and self.application is not None:
+            result['application'] = self.application
         return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'AuthRequest':
         """Create instance from dictionary."""
-        return cls(relying_party=data.get('relying_party'), callback_url=data.get('callback_url'), nonce=data.get('nonce'), timestamp=data.get('timestamp'), signing_key_id=data.get('signing_key_id'), requested_claims=data.get('requested_claims'), authentication_requirements=data.get('authentication_requirements'), flow_context=data.get('flow_context'), relying_party_claims=data.get('relying_party_claims'))
+        return cls(relying_party=data.get('relying_party'), callback_url=data.get('callback_url'), nonce=data.get('nonce'), timestamp=data.get('timestamp'), signing_key_id=data.get('signing_key_id'), requested_claims=data.get('requested_claims'), authentication_requirements=data.get('authentication_requirements'), flow_context=data.get('flow_context'), relying_party_claims=data.get('relying_party_claims'), application=data.get('application'))
 
     def to_json(self) -> str:
         """Convert to JSON string."""
@@ -5011,6 +5045,8 @@ class BrowserAuthorizationInspectResponse:
     already_consented: Optional[bool] = None
     authorized_claims: Optional[List[str]] = None
     access_denied: Optional[AppAccessDenial] = None
+    application: Optional[RelyingPartyApplication] = None
+    callback_host: Optional[str] = None
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {}
@@ -5026,12 +5062,16 @@ class BrowserAuthorizationInspectResponse:
             result['authorized_claims'] = self.authorized_claims
         if hasattr(self, 'access_denied') and self.access_denied is not None:
             result['access_denied'] = self.access_denied
+        if hasattr(self, 'application') and self.application is not None:
+            result['application'] = self.application
+        if hasattr(self, 'callback_host') and self.callback_host is not None:
+            result['callback_host'] = self.callback_host
         return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'BrowserAuthorizationInspectResponse':
         """Create instance from dictionary."""
-        return cls(relying_party=data.get('relying_party'), claims=data.get('claims'), request_reason=data.get('request_reason'), already_consented=data.get('already_consented'), authorized_claims=data.get('authorized_claims'), access_denied=data.get('access_denied'))
+        return cls(relying_party=data.get('relying_party'), claims=data.get('claims'), request_reason=data.get('request_reason'), already_consented=data.get('already_consented'), authorized_claims=data.get('authorized_claims'), access_denied=data.get('access_denied'), application=data.get('application'), callback_host=data.get('callback_host'))
 
     def to_json(self) -> str:
         """Convert to JSON string."""
@@ -5387,6 +5427,7 @@ class GetUiConfigurationResponse:
 class RpSignRequest:
     callback_url: str
     nonce: str
+    application_id: Optional[str] = None
     requested_claims: Optional[ClaimRequest] = None
     authentication_requirements: Optional[AuthenticationRequirements] = None
     flow_context: Optional[AuthFlowContext] = None
@@ -5397,6 +5438,8 @@ class RpSignRequest:
             result['callback_url'] = self.callback_url
         if hasattr(self, 'nonce') and self.nonce is not None:
             result['nonce'] = self.nonce
+        if hasattr(self, 'application_id') and self.application_id is not None:
+            result['application_id'] = self.application_id
         if hasattr(self, 'requested_claims') and self.requested_claims is not None:
             result['requested_claims'] = self.requested_claims
         if hasattr(self, 'authentication_requirements') and self.authentication_requirements is not None:
@@ -5408,7 +5451,7 @@ class RpSignRequest:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'RpSignRequest':
         """Create instance from dictionary."""
-        return cls(callback_url=data.get('callback_url'), nonce=data.get('nonce'), requested_claims=data.get('requested_claims'), authentication_requirements=data.get('authentication_requirements'), flow_context=data.get('flow_context'))
+        return cls(callback_url=data.get('callback_url'), nonce=data.get('nonce'), application_id=data.get('application_id'), requested_claims=data.get('requested_claims'), authentication_requirements=data.get('authentication_requirements'), flow_context=data.get('flow_context'))
 
     def to_json(self) -> str:
         """Convert to JSON string."""
@@ -5678,6 +5721,7 @@ class AuthorizeValidateResponse:
     authorized_claims: Optional[List[str]] = None
     newly_requested_claims: Optional[List[str]] = None
     access_denied: Optional[AppAccessDenial] = None
+    application: Optional[RelyingPartyApplication] = None
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {}
@@ -5695,12 +5739,14 @@ class AuthorizeValidateResponse:
             result['newly_requested_claims'] = self.newly_requested_claims
         if hasattr(self, 'access_denied') and self.access_denied is not None:
             result['access_denied'] = self.access_denied
+        if hasattr(self, 'application') and self.application is not None:
+            result['application'] = self.application
         return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'AuthorizeValidateResponse':
         """Create instance from dictionary."""
-        return cls(relying_party=data.get('relying_party'), callback_url=data.get('callback_url'), requested_claims=data.get('requested_claims'), already_consented=data.get('already_consented'), authorized_claims=data.get('authorized_claims'), newly_requested_claims=data.get('newly_requested_claims'), access_denied=data.get('access_denied'))
+        return cls(relying_party=data.get('relying_party'), callback_url=data.get('callback_url'), requested_claims=data.get('requested_claims'), already_consented=data.get('already_consented'), authorized_claims=data.get('authorized_claims'), newly_requested_claims=data.get('newly_requested_claims'), access_denied=data.get('access_denied'), application=data.get('application'))
 
     def to_json(self) -> str:
         """Convert to JSON string."""

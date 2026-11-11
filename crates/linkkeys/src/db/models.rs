@@ -159,6 +159,11 @@ pub struct ConsentGrantRow {
     pub issued_at: String,
     pub expires_at: String,
     pub revoked_at: Option<String>,
+    /// The application of `audience` the grant is for (`ApplicationRef`
+    /// without `subject_domain`, which equals `audience`). Both are `None` for
+    /// a grant that covers requests with no application.
+    pub app_subject_user_id: Option<String>,
+    pub app_application_id: Option<String>,
 }
 
 /// A presentation persona for a human account.
@@ -994,6 +999,8 @@ pub mod pg {
         pub issued_at: chrono::DateTime<chrono::Utc>,
         pub expires_at: chrono::DateTime<chrono::Utc>,
         pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+        pub app_subject_user_id: Option<String>,
+        pub app_application_id: Option<String>,
     }
 
     impl From<ConsentGrantDbRow> for super::ConsentGrantRow {
@@ -1010,6 +1017,8 @@ pub mod pg {
                 issued_at: row.issued_at.to_rfc3339(),
                 expires_at: row.expires_at.to_rfc3339(),
                 revoked_at: row.revoked_at.map(|t| t.to_rfc3339()),
+                app_subject_user_id: row.app_subject_user_id,
+                app_application_id: row.app_application_id,
             }
         }
     }
@@ -1027,6 +1036,8 @@ pub mod pg {
         pub offered_claims: Option<Vec<u8>>,
         pub issued_at: chrono::DateTime<chrono::Utc>,
         pub expires_at: chrono::DateTime<chrono::Utc>,
+        pub app_subject_user_id: Option<String>,
+        pub app_application_id: Option<String>,
     }
 
     // -- Profiles --
@@ -2365,6 +2376,8 @@ pub mod sqlite {
         pub issued_at: String,
         pub expires_at: String,
         pub revoked_at: Option<String>,
+        pub app_subject_user_id: Option<String>,
+        pub app_application_id: Option<String>,
     }
 
     impl From<ConsentGrantDbRow> for super::ConsentGrantRow {
@@ -2381,6 +2394,8 @@ pub mod sqlite {
                 issued_at: row.issued_at,
                 expires_at: row.expires_at,
                 revoked_at: row.revoked_at,
+                app_subject_user_id: row.app_subject_user_id,
+                app_application_id: row.app_application_id,
             }
         }
     }
@@ -2398,6 +2413,8 @@ pub mod sqlite {
         pub offered_claims: Option<Vec<u8>>,
         pub issued_at: String,
         pub expires_at: String,
+        pub app_subject_user_id: Option<String>,
+        pub app_application_id: Option<String>,
     }
 
     // -- Profiles --

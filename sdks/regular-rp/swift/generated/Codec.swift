@@ -1050,6 +1050,7 @@ public extension ConsentGrant {
         csilEntries.append((.text("issued_at"), .text(self.issuedAt)))
         csilEntries.append((.text("expires_at"), .text(self.expiresAt)))
         if let csilV = self.revokedAt { csilEntries.append((.text("revoked_at"), .text(csilV))) }
+        if let csilV = self.application { csilEntries.append((.text("application"), csilV.toCborValue())) }
         csilEntries.append((.text("claim_types"), CsilCborValue.array(self.claimTypes.map { .text($0) })))
         csilEntries.append((.text("subject_domain"), .text(self.subjectDomain)))
         return .map(csilEntries)
@@ -1065,7 +1066,8 @@ public extension ConsentGrant {
         let issuedAt = try CsilCbor.asText((try CsilCbor.require(cborValue, "issued_at")))
         let expiresAt = try CsilCbor.asText((try CsilCbor.require(cborValue, "expires_at")))
         let revokedAt: String? = if let csilV = CsilCbor.mapGet(cborValue, "revoked_at") { try CsilCbor.asText(csilV) } else { nil }
-        self.init(grantId: grantId, userId: userId, subjectDomain: subjectDomain, audience: audience, claimTypes: claimTypes, issuedAt: issuedAt, expiresAt: expiresAt, revokedAt: revokedAt)
+        let application: ApplicationRef? = if let csilV = CsilCbor.mapGet(cborValue, "application") { try ApplicationRef(cborValue: csilV) } else { nil }
+        self.init(grantId: grantId, userId: userId, subjectDomain: subjectDomain, audience: audience, claimTypes: claimTypes, issuedAt: issuedAt, expiresAt: expiresAt, revokedAt: revokedAt, application: application)
     }
 
     /// Encode this record to canonical CSIL CBOR bytes.
@@ -1391,12 +1393,36 @@ public extension UserInfo {
     static func fromCbor(_ bytes: [UInt8]) throws -> UserInfo { try UserInfo(cborValue: CsilCbor.decode(bytes)) }
 }
 
+public extension RelyingPartyApplication {
+    /// The CBOR value tree for this record (deep, canonical key order).
+    func toCborValue() -> CsilCborValue {
+        var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        csilEntries.append((.text("application"), self.application.toCborValue()))
+        csilEntries.append((.text("display_name"), .text(self.displayName)))
+        return .map(csilEntries)
+    }
+
+    /// Reconstruct this record from a decoded CBOR value tree.
+    init(cborValue: CsilCborValue) throws {
+        let application = try ApplicationRef(cborValue: (try CsilCbor.require(cborValue, "application")))
+        let displayName = try CsilCbor.asText((try CsilCbor.require(cborValue, "display_name")))
+        self.init(application: application, displayName: displayName)
+    }
+
+    /// Encode this record to canonical CSIL CBOR bytes.
+    func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
+
+    /// Decode a CSIL CBOR byte payload into this record.
+    static func fromCbor(_ bytes: [UInt8]) throws -> RelyingPartyApplication { try RelyingPartyApplication(cborValue: CsilCbor.decode(bytes)) }
+}
+
 public extension AuthRequest {
     /// The CBOR value tree for this record (deep, canonical key order).
     func toCborValue() -> CsilCborValue {
         var csilEntries: [(CsilCborValue, CsilCborValue)] = []
         csilEntries.append((.text("nonce"), .text(self.nonce)))
         csilEntries.append((.text("timestamp"), .text(self.timestamp)))
+        if let csilV = self.application { csilEntries.append((.text("application"), csilV.toCborValue())) }
         csilEntries.append((.text("callback_url"), .text(self.callbackUrl)))
         if let csilV = self.flowContext { csilEntries.append((.text("flow_context"), csilV.toCborValue())) }
         csilEntries.append((.text("relying_party"), .text(self.relyingParty)))
@@ -1418,7 +1444,8 @@ public extension AuthRequest {
         let authenticationRequirements: AuthenticationRequirements? = if let csilV = CsilCbor.mapGet(cborValue, "authentication_requirements") { try AuthenticationRequirements(cborValue: csilV) } else { nil }
         let flowContext: AuthFlowContext? = if let csilV = CsilCbor.mapGet(cborValue, "flow_context") { try AuthFlowContext(cborValue: csilV) } else { nil }
         let relyingPartyClaims: [DomainClaim]? = if let csilV = CsilCbor.mapGet(cborValue, "relying_party_claims") { try CsilCbor.asArray(csilV).map { try DomainClaim(cborValue: $0) } } else { nil }
-        self.init(relyingParty: relyingParty, callbackUrl: callbackUrl, nonce: nonce, timestamp: timestamp, signingKeyId: signingKeyId, requestedClaims: requestedClaims, authenticationRequirements: authenticationRequirements, flowContext: flowContext, relyingPartyClaims: relyingPartyClaims)
+        let application: RelyingPartyApplication? = if let csilV = CsilCbor.mapGet(cborValue, "application") { try RelyingPartyApplication(cborValue: csilV) } else { nil }
+        self.init(relyingParty: relyingParty, callbackUrl: callbackUrl, nonce: nonce, timestamp: timestamp, signingKeyId: signingKeyId, requestedClaims: requestedClaims, authenticationRequirements: authenticationRequirements, flowContext: flowContext, relyingPartyClaims: relyingPartyClaims, application: application)
     }
 
     /// Encode this record to canonical CSIL CBOR bytes.
@@ -4443,7 +4470,9 @@ public extension BrowserAuthorizationInspectResponse {
     func toCborValue() -> CsilCborValue {
         var csilEntries: [(CsilCborValue, CsilCborValue)] = []
         csilEntries.append((.text("claims"), CsilCborValue.array(self.claims.map { $0.toCborValue() })))
+        if let csilV = self.application { csilEntries.append((.text("application"), csilV.toCborValue())) }
         if let csilV = self.accessDenied { csilEntries.append((.text("access_denied"), csilV.toCborValue())) }
+        if let csilV = self.callbackHost { csilEntries.append((.text("callback_host"), .text(csilV))) }
         csilEntries.append((.text("relying_party"), .text(self.relyingParty)))
         if let csilV = self.requestReason { csilEntries.append((.text("request_reason"), .text(csilV))) }
         if let csilV = self.alreadyConsented { csilEntries.append((.text("already_consented"), .bool(csilV))) }
@@ -4459,7 +4488,9 @@ public extension BrowserAuthorizationInspectResponse {
         let alreadyConsented: Bool? = if let csilV = CsilCbor.mapGet(cborValue, "already_consented") { try CsilCbor.asBool(csilV) } else { nil }
         let authorizedClaims: [String]? = if let csilV = CsilCbor.mapGet(cborValue, "authorized_claims") { try CsilCbor.asArray(csilV).map { try CsilCbor.asText($0) } } else { nil }
         let accessDenied: AppAccessDenial? = if let csilV = CsilCbor.mapGet(cborValue, "access_denied") { try AppAccessDenial(cborValue: csilV) } else { nil }
-        self.init(relyingParty: relyingParty, claims: claims, requestReason: requestReason, alreadyConsented: alreadyConsented, authorizedClaims: authorizedClaims, accessDenied: accessDenied)
+        let application: RelyingPartyApplication? = if let csilV = CsilCbor.mapGet(cborValue, "application") { try RelyingPartyApplication(cborValue: csilV) } else { nil }
+        let callbackHost: String? = if let csilV = CsilCbor.mapGet(cborValue, "callback_host") { try CsilCbor.asText(csilV) } else { nil }
+        self.init(relyingParty: relyingParty, claims: claims, requestReason: requestReason, alreadyConsented: alreadyConsented, authorizedClaims: authorizedClaims, accessDenied: accessDenied, application: application, callbackHost: callbackHost)
     }
 
     /// Encode this record to canonical CSIL CBOR bytes.
@@ -4746,6 +4777,7 @@ public extension RpSignRequest {
         csilEntries.append((.text("nonce"), .text(self.nonce)))
         csilEntries.append((.text("callback_url"), .text(self.callbackUrl)))
         if let csilV = self.flowContext { csilEntries.append((.text("flow_context"), csilV.toCborValue())) }
+        if let csilV = self.applicationId { csilEntries.append((.text("application_id"), .text(csilV))) }
         if let csilV = self.requestedClaims { csilEntries.append((.text("requested_claims"), csilV.toCborValue())) }
         if let csilV = self.authenticationRequirements { csilEntries.append((.text("authentication_requirements"), csilV.toCborValue())) }
         return .map(csilEntries)
@@ -4755,10 +4787,11 @@ public extension RpSignRequest {
     init(cborValue: CsilCborValue) throws {
         let callbackUrl = try CsilCbor.asText((try CsilCbor.require(cborValue, "callback_url")))
         let nonce = try CsilCbor.asText((try CsilCbor.require(cborValue, "nonce")))
+        let applicationId: String? = if let csilV = CsilCbor.mapGet(cborValue, "application_id") { try CsilCbor.asText(csilV) } else { nil }
         let requestedClaims: ClaimRequest? = if let csilV = CsilCbor.mapGet(cborValue, "requested_claims") { try ClaimRequest(cborValue: csilV) } else { nil }
         let authenticationRequirements: AuthenticationRequirements? = if let csilV = CsilCbor.mapGet(cborValue, "authentication_requirements") { try AuthenticationRequirements(cborValue: csilV) } else { nil }
         let flowContext: AuthFlowContext? = if let csilV = CsilCbor.mapGet(cborValue, "flow_context") { try AuthFlowContext(cborValue: csilV) } else { nil }
-        self.init(callbackUrl: callbackUrl, nonce: nonce, requestedClaims: requestedClaims, authenticationRequirements: authenticationRequirements, flowContext: flowContext)
+        self.init(callbackUrl: callbackUrl, nonce: nonce, applicationId: applicationId, requestedClaims: requestedClaims, authenticationRequirements: authenticationRequirements, flowContext: flowContext)
     }
 
     /// Encode this record to canonical CSIL CBOR bytes.
@@ -4977,6 +5010,7 @@ public extension AuthorizeValidateResponse {
     /// The CBOR value tree for this record (deep, canonical key order).
     func toCborValue() -> CsilCborValue {
         var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+        if let csilV = self.application { csilEntries.append((.text("application"), csilV.toCborValue())) }
         csilEntries.append((.text("callback_url"), .text(self.callbackUrl)))
         if let csilV = self.accessDenied { csilEntries.append((.text("access_denied"), csilV.toCborValue())) }
         csilEntries.append((.text("relying_party"), .text(self.relyingParty)))
@@ -4996,7 +5030,8 @@ public extension AuthorizeValidateResponse {
         let authorizedClaims: [String]? = if let csilV = CsilCbor.mapGet(cborValue, "authorized_claims") { try CsilCbor.asArray(csilV).map { try CsilCbor.asText($0) } } else { nil }
         let newlyRequestedClaims: [String]? = if let csilV = CsilCbor.mapGet(cborValue, "newly_requested_claims") { try CsilCbor.asArray(csilV).map { try CsilCbor.asText($0) } } else { nil }
         let accessDenied: AppAccessDenial? = if let csilV = CsilCbor.mapGet(cborValue, "access_denied") { try AppAccessDenial(cborValue: csilV) } else { nil }
-        self.init(relyingParty: relyingParty, callbackUrl: callbackUrl, requestedClaims: requestedClaims, alreadyConsented: alreadyConsented, authorizedClaims: authorizedClaims, newlyRequestedClaims: newlyRequestedClaims, accessDenied: accessDenied)
+        let application: RelyingPartyApplication? = if let csilV = CsilCbor.mapGet(cborValue, "application") { try RelyingPartyApplication(cborValue: csilV) } else { nil }
+        self.init(relyingParty: relyingParty, callbackUrl: callbackUrl, requestedClaims: requestedClaims, alreadyConsented: alreadyConsented, authorizedClaims: authorizedClaims, newlyRequestedClaims: newlyRequestedClaims, accessDenied: accessDenied, application: application)
     }
 
     /// Encode this record to canonical CSIL CBOR bytes.

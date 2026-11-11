@@ -240,6 +240,7 @@ pub struct ConsentGrant {
     pub issued_at: String,
     pub expires_at: String,
     pub revoked_at: Option<String>,
+    pub application: Option<ApplicationRef>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -335,6 +336,12 @@ pub struct UserInfo {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct RelyingPartyApplication {
+    pub application: ApplicationRef,
+    pub display_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct AuthRequest {
     pub relying_party: String,
     pub callback_url: String,
@@ -345,6 +352,7 @@ pub struct AuthRequest {
     pub authentication_requirements: Option<AuthenticationRequirements>,
     pub flow_context: Option<AuthFlowContext>,
     pub relying_party_claims: Option<Vec<DomainClaim>>,
+    pub application: Option<RelyingPartyApplication>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1153,6 +1161,8 @@ pub struct BrowserAuthorizationInspectResponse {
     pub already_consented: Option<bool>,
     pub authorized_claims: Option<Vec<String>>,
     pub access_denied: Option<AppAccessDenial>,
+    pub application: Option<RelyingPartyApplication>,
+    pub callback_host: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1239,6 +1249,7 @@ pub struct GetUiConfigurationResponse {
 pub struct RpSignRequest {
     pub callback_url: String,
     pub nonce: String,
+    pub application_id: Option<String>,
     pub requested_claims: Option<ClaimRequest>,
     pub authentication_requirements: Option<AuthenticationRequirements>,
     pub flow_context: Option<AuthFlowContext>,
@@ -1306,6 +1317,7 @@ pub struct AuthorizeValidateResponse {
     pub authorized_claims: Option<Vec<String>>,
     pub newly_requested_claims: Option<Vec<String>>,
     pub access_denied: Option<AppAccessDenial>,
+    pub application: Option<RelyingPartyApplication>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

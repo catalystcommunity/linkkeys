@@ -721,6 +721,8 @@ static inline int csilc_enc_SignedUserInfoRequest(csilc_buf *b, const SignedUser
 static inline int csilc_dec_SignedUserInfoRequest(const csilc_value *m, CsilCodecArena *a, SignedUserInfoRequest *out);
 static inline int csilc_enc_UserInfo(csilc_buf *b, const UserInfo *v);
 static inline int csilc_dec_UserInfo(const csilc_value *m, CsilCodecArena *a, UserInfo *out);
+static inline int csilc_enc_RelyingPartyApplication(csilc_buf *b, const RelyingPartyApplication *v);
+static inline int csilc_dec_RelyingPartyApplication(const csilc_value *m, CsilCodecArena *a, RelyingPartyApplication *out);
 static inline int csilc_enc_AuthRequest(csilc_buf *b, const AuthRequest *v);
 static inline int csilc_dec_AuthRequest(const csilc_value *m, CsilCodecArena *a, AuthRequest *out);
 static inline int csilc_enc_SignedAuthRequest(csilc_buf *b, const SignedAuthRequest *v);
@@ -2301,6 +2303,7 @@ static inline int csilc_dec_AuthFlowContext(const csilc_value *m, CsilCodecArena
 static inline int csilc_enc_ConsentGrant(csilc_buf *b, const ConsentGrant *v) {
     size_t csilc_n = 7;
     if (v->revoked_at) csilc_n++;
+    if (v->application) csilc_n++;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "user_id", 7)) return -1;
     if (csilc_w_text(b, (v->user_id), (v->user_id) ? strlen(v->user_id) : 0)) return -1;
@@ -2315,6 +2318,10 @@ static inline int csilc_enc_ConsentGrant(csilc_buf *b, const ConsentGrant *v) {
     if (v->revoked_at) {
         if (csilc_w_text(b, "revoked_at", 10)) return -1;
         if (csilc_w_text(b, (v->revoked_at), (v->revoked_at) ? strlen(v->revoked_at) : 0)) return -1;
+    }
+    if (v->application) {
+        if (csilc_w_text(b, "application", 11)) return -1;
+        if (csilc_enc_ApplicationRef(b, &((*v->application)))) return -1;
     }
     if (csilc_w_text(b, "claim_types", 11)) return -1;
     if (csilc_w_array_head(b, v->claim_types_count)) return -1;
@@ -2343,6 +2350,14 @@ static inline int csilc_dec_ConsentGrant(const csilc_value *m, CsilCodecArena *a
     if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
     csilc_f = csilc_map_get(m, "revoked_at");
     out->revoked_at = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "application");
+    out->application = NULL;
+    if (csilc_f) {
+        ApplicationRef *csilc_p = (ApplicationRef *)csilc_arena_alloc(a, sizeof(ApplicationRef));
+        if (!csilc_p) return -1;
+        if (csilc_dec_ApplicationRef(csilc_f, a, &((*csilc_p)))) return -1;
+        out->application = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "claim_types");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->claim_types_count = csilc_f->as.array.count;
@@ -2811,9 +2826,33 @@ static inline int csilc_dec_UserInfo(const csilc_value *m, CsilCodecArena *a, Us
     return 0;
 }
 
+/* csilc_enc_RelyingPartyApplication writes RelyingPartyApplication as a canonical CBOR map. */
+static inline int csilc_enc_RelyingPartyApplication(csilc_buf *b, const RelyingPartyApplication *v) {
+    size_t csilc_n = 2;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "application", 11)) return -1;
+    if (csilc_enc_ApplicationRef(b, &(v->application))) return -1;
+    if (csilc_w_text(b, "display_name", 12)) return -1;
+    if (csilc_w_text(b, (v->display_name), (v->display_name) ? strlen(v->display_name) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_RelyingPartyApplication reads RelyingPartyApplication from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RelyingPartyApplication(const csilc_value *m, CsilCodecArena *a, RelyingPartyApplication *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "application");
+    if (csilc_dec_ApplicationRef(csilc_f, a, &(out->application))) return -1;
+    csilc_f = csilc_map_get(m, "display_name");
+    if (!csilc_get_text(csilc_f, &(out->display_name))) return -1;
+    return 0;
+}
+
 /* csilc_enc_AuthRequest writes AuthRequest as a canonical CBOR map. */
 static inline int csilc_enc_AuthRequest(csilc_buf *b, const AuthRequest *v) {
     size_t csilc_n = 5;
+    if (v->application) csilc_n++;
     if (v->flow_context) csilc_n++;
     if (v->requested_claims) csilc_n++;
     if (v->relying_party_claims_count) csilc_n++;
@@ -2823,6 +2862,10 @@ static inline int csilc_enc_AuthRequest(csilc_buf *b, const AuthRequest *v) {
     if (csilc_w_text(b, (v->nonce), (v->nonce) ? strlen(v->nonce) : 0)) return -1;
     if (csilc_w_text(b, "timestamp", 9)) return -1;
     if (csilc_w_text(b, (v->timestamp), (v->timestamp) ? strlen(v->timestamp) : 0)) return -1;
+    if (v->application) {
+        if (csilc_w_text(b, "application", 11)) return -1;
+        if (csilc_enc_RelyingPartyApplication(b, &((*v->application)))) return -1;
+    }
     if (csilc_w_text(b, "callback_url", 12)) return -1;
     if (csilc_w_text(b, (v->callback_url), (v->callback_url) ? strlen(v->callback_url) : 0)) return -1;
     if (v->flow_context) {
@@ -2860,6 +2903,14 @@ static inline int csilc_dec_AuthRequest(const csilc_value *m, CsilCodecArena *a,
     if (!csilc_get_text(csilc_f, &(out->nonce))) return -1;
     csilc_f = csilc_map_get(m, "timestamp");
     if (!csilc_get_text(csilc_f, &(out->timestamp))) return -1;
+    csilc_f = csilc_map_get(m, "application");
+    out->application = NULL;
+    if (csilc_f) {
+        RelyingPartyApplication *csilc_p = (RelyingPartyApplication *)csilc_arena_alloc(a, sizeof(RelyingPartyApplication));
+        if (!csilc_p) return -1;
+        if (csilc_dec_RelyingPartyApplication(csilc_f, a, &((*csilc_p)))) return -1;
+        out->application = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "callback_url");
     if (!csilc_get_text(csilc_f, &(out->callback_url))) return -1;
     csilc_f = csilc_map_get(m, "flow_context");
@@ -6403,7 +6454,9 @@ static inline int csilc_dec_BrowserConsentClaim(const csilc_value *m, CsilCodecA
 /* csilc_enc_BrowserAuthorizationInspectResponse writes BrowserAuthorizationInspectResponse as a canonical CBOR map. */
 static inline int csilc_enc_BrowserAuthorizationInspectResponse(csilc_buf *b, const BrowserAuthorizationInspectResponse *v) {
     size_t csilc_n = 2;
+    if (v->application) csilc_n++;
     if (v->access_denied) csilc_n++;
+    if (v->callback_host) csilc_n++;
     if (v->request_reason) csilc_n++;
     if (v->already_consented) csilc_n++;
     if (v->authorized_claims_count) csilc_n++;
@@ -6413,9 +6466,17 @@ static inline int csilc_enc_BrowserAuthorizationInspectResponse(csilc_buf *b, co
     for (size_t csilc_i = 0; csilc_i < v->claims_count; csilc_i++) {
         if (csilc_enc_BrowserConsentClaim(b, &(v->claims[csilc_i]))) return -1;
     }
+    if (v->application) {
+        if (csilc_w_text(b, "application", 11)) return -1;
+        if (csilc_enc_RelyingPartyApplication(b, &((*v->application)))) return -1;
+    }
     if (v->access_denied) {
         if (csilc_w_text(b, "access_denied", 13)) return -1;
         if (csilc_enc_AppAccessDenial(b, &((*v->access_denied)))) return -1;
+    }
+    if (v->callback_host) {
+        if (csilc_w_text(b, "callback_host", 13)) return -1;
+        if (csilc_w_text(b, (v->callback_host), (v->callback_host) ? strlen(v->callback_host) : 0)) return -1;
     }
     if (csilc_w_text(b, "relying_party", 13)) return -1;
     if (csilc_w_text(b, (v->relying_party), (v->relying_party) ? strlen(v->relying_party) : 0)) return -1;
@@ -6453,6 +6514,14 @@ static inline int csilc_dec_BrowserAuthorizationInspectResponse(const csilc_valu
             if (csilc_dec_BrowserConsentClaim(&csilc_f->as.array.items[csilc_i], a, &(out->claims[csilc_i]))) return -1;
         }
     }
+    csilc_f = csilc_map_get(m, "application");
+    out->application = NULL;
+    if (csilc_f) {
+        RelyingPartyApplication *csilc_p = (RelyingPartyApplication *)csilc_arena_alloc(a, sizeof(RelyingPartyApplication));
+        if (!csilc_p) return -1;
+        if (csilc_dec_RelyingPartyApplication(csilc_f, a, &((*csilc_p)))) return -1;
+        out->application = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "access_denied");
     out->access_denied = NULL;
     if (csilc_f) {
@@ -6461,6 +6530,8 @@ static inline int csilc_dec_BrowserAuthorizationInspectResponse(const csilc_valu
         if (csilc_dec_AppAccessDenial(csilc_f, a, &((*csilc_p)))) return -1;
         out->access_denied = csilc_p;
     }
+    csilc_f = csilc_map_get(m, "callback_host");
+    out->callback_host = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "relying_party");
     if (!csilc_get_text(csilc_f, &(out->relying_party))) return -1;
     csilc_f = csilc_map_get(m, "request_reason");
@@ -7002,6 +7073,7 @@ static inline int csilc_dec_GetUiConfigurationResponse(const csilc_value *m, Csi
 static inline int csilc_enc_RpSignRequest(csilc_buf *b, const RpSignRequest *v) {
     size_t csilc_n = 2;
     if (v->flow_context) csilc_n++;
+    if (v->application_id) csilc_n++;
     if (v->requested_claims) csilc_n++;
     if (v->authentication_requirements) csilc_n++;
     if (csilc_w_map_head(b, csilc_n)) return -1;
@@ -7012,6 +7084,10 @@ static inline int csilc_enc_RpSignRequest(csilc_buf *b, const RpSignRequest *v) 
     if (v->flow_context) {
         if (csilc_w_text(b, "flow_context", 12)) return -1;
         if (csilc_enc_AuthFlowContext(b, &((*v->flow_context)))) return -1;
+    }
+    if (v->application_id) {
+        if (csilc_w_text(b, "application_id", 14)) return -1;
+        if (csilc_w_text(b, (v->application_id), (v->application_id) ? strlen(v->application_id) : 0)) return -1;
     }
     if (v->requested_claims) {
         if (csilc_w_text(b, "requested_claims", 16)) return -1;
@@ -7041,6 +7117,8 @@ static inline int csilc_dec_RpSignRequest(const csilc_value *m, CsilCodecArena *
         if (csilc_dec_AuthFlowContext(csilc_f, a, &((*csilc_p)))) return -1;
         out->flow_context = csilc_p;
     }
+    csilc_f = csilc_map_get(m, "application_id");
+    out->application_id = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "requested_claims");
     out->requested_claims = NULL;
     if (csilc_f) {
@@ -7269,11 +7347,16 @@ static inline int csilc_dec_AuthorizeValidateRequest(const csilc_value *m, CsilC
 /* csilc_enc_AuthorizeValidateResponse writes AuthorizeValidateResponse as a canonical CBOR map. */
 static inline int csilc_enc_AuthorizeValidateResponse(csilc_buf *b, const AuthorizeValidateResponse *v) {
     size_t csilc_n = 3;
+    if (v->application) csilc_n++;
     if (v->access_denied) csilc_n++;
     if (v->already_consented) csilc_n++;
     if (v->authorized_claims_count) csilc_n++;
     if (v->newly_requested_claims_count) csilc_n++;
     if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (v->application) {
+        if (csilc_w_text(b, "application", 11)) return -1;
+        if (csilc_enc_RelyingPartyApplication(b, &((*v->application)))) return -1;
+    }
     if (csilc_w_text(b, "callback_url", 12)) return -1;
     if (csilc_w_text(b, (v->callback_url), (v->callback_url) ? strlen(v->callback_url) : 0)) return -1;
     if (v->access_denied) {
@@ -7313,6 +7396,14 @@ static inline int csilc_dec_AuthorizeValidateResponse(const csilc_value *m, Csil
     (void)a;
     const csilc_value *csilc_f;
     if (!m || m->kind != CSILC_MAP) return -1;
+    csilc_f = csilc_map_get(m, "application");
+    out->application = NULL;
+    if (csilc_f) {
+        RelyingPartyApplication *csilc_p = (RelyingPartyApplication *)csilc_arena_alloc(a, sizeof(RelyingPartyApplication));
+        if (!csilc_p) return -1;
+        if (csilc_dec_RelyingPartyApplication(csilc_f, a, &((*csilc_p)))) return -1;
+        out->application = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "callback_url");
     if (!csilc_get_text(csilc_f, &(out->callback_url))) return -1;
     csilc_f = csilc_map_get(m, "access_denied");
@@ -12879,6 +12970,29 @@ static inline int csil_decode_UserInfo(const uint8_t *in, size_t len, UserInfo *
     const csilc_value *root;
     if (csilc_decode(in, len, &a, &root)) return -1;
     if (csilc_dec_UserInfo(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RelyingPartyApplication to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RelyingPartyApplication(const RelyingPartyApplication *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RelyingPartyApplication(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RelyingPartyApplication. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RelyingPartyApplication(const uint8_t *in, size_t len, RelyingPartyApplication *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RelyingPartyApplication(root, a, out)) { csil_codec_arena_free(a); return -1; }
     *owner = a;
     return 0;
 }

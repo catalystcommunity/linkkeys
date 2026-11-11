@@ -63,6 +63,17 @@ use x25519_dalek::StaticSecret as X25519StaticSecret;
 /// change is most expensive, so it keeps the suffix in order to take part in
 /// one coordinated epoch change instead of needing its own. Within an epoch
 /// this tag MUST NOT change for this structure.
+/// True when `value` can be an application, instance, or key identifier:
+/// 1-128 characters of ASCII letters, digits, `-`, `_`, and `.`. Identifiers
+/// appear in cache keys, log lines, and public reads, so they are bounded.
+pub fn is_valid_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+}
+
 pub const ATTESTATION_TAG: &str = "linkkeys-application-key-attestation-v1alpha";
 
 /// Signature context for a quorum signature over an addition request.

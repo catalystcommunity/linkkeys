@@ -1602,7 +1602,7 @@ fn dispatch(
                     return error_response(5, "Forbidden");
                 }
             }
-            dispatch_rp(op, &envelope.payload, db_pool, outbound)
+            dispatch_rp(op, &envelope.payload, db_pool, outbound, &user.id)
         }
         // Server-to-server: an issuer deposits a claim it signed about one of our
         // accounts. The issuer's signature is the authority (verified against its
@@ -2504,6 +2504,7 @@ fn dispatch_rp(
     payload: &[u8],
     db_pool: &DbPool,
     outbound: Option<&OutboundCtx>,
+    caller_user_id: &str,
 ) -> Vec<u8> {
     use crate::web::rp;
     use liblinkkeys::generated::codec;
@@ -2515,15 +2516,7 @@ fn dispatch_rp(
                 Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
             };
             let cfg = crate::rp_config::RpClaimsConfig::load_from_env();
-            match rp::sign_request_core(
-                db_pool,
-                &cfg,
-                &req.callback_url,
-                &req.nonce,
-                req.requested_claims,
-                req.authentication_requirements,
-                req.flow_context,
-            ) {
+            match rp::sign_request_core(db_pool, &cfg, caller_user_id, req) {
                 Ok(resp) => ok_response(codec::encode_rp_sign_response(&resp)),
                 Err(s) => rp_status_to_error(s),
             }

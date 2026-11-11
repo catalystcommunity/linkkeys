@@ -333,7 +333,7 @@ fn silent_authorization(
         return None;
     }
     let prior = pool
-        .find_active_consent_grant(user_id, fingerprint)
+        .find_active_consent_grant(user_id, fingerprint, None)
         .ok()
         .flatten();
     let admin_covers_all_required = !req.required.is_empty()
@@ -465,7 +465,7 @@ pub(super) fn inspect(
     );
     Ok(BrowserLocalRpInspectResponse {
         admission: "consent".to_string(),
-        claims: super::consent_claims(pool, &user.id, &descriptor.fingerprint, &req, &policy),
+        claims: super::consent_claims(pool, &user.id, &descriptor.fingerprint, None, &req, &policy),
         app_name: descriptor.app_name,
         fingerprint: descriptor.fingerprint,
         callback_host,
@@ -624,6 +624,7 @@ fn finalize_local_rp_login(
             &grant_id,
             &user.id,
             &descriptor.fingerprint,
+            None,
             authorized_claims,
             &issued_at,
             &expires_at,
@@ -635,6 +636,7 @@ fn finalize_local_rp_login(
             &user.id,
             &get_domain_name(),
             &descriptor.fingerprint,
+            None,
             authorized_claims,
             &requested,
             &grant_bytes,

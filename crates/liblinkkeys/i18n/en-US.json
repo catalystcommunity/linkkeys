@@ -314,6 +314,7 @@
   "app.confirm.title": "Ask a site to confirm something about you",
 
   "app.consent.add_value": "Add {label}",
+  "app.consent.callback_host": "After you sign in, you go back to {host}.",
   "app.consent.cancelled_body": "LinkKeys did not send your profile details to the application.",
   "app.consent.cancelled_title": "Application sign-in cancelled",
   "app.consent.checking": "Checking the sign-in request…",
@@ -325,6 +326,7 @@
   "app.consent.forced_allow": "This site always shares this detail.",
   "app.consent.forced_deny": "This site does not allow this detail to be shared. Select Cancel and contact support.",
   "app.consent.intro": "{app} requests information from your profile.",
+  "app.consent.intro_application": "{app}, an application of {domain}, requests information from your profile.",
   "app.consent.missing": "This sign-in request is missing. Start again from the application.",
   "app.consent.new_badge": "New!",
   "app.consent.new_notice": "Items marked New! were not in your last approval for this application.",
@@ -358,7 +360,6 @@
   "app.error.reason.bad_request": "This link is not complete or not correct. Start again from the application.",
   "app.error.reason.bad_scheme": "The app asked to send your sign-in somewhere that is not a web page, so LinkKeys stopped. Nothing happened to your account.",
   "app.error.reason.callback_not_https": "The application asked to send your sign-in to a page that is not secure, so LinkKeys stopped. Nothing happened to your account.",
-  "app.error.reason.callback_off_domain": "The application asked to send your sign-in to a different site, so LinkKeys stopped. Nothing happened to your account.",
   "app.error.reason.callback_unparseable": "The application's return address could not be read. Ask the application to start the sign-in again.",
   "app.error.reason.connection": "LinkKeys could not finish. Check your connection and try again.",
   "app.error.reason.expired": "This sign-in request has expired. Ask the app to start the sign-in again.",

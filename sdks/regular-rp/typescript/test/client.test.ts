@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { Claim, IdentityAssertion, UserInfo } from "../generated/types.gen.ts";
+import type { Claim, IdentityAssertion, RpSignRequest, UserInfo } from "../generated/types.gen.ts";
 import { requestLoginRedirect, startLinkKeysLogin } from "../src/browser.ts";
 import { RegularRpClient, LoginError, type RegularRpOperations } from "../src/client.ts";
 import type { DnsResolver } from "../src/dns.ts";
@@ -118,10 +118,37 @@ test("begin and complete a login through the high-level API", async () => {
   );
 });
 
-test("rejects a callback outside the RP domain", async () => {
+test("accepts an HTTPS callback on another domain and passes the application id", async () => {
+  const sent: RpSignRequest[] = [];
+  const store = new RecordingStore();
+  const sdk = new RegularRpClient({
+    rpDomain: "app.example",
+    pendingStore: store,
+    rpOperations: {
+      ...operations(store),
+      async signRequest(request: RpSignRequest) {
+        sent.push(request);
+        return { signedRequest: "signed-request" };
+      },
+    },
+    dnsResolver: new FakeDns(),
+    now: () => new Date(NOW),
+    stateFactory: () => "state-1",
+  });
+  await sdk.beginLogin({
+    identity: "id.example",
+    callbackUrl: "https://grafana.other.test/callback",
+    applicationId: "grafana",
+    sessionBinding: "browser-session-1",
+  });
+  assert.equal(new URL(sent[0]!.callbackUrl).hostname, "grafana.other.test");
+  assert.equal(sent[0]!.applicationId, "grafana");
+});
+
+test("rejects a callback that is not HTTPS", async () => {
   const sdk = client(new RecordingStore());
   await assert.rejects(
-    sdk.beginLogin({ identity: "id.example", callbackUrl: "https://app.example.attacker.test/callback", sessionBinding: "browser-session-1" }),
+    sdk.beginLogin({ identity: "id.example", callbackUrl: "http://app.example/callback", sessionBinding: "browser-session-1" }),
     (error: unknown) => error instanceof LoginError && error.code === "invalid-callback",
   );
 });

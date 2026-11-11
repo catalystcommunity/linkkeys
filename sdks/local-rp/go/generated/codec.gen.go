@@ -2234,7 +2234,7 @@ func DecodeAuthFlowContext(csilData []byte) (AuthFlowContext, error) {
 
 // csilEncConsentGrant builds the canonical CBOR value tree for a ConsentGrant.
 func csilEncConsentGrant(csilV ConsentGrant) cborValue {
-	csilEntries := make(cborMap, 0, 8)
+	csilEntries := make(cborMap, 0, 9)
 	csilEntries = append(csilEntries, cborEntry{cborText("user_id"), cborText(csilV.UserId)})
 	csilEntries = append(csilEntries, cborEntry{cborText("audience"), cborText(csilV.Audience)})
 	csilEntries = append(csilEntries, cborEntry{cborText("grant_id"), cborText(csilV.GrantId)})
@@ -2242,6 +2242,9 @@ func csilEncConsentGrant(csilV ConsentGrant) cborValue {
 	csilEntries = append(csilEntries, cborEntry{cborText("expires_at"), cborText(csilV.ExpiresAt)})
 	if csilV.RevokedAt != nil {
 		csilEntries = append(csilEntries, cborEntry{cborText("revoked_at"), cborText((*csilV.RevokedAt))})
+	}
+	if csilV.Application != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("application"), csilEncApplicationRef((*csilV.Application))})
 	}
 	csilEntries = append(csilEntries, cborEntry{cborText("claim_types"), cborEncArray(csilV.ClaimTypes, func(csilElem string) cborValue { return cborText(csilElem) })})
 	csilEntries = append(csilEntries, cborEntry{cborText("subject_domain"), cborText(csilV.SubjectDomain)})
@@ -2334,6 +2337,13 @@ func csilDecConsentGrant(csilRoot cborValue) (ConsentGrant, error) {
 			return csilOut, csilErr
 		}
 		csilOut.RevokedAt = &csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "application"); csilOk {
+		csilVal, csilErr := (csilDecApplicationRef)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Application = &csilVal
 	}
 	return csilOut, nil
 }
@@ -3197,11 +3207,65 @@ func DecodeUserInfo(csilData []byte) (UserInfo, error) {
 	return csilDecUserInfo(csilRoot)
 }
 
+// csilEncRelyingPartyApplication builds the canonical CBOR value tree for a RelyingPartyApplication.
+func csilEncRelyingPartyApplication(csilV RelyingPartyApplication) cborValue {
+	csilEntries := make(cborMap, 0, 2)
+	csilEntries = append(csilEntries, cborEntry{cborText("application"), csilEncApplicationRef(csilV.Application)})
+	csilEntries = append(csilEntries, cborEntry{cborText("display_name"), cborText(csilV.DisplayName)})
+	return csilEntries
+}
+
+// csilDecRelyingPartyApplication reconstructs a RelyingPartyApplication from a decoded CBOR value tree.
+func csilDecRelyingPartyApplication(csilRoot cborValue) (RelyingPartyApplication, error) {
+	var csilOut RelyingPartyApplication
+	{
+		csilField, csilErr := cborRequire(csilRoot, "application")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (csilDecApplicationRef)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Application = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "display_name")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.DisplayName = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeRelyingPartyApplication encodes a RelyingPartyApplication to canonical CSIL CBOR bytes.
+func EncodeRelyingPartyApplication(csilV RelyingPartyApplication) []byte {
+	return cborEncode(csilEncRelyingPartyApplication(csilV))
+}
+
+// DecodeRelyingPartyApplication decodes canonical CSIL CBOR bytes into a RelyingPartyApplication.
+func DecodeRelyingPartyApplication(csilData []byte) (RelyingPartyApplication, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero RelyingPartyApplication
+		return csilZero, csilErr
+	}
+	return csilDecRelyingPartyApplication(csilRoot)
+}
+
 // csilEncAuthRequest builds the canonical CBOR value tree for a AuthRequest.
 func csilEncAuthRequest(csilV AuthRequest) cborValue {
-	csilEntries := make(cborMap, 0, 9)
+	csilEntries := make(cborMap, 0, 10)
 	csilEntries = append(csilEntries, cborEntry{cborText("nonce"), cborText(csilV.Nonce)})
 	csilEntries = append(csilEntries, cborEntry{cborText("timestamp"), cborText(csilV.Timestamp)})
+	if csilV.Application != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("application"), csilEncRelyingPartyApplication((*csilV.Application))})
+	}
 	csilEntries = append(csilEntries, cborEntry{cborText("callback_url"), cborText(csilV.CallbackUrl)})
 	if csilV.FlowContext != nil {
 		csilEntries = append(csilEntries, cborEntry{cborText("flow_context"), csilEncAuthFlowContext((*csilV.FlowContext))})
@@ -3305,6 +3369,13 @@ func csilDecAuthRequest(csilRoot cborValue) (AuthRequest, error) {
 			return csilOut, csilErr
 		}
 		csilOut.RelyingPartyClaims = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "application"); csilOk {
+		csilVal, csilErr := (csilDecRelyingPartyApplication)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Application = &csilVal
 	}
 	return csilOut, nil
 }
@@ -10197,10 +10268,16 @@ func DecodeBrowserConsentClaim(csilData []byte) (BrowserConsentClaim, error) {
 
 // csilEncBrowserAuthorizationInspectResponse builds the canonical CBOR value tree for a BrowserAuthorizationInspectResponse.
 func csilEncBrowserAuthorizationInspectResponse(csilV BrowserAuthorizationInspectResponse) cborValue {
-	csilEntries := make(cborMap, 0, 6)
+	csilEntries := make(cborMap, 0, 8)
 	csilEntries = append(csilEntries, cborEntry{cborText("claims"), cborEncArray(csilV.Claims, func(csilElem BrowserConsentClaim) cborValue { return csilEncBrowserConsentClaim(csilElem) })})
+	if csilV.Application != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("application"), csilEncRelyingPartyApplication((*csilV.Application))})
+	}
 	if csilV.AccessDenied != nil {
 		csilEntries = append(csilEntries, cborEntry{cborText("access_denied"), csilEncAppAccessDenial((*csilV.AccessDenied))})
+	}
+	if csilV.CallbackHost != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("callback_host"), cborText((*csilV.CallbackHost))})
 	}
 	csilEntries = append(csilEntries, cborEntry{cborText("relying_party"), cborText(csilV.RelyingParty)})
 	if csilV.RequestReason != nil {
@@ -10269,6 +10346,20 @@ func csilDecBrowserAuthorizationInspectResponse(csilRoot cborValue) (BrowserAuth
 			return csilOut, csilErr
 		}
 		csilOut.AccessDenied = &csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "application"); csilOk {
+		csilVal, csilErr := (csilDecRelyingPartyApplication)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Application = &csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "callback_host"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.CallbackHost = &csilVal
 	}
 	return csilOut, nil
 }
@@ -11012,11 +11103,14 @@ func DecodeGetUiConfigurationResponse(csilData []byte) (GetUiConfigurationRespon
 
 // csilEncRpSignRequest builds the canonical CBOR value tree for a RpSignRequest.
 func csilEncRpSignRequest(csilV RpSignRequest) cborValue {
-	csilEntries := make(cborMap, 0, 5)
+	csilEntries := make(cborMap, 0, 6)
 	csilEntries = append(csilEntries, cborEntry{cborText("nonce"), cborText(csilV.Nonce)})
 	csilEntries = append(csilEntries, cborEntry{cborText("callback_url"), cborText(csilV.CallbackUrl)})
 	if csilV.FlowContext != nil {
 		csilEntries = append(csilEntries, cborEntry{cborText("flow_context"), csilEncAuthFlowContext((*csilV.FlowContext))})
+	}
+	if csilV.ApplicationId != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("application_id"), cborText((*csilV.ApplicationId))})
 	}
 	if csilV.RequestedClaims != nil {
 		csilEntries = append(csilEntries, cborEntry{cborText("requested_claims"), csilEncClaimRequest((*csilV.RequestedClaims))})
@@ -11051,6 +11145,13 @@ func csilDecRpSignRequest(csilRoot cborValue) (RpSignRequest, error) {
 			return csilOut, csilErr
 		}
 		csilOut.Nonce = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "application_id"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ApplicationId = &csilVal
 	}
 	if csilField, csilOk := cborMapGet(csilRoot, "requested_claims"); csilOk {
 		csilVal, csilErr := (csilDecClaimRequest)(csilField)
@@ -11538,7 +11639,10 @@ func DecodeAuthorizeValidateRequest(csilData []byte) (AuthorizeValidateRequest, 
 
 // csilEncAuthorizeValidateResponse builds the canonical CBOR value tree for a AuthorizeValidateResponse.
 func csilEncAuthorizeValidateResponse(csilV AuthorizeValidateResponse) cborValue {
-	csilEntries := make(cborMap, 0, 7)
+	csilEntries := make(cborMap, 0, 8)
+	if csilV.Application != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("application"), csilEncRelyingPartyApplication((*csilV.Application))})
+	}
 	csilEntries = append(csilEntries, cborEntry{cborText("callback_url"), cborText(csilV.CallbackUrl)})
 	if csilV.AccessDenied != nil {
 		csilEntries = append(csilEntries, cborEntry{cborText("access_denied"), csilEncAppAccessDenial((*csilV.AccessDenied))})
@@ -11620,6 +11724,13 @@ func csilDecAuthorizeValidateResponse(csilRoot cborValue) (AuthorizeValidateResp
 			return csilOut, csilErr
 		}
 		csilOut.AccessDenied = &csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "application"); csilOk {
+		csilVal, csilErr := (csilDecRelyingPartyApplication)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Application = &csilVal
 	}
 	return csilOut, nil
 }

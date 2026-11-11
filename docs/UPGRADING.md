@@ -244,3 +244,56 @@ UI (it calls `/rp/authorize/validate` and `/rp/authorize/finalize`) should show
 a blocked page when `access_denied` is present. An older client ignores the
 field; its finalize then fails with `forbidden`, and the message contains the
 admin messages.
+
+## Upgrading to the release with off-domain callbacks
+
+### Callback hosts outside the RP domain (behavior change, additive fields)
+
+Before this release, the IDP refused a callback host that was not the RP domain
+or a subdomain of it (`/app/error?reason=callback_off_domain`). Now the IDP
+accepts any https callback in a valid signed request. The RP domain signature
+authorizes the callback. The IDP still refuses a callback that is not https or
+that contains user information. `Rp/sign-request` applies the same check.
+
+The user's IDP enforces this rule. A callback outside the RP domain works only
+when the user's IDP runs this release or a later release. An older IDP shows
+`callback_off_domain`.
+
+`Rp/sign-request` now names the calling API-key account in the signed request.
+The IDP consent screen shows the display name of that account. Give each
+application account a display name that users recognize.
+
+New optional fields:
+
+- `AuthRequest.application` (type `RelyingPartyApplication`): the API-key
+  account that called `Rp/sign-request`. Older IDPs ignore it.
+- `BrowserAuthorizationInspectResponse.application` and `callback_host`.
+- `AuthorizeValidateResponse.application`. A custom consent UI should show
+  the application name, and the `callback_url` host when that host is not in
+  `relying_party`.
+
+The reason code `callback_off_domain` is removed.
+
+### Standing consent is per application (behavior change, migration, additive fields)
+
+An application is now an `ApplicationRef`: the calling API-key account, the RP
+domain, and an application ID. This is the same identity that act-as grants
+use. `Rp/sign-request` takes an optional `application_id`. When it is absent,
+the RP server uses the account username. A username that is not a valid
+identifier (1-128 of `A-Z a-z 0-9 - _ .`) makes `sign-request` fail; send
+`application_id` for that account.
+
+The IDP keys standing consent by `(user, RP domain, application)`. A grant for
+one application does not cover a sibling application of the same RP domain.
+
+The migration `consent_grant_application` adds two columns to
+`consent_grants` and changes its unique index. Backups include the columns.
+Grants from before the upgrade have no application. They do not cover a
+request that names an application, so each user sees the consent screen one
+more time for each application.
+
+`ConsentGrant` gained the optional `application`. When present, it is bound
+into the consent signature. Grants without it keep their signatures.
+
+An application that also uses act-as grants should send the `application_id`
+that it enrolled with.

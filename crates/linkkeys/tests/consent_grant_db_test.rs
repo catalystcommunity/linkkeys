@@ -8,7 +8,7 @@ mod common;
 use common::data_factory::{create_user, DataMap};
 use liblinkkeys::crypto::{generate_keypair, SigningAlgorithm};
 use liblinkkeys::domain_claims::{sign_domain_claim, DomainClaimSpec};
-use liblinkkeys::generated::types::DomainClaim;
+use liblinkkeys::generated::types::{ApplicationRef, DomainClaim};
 
 const RP: &str = "rp.example";
 
@@ -54,6 +54,7 @@ fn consent_grant_records_offered_claims() {
         &user.id,
         "idp.example",
         RP,
+        None,
         &["email".to_string()],
         &["email".to_string()],
         b"signed-grant-bytes",
@@ -64,7 +65,7 @@ fn consent_grant_records_offered_claims() {
     .expect("upsert grant");
 
     let row = pool
-        .find_active_consent_grant(&user.id, RP)
+        .find_active_consent_grant(&user.id, RP, None)
         .expect("query")
         .expect("a grant exists");
 
@@ -91,6 +92,7 @@ fn consent_grant_without_offered_claims_is_null() {
         &user.id,
         "idp.example",
         RP,
+        None,
         &[],
         &["email".to_string()],
         b"signed-grant-bytes",
@@ -101,8 +103,79 @@ fn consent_grant_without_offered_claims_is_null() {
     .expect("upsert grant");
 
     let row = pool
-        .find_active_consent_grant(&user.id, RP)
+        .find_active_consent_grant(&user.id, RP, None)
         .expect("query")
         .expect("a grant exists");
     assert!(row.offered_claims.is_none());
+}
+
+fn upsert(pool: &linkkeys::db::DbPool, user_id: &str, app: Option<&ApplicationRef>, claim: &str) {
+    let now = chrono::Utc::now();
+    pool.upsert_consent_grant(
+        &uuid::Uuid::now_v7().to_string(),
+        user_id,
+        "idp.example",
+        RP,
+        app,
+        &[claim.to_string()],
+        &[claim.to_string()],
+        b"signed-grant-bytes",
+        None,
+        &now.to_rfc3339(),
+        &(now + chrono::Duration::days(365)).to_rfc3339(),
+    )
+    .expect("upsert grant");
+}
+
+fn app(application_id: &str) -> ApplicationRef {
+    ApplicationRef {
+        subject_user_id: "00000000-0000-0000-0000-0000000000aa".to_string(),
+        subject_domain: RP.to_string(),
+        application_id: application_id.to_string(),
+    }
+}
+
+#[test]
+fn consent_grants_are_per_application() {
+    let pool = common::create_test_pool();
+    let user = create_user(&pool, &DataMap::new());
+    let grafana = app("homegrafana");
+    let wiki = app("wiki");
+
+    upsert(&pool, &user.id, Some(&grafana), "email");
+    // A sibling application, and a request with no application, see nothing.
+    assert!(pool
+        .find_active_consent_grant(&user.id, RP, Some(&wiki))
+        .expect("query")
+        .is_none());
+    assert!(pool
+        .find_active_consent_grant(&user.id, RP, None)
+        .expect("query")
+        .is_none());
+
+    upsert(&pool, &user.id, Some(&wiki), "phone");
+    upsert(&pool, &user.id, None, "name");
+    // Replacing one application's grant leaves the others alone.
+    upsert(&pool, &user.id, Some(&grafana), "display_name");
+
+    let claims = |a: Option<&ApplicationRef>| {
+        pool.find_active_consent_grant(&user.id, RP, a)
+            .expect("query")
+            .expect("grant exists")
+            .claim_types
+    };
+    assert_eq!(claims(Some(&grafana)), vec!["display_name"]);
+    assert_eq!(claims(Some(&wiki)), vec!["phone"]);
+    assert_eq!(claims(None), vec!["name"]);
+    let row = pool
+        .find_active_consent_grant(&user.id, RP, Some(&grafana))
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.app_application_id.as_deref(), Some("homegrafana"));
+    assert!(pool
+        .has_active_consent_grant_for_audience(&user.id, RP)
+        .unwrap());
+    assert!(!pool
+        .has_active_consent_grant_for_audience(&user.id, "other.example")
+        .unwrap());
 }

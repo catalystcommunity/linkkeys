@@ -1181,6 +1181,9 @@ def _encode_consent_grant_value(v: "ConsentGrant") -> Dict[Any, Any]:
     csil_x = v.revoked_at
     if csil_x is not None:
         csil_m["revoked_at"] = csil_x
+    csil_x = v.application
+    if csil_x is not None:
+        csil_m["application"] = _encode_application_ref_value(csil_x)
     csil_m["claim_types"] = v.claim_types
     csil_m["subject_domain"] = v.subject_domain
     return csil_m
@@ -1196,6 +1199,7 @@ def _decode_consent_grant_value(tree: Any) -> "ConsentGrant":
         issued_at=_csil_expect_text(tree["issued_at"]),
         expires_at=_csil_expect_text(tree["expires_at"]),
         revoked_at=(None if tree.get("revoked_at") is None else _csil_expect_text(tree["revoked_at"])),
+        application=(None if tree.get("application") is None else _decode_application_ref_value(tree["application"])),
     )
 
 
@@ -1558,10 +1562,38 @@ def _user_info_from_cbor(data: bytes) -> "UserInfo":
 UserInfo.to_cbor = _user_info_to_cbor
 UserInfo.from_cbor = staticmethod(_user_info_from_cbor)
 
+def _encode_relying_party_application_value(v: "RelyingPartyApplication") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["application"] = _encode_application_ref_value(v.application)
+    csil_m["display_name"] = v.display_name
+    return csil_m
+
+def _decode_relying_party_application_value(tree: Any) -> "RelyingPartyApplication":
+    tree = _csil_expect_map(tree)
+    return RelyingPartyApplication(
+        application=_decode_application_ref_value(tree["application"]),
+        display_name=_csil_expect_text(tree["display_name"]),
+    )
+
+
+def _relying_party_application_to_cbor(self) -> bytes:
+    return cbor_encode(_encode_relying_party_application_value(self))
+
+
+def _relying_party_application_from_cbor(data: bytes) -> "RelyingPartyApplication":
+    return _decode_relying_party_application_value(cbor_decode(data))
+
+
+RelyingPartyApplication.to_cbor = _relying_party_application_to_cbor
+RelyingPartyApplication.from_cbor = staticmethod(_relying_party_application_from_cbor)
+
 def _encode_auth_request_value(v: "AuthRequest") -> Dict[Any, Any]:
     csil_m: Dict[Any, Any] = {}
     csil_m["nonce"] = v.nonce
     csil_m["timestamp"] = v.timestamp
+    csil_x = v.application
+    if csil_x is not None:
+        csil_m["application"] = _encode_relying_party_application_value(csil_x)
     csil_m["callback_url"] = v.callback_url
     csil_x = v.flow_context
     if csil_x is not None:
@@ -1591,6 +1623,7 @@ def _decode_auth_request_value(tree: Any) -> "AuthRequest":
         authentication_requirements=(None if tree.get("authentication_requirements") is None else _decode_authentication_requirements_value(tree["authentication_requirements"])),
         flow_context=(None if tree.get("flow_context") is None else _decode_auth_flow_context_value(tree["flow_context"])),
         relying_party_claims=(None if tree.get("relying_party_claims") is None else [_decode_domain_claim_value(csil_e) for csil_e in _csil_expect_array(tree["relying_party_claims"])]),
+        application=(None if tree.get("application") is None else _decode_relying_party_application_value(tree["application"])),
     )
 
 
@@ -4933,9 +4966,15 @@ BrowserConsentClaim.from_cbor = staticmethod(_browser_consent_claim_from_cbor)
 def _encode_browser_authorization_inspect_response_value(v: "BrowserAuthorizationInspectResponse") -> Dict[Any, Any]:
     csil_m: Dict[Any, Any] = {}
     csil_m["claims"] = [_encode_browser_consent_claim_value(csil_e) for csil_e in v.claims]
+    csil_x = v.application
+    if csil_x is not None:
+        csil_m["application"] = _encode_relying_party_application_value(csil_x)
     csil_x = v.access_denied
     if csil_x is not None:
         csil_m["access_denied"] = _encode_app_access_denial_value(csil_x)
+    csil_x = v.callback_host
+    if csil_x is not None:
+        csil_m["callback_host"] = csil_x
     csil_m["relying_party"] = v.relying_party
     csil_x = v.request_reason
     if csil_x is not None:
@@ -4957,6 +4996,8 @@ def _decode_browser_authorization_inspect_response_value(tree: Any) -> "BrowserA
         already_consented=(None if tree.get("already_consented") is None else _csil_expect_bool(tree["already_consented"])),
         authorized_claims=(None if tree.get("authorized_claims") is None else [_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["authorized_claims"])]),
         access_denied=(None if tree.get("access_denied") is None else _decode_app_access_denial_value(tree["access_denied"])),
+        application=(None if tree.get("application") is None else _decode_relying_party_application_value(tree["application"])),
+        callback_host=(None if tree.get("callback_host") is None else _csil_expect_text(tree["callback_host"])),
     )
 
 
@@ -5298,6 +5339,9 @@ def _encode_rp_sign_request_value(v: "RpSignRequest") -> Dict[Any, Any]:
     csil_x = v.flow_context
     if csil_x is not None:
         csil_m["flow_context"] = _encode_auth_flow_context_value(csil_x)
+    csil_x = v.application_id
+    if csil_x is not None:
+        csil_m["application_id"] = csil_x
     csil_x = v.requested_claims
     if csil_x is not None:
         csil_m["requested_claims"] = _encode_claim_request_value(csil_x)
@@ -5311,6 +5355,7 @@ def _decode_rp_sign_request_value(tree: Any) -> "RpSignRequest":
     return RpSignRequest(
         callback_url=_csil_expect_text(tree["callback_url"]),
         nonce=_csil_expect_text(tree["nonce"]),
+        application_id=(None if tree.get("application_id") is None else _csil_expect_text(tree["application_id"])),
         requested_claims=(None if tree.get("requested_claims") is None else _decode_claim_request_value(tree["requested_claims"])),
         authentication_requirements=(None if tree.get("authentication_requirements") is None else _decode_authentication_requirements_value(tree["authentication_requirements"])),
         flow_context=(None if tree.get("flow_context") is None else _decode_auth_flow_context_value(tree["flow_context"])),
@@ -5555,6 +5600,9 @@ AuthorizeValidateRequest.from_cbor = staticmethod(_authorize_validate_request_fr
 
 def _encode_authorize_validate_response_value(v: "AuthorizeValidateResponse") -> Dict[Any, Any]:
     csil_m: Dict[Any, Any] = {}
+    csil_x = v.application
+    if csil_x is not None:
+        csil_m["application"] = _encode_relying_party_application_value(csil_x)
     csil_m["callback_url"] = v.callback_url
     csil_x = v.access_denied
     if csil_x is not None:
@@ -5582,6 +5630,7 @@ def _decode_authorize_validate_response_value(tree: Any) -> "AuthorizeValidateRe
         authorized_claims=(None if tree.get("authorized_claims") is None else [_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["authorized_claims"])]),
         newly_requested_claims=(None if tree.get("newly_requested_claims") is None else [_csil_expect_text(csil_e) for csil_e in _csil_expect_array(tree["newly_requested_claims"])]),
         access_denied=(None if tree.get("access_denied") is None else _decode_app_access_denial_value(tree["access_denied"])),
+        application=(None if tree.get("application") is None else _decode_relying_party_application_value(tree["application"])),
     )
 
 

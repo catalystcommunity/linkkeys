@@ -1,8 +1,8 @@
 //! Integration tests for the `signed_request`-trusted login flow.
 //!
 //! These exercise `web::validate_signed_request` as a library function:
-//! decode → fetch RP keys → verify signature/timestamp → defense-in-depth
-//! callback-host check. The handler that calls this in turn (form GET/POST)
+//! decode → fetch RP keys → verify signature/timestamp → https callback
+//! check. The handler that calls this in turn (form GET/POST)
 //! is thin orchestration, so getting the validator right is what matters.
 
 mod common;
@@ -169,6 +169,7 @@ async fn rejects_expired_request() {
         authentication_requirements: None,
         flow_context: None,
         relying_party_claims: None,
+        application: None,
     };
     let param = mint_signed_request(&request, &key_id, &sk_bytes);
 
@@ -179,14 +180,72 @@ async fn rejects_expired_request() {
 }
 
 #[rocket::async_test]
-async fn rejects_off_domain_callback() {
-    // Even with a valid signature, a callback host outside the RP's
-    // domain is refused. This catches a misbehaving (or compromised)
-    // RP signing redirects to attacker-controlled hosts.
+async fn accepts_signed_callback_outside_rp_domain() {
+    // An application principal of todandlorna.com can live at any URL. The
+    // RP domain signature authorizes the callback.
+    let (pool, key_id, sk_bytes) = self_rp_setup();
+    let mut request = build_auth_request(
+        TEST_DOMAIN,
+        "https://homegrafana.catalystsquad.com/login/callback",
+        "n",
+        &key_id,
+        None,
+        None,
+    );
+    request.application = Some(liblinkkeys::generated::types::RelyingPartyApplication {
+        application: liblinkkeys::generated::types::ApplicationRef {
+            subject_user_id: "00000000-0000-0000-0000-0000000000aa".to_string(),
+            subject_domain: TEST_DOMAIN.to_string(),
+            application_id: "homegrafana".to_string(),
+        },
+        display_name: "Home Grafana".to_string(),
+    });
+    let param = mint_signed_request(&request, &key_id, &sk_bytes);
+
+    let validated = validate_signed_request(&pool, &common::net::offline_net(), &param)
+        .await
+        .expect("a signed off-domain https callback is accepted");
+    assert_eq!(validated.relying_party, TEST_DOMAIN);
+    assert_eq!(
+        validated.application.map(|a| a.application.application_id),
+        Some("homegrafana".to_string())
+    );
+}
+
+#[rocket::async_test]
+async fn rejects_application_of_another_domain() {
+    // The RP can name only its own principals.
+    let (pool, key_id, sk_bytes) = self_rp_setup();
+    let mut request = build_auth_request(
+        TEST_DOMAIN,
+        "https://x.example/cb",
+        "n",
+        &key_id,
+        None,
+        None,
+    );
+    request.application = Some(liblinkkeys::generated::types::RelyingPartyApplication {
+        application: liblinkkeys::generated::types::ApplicationRef {
+            subject_user_id: "00000000-0000-0000-0000-0000000000aa".to_string(),
+            subject_domain: "other.example".to_string(),
+            application_id: "app".to_string(),
+        },
+        display_name: "App".to_string(),
+    });
+    let param = mint_signed_request(&request, &key_id, &sk_bytes);
+
+    let err = validate_signed_request(&pool, &common::net::offline_net(), &param)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, ValidateAuthRequestError::Malformed));
+}
+
+#[rocket::async_test]
+async fn rejects_callback_with_userinfo() {
     let (pool, key_id, sk_bytes) = self_rp_setup();
     let request = build_auth_request(
         TEST_DOMAIN,
-        "https://attacker.com/auth/callback",
+        "https://todandlorna.com@attacker.com/cb",
         "n",
         &key_id,
         None,
@@ -197,7 +256,7 @@ async fn rejects_off_domain_callback() {
     let err = validate_signed_request(&pool, &common::net::offline_net(), &param)
         .await
         .unwrap_err();
-    assert!(matches!(err, ValidateAuthRequestError::CallbackOffDomain));
+    assert!(matches!(err, ValidateAuthRequestError::CallbackUnparseable));
 }
 
 #[rocket::async_test]

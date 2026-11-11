@@ -1972,6 +1972,7 @@ final class ConsentGrant {
   final String issuedAt;
   final String expiresAt;
   final String? revokedAt;
+  final ApplicationRef? application;
 
   const ConsentGrant({
     required this.grantId,
@@ -1982,6 +1983,7 @@ final class ConsentGrant {
     required this.issuedAt,
     required this.expiresAt,
     this.revokedAt,
+    this.application,
   });
 
   Map<String, Object?> toMap() {
@@ -1994,6 +1996,7 @@ final class ConsentGrant {
     map['issued_at'] = issuedAt;
     map['expires_at'] = expiresAt;
     if (revokedAt != null) map['revoked_at'] = revokedAt;
+    if (application != null) map['application'] = application;
     return map;
   }
 
@@ -2007,6 +2010,7 @@ final class ConsentGrant {
       issuedAt: map['issued_at'] as String,
       expiresAt: map['expires_at'] as String,
       revokedAt: map['revoked_at'] as String?,
+      application: map['application'] as ApplicationRef?,
     );
   }
 
@@ -2020,7 +2024,8 @@ final class ConsentGrant {
         claimTypes == other.claimTypes &&
         issuedAt == other.issuedAt &&
         expiresAt == other.expiresAt &&
-        revokedAt == other.revokedAt;
+        revokedAt == other.revokedAt &&
+        application == other.application;
   }
 
   @override
@@ -2033,6 +2038,7 @@ final class ConsentGrant {
     issuedAt,
     expiresAt,
     revokedAt,
+    application,
   ]);
 
   /// The CBOR-encodable dynamic tree for this record (deep).
@@ -2046,6 +2052,7 @@ final class ConsentGrant {
     map['issued_at'] = issuedAt;
     map['expires_at'] = expiresAt;
     if (revokedAt != null) map['revoked_at'] = revokedAt!;
+    if (application != null) map['application'] = application!.toCborValue();
     return map;
   }
 
@@ -2064,6 +2071,9 @@ final class ConsentGrant {
       issuedAt: map['issued_at'] as String,
       expiresAt: map['expires_at'] as String,
       revokedAt: map['revoked_at'] == null ? null : map['revoked_at'] as String,
+      application: map['application'] == null
+          ? null
+          : ApplicationRef.fromCborValue(map['application']),
     );
   }
 
@@ -3012,6 +3022,63 @@ final class UserInfo {
       UserInfo.fromCborValue(CsilCbor.decode(bytes));
 }
 
+final class RelyingPartyApplication {
+  final ApplicationRef application;
+  final String displayName;
+
+  const RelyingPartyApplication({
+    required this.application,
+    required this.displayName,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['application'] = application;
+    map['display_name'] = displayName;
+    return map;
+  }
+
+  factory RelyingPartyApplication.fromMap(Map<String, Object?> map) {
+    return RelyingPartyApplication(
+      application: map['application'] as ApplicationRef,
+      displayName: map['display_name'] as String,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! RelyingPartyApplication) return false;
+    return application == other.application && displayName == other.displayName;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([application, displayName]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['application'] = application.toCborValue();
+    map['display_name'] = displayName;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory RelyingPartyApplication.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return RelyingPartyApplication(
+      application: ApplicationRef.fromCborValue(map['application']),
+      displayName: map['display_name'] as String,
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory RelyingPartyApplication.fromCbor(List<int> bytes) =>
+      RelyingPartyApplication.fromCborValue(CsilCbor.decode(bytes));
+}
+
 final class AuthRequest {
   final String relyingParty;
   final String callbackUrl;
@@ -3022,6 +3089,7 @@ final class AuthRequest {
   final AuthenticationRequirements? authenticationRequirements;
   final AuthFlowContext? flowContext;
   final List<DomainClaim>? relyingPartyClaims;
+  final RelyingPartyApplication? application;
 
   const AuthRequest({
     required this.relyingParty,
@@ -3033,6 +3101,7 @@ final class AuthRequest {
     this.authenticationRequirements,
     this.flowContext,
     this.relyingPartyClaims,
+    this.application,
   });
 
   Map<String, Object?> toMap() {
@@ -3048,6 +3117,7 @@ final class AuthRequest {
     if (flowContext != null) map['flow_context'] = flowContext;
     if (relyingPartyClaims != null)
       map['relying_party_claims'] = relyingPartyClaims;
+    if (application != null) map['application'] = application;
     return map;
   }
 
@@ -3063,6 +3133,7 @@ final class AuthRequest {
           map['authentication_requirements'] as AuthenticationRequirements?,
       flowContext: map['flow_context'] as AuthFlowContext?,
       relyingPartyClaims: map['relying_party_claims'] as List<DomainClaim>?,
+      application: map['application'] as RelyingPartyApplication?,
     );
   }
 
@@ -3077,7 +3148,8 @@ final class AuthRequest {
         requestedClaims == other.requestedClaims &&
         authenticationRequirements == other.authenticationRequirements &&
         flowContext == other.flowContext &&
-        relyingPartyClaims == other.relyingPartyClaims;
+        relyingPartyClaims == other.relyingPartyClaims &&
+        application == other.application;
   }
 
   @override
@@ -3091,6 +3163,7 @@ final class AuthRequest {
     authenticationRequirements,
     flowContext,
     relyingPartyClaims,
+    application,
   ]);
 
   /// The CBOR-encodable dynamic tree for this record (deep).
@@ -3110,6 +3183,7 @@ final class AuthRequest {
       map['relying_party_claims'] = relyingPartyClaims!
           .map((csilE) => csilE.toCborValue())
           .toList();
+    if (application != null) map['application'] = application!.toCborValue();
     return map;
   }
 
@@ -3139,6 +3213,9 @@ final class AuthRequest {
                 .map((csilE) => DomainClaim.fromCborValue(csilE))
                 .cast<DomainClaim>()
                 .toList(),
+      application: map['application'] == null
+          ? null
+          : RelyingPartyApplication.fromCborValue(map['application']),
     );
   }
 
@@ -10734,6 +10811,8 @@ final class BrowserAuthorizationInspectResponse {
   final bool? alreadyConsented;
   final List<String>? authorizedClaims;
   final AppAccessDenial? accessDenied;
+  final RelyingPartyApplication? application;
+  final String? callbackHost;
 
   const BrowserAuthorizationInspectResponse({
     required this.relyingParty,
@@ -10742,6 +10821,8 @@ final class BrowserAuthorizationInspectResponse {
     this.alreadyConsented,
     this.authorizedClaims,
     this.accessDenied,
+    this.application,
+    this.callbackHost,
   });
 
   Map<String, Object?> toMap() {
@@ -10752,6 +10833,8 @@ final class BrowserAuthorizationInspectResponse {
     if (alreadyConsented != null) map['already_consented'] = alreadyConsented;
     if (authorizedClaims != null) map['authorized_claims'] = authorizedClaims;
     if (accessDenied != null) map['access_denied'] = accessDenied;
+    if (application != null) map['application'] = application;
+    if (callbackHost != null) map['callback_host'] = callbackHost;
     return map;
   }
 
@@ -10765,6 +10848,8 @@ final class BrowserAuthorizationInspectResponse {
       alreadyConsented: map['already_consented'] as bool?,
       authorizedClaims: map['authorized_claims'] as List<String>?,
       accessDenied: map['access_denied'] as AppAccessDenial?,
+      application: map['application'] as RelyingPartyApplication?,
+      callbackHost: map['callback_host'] as String?,
     );
   }
 
@@ -10776,7 +10861,9 @@ final class BrowserAuthorizationInspectResponse {
         requestReason == other.requestReason &&
         alreadyConsented == other.alreadyConsented &&
         authorizedClaims == other.authorizedClaims &&
-        accessDenied == other.accessDenied;
+        accessDenied == other.accessDenied &&
+        application == other.application &&
+        callbackHost == other.callbackHost;
   }
 
   @override
@@ -10787,6 +10874,8 @@ final class BrowserAuthorizationInspectResponse {
     alreadyConsented,
     authorizedClaims,
     accessDenied,
+    application,
+    callbackHost,
   ]);
 
   /// The CBOR-encodable dynamic tree for this record (deep).
@@ -10799,6 +10888,8 @@ final class BrowserAuthorizationInspectResponse {
     if (authorizedClaims != null) map['authorized_claims'] = authorizedClaims!;
     if (accessDenied != null)
       map['access_denied'] = accessDenied!.toCborValue();
+    if (application != null) map['application'] = application!.toCborValue();
+    if (callbackHost != null) map['callback_host'] = callbackHost!;
     return map;
   }
 
@@ -10826,6 +10917,12 @@ final class BrowserAuthorizationInspectResponse {
       accessDenied: map['access_denied'] == null
           ? null
           : AppAccessDenial.fromCborValue(map['access_denied']),
+      application: map['application'] == null
+          ? null
+          : RelyingPartyApplication.fromCborValue(map['application']),
+      callbackHost: map['callback_host'] == null
+          ? null
+          : map['callback_host'] as String,
     );
   }
 
@@ -11643,6 +11740,7 @@ final class GetUiConfigurationResponse {
 final class RpSignRequest {
   final String callbackUrl;
   final String nonce;
+  final String? applicationId;
   final ClaimRequest? requestedClaims;
   final AuthenticationRequirements? authenticationRequirements;
   final AuthFlowContext? flowContext;
@@ -11650,6 +11748,7 @@ final class RpSignRequest {
   const RpSignRequest({
     required this.callbackUrl,
     required this.nonce,
+    this.applicationId,
     this.requestedClaims,
     this.authenticationRequirements,
     this.flowContext,
@@ -11659,6 +11758,7 @@ final class RpSignRequest {
     final map = <String, Object?>{};
     map['callback_url'] = callbackUrl;
     map['nonce'] = nonce;
+    if (applicationId != null) map['application_id'] = applicationId;
     if (requestedClaims != null) map['requested_claims'] = requestedClaims;
     if (authenticationRequirements != null)
       map['authentication_requirements'] = authenticationRequirements;
@@ -11670,6 +11770,7 @@ final class RpSignRequest {
     return RpSignRequest(
       callbackUrl: map['callback_url'] as String,
       nonce: map['nonce'] as String,
+      applicationId: map['application_id'] as String?,
       requestedClaims: map['requested_claims'] as ClaimRequest?,
       authenticationRequirements:
           map['authentication_requirements'] as AuthenticationRequirements?,
@@ -11682,6 +11783,7 @@ final class RpSignRequest {
     if (other is! RpSignRequest) return false;
     return callbackUrl == other.callbackUrl &&
         nonce == other.nonce &&
+        applicationId == other.applicationId &&
         requestedClaims == other.requestedClaims &&
         authenticationRequirements == other.authenticationRequirements &&
         flowContext == other.flowContext;
@@ -11691,6 +11793,7 @@ final class RpSignRequest {
   int get hashCode => Object.hashAll([
     callbackUrl,
     nonce,
+    applicationId,
     requestedClaims,
     authenticationRequirements,
     flowContext,
@@ -11701,6 +11804,7 @@ final class RpSignRequest {
     final map = <String, Object?>{};
     map['callback_url'] = callbackUrl;
     map['nonce'] = nonce;
+    if (applicationId != null) map['application_id'] = applicationId!;
     if (requestedClaims != null)
       map['requested_claims'] = requestedClaims!.toCborValue();
     if (authenticationRequirements != null)
@@ -11715,6 +11819,9 @@ final class RpSignRequest {
     return RpSignRequest(
       callbackUrl: map['callback_url'] as String,
       nonce: map['nonce'] as String,
+      applicationId: map['application_id'] == null
+          ? null
+          : map['application_id'] as String,
       requestedClaims: map['requested_claims'] == null
           ? null
           : ClaimRequest.fromCborValue(map['requested_claims']),
@@ -12247,6 +12354,7 @@ final class AuthorizeValidateResponse {
   final List<String>? authorizedClaims;
   final List<String>? newlyRequestedClaims;
   final AppAccessDenial? accessDenied;
+  final RelyingPartyApplication? application;
 
   const AuthorizeValidateResponse({
     required this.relyingParty,
@@ -12256,6 +12364,7 @@ final class AuthorizeValidateResponse {
     this.authorizedClaims,
     this.newlyRequestedClaims,
     this.accessDenied,
+    this.application,
   });
 
   Map<String, Object?> toMap() {
@@ -12268,6 +12377,7 @@ final class AuthorizeValidateResponse {
     if (newlyRequestedClaims != null)
       map['newly_requested_claims'] = newlyRequestedClaims;
     if (accessDenied != null) map['access_denied'] = accessDenied;
+    if (application != null) map['application'] = application;
     return map;
   }
 
@@ -12280,6 +12390,7 @@ final class AuthorizeValidateResponse {
       authorizedClaims: map['authorized_claims'] as List<String>?,
       newlyRequestedClaims: map['newly_requested_claims'] as List<String>?,
       accessDenied: map['access_denied'] as AppAccessDenial?,
+      application: map['application'] as RelyingPartyApplication?,
     );
   }
 
@@ -12292,7 +12403,8 @@ final class AuthorizeValidateResponse {
         alreadyConsented == other.alreadyConsented &&
         authorizedClaims == other.authorizedClaims &&
         newlyRequestedClaims == other.newlyRequestedClaims &&
-        accessDenied == other.accessDenied;
+        accessDenied == other.accessDenied &&
+        application == other.application;
   }
 
   @override
@@ -12304,6 +12416,7 @@ final class AuthorizeValidateResponse {
     authorizedClaims,
     newlyRequestedClaims,
     accessDenied,
+    application,
   ]);
 
   /// The CBOR-encodable dynamic tree for this record (deep).
@@ -12318,6 +12431,7 @@ final class AuthorizeValidateResponse {
       map['newly_requested_claims'] = newlyRequestedClaims!;
     if (accessDenied != null)
       map['access_denied'] = accessDenied!.toCborValue();
+    if (application != null) map['application'] = application!.toCborValue();
     return map;
   }
 
@@ -12349,6 +12463,9 @@ final class AuthorizeValidateResponse {
       accessDenied: map['access_denied'] == null
           ? null
           : AppAccessDenial.fromCborValue(map['access_denied']),
+      application: map['application'] == null
+          ? null
+          : RelyingPartyApplication.fromCborValue(map['application']),
     );
   }
 

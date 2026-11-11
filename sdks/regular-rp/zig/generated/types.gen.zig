@@ -261,6 +261,7 @@ pub const ConsentGrant = struct {
     issued_at: []const u8,
     expires_at: []const u8,
     revoked_at: ?[]const u8 = null,
+    application: ?ApplicationRef = null,
 };
 
 /// SignedConsentGrant is a structured data type.
@@ -366,6 +367,7 @@ pub const AuthRequest = struct {
     authentication_requirements: ?AuthenticationRequirements = null,
     flow_context: ?AuthFlowContext = null,
     relying_party_claims: ?[]DomainClaim = null,
+    application: ?RelyingPartyApplication = null,
 };
 
 /// SignedAuthRequest is a structured data type.
@@ -1174,6 +1176,8 @@ pub const BrowserAuthorizationInspectResponse = struct {
     already_consented: ?bool = null,
     authorized_claims: ?[][]const u8 = null,
     access_denied: ?AppAccessDenial = null,
+    application: ?RelyingPartyApplication = null,
+    callback_host: ?[]const u8 = null,
 };
 
 /// BrowserAuthorizationCompleteRequest is a structured data type.
@@ -1260,6 +1264,7 @@ pub const GetUiConfigurationResponse = struct {
 pub const RpSignRequest = struct {
     callback_url: []const u8,
     nonce: []const u8,
+    application_id: ?[]const u8 = null,
     requested_claims: ?ClaimRequest = null,
     authentication_requirements: ?AuthenticationRequirements = null,
     flow_context: ?AuthFlowContext = null,
@@ -1327,6 +1332,7 @@ pub const AuthorizeValidateResponse = struct {
     authorized_claims: ?[][]const u8 = null,
     newly_requested_claims: ?[][]const u8 = null,
     access_denied: ?AppAccessDenial = null,
+    application: ?RelyingPartyApplication = null,
 };
 
 /// AuthorizeFinalizeRequest is a structured data type.
@@ -2158,6 +2164,12 @@ pub const IssuedClaimResult = struct {
 /// IssueForSigningRequestResponse is a structured data type.
 pub const IssueForSigningRequestResponse = struct {
     results: []IssuedClaimResult,
+};
+
+/// RelyingPartyApplication is a structured data type.
+pub const RelyingPartyApplication = struct {
+    application: ApplicationRef,
+    display_name: []const u8,
 };
 
 /// CheckResult is a structured data type.

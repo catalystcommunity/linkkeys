@@ -505,6 +505,8 @@ async fn begin_linkkeys_redirect(
         lk::RpSignRequest {
             callback_url: callback_url.clone(),
             nonce: nonce.clone(),
+            // The RP names this app by the API-key account's username.
+            application_id: None,
             requested_claims: Some(requested_claims),
             authentication_requirements: None,
             flow_context,
