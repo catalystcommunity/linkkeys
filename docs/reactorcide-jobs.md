@@ -38,20 +38,23 @@ overlay for a manual deploy of another instance.
 
 ## Trust-change guard
 
-`linkkeys-trust-guard` fails a pull request that is trust-critical and has no
-coordinator approval pinned to its head. Trust-critical means: a change under
-`.reactorcide/` or `crates/linkkeys/assets/tpm-trust/`, a change to a file that
-carries the trust-critical marker, or a tripwire line (embedded certificates,
-`include_bytes!`, and others) anywhere. It never reads git author fields.
+`linkkeys-trust-guard` finds pull requests that are trust-critical: a change
+under `.reactorcide/` or `crates/linkkeys/assets/tpm-trust/`, a change to a
+file that carries the trust-critical marker, or a tripwire line (embedded
+certificates, `include_bytes!`, and others) anywhere. It never reads git author
+fields.
 
-How to approve depends on the Reactorcide release (group approval now,
-comment after Reactorcide B1, `approve-content` after R2). The steps, rules,
-threats, and required GitHub and coordinator settings are in
+The guard does not authorize. The coordinator required review
+`linkkeys-trust-anchors` blocks the merge until a maintainer comments
+`/reactorcide accept linkkeys-trust-anchors`. The guard fails a trust-critical
+PR that the review would not cover, and a PR whose review list
+(`.reactorcide/trust-review-paths.txt`) misses a marked file. The rules,
+threats, and GitHub and coordinator settings are in
 [trust-change-control.md](trust-change-control.md) §4 and §6. The code is
 `.reactorcide/plugins/trust_guard.py`.
 
-`run-local` has no coordinator approvals, so a trust-critical change fails
-locally. There is no local bypass.
+In `run-local`, the guard gives the same result as in CI. A local pass does
+not replace the accept: only the coordinator posts `Reactorcide Reviews`.
 
 After a change to `trust_guard.py`, run its adversarial tests:
 `python3 -I .reactorcide/plugins/trust_guard_test.py`.

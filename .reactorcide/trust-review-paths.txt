@@ -1,0 +1,49 @@
+# Paths of the Reactorcide required review `linkkeys-trust-anchors`.
+#
+# The coordinator holds the live copy. After a change to this file is merged,
+# apply it:
+#   python3 -I .reactorcide/plugins/trust_guard.py --review-yaml > linkkeys-trust.yaml
+#   reactorcide trust set --org default-user --project linkkeys --file linkkeys-trust.yaml
+#
+# One glob per line. Case-sensitive. `**` matches across `/`; `*` does not.
+# The guard fails a PR when a file that carries the trust-critical marker is
+# not matched here. See docs/trust-change-control.md.
+
+.reactorcide/**
+crates/linkkeys/assets/tpm-trust/**
+.gitattributes
+**/.gitattributes
+.gitmodules
+build.rs
+**/build.rs
+docs/trust-change-control.md
+
+# Files that carry the trust-critical marker.
+crates/liblinkkeys/src/act_as.rs
+crates/liblinkkeys/src/application_keys.rs
+crates/liblinkkeys/src/assertions.rs
+crates/liblinkkeys/src/auth_request.rs
+crates/liblinkkeys/src/claim_policy.rs
+crates/liblinkkeys/src/claims.rs
+crates/liblinkkeys/src/consent.rs
+crates/liblinkkeys/src/crypto.rs
+crates/liblinkkeys/src/dns.rs
+crates/liblinkkeys/src/domain_claims.rs
+crates/liblinkkeys/src/legacy_signatures.rs
+crates/liblinkkeys/src/lib.rs
+crates/liblinkkeys/src/local_rp.rs
+crates/liblinkkeys/src/revocation.rs
+crates/liblinkkeys/src/signing_request.rs
+crates/liblinkkeys/src/userinfo.rs
+crates/linkkeys-rpc-client/src/tls.rs
+crates/linkkeys/src/dns.rs
+crates/linkkeys/src/services/attestation.rs
+crates/linkkeys/src/services/domain_keys.rs
+crates/linkkeys/src/services/pins.rs
+crates/linkkeys/src/services/pubkey_cache.rs
+crates/linkkeys/src/services/revocations.rs
+crates/linkkeys/src/services/rp_cache.rs
+crates/linkkeys/src/services/signature_upgrade.rs
+crates/linkkeys/src/tcp/dns_pin_cache.rs
+crates/linkkeys/src/tcp/tls.rs
+crates/linkkeys/src/web/rp.rs

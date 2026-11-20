@@ -11,7 +11,7 @@ These are permanent workflow guidelines for working in this codebase. They apply
 
 ## Trust-Critical Code
 
-- Code that loads trust anchors or decides trust lives in small, dedicated files that carry the trust-critical marker comment (exact text in `docs/trust-change-control.md` §3.1). Any PR that touches them, or `.reactorcide/`, or `crates/linkkeys/assets/tpm-trust/`, needs a coordinator approval pinned to its head. See `docs/trust-change-control.md`.
+- Code that loads trust anchors or decides trust lives in small, dedicated files that carry the trust-critical marker comment (exact text in `docs/trust-change-control.md` §3.1). Any PR that touches them, or `.reactorcide/`, or `crates/linkkeys/assets/tpm-trust/`, needs a maintainer accept on the coordinator required review `linkkeys-trust-anchors`. When you add the marker to a file, add the file to `.reactorcide/trust-review-paths.txt` in the same PR; CI fails otherwise. See `docs/trust-change-control.md`.
 - Make bypasses need a marked file: verifiers return capability types with private constructors; records take those types, never a bare `bool`.
 - Never add a local or env bypass to `.reactorcide/plugins/trust_guard.py`.
 

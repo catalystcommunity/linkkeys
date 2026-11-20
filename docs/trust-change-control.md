@@ -9,8 +9,9 @@ an authorized person approving that exact change.
   fields are text that anyone can write. The VCS provider authenticates who
   acts on a pull request; the Reactorcide coordinator verifies the webhook and
   turns that identity into a subject. Only those subjects can authorize.
-- **Approve exact content.** An approval binds one head SHA and one base SHA.
-  A new push invalidates it.
+- **Approve exact content.** An accept binds one head SHA. A new push needs a
+  new accept. A change to the base branch alone does not cancel it; the
+  ruleset's strict status rule makes the PR update its head first.
 - **Detect wide, not narrow.** A sneaky PR does not edit the anchor file. It
   edits the loader, the verifier, the guard, the build, or git itself. The
   guard looks for all of these.
@@ -23,8 +24,8 @@ an authorized person approving that exact change.
 | Layer | Owner | Does |
 | --- | --- | --- |
 | Detection | `.reactorcide/plugins/trust_guard.py` (trusted base CI) | Decides if a PR is trust-critical (§3). |
-| Authorization | Reactorcide coordinator | Records approvals from authenticated subjects, pinned to head + base SHA, and passes them to the job (`REACTORCIDE_CI_APPROVALS`). |
-| Enforcement | GitHub branch protection; vcsstar merge gates | Requires `linkkeys-trust-guard` to succeed before merge. |
+| Authorization | Reactorcide coordinator | Required review `linkkeys-trust-anchors`: accepts from the maintainers group, pinned to the head SHA. Posts `Reactorcide Reviews`. |
+| Enforcement | GitHub ruleset; vcsstar merge gates | Requires `Reactorcide Checks` (includes the guard) and `Reactorcide Reviews` before merge. |
 
 A gap in any layer is a gap in the whole. §6 lists what each owner must do.
 
@@ -39,10 +40,10 @@ hidden in a merge counts.
 | A path under `.reactorcide/` | Every plugin there runs in the guard's process and can sabotage it. Workflow and job files decide if the guard runs. |
 | A path under `crates/linkkeys/assets/tpm-trust/` | The anchors. |
 | A file that carries the marker `LINKKEYS-TRUST-CRITICAL`, before or after the change | Anchor loaders and verifiers. Removing the marker is a change to a marked file. |
-| An added or removed line, in any file, with a PEM block, `include_bytes!`, `include_str!` of a certificate file, the text `tpm-trust`, the marker, or a change to `forbid(unsafe_code)` | Anchors embedded somewhere new; code that points at the anchor directory; an escape from Rust privacy. |
+| An added or removed line, in any file, with a PEM block, `include_bytes!`, `include_str!` of a certificate file, the text `tpm-trust` (not in Markdown), the marker, or a change to `forbid(unsafe_code)` | Anchors embedded somewhere new; code that points at the anchor directory; an escape from Rust privacy. |
 | A symlink or submodule; a `.gitattributes`, `.gitmodules`, or `build.rs` file | Ways to redirect content or run code at build time. |
 | A non-ASCII path; a path that case-folds into a guarded prefix | Look-alike paths. |
-| A binary that looks like a DER certificate | An anchor under another name. |
+| A file with a certificate extension, or content that starts like a DER certificate | An anchor under another name. |
 
 ### 3.1 Marking code
 
@@ -72,65 +73,78 @@ skipped call does not compile.
 
 ## 4. How to approve
 
-Three ways, by Reactorcide state (see `../reactorcide/linkkeys_trust_requests.md`):
+The coordinator has a required review, `linkkeys-trust-anchors`. It applies
+to a PR that changes a path in its list (§6). The coordinator posts the status
+`Reactorcide Reviews`: `pending` until the review is accepted, `success` when
+it is accepted or when no review applies. The GitHub ruleset requires this
+status.
 
-| When | How |
-| --- | --- |
-| Now | A member of the group `linkkeys-trust-maintainers` creates a group approval in the Reactorcide UI, or with `reactorcide approvals create --org <org> --project linkkeys --pr <n> --head-repository <owner/repo> --head-sha <head> --base-sha <base> --workflow linkkeys-trust-anchors --profile standard --policy-revision <current> --subject reactorcide_group:linkkeys-trust-maintainers`. The API accepts a group subject only from a member. |
-| After Reactorcide B1 | Comment `/reactorcide approve linkkeys-trust-anchors <profile> <policy-revision>`. Today the coordinator rejects this comment: it cannot store a `vcs_user:` subject, and it then stores nothing. |
-| After Reactorcide R2 | Comment `/reactorcide approve-content linkkeys-trust-anchors`. It arrives in `REACTORCIDE_CONTENT_APPROVALS`, needs no profile or policy revision, and head-CI admission ignores it. |
+To accept, a member of the group `linkkeys-trust-maintainers` does one of
+these on the PR:
 
-The guard accepts an approval only when all of these are true:
+- Comments `/reactorcide accept linkkeys-trust-anchors`.
+- Approves the PR on GitHub with the line
+  `/reactorcide accept linkkeys-trust-anchors` in the review body.
 
-- It comes from `REACTORCIDE_CI_APPROVALS` or `REACTORCIDE_CONTENT_APPROVALS`.
-- `kind` is absent, `head_ci`, or `content`. Any other kind is refused until
-  someone reviews it in `trust_guard.py`.
-- The scope is exactly `linkkeys-trust-anchors` (`label` for a content
-  approval, else `workflow_scope`). A `*` approval or a head-CI approval for a
-  workflow does not count.
-- `approver_subject` is one of `vcs_user:github/todpunk`,
-  `vcs_user:github/junipuff`, `reactorcide_group:linkkeys-trust-maintainers`.
-  The group needs identity links made by an org admin (`verified_by=admin`)
-  and works for any VCS provider the coordinator supports.
-- `head_sha` is the checkout HEAD and the event head; `base_sha` is the event
-  base.
-- It is not invalidated and not expired. A malformed time refuses the record.
+Rules:
 
-The list of approvers and the scope are in `trust_guard.py`. That file runs
-from the trusted CI checkout and is itself guarded, so a PR cannot change the
-list it is checked against.
+- The accept binds to the head SHA. A new push needs a new accept.
+- Only the group can accept. An org admin adds members in Reactorcide and
+  links each member's VCS login (`reactorcide identities link`).
+- `/reactorcide revoke` withdraws the accept. A "changes requested" review
+  withdraws the reviewer's accept.
+- An accept starts no CI. It only updates `Reactorcide Reviews`.
+- A member can accept their own PR. To stop that, add a second review for the
+  same paths with `accept: [non_author]`. Not configured today.
+- If the coordinator cannot list the PR's files, the review applies to the PR.
 
-**After you approve, close and reopen the PR.** The coordinator stores the
-approval but does not re-run the PR, and a retry reuses the facts from the
-first run. Reopen starts a new run of the same head with current approvals. A
-push makes a new head and invalidates the approval. (Reactorcide R3 will start
-a new evaluation when an approval matches the current head.)
+The review matches paths only, and it applies to the whole PR when one
+changed path matches. The guard (§3) also finds trust signals by content: PEM
+blocks, `include_bytes!`, the marker, and others, in any file. It fails the PR
+when:
 
-`reactorcide run-local` has no coordinator approvals. A trust-critical change
-fails locally. That is intended: there is no local bypass.
+- the PR is trust-critical, but no changed path matches the review list, so
+  the review would not apply. Example: a PEM block in an unmarked file, or an
+  anchor changed and changed back in the history. Remove the signal, move the
+  code into a marked and listed file, or squash the commits;
+- a file carries the marker, but no pattern in the PR's copy of
+  `.reactorcide/trust-review-paths.txt` matches it;
+- the PR's copy of that list drops `.reactorcide/**` or
+  `crates/linkkeys/assets/tpm-trust/**`.
+
+The guard compares changed paths with the list in the trusted CI checkout (the
+base), because that is the list the coordinator has. It uses the
+coordinator's match rules (§6). The guard does not read approvals.
+
+In `reactorcide run-local`, the guard gives the same result as in CI. A local
+pass does not replace the accept: only the coordinator posts `Reactorcide
+Reviews`.
 
 ## 5. Threats and answers
 
 | Attack | Answer |
 | --- | --- |
-| Commit with a forged todpunk author email | Git identity is ignored. Needs a coordinator approval. |
+| Commit with a forged todpunk author email | Git identity is ignored. Needs a maintainer accept on the required review. |
 | Add anchors in a new file elsewhere | PEM, `include_*`, DER, and `tpm-trust` tripwires. |
 | Change the loader or verifier, not the anchors | Marked files. |
 | Remove the marker, then change the file later | The removal is itself trust-critical. |
 | Edit the guard, its job, or the workflow | `.reactorcide/` is guarded; the guard runs from base CI. |
 | Hide an edit in a merge commit | Combined diff of each merge. |
-| Change and revert, so the final diff is clean | Each commit is checked. |
-| Look-alike or case-variant path | NFKC + case folding; non-ASCII paths are trust-critical. |
+| Change and revert, so the final diff is clean | Each commit is checked. The review sees only the final diff, so the guard fails; squash the commits. |
+| Look-alike or case-variant path | NFKC + case folding; non-ASCII paths are trust-critical. The review list is case-sensitive, so the guard fails such a PR. |
 | Symlink, submodule, `.gitattributes` filter, `build.rs` | Git and build control signals. |
-| Reuse an approval after a new push | Approval binds head and base SHA; the coordinator invalidates on push. |
-| Reuse a head-CI approval or a `*` approval | Exact scope only. |
-| Click "Update branch" or reopen someone else's PR, so the sender is an approver | The sender is not used. Only an explicit approval counts. |
+| Reuse an accept after a new push | The accept binds the head SHA. A new head has no accept. |
+| Use `approve-ci` or another review's accept | `approve-ci` releases the run gate only; it is not an accept. A labeled accept counts only for its review. |
+| Click "Update branch" or reopen someone else's PR, so the sender is an approver | The sender is not used. Only an explicit accept counts. |
 | Shallow checkout hides commits | Unshallow, or fail. |
 | Checkout is not the event head | Fail. |
 | Forge env facts from workflow YAML | The guard is a `base_nodes` node, so its env comes only from guarded base YAML. Reactorcide R1 adds coordinator-side reserved names as defense in depth. API-submitted jobs post no commit status. |
-| Drop the guard node in the PR's own CI | Needs coordinator `base_nodes` for the node, and a required status (§6). |
+| Drop the guard node in the PR's own CI | Coordinator `base_nodes` re-adds it from base CI. The PR touches `.reactorcide/`, so the review applies too. |
 | Push straight to `main` | Needs branch protection (§6). |
-| Post a passing status with the required name | After the Reactorcide `0381109` deploy, the required status is `Reactorcide Checks`, a name only the coordinator can post. A workflow-declared status context is never the required one (§6). |
+| Post a passing status with the required name | The required statuses are `Reactorcide Checks` and `Reactorcide Reviews`, names only the coordinator can post. A workflow-declared status context is never a required one (§6). |
+| Add a trust signal to a file outside the review list | The guard fails: the review would not apply. |
+| Mark a new file but leave it out of the list | The guard fails: each marked file must match the list. |
+| Add a pattern to the list in the PR to cover itself | The guard uses the base list. A list change is under `.reactorcide/`, so the review applies. |
 | Weaken trust through a dependency | Not covered. Supply chain needs its own control (`deny.toml` is the start). |
 
 What a pattern check cannot catch: a semantic change in an unmarked file that
@@ -139,22 +153,19 @@ marked file, behind types that unmarked code cannot forge.
 
 ## 6. Configuration and open requests
 
-### GitHub (checked 2026-11-14)
+### GitHub (changed 2026-11-19)
 
 Repository ruleset `ci-checks` on the default branch: pull request required
 (merge method rebase), linear history, no force push, no deletion, no
-creation, and required status `LinkKeys pull request` with strict updates. That
-status is the workflow status, so a failed `linkkeys-trust-guard` node fails
-it.
+creation, and required statuses `Reactorcide Checks` and `Reactorcide Reviews`
+with strict updates. The
+coordinator posts that status once per event, and a failed
+`linkkeys-trust-guard` node fails it. Only the coordinator can post
+`Reactorcide Checks`. Do not declare a workflow status context and make it
+required: a workflow that gets head CI can declare the same context.
 
-**At the Reactorcide `0381109` deploy, change the required status to
-`Reactorcide Checks`.** From that commit, the coordinator posts one status per
-event, `Reactorcide Checks`, and no longer posts workflow-name statuses. A PR
-would wait forever for `LinkKeys pull request`. Do not switch before the
-deploy: the current coordinator does not post the new name, so every PR would
-block. Do not declare `status: {context: LinkKeys pull request}` in `pr.yaml`
-as a substitute: a workflow that gets head CI can declare the same context.
-`Reactorcide Checks` is reserved for the coordinator.
+Before the Reactorcide `0381109` deploy, the required status was
+`LinkKeys pull request`. The coordinator no longer posts that name.
 
 Bypass: team `automation` (`todpunk`, `catalystcommunityci`), mode `always`.
 The release automation needs it to push version bumps. Anyone who controls
@@ -171,29 +182,48 @@ workflow has no such node, the coordinator runs the whole workflow from base
 CI. If a PR's CI drops the node, the coordinator adds the base node back.
 Source file: `~/.config/reactorcide/policies/linkkeys.yaml`.
 
-The API (`POST /api/v1/approvals`) cannot forge a `vcs_user:` subject; it
-accepts only `project_owner` or a group the caller belongs to. The guard
-refuses `project_owner`. It accepts the group
-`reactorcide_group:linkkeys-trust-maintainers`, which an org admin creates in
-the Reactorcide UI, with identity links for each approver made through the
-identities API (`verified_by=admin`). Until Reactorcide B1 ships, that group
-approval is the only working path.
+### Reactorcide required review (applied 2026-11-19)
+
+Org `default-user`, project `linkkeys`. Review `linkkeys-trust-anchors`,
+`count: 1`, accept `reactorcide_group:linkkeys-trust-maintainers` only.
+
+The source is `.reactorcide/trust-review-paths.txt` in this repository: the
+guarded directories, the git and build control files,
+`docs/trust-change-control.md`, and each file that has the marker. The review
+ID, description, and accept subject are in `trust_guard.py`. Both files are
+under `.reactorcide/`, so a change to them needs the review.
+
+After a change to the list is merged, apply it:
+
+```sh
+python3 -I .reactorcide/plugins/trust_guard.py --review-yaml > linkkeys-trust.yaml
+reactorcide trust set --org default-user --project linkkeys --file linkkeys-trust.yaml
+```
+
+The guard logs a reminder on a PR that changes the list. Until you apply it,
+the coordinator uses the old list.
+
+Path patterns are case-sensitive. `**` matches across `/`; `*` does not. A
+rename counts the old and the new path.
+
+`trust set` replaces all stored trust settings of the project. A project owner
+can make the settings more strict. Only an org admin can make them less
+strict, for example remove this review.
 
 ### Requests
 
-Filed in `../reactorcide/linkkeys_trust_requests.md`, with Reactorcide's
-response (order of work: B1, R3, R2, R1, R4):
+Filed in `../reactorcide/linkkeys_trust_requests.md`. Status from
+Reactorcide (2026-11-15, deployed by 2026-11-19):
 
-- **B1** (found by Reactorcide) — comment approvals with a `vcs_user:` subject
-  are rejected, so no comment approval is stored. Blocks the comment path.
-- **B2** (found by Reactorcide) — the required status name changes at deploy;
-  see GitHub above.
-- **R1** — reserved event facts, enforced in the coordinator. Defense in depth
-  for this guard.
-- **R2** — content approvals (`approve-content`,
-  `REACTORCIDE_CONTENT_APPROVALS`). The guard already reads them.
-- **R3** — an approval that matches the current head starts a new evaluation.
-- **R4** — groups exist through the UI; a CLI is still open.
+- **B1** — done: `vcs_user:` is a valid subject.
+- **B2** — done: the coordinator posts `Reactorcide Checks`; the ruleset
+  requires it.
+- **R1** — done: reserved event facts in runnerlib and the coordinator.
+- **R2** — replaced by native required reviews (§4). The old comment forms and
+  `REACTORCIDE_CONTENT_APPROVALS` never shipped.
+- **R3** — replaced: `accept` and `revoke` update `Reactorcide Reviews` at
+  once.
+- **R4** — done: `reactorcide groups` and `reactorcide identities`.
 
 Filed in `../vscstar/linkkeys_trust_requests.md`:
 
