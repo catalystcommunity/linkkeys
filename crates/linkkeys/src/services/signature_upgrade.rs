@@ -1,3 +1,4 @@
+// LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 //! Upgrade stored signatures to the current payload format.
 //!
 //! Release 0.14.1 (ded0471) moved every domain-separation tag to the

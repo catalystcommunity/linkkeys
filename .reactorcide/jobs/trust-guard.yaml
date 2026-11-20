@@ -1,0 +1,21 @@
+name: linkkeys-trust-guard
+description: "Fail a trust-critical PR that has no coordinator approval pinned to its head"
+# Triggering lives in .reactorcide/workflows/pr.yaml.
+#
+# The body is .reactorcide/plugins/trust_guard.py, loaded from the trusted CI
+# checkout. What is trust-critical, who may approve, and the approval scope are
+# defined there. See docs/trust-change-control.md.
+#
+# This node must run from base CI even when a PR's own CI is admitted: the
+# coordinator policy grants it `base_nodes` authority, and the forge requires
+# its status before merge.
+job:
+  image: containers.catalystsquad.com/public/reactorcide/runnerbase:latest
+  command: "runnerlib run --job-command true"
+  timeout: 600
+  priority: 10
+  working_dir: /job
+  run_as:
+    user: runner
+environment:
+  REACTORCIDE_CI_JOB: trust-guard

@@ -1,3 +1,4 @@
+// LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 //! Attested (lane-C) claims: claims signed by a THIRD-PARTY issuer about one of
 //! our accounts. Per docs/claim-trust-verification.md the issuer's signature is
 //! kept and exposed — we never strip it and re-attest in our own name — so any

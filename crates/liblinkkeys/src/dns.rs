@@ -1,3 +1,4 @@
+// LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 use crate::crypto::fingerprint;
 use crate::generated::types::DomainPublicKey;
 use std::fmt;

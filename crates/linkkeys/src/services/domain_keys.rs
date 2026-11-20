@@ -1,3 +1,4 @@
+// LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 //! Domain-key maintenance: re-vouching encryption keys after a vouch-tag
 //! epoch change.
 //!

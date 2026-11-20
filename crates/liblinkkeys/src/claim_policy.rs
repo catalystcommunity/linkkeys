@@ -1,3 +1,4 @@
+// LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 //! Pure claim-signing policy logic: value validation, the setting/signing lanes,
 //! and the rejection taxonomy. This is the heart of "validate anything I can
 //! sign" — the IDP only self-signs values it can validate, and the rules for who

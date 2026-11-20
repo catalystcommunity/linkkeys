@@ -12,6 +12,13 @@ on:
 jobs:
   linkkeys-conventional-commits:
     job_file: .reactorcide/jobs/conventional-commits.yaml
+  # Trust-change guard: a PR that can change what LinkKeys trusts (anchors,
+  # their loaders and verifiers, this CI directory, git control files) needs
+  # a coordinator approval pinned to its head. No path filter: a path filter
+  # is exactly what a sneaky PR would route around. See
+  # docs/trust-change-control.md.
+  linkkeys-trust-guard:
+    job_file: .reactorcide/jobs/trust-guard.yaml
   linkkeys-build:
     job_file: .reactorcide/jobs/build.yaml
     depends_on:

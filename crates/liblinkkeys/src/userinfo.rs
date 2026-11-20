@@ -1,3 +1,4 @@
+// LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 //! Signed claims-fetch (proof-of-possession) for the /userinfo exchange.
 //!
 //! A leaked assertion token is a bearer credential: anyone holding it could

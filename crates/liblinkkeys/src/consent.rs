@@ -1,3 +1,4 @@
+// LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 //! Consent (claim-release) grants.
 //!
 //! A consent grant is a user's standing authorization for one relying party

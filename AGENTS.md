@@ -9,6 +9,12 @@ These are permanent workflow guidelines for working in this codebase. They apply
 - **CSIL is the source of truth** for types and service interfaces. Generated code goes into `crates/liblinkkeys/src/generated/`. Hand-written code must not duplicate what CSIL defines.
 - **SQLite compatibility** must be maintained alongside PostgreSQL. Use diesel's multi-backend support or feature-flag-switched builds. Never use Postgres-only SQL in migrations without a SQLite equivalent path. Migrations live in per-backend directories (`migrations/postgres/`, `migrations/sqlite/`).
 
+## Trust-Critical Code
+
+- Code that loads trust anchors or decides trust lives in small, dedicated files that carry the trust-critical marker comment (exact text in `docs/trust-change-control.md` §3.1). Any PR that touches them, or `.reactorcide/`, or `crates/linkkeys/assets/tpm-trust/`, needs a coordinator approval pinned to its head. See `docs/trust-change-control.md`.
+- Make bypasses need a marked file: verifiers return capability types with private constructors; records take those types, never a bare `bool`.
+- Never add a local or env bypass to `.reactorcide/plugins/trust_guard.py`.
+
 ## Code Generation
 
 - Run `csilgen generate --input csil/linkkeys.csil --target rust --output crates/liblinkkeys/src/generated/` to regenerate types and service traits from CSIL.

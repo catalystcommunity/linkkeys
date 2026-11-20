@@ -1,3 +1,4 @@
+// LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 //! User-initiated signing requests: a home-domain-attested envelope asking a
 //! third-party issuer to sign claim(s) about the user (see the CSIL
 //! `SigningRequest`). Pure: signing/verification only, no I/O. The producing

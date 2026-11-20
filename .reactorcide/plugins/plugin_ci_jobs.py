@@ -168,8 +168,8 @@ def _git_diff_is_clean(paths: List[str], *, cwd: Path, what: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def conventional_commits(code_dir: Path) -> None:
-    """Validate every commit message on the pull request."""
+def _pr_diff_base(code_dir: Path) -> str:
+    """Return the ref that `<base>..HEAD` should use for this pull request."""
     base_url = os.environ.get("REACTORCIDE_BASE_URL", "")
     head_url = os.environ.get(
         "REACTORCIDE_HEAD_URL", os.environ.get("REACTORCIDE_SOURCE_URL", "")
@@ -192,7 +192,12 @@ def conventional_commits(code_dir: Path) -> None:
         _run(["git", "fetch", "upstream", base_ref], cwd=code_dir)
         remote = "upstream"
 
-    diff_base = os.environ.get("REACTORCIDE_DIFF_BASE") or f"{remote}/{base_ref}"
+    return os.environ.get("REACTORCIDE_DIFF_BASE") or f"{remote}/{base_ref}"
+
+
+def conventional_commits(code_dir: Path) -> None:
+    """Validate every commit message on the pull request."""
+    diff_base = _pr_diff_base(code_dir)
 
     log_stdout("=== Validating Conventional Commits ===")
     result = _run(
@@ -221,6 +226,25 @@ def conventional_commits(code_dir: Path) -> None:
         )
 
     log_stdout("All commits follow conventional commit format.")
+
+
+def trust_guard(code_dir: Path) -> None:
+    """Fail a trust-critical PR that has no coordinator approval.
+
+    The logic is in trust_guard.py next to this file. It is loaded by path
+    from this (trusted) checkout, never from the pull request source.
+    """
+    import importlib.util
+
+    module_path = Path(__file__).resolve().with_name("trust_guard.py")
+    spec = importlib.util.spec_from_file_location("linkkeys_trust_guard", module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    log_stdout("=== Trust-change guard ===")
+    module.run(code_dir, _pr_diff_base(code_dir), dict(os.environ), log_stdout)
 
 
 def web_ui(code_dir: Path) -> None:
@@ -382,6 +406,7 @@ def test_regular_rp_go(code_dir: Path) -> None:
 
 CI_JOBS: Dict[str, Callable[[Path], None]] = {
     "conventional-commits": conventional_commits,
+    "trust-guard": trust_guard,
     "web-ui": web_ui,
     "build": build,
     "test-sqlite": test_sqlite,

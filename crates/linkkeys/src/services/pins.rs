@@ -1,3 +1,4 @@
+// LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 //! TOFU pin policy (SEC-01/02): compare a peer domain's freshly-resolved DNS
 //! fingerprint set against the pinned set and apply the rotation / mismatch
 //! rules. Because the trust anchor is unauthenticated DNS (no DNSSEC by design),
