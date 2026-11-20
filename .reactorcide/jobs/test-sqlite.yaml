@@ -15,8 +15,8 @@ job:
     user: runner
   resources:
     cpu:
-      request: "4"
-      limit: "8"
+      request: "8"
+      limit: "12"
     memory:
       limit: "12Gi"
 environment:

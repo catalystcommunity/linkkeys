@@ -229,10 +229,11 @@ def conventional_commits(code_dir: Path) -> None:
 
 
 def trust_guard(code_dir: Path) -> None:
-    """Fail a trust-critical PR that has no coordinator approval.
+    """Fail a trust-critical PR that the required review would not cover.
 
     The logic is in trust_guard.py next to this file. It is loaded by path
-    from this (trusted) checkout, never from the pull request source.
+    from this (trusted) checkout, never from the pull request source, and it
+    reads the review list from this checkout too.
     """
     import importlib.util
 

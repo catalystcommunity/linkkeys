@@ -1,13 +1,21 @@
 """Trust-change guard for LinkKeys pull requests.
 
 A pull request is TRUST-CRITICAL when it can change what LinkKeys trusts, or
-the code that decides it. A trust-critical pull request passes only with an
-approval that the CI event system (the Reactorcide coordinator) recorded:
+the code that decides it. The guard finds such pull requests. It does not
+authorize them: the Reactorcide required review `REVIEW_ID` does that. A
+maintainer accepts on the pull request, the coordinator posts the status
+`Reactorcide Reviews`, and the GitHub ruleset requires that status.
 
-- scope `APPROVAL_SCOPE`, exactly (never `*`);
-- approver subject in `TRUST_APPROVERS` (identities the VCS provider
-  authenticated, mapped by the coordinator; never a git author email);
-- pinned to this exact head SHA and base SHA, not invalidated, not expired.
+The coordinator applies the review to the WHOLE pull request when any changed
+path matches one of its path patterns. The patterns are a copy of
+`REVIEW_PATHS_FILE`. The guard fails when:
+
+- the pull request is trust-critical, but no changed path matches the review
+  patterns, so the review would not apply (for example a PEM block added to an
+  unmarked file, or an anchor changed and changed back inside the history);
+- a file carries `MARKER` but no pattern in the pull request's copy of
+  `REVIEW_PATHS_FILE` matches it (the list must follow the markers);
+- the pull request's copy of `REVIEW_PATHS_FILE` drops a required pattern.
 
 Git author and committer fields are text that anyone can write, so this guard
 never reads them.
@@ -23,24 +31,26 @@ What makes a pull request trust-critical (any one is enough):
    marker string, an `unsafe` opt-out).
 4. A git-level change that can redirect content: a symlink or submodule, a
    `.gitattributes`/`.gitmodules`/`build.rs` file, a non-ASCII path, or a
-   binary that looks like a certificate.
+   file that looks like a certificate.
 
 Every commit in base..HEAD is checked (merges by their combined diff, so an
 edit hidden in a merge counts), and so is the whole-PR diff.
 
 This file has no runnerlib imports. `plugin_ci_jobs.py` loads it by path,
 from the trusted CI checkout, so a pull request cannot replace it.
+
+Print the coordinator settings for `reactorcide trust set`:
+    python3 -I .reactorcide/plugins/trust_guard.py --review-yaml
 LINKKEYS-TRUST-CRITICAL
 """
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import subprocess
+import sys
 import unicodedata
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Set
 
@@ -55,23 +65,26 @@ GUARDED_PREFIXES = (
 
 MARKER = "LINKKEYS-TRUST-" + "CRITICAL"  # split so this line is not a match
 
-APPROVAL_SCOPE = "linkkeys-trust-anchors"
+# The coordinator required review that authorizes trust-critical changes.
+REVIEW_ID = "linkkeys-trust-anchors"
+REVIEW_DESCRIPTION = ("Trust anchors, their loaders and verifiers, git and build control "
+                      "files, and the CI directory")
+REVIEW_ACCEPT = ("reactorcide_group:linkkeys-trust-maintainers",)
+REVIEW_PATHS_FILE = ".reactorcide/trust-review-paths.txt"
+# A copy of the list that drops one of these is refused.
+REQUIRED_PATTERNS = (".reactorcide/**", "crates/linkkeys/assets/tpm-trust/**")
 
-# Coordinator subjects. `vcs_user:<provider>/<login>` is authenticated by the
-# VCS provider. `reactorcide_group:<name>` needs a verified identity link and
-# is provider-neutral, which is how a vcsstar identity will qualify.
-TRUST_APPROVERS = frozenset({
-    "vcs_user:github/todpunk",
-    "vcs_user:github/junipuff",
-    "reactorcide_group:linkkeys-trust-maintainers",
-})
+# Markdown cannot load the anchor directory, so a mention there is not a
+# signal. Code that loads it needs a path string in code, which still matches.
+ANCHOR_DIR_REFERENCE = "reference to the trust-anchor directory"
+PROSE_EXTENSIONS = {".md"}
 
 TRIPWIRES = (
     (re.compile(r"-----(BEGIN|END) [A-Z0-9 ]+-----"), "PEM block"),
     (re.compile(r"include_bytes!\s*\("), "embedded bytes (include_bytes!)"),
     (re.compile(r"include_str!\s*\([^)]*\.(pem|der|crt|cer|p7b|p7c|cab)\b", re.I),
      "embedded certificate file"),
-    (re.compile(r"tpm-trust", re.I), "reference to the trust-anchor directory"),
+    (re.compile(r"tpm-trust", re.I), ANCHOR_DIR_REFERENCE),
     (re.compile(re.escape(MARKER)), "trust-critical marker"),
     (re.compile(r"\b(forbid|deny)\s*\(\s*unsafe_code\s*\)"), "unsafe-code policy"),
     (re.compile(r"#!\[allow\(\s*unsafe_code"), "unsafe-code opt-out"),
@@ -80,6 +93,8 @@ TRIPWIRES = (
 HYGIENE_BASENAMES = {".gitattributes", ".gitmodules", "build.rs"}
 CERT_EXTENSIONS = {".pem", ".der", ".crt", ".cer", ".p7b", ".p7c", ".p12", ".pfx", ".cab"}
 LINK_MODES = {"120000", "160000"}
+# An X.509 certificate in DER is an ASN.1 SEQUENCE with a long-form length.
+DER_SEQUENCE_STARTS = {b"\x30\x82", b"\x30\x83"}
 
 
 # --- Git access ------------------------------------------------------------
@@ -156,8 +171,10 @@ def _check_content(git: Git, revs: Iterable[str], path: str, findings: Findings)
         if marker in data:
             findings.add(path, "file carries the trust-critical marker")
         ext = os.path.splitext(path)[1].lower()
-        if b"\x00" in data[:8000] and (ext in CERT_EXTENSIONS or data[:2] == b"\x30\x82"):
-            findings.add(path, "binary certificate-like file")
+        if ext in CERT_EXTENSIONS:
+            findings.add(path, f"certificate file extension ({ext})")
+        if data[:2] in DER_SEQUENCE_STARTS:
+            findings.add(path, "DER-like content (ASN.1 SEQUENCE)")
 
 
 def _scan_patch(patch: str, label: str, findings: Findings) -> None:
@@ -171,14 +188,16 @@ def _scan_patch(patch: str, label: str, findings: Findings) -> None:
         if line.startswith("diff --"):
             continue
         if line.startswith("Binary files "):
-            findings.add(current, "binary change")  # refined by _check_content
-            continue
+            continue  # _check_content looks at the bytes
         # Unified (+/-) and combined (++, +-, -+, --, " +", ...) diff lines.
         prefix = re.match(r"^([ +\-]{1,2})", line)
         if not prefix or "+" not in prefix.group(1) and "-" not in prefix.group(1):
             continue
         body = line[len(prefix.group(1)):]
+        prose = os.path.splitext(current)[1].lower() in PROSE_EXTENSIONS
         for pattern, why in TRIPWIRES:
+            if prose and why == ANCHOR_DIR_REFERENCE:
+                continue
             if pattern.search(body):
                 findings.add(current, f"tripwire: {why} ({label})")
 
@@ -243,66 +262,100 @@ def analyze(git: Git, base: str, head: str) -> Findings:
     return findings
 
 
-def _parse_time(value: object) -> Optional[datetime]:
-    """Parse an RFC 3339 time. None stays None; anything malformed raises ValueError."""
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise ValueError(f"not a time string: {value!r}")
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if parsed.tzinfo is None:
-        raise ValueError(f"time has no zone: {value!r}")
-    return parsed
+# --- Required review --------------------------------------------------------
 
 
-# Approval kinds the guard accepts. Absent or "head_ci" is the scoped form
-# (`/reactorcide approve linkkeys-trust-anchors ...`, or `approvals create
-# --workflow linkkeys-trust-anchors`); "content" is Reactorcide R2
-# (`/reactorcide approve-content linkkeys-trust-anchors`). Any other kind is
-# refused, so a new kind cannot match until someone reviews it here.
-APPROVAL_KINDS = {None, "", "head_ci", "content"}
-APPROVAL_ENV = ("REACTORCIDE_CI_APPROVALS", "REACTORCIDE_CONTENT_APPROVALS")
+def glob_match(pattern: str, value: str) -> bool:
+    """The coordinator's path match: case-sensitive, `**` crosses `/`, `*` does not."""
+    expression = ["^"]
+    i = 0
+    while i < len(pattern):
+        c = pattern[i]
+        if c == "*":
+            if i + 1 < len(pattern) and pattern[i + 1] == "*":
+                expression.append(".*")
+                i += 1
+            else:
+                expression.append("[^/]*")
+        elif c == "?":
+            expression.append("[^/]")
+        else:
+            expression.append(re.escape(c))
+        i += 1
+    expression.append(r"\Z")  # Go's `$`: the end of the text, never before a final newline
+    return re.match("".join(expression), value, re.S) is not None
 
 
-def _load_approvals(env: Dict[str, str]) -> List[dict]:
-    """Approval records from the coordinator facts. Malformed input counts as none."""
-    records: List[dict] = []
-    for name in APPROVAL_ENV:
-        try:
-            value = json.loads(env.get(name) or "[]")
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, list):
-            records.extend(a for a in value if isinstance(a, dict))
-    return records
+def parse_review_paths(text: str) -> List[str]:
+    """One pattern per line; `#` starts a comment line; blank lines are skipped."""
+    patterns = []
+    for line in text.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            patterns.append(line)
+    return patterns
 
 
-def find_approval(env: Dict[str, str], head_sha: str, base_sha: str,
-                  now: Optional[datetime] = None) -> Optional[dict]:
-    """Return a coordinator approval that authorizes this exact head, or None."""
-    now = now or datetime.now(timezone.utc)
-    for a in _load_approvals(env):
-        # R2 may name the label `label`; the scoped form uses `workflow_scope`.
-        scope = a.get("label") if a.get("kind") == "content" and "label" in a else a.get("workflow_scope")
-        try:
-            expires = _parse_time(a.get("expires_at"))
-        except ValueError:
-            continue  # a malformed record never authorizes
-        if (
-            a.get("kind") in APPROVAL_KINDS
-            and scope == APPROVAL_SCOPE
-            and str(a.get("approver_subject", "")).strip().lower() in TRUST_APPROVERS
-            and a.get("head_sha") == head_sha
-            and a.get("base_sha") == base_sha
-            and not a.get("invalidated_at")
-            and (expires is None or expires > now)
-        ):
-            return a
-    return None
+def review_yaml(patterns: List[str]) -> str:
+    """Settings for `reactorcide trust set`. Every value is quoted."""
+    q = lambda v: "'" + v.replace("'", "''") + "'"
+    lines = [
+        f"# Generated from {REVIEW_PATHS_FILE} by trust_guard.py --review-yaml.",
+        "required_reviews:",
+        f"- id: {q(REVIEW_ID)}",
+        f"  description: {q(REVIEW_DESCRIPTION)}",
+        "  paths:",
+        *[f"  - {q(p)}" for p in patterns],
+        "  accept:",
+        *[f"  - {q(a)}" for a in REVIEW_ACCEPT],
+        "  count: 1",
+    ]
+    return "\n".join(lines) + "\n"
 
 
-def run(code_dir: Path, base_ref: str, env: Dict[str, str], log: Callable[[str], None]) -> None:
-    """The CI job. Raises RuntimeError to fail the pull request."""
+def _matches_any(path: str, patterns: Iterable[str]) -> bool:
+    return any(glob_match(p, path) for p in patterns)
+
+
+def list_problems(git: Git, head: str) -> List[str]:
+    """Problems with the pull request's copy of the review path list."""
+    data = git.blob(head, REVIEW_PATHS_FILE)
+    if data is None:
+        return [f"{REVIEW_PATHS_FILE} is missing"]
+    try:
+        patterns = parse_review_paths(data.decode("utf-8"))
+    except UnicodeDecodeError:
+        return [f"{REVIEW_PATHS_FILE} is not UTF-8"]
+    problems = [f"{REVIEW_PATHS_FILE} must keep the pattern {p}"
+                for p in REQUIRED_PATTERNS if p not in patterns]
+    marked = git("grep", "-l", "-z", "-F", "-I", MARKER, head, "--", check=False)
+    prefix = head + ":"
+    for entry in (e for e in marked.split("\x00") if e):
+        path = entry[len(prefix):] if entry.startswith(prefix) else entry
+        if not _matches_any(path, patterns):
+            problems.append(f"{path} carries the marker, but no pattern in "
+                            f"{REVIEW_PATHS_FILE} matches it")
+    return problems
+
+
+def changed_paths(git: Git, merge_base: str, head: str) -> List[str]:
+    """The paths the coordinator sees: the whole-PR diff, both sides of a rename."""
+    names = git("diff", "--name-only", "--no-renames", "-z", merge_base, head)
+    return [p for p in names.split("\x00") if p]
+
+
+def _default_review_paths_file() -> Path:
+    # .reactorcide/plugins/trust_guard.py -> .reactorcide/trust-review-paths.txt
+    return Path(__file__).resolve().parent.parent / Path(REVIEW_PATHS_FILE).name
+
+
+def run(code_dir: Path, base_ref: str, env: Dict[str, str], log: Callable[[str], None],
+        review_paths_file: Optional[Path] = None) -> None:
+    """The CI job. Raises RuntimeError to fail the pull request.
+
+    `review_paths_file` is the trusted copy of the review list: the one in the
+    CI checkout of the base, which is what the coordinator has applied.
+    """
     git = Git(code_dir)
 
     if git("rev-parse", "--is-shallow-repository").strip() == "true":
@@ -316,30 +369,67 @@ def run(code_dir: Path, base_ref: str, env: Dict[str, str], log: Callable[[str],
         raise RuntimeError(f"checkout HEAD {head_sha} is not the event head {expected_head}")
     base_sha = git("rev-parse", f"{base_ref}^{{commit}}").strip()
 
+    trusted_file = review_paths_file or _default_review_paths_file()
+    try:
+        trusted = parse_review_paths(trusted_file.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError) as e:
+        raise RuntimeError(f"cannot read the trusted review list {trusted_file}: {e}") from e
+    if not trusted:
+        raise RuntimeError(f"the trusted review list {trusted_file} has no patterns")
+
     findings = analyze(git, base_sha, head_sha)
+    problems = list_problems(git, head_sha)
+
+    merge_base = git("merge-base", base_sha, head_sha).strip()
+    triggers = [p for p in changed_paths(git, merge_base, head_sha) if _matches_any(p, trusted)]
+
+    if findings:
+        log("Trust-critical changes:\n" + findings.render())
+    if problems:
+        raise RuntimeError(
+            f"The review list {REVIEW_PATHS_FILE} does not match the repository:\n"
+            + "\n".join(f"  {p}" for p in problems) + "\n\n"
+            f"Add a pattern for each marked file. After the merge, apply the list with "
+            f"`python3 -I .reactorcide/plugins/trust_guard.py --review-yaml` and "
+            f"`reactorcide trust set` (docs/trust-change-control.md section 6).\n"
+        )
     if not findings:
         log("Not trust-critical: no guarded path, marked file, tripwire, or git control change.")
         return
-
-    log("Trust-critical changes:\n" + findings.render())
-    approval = find_approval(env, head_sha, env.get("REACTORCIDE_DIFF_BASE", base_sha).strip())
-    if approval:
-        log(f"Approved by {approval['approver_subject']} at head {head_sha[:12]} "
-            f"(approval {approval.get('approval_id', '?')}).")
+    if triggers:
+        log(f"The required review {REVIEW_ID} applies to this pull request "
+            f"(changed: {', '.join(sorted(triggers)[:5])}"
+            f"{', ...' if len(triggers) > 5 else ''}). "
+            "The merge needs a maintainer accept on status Reactorcide Reviews:\n"
+            f"  /reactorcide accept {REVIEW_ID}")
+        if REVIEW_PATHS_FILE in triggers:
+            log(f"This pull request changes {REVIEW_PATHS_FILE}. After the merge, apply it "
+                "with `reactorcide trust set` (docs/trust-change-control.md section 6).")
         return
 
     raise RuntimeError(
-        "This pull request is trust-critical and has no matching approval.\n"
+        "This pull request is trust-critical, but the required review "
+        f"{REVIEW_ID} does not apply to it: no changed path matches {REVIEW_PATHS_FILE}.\n"
         + findings.render() + "\n\n"
-        f"Approvers: {', '.join(sorted(TRUST_APPROVERS))}.\n"
-        f"The approval must bind head {head_sha} and base {base_sha}; any new push "
-        "invalidates it. Git author names and emails are not accepted as proof.\n\n"
-        "Ways to approve (see docs/trust-change-control.md section 4):\n"
-        "  - Now: a group member creates a group approval (UI, or\n"
-        f"    reactorcide approvals create --workflow {APPROVAL_SCOPE} "
-        "--subject reactorcide_group:linkkeys-trust-maintainers ...).\n"
-        f"  - After Reactorcide B1: comment /reactorcide approve {APPROVAL_SCOPE} "
-        "<profile> <policy-revision>.\n"
-        f"  - After Reactorcide R2: comment /reactorcide approve-content {APPROVAL_SCOPE}.\n"
-        "Then close and reopen the PR so the approval is read (until Reactorcide R3).\n"
+        "Do one of these:\n"
+        "  - Remove the trust signal from the change.\n"
+        "  - Move the code into a file that carries the trust-critical marker, and add\n"
+        f"    that file to {REVIEW_PATHS_FILE}.\n"
+        "  - If the signal is only in the commit history (changed, then changed back),\n"
+        "    squash the commits.\n"
+        "Git author names and emails are not accepted as proof. "
+        "See docs/trust-change-control.md.\n"
     )
+
+
+def main(argv: List[str]) -> int:
+    if argv[1:] == ["--review-yaml"]:
+        sys.stdout.write(review_yaml(parse_review_paths(
+            _default_review_paths_file().read_text(encoding="utf-8"))))
+        return 0
+    sys.stderr.write("usage: trust_guard.py --review-yaml\n")
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
