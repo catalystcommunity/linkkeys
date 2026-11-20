@@ -41,7 +41,6 @@
 //! never a correctness problem, because the CACHED `keys` list was already
 //! filtered of anything provably revoked at the time it was fetched.
 
-use chrono::{DateTime, Duration, Utc};
 use liblinkkeys::application_keys::{self as ak, ApplicationKeyRef, InstanceRef};
 use liblinkkeys::generated::services::ServiceError;
 use liblinkkeys::generated::types::{
@@ -51,8 +50,10 @@ use liblinkkeys::generated::types::{
     RpResolveApplicationKeysResponse, RpResolveDomainKeysRequest, RpResolveDomainKeysResponse,
     SignedApplicationKeyAttestation,
 };
+use liblinkkeys::timestamp::Rfc3339 as _;
 use std::collections::HashMap;
 use std::sync::{Arc, Condvar, LazyLock, Mutex};
+use time::{Duration, OffsetDateTime};
 
 use crate::config::{nonneg_i64_env, nonzero_u64_env};
 use crate::conversions::get_domain_name;
@@ -121,18 +122,16 @@ fn internal(context: &str, cause: impl std::fmt::Display) -> ServiceError {
     }
 }
 
-fn parse_rfc3339(s: &str) -> Option<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(s)
-        .ok()
-        .map(|d| d.with_timezone(&Utc))
+fn parse_rfc3339(s: &str) -> Option<OffsetDateTime> {
+    liblinkkeys::timestamp::parse_rfc3339(s).ok()
 }
 
 /// Seconds since `then`. An unparseable timestamp (only reachable via DB
 /// corruption) is treated as maximally stale — fail toward a refetch, never
 /// toward silently trusting garbage as fresh.
-fn age_seconds(now: DateTime<Utc>, then: &str) -> i64 {
+fn age_seconds(now: OffsetDateTime, then: &str) -> i64 {
     match parse_rfc3339(then) {
-        Some(t) => (now - t).num_seconds().max(0),
+        Some(t) => (now - t).whole_seconds().max(0),
         None => i64::MAX,
     }
 }
@@ -303,7 +302,7 @@ pub fn resolve_domain_keys(
         rt,
         domain,
         request.max_cache_age_seconds,
-        Utc::now(),
+        OffsetDateTime::now_utc(),
     )
 }
 
@@ -316,7 +315,7 @@ fn resolve_domain_keys_at(
     rt: &tokio::runtime::Handle,
     domain: &str,
     requested_max_age: Option<i64>,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> Result<RpResolveDomainKeysResponse, ServiceError> {
     let effective_max_age = clamp_max_age(max_age_seconds(), requested_max_age);
     let rev_interval = revocation_check_interval_seconds();
@@ -389,7 +388,7 @@ fn domain_part_or_empty(
     net: &Net,
     rt: &tokio::runtime::Handle,
     domain: &str,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> RpResolveDomainKeysResponse {
     resolve_domain_keys_at(pool, net, rt, domain, None, now).unwrap_or_else(|e| {
         log::warn!(
@@ -456,7 +455,7 @@ async fn do_domain_refresh(
     pool: &DbPool,
     net: &Net,
     domain: &str,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> Result<(Vec<DomainPublicKey>, Vec<RevocationCertificate>), String> {
     let (keys, revocations) = fetch_domain_keys_and_revocations(pool, net, domain).await?;
     persist_domain_keys(pool, domain, &keys);
@@ -533,8 +532,9 @@ async fn fetch_remote_revocations_inner(
     trusted_keys: &[DomainPublicKey],
 ) -> Result<Vec<RevocationCertificate>, String> {
     let (addr, hostname, fingerprints) = discover(net, domain).await?;
-    let since = (Utc::now() - Duration::days(crate::services::revocations::fetch_default_days()))
-        .to_rfc3339();
+    let since = (OffsetDateTime::now_utc()
+        - Duration::days(crate::services::revocations::fetch_default_days()))
+    .to_rfc3339();
     let payload = liblinkkeys::generated::encode_get_revocations_request(&GetRevocationsRequest {
         since: Some(since),
     });
@@ -643,7 +643,7 @@ pub fn resolve_application_keys(
             "subject_user_id, subject_domain, application_id, and instance_id are all required",
         ));
     }
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let effective_max_age = clamp_max_age(max_age_seconds(), request.max_cache_age_seconds);
     let rev_interval = revocation_check_interval_seconds();
     let ahead = refresh_ahead_seconds();
@@ -797,7 +797,7 @@ async fn fetch_and_verify_application_keys(
     subject_domain: &str,
     application_id: &str,
     instance_id: &str,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> Result<FetchedApplicationKeys, String> {
     let (domain_keys, domain_revocations) =
         do_domain_refresh(pool, net, subject_domain, now).await?;
@@ -997,7 +997,7 @@ fn persist_application_keys(
     application_id: &str,
     instance_id: &str,
     fetched: &FetchedApplicationKeys,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) {
     let entry: RpApplicationKeyCacheEntry = match pool.upsert_rp_application_key_cache_entry(
         subject_user_id,

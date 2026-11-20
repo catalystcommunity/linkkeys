@@ -7,6 +7,7 @@ use liblinkkeys::generated::types::{
     Claim, ConfirmContactVerificationResponse, ListVerifiedContactMethodsResponse,
     RequestContactVerificationResponse, RevokeVerifiedContactMethodResponse, VerifiedContactMethod,
 };
+use liblinkkeys::timestamp::Rfc3339 as _;
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 
@@ -85,7 +86,7 @@ pub fn request_contact_verification(
     }
     let token = new_token();
     let digest = token_digest(&token);
-    let expires = chrono::Utc::now() + chrono::Duration::hours(VERIFICATION_TTL_HOURS);
+    let expires = time::OffsetDateTime::now_utc() + time::Duration::hours(VERIFICATION_TTL_HOURS);
     let link = format!("{}/app/verify/contact#token={token}", public_origin());
     notification::DatabaseNotificationDispatcher::new(pool.clone())
         .dispatch(notification::NotificationIntent {

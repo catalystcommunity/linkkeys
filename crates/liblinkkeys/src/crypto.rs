@@ -253,9 +253,9 @@ pub fn signing_key_validity(expires_at: &str, revoked_at: Option<&str>) -> KeyVa
     if revoked_at.is_some() {
         return KeyValidity::Revoked;
     }
-    match chrono::DateTime::parse_from_rfc3339(expires_at) {
+    match crate::timestamp::parse_rfc3339(expires_at) {
         Ok(exp) => {
-            if chrono::Utc::now() > exp {
+            if time::OffsetDateTime::now_utc() > exp {
                 KeyValidity::Expired
             } else {
                 KeyValidity::Valid

@@ -16,7 +16,6 @@
 //! `url_params.json`, `dns.json`, `tickets.json`, `expirations.json` — every
 //! file in the conformance directory, positive and negative cases.
 
-use chrono::{DateTime, Utc};
 use liblinkkeys::crypto::{self, AeadSuite, SigningAlgorithm};
 use liblinkkeys::dns::{self as lk_dns, DnsParseError};
 use liblinkkeys::encoding;
@@ -24,6 +23,7 @@ use liblinkkeys::generated::{self, types::LocalRpEncryptedCallback};
 use linkkeys_local_rp::{fingerprint_from_string, fingerprint_to_string};
 use serde_json::Value;
 use std::path::PathBuf;
+use time::OffsetDateTime;
 
 fn conformance_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../conformance")
@@ -396,8 +396,8 @@ fn tickets_hash_pairs_match_fingerprint_routine() {
 // expirations.json
 // ---------------------------------------------------------------------
 
-fn parse_rfc3339(s: &str) -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
+fn parse_rfc3339(s: &str) -> OffsetDateTime {
+    liblinkkeys::timestamp::parse_rfc3339(s).unwrap()
 }
 
 #[test]
@@ -411,7 +411,7 @@ fn expirations_check_expirations_thresholds_via_sdk_wrapper() {
     // this exercises `linkkeys_local_rp::check_expirations` end to end
     // (identity -> descriptor -> liblinkkeys threshold logic) rather than
     // calling the underlying liblinkkeys function directly.
-    let created_at = parse_rfc3339(expires_at) - chrono::Duration::days(3650);
+    let created_at = parse_rfc3339(expires_at) - time::Duration::days(3650);
     let identity = linkkeys_local_rp::generate_local_rp_identity(
         linkkeys_local_rp::GenerateLocalRpIdentityConfig {
             app_name: "Conformance Test App".to_string(),

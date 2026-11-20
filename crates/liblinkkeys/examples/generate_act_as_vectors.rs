@@ -18,7 +18,6 @@
 //! cargo run -p liblinkkeys --example generate_act_as_vectors -- /tmp/out
 //! ```
 
-use chrono::{DateTime, Duration, Utc};
 use ed25519_dalek::SigningKey;
 use liblinkkeys::act_as::{self, GranteeSigner, NewGrant};
 use liblinkkeys::application_keys::{ApplicationKeyRef, ApplicationSigner};
@@ -34,6 +33,7 @@ use liblinkkeys::generated::{
 use liblinkkeys::local_rp::envelope_signature_input;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
+use time::{Duration, OffsetDateTime};
 
 // Fixed test-only key material. NEVER use these seeds for anything real.
 const HOME_DOMAIN: &str = "home.conformance.example";
@@ -63,11 +63,11 @@ const SKEW_SECONDS: i64 = 60;
 const MAX_PRESENTATION_AGE_SECONDS: i64 = 300;
 const REQUEST_DIGEST: &[u8] = b"conformance-request-digest";
 
-fn t(s: &str) -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
+fn t(s: &str) -> OffsetDateTime {
+    liblinkkeys::timestamp::parse_rfc3339(s).unwrap()
 }
 
-fn base() -> DateTime<Utc> {
+fn base() -> OffsetDateTime {
     t("2026-10-06T12:00:00Z")
 }
 

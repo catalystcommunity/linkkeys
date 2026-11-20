@@ -10,6 +10,7 @@
 //! signed claim. Resolving a brand-new issuer's keys over the network (and
 //! caching them) is the deposit layer that sits on top of these.
 
+use liblinkkeys::timestamp::Rfc3339 as _;
 use std::collections::BTreeSet;
 
 use liblinkkeys::claims::{ClaimSigner, DomainKeySet};
@@ -247,9 +248,9 @@ pub fn mint_signing_request(
 
     let request_id = uuid::Uuid::now_v7().to_string();
     let nonce = uuid::Uuid::now_v7().to_string();
-    let issued_at = chrono::Utc::now().to_rfc3339();
-    let expires_at = (chrono::Utc::now()
-        + chrono::Duration::seconds(signing_request_ttl_seconds()))
+    let issued_at = time::OffsetDateTime::now_utc().to_rfc3339();
+    let expires_at = (time::OffsetDateTime::now_utc()
+        + time::Duration::seconds(signing_request_ttl_seconds()))
     .to_rfc3339();
     // Where the issuer deposits the resulting claim: this domain's CBOR-RPC
     // carrier. The issuer normally resolves this from DNS, but we include it for
@@ -316,12 +317,15 @@ pub fn issue_attested_claim(
     // Postgres (timestamptz, microsecond) and SQLite (RFC3339 text) storage, or
     // a claim re-verified after a DB round-trip would no longer match its own
     // signature (SEC-08's same concern, applied to expires_at here too).
-    use chrono::Timelike;
-    let expires_at = (chrono::Utc::now() + chrono::Duration::seconds(attested_claim_ttl_seconds()))
-        .with_nanosecond(0)
+    let expires_at = (time::OffsetDateTime::now_utc()
+        + time::Duration::seconds(attested_claim_ttl_seconds()))
+    .replace_nanosecond(0)
+    .unwrap()
+    .to_rfc3339();
+    let attested_at = time::OffsetDateTime::now_utc()
+        .replace_nanosecond(0)
         .unwrap()
         .to_rfc3339();
-    let attested_at = chrono::Utc::now().with_nanosecond(0).unwrap().to_rfc3339();
     liblinkkeys::claims::sign_claim(
         &liblinkkeys::claims::ClaimSpec {
             claim_id: &claim_id,
@@ -398,14 +402,13 @@ pub fn verify_and_store_attested(
     let expires = claim
         .expires_at
         .as_deref()
-        .map(|s| chrono::DateTime::parse_from_rfc3339(s).map(|dt| dt.with_timezone(&chrono::Utc)))
+        .map(liblinkkeys::timestamp::parse_rfc3339)
         .transpose()
         .map_err(|_| svc_err(400, "invalid expires_at"))?;
 
     // Preserve the ISSUER'S signed attestation time — it's part of the signature
     // and must be stored verbatim so the claim keeps verifying.
-    let attested = chrono::DateTime::parse_from_rfc3339(&claim.attested_at)
-        .map(|dt| dt.with_timezone(&chrono::Utc))
+    let attested = liblinkkeys::timestamp::parse_rfc3339(&claim.attested_at)
         .map_err(|_| svc_err(400, "invalid attested_at"))?;
 
     pool.create_claim(

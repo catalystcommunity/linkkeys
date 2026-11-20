@@ -53,8 +53,8 @@ pub mod pg {
         requested_types_json: &str,
         signed_grant: &[u8],
         offered_claims: Option<&[u8]>,
-        issued_at: chrono::DateTime<chrono::Utc>,
-        expires_at: chrono::DateTime<chrono::Utc>,
+        issued_at: time::OffsetDateTime,
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<()> {
         conn.transaction(|conn| {
             let existing: Vec<uuid::Uuid> = for_key(user_id, audience, app)
@@ -90,7 +90,7 @@ pub mod pg {
         user_id: uuid::Uuid,
         audience: &str,
         app: GrantApp<'_>,
-        now: chrono::DateTime<chrono::Utc>,
+        now: time::OffsetDateTime,
     ) -> QueryResult<Option<ConsentGrantRow>> {
         let row = for_key(user_id, audience, app)
             .filter(consent_grants::revoked_at.is_null())
@@ -107,7 +107,7 @@ pub mod pg {
         conn: &mut diesel::PgConnection,
         user_id: uuid::Uuid,
         audience: &str,
-        now: chrono::DateTime<chrono::Utc>,
+        now: time::OffsetDateTime,
     ) -> QueryResult<bool> {
         diesel::select(diesel::dsl::exists(
             consent_grants::table
@@ -122,7 +122,7 @@ pub mod pg {
     /// Every current grant of every user: not revoked, not expired.
     pub fn list_active_all(
         conn: &mut diesel::PgConnection,
-        now: chrono::DateTime<chrono::Utc>,
+        now: time::OffsetDateTime,
     ) -> QueryResult<Vec<ConsentGrantRow>> {
         consent_grants::table
             .filter(consent_grants::revoked_at.is_null())

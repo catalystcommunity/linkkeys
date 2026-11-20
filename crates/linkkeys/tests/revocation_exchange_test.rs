@@ -11,6 +11,7 @@ use liblinkkeys::generated::types::DomainPublicKey;
 use liblinkkeys::revocation::{
     build_revocation_certificate, RevocationCertificate, RevocationSpec,
 };
+use liblinkkeys::timestamp::Rfc3339 as _;
 use linkkeys::db::models::{DomainKey, PeerKey};
 use linkkeys::services::revocations;
 
@@ -41,7 +42,7 @@ fn cert_for(
     let revoked_at = target
         .revoked_at
         .clone()
-        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+        .unwrap_or_else(|| time::OffsetDateTime::now_utc().to_rfc3339());
     build_revocation_certificate(
         &RevocationSpec {
             target_key_id: &target.id,
@@ -66,9 +67,7 @@ fn issue_signal_serve_and_apply_roundtrip() {
 
     let cert = cert_for(&pool, domain, &revoked);
     let cbor = liblinkkeys::generated::encode_revocation_certificate(&cert);
-    let when = chrono::DateTime::parse_from_rfc3339(&revoked_at)
-        .unwrap()
-        .with_timezone(&chrono::Utc);
+    let when = liblinkkeys::timestamp::parse_rfc3339(&revoked_at).unwrap();
     pool.insert_issued_revocation(&revoked.id, &revoked.fingerprint, when, &cbor)
         .unwrap();
 
@@ -86,7 +85,7 @@ fn issue_signal_serve_and_apply_roundtrip() {
         algorithm: "ed25519".to_string(),
         fingerprint: revoked.fingerprint.clone(),
         key_usage: "sign".to_string(),
-        expires_at: (chrono::Utc::now() + chrono::Duration::days(365)).to_rfc3339(),
+        expires_at: (time::OffsetDateTime::now_utc() + time::Duration::days(365)).to_rfc3339(),
         revoked_at: None,
     })
     .unwrap();

@@ -27,6 +27,7 @@ use liblinkkeys::local_rp::{
     build_local_rp_descriptor, build_local_rp_login_request, sign_local_rp_descriptor,
     sign_local_rp_login_request, DEFAULT_CLOCK_SKEW_SECONDS,
 };
+use liblinkkeys::timestamp::Rfc3339 as _;
 use rocket::http::{ContentType, Header, Status};
 use rocket::local::asynchronous::Client;
 use std::sync::atomic::AtomicBool;
@@ -66,15 +67,15 @@ fn build_fixture(
     let enc_sk: [u8; 32] = enc_sk_vec.as_slice().try_into().unwrap();
     let fingerprint = crypto::fingerprint(&pk_arr);
 
-    let now = chrono::Utc::now();
+    let now = time::OffsetDateTime::now_utc();
     let descriptor = build_local_rp_descriptor(
         "Test Jukebox",
         Some("jukebox.local"),
         &pk_arr,
         &enc_pk,
         supported_suites,
-        &(now - chrono::Duration::minutes(1)).to_rfc3339(),
-        &(now + chrono::Duration::days(3650)).to_rfc3339(),
+        &(now - time::Duration::minutes(1)).to_rfc3339(),
+        &(now + time::Duration::days(3650)).to_rfc3339(),
     );
     let signed_descriptor = sign_local_rp_descriptor(&descriptor, &signing_sk).unwrap();
 
@@ -91,7 +92,7 @@ fn build_fixture(
         requested_claims,
         required_claims,
         &now.to_rfc3339(),
-        &(now + chrono::Duration::minutes(5)).to_rfc3339(),
+        &(now + time::Duration::minutes(5)).to_rfc3339(),
     );
     let signed_request = sign_local_rp_login_request(&request, &signing_sk).unwrap();
     let sr =
@@ -129,7 +130,7 @@ fn seed_idp_and_user(pool: &linkkeys::db::DbPool) -> linkkeys::db::models::User 
     let sk_bytes = sk.to_bytes().to_vec();
     let enc_sk = crypto::encrypt_private_key(&sk_bytes, PASSPHRASE).unwrap();
     let fp = crypto::fingerprint(&pk);
-    let expires = chrono::Utc::now() + chrono::Duration::days(365);
+    let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365);
     pool.create_domain_key(&pk, &enc_sk, &fp, "ed25519", expires)
         .expect("signing key");
 
@@ -156,7 +157,7 @@ fn seed_idp_and_user(pool: &linkkeys::db::DbPool) -> linkkeys::db::models::User 
             val,
             &[],
             None,
-            chrono::Utc::now(),
+            time::OffsetDateTime::now_utc(),
         )
         .expect("claim");
     }
@@ -326,11 +327,11 @@ fn resigned(
             .unwrap();
     let mut request =
         liblinkkeys::generated::decode_local_rp_login_request(&original.request).unwrap();
-    let now = chrono::Utc::now();
+    let now = time::OffsetDateTime::now_utc();
     request.nonce = rand::random::<[u8; 16]>().to_vec();
     request.state = rand::random::<[u8; 16]>().to_vec();
     request.issued_at = now.to_rfc3339();
-    request.expires_at = (now + chrono::Duration::minutes(5)).to_rfc3339();
+    request.expires_at = (now + time::Duration::minutes(5)).to_rfc3339();
     request.flow_context = flow_context;
     let signed = sign_local_rp_login_request(&request, &fx.signing_sk).unwrap();
     liblinkkeys::encoding::signed_local_rp_login_request_to_url_param(&signed).unwrap()
@@ -403,7 +404,7 @@ async fn approved_local_rp_happy_path_end_to_end() {
     .expect("open callback with the RP's encryption key");
     let domain_keys = pool.list_active_domain_keys().unwrap();
     let csil_keys: Vec<DomainPublicKey> = domain_keys.iter().map(Into::into).collect();
-    let now = chrono::Utc::now();
+    let now = time::OffsetDateTime::now_utc();
     let payload = liblinkkeys::local_rp::verify_local_rp_callback_payload(
         &signed_payload,
         &csil_keys,
@@ -529,15 +530,15 @@ async fn assert_rejected_no_redirect(status: &str) {
     // (denied/revoked) row, so its fingerprint matches exactly.
     let signing_pk_arr: [u8; 32] = rp.signing_public_key.as_slice().try_into().unwrap();
     let enc_pk_arr: [u8; 32] = rp.encryption_public_key.as_slice().try_into().unwrap();
-    let now = chrono::Utc::now();
+    let now = time::OffsetDateTime::now_utc();
     let descriptor = build_local_rp_descriptor(
         "Rejected App",
         None,
         &signing_pk_arr,
         &enc_pk_arr,
         vec!["aes-256-gcm".to_string()],
-        &(now - chrono::Duration::minutes(1)).to_rfc3339(),
-        &(now + chrono::Duration::days(3650)).to_rfc3339(),
+        &(now - time::Duration::minutes(1)).to_rfc3339(),
+        &(now + time::Duration::days(3650)).to_rfc3339(),
     );
     let signed_descriptor = sign_local_rp_descriptor(&descriptor, &signing_sk).unwrap();
     let request = build_local_rp_login_request(
@@ -548,7 +549,7 @@ async fn assert_rejected_no_redirect(status: &str) {
         vec!["handle".to_string()],
         vec!["handle".to_string()],
         &now.to_rfc3339(),
-        &(now + chrono::Duration::minutes(5)).to_rfc3339(),
+        &(now + time::Duration::minutes(5)).to_rfc3339(),
     );
     let signed_request = sign_local_rp_login_request(&request, &signing_sk).unwrap();
     let sr =
@@ -798,11 +799,11 @@ fn resigned_with_claims(fx: &LocalRpFixture, requested_claims: &[&str]) -> Strin
             .unwrap();
     let mut request =
         liblinkkeys::generated::decode_local_rp_login_request(&original.request).unwrap();
-    let now = chrono::Utc::now();
+    let now = time::OffsetDateTime::now_utc();
     request.nonce = rand::random::<[u8; 16]>().to_vec();
     request.state = rand::random::<[u8; 16]>().to_vec();
     request.issued_at = now.to_rfc3339();
-    request.expires_at = (now + chrono::Duration::minutes(5)).to_rfc3339();
+    request.expires_at = (now + time::Duration::minutes(5)).to_rfc3339();
     request.requested_claims = requested_claims.iter().map(|c| c.to_string()).collect();
     let signed = sign_local_rp_login_request(&request, &fx.signing_sk).unwrap();
     liblinkkeys::encoding::signed_local_rp_login_request_to_url_param(&signed).unwrap()

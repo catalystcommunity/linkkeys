@@ -26,18 +26,18 @@ pub mod pg {
         destination: &str,
         token_digest: &str,
         encrypted_payload: Vec<u8>,
-        expires_at: chrono::DateTime<chrono::Utc>,
+        expires_at: time::OffsetDateTime,
         required_credential_id: Option<uuid::Uuid>,
     ) -> QueryResult<AccountChallenge> {
         conn.transaction(|conn| {
-            let now = chrono::Utc::now();
+            let now = time::OffsetDateTime::now_utc();
             // Serialize challenge replacement for one account. Without this
             // lock, two requests can both insert an active challenge.
             let active_user = users::table
                 .find(user_id)
                 .select((users::is_active, users::purged_at))
                 .for_update()
-                .first::<(bool, Option<chrono::DateTime<chrono::Utc>>)>(conn)?;
+                .first::<(bool, Option<time::OffsetDateTime>)>(conn)?;
             if !active_user.0 || active_user.1.is_some() {
                 return Err(diesel::result::Error::NotFound);
             }
@@ -86,8 +86,7 @@ pub mod pg {
                 notification_outbox::state.eq("superseded"),
                 notification_outbox::encrypted_payload.eq::<Option<Vec<u8>>>(None),
                 notification_outbox::lease_owner.eq::<Option<String>>(None),
-                notification_outbox::lease_expires_at
-                    .eq::<Option<chrono::DateTime<chrono::Utc>>>(None),
+                notification_outbox::lease_expires_at.eq::<Option<time::OffsetDateTime>>(None),
                 notification_outbox::last_error.eq(Some("superseded")),
                 notification_outbox::updated_at.eq(now),
             ))
@@ -142,7 +141,7 @@ pub mod pg {
             .filter(account_challenges::kind.eq(kind))
             .filter(account_challenges::consumed_at.is_null())
             .filter(account_challenges::revoked_at.is_null())
-            .filter(account_challenges::expires_at.gt(chrono::Utc::now()))
+            .filter(account_challenges::expires_at.gt(time::OffsetDateTime::now_utc()))
             .select(AccountChallengeRow::as_select())
             .first(conn)
             .optional()
@@ -158,7 +157,7 @@ pub mod pg {
             .parse()
             .map_err(|_| diesel::result::Error::NotFound)?;
         conn.transaction(|conn| {
-            let now = chrono::Utc::now();
+            let now = time::OffsetDateTime::now_utc();
             let candidate = account_challenges::table
                 .find(challenge_id)
                 .filter(account_challenges::kind.eq("verify_contact"))
@@ -171,7 +170,7 @@ pub mod pg {
                 .find(candidate.user_id)
                 .select((users::is_active, users::purged_at))
                 .for_update()
-                .first::<(bool, Option<chrono::DateTime<chrono::Utc>>)>(conn)?;
+                .first::<(bool, Option<time::OffsetDateTime>)>(conn)?;
             if !active_user.0 || active_user.1.is_some() {
                 return Err(diesel::result::Error::NotFound);
             }
@@ -265,7 +264,7 @@ pub mod pg {
         credential_id: uuid::Uuid,
     ) -> QueryResult<usize> {
         conn.transaction(|conn| {
-            let now = chrono::Utc::now();
+            let now = time::OffsetDateTime::now_utc();
             users::table
                 .find(user_id)
                 .filter(users::purged_at.is_null())
@@ -325,8 +324,7 @@ pub mod pg {
                     notification_outbox::state.eq("superseded"),
                     notification_outbox::encrypted_payload.eq::<Option<Vec<u8>>>(None),
                     notification_outbox::lease_owner.eq::<Option<String>>(None),
-                    notification_outbox::lease_expires_at
-                        .eq::<Option<chrono::DateTime<chrono::Utc>>>(None),
+                    notification_outbox::lease_expires_at.eq::<Option<time::OffsetDateTime>>(None),
                     notification_outbox::last_error.eq(Some("superseded")),
                     notification_outbox::updated_at.eq(now),
                 ))
@@ -374,7 +372,7 @@ pub mod pg {
                     return Err(diesel::result::Error::NotFound);
                 }
             }
-            let now = chrono::Utc::now();
+            let now = time::OffsetDateTime::now_utc();
             let user = diesel::update(users::table.find(user_id))
                 .set((users::is_active.eq(false), users::updated_at.eq(now)))
                 .get_result::<crate::db::models::pg::UserRow>(conn)?;
@@ -415,8 +413,7 @@ pub mod pg {
                 notification_outbox::state.eq("superseded"),
                 notification_outbox::encrypted_payload.eq::<Option<Vec<u8>>>(None),
                 notification_outbox::lease_owner.eq::<Option<String>>(None),
-                notification_outbox::lease_expires_at
-                    .eq::<Option<chrono::DateTime<chrono::Utc>>>(None),
+                notification_outbox::lease_expires_at.eq::<Option<time::OffsetDateTime>>(None),
                 notification_outbox::last_error.eq(Some("account_disabled")),
                 notification_outbox::updated_at.eq(now),
             ))
@@ -443,8 +440,8 @@ pub mod pg {
     fn record_authentication_on_conn(
         conn: &mut diesel::PgConnection,
         user_id: uuid::Uuid,
-        authenticated_at: chrono::DateTime<chrono::Utc>,
-        seen_at: chrono::DateTime<chrono::Utc>,
+        authenticated_at: time::OffsetDateTime,
+        seen_at: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         let row = UserAuthenticationActivityRow {
             user_id,
@@ -504,12 +501,12 @@ pub mod pg {
         credential_id: uuid::Uuid,
     ) -> QueryResult<BrowserSession> {
         conn.transaction(|conn| {
-            let now = chrono::Utc::now();
+            let now = time::OffsetDateTime::now_utc();
             let active_user = users::table
                 .find(row.user_id)
                 .select((users::is_active, users::purged_at))
                 .for_update()
-                .first::<(bool, Option<chrono::DateTime<chrono::Utc>>)>(conn)?;
+                .first::<(bool, Option<time::OffsetDateTime>)>(conn)?;
             if !active_user.0 || active_user.1.is_some() {
                 return Err(diesel::result::Error::NotFound);
             }
@@ -532,7 +529,7 @@ pub mod pg {
     pub fn record_authentication(
         conn: &mut diesel::PgConnection,
         user_id: uuid::Uuid,
-        authenticated_at: chrono::DateTime<chrono::Utc>,
+        authenticated_at: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         record_authentication_on_conn(conn, user_id, authenticated_at, authenticated_at)
     }
@@ -552,8 +549,8 @@ pub mod pg {
     pub fn count_active_sessions(
         conn: &mut diesel::PgConnection,
         user_id: uuid::Uuid,
-        now: chrono::DateTime<chrono::Utc>,
-        idle_cutoff: chrono::DateTime<chrono::Utc>,
+        now: time::OffsetDateTime,
+        idle_cutoff: time::OffsetDateTime,
     ) -> QueryResult<i64> {
         browser_sessions::table
             .filter(browser_sessions::user_id.eq(user_id))
@@ -582,7 +579,7 @@ pub mod pg {
         browser_sessions::table
             .find(digest)
             .filter(browser_sessions::revoked_at.is_null())
-            .filter(browser_sessions::expires_at.gt(chrono::Utc::now()))
+            .filter(browser_sessions::expires_at.gt(time::OffsetDateTime::now_utc()))
             .select(BrowserSessionRow::as_select())
             .first(conn)
             .optional()
@@ -592,7 +589,7 @@ pub mod pg {
     pub fn touch_session(
         conn: &mut diesel::PgConnection,
         digest: &str,
-        last_seen: chrono::DateTime<chrono::Utc>,
+        last_seen: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         conn.transaction(|conn| {
             let session = browser_sessions::table
@@ -602,7 +599,7 @@ pub mod pg {
                     browser_sessions::user_id,
                     browser_sessions::authenticated_at,
                 ))
-                .first::<(uuid::Uuid, chrono::DateTime<chrono::Utc>)>(conn)?;
+                .first::<(uuid::Uuid, time::OffsetDateTime)>(conn)?;
             let changed = diesel::update(
                 browser_sessions::table
                     .find(digest)
@@ -645,7 +642,7 @@ pub mod pg {
     }
 
     pub fn revoke_session(conn: &mut diesel::PgConnection, digest: &str) -> QueryResult<usize> {
-        let now = chrono::Utc::now();
+        let now = time::OffsetDateTime::now_utc();
         diesel::update(
             browser_sessions::table
                 .find(digest)
@@ -664,7 +661,7 @@ pub mod pg {
         password_hash: &str,
     ) -> QueryResult<()> {
         conn.transaction(|conn| {
-            let now = chrono::Utc::now();
+            let now = time::OffsetDateTime::now_utc();
             let candidate = account_challenges::table
                 .find(challenge_id)
                 .filter(account_challenges::kind.eq("reset_password"))
@@ -677,7 +674,7 @@ pub mod pg {
                 .find(candidate.user_id)
                 .select((users::is_active, users::purged_at))
                 .for_update()
-                .first::<(bool, Option<chrono::DateTime<chrono::Utc>>)>(conn)?;
+                .first::<(bool, Option<time::OffsetDateTime>)>(conn)?;
             if !active_user.0 || active_user.1.is_some() {
                 return Err(diesel::result::Error::NotFound);
             }
@@ -748,7 +745,7 @@ pub mod pg {
         password_hash: &str,
     ) -> QueryResult<()> {
         conn.transaction(|conn| {
-            let now = chrono::Utc::now();
+            let now = time::OffsetDateTime::now_utc();
             users::table
                 .find(user_id)
                 .filter(users::purged_at.is_null())
@@ -796,7 +793,7 @@ pub mod pg {
         password_hash: &str,
     ) -> QueryResult<()> {
         conn.transaction(|conn| {
-            let now = chrono::Utc::now();
+            let now = time::OffsetDateTime::now_utc();
             users::table
                 .find(user_id)
                 .select(users::id)
@@ -828,13 +825,13 @@ pub mod pg {
             let now = diesel::select(diesel::dsl::sql::<diesel::sql_types::Timestamptz>(
                 "clock_timestamp()",
             ))
-            .get_result::<chrono::DateTime<chrono::Utc>>(conn)?;
+            .get_result::<time::OffsetDateTime>(conn)?;
             let lease_until = diesel::select(
                 diesel::dsl::sql::<diesel::sql_types::Timestamptz>("clock_timestamp() + (")
                     .bind::<diesel::sql_types::BigInt, _>(lease_seconds)
                     .sql(" * INTERVAL '1 second')"),
             )
-            .get_result::<chrono::DateTime<chrono::Utc>>(conn)?;
+            .get_result::<time::OffsetDateTime>(conn)?;
             let row = notification_outbox::table
                 .filter(notification_outbox::channel.eq(channel))
                 .filter(
@@ -879,14 +876,14 @@ pub mod pg {
         id: &str,
         worker_id: &str,
         state: &str,
-        next_attempt_at: chrono::DateTime<chrono::Utc>,
+        next_attempt_at: time::OffsetDateTime,
         error_category: Option<&str>,
         redact_payload: bool,
     ) -> QueryResult<usize> {
         let id = id
             .parse::<uuid::Uuid>()
             .map_err(|_| diesel::result::Error::NotFound)?;
-        let now = chrono::Utc::now();
+        let now = time::OffsetDateTime::now_utc();
         if redact_payload {
             diesel::update(
                 notification_outbox::table
@@ -899,8 +896,7 @@ pub mod pg {
                 notification_outbox::encrypted_payload.eq::<Option<Vec<u8>>>(None),
                 notification_outbox::next_attempt_at.eq(next_attempt_at),
                 notification_outbox::lease_owner.eq::<Option<String>>(None),
-                notification_outbox::lease_expires_at
-                    .eq::<Option<chrono::DateTime<chrono::Utc>>>(None),
+                notification_outbox::lease_expires_at.eq::<Option<time::OffsetDateTime>>(None),
                 notification_outbox::last_error.eq(error_category),
                 notification_outbox::updated_at.eq(now),
             ))
@@ -916,8 +912,7 @@ pub mod pg {
                 notification_outbox::state.eq(state),
                 notification_outbox::next_attempt_at.eq(next_attempt_at),
                 notification_outbox::lease_owner.eq::<Option<String>>(None),
-                notification_outbox::lease_expires_at
-                    .eq::<Option<chrono::DateTime<chrono::Utc>>>(None),
+                notification_outbox::lease_expires_at.eq::<Option<time::OffsetDateTime>>(None),
                 notification_outbox::last_error.eq(error_category),
                 notification_outbox::updated_at.eq(now),
             ))
@@ -926,7 +921,7 @@ pub mod pg {
     }
 
     pub fn expire_outbox(conn: &mut diesel::PgConnection) -> QueryResult<usize> {
-        let now = chrono::Utc::now();
+        let now = time::OffsetDateTime::now_utc();
         diesel::update(
             notification_outbox::table
                 .filter(notification_outbox::expires_at.le(now))
@@ -936,7 +931,7 @@ pub mod pg {
             notification_outbox::state.eq("expired"),
             notification_outbox::encrypted_payload.eq::<Option<Vec<u8>>>(None),
             notification_outbox::lease_owner.eq::<Option<String>>(None),
-            notification_outbox::lease_expires_at.eq::<Option<chrono::DateTime<chrono::Utc>>>(None),
+            notification_outbox::lease_expires_at.eq::<Option<time::OffsetDateTime>>(None),
             notification_outbox::last_error.eq(Some("expired")),
             notification_outbox::updated_at.eq(now),
         ))
@@ -989,6 +984,7 @@ pub mod sqlite {
     };
     use diesel::connection::{AnsiTransactionManager, TransactionManager};
     use diesel::prelude::*;
+    use liblinkkeys::timestamp::Rfc3339 as _;
 
     fn write_transaction<T, F>(conn: &mut diesel::SqliteConnection, callback: F) -> QueryResult<T>
     where
@@ -1019,7 +1015,7 @@ pub mod sqlite {
         required_credential_id: Option<&str>,
     ) -> QueryResult<AccountChallenge> {
         write_transaction(conn, |conn| {
-            let now = chrono::Utc::now().to_rfc3339();
+            let now = time::OffsetDateTime::now_utc().to_rfc3339();
             let active_user = users::table
                 .find(user_id)
                 .select((users::is_active, users::purged_at))
@@ -1125,7 +1121,7 @@ pub mod sqlite {
             .filter(account_challenges::kind.eq(kind))
             .filter(account_challenges::consumed_at.is_null())
             .filter(account_challenges::revoked_at.is_null())
-            .filter(account_challenges::expires_at.gt(chrono::Utc::now().to_rfc3339()))
+            .filter(account_challenges::expires_at.gt(time::OffsetDateTime::now_utc().to_rfc3339()))
             .select(AccountChallengeRow::as_select())
             .first(conn)
             .optional()
@@ -1137,7 +1133,7 @@ pub mod sqlite {
         claims: &[crate::db::models::PreparedClaim],
     ) -> QueryResult<VerifiedContactMethod> {
         write_transaction(conn, |conn| {
-            let now = chrono::Utc::now().to_rfc3339();
+            let now = time::OffsetDateTime::now_utc().to_rfc3339();
             let c = account_challenges::table
                 .find(challenge_id)
                 .filter(account_challenges::kind.eq("verify_contact"))
@@ -1229,7 +1225,7 @@ pub mod sqlite {
         credential_id: &str,
     ) -> QueryResult<usize> {
         write_transaction(conn, |conn| {
-            let now = chrono::Utc::now().to_rfc3339();
+            let now = time::OffsetDateTime::now_utc().to_rfc3339();
             auth_credentials::table
                 .find(credential_id)
                 .filter(auth_credentials::user_id.eq(user_id))
@@ -1345,7 +1341,7 @@ pub mod sqlite {
                     return Err(diesel::result::Error::NotFound);
                 }
             }
-            let now = chrono::Utc::now().to_rfc3339();
+            let now = time::OffsetDateTime::now_utc().to_rfc3339();
             diesel::update(users::table.find(user_id))
                 .set((users::is_active.eq(0), users::updated_at.eq(&now)))
                 .execute(conn)?;
@@ -1466,7 +1462,7 @@ pub mod sqlite {
         credential_id: &str,
     ) -> QueryResult<BrowserSession> {
         write_transaction(conn, |conn| {
-            let now = chrono::Utc::now().to_rfc3339();
+            let now = time::OffsetDateTime::now_utc().to_rfc3339();
             let active_user = crate::schema::sqlite::users::table
                 .find(&row.user_id)
                 .select((
@@ -1547,7 +1543,7 @@ pub mod sqlite {
         browser_sessions::table
             .find(digest)
             .filter(browser_sessions::revoked_at.is_null())
-            .filter(browser_sessions::expires_at.gt(chrono::Utc::now().to_rfc3339()))
+            .filter(browser_sessions::expires_at.gt(time::OffsetDateTime::now_utc().to_rfc3339()))
             .select(BrowserSessionRow::as_select())
             .first(conn)
             .optional()
@@ -1608,7 +1604,7 @@ pub mod sqlite {
         })
     }
     pub fn revoke_session(conn: &mut diesel::SqliteConnection, digest: &str) -> QueryResult<usize> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = time::OffsetDateTime::now_utc().to_rfc3339();
         diesel::update(
             browser_sessions::table
                 .find(digest)
@@ -1626,7 +1622,7 @@ pub mod sqlite {
         password_hash: &str,
     ) -> QueryResult<()> {
         write_transaction(conn, |conn| {
-            let now = chrono::Utc::now().to_rfc3339();
+            let now = time::OffsetDateTime::now_utc().to_rfc3339();
             let c = account_challenges::table
                 .find(challenge_id)
                 .filter(account_challenges::kind.eq("reset_password"))
@@ -1700,7 +1696,7 @@ pub mod sqlite {
         password_hash: &str,
     ) -> QueryResult<()> {
         write_transaction(conn, |conn| {
-            let now = chrono::Utc::now().to_rfc3339();
+            let now = time::OffsetDateTime::now_utc().to_rfc3339();
             users::table
                 .find(user_id)
                 .filter(users::purged_at.is_null())
@@ -1747,7 +1743,7 @@ pub mod sqlite {
         password_hash: &str,
     ) -> QueryResult<()> {
         write_transaction(conn, |conn| {
-            let now = chrono::Utc::now().to_rfc3339();
+            let now = time::OffsetDateTime::now_utc().to_rfc3339();
             auth_credentials::table
                 .find(credential_id)
                 .filter(auth_credentials::user_id.eq(user_id))
@@ -1829,7 +1825,7 @@ pub mod sqlite {
         error_category: Option<&str>,
         redact_payload: bool,
     ) -> QueryResult<usize> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = time::OffsetDateTime::now_utc().to_rfc3339();
         if redact_payload {
             diesel::update(
                 notification_outbox::table
@@ -1867,7 +1863,7 @@ pub mod sqlite {
     }
 
     pub fn expire_outbox(conn: &mut diesel::SqliteConnection) -> QueryResult<usize> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = time::OffsetDateTime::now_utc().to_rfc3339();
         diesel::update(
             notification_outbox::table
                 .filter(notification_outbox::expires_at.le(&now))

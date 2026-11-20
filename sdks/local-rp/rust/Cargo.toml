@@ -78,8 +78,9 @@ tokio = { version = "1", features = ["rt-multi-thread"] }
 url = "2"
 
 # Timestamps (issued_at/expires_at, `now` parameters, expiration checks) —
-# already the workspace's date/time library (liblinkkeys, linkkeys).
-chrono = { version = "0.4", features = ["serde"] }
+# already the workspace's date/time library (liblinkkeys, linkkeys). RFC 3339
+# text goes through `liblinkkeys::timestamp`.
+time = { version = "0.3.47", default-features = false, features = ["std"] }
 
 # `PendingLogin` must be serializable so the app can persist it (design doc,
 # "SDK API Shape"). `serde` derive is the standard, minimal way to do that

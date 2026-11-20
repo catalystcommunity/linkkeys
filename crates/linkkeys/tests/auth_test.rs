@@ -1,6 +1,7 @@
 mod common;
 
 use common::data_factory::{create_auth_credential, create_user, DataMap};
+use liblinkkeys::timestamp::Rfc3339 as _;
 use linkkeys::services::auth;
 use linkkeys::services::auth::{Authenticator, PasswordAuthenticator};
 use serde_json::Value;
@@ -218,7 +219,7 @@ fn test_expired_credential_rejected_in_auth_flow() {
     let cred = create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_PASSWORD, &hash);
 
     // Expire the credential
-    let past = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+    let past = (time::OffsetDateTime::now_utc() - time::Duration::hours(1)).to_rfc3339();
     pool.set_credential_expires_at(&cred.id, &past).unwrap();
 
     // find_for_user filters out expired credentials

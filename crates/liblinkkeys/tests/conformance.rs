@@ -13,7 +13,6 @@
 //! with the Rust implementation they were generated from.
 
 use base64ct::{Base64UrlUnpadded, Encoding};
-use chrono::{DateTime, Utc};
 use liblinkkeys::claims::{self, ClaimError, DomainKeySet};
 use liblinkkeys::crypto::{self, AeadSuite, SigningAlgorithm};
 use liblinkkeys::dns::{self, DnsParseError};
@@ -26,6 +25,7 @@ use liblinkkeys::local_rp;
 use liblinkkeys::revocation::{self, RevocationError};
 use serde_json::Value;
 use std::path::PathBuf;
+use time::OffsetDateTime;
 
 fn conformance_dir() -> PathBuf {
     // CARGO_MANIFEST_DIR is crates/liblinkkeys; the vectors live at the repo
@@ -443,10 +443,8 @@ fn tickets_hash_pairs_match_fingerprint_routine() {
 // expirations.json
 // ---------------------------------------------------------------------
 
-fn parse_rfc3339(s: &str) -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339(s)
-        .unwrap_or_else(|e| panic!("bad rfc3339 {s:?}: {e}"))
-        .with_timezone(&Utc)
+fn parse_rfc3339(s: &str) -> OffsetDateTime {
+    liblinkkeys::timestamp::parse_rfc3339(s).unwrap_or_else(|e| panic!("bad rfc3339 {s:?}: {e}"))
 }
 
 #[test]

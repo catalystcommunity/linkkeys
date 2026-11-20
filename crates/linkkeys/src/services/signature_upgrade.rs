@@ -36,6 +36,7 @@
 //! verifies every signature of every active record, so start-up time grows
 //! with the number of claims.
 
+use liblinkkeys::timestamp::Rfc3339 as _;
 use std::fmt;
 
 use liblinkkeys::claims::{verify_claim_signatures, ClaimSigner, ClaimSpec, DomainKeySet};
@@ -207,8 +208,8 @@ fn split_signatures(
 fn is_active(revoked_at: Option<&str>, expires_at: Option<&str>) -> bool {
     revoked_at.is_none()
         && expires_at
-            .and_then(|e| chrono::DateTime::parse_from_rfc3339(e).ok())
-            .is_none_or(|e| e > chrono::Utc::now())
+            .and_then(|e| liblinkkeys::timestamp::parse_rfc3339(e).ok())
+            .is_none_or(|e| e > time::OffsetDateTime::now_utc())
 }
 
 fn upgrade_claims(
@@ -262,12 +263,11 @@ fn upgrade_claims(
         // that is not RFC3339 (SQLite rows from before 2026-07-02 copied
         // `created_at`, "YYYY-MM-DD HH:MM:SS") fails every verifier's key
         // check, so the re-sign makes a new attestation at whole seconds.
-        let new_attested_at = chrono::DateTime::parse_from_rfc3339(&claim.attested_at)
+        let new_attested_at = liblinkkeys::timestamp::parse_rfc3339(&claim.attested_at)
             .is_err()
             .then(|| {
-                use chrono::Timelike;
-                chrono::Utc::now()
-                    .with_nanosecond(0)
+                time::OffsetDateTime::now_utc()
+                    .replace_nanosecond(0)
                     .expect("zeroing nanoseconds cannot fail")
                     .to_rfc3339()
             });

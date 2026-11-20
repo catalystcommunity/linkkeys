@@ -10,11 +10,6 @@ ignore = [
     # in the image). diesel 2.3.14 requires libsqlite3-sys < 0.39, so we cannot
     # update. Remove this entry when a diesel 2.3.x release allows 0.39.
     { id = "RUSTSEC-2026-0459", reason = "system SQLite is linked, not the bundled copy; diesel 2.3.14 caps libsqlite3-sys < 0.39" },
-    # chrono is unmaintained; no fixed version exists. diesel's `chrono`
-    # feature and our timestamp types use it. It is not a vulnerability.
-    # Remove this entry when the move to `time` is done
-    # (request-switch-chrono-to-time.md).
-    { id = "RUSTSEC-2026-0543", reason = "unmaintained, not vulnerable; move to the time crate is planned" },
 ]
 
 [licenses]

@@ -6,6 +6,7 @@ use liblinkkeys::auth_request;
 use liblinkkeys::crypto;
 use liblinkkeys::encoding;
 use liblinkkeys::generated::types::{DomainPublicKey, EncryptedToken};
+use liblinkkeys::timestamp::Rfc3339 as _;
 
 fn make_domain_key(key_id: &str, pk_bytes: &[u8]) -> DomainPublicKey {
     DomainPublicKey {
@@ -16,8 +17,8 @@ fn make_domain_key(key_id: &str, pk_bytes: &[u8]) -> DomainPublicKey {
         key_usage: "sign".to_string(),
         signed_by_key_id: None,
         key_signature: None,
-        created_at: chrono::Utc::now().to_rfc3339(),
-        expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
+        created_at: time::OffsetDateTime::now_utc().to_rfc3339(),
+        expires_at: (time::OffsetDateTime::now_utc() + time::Duration::hours(1)).to_rfc3339(),
         revoked_at: None,
     }
 }

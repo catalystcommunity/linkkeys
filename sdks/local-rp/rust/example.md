@@ -199,7 +199,7 @@ tokio = { version = "1", features = ["full"] }
 uuid = { version = "1.10", features = ["v4"] }
 log = "0.4"
 env_logger = "0.11"
-chrono = { version = "0.4", features = ["serde"] }
+time = "0.3"
 ```
 
 (Adjust the `path` deps to your app's actual location relative to this repo,

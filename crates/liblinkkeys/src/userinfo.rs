@@ -17,7 +17,8 @@
 use crate::assertions::VerifyError;
 use crate::crypto::{self, CryptoError, SigningAlgorithm};
 use crate::generated::types::{DomainPublicKey, SignedUserInfoRequest, UserInfoRequest};
-use chrono::Utc;
+use crate::timestamp::Rfc3339 as _;
+use time::OffsetDateTime;
 
 /// Build an unsigned user-info request with the current timestamp.
 ///
@@ -33,7 +34,7 @@ pub fn build_user_info_request(
     UserInfoRequest {
         token,
         relying_party: relying_party.to_string(),
-        timestamp: Utc::now().to_rfc3339(),
+        timestamp: OffsetDateTime::now_utc().to_rfc3339(),
         nonce: nonce.to_string(),
     }
 }
@@ -108,11 +109,11 @@ pub fn verify_user_info_request(
     let request = crate::generated::decode_user_info_request(signed.request.as_slice())
         .map_err(|e| VerifyError::DeserializationFailed(format!("CBOR decode failed: {}", e)))?;
 
-    let timestamp = chrono::DateTime::parse_from_rfc3339(&request.timestamp)
+    let timestamp = crate::timestamp::parse_rfc3339(&request.timestamp)
         .map_err(|e| VerifyError::DeserializationFailed(format!("invalid timestamp: {}", e)))?;
 
-    let age = Utc::now().signed_duration_since(timestamp);
-    if age.num_seconds() > max_age_seconds || age.num_seconds() < 0 {
+    let age = OffsetDateTime::now_utc() - timestamp;
+    if age.whole_seconds() > max_age_seconds || age.whole_seconds() < 0 {
         return Err(VerifyError::Expired);
     }
 
@@ -133,8 +134,8 @@ mod tests {
             key_usage: "sign".to_string(),
             signed_by_key_id: None,
             key_signature: None,
-            created_at: Utc::now().to_rfc3339(),
-            expires_at: (Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
+            created_at: OffsetDateTime::now_utc().to_rfc3339(),
+            expires_at: (OffsetDateTime::now_utc() + time::Duration::hours(1)).to_rfc3339(),
             revoked_at: None,
         }
     }
@@ -164,7 +165,7 @@ mod tests {
         let request = UserInfoRequest {
             token: b"token".to_vec(),
             relying_party: "app.example.com".to_string(),
-            timestamp: (Utc::now() - chrono::Duration::seconds(120)).to_rfc3339(),
+            timestamp: (OffsetDateTime::now_utc() - time::Duration::seconds(120)).to_rfc3339(),
             nonce: "nonce".to_string(),
         };
         let signed =

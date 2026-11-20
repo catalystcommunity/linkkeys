@@ -472,7 +472,7 @@ pub struct PreparedClaim {
     pub claim_type: String,
     pub claim_value: Vec<u8>,
     pub signatures: Vec<liblinkkeys::generated::types::ClaimSignature>,
-    pub attested_at: chrono::DateTime<chrono::Utc>,
+    pub attested_at: time::OffsetDateTime,
 }
 
 /// A cached public key of another domain (append-only). Lets us verify stored
@@ -645,6 +645,7 @@ pub struct AppAccessTarget {
 #[cfg(feature = "postgres")]
 pub mod pg {
     use diesel::prelude::*;
+    use liblinkkeys::timestamp::Rfc3339 as _;
 
     // -- Guestbook --
 
@@ -653,8 +654,8 @@ pub mod pg {
     pub struct GuestbookEntryRow {
         pub id: uuid::Uuid,
         pub name: String,
-        pub created_at: chrono::DateTime<chrono::Utc>,
-        pub updated_at: chrono::DateTime<chrono::Utc>,
+        pub created_at: time::OffsetDateTime,
+        pub updated_at: time::OffsetDateTime,
     }
 
     impl From<GuestbookEntryRow> for super::GuestbookEntry {
@@ -686,10 +687,10 @@ pub mod pg {
         pub fingerprint: String,
         pub algorithm: String,
         pub key_usage: String,
-        pub created_at: chrono::DateTime<chrono::Utc>,
-        pub expires_at: chrono::DateTime<chrono::Utc>,
-        pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
-        pub updated_at: chrono::DateTime<chrono::Utc>,
+        pub created_at: time::OffsetDateTime,
+        pub expires_at: time::OffsetDateTime,
+        pub revoked_at: Option<time::OffsetDateTime>,
+        pub updated_at: time::OffsetDateTime,
         pub signed_by_key_id: Option<String>,
         pub key_signature: Option<Vec<u8>>,
     }
@@ -722,7 +723,7 @@ pub mod pg {
         pub fingerprint: String,
         pub algorithm: String,
         pub key_usage: String,
-        pub expires_at: chrono::DateTime<chrono::Utc>,
+        pub expires_at: time::OffsetDateTime,
         pub signed_by_key_id: Option<String>,
         pub key_signature: Option<Vec<u8>>,
     }
@@ -736,10 +737,10 @@ pub mod pg {
         pub username: String,
         pub display_name: String,
         pub is_active: bool,
-        pub created_at: chrono::DateTime<chrono::Utc>,
-        pub updated_at: chrono::DateTime<chrono::Utc>,
+        pub created_at: time::OffsetDateTime,
+        pub updated_at: time::OffsetDateTime,
         pub is_admin_account: bool,
-        pub purged_at: Option<chrono::DateTime<chrono::Utc>>,
+        pub purged_at: Option<time::OffsetDateTime>,
         pub purge_reason: Option<String>,
         pub password_locked: bool,
     }
@@ -778,10 +779,10 @@ pub mod pg {
         pub user_id: uuid::Uuid,
         pub credential_type: String,
         pub credential_hash: String,
-        pub created_at: chrono::DateTime<chrono::Utc>,
-        pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
-        pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
-        pub updated_at: chrono::DateTime<chrono::Utc>,
+        pub created_at: time::OffsetDateTime,
+        pub expires_at: Option<time::OffsetDateTime>,
+        pub revoked_at: Option<time::OffsetDateTime>,
+        pub updated_at: time::OffsetDateTime,
     }
 
     impl From<AuthCredentialRow> for super::AuthCredential {
@@ -820,10 +821,10 @@ pub mod pg {
         pub fingerprint: String,
         pub algorithm: String,
         pub key_usage: String,
-        pub created_at: chrono::DateTime<chrono::Utc>,
-        pub expires_at: chrono::DateTime<chrono::Utc>,
-        pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
-        pub updated_at: chrono::DateTime<chrono::Utc>,
+        pub created_at: time::OffsetDateTime,
+        pub expires_at: time::OffsetDateTime,
+        pub revoked_at: Option<time::OffsetDateTime>,
+        pub updated_at: time::OffsetDateTime,
         pub signed_by_key_id: Option<String>,
         pub key_signature: Option<Vec<u8>>,
     }
@@ -857,7 +858,7 @@ pub mod pg {
         pub private_key_encrypted: Vec<u8>,
         pub fingerprint: String,
         pub algorithm: String,
-        pub expires_at: chrono::DateTime<chrono::Utc>,
+        pub expires_at: time::OffsetDateTime,
     }
 
     // -- Claims --
@@ -869,11 +870,11 @@ pub mod pg {
         pub user_id: uuid::Uuid,
         pub claim_type: String,
         pub claim_value: Vec<u8>,
-        pub created_at: chrono::DateTime<chrono::Utc>,
-        pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
-        pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
-        pub updated_at: chrono::DateTime<chrono::Utc>,
-        pub attested_at: chrono::DateTime<chrono::Utc>,
+        pub created_at: time::OffsetDateTime,
+        pub expires_at: Option<time::OffsetDateTime>,
+        pub revoked_at: Option<time::OffsetDateTime>,
+        pub updated_at: time::OffsetDateTime,
+        pub attested_at: time::OffsetDateTime,
     }
 
     impl From<ClaimDbRow> for super::ClaimRow {
@@ -900,8 +901,8 @@ pub mod pg {
         pub user_id: uuid::Uuid,
         pub claim_type: String,
         pub claim_value: Vec<u8>,
-        pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
-        pub attested_at: chrono::DateTime<chrono::Utc>,
+        pub expires_at: Option<time::OffsetDateTime>,
+        pub attested_at: time::OffsetDateTime,
     }
 
     #[derive(Queryable, Selectable)]
@@ -914,7 +915,7 @@ pub mod pg {
         // key id is not one of our domain_keys UUIDs.
         pub signed_by_key_id: String,
         pub signature: Vec<u8>,
-        pub created_at: chrono::DateTime<chrono::Utc>,
+        pub created_at: time::OffsetDateTime,
     }
 
     impl From<ClaimSignatureDbRow> for super::ClaimSignatureRow {
@@ -951,9 +952,9 @@ pub mod pg {
         pub relation: String,
         pub object_type: String,
         pub object_id: String,
-        pub created_at: chrono::DateTime<chrono::Utc>,
-        pub removed_at: Option<chrono::DateTime<chrono::Utc>>,
-        pub updated_at: chrono::DateTime<chrono::Utc>,
+        pub created_at: time::OffsetDateTime,
+        pub removed_at: Option<time::OffsetDateTime>,
+        pub updated_at: time::OffsetDateTime,
     }
 
     impl From<RelationRow> for super::Relation {
@@ -996,9 +997,9 @@ pub mod pg {
         pub requested_types: String,
         pub signed_grant: Vec<u8>,
         pub offered_claims: Option<Vec<u8>>,
-        pub issued_at: chrono::DateTime<chrono::Utc>,
-        pub expires_at: chrono::DateTime<chrono::Utc>,
-        pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+        pub issued_at: time::OffsetDateTime,
+        pub expires_at: time::OffsetDateTime,
+        pub revoked_at: Option<time::OffsetDateTime>,
         pub app_subject_user_id: Option<String>,
         pub app_application_id: Option<String>,
     }
@@ -1034,8 +1035,8 @@ pub mod pg {
         pub requested_types: String,
         pub signed_grant: Vec<u8>,
         pub offered_claims: Option<Vec<u8>>,
-        pub issued_at: chrono::DateTime<chrono::Utc>,
-        pub expires_at: chrono::DateTime<chrono::Utc>,
+        pub issued_at: time::OffsetDateTime,
+        pub expires_at: time::OffsetDateTime,
         pub app_subject_user_id: Option<String>,
         pub app_application_id: Option<String>,
     }
@@ -1228,9 +1229,9 @@ pub mod pg {
         pub detail: Option<String>,
         pub status: String,
         pub resolved_by: Option<String>,
-        pub resolved_at: Option<chrono::DateTime<chrono::Utc>>,
-        pub created_at: chrono::DateTime<chrono::Utc>,
-        pub updated_at: chrono::DateTime<chrono::Utc>,
+        pub resolved_at: Option<time::OffsetDateTime>,
+        pub created_at: time::OffsetDateTime,
+        pub updated_at: time::OffsetDateTime,
     }
 
     impl From<AdminReviewRow> for super::AdminReview {
@@ -1295,7 +1296,7 @@ pub mod pg {
         pub subject: Option<String>,
         pub actor: Option<String>,
         pub detail: Option<String>,
-        pub created_at: chrono::DateTime<chrono::Utc>,
+        pub created_at: time::OffsetDateTime,
     }
 
     impl From<AuditLogRow> for super::AuditEntry {
@@ -1326,8 +1327,8 @@ pub mod pg {
     pub struct DomainKeyPinRow {
         pub domain: String,
         pub fingerprints: String,
-        pub pinned_at: chrono::DateTime<chrono::Utc>,
-        pub last_checked_at: chrono::DateTime<chrono::Utc>,
+        pub pinned_at: time::OffsetDateTime,
+        pub last_checked_at: time::OffsetDateTime,
     }
 
     impl From<DomainKeyPinRow> for super::DomainKeyPin {
@@ -1354,9 +1355,9 @@ pub mod pg {
         pub id: uuid::Uuid,
         pub target_key_id: String,
         pub target_fingerprint: String,
-        pub revoked_at: chrono::DateTime<chrono::Utc>,
+        pub revoked_at: time::OffsetDateTime,
         pub cert: Vec<u8>,
-        pub created_at: chrono::DateTime<chrono::Utc>,
+        pub created_at: time::OffsetDateTime,
     }
 
     impl From<IssuedRevocationRow> for super::IssuedRevocation {
@@ -1378,7 +1379,7 @@ pub mod pg {
         pub id: uuid::Uuid,
         pub target_key_id: String,
         pub target_fingerprint: String,
-        pub revoked_at: chrono::DateTime<chrono::Utc>,
+        pub revoked_at: time::OffsetDateTime,
         pub cert: Vec<u8>,
     }
 
@@ -1389,11 +1390,11 @@ pub mod pg {
         pub subject_user_id: uuid::Uuid,
         pub application_id: String,
         pub instance_id: String,
-        pub enrolled_at: chrono::DateTime<chrono::Utc>,
+        pub enrolled_at: time::OffsetDateTime,
         pub trust_reset_count: i64,
-        pub last_trust_reset_at: Option<chrono::DateTime<chrono::Utc>>,
-        pub created_at: chrono::DateTime<chrono::Utc>,
-        pub updated_at: chrono::DateTime<chrono::Utc>,
+        pub last_trust_reset_at: Option<time::OffsetDateTime>,
+        pub created_at: time::OffsetDateTime,
+        pub updated_at: time::OffsetDateTime,
     }
 
     impl From<ApplicationInstanceRow> for super::ApplicationInstance {
@@ -1419,7 +1420,7 @@ pub mod pg {
         pub subject_user_id: uuid::Uuid,
         pub application_id: String,
         pub instance_id: String,
-        pub enrolled_at: chrono::DateTime<chrono::Utc>,
+        pub enrolled_at: time::OffsetDateTime,
     }
 
     #[derive(Queryable, Selectable)]
@@ -1432,9 +1433,9 @@ pub mod pg {
         pub algorithm: String,
         pub public_key: Vec<u8>,
         pub fingerprint: String,
-        pub created_at: chrono::DateTime<chrono::Utc>,
-        pub expires_at: chrono::DateTime<chrono::Utc>,
-        pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+        pub created_at: time::OffsetDateTime,
+        pub expires_at: time::OffsetDateTime,
+        pub revoked_at: Option<time::OffsetDateTime>,
     }
 
     impl From<ApplicationKeyRow> for super::ApplicationKey {
@@ -1464,8 +1465,8 @@ pub mod pg {
         pub algorithm: String,
         pub public_key: Vec<u8>,
         pub fingerprint: String,
-        pub created_at: chrono::DateTime<chrono::Utc>,
-        pub expires_at: chrono::DateTime<chrono::Utc>,
+        pub created_at: time::OffsetDateTime,
+        pub expires_at: time::OffsetDateTime,
     }
 
     #[derive(Queryable, Selectable)]
@@ -1474,10 +1475,10 @@ pub mod pg {
         pub id: uuid::Uuid,
         pub application_key_row_id: uuid::Uuid,
         pub signed_attestation: Vec<u8>,
-        pub attested_at: chrono::DateTime<chrono::Utc>,
-        pub expires_at: chrono::DateTime<chrono::Utc>,
-        pub created_at: chrono::DateTime<chrono::Utc>,
-        pub updated_at: chrono::DateTime<chrono::Utc>,
+        pub attested_at: time::OffsetDateTime,
+        pub expires_at: time::OffsetDateTime,
+        pub created_at: time::OffsetDateTime,
+        pub updated_at: time::OffsetDateTime,
     }
 
     impl From<ApplicationKeyAttestationRow> for super::ApplicationKeyAttestationRecord {
@@ -1501,9 +1502,9 @@ pub mod pg {
         pub instance_row_id: uuid::Uuid,
         pub target_key_id: String,
         pub target_fingerprint: String,
-        pub revoked_at: chrono::DateTime<chrono::Utc>,
+        pub revoked_at: time::OffsetDateTime,
         pub record: Vec<u8>,
-        pub created_at: chrono::DateTime<chrono::Utc>,
+        pub created_at: time::OffsetDateTime,
     }
 
     impl From<ApplicationKeyRevocationRow> for super::ApplicationKeyRevocationRecord {
@@ -1527,7 +1528,7 @@ pub mod pg {
         pub instance_row_id: uuid::Uuid,
         pub target_key_id: String,
         pub target_fingerprint: String,
-        pub revoked_at: chrono::DateTime<chrono::Utc>,
+        pub revoked_at: time::OffsetDateTime,
         pub record: Vec<u8>,
     }
 
@@ -1544,9 +1545,9 @@ pub mod pg {
         pub algorithm: String,
         pub public_key: Vec<u8>,
         pub nonce: Vec<u8>,
-        pub expires_at: chrono::DateTime<chrono::Utc>,
-        pub consumed_at: Option<chrono::DateTime<chrono::Utc>>,
-        pub created_at: chrono::DateTime<chrono::Utc>,
+        pub expires_at: time::OffsetDateTime,
+        pub consumed_at: Option<time::OffsetDateTime>,
+        pub created_at: time::OffsetDateTime,
     }
 
     impl From<ApplicationKeyChallengeRow> for super::ApplicationKeyChallenge {
@@ -1582,7 +1583,7 @@ pub mod pg {
         pub algorithm: String,
         pub public_key: Vec<u8>,
         pub nonce: Vec<u8>,
-        pub expires_at: chrono::DateTime<chrono::Utc>,
+        pub expires_at: time::OffsetDateTime,
     }
 
     #[derive(Queryable, Selectable, Insertable)]
@@ -1593,10 +1594,10 @@ pub mod pg {
         pub channel: String,
         pub destination: String,
         pub purposes: String,
-        pub verified_at: chrono::DateTime<chrono::Utc>,
-        pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
-        pub created_at: chrono::DateTime<chrono::Utc>,
-        pub updated_at: chrono::DateTime<chrono::Utc>,
+        pub verified_at: time::OffsetDateTime,
+        pub revoked_at: Option<time::OffsetDateTime>,
+        pub created_at: time::OffsetDateTime,
+        pub updated_at: time::OffsetDateTime,
     }
 
     impl From<VerifiedContactMethodRow> for super::VerifiedContactMethod {
@@ -1623,10 +1624,10 @@ pub mod pg {
         pub channel: String,
         pub destination: String,
         pub required_credential_id: Option<uuid::Uuid>,
-        pub expires_at: chrono::DateTime<chrono::Utc>,
-        pub consumed_at: Option<chrono::DateTime<chrono::Utc>>,
-        pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
-        pub created_at: chrono::DateTime<chrono::Utc>,
+        pub expires_at: time::OffsetDateTime,
+        pub consumed_at: Option<time::OffsetDateTime>,
+        pub revoked_at: Option<time::OffsetDateTime>,
+        pub created_at: time::OffsetDateTime,
     }
 
     impl From<AccountChallengeRow> for super::AccountChallenge {
@@ -1657,13 +1658,13 @@ pub mod pg {
         pub encrypted_payload: Option<Vec<u8>>,
         pub state: String,
         pub attempt_count: i64,
-        pub next_attempt_at: chrono::DateTime<chrono::Utc>,
+        pub next_attempt_at: time::OffsetDateTime,
         pub lease_owner: Option<String>,
-        pub lease_expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        pub lease_expires_at: Option<time::OffsetDateTime>,
         pub last_error: Option<String>,
-        pub expires_at: chrono::DateTime<chrono::Utc>,
-        pub created_at: chrono::DateTime<chrono::Utc>,
-        pub updated_at: chrono::DateTime<chrono::Utc>,
+        pub expires_at: time::OffsetDateTime,
+        pub created_at: time::OffsetDateTime,
+        pub updated_at: time::OffsetDateTime,
     }
 
     impl From<NotificationOutboxRow> for super::NotificationOutboxItem {
@@ -1691,14 +1692,14 @@ pub mod pg {
     pub struct BrowserSessionRow {
         pub token_digest: String,
         pub user_id: uuid::Uuid,
-        pub issued_at: chrono::DateTime<chrono::Utc>,
-        pub last_seen_at: chrono::DateTime<chrono::Utc>,
-        pub authenticated_at: chrono::DateTime<chrono::Utc>,
+        pub issued_at: time::OffsetDateTime,
+        pub last_seen_at: time::OffsetDateTime,
+        pub authenticated_at: time::OffsetDateTime,
         pub authentication_methods: String,
-        pub expires_at: chrono::DateTime<chrono::Utc>,
-        pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
-        pub created_at: chrono::DateTime<chrono::Utc>,
-        pub updated_at: chrono::DateTime<chrono::Utc>,
+        pub expires_at: time::OffsetDateTime,
+        pub revoked_at: Option<time::OffsetDateTime>,
+        pub created_at: time::OffsetDateTime,
+        pub updated_at: time::OffsetDateTime,
     }
 
     impl From<BrowserSessionRow> for super::BrowserSession {
@@ -1720,11 +1721,11 @@ pub mod pg {
     #[diesel(table_name = crate::schema::pg::user_authentication_activity)]
     pub struct UserAuthenticationActivityRow {
         pub user_id: uuid::Uuid,
-        pub last_authenticated_at: chrono::DateTime<chrono::Utc>,
-        pub last_seen_at: chrono::DateTime<chrono::Utc>,
+        pub last_authenticated_at: time::OffsetDateTime,
+        pub last_seen_at: time::OffsetDateTime,
         pub successful_authentication_count: i64,
-        pub created_at: chrono::DateTime<chrono::Utc>,
-        pub updated_at: chrono::DateTime<chrono::Utc>,
+        pub created_at: time::OffsetDateTime,
+        pub updated_at: time::OffsetDateTime,
     }
 
     impl From<UserAuthenticationActivityRow> for super::UserAuthenticationActivity {
@@ -1834,10 +1835,10 @@ pub mod pg {
         pub app_name: String,
         pub local_domain_hint: Option<String>,
         pub status: String,
-        pub created_at: chrono::DateTime<chrono::Utc>,
-        pub updated_at: chrono::DateTime<chrono::Utc>,
-        pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
-        pub last_seen_at: Option<chrono::DateTime<chrono::Utc>>,
+        pub created_at: time::OffsetDateTime,
+        pub updated_at: time::OffsetDateTime,
+        pub expires_at: Option<time::OffsetDateTime>,
+        pub last_seen_at: Option<time::OffsetDateTime>,
         pub admin_notes: Option<String>,
         pub first_seen_by_user_id: Option<uuid::Uuid>,
     }
@@ -1870,7 +1871,7 @@ pub mod pg {
         pub app_name: String,
         pub local_domain_hint: Option<String>,
         pub status: String,
-        pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        pub expires_at: Option<time::OffsetDateTime>,
         pub first_seen_by_user_id: Option<uuid::Uuid>,
     }
 
@@ -1882,8 +1883,8 @@ pub mod pg {
         pub user_id: uuid::Uuid,
         pub user_domain: String,
         pub granted_claims: String,
-        pub issued_at: chrono::DateTime<chrono::Utc>,
-        pub expires_at: chrono::DateTime<chrono::Utc>,
+        pub issued_at: time::OffsetDateTime,
+        pub expires_at: time::OffsetDateTime,
     }
 
     impl From<LocalRpClaimTicketRow> for super::LocalRpClaimTicket {
@@ -1908,7 +1909,7 @@ pub mod pg {
         pub user_id: uuid::Uuid,
         pub user_domain: String,
         pub granted_claims: String,
-        pub expires_at: chrono::DateTime<chrono::Utc>,
+        pub expires_at: time::OffsetDateTime,
     }
 
     // -- RP cache (docs/application-keys.md) --
@@ -1917,9 +1918,9 @@ pub mod pg {
     #[diesel(table_name = crate::schema::pg::rp_domain_key_cache)]
     pub struct RpDomainKeyCacheRow {
         pub domain: String,
-        pub fetched_at: chrono::DateTime<chrono::Utc>,
-        pub revocations_checked_at: chrono::DateTime<chrono::Utc>,
-        pub last_used_at: chrono::DateTime<chrono::Utc>,
+        pub fetched_at: time::OffsetDateTime,
+        pub revocations_checked_at: time::OffsetDateTime,
+        pub last_used_at: time::OffsetDateTime,
     }
 
     impl From<RpDomainKeyCacheRow> for super::RpDomainKeyCacheMeta {
@@ -1941,9 +1942,9 @@ pub mod pg {
         pub subject_domain: String,
         pub application_id: String,
         pub instance_id: String,
-        pub fetched_at: chrono::DateTime<chrono::Utc>,
-        pub revocations_checked_at: chrono::DateTime<chrono::Utc>,
-        pub last_used_at: chrono::DateTime<chrono::Utc>,
+        pub fetched_at: time::OffsetDateTime,
+        pub revocations_checked_at: time::OffsetDateTime,
+        pub last_used_at: time::OffsetDateTime,
     }
 
     impl From<RpApplicationKeyCacheEntryRow> for super::RpApplicationKeyCacheEntry {
@@ -1969,9 +1970,9 @@ pub mod pg {
         pub subject_domain: String,
         pub application_id: String,
         pub instance_id: String,
-        pub fetched_at: chrono::DateTime<chrono::Utc>,
-        pub revocations_checked_at: chrono::DateTime<chrono::Utc>,
-        pub last_used_at: chrono::DateTime<chrono::Utc>,
+        pub fetched_at: time::OffsetDateTime,
+        pub revocations_checked_at: time::OffsetDateTime,
+        pub last_used_at: time::OffsetDateTime,
     }
 
     #[derive(Queryable, Selectable)]
@@ -1981,7 +1982,7 @@ pub mod pg {
         pub cache_entry_id: uuid::Uuid,
         pub key_id: String,
         pub signed_attestation: Vec<u8>,
-        pub attestation_expires_at: chrono::DateTime<chrono::Utc>,
+        pub attestation_expires_at: time::OffsetDateTime,
         pub verified_by_key_ids: String,
     }
 
@@ -2005,7 +2006,7 @@ pub mod pg {
         pub cache_entry_id: uuid::Uuid,
         pub target_key_id: String,
         pub revocation: Vec<u8>,
-        pub revoked_at: chrono::DateTime<chrono::Utc>,
+        pub revoked_at: time::OffsetDateTime,
     }
 
     impl From<RpApplicationKeyRevocationRow> for super::RpApplicationKeyRevocationCache {

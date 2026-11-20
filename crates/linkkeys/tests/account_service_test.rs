@@ -159,9 +159,7 @@ fn test_service_get_my_info() {
         b"test@test.com",
         &signed.signatures,
         None,
-        chrono::DateTime::parse_from_rfc3339("2026-07-01T00:00:00+00:00")
-            .unwrap()
-            .with_timezone(&chrono::Utc),
+        liblinkkeys::timestamp::parse_rfc3339("2026-07-01T00:00:00+00:00").unwrap(),
     )
     .unwrap();
 

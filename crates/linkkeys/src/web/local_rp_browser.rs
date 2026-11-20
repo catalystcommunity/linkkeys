@@ -27,6 +27,7 @@
 //! browser app shows the matching catalog text (`app.error.reason.<code>`).
 
 use base64ct::{Base64UrlUnpadded, Encoding as _};
+use liblinkkeys::timestamp::Rfc3339 as _;
 use rand::Rng;
 use rocket::response::Redirect;
 use rocket::State;
@@ -117,7 +118,7 @@ fn extract_host(url: &str) -> Option<String> {
 /// negotiability.
 fn validate_signed_local_rp_request(
     signed_request: &str,
-    now: chrono::DateTime<chrono::Utc>,
+    now: time::OffsetDateTime,
 ) -> Result<(LocalRpLoginRequest, LocalRpDescriptor, AeadSuite), &'static str> {
     let signed =
         liblinkkeys::encoding::signed_local_rp_login_request_from_url_param(signed_request)
@@ -413,7 +414,7 @@ pub(super) fn inspect(
     signed_request: &str,
 ) -> Result<BrowserLocalRpInspectResponse, ServiceError> {
     let (request, descriptor, _suite) =
-        validate_signed_local_rp_request(signed_request, chrono::Utc::now())
+        validate_signed_local_rp_request(signed_request, time::OffsetDateTime::now_utc())
             .map_err(|r| refused(400, r))?;
     let user = check_person(pool, user, session, &request)?;
     let callback_host =
@@ -488,7 +489,7 @@ pub(super) fn complete(
     value: BrowserLocalRpCompleteRequest,
 ) -> Result<BrowserLocalRpCompleteResponse, ServiceError> {
     let (request, descriptor, suite) =
-        validate_signed_local_rp_request(&value.signed_request, chrono::Utc::now())
+        validate_signed_local_rp_request(&value.signed_request, time::OffsetDateTime::now_utc())
             .map_err(|r| refused(400, r))?;
     let user = check_person(pool, user, session, &request)?;
     // Before any claim write. Finalize checks again before it issues.
@@ -614,10 +615,9 @@ fn finalize_local_rp_login(
 
     let requested = super::requested_types(req);
     if !requested.is_empty() {
-        let now = chrono::Utc::now();
+        let now = time::OffsetDateTime::now_utc();
         let issued_at = now.to_rfc3339();
-        let expires_at =
-            (now + chrono::Duration::seconds(super::consent_ttl_seconds())).to_rfc3339();
+        let expires_at = (now + time::Duration::seconds(super::consent_ttl_seconds())).to_rfc3339();
         let grant_id = uuid::Uuid::now_v7().to_string();
         let signed = super::sign_consent_grant_for_user(
             pool,
@@ -653,7 +653,7 @@ fn finalize_local_rp_login(
     rand::thread_rng().fill(&mut raw_ticket);
     let ticket_hash = liblinkkeys::crypto::fingerprint(&raw_ticket);
     let ticket_expires_at =
-        chrono::Utc::now() + chrono::Duration::seconds(LOCAL_RP_TICKET_TTL_SECONDS);
+        time::OffsetDateTime::now_utc() + time::Duration::seconds(LOCAL_RP_TICKET_TTL_SECONDS);
     crate::services::local_rp::issue_ticket(
         pool,
         &ticket_hash,
@@ -665,9 +665,9 @@ fn finalize_local_rp_login(
     )
     .map_err(|_| refused(500, reason::INTERNAL))?;
 
-    let now = chrono::Utc::now();
+    let now = time::OffsetDateTime::now_utc();
     let issued_at = now.to_rfc3339();
-    let expires_at = (now + chrono::Duration::seconds(LOCAL_RP_CALLBACK_TTL_SECONDS)).to_rfc3339();
+    let expires_at = (now + time::Duration::seconds(LOCAL_RP_CALLBACK_TTL_SECONDS)).to_rfc3339();
     let payload = liblinkkeys::local_rp::build_local_rp_callback_payload(
         &user.id,
         &get_domain_name(),
@@ -743,10 +743,11 @@ pub(super) fn auth_local_rp_get(
     let Some(sr) = signed_request else {
         return error(reason::MALFORMED);
     };
-    let (request, descriptor, _) = match validate_signed_local_rp_request(sr, chrono::Utc::now()) {
-        Ok(v) => v,
-        Err(r) => return error(r),
-    };
+    let (request, descriptor, _) =
+        match validate_signed_local_rp_request(sr, time::OffsetDateTime::now_utc()) {
+            Ok(v) => v,
+            Err(r) => return error(r),
+        };
     if let Err(r) = precheck_local_rp_gate(pool, &descriptor.fingerprint) {
         return error(r);
     }

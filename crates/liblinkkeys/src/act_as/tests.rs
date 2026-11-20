@@ -1,13 +1,17 @@
 use super::*;
 use crate::crypto::{fingerprint, generate_keypair, SigningAlgorithm};
 use crate::generated::types::{ActAsScopeEntry, LocalRpDescriptor};
-use chrono::TimeZone;
+use time::{Date, Month};
 
 const HOME: &str = "home.example";
 const SKEW: i64 = 60;
 
-fn now() -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 10, 6, 12, 0, 0).unwrap()
+fn now() -> OffsetDateTime {
+    Date::from_calendar_date(2026, Month::October, 6)
+        .unwrap()
+        .with_hms(12, 0, 0)
+        .unwrap()
+        .assume_utc()
 }
 
 struct Key {

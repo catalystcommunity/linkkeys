@@ -429,7 +429,7 @@ pub fn issue_ticket(
     user_id: &str,
     user_domain: &str,
     granted_claims: &[String],
-    expires_at: chrono::DateTime<chrono::Utc>,
+    expires_at: time::OffsetDateTime,
 ) -> diesel::result::QueryResult<crate::db::models::LocalRpClaimTicket> {
     let granted_claims_json = serde_json::to_string(granted_claims).unwrap_or_else(|e| {
         log::warn!(
@@ -448,10 +448,8 @@ pub fn issue_ticket(
     )
 }
 
-fn parse_rfc3339(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
-    chrono::DateTime::parse_from_rfc3339(s)
-        .ok()
-        .map(|dt| dt.with_timezone(&chrono::Utc))
+fn parse_rfc3339(s: &str) -> Option<time::OffsetDateTime> {
+    liblinkkeys::timestamp::parse_rfc3339(s).ok()
 }
 
 /// Redeem a claim-get ticket by its hash: checks it exists, is bound to
@@ -474,7 +472,7 @@ pub fn redeem_ticket(
     pool: &DbPool,
     ticket_hash: &str,
     authenticated_fingerprint: &str,
-    now: chrono::DateTime<chrono::Utc>,
+    now: time::OffsetDateTime,
 ) -> Result<crate::db::models::LocalRpClaimTicket, TicketRedeemError> {
     let ticket = pool
         .find_local_rp_claim_ticket(ticket_hash)?
@@ -485,7 +483,7 @@ pub fn redeem_ticket(
     }
 
     let expires_at =
-        parse_rfc3339(&ticket.expires_at).unwrap_or(chrono::DateTime::<chrono::Utc>::MIN_UTC);
+        parse_rfc3339(&ticket.expires_at).unwrap_or(time::PrimitiveDateTime::MIN.assume_utc());
     if now > expires_at {
         return Err(TicketRedeemError::Expired);
     }
@@ -504,7 +502,7 @@ pub fn redeem_ticket(
 /// (mirrors `services::pins::recheck_all`'s cron-friendly shape).
 pub fn purge_expired_tickets(
     pool: &DbPool,
-    now: chrono::DateTime<chrono::Utc>,
+    now: time::OffsetDateTime,
 ) -> diesel::result::QueryResult<usize> {
     pool.purge_expired_local_rp_claim_tickets(now)
 }

@@ -13,7 +13,7 @@ pub mod pg {
         private_key_encrypted: &[u8],
         fingerprint: &str,
         algorithm: &str,
-        expires_at: chrono::DateTime<chrono::Utc>,
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<UserKey> {
         let new_row = NewUserKeyRow {
             id: uuid::Uuid::now_v7(),
@@ -38,7 +38,7 @@ pub mod pg {
         let uid: uuid::Uuid = user_id_str
             .parse()
             .map_err(|_| diesel::result::Error::NotFound)?;
-        let now = chrono::Utc::now();
+        let now = time::OffsetDateTime::now_utc();
         user_keys::table
             .filter(user_keys::user_id.eq(uid))
             .filter(user_keys::expires_at.gt(now))
@@ -57,7 +57,7 @@ pub mod pg {
             .map_err(|_| diesel::result::Error::NotFound)?;
         diesel::update(user_keys::table.find(id))
             .filter(user_keys::revoked_at.is_null())
-            .set(user_keys::revoked_at.eq(chrono::Utc::now()))
+            .set(user_keys::revoked_at.eq(time::OffsetDateTime::now_utc()))
             .execute(conn)
     }
 }
@@ -65,6 +65,7 @@ pub mod pg {
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
     use diesel::prelude::*;
+    use liblinkkeys::timestamp::Rfc3339 as _;
 
     use crate::db::models::sqlite::{NewUserKeyRow, UserKeyRow};
     use crate::db::models::UserKey;
@@ -104,7 +105,7 @@ pub mod sqlite {
         conn: &mut diesel::SqliteConnection,
         user_id: &str,
     ) -> QueryResult<Vec<UserKey>> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = time::OffsetDateTime::now_utc().to_rfc3339();
         user_keys::table
             .filter(user_keys::user_id.eq(user_id))
             .filter(user_keys::expires_at.gt(&now))
@@ -118,7 +119,7 @@ pub mod sqlite {
     pub fn revoke(conn: &mut diesel::SqliteConnection, key_id: &str) -> QueryResult<usize> {
         diesel::update(user_keys::table.find(key_id))
             .filter(user_keys::revoked_at.is_null())
-            .set(user_keys::revoked_at.eq(chrono::Utc::now().to_rfc3339()))
+            .set(user_keys::revoked_at.eq(time::OffsetDateTime::now_utc().to_rfc3339()))
             .execute(conn)
     }
 }

@@ -45,7 +45,7 @@ CSIL-generated types) directly as a normal Cargo dependency.
 ## Quickstart
 
 ```rust
-use chrono::Utc;
+use time::OffsetDateTime;
 use linkkeys_local_rp::{
     generate_local_rp_identity, begin_local_login, complete_local_login,
     GenerateLocalRpIdentityConfig, BeginLocalLoginConfig, CompleteLocalLoginConfig,
@@ -55,7 +55,7 @@ use linkkeys_local_rp::{
 // Once, at install/setup time — persist the returned bytes with ordinary
 // application-secret care (see "Security notes" below).
 let identity = generate_local_rp_identity(
-    GenerateLocalRpIdentityConfig::new("My LAN Jukebox", Utc::now()),
+    GenerateLocalRpIdentityConfig::new("My LAN Jukebox", OffsetDateTime::now_utc()),
 )?;
 let stored_bytes = local_rp_identity_to_bytes(&identity);
 // ... write `stored_bytes` to your app's secret/config store ...
@@ -66,7 +66,7 @@ let (redirect, pending) = begin_local_login(BeginLocalLoginConfig::new(
     &identity,
     "http://jukebox.lan:8080/auth/callback",
     "alice@example.com", // a full login prefills alice; a bare domain only selects the IDP
-    Utc::now(),
+    OffsetDateTime::now_utc(),
 ))?;
 // Persist `pending` (it derives Serialize/Deserialize — e.g. put it in a
 // server-side session tied to the browser), then redirect the user's
@@ -81,7 +81,7 @@ let verified = complete_local_login(CompleteLocalLoginConfig::new(
     &pending,
     &encrypted_token,   // the encrypted_token query-parameter's value
     &arrived_url,        // the full URL the request actually arrived at
-    Utc::now(),
+    OffsetDateTime::now_utc(),
 ))?;
 // verified.user_id, verified.user_domain, verified.claims, ... — session
 // creation, local user records, and authorization are all your app's job.
@@ -198,10 +198,10 @@ Call `resolve_application_keys` to fetch and verify one peer's application
 keys:
 
 ```rust
-use chrono::Utc;
+use time::OffsetDateTime;
 use linkkeys_local_rp::{resolve_application_keys, CacheFreshness, ResolveApplicationKeysConfig};
 
-let now = Utc::now();
+let now = OffsetDateTime::now_utc();
 let config = ResolveApplicationKeysConfig::new(
     "peer-user-id",
     "peer.example.com",
@@ -264,7 +264,7 @@ The descriptor signing key signs every request and presentation. The SDK uses
 `liblinkkeys::act_as` (`GranteeSigner::LocalRp`) for each signature.
 
 ```rust,no_run
-use chrono::Utc;
+use time::OffsetDateTime;
 use linkkeys_local_rp::{
     begin_act_as, complete_act_as_callback, present_act_as, refresh_act_as_grant,
     ApplicationRef, BeginActAsConfig, LocalRpKeyMaterial, RefreshActAsGrantConfig,
@@ -279,7 +279,7 @@ let mut config = BeginActAsConfig::new(
     "alice@example.com",
     scope_set_cbor,
     "http://jukebox.lan:8080/act-as/callback",
-    Utc::now(),
+    OffsetDateTime::now_utc(),
 );
 config.requested_lifetime_seconds = Some(3600);
 let (redirect, pending) = begin_act_as(config)?;
@@ -293,11 +293,11 @@ let refreshed = refresh_act_as_grant(RefreshActAsGrantConfig::new(
     identity,
     &pending.user_domain,
     &grant_id,
-    Utc::now(),
+    OffsetDateTime::now_utc(),
 ))?;
 
 // 4. Sign one presentation for each call to the audience.
-let presented = present_act_as(&refreshed.grant, audience, digest, Utc::now(), nonce, identity)?;
+let presented = present_act_as(&refreshed.grant, audience, digest, OffsetDateTime::now_utc(), nonce, identity)?;
 // Send `presented.credential_cbor` with the call.
 # Ok(()) }
 ```

@@ -83,8 +83,8 @@ impl ValueType {
             // Reject non-finite (inf/nan) so a domain never self-signs a junk float.
             ValueType::Float => s.parse::<f64>().map(|v| v.is_finite()).unwrap_or(false),
             ValueType::Decimal => is_decimal(s),
-            ValueType::Date => chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").is_ok(),
-            ValueType::Timestamp => chrono::DateTime::parse_from_rfc3339(s).is_ok(),
+            ValueType::Date => crate::timestamp::parse_date_ymd(s).is_ok(),
+            ValueType::Timestamp => crate::timestamp::parse_rfc3339(s).is_ok(),
             ValueType::Opaque => true,
         };
         if ok {

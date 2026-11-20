@@ -23,4 +23,5 @@ pub mod legacy_signatures;
 pub mod local_rp;
 pub mod revocation;
 pub mod signing_request;
+pub mod timestamp;
 pub mod userinfo;

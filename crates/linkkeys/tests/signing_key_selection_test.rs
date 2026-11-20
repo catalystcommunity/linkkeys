@@ -10,9 +10,10 @@
 
 mod common;
 
-use chrono::{Duration, Utc};
 use liblinkkeys::crypto::{self, SigningAlgorithm};
+use liblinkkeys::timestamp::Rfc3339 as _;
 use linkkeys::web::pick_active_signing_key;
+use time::{Duration, OffsetDateTime};
 
 const TEST_PASSPHRASE: &[u8] = b"test-passphrase";
 
@@ -23,7 +24,7 @@ fn add_signing_key(pool: &linkkeys::db::DbPool) -> (String, Vec<u8>) {
     let sk_bytes = sk.to_bytes().to_vec();
     let encrypted = crypto::encrypt_private_key(&sk_bytes, TEST_PASSPHRASE).unwrap();
     let fp = crypto::fingerprint(&pk);
-    let expires = Utc::now() + Duration::days(365);
+    let expires = OffsetDateTime::now_utc() + Duration::days(365);
     let dk = pool
         .create_domain_key(&pk, &encrypted, &fp, "ed25519", expires)
         .expect("create_domain_key");
@@ -36,7 +37,7 @@ fn add_encryption_key(pool: &linkkeys::db::DbPool, signer_id: &str, signer_sk: &
     let (enc_pub, enc_priv) = crypto::generate_x25519_keypair();
     let enc_fp = crypto::fingerprint(&enc_pub);
     let enc_priv_encrypted = crypto::encrypt_private_key(&enc_priv, TEST_PASSPHRASE).unwrap();
-    let expires = Utc::now() + Duration::days(365);
+    let expires = OffsetDateTime::now_utc() + Duration::days(365);
     let vouch = liblinkkeys::dns::sign_key_vouch(
         &enc_fp,
         &expires.to_rfc3339(),

@@ -25,11 +25,12 @@ use crate::dns::DnsResolver;
 use crate::identity::LocalRpKeyMaterial;
 use crate::transport::Transport;
 use crate::{begin::PendingLogin, Error};
-use chrono::{DateTime, Utc};
 use liblinkkeys::claims::{self, DomainKeySet};
 use liblinkkeys::crypto::AeadSuite;
 use liblinkkeys::generated::types::{Claim, DomainPublicKey};
+use liblinkkeys::timestamp::Rfc3339 as _;
 use liblinkkeys::{encoding, local_rp};
+use time::OffsetDateTime;
 
 /// Bound on the number of distinct claim-signer domains
 /// [`complete_local_login`] will fetch keys for per completion — see the
@@ -54,7 +55,7 @@ pub struct CompleteLocalLoginConfig<'a> {
     /// parameter this SDK strips before comparing against the signed
     /// payload's `callback_url`).
     pub arrived_url: &'a str,
-    pub now: DateTime<Utc>,
+    pub now: OffsetDateTime,
     /// Clock-skew tolerance for timestamp checks. Defaults to
     /// [`local_rp::DEFAULT_CLOCK_SKEW_SECONDS`] (±300s) when `None`.
     pub clock_skew_seconds: Option<i64>,
@@ -74,7 +75,7 @@ impl<'a> CompleteLocalLoginConfig<'a> {
         pending: &'a PendingLogin,
         encrypted_token: &'a str,
         arrived_url: &'a str,
-        now: DateTime<Utc>,
+        now: OffsetDateTime,
     ) -> Self {
         Self {
             key_material,
@@ -106,17 +107,15 @@ pub struct VerifiedLocalLogin {
     /// per-signer-domain keys if a claim was attested by another domain).
     pub domain_public_keys: Vec<DomainPublicKey>,
     pub local_rp_fingerprint: String,
-    pub issued_at: DateTime<Utc>,
-    pub expires_at: DateTime<Utc>,
+    pub issued_at: OffsetDateTime,
+    pub expires_at: OffsetDateTime,
     /// The ticket's own expiry (design doc: "Valid for a bounded window,
     /// default 1 hour. Multi-use within the window").
-    pub ticket_expires_at: DateTime<Utc>,
+    pub ticket_expires_at: OffsetDateTime,
 }
 
-fn parse_rfc3339(field: &'static str, s: &str) -> Result<DateTime<Utc>, Error> {
-    DateTime::parse_from_rfc3339(s)
-        .map(|dt| dt.with_timezone(&Utc))
-        .map_err(|e| Error::Decode(format!("{field}: {e}")))
+fn parse_rfc3339(field: &'static str, s: &str) -> Result<OffsetDateTime, Error> {
+    liblinkkeys::timestamp::parse_rfc3339(s).map_err(|e| Error::Decode(format!("{field}: {e}")))
 }
 
 /// Undo the exact `?`/`&` + `encrypted_token=` suffix construction

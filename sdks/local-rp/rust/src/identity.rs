@@ -15,10 +15,11 @@
 //! or API key), not merely as configuration.
 
 use crate::Error;
-use chrono::{DateTime, Duration, Utc};
 use liblinkkeys::crypto::{self, AeadSuite};
 use liblinkkeys::generated::types::SignedLocalRpDescriptor;
 use liblinkkeys::local_rp;
+use liblinkkeys::timestamp::Rfc3339 as _;
+use time::{Duration, OffsetDateTime};
 
 /// Default local RP key lifetime: 10 years (design doc, "One Signing Key and
 /// One Encryption Key" — "Default lifetime: 10 years. Rotation is a
@@ -46,15 +47,15 @@ pub struct GenerateLocalRpIdentityConfig {
     pub lifetime: Option<Duration>,
     /// The current time — never read from the system clock inside this
     /// crate, so callers control determinism (and so this crate could in
-    /// principle run on WASM, mirroring `liblinkkeys`'s own no-`Utc::now()`
+    /// principle run on WASM, mirroring `liblinkkeys`'s own no-`OffsetDateTime::now_utc()`
     /// discipline, even though this SDK crate itself does its own I/O).
-    pub now: DateTime<Utc>,
+    pub now: OffsetDateTime,
 }
 
 impl GenerateLocalRpIdentityConfig {
     /// Convenience constructor for the common case (both suites, default
     /// 10-year lifetime).
-    pub fn new(app_name: impl Into<String>, now: DateTime<Utc>) -> Self {
+    pub fn new(app_name: impl Into<String>, now: OffsetDateTime) -> Self {
         Self {
             app_name: app_name.into(),
             local_domain_hint: None,
@@ -305,8 +306,8 @@ pub fn local_rp_identity_from_bytes(bytes: &[u8]) -> Result<LocalRpKeyMaterial, 
 mod tests {
     use super::*;
 
-    fn now() -> DateTime<Utc> {
-        Utc::now()
+    fn now() -> OffsetDateTime {
+        OffsetDateTime::now_utc()
     }
 
     #[test]

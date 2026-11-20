@@ -9,7 +9,7 @@
 //! shared `claims::verify_signature_quorum` so it can't drift from claim/consent
 //! verification.
 
-use chrono::Utc;
+use time::OffsetDateTime;
 
 use crate::claims::{verify_signature_quorum, ClaimError, ClaimSigner, DomainKeySet};
 use crate::crypto::CryptoError;
@@ -208,9 +208,9 @@ pub fn verify_signing_request(
     })
     .map_err(SigningRequestError::Signature)?;
 
-    let expires = chrono::DateTime::parse_from_rfc3339(&request.expires_at)
+    let expires = crate::timestamp::parse_rfc3339(&request.expires_at)
         .map_err(|_| SigningRequestError::BadExpiry)?;
-    if Utc::now() > expires {
+    if OffsetDateTime::now_utc() > expires {
         return Err(SigningRequestError::Expired);
     }
 
@@ -222,6 +222,7 @@ mod tests {
     use super::*;
     use crate::crypto::{fingerprint, generate_ed25519_keypair, SigningAlgorithm};
     use crate::generated::types::DomainPublicKey;
+    use crate::timestamp::Rfc3339 as _;
 
     fn keyset(domain: &str, key_id: &str, pk: &[u8]) -> DomainKeySet {
         DomainKeySet {
@@ -233,7 +234,7 @@ mod tests {
                 algorithm: "ed25519".to_string(),
                 key_usage: "sign".to_string(),
                 created_at: String::new(),
-                expires_at: (Utc::now() + chrono::Duration::days(365)).to_rfc3339(),
+                expires_at: (OffsetDateTime::now_utc() + time::Duration::days(365)).to_rfc3339(),
                 revoked_at: None,
                 signed_by_key_id: None,
                 key_signature: None,
@@ -253,7 +254,7 @@ mod tests {
                 issuer_domain: "dmv.test",
                 requested_claim_types: &types,
                 nonce: "nonce-1",
-                issued_at: &Utc::now().to_rfc3339(),
+                issued_at: &OffsetDateTime::now_utc().to_rfc3339(),
                 expires_at,
                 callback: Some("https://home.test/deposit"),
             },
@@ -270,7 +271,7 @@ mod tests {
 
     #[test]
     fn round_trips_and_verifies() {
-        let exp = (Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
+        let exp = (OffsetDateTime::now_utc() + time::Duration::hours(1)).to_rfc3339();
         let (signed, pk, kid) = spec_signed(&exp);
         let keys = vec![keyset("home.test", &kid, &pk)];
         let req = verify_signing_request(&signed, "home.test", "dmv.test", &keys).unwrap();
@@ -281,7 +282,7 @@ mod tests {
 
     #[test]
     fn wrong_issuer_is_rejected() {
-        let exp = (Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
+        let exp = (OffsetDateTime::now_utc() + time::Duration::hours(1)).to_rfc3339();
         let (signed, pk, kid) = spec_signed(&exp);
         let keys = vec![keyset("home.test", &kid, &pk)];
         // A request addressed to dmv.test must not verify at another issuer.
@@ -293,7 +294,7 @@ mod tests {
 
     #[test]
     fn expired_is_rejected() {
-        let exp = (Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+        let exp = (OffsetDateTime::now_utc() - time::Duration::hours(1)).to_rfc3339();
         let (signed, pk, kid) = spec_signed(&exp);
         let keys = vec![keyset("home.test", &kid, &pk)];
         assert!(matches!(
@@ -304,7 +305,7 @@ mod tests {
 
     #[test]
     fn tampered_payload_fails_quorum() {
-        let exp = (Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
+        let exp = (OffsetDateTime::now_utc() + time::Duration::hours(1)).to_rfc3339();
         let (mut signed, pk, kid) = spec_signed(&exp);
         // Flip a byte in the encoded request → decoded fields no longer match the
         // signed payload.

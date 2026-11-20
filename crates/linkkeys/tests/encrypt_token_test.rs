@@ -6,6 +6,7 @@
 
 mod common;
 
+use liblinkkeys::timestamp::Rfc3339 as _;
 use liblinkkeys::{assertions, crypto, encoding};
 
 const TEST_DOMAIN: &str = "selfrp.test";
@@ -24,7 +25,7 @@ async fn encrypt_token_for_rp_self_rp_round_trips() {
     let sk_bytes = sk.to_bytes();
     let encrypted_sk = crypto::encrypt_private_key(&sk_bytes, TEST_PASSPHRASE).unwrap();
     let fingerprint = crypto::fingerprint(&pk_bytes);
-    let expires = chrono::Utc::now() + chrono::Duration::days(365);
+    let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365);
     let domain_key = pool
         .create_domain_key(&pk_bytes, &encrypted_sk, &fingerprint, "ed25519", expires)
         .expect("create_domain_key");

@@ -15,10 +15,10 @@
 //! - a revoked sibling-signed key drops out of the usable set on
 //!   reclassification.
 
-use chrono::{DateTime, Duration, Utc};
 use liblinkkeys::application_keys::{self as ak, ApplicationSigner, InstanceRef};
 use liblinkkeys::crypto::{self, SigningAlgorithm, ALGORITHM_ED25519};
 use liblinkkeys::generated::types::{DomainPublicKey, GetApplicationKeysResponse};
+use liblinkkeys::timestamp::Rfc3339 as _;
 use linkkeys_local_rp::application_key_cache::BoundedInMemoryApplicationKeyCache;
 use linkkeys_local_rp::application_key_resolver::{
     resolve_application_keys, CacheFreshness, ResolveApplicationKeysConfig,
@@ -29,6 +29,7 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use time::{Duration, OffsetDateTime};
 
 const DOMAIN_SIGNING_SEED: [u8; 32] = [3u8; 32];
 const DOMAIN_KEY_ID: &str = "test-domain-key-1";
@@ -129,7 +130,7 @@ where
     addr
 }
 
-fn domain_public_key(now: DateTime<Utc>) -> DomainPublicKey {
+fn domain_public_key(now: OffsetDateTime) -> DomainPublicKey {
     let sk = ed25519_dalek::SigningKey::from_bytes(&DOMAIN_SIGNING_SEED);
     let pk = *sk.verifying_key().as_bytes();
     DomainPublicKey {
@@ -146,7 +147,7 @@ fn domain_public_key(now: DateTime<Utc>) -> DomainPublicKey {
     }
 }
 
-fn app_key_ref(seed: [u8; 32], key_id: &str, now: DateTime<Utc>) -> ak::ApplicationKeyRef {
+fn app_key_ref(seed: [u8; 32], key_id: &str, now: OffsetDateTime) -> ak::ApplicationKeyRef {
     let sk = ed25519_dalek::SigningKey::from_bytes(&seed);
     let pk = *sk.verifying_key().as_bytes();
     ak::ApplicationKeyRef {
@@ -163,7 +164,7 @@ fn app_key_ref(seed: [u8; 32], key_id: &str, now: DateTime<Utc>) -> ak::Applicat
 
 fn signed_attestation(
     key: &ak::ApplicationKeyRef,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> liblinkkeys::generated::types::SignedApplicationKeyAttestation {
     let instance = InstanceRef {
         subject_user_id: SUBJECT_USER_ID,
@@ -192,7 +193,7 @@ fn signed_attestation(
 /// Dispatch table shared by every scenario in this file: `get-domain-keys`,
 /// `get-revocations`, and `ApplicationKeys/get-application-keys`.
 fn dispatch(
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
     attestations: Vec<liblinkkeys::generated::types::SignedApplicationKeyAttestation>,
     revocations: Vec<liblinkkeys::generated::types::ApplicationKeyRevocation>,
 ) -> impl Fn(&str, &str, &[u8]) -> csilgen_transport::rpc::RpcResponse + Send + Sync + 'static {
@@ -254,7 +255,7 @@ fn dns_for(addr: std::net::SocketAddr) -> FakeDnsResolver {
 
 #[test]
 fn miss_then_fresh_hit_then_revocation_drops_the_key() {
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let key_a = app_key_ref(APP_KEY_A_SEED, APP_KEY_A_ID, now);
     let key_b = app_key_ref(APP_KEY_B_SEED, APP_KEY_B_ID, now);
     let attestation_a = signed_attestation(&key_a, now);

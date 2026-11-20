@@ -1,4 +1,5 @@
 // LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
+use liblinkkeys::timestamp::Rfc3339 as _;
 use rand::Rng;
 use rocket::http::Status;
 use std::env;
@@ -141,9 +142,8 @@ pub(crate) fn sign_request_core(
     let domain = get_domain_name();
     // Attestation time: signed, so normalize to whole seconds for a
     // byte-identical round-trip through storage (same rule as claim expiry).
-    use chrono::Timelike;
-    let attested_at = chrono::Utc::now()
-        .with_nanosecond(0)
+    let attested_at = time::OffsetDateTime::now_utc()
+        .replace_nanosecond(0)
         .expect("zeroing nanoseconds cannot fail")
         .to_rfc3339();
     let mut rp_claims: Vec<liblinkkeys::generated::types::DomainClaim> = rp_config
@@ -688,8 +688,8 @@ async fn fetch_and_apply_revocations(
     fingerprints: &[String],
     trusted: &[liblinkkeys::generated::types::DomainPublicKey],
 ) -> Vec<String> {
-    let since = (chrono::Utc::now()
-        - chrono::Duration::days(crate::services::revocations::fetch_default_days()))
+    let since = (time::OffsetDateTime::now_utc()
+        - time::Duration::days(crate::services::revocations::fetch_default_days()))
     .to_rfc3339();
     let payload = liblinkkeys::generated::encode_get_revocations_request(
         &liblinkkeys::generated::types::GetRevocationsRequest { since: Some(since) },

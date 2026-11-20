@@ -6,6 +6,7 @@
 #[cfg(feature = "postgres")]
 pub mod pg {
     use diesel::prelude::*;
+    use liblinkkeys::timestamp::Rfc3339 as _;
 
     use crate::db::models::pg::PeerKeyRow;
     use crate::db::models::PeerKey;
@@ -55,7 +56,7 @@ pub mod pg {
                 .filter(peer_keys::fingerprint.eq(fingerprint))
                 .filter(peer_keys::revoked_at.is_null()),
         )
-        .set(peer_keys::revoked_at.eq(chrono::Utc::now().to_rfc3339()))
+        .set(peer_keys::revoked_at.eq(time::OffsetDateTime::now_utc().to_rfc3339()))
         .execute(conn)
     }
 
@@ -82,6 +83,7 @@ pub mod pg {
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
     use diesel::prelude::*;
+    use liblinkkeys::timestamp::Rfc3339 as _;
 
     use crate::db::models::sqlite::PeerKeyRow;
     use crate::db::models::PeerKey;
@@ -128,7 +130,7 @@ pub mod sqlite {
                 .filter(peer_keys::fingerprint.eq(fingerprint))
                 .filter(peer_keys::revoked_at.is_null()),
         )
-        .set(peer_keys::revoked_at.eq(chrono::Utc::now().to_rfc3339()))
+        .set(peer_keys::revoked_at.eq(time::OffsetDateTime::now_utc().to_rfc3339()))
         .execute(conn)
     }
 

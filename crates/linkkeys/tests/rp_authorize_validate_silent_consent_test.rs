@@ -20,6 +20,7 @@ use liblinkkeys::generated::types::{
     AuthFlowContext, BrowserAuthorizationCompleteRequest, ClaimRequest, RequestedClaim,
     SessionPasswordLoginRequest,
 };
+use liblinkkeys::timestamp::Rfc3339 as _;
 use linkkeys::services::auth;
 use rocket::http::{ContentType, Header, Status};
 use rocket::local::asynchronous::Client;
@@ -187,7 +188,7 @@ async fn validate_reports_silent_consent_from_a_standing_grant() {
     let sk_bytes = sk.to_bytes().to_vec();
     let enc_sk = crypto::encrypt_private_key(&sk_bytes, PASSPHRASE).unwrap();
     let fp = crypto::fingerprint(&pk);
-    let expires = chrono::Utc::now() + chrono::Duration::days(365);
+    let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365);
     let signing = pool
         .create_domain_key(&pk, &enc_sk, &fp, "ed25519", expires)
         .expect("signing key");
@@ -218,7 +219,7 @@ async fn validate_reports_silent_consent_from_a_standing_grant() {
             b"a@b.com",
             &[],
             None,
-            chrono::Utc::now(),
+            time::OffsetDateTime::now_utc(),
         )
         .expect("email claim");
 
@@ -342,7 +343,7 @@ async fn forced_claim_without_a_value_does_not_reopen_consent() {
     let sk_bytes = sk.to_bytes().to_vec();
     let enc_sk = crypto::encrypt_private_key(&sk_bytes, PASSPHRASE).unwrap();
     let fp = crypto::fingerprint(&pk);
-    let expires = chrono::Utc::now() + chrono::Duration::days(365);
+    let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365);
     let signing = pool
         .create_domain_key(&pk, &enc_sk, &fp, "ed25519", expires)
         .expect("signing key");
@@ -372,7 +373,7 @@ async fn forced_claim_without_a_value_does_not_reopen_consent() {
         b"a@b.com",
         &[],
         None,
-        chrono::Utc::now(),
+        time::OffsetDateTime::now_utc(),
     )
     .expect("email claim");
 
@@ -442,7 +443,7 @@ async fn forced_claim_without_a_value_does_not_reopen_consent() {
         b"true",
         &[],
         None,
-        chrono::Utc::now(),
+        time::OffsetDateTime::now_utc(),
     )
     .expect("over_21 claim");
     let sr = signed_claims_request(
@@ -484,7 +485,7 @@ async fn seeded_idp() -> (
     let sk_bytes = sk.to_bytes().to_vec();
     let enc_sk = crypto::encrypt_private_key(&sk_bytes, PASSPHRASE).unwrap();
     let fp = crypto::fingerprint(&pk);
-    let expires = chrono::Utc::now() + chrono::Duration::days(365);
+    let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365);
     let signing = pool
         .create_domain_key(&pk, &enc_sk, &fp, "ed25519", expires)
         .expect("signing key");
@@ -515,7 +516,7 @@ async fn seeded_idp() -> (
             value,
             &[],
             None,
-            chrono::Utc::now(),
+            time::OffsetDateTime::now_utc(),
         )
         .expect("claim");
     }

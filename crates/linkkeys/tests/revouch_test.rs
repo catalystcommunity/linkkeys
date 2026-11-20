@@ -8,6 +8,7 @@ mod common;
 
 use liblinkkeys::crypto;
 use liblinkkeys::generated::types::DomainPublicKey;
+use liblinkkeys::timestamp::Rfc3339 as _;
 use linkkeys::db::models::DomainKey;
 use linkkeys::db::DbPool;
 use linkkeys::services::domain_keys::{revouch_encryption_keys, RevouchOutcome};
@@ -38,9 +39,8 @@ fn setup_keys(pool: &DbPool, tag: &str) -> (DomainKey, String) {
     let enc_fp = crypto::fingerprint(&enc_pub);
     let enc_priv_encrypted =
         crypto::encrypt_private_key(&enc_priv, TEST_PASSPHRASE.as_bytes()).unwrap();
-    use chrono::Timelike;
-    let expires = (chrono::Utc::now() + chrono::Duration::days(365))
-        .with_nanosecond(0)
+    let expires = (time::OffsetDateTime::now_utc() + time::Duration::days(365))
+        .replace_nanosecond(0)
         .unwrap();
     let vouch = sign_vouch_with_tag(tag, &enc_fp, &expires.to_rfc3339(), &sk_bytes);
     let enc_key = pool

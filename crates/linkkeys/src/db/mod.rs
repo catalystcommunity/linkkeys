@@ -24,6 +24,8 @@ pub mod users;
 
 use diesel::prelude::*;
 use diesel::r2d2::{self, ConnectionManager};
+#[cfg(feature = "sqlite")]
+use liblinkkeys::timestamp::Rfc3339 as _;
 use std::env;
 
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
@@ -1036,7 +1038,7 @@ impl DbPool {
                     .parse()
                     .map_err(|_| diesel::result::Error::NotFound)?;
                 conn.transaction(|conn| {
-                    let now = chrono::Utc::now();
+                    let now = time::OffsetDateTime::now_utc();
                     user_rows::table
                         .find(uid)
                         .select(user_rows::id)
@@ -1194,7 +1196,7 @@ impl DbPool {
                     )
                 })?;
                 conn.transaction(|conn| {
-                    let now = chrono::Utc::now().to_rfc3339();
+                    let now = time::OffsetDateTime::now_utc().to_rfc3339();
 
                     let profile_ids: Vec<String> = profiles::table
                         .filter(profiles::account_id.eq(user_id))
@@ -2308,7 +2310,7 @@ impl DbPool {
         &self,
         target_key_id: &str,
         target_fingerprint: &str,
-        revoked_at: chrono::DateTime<chrono::Utc>,
+        revoked_at: time::OffsetDateTime,
         cert: &[u8],
     ) -> QueryResult<usize> {
         match self {
@@ -2333,7 +2335,7 @@ impl DbPool {
 
     pub fn list_issued_revocations_since(
         &self,
-        since: Option<chrono::DateTime<chrono::Utc>>,
+        since: Option<time::OffsetDateTime>,
     ) -> QueryResult<Vec<models::IssuedRevocation>> {
         match self {
             #[cfg(feature = "postgres")]
@@ -2345,10 +2347,7 @@ impl DbPool {
         }
     }
 
-    pub fn has_issued_revocations_since(
-        &self,
-        since: chrono::DateTime<chrono::Utc>,
-    ) -> QueryResult<bool> {
+    pub fn has_issued_revocations_since(&self, since: time::OffsetDateTime) -> QueryResult<bool> {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => issued_revocations::pg::exists_since(&mut *pg_conn(p)?, since),
@@ -2366,7 +2365,7 @@ impl DbPool {
         subject_user_id: &str,
         application_id: &str,
         instance_id: &str,
-        enrolled_at: chrono::DateTime<chrono::Utc>,
+        enrolled_at: time::OffsetDateTime,
     ) -> QueryResult<models::ApplicationInstance> {
         match self {
             #[cfg(feature = "postgres")]
@@ -2415,7 +2414,7 @@ impl DbPool {
     pub fn record_application_trust_reset(
         &self,
         instance_row_id: &str,
-        at: chrono::DateTime<chrono::Utc>,
+        at: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         match self {
             #[cfg(feature = "postgres")]
@@ -2440,8 +2439,8 @@ impl DbPool {
         algorithm: &str,
         public_key: &[u8],
         fingerprint: &str,
-        created_at: chrono::DateTime<chrono::Utc>,
-        expires_at: chrono::DateTime<chrono::Utc>,
+        created_at: time::OffsetDateTime,
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<models::ApplicationKey> {
         match self {
             #[cfg(feature = "postgres")]
@@ -2522,7 +2521,7 @@ impl DbPool {
         &self,
         instance_row_id: &str,
         key_id: &str,
-        revoked_at: chrono::DateTime<chrono::Utc>,
+        revoked_at: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         match self {
             #[cfg(feature = "postgres")]
@@ -2548,8 +2547,8 @@ impl DbPool {
         &self,
         application_key_row_id: &str,
         signed_attestation: &[u8],
-        attested_at: chrono::DateTime<chrono::Utc>,
-        expires_at: chrono::DateTime<chrono::Utc>,
+        attested_at: time::OffsetDateTime,
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         match self {
             #[cfg(feature = "postgres")]
@@ -2594,7 +2593,7 @@ impl DbPool {
         instance_row_id: &str,
         target_key_id: &str,
         target_fingerprint: &str,
-        revoked_at: chrono::DateTime<chrono::Utc>,
+        revoked_at: time::OffsetDateTime,
         record: &[u8],
     ) -> QueryResult<usize> {
         match self {
@@ -2622,7 +2621,7 @@ impl DbPool {
     pub fn list_application_key_revocations_since(
         &self,
         instance_row_id: &str,
-        since: Option<chrono::DateTime<chrono::Utc>>,
+        since: Option<time::OffsetDateTime>,
     ) -> QueryResult<Vec<models::ApplicationKeyRevocationRecord>> {
         match self {
             #[cfg(feature = "postgres")]
@@ -2652,7 +2651,7 @@ impl DbPool {
         algorithm: &str,
         public_key: &[u8],
         nonce: &[u8],
-        expires_at: chrono::DateTime<chrono::Utc>,
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         match self {
             #[cfg(feature = "postgres")]
@@ -2690,7 +2689,7 @@ impl DbPool {
     pub fn consume_application_key_challenge(
         &self,
         challenge_id: &str,
-        now: chrono::DateTime<chrono::Utc>,
+        now: time::OffsetDateTime,
     ) -> QueryResult<Option<models::ApplicationKeyChallenge>> {
         match self {
             #[cfg(feature = "postgres")]
@@ -2708,7 +2707,7 @@ impl DbPool {
 
     pub fn delete_expired_application_key_challenges(
         &self,
-        now: chrono::DateTime<chrono::Utc>,
+        now: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         match self {
             #[cfg(feature = "postgres")]
@@ -2730,7 +2729,7 @@ impl DbPool {
         subject_user_id: &str,
         application_id: &str,
         instance_id: &str,
-        revocation_since: Option<chrono::DateTime<chrono::Utc>>,
+        revocation_since: Option<time::OffsetDateTime>,
     ) -> QueryResult<Option<models::ApplicationPublicRecords>> {
         match self {
             #[cfg(feature = "postgres")]
@@ -2821,8 +2820,8 @@ impl DbPool {
         claim_type: &str,
         claim_value: &[u8],
         signatures: &[liblinkkeys::generated::types::ClaimSignature],
-        expires_at: Option<chrono::DateTime<chrono::Utc>>,
-        attested_at: chrono::DateTime<chrono::Utc>,
+        expires_at: Option<time::OffsetDateTime>,
+        attested_at: time::OffsetDateTime,
     ) -> QueryResult<models::ClaimRow> {
         match self {
             #[cfg(feature = "postgres")]
@@ -2881,7 +2880,7 @@ impl DbPool {
         destination: &str,
         token_digest: &str,
         encrypted_payload: Vec<u8>,
-        expires_at: chrono::DateTime<chrono::Utc>,
+        expires_at: time::OffsetDateTime,
         required_credential_id: Option<&str>,
     ) -> QueryResult<models::AccountChallenge> {
         match self {
@@ -3022,10 +3021,10 @@ impl DbPool {
         &self,
         token_digest: &str,
         user_id: &str,
-        issued_at: chrono::DateTime<chrono::Utc>,
-        authenticated_at: chrono::DateTime<chrono::Utc>,
+        issued_at: time::OffsetDateTime,
+        authenticated_at: time::OffsetDateTime,
         methods: &str,
-        expires_at: chrono::DateTime<chrono::Utc>,
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<models::BrowserSession> {
         match self {
             #[cfg(feature = "postgres")]
@@ -3071,10 +3070,10 @@ impl DbPool {
         token_digest: &str,
         user_id: &str,
         credential_id: &str,
-        issued_at: chrono::DateTime<chrono::Utc>,
-        authenticated_at: chrono::DateTime<chrono::Utc>,
+        issued_at: time::OffsetDateTime,
+        authenticated_at: time::OffsetDateTime,
         methods: &str,
-        expires_at: chrono::DateTime<chrono::Utc>,
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<models::BrowserSession> {
         match self {
             #[cfg(feature = "postgres")]
@@ -3135,7 +3134,7 @@ impl DbPool {
     pub fn record_user_authentication(
         &self,
         user_id: &str,
-        authenticated_at: chrono::DateTime<chrono::Utc>,
+        authenticated_at: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         match self {
             #[cfg(feature = "postgres")]
@@ -3180,8 +3179,8 @@ impl DbPool {
         user_id: &str,
         idle_ttl_seconds: i64,
     ) -> QueryResult<i64> {
-        let now = chrono::Utc::now();
-        let idle_cutoff = now - chrono::Duration::seconds(idle_ttl_seconds);
+        let now = time::OffsetDateTime::now_utc();
+        let idle_cutoff = now - time::Duration::seconds(idle_ttl_seconds);
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => account_security::pg::count_active_sessions(
@@ -3218,7 +3217,7 @@ impl DbPool {
     pub fn touch_browser_session(
         &self,
         digest: &str,
-        at: chrono::DateTime<chrono::Utc>,
+        at: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         match self {
             #[cfg(feature = "postgres")]
@@ -3344,7 +3343,7 @@ impl DbPool {
         id: &str,
         worker_id: &str,
         state: &str,
-        next_attempt_at: chrono::DateTime<chrono::Utc>,
+        next_attempt_at: time::OffsetDateTime,
         error_category: Option<&str>,
         redact_payload: bool,
     ) -> QueryResult<usize> {
@@ -3726,7 +3725,7 @@ impl DbPool {
         private_key_encrypted: &[u8],
         fingerprint: &str,
         algorithm: &str,
-        expires_at: chrono::DateTime<chrono::Utc>,
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<models::UserKey> {
         match self {
             #[cfg(feature = "postgres")]
@@ -3783,8 +3782,8 @@ impl DbPool {
         claim_type: &str,
         claim_value: &[u8],
         signatures: &[liblinkkeys::generated::types::ClaimSignature],
-        expires_at: Option<chrono::DateTime<chrono::Utc>>,
-        attested_at: chrono::DateTime<chrono::Utc>,
+        expires_at: Option<time::OffsetDateTime>,
+        attested_at: time::OffsetDateTime,
     ) -> QueryResult<models::ClaimRow> {
         match self {
             #[cfg(feature = "postgres")]
@@ -3875,12 +3874,10 @@ impl DbPool {
                 let uid: uuid::Uuid = user_id
                     .parse()
                     .map_err(|_| diesel::result::Error::NotFound)?;
-                let issued = chrono::DateTime::parse_from_rfc3339(issued_at)
-                    .map_err(|_| diesel::result::Error::NotFound)?
-                    .with_timezone(&chrono::Utc);
-                let expires = chrono::DateTime::parse_from_rfc3339(expires_at)
-                    .map_err(|_| diesel::result::Error::NotFound)?
-                    .with_timezone(&chrono::Utc);
+                let issued = liblinkkeys::timestamp::parse_rfc3339(issued_at)
+                    .map_err(|_| diesel::result::Error::NotFound)?;
+                let expires = liblinkkeys::timestamp::parse_rfc3339(expires_at)
+                    .map_err(|_| diesel::result::Error::NotFound)?;
                 consent_grants::pg::upsert(
                     &mut conn,
                     id,
@@ -3931,7 +3928,7 @@ impl DbPool {
         audience: &str,
         application: Option<&liblinkkeys::generated::types::ApplicationRef>,
     ) -> QueryResult<Option<models::ConsentGrantRow>> {
-        let now = chrono::Utc::now();
+        let now = time::OffsetDateTime::now_utc();
         let app = grant_app(application);
         match self {
             #[cfg(feature = "postgres")]
@@ -3973,7 +3970,7 @@ impl DbPool {
         user_id: &str,
         audience: &str,
     ) -> QueryResult<bool> {
-        let now = chrono::Utc::now();
+        let now = time::OffsetDateTime::now_utc();
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
@@ -4081,8 +4078,7 @@ impl DbPool {
                     .map_err(|_| diesel::result::Error::NotFound)?;
                 let at = attested_at
                     .map(|s| {
-                        chrono::DateTime::parse_from_rfc3339(s)
-                            .map(|t| t.with_timezone(&chrono::Utc))
+                        liblinkkeys::timestamp::parse_rfc3339(s)
                             .map_err(|e| diesel::result::Error::SerializationError(Box::new(e)))
                     })
                     .transpose()?;
@@ -4097,7 +4093,7 @@ impl DbPool {
 
     /// Every current consent grant of every user.
     pub fn list_all_active_consent_grants(&self) -> QueryResult<Vec<models::ConsentGrantRow>> {
-        let now = chrono::Utc::now();
+        let now = time::OffsetDateTime::now_utc();
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => consent_grants::pg::list_active_all(&mut *pg_conn(p)?, now),
@@ -4151,8 +4147,8 @@ impl DbPool {
     /// Record a nonce as used (durable, shared replay protection).
     /// Returns Ok(true) on first use, Ok(false) if already used (replay).
     pub fn record_nonce(&self, nonce: &str, ttl: std::time::Duration) -> QueryResult<bool> {
-        let expires_at = chrono::Utc::now()
-            + chrono::Duration::from_std(ttl).unwrap_or_else(|_| chrono::Duration::seconds(300));
+        let expires_at = time::OffsetDateTime::now_utc()
+            + time::Duration::try_from(ttl).unwrap_or_else(|_| time::Duration::seconds(300));
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
@@ -4316,7 +4312,7 @@ impl DbPool {
         private_key_encrypted: &[u8],
         fingerprint: &str,
         algorithm: &str,
-        expires_at: chrono::DateTime<chrono::Utc>,
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<models::DomainKey> {
         match self {
             #[cfg(feature = "postgres")]
@@ -4365,7 +4361,7 @@ impl DbPool {
         fingerprint: &str,
         signed_by_key_id: &str,
         key_signature: &[u8],
-        expires_at: chrono::DateTime<chrono::Utc>,
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<models::DomainKey> {
         match self {
             #[cfg(feature = "postgres")]
@@ -4426,9 +4422,8 @@ impl DbPool {
                 let id: uuid::Uuid = credential_id
                     .parse()
                     .map_err(|_| diesel::result::Error::NotFound)?;
-                let dt = chrono::DateTime::parse_from_rfc3339(expires_at)
-                    .map_err(|_| diesel::result::Error::NotFound)?
-                    .with_timezone(&chrono::Utc);
+                let dt = liblinkkeys::timestamp::parse_rfc3339(expires_at)
+                    .map_err(|_| diesel::result::Error::NotFound)?;
                 diesel::update(auth_credentials::table.find(id))
                     .set(auth_credentials::expires_at.eq(Some(dt)))
                     .execute(&mut *conn)?;
@@ -4571,7 +4566,7 @@ impl DbPool {
         app_name: &str,
         local_domain_hint: Option<&str>,
         status: &str,
-        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        expires_at: Option<time::OffsetDateTime>,
     ) -> QueryResult<models::LocalRp> {
         match self {
             #[cfg(feature = "postgres")]
@@ -4719,7 +4714,7 @@ impl DbPool {
         user_id: &str,
         user_domain: &str,
         granted_claims_json: &str,
-        expires_at: chrono::DateTime<chrono::Utc>,
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<models::LocalRpClaimTicket> {
         match self {
             #[cfg(feature = "postgres")]
@@ -4766,7 +4761,7 @@ impl DbPool {
     /// rows deleted.
     pub fn purge_expired_local_rp_claim_tickets(
         &self,
-        now: chrono::DateTime<chrono::Utc>,
+        now: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         match self {
             #[cfg(feature = "postgres")]
@@ -4837,9 +4832,9 @@ impl DbPool {
     pub fn upsert_rp_domain_key_cache_meta(
         &self,
         domain: &str,
-        fetched_at: chrono::DateTime<chrono::Utc>,
-        revocations_checked_at: chrono::DateTime<chrono::Utc>,
-        now: chrono::DateTime<chrono::Utc>,
+        fetched_at: time::OffsetDateTime,
+        revocations_checked_at: time::OffsetDateTime,
+        now: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         match self {
             #[cfg(feature = "postgres")]
@@ -4864,7 +4859,7 @@ impl DbPool {
     pub fn touch_rp_domain_key_cache_meta(
         &self,
         domain: &str,
-        now: chrono::DateTime<chrono::Utc>,
+        now: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         match self {
             #[cfg(feature = "postgres")]
@@ -4928,9 +4923,9 @@ impl DbPool {
         subject_domain: &str,
         application_id: &str,
         instance_id: &str,
-        fetched_at: chrono::DateTime<chrono::Utc>,
-        revocations_checked_at: chrono::DateTime<chrono::Utc>,
-        now: chrono::DateTime<chrono::Utc>,
+        fetched_at: time::OffsetDateTime,
+        revocations_checked_at: time::OffsetDateTime,
+        now: time::OffsetDateTime,
     ) -> QueryResult<models::RpApplicationKeyCacheEntry> {
         match self {
             #[cfg(feature = "postgres")]
@@ -4961,7 +4956,7 @@ impl DbPool {
     pub fn touch_rp_application_key_cache_entry(
         &self,
         entry_id: &str,
-        now: chrono::DateTime<chrono::Utc>,
+        now: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         match self {
             #[cfg(feature = "postgres")]
@@ -4998,9 +4993,9 @@ impl DbPool {
         cache_entry_id: &str,
         key_id: &str,
         signed_attestation: &[u8],
-        attestation_expires_at: chrono::DateTime<chrono::Utc>,
+        attestation_expires_at: time::OffsetDateTime,
         verified_by_key_ids: &str,
-        now: chrono::DateTime<chrono::Utc>,
+        now: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         match self {
             #[cfg(feature = "postgres")]
@@ -5047,7 +5042,7 @@ impl DbPool {
         cache_entry_id: &str,
         target_key_id: &str,
         revocation: &[u8],
-        revoked_at: chrono::DateTime<chrono::Utc>,
+        revoked_at: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         match self {
             #[cfg(feature = "postgres")]

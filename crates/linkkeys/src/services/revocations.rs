@@ -39,7 +39,7 @@ pub fn fetch_default_days() -> i64 {
 /// Whether this domain issued any revocation inside its recent window — the
 /// `recent_revocations_available` signal on get-domain-keys.
 pub fn recent_revocations_available(pool: &DbPool) -> bool {
-    let since = chrono::Utc::now() - chrono::Duration::days(recent_window_days());
+    let since = time::OffsetDateTime::now_utc() - time::Duration::days(recent_window_days());
     pool.has_issued_revocations_since(since).unwrap_or(false)
 }
 
@@ -47,10 +47,8 @@ pub fn recent_revocations_available(pool: &DbPool) -> bool {
 /// the result; when absent, defaults to the last `fetch_default_days()`.
 pub fn serve(pool: &DbPool, since: Option<&str>) -> Vec<RevocationCertificate> {
     let cutoff = match since {
-        Some(s) => chrono::DateTime::parse_from_rfc3339(s)
-            .map(|d| d.with_timezone(&chrono::Utc))
-            .ok(),
-        None => Some(chrono::Utc::now() - chrono::Duration::days(fetch_default_days())),
+        Some(s) => liblinkkeys::timestamp::parse_rfc3339(s).ok(),
+        None => Some(time::OffsetDateTime::now_utc() - time::Duration::days(fetch_default_days())),
     };
     let rows = pool
         .list_issued_revocations_since(cutoff)
