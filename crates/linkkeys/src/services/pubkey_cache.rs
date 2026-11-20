@@ -1,3 +1,4 @@
+// LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 //! Bounded, coalescing, in-process cache of already-encoded CBOR response
 //! bytes, sitting in front of the home-domain public key reads (see
 //! "Home-domain response cache" in `docs/application-keys.md`).

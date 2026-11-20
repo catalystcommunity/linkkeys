@@ -1,3 +1,4 @@
+// LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 //! Signed payload formats from before the `-v1alpha` epoch, and the
 //! provenance checks that use them.
 //!

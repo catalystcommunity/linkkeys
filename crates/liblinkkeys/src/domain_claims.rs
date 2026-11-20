@@ -1,3 +1,4 @@
+// LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 //! Claims *about a domain* (e.g. a relying party asserting something about
 //! itself), as opposed to [`crate::claims`] which are about a user.
 //!

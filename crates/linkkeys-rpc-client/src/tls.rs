@@ -1,3 +1,4 @@
+// LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 //! Client-side TLS for the LinkKeys protocol: generate a self-signed cert from a
 //! domain Ed25519 key, and verify a peer's cert by pinning its public-key
 //! fingerprint to a DNS-published `fp=` set (no CA chain). This is the trust

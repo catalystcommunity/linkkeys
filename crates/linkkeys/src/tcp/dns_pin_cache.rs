@@ -1,3 +1,4 @@
+// LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 //! Bounded, TTL'd cache of DNS-published `_linkkeys` fingerprint sets,
 //! fronting the mTLS client-certificate verifier so a per-handshake lookup is
 //! a plain in-memory read rather than network I/O on the async connection

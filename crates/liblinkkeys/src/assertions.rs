@@ -1,3 +1,4 @@
+// LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 use crate::crypto::{self, CryptoError, SigningAlgorithm};
 use crate::generated::types::{DomainPublicKey, IdentityAssertion, SignedIdentityAssertion};
 use chrono::Utc;

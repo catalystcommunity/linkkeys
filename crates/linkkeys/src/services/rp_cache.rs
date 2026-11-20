@@ -1,3 +1,4 @@
+// LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 //! The relying party's persistent cache of remote key material
 //! (docs/application-keys.md, "Caches").
 //!

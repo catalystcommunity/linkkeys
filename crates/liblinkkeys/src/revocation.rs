@@ -1,3 +1,4 @@
+// LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 //! Sibling-signed key revocation certificates (SEC-08).
 //!
 //! A domain's signing keys are equal peers (≥3 by design). When one is

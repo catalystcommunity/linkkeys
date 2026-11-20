@@ -20,7 +20,7 @@ lifecycle plugin is necessary.
 
 | Workflow file | id | Events | Path filter | Nodes |
 | --- | --- | --- | --- | --- |
-| `pr.yaml` | `linkkeys-pr` | PR opened/updated | none | conventional-commits → build, test-sqlite, test-postgres |
+| `pr.yaml` | `linkkeys-pr` | PR opened/updated | none | conventional-commits → build, test-sqlite, test-postgres, test-regular-rp-go, web-ui; trust-guard (independent) |
 | `pr-server-image.yaml` | `linkkeys-pr-server-image` | PR opened/updated | `crates/**`, `Cargo.toml`, `Cargo.lock`, `Dockerfile` | server-build-test |
 | `pr-demoappsite.yaml` | `linkkeys-pr-demoappsite` | PR opened/updated | `demoappsite/**` | demoappsite-build-test |
 | `pr-website.yaml` | `linkkeys-pr-website` | PR opened/updated | `website/**` | website-build-test |
@@ -35,6 +35,26 @@ secret grants. Do not rename a node without moving its grant.
 
 `linkkeys-server-deploy.yaml` is a job body with no workflow. Use it with an
 overlay for a manual deploy of another instance.
+
+## Trust-change guard
+
+`linkkeys-trust-guard` fails a pull request that is trust-critical and has no
+coordinator approval pinned to its head. Trust-critical means: a change under
+`.reactorcide/` or `crates/linkkeys/assets/tpm-trust/`, a change to a file that
+carries the trust-critical marker, or a tripwire line (embedded certificates,
+`include_bytes!`, and others) anywhere. It never reads git author fields.
+
+How to approve depends on the Reactorcide release (group approval now,
+comment after Reactorcide B1, `approve-content` after R2). The steps, rules,
+threats, and required GitHub and coordinator settings are in
+[trust-change-control.md](trust-change-control.md) §4 and §6. The code is
+`.reactorcide/plugins/trust_guard.py`.
+
+`run-local` has no coordinator approvals, so a trust-critical change fails
+locally. There is no local bypass.
+
+After a change to `trust_guard.py`, run its adversarial tests:
+`python3 -I .reactorcide/plugins/trust_guard_test.py`.
 
 ## Local Runs
 

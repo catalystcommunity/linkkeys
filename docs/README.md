@@ -31,6 +31,13 @@ common configuration.
   signing rules, release policy, and user consent.
 - [Application keys](application-keys.md) explains how an application holds its
   own keys, how the home domain attests them, and how a peer verifies them.
+- [Device enrollment and attestation](device-enrollment-and-attestation.md) is
+  a design proposal for device keys. Not implemented.
+- [Trust change control](trust-change-control.md) explains which pull requests
+  are trust-critical and who must approve them.
+- [Claim endorsements](claim-endorsements.md) is a design proposal for users
+  who sign other users' claims, and for shareable signing-request links. Not
+  implemented.
 
 ## Operations
 

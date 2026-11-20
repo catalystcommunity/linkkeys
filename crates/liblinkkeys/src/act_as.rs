@@ -1,3 +1,4 @@
+// LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 //! Act-as grants: a user lets one application (the grantee) act as the user at
 //! a second application (the audience).
 //!

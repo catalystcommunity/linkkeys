@@ -1,3 +1,8 @@
+// LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
+// Trust decisions stay inside Rust's privacy rules: no transmute or raw
+// pointer can forge a capability type. Removing this line is a trust change.
+#![forbid(unsafe_code)]
+
 pub mod act_as;
 pub mod app_access;
 pub mod application_keys;

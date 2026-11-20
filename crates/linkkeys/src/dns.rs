@@ -1,3 +1,4 @@
+// LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 use std::fmt;
 
 use liblinkkeys::dns::{linkkeys_dns_name, parse_linkkeys_txt};

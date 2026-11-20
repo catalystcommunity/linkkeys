@@ -1,3 +1,4 @@
+// LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 //! DNS-less local RP identity: pure protocol helpers.
 //!
 //! See `dns-less-local-rp-design.md` at the repo root — in particular the

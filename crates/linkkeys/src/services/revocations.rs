@@ -1,3 +1,4 @@
+// LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 //! Inter-domain revocation exchange (SEC-08).
 //!
 //! Issuer side: `recent_revocations_available` sets the signal on

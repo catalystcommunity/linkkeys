@@ -1,3 +1,4 @@
+// LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 //! Application keys: enrollment, attestation, renewal, and revocation.
 //!
 //! An application (Tinku is the first) generates and holds its own key pairs
