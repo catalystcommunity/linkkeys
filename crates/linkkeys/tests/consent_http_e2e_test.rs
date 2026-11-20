@@ -15,6 +15,7 @@ use liblinkkeys::generated::types::{
     AuthenticationRequirements, BrowserAuthorizationCompleteRequest,
     BrowserAuthorizationInspectRequest, ClaimRequest, RequestedClaim, SessionPasswordLoginRequest,
 };
+use liblinkkeys::timestamp::Rfc3339 as _;
 use rocket::http::{ContentType, Header, Status};
 use rocket::local::asynchronous::Client;
 use std::sync::atomic::AtomicBool;
@@ -87,7 +88,7 @@ async fn spa_consent_flow_end_to_end() {
     let encrypted_signing_key =
         crypto::encrypt_private_key(&signing_key_bytes, PASSPHRASE).unwrap();
     let fingerprint = crypto::fingerprint(&public_key);
-    let expires = chrono::Utc::now() + chrono::Duration::days(365);
+    let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365);
     let signing = pool
         .create_domain_key(
             &public_key,
@@ -132,7 +133,7 @@ async fn spa_consent_flow_end_to_end() {
             value,
             &[],
             None,
-            chrono::Utc::now(),
+            time::OffsetDateTime::now_utc(),
         )
         .expect("claim");
     }
@@ -607,7 +608,7 @@ async fn off_domain_application_signs_in_with_per_application_consent() {
     let signing_key_bytes = signing_key.to_bytes().to_vec();
     let encrypted_signing_key =
         crypto::encrypt_private_key(&signing_key_bytes, PASSPHRASE).unwrap();
-    let expires = chrono::Utc::now() + chrono::Duration::days(365);
+    let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365);
     let signing = pool
         .create_domain_key(
             &public_key,
@@ -648,7 +649,7 @@ async fn off_domain_application_signs_in_with_per_application_consent() {
         b"a@b.com",
         &[],
         None,
-        chrono::Utc::now(),
+        time::OffsetDateTime::now_utc(),
     )
     .expect("claim");
 

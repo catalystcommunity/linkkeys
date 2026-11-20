@@ -124,10 +124,8 @@ fn domain_keys_from(v: &Value) -> Vec<DomainPublicKey> {
         .collect()
 }
 
-fn now_from(v: &Value) -> chrono::DateTime<chrono::Utc> {
-    chrono::DateTime::parse_from_rfc3339(v["now"].as_str().unwrap())
-        .unwrap()
-        .with_timezone(&chrono::Utc)
+fn now_from(v: &Value) -> time::OffsetDateTime {
+    liblinkkeys::timestamp::parse_rfc3339(v["now"].as_str().unwrap()).unwrap()
 }
 
 fn skew_from(v: &Value) -> i64 {
@@ -241,7 +239,7 @@ fn addition_signed_from(v: &Value) -> generated::types::SignedApplicationKeyAddi
 fn check_addition_case(
     case: &Value,
     instance: &(String, String, String, String),
-    now: chrono::DateTime<chrono::Utc>,
+    now: time::OffsetDateTime,
     skew: i64,
 ) {
     let existing_keys = key_refs_from(&case["existing_keys"]);

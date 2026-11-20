@@ -13,6 +13,7 @@ use liblinkkeys::auth_request::{build_auth_request, sign_auth_request};
 use liblinkkeys::crypto::{self, SigningAlgorithm};
 use liblinkkeys::encoding::signed_auth_request_to_url_param;
 use liblinkkeys::generated::types::{ApiErrorCode, AuthorizeFinalizeRequest};
+use liblinkkeys::timestamp::Rfc3339 as _;
 use linkkeys::services::auth;
 use rocket::http::{Header, Status};
 use rocket::local::asynchronous::Client;
@@ -37,7 +38,7 @@ async fn failed_encryption_leaves_login_request_retryable() {
     let sk_bytes = sk.to_bytes().to_vec();
     let enc_sk = crypto::encrypt_private_key(&sk_bytes, PASSPHRASE).unwrap();
     let fp = crypto::fingerprint(&pk);
-    let expires = chrono::Utc::now() + chrono::Duration::days(365);
+    let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365);
     let signing = pool
         .create_domain_key(&pk, &enc_sk, &fp, "ed25519", expires)
         .expect("signing key");

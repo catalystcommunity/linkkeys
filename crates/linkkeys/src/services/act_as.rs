@@ -12,7 +12,6 @@
 use std::sync::LazyLock;
 
 use base64ct::{Base64UrlUnpadded, Encoding};
-use chrono::{DateTime, Utc};
 use liblinkkeys::act_as::{
     self as aa, ActAsError, DomainTermBounds, OfferedTerms, RefreshDecision,
 };
@@ -27,6 +26,7 @@ use liblinkkeys::generated::types::{
     RevokeActAsGrantRequest, RevokeActAsGrantResponse, RpResolveApplicationKeysRequest,
     SignedActAsGrant, SignedActAsGrantRequest,
 };
+use time::OffsetDateTime;
 
 use crate::conversions::get_domain_name;
 use crate::db::act_as::{ActAsGrantRecord, GranteeColumns};
@@ -209,7 +209,7 @@ pub trait InstanceKeySource {
         &self,
         app: &ApplicationRef,
         instance_id: &str,
-        now: DateTime<Utc>,
+        now: OffsetDateTime,
     ) -> Result<Vec<ApplicationKeyRef>, ServiceError>;
 
     /// Every attestation-verified key of the instance, including keys that
@@ -219,7 +219,7 @@ pub trait InstanceKeySource {
         &self,
         app: &ApplicationRef,
         instance_id: &str,
-        now: DateTime<Utc>,
+        now: OffsetDateTime,
     ) -> Result<Vec<ApplicationKeyRef>, ServiceError> {
         self.instance_keys(app, instance_id, now)
     }
@@ -244,7 +244,7 @@ impl CachedKeySource<'_> {
         &self,
         app: &ApplicationRef,
         instance_id: &str,
-        now: DateTime<Utc>,
+        now: OffsetDateTime,
     ) -> Result<ak::VerifiedApplicationKeySet, ServiceError> {
         let resolved = crate::services::rp_cache::resolve_application_keys(
             self.pool,
@@ -292,7 +292,7 @@ impl InstanceKeySource for CachedKeySource<'_> {
         &self,
         app: &ApplicationRef,
         instance_id: &str,
-        now: DateTime<Utc>,
+        now: OffsetDateTime,
     ) -> Result<Vec<ApplicationKeyRef>, ServiceError> {
         Ok(usable_key_refs(&self.verified_set(
             app,
@@ -305,7 +305,7 @@ impl InstanceKeySource for CachedKeySource<'_> {
         &self,
         app: &ApplicationRef,
         instance_id: &str,
-        now: DateTime<Utc>,
+        now: OffsetDateTime,
     ) -> Result<Vec<ApplicationKeyRef>, ServiceError> {
         Ok(attested_key_refs(&self.verified_set(
             app,
@@ -388,7 +388,7 @@ fn grantee_keys(
     keys: &dyn InstanceKeySource,
     grantee: &GranteeRef,
     proof_instance_id: Option<&str>,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> Result<Vec<ApplicationKeyRef>, ServiceError> {
     match (
         &grantee.application,
@@ -449,10 +449,10 @@ pub fn nonce_ttl() -> std::time::Duration {
 /// [`MAX_REQUEST_WINDOW_SECONDS`]. A longer window would let a captured
 /// request be replayed for as long as its signer chose.
 fn check_request_window(requested_at: &str, expires_at: &str) -> Result<(), ServiceError> {
-    let window = DateTime::parse_from_rfc3339(expires_at)
+    let window = liblinkkeys::timestamp::parse_rfc3339(expires_at)
         .ok()
-        .zip(DateTime::parse_from_rfc3339(requested_at).ok())
-        .map(|(end, start)| (end - start).num_seconds());
+        .zip(liblinkkeys::timestamp::parse_rfc3339(requested_at).ok())
+        .map(|(end, start)| (end - start).whole_seconds());
     if window.is_none_or(|w| w > MAX_REQUEST_WINDOW_SECONDS) {
         return Err(error(
             400,
@@ -485,7 +485,7 @@ pub fn validate_request(
     pool: &DbPool,
     keys: &dyn InstanceKeySource,
     signed_request: &str,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> Result<ValidatedRequest, ServiceError> {
     let cfg = config();
     let bytes = Base64UrlUnpadded::decode_vec(signed_request)
@@ -630,7 +630,7 @@ pub fn inspect(
     keys: &dyn InstanceKeySource,
     user: &User,
     signed_request: &str,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> Result<BrowserActAsInspectResponse, ServiceError> {
     require_grantor(user)?;
     let v = validate_request(pool, keys, signed_request, now)?;
@@ -787,7 +787,7 @@ pub fn complete(
     burn_nonce: &dyn Fn(&str) -> bool,
     user: &User,
     req: &BrowserActAsCompleteRequest,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> Result<BrowserActAsCompleteResponse, ServiceError> {
     require_grantor(user)?;
     let v = validate_request(pool, keys, &req.signed_request, now)?;
@@ -928,7 +928,7 @@ pub fn refresh(
     pool: &DbPool,
     keys: &dyn InstanceKeySource,
     req: &RefreshActAsGrantRequest,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> Result<RefreshActAsGrantResponse, ServiceError> {
     let cfg = config();
     let unverified = aa::decode_refresh_request(&req.request).map_err(protocol)?;
@@ -1105,7 +1105,7 @@ pub fn revoke_for_user(
     pool: &DbPool,
     user: &User,
     req: &RevokeActAsGrantRequest,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> Result<RevokeActAsGrantResponse, ServiceError> {
     let not_found = || error(404, "no such grant");
     let record = pool
@@ -1170,7 +1170,7 @@ pub fn rp_forward_refresh(
     };
     if domain == get_domain_name() {
         let keys = CachedKeySource { pool, net, rt };
-        return refresh(pool, &keys, &request, Utc::now());
+        return refresh(pool, &keys, &request, OffsetDateTime::now_utc());
     }
     let payload = liblinkkeys::generated::encode_refresh_act_as_grant_request(&request);
     let bytes = remote_call(net, rt, &domain, "refresh-grant", payload)?;

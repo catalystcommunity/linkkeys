@@ -13,7 +13,7 @@ pub mod pg {
         private_key_encrypted: &[u8],
         fingerprint: &str,
         algorithm: &str,
-        expires_at: chrono::DateTime<chrono::Utc>,
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<DomainKey> {
         let new_row = NewDomainKeyRow {
             id: uuid::Uuid::now_v7(),
@@ -42,7 +42,7 @@ pub mod pg {
         fingerprint: &str,
         signed_by_key_id: &str,
         key_signature: &[u8],
-        expires_at: chrono::DateTime<chrono::Utc>,
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<DomainKey> {
         let new_row = NewDomainKeyRow {
             id: uuid::Uuid::now_v7(),
@@ -63,7 +63,7 @@ pub mod pg {
     }
 
     pub fn list_active(conn: &mut diesel::PgConnection) -> QueryResult<Vec<DomainKey>> {
-        let now = chrono::Utc::now();
+        let now = time::OffsetDateTime::now_utc();
         domain_keys::table
             .filter(domain_keys::expires_at.gt(now))
             .filter(domain_keys::revoked_at.is_null())
@@ -119,7 +119,7 @@ pub mod pg {
             .map_err(|_| diesel::result::Error::NotFound)?;
         diesel::update(domain_keys::table.find(id))
             .filter(domain_keys::revoked_at.is_null())
-            .set(domain_keys::revoked_at.eq(chrono::Utc::now()))
+            .set(domain_keys::revoked_at.eq(time::OffsetDateTime::now_utc()))
             .execute(conn)?;
         domain_keys::table
             .find(id)
@@ -131,6 +131,7 @@ pub mod pg {
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
     use diesel::prelude::*;
+    use liblinkkeys::timestamp::Rfc3339 as _;
 
     use crate::db::models::sqlite::{DomainKeyRow, NewDomainKeyRow};
     use crate::db::models::DomainKey;
@@ -203,7 +204,7 @@ pub mod sqlite {
     }
 
     pub fn list_active(conn: &mut diesel::SqliteConnection) -> QueryResult<Vec<DomainKey>> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = time::OffsetDateTime::now_utc().to_rfc3339();
         domain_keys::table
             .filter(domain_keys::expires_at.gt(&now))
             .filter(domain_keys::revoked_at.is_null())
@@ -252,7 +253,7 @@ pub mod sqlite {
     pub fn revoke(conn: &mut diesel::SqliteConnection, key_id: &str) -> QueryResult<DomainKey> {
         diesel::update(domain_keys::table.find(key_id))
             .filter(domain_keys::revoked_at.is_null())
-            .set(domain_keys::revoked_at.eq(chrono::Utc::now().to_rfc3339()))
+            .set(domain_keys::revoked_at.eq(time::OffsetDateTime::now_utc().to_rfc3339()))
             .execute(conn)?;
         domain_keys::table
             .find(key_id)

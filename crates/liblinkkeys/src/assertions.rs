@@ -1,8 +1,9 @@
 // LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 use crate::crypto::{self, CryptoError, SigningAlgorithm};
 use crate::generated::types::{DomainPublicKey, IdentityAssertion, SignedIdentityAssertion};
-use chrono::Utc;
+use crate::timestamp::Rfc3339 as _;
 use std::fmt;
+use time::OffsetDateTime;
 
 #[derive(Debug)]
 pub enum VerifyError {
@@ -102,8 +103,8 @@ pub fn build_assertion(
     ttl_seconds: u64,
     authorized_claims: Vec<String>,
 ) -> IdentityAssertion {
-    let now = Utc::now();
-    let expires = now + chrono::Duration::seconds(ttl_seconds as i64);
+    let now = OffsetDateTime::now_utc();
+    let expires = now + time::Duration::seconds(ttl_seconds as i64);
     IdentityAssertion {
         user_id: user_id.to_string(),
         domain: domain.to_string(),
@@ -166,10 +167,10 @@ pub fn verify_assertion(
     let assertion = crate::generated::decode_identity_assertion(signed.assertion.as_slice())
         .map_err(|e| VerifyError::DeserializationFailed(format!("CBOR decode failed: {}", e)))?;
 
-    let expires_at = chrono::DateTime::parse_from_rfc3339(&assertion.expires_at)
+    let expires_at = crate::timestamp::parse_rfc3339(&assertion.expires_at)
         .map_err(|e| VerifyError::DeserializationFailed(format!("invalid expires_at: {}", e)))?;
 
-    if Utc::now() > expires_at {
+    if OffsetDateTime::now_utc() > expires_at {
         return Err(VerifyError::Expired);
     }
 
@@ -190,8 +191,8 @@ mod tests {
             key_usage: "sign".to_string(),
             signed_by_key_id: None,
             key_signature: None,
-            created_at: Utc::now().to_rfc3339(),
-            expires_at: (Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
+            created_at: OffsetDateTime::now_utc().to_rfc3339(),
+            expires_at: (OffsetDateTime::now_utc() + time::Duration::hours(1)).to_rfc3339(),
             revoked_at: None,
         }
     }
@@ -294,7 +295,7 @@ mod tests {
     fn test_assertion_revoked_key_rejected() {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let mut domain_key = make_domain_key("key-1", &pk);
-        domain_key.revoked_at = Some(Utc::now().to_rfc3339());
+        domain_key.revoked_at = Some(OffsetDateTime::now_utc().to_rfc3339());
 
         let assertion = build_assertion(
             "user-123",
@@ -315,7 +316,7 @@ mod tests {
     fn test_assertion_expired_key_rejected() {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let mut domain_key = make_domain_key("key-1", &pk);
-        domain_key.expires_at = (Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+        domain_key.expires_at = (OffsetDateTime::now_utc() - time::Duration::hours(1)).to_rfc3339();
 
         let assertion = build_assertion(
             "user-123",

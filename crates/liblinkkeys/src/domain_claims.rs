@@ -18,7 +18,7 @@
 use crate::claims::{verify_signature_quorum, ClaimError, ClaimSigner, DomainKeySet};
 use crate::crypto::CryptoError;
 use crate::generated::types::{ClaimSignature, DomainClaim};
-use chrono::Utc;
+use time::OffsetDateTime;
 
 /// Domain-separation tag + version for the domain-claim signature payload.
 const DOMAIN_CLAIM_PAYLOAD_TAG: &str = "linkkeys-domain-claim-v1alpha";
@@ -132,9 +132,8 @@ pub fn verify_domain_claim(
     )?;
 
     if let Some(exp) = claim.expires_at.as_deref() {
-        let expires =
-            chrono::DateTime::parse_from_rfc3339(exp).map_err(|_| ClaimError::BadExpiry)?;
-        if Utc::now() > expires {
+        let expires = crate::timestamp::parse_rfc3339(exp).map_err(|_| ClaimError::BadExpiry)?;
+        if OffsetDateTime::now_utc() > expires {
             return Err(ClaimError::Expired);
         }
     }
@@ -160,6 +159,7 @@ mod tests {
     use super::*;
     use crate::crypto::{fingerprint, generate_keypair, SigningAlgorithm, ALGORITHM_ED25519};
     use crate::generated::types::DomainPublicKey;
+    use crate::timestamp::Rfc3339 as _;
 
     /// Fixed attestation instant, inside every test key's validity window.
     const ATTESTED: &str = "2020-01-01T00:00:00+00:00";
@@ -175,8 +175,8 @@ mod tests {
             key_usage: "sign".to_string(),
             signed_by_key_id: None,
             key_signature: None,
-            created_at: Utc::now().to_rfc3339(),
-            expires_at: (Utc::now() + chrono::Duration::days(400)).to_rfc3339(),
+            created_at: OffsetDateTime::now_utc().to_rfc3339(),
+            expires_at: (OffsetDateTime::now_utc() + time::Duration::days(400)).to_rfc3339(),
             revoked_at: None,
         }
     }
@@ -310,7 +310,7 @@ mod tests {
     #[test]
     fn test_expired_rejected() {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
-        let past = (Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+        let past = (OffsetDateTime::now_utc() - time::Duration::hours(1)).to_rfc3339();
         let claim = sign_domain_claim(
             &DomainClaimSpec {
                 claim_type: "privacy_policy",

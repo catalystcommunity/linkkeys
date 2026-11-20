@@ -12,7 +12,6 @@
 
 mod common;
 
-use chrono::{Duration, Utc};
 use liblinkkeys::application_keys as ak;
 use liblinkkeys::crypto::{fingerprint, generate_ed25519_keypair, generate_x25519_keypair};
 use liblinkkeys::generated::types::{
@@ -20,9 +19,11 @@ use liblinkkeys::generated::types::{
     EnrollApplicationInstanceRequest, GetApplicationKeysRequest,
     RenewApplicationKeyAttestationRequest, RevokeApplicationKeyRequest,
 };
+use liblinkkeys::timestamp::Rfc3339 as _;
 use linkkeys::db::DbPool;
 use linkkeys::services::application_keys as svc;
 use std::sync::{Mutex, MutexGuard};
+use time::{Duration, OffsetDateTime};
 
 const APP: &str = "tinku";
 
@@ -93,7 +94,7 @@ fn challenge_for(
     instance_id: &str,
     purpose: &str,
     key: &AppKey,
-    now: chrono::DateTime<Utc>,
+    now: time::OffsetDateTime,
 ) -> (String, Vec<u8>) {
     let response = svc::start_challenge(
         pool,
@@ -130,7 +131,7 @@ fn addition_for(
     key: &AppKey,
     challenge_id: String,
     challenge: Vec<u8>,
-    now: chrono::DateTime<Utc>,
+    now: time::OffsetDateTime,
 ) -> ApplicationKeyAddition {
     ApplicationKeyAddition {
         subject_user_id: subject.to_string(),
@@ -157,7 +158,7 @@ fn enroll(
     subject: &str,
     instance_id: &str,
     keys: &[&AppKey],
-    now: chrono::DateTime<Utc>,
+    now: time::OffsetDateTime,
 ) -> Result<liblinkkeys::generated::types::EnrollApplicationInstanceResponse, String> {
     let mut signed = Vec::new();
     for key in keys {
@@ -193,7 +194,7 @@ fn read_and_verify(
     pool: &DbPool,
     subject: &str,
     instance_id: &str,
-    now: chrono::DateTime<Utc>,
+    now: time::OffsetDateTime,
 ) -> ak::VerifiedApplicationKeySet {
     let response = svc::get_application_keys(
         pool,
@@ -242,7 +243,7 @@ fn an_instance_enrolls_rotates_renews_and_revokes() {
     let _guard = signing_guard();
     let pool = common::create_test_pool();
     let subject = seed(&pool);
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let instance_id = "instance-a";
 
     // --- initial enrollment: three signing keys, each proving possession ---
@@ -348,7 +349,7 @@ fn renew(
     subject: &str,
     instance_id: &str,
     key: &AppKey,
-    now: chrono::DateTime<Utc>,
+    now: time::OffsetDateTime,
 ) -> liblinkkeys::generated::types::RenewApplicationKeyAttestationResponse {
     renew_result(pool, subject, instance_id, key, now).expect("renews")
 }
@@ -358,7 +359,7 @@ fn renew_err(
     subject: &str,
     instance_id: &str,
     key: &AppKey,
-    now: chrono::DateTime<Utc>,
+    now: time::OffsetDateTime,
 ) -> String {
     renew_result(pool, subject, instance_id, key, now).expect_err("renewal should have failed")
 }
@@ -368,7 +369,7 @@ fn renew_result(
     subject: &str,
     instance_id: &str,
     key: &AppKey,
-    now: chrono::DateTime<Utc>,
+    now: time::OffsetDateTime,
 ) -> Result<liblinkkeys::generated::types::RenewApplicationKeyAttestationResponse, String> {
     let (challenge_id, challenge) =
         challenge_for(pool, subject, instance_id, ak::PURPOSE_RENEW, key, now);
@@ -398,7 +399,7 @@ fn a_key_agreement_key_enrolls_only_by_opening_its_sealed_challenge() {
     let _guard = signing_guard();
     let pool = common::create_test_pool();
     let subject = seed(&pool);
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let instance_id = "instance-agree";
 
     let (a, b) = (signing_key("a"), signing_key("b"));
@@ -460,7 +461,7 @@ fn a_challenge_is_single_use() {
     let _guard = signing_guard();
     let pool = common::create_test_pool();
     let subject = seed(&pool);
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let instance_id = "instance-replay";
 
     let (a, b) = (signing_key("a"), signing_key("b"));
@@ -504,7 +505,7 @@ fn one_key_cannot_authorize_an_addition_by_itself() {
     let _guard = signing_guard();
     let pool = common::create_test_pool();
     let subject = seed(&pool);
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let instance_id = "instance-quorum";
 
     let (a, b) = (signing_key("a"), signing_key("b"));
@@ -532,7 +533,7 @@ fn enrollment_refuses_a_single_signing_key() {
     let _guard = signing_guard();
     let pool = common::create_test_pool();
     let subject = seed(&pool);
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
 
     let a = signing_key("a");
     let err = enroll(&pool, &subject, "instance-thin", &[&a], now)
@@ -546,7 +547,7 @@ fn an_instance_of_one_subject_is_invisible_to_another() {
     let pool = common::create_test_pool();
     let one = seed(&pool);
     let two = common::data_factory::create_user(&pool, &Default::default()).id;
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
 
     let (a, b) = (signing_key("a"), signing_key("b"));
     enroll(&pool, &one, "shared-instance-id", &[&a, &b], now).expect("enrolls");
@@ -570,7 +571,7 @@ fn an_instance_of_one_subject_is_invisible_to_another() {
 #[test]
 fn the_public_read_refuses_an_unknown_instance() {
     let pool = common::create_test_pool();
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let err = svc::get_application_keys(
         &pool,
         GetApplicationKeysRequest {
@@ -590,7 +591,7 @@ fn a_challenge_answers_the_same_for_a_known_and_an_unknown_instance() {
     // instance-existence oracle, which is exactly the reconnaissance surface
     // the design refuses to add.
     let pool = common::create_test_pool();
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let key = signing_key("probe");
 
     let known = challenge_for(
@@ -650,7 +651,7 @@ fn a_forged_request_cannot_drain_a_victims_quota() {
     let _guard = signing_guard();
     let pool = common::create_test_pool();
     let subject = seed(&pool);
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let instance_id = "instance-quota";
 
     let (a, b) = (signing_key("a"), signing_key("b"));

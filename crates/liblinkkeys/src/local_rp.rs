@@ -28,7 +28,7 @@
 //!   [`open_local_rp_callback`] for the exact KDF/AAD layout.
 //!
 //! This module performs no I/O: every "current time" is an explicit `now`
-//! parameter, never `Utc::now()`, so verification stays deterministic and
+//! parameter, never `OffsetDateTime::now_utc()`, so verification stays deterministic and
 //! WASM-viable.
 
 use crate::assertions::{check_signing_key_valid, VerifyError};
@@ -40,10 +40,10 @@ use crate::generated::types::{
     SignedLocalRpTicketRedemptionRequest,
 };
 use aes_gcm::aead::OsRng;
-use chrono::{DateTime, Utc};
 use hkdf::Hkdf;
 use sha2::Sha256;
 use std::fmt;
+use time::OffsetDateTime;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519StaticSecret};
 
 /// Signature context for [`SignedLocalRpDescriptor`].
@@ -186,10 +186,8 @@ pub fn envelope_signature_input(context: &str, payload_bytes: &[u8]) -> Vec<u8> 
     out
 }
 
-fn parse_timestamp(s: &str) -> Result<DateTime<Utc>, LocalRpError> {
-    chrono::DateTime::parse_from_rfc3339(s)
-        .map(|dt| dt.with_timezone(&Utc))
-        .map_err(|e| LocalRpError::BadTimestamp(e.to_string()))
+fn parse_timestamp(s: &str) -> Result<OffsetDateTime, LocalRpError> {
+    crate::timestamp::parse_rfc3339(s).map_err(|e| LocalRpError::BadTimestamp(e.to_string()))
 }
 
 /// Check a `(issued_at, expires_at)` pair against `now`, tolerant of
@@ -199,12 +197,12 @@ fn parse_timestamp(s: &str) -> Result<DateTime<Utc>, LocalRpError> {
 pub fn check_timestamps(
     issued_at: &str,
     expires_at: &str,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
     skew_seconds: i64,
 ) -> Result<(), LocalRpError> {
     let issued = parse_timestamp(issued_at)?;
     let expires = parse_timestamp(expires_at)?;
-    let skew = chrono::Duration::seconds(skew_seconds);
+    let skew = time::Duration::seconds(skew_seconds);
 
     if now + skew < issued {
         return Err(LocalRpError::NotYetValid);
@@ -262,8 +260,8 @@ impl fmt::Display for ExpirationLevel {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExpirationStatus {
     pub level: ExpirationLevel,
-    pub expires_at: DateTime<Utc>,
-    pub now: DateTime<Utc>,
+    pub expires_at: OffsetDateTime,
+    pub now: OffsetDateTime,
 }
 
 /// `check_expirations(identity, now) -> ExpirationStatus` from the design
@@ -280,17 +278,17 @@ pub struct ExpirationStatus {
 /// surprising boundary behavior for no benefit.
 pub fn check_expirations(
     expires_at: &str,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> Result<ExpirationStatus, LocalRpError> {
     let expires = parse_timestamp(expires_at)?;
     let remaining = expires - now;
     let level = if now >= expires {
         ExpirationLevel::Expired
-    } else if remaining <= chrono::Duration::days(30) {
+    } else if remaining <= time::Duration::days(30) {
         ExpirationLevel::Critical
-    } else if remaining <= chrono::Duration::days(90) {
+    } else if remaining <= time::Duration::days(90) {
         ExpirationLevel::Warning
-    } else if remaining <= chrono::Duration::days(180) {
+    } else if remaining <= time::Duration::days(180) {
         ExpirationLevel::Notice
     } else {
         ExpirationLevel::Ok
@@ -428,7 +426,7 @@ pub fn sign_local_rp_descriptor(
 /// the very structure it signed.
 pub fn verify_local_rp_descriptor(
     signed: &SignedLocalRpDescriptor,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
     skew_seconds: i64,
 ) -> Result<LocalRpDescriptor, LocalRpError> {
     let descriptor = crate::generated::decode_local_rp_descriptor(&signed.descriptor)
@@ -528,7 +526,7 @@ pub fn sign_local_rp_login_request(
 /// the request's own `issued_at`/`expires_at` bounds.
 pub fn verify_local_rp_login_request(
     signed: &SignedLocalRpLoginRequest,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
     skew_seconds: i64,
 ) -> Result<LocalRpLoginRequest, LocalRpError> {
     let request = crate::generated::decode_local_rp_login_request(&signed.request)
@@ -676,7 +674,7 @@ pub fn sign_local_rp_callback_payload(
 pub fn verify_local_rp_callback_payload(
     signed: &SignedLocalRpCallbackPayload,
     domain_public_keys: &[DomainPublicKey],
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
     skew_seconds: i64,
 ) -> Result<LocalRpCallbackPayload, LocalRpError> {
     let key = domain_public_keys
@@ -974,13 +972,14 @@ pub fn open_local_rp_callback(
 mod tests {
     use super::*;
     use crate::crypto::{fingerprint, generate_ed25519_keypair, generate_x25519_keypair};
-    use chrono::Duration;
+    use crate::timestamp::Rfc3339 as _;
+    use time::Duration;
 
-    fn now() -> DateTime<Utc> {
-        Utc::now()
+    fn now() -> OffsetDateTime {
+        OffsetDateTime::now_utc()
     }
 
-    fn rfc3339(dt: DateTime<Utc>) -> String {
+    fn rfc3339(dt: OffsetDateTime) -> String {
         dt.to_rfc3339()
     }
 
@@ -993,8 +992,8 @@ mod tests {
             key_usage: "sign".to_string(),
             signed_by_key_id: None,
             key_signature: None,
-            created_at: Utc::now().to_rfc3339(),
-            expires_at: (Utc::now() + Duration::hours(1)).to_rfc3339(),
+            created_at: OffsetDateTime::now_utc().to_rfc3339(),
+            expires_at: (OffsetDateTime::now_utc() + Duration::hours(1)).to_rfc3339(),
             revoked_at: None,
         }
     }
@@ -1004,8 +1003,8 @@ mod tests {
         signing_sk: &[u8],
         enc_pk: &[u8],
         suites: Vec<String>,
-        created_at: DateTime<Utc>,
-        expires_at: DateTime<Utc>,
+        created_at: OffsetDateTime,
+        expires_at: OffsetDateTime,
     ) -> SignedLocalRpDescriptor {
         let signing_pk_arr: [u8; 32] = signing_pk.try_into().unwrap();
         let enc_pk_arr: [u8; 32] = enc_pk.try_into().unwrap();
@@ -1024,7 +1023,7 @@ mod tests {
     fn make_callback_signed_payload(
         domain_sk: &[u8],
         key_id: &str,
-        n: DateTime<Utc>,
+        n: OffsetDateTime,
         audience_fp: &str,
     ) -> SignedLocalRpCallbackPayload {
         let payload = build_local_rp_callback_payload(
@@ -1131,7 +1130,7 @@ mod tests {
     fn check_expirations_thresholds_are_exact() {
         let expires = now();
 
-        let cases: &[(chrono::Duration, ExpirationLevel)] = &[
+        let cases: &[(time::Duration, ExpirationLevel)] = &[
             (Duration::days(181), ExpirationLevel::Ok),
             (Duration::days(180), ExpirationLevel::Notice),
             (Duration::days(179), ExpirationLevel::Notice),
@@ -1349,7 +1348,7 @@ mod tests {
         signing_pk: &[u8],
         signing_sk: &[u8],
         enc_pk: &[u8],
-        n: DateTime<Utc>,
+        n: OffsetDateTime,
     ) -> SignedLocalRpLoginRequest {
         let descriptor_signed = make_descriptor_signed(
             signing_pk,
@@ -1620,7 +1619,7 @@ mod tests {
         suite: AeadSuite,
         domain_sk: &[u8],
         enc_pk: &[u8; 32],
-        n: DateTime<Utc>,
+        n: OffsetDateTime,
     ) -> LocalRpEncryptedCallback {
         let signed_payload = make_callback_signed_payload(domain_sk, "key-1", n, "rp-fp");
         seal_local_rp_callback(

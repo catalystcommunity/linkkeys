@@ -62,7 +62,7 @@ Marked today (2026-11-14):
 | Area | Files |
 | --- | --- |
 | Crypto and anchors | `liblinkkeys`: `lib.rs` (holds `forbid(unsafe_code)`), `crypto.rs`, `dns.rs`, `revocation.rs` |
-| Signed-structure verification | `liblinkkeys`: `claims.rs`, `claim_policy.rs`, `assertions.rs`, `auth_request.rs`, `application_keys.rs`, `consent.rs`, `signing_request.rs`, `domain_claims.rs`, `act_as.rs`, `local_rp.rs`, `userinfo.rs`, `legacy_signatures.rs` |
+| Signed-structure verification | `liblinkkeys`: `claims.rs`, `claim_policy.rs`, `assertions.rs`, `auth_request.rs`, `application_keys.rs`, `consent.rs`, `signing_request.rs`, `domain_claims.rs`, `act_as.rs`, `local_rp.rs`, `userinfo.rs`, `legacy_signatures.rs`, `timestamp.rs` (timestamp text and parsing) |
 | Server key trust | `linkkeys`: `services/pins.rs`, `services/pubkey_cache.rs`, `services/rp_cache.rs`, `services/attestation.rs`, `services/domain_keys.rs`, `services/revocations.rs`, `services/signature_upgrade.rs`, `dns.rs`, `web/rp.rs` (`fetch_domain_keys`), `tcp/dns_pin_cache.rs`, `tcp/tls.rs` |
 | Transport pinning | `linkkeys-rpc-client`: `tls.rs` |
 

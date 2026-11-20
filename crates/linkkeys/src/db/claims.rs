@@ -20,8 +20,8 @@ pub mod pg {
         claim_type: &str,
         claim_value: &[u8],
         signatures: &[ClaimSignature],
-        expires_at: Option<chrono::DateTime<chrono::Utc>>,
-        attested_at: chrono::DateTime<chrono::Utc>,
+        expires_at: Option<time::OffsetDateTime>,
+        attested_at: time::OffsetDateTime,
     ) -> QueryResult<ClaimRow> {
         conn.transaction(|conn| {
             let new_row = NewClaimDbRow {
@@ -59,7 +59,7 @@ pub mod pg {
     pub fn resign(
         conn: &mut diesel::PgConnection,
         claim_id: uuid::Uuid,
-        attested_at: Option<chrono::DateTime<chrono::Utc>>,
+        attested_at: Option<time::OffsetDateTime>,
         signatures: &[ClaimSignature],
     ) -> QueryResult<()> {
         conn.transaction(|conn| {
@@ -153,7 +153,7 @@ pub mod pg {
             .parse()
             .map_err(|_| diesel::result::Error::NotFound)?;
         // Active = not revoked AND (no expiry OR expiry in the future).
-        let now = chrono::Utc::now();
+        let now = time::OffsetDateTime::now_utc();
         let db_rows = claims::table
             .filter(claims::user_id.eq(uid))
             .filter(claims::revoked_at.is_null())
@@ -185,8 +185,8 @@ pub mod pg {
             .map_err(|_| diesel::result::Error::NotFound)?;
         diesel::update(claims::table.find(id))
             .set((
-                claims::revoked_at.eq(Some(chrono::Utc::now())),
-                claims::updated_at.eq(chrono::Utc::now()),
+                claims::revoked_at.eq(Some(time::OffsetDateTime::now_utc())),
+                claims::updated_at.eq(time::OffsetDateTime::now_utc()),
             ))
             .execute(conn)?;
         load_with_signatures(conn, id)
@@ -203,7 +203,7 @@ pub mod pg {
         let uid: uuid::Uuid = user_id_str
             .parse()
             .map_err(|_| diesel::result::Error::NotFound)?;
-        let now = chrono::Utc::now();
+        let now = time::OffsetDateTime::now_utc();
         diesel::update(
             claims::table
                 .filter(claims::user_id.eq(uid))
@@ -225,11 +225,11 @@ pub mod pg {
         claim_type: &str,
         claim_value: &[u8],
         signatures: &[ClaimSignature],
-        expires_at: Option<chrono::DateTime<chrono::Utc>>,
-        attested_at: chrono::DateTime<chrono::Utc>,
+        expires_at: Option<time::OffsetDateTime>,
+        attested_at: time::OffsetDateTime,
     ) -> QueryResult<ClaimRow> {
         conn.transaction(|conn| {
-            let now = chrono::Utc::now();
+            let now = time::OffsetDateTime::now_utc();
             diesel::update(
                 claims::table
                     .filter(claims::user_id.eq(user_id))
@@ -274,6 +274,7 @@ pub mod pg {
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
     use diesel::prelude::*;
+    use liblinkkeys::timestamp::Rfc3339 as _;
     use std::collections::HashMap;
 
     use crate::db::models::sqlite::{
@@ -424,7 +425,7 @@ pub mod sqlite {
         // expires_at is stored as RFC3339 UTC text; lexicographic comparison is
         // correct as long as all timestamps use the same UTC format (they do,
         // via chrono to_rfc3339).
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = time::OffsetDateTime::now_utc().to_rfc3339();
         let db_rows = claims::table
             .filter(claims::user_id.eq(user_id))
             .filter(claims::revoked_at.is_null())
@@ -451,7 +452,7 @@ pub mod sqlite {
     }
 
     pub fn remove(conn: &mut diesel::SqliteConnection, claim_id: &str) -> QueryResult<ClaimRow> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = time::OffsetDateTime::now_utc().to_rfc3339();
         diesel::update(claims::table.find(claim_id))
             .set((
                 claims::revoked_at.eq(Some(&now)),
@@ -468,7 +469,7 @@ pub mod sqlite {
         user_id: &str,
         claim_type: &str,
     ) -> QueryResult<usize> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = time::OffsetDateTime::now_utc().to_rfc3339();
         diesel::update(
             claims::table
                 .filter(claims::user_id.eq(user_id))
@@ -496,7 +497,7 @@ pub mod sqlite {
         attested_at: &str,
     ) -> QueryResult<ClaimRow> {
         conn.transaction(|conn| {
-            let now = chrono::Utc::now().to_rfc3339();
+            let now = time::OffsetDateTime::now_utc().to_rfc3339();
             diesel::update(
                 claims::table
                     .filter(claims::user_id.eq(user_id))

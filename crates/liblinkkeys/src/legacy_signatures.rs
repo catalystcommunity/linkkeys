@@ -178,8 +178,8 @@ fn key_usable(key: &DomainPublicKey, signed_at: Option<&str>) -> bool {
     let Some(revoked_at) = key.revoked_at.as_deref() else {
         return true;
     };
-    let signed = signed_at.and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok());
-    let revoked = chrono::DateTime::parse_from_rfc3339(revoked_at).ok();
+    let signed = signed_at.and_then(|s| crate::timestamp::parse_rfc3339(s).ok());
+    let revoked = crate::timestamp::parse_rfc3339(revoked_at).ok();
     matches!((signed, revoked), (Some(s), Some(r)) if s < r)
 }
 
@@ -346,7 +346,8 @@ mod tests {
         sign_claim, verify_claim_signatures, ClaimSigner, ClaimSpec, DomainKeySet,
     };
     use crate::crypto::{fingerprint, generate_keypair, SigningAlgorithm, ALGORITHM_ED25519};
-    use chrono::Utc;
+    use crate::timestamp::Rfc3339 as _;
+    use time::OffsetDateTime;
 
     const DOMAIN: &str = "example.com";
 
@@ -360,7 +361,7 @@ mod tests {
             signed_by_key_id: None,
             key_signature: None,
             created_at: "2026-01-01T00:00:00+00:00".to_string(),
-            expires_at: (Utc::now() + chrono::Duration::days(30)).to_rfc3339(),
+            expires_at: (OffsetDateTime::now_utc() + time::Duration::days(30)).to_rfc3339(),
             revoked_at: None,
         }
     }

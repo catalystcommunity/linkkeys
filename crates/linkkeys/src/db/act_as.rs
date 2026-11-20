@@ -112,8 +112,8 @@ fn scope_from_json(raw: &str) -> Vec<String> {
 pub mod pg {
     use super::{scope_from_json, scope_to_json, ActAsGrantRecord, GranteeColumns};
     use crate::schema::pg::act_as_grants;
-    use chrono::{DateTime, Utc};
     use diesel::prelude::*;
+    use time::OffsetDateTime;
 
     #[derive(Queryable, Selectable)]
     #[diesel(table_name = act_as_grants)]
@@ -130,16 +130,16 @@ pub mod pg {
         audience_application_id: String,
         approved_scope: String,
         lifetime_seconds: i64,
-        series_issued_at: DateTime<Utc>,
-        renewable_until: DateTime<Utc>,
+        series_issued_at: OffsetDateTime,
+        renewable_until: OffsetDateTime,
         signed_grant: Vec<u8>,
-        issued_at: DateTime<Utc>,
-        expires_at: DateTime<Utc>,
-        revoked_at: Option<DateTime<Utc>>,
+        issued_at: OffsetDateTime,
+        expires_at: OffsetDateTime,
+        revoked_at: Option<OffsetDateTime>,
         signed_revocation: Option<Vec<u8>>,
     }
 
-    fn ts(t: DateTime<Utc>) -> String {
+    fn ts(t: OffsetDateTime) -> String {
         liblinkkeys::act_as::format_time(t)
     }
 
@@ -175,15 +175,13 @@ pub mod pg {
         s.parse().map_err(|_| diesel::result::Error::NotFound)
     }
 
-    fn time(s: &str) -> QueryResult<DateTime<Utc>> {
-        DateTime::parse_from_rfc3339(s)
-            .map(|t| t.with_timezone(&Utc))
-            .map_err(|e| {
-                diesel::result::Error::SerializationError(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    e.to_string(),
-                )))
-            })
+    fn time(s: &str) -> QueryResult<OffsetDateTime> {
+        liblinkkeys::timestamp::parse_rfc3339(s).map_err(|e| {
+            diesel::result::Error::SerializationError(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                e.to_string(),
+            )))
+        })
     }
 
     pub fn insert(conn: &mut PgConnection, r: &ActAsGrantRecord) -> QueryResult<usize> {

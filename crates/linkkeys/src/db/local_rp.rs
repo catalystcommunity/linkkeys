@@ -143,7 +143,7 @@ pub mod pg {
         app_name: &str,
         local_domain_hint: Option<&str>,
         status: &str,
-        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        expires_at: Option<time::OffsetDateTime>,
     ) -> QueryResult<LocalRp> {
         let new_row = NewLocalRpRow {
             fingerprint: fingerprint.to_string(),
@@ -226,7 +226,7 @@ pub mod pg {
     ) -> QueryResult<LocalRp> {
         diesel::update(local_rps::table.find(fingerprint))
             .set((
-                local_rps::last_seen_at.eq(Some(chrono::Utc::now())),
+                local_rps::last_seen_at.eq(Some(time::OffsetDateTime::now_utc())),
                 local_rps::app_name.eq(app_name),
                 local_rps::local_domain_hint.eq(local_domain_hint),
             ))
@@ -267,7 +267,7 @@ pub mod pg {
         user_id: uuid::Uuid,
         user_domain: &str,
         granted_claims_json: &str,
-        expires_at: chrono::DateTime<chrono::Utc>,
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<LocalRpClaimTicket> {
         let new_row = NewLocalRpClaimTicketRow {
             ticket_hash: ticket_hash.to_string(),
@@ -299,7 +299,7 @@ pub mod pg {
     /// rows deleted.
     pub fn delete_expired_tickets(
         conn: &mut diesel::PgConnection,
-        now: chrono::DateTime<chrono::Utc>,
+        now: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         diesel::delete(
             local_rp_claim_tickets::table.filter(local_rp_claim_tickets::expires_at.le(now)),
@@ -341,6 +341,7 @@ pub mod pg {
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
     use diesel::prelude::*;
+    use liblinkkeys::timestamp::Rfc3339 as _;
 
     use crate::db::models::sqlite::{
         LocalRpClaimTicketRow, LocalRpDomainPolicyRow, LocalRpRow, NewLocalRpClaimTicketRow,
@@ -510,7 +511,7 @@ pub mod sqlite {
         app_name: &str,
         local_domain_hint: Option<&str>,
     ) -> QueryResult<LocalRp> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = time::OffsetDateTime::now_utc().to_rfc3339();
         diesel::update(local_rps::table.find(fingerprint))
             .set((
                 local_rps::last_seen_at.eq(Some(now)),

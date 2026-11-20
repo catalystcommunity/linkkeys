@@ -112,6 +112,7 @@ mod tests {
     use super::*;
     use crate::assertions::{build_assertion, sign_assertion};
     use crate::crypto::{generate_keypair, SigningAlgorithm};
+    use crate::timestamp::Rfc3339 as _;
 
     #[test]
     fn test_url_param_roundtrip() {
@@ -213,13 +214,13 @@ mod tests {
             build_local_rp_descriptor, build_local_rp_login_request, sign_local_rp_descriptor,
             sign_local_rp_login_request,
         };
-        use chrono::Utc;
+        use time::OffsetDateTime;
 
         let (pk, sk) = generate_ed25519_keypair();
         let (enc_pk, _enc_sk) = generate_x25519_keypair();
         let pk_arr: [u8; 32] = pk.as_bytes().to_owned();
         let enc_pk_arr: [u8; 32] = enc_pk.try_into().unwrap();
-        let now = Utc::now();
+        let now = OffsetDateTime::now_utc();
 
         let descriptor = build_local_rp_descriptor(
             "Test App",
@@ -228,7 +229,7 @@ mod tests {
             &enc_pk_arr,
             vec!["aes-256-gcm".to_string()],
             &now.to_rfc3339(),
-            &(now + chrono::Duration::days(3650)).to_rfc3339(),
+            &(now + time::Duration::days(3650)).to_rfc3339(),
         );
         let signed_descriptor = sign_local_rp_descriptor(&descriptor, &sk.to_bytes()).unwrap();
         let request = build_local_rp_login_request(
@@ -239,7 +240,7 @@ mod tests {
             vec!["email".to_string()],
             vec!["handle".to_string()],
             &now.to_rfc3339(),
-            &(now + chrono::Duration::minutes(5)).to_rfc3339(),
+            &(now + time::Duration::minutes(5)).to_rfc3339(),
         );
         let signed = sign_local_rp_login_request(&request, &sk.to_bytes()).unwrap();
 

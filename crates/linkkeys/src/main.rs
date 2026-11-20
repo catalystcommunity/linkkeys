@@ -7,6 +7,7 @@ use cli::{
     AccountCommands, ClaimCommands, Cli, Commands, DomainCommands, LocalRpCommands, PinCommands,
     PolicyCommands, RelationCommands, UserCommands,
 };
+use liblinkkeys::timestamp::Rfc3339 as _;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
@@ -376,7 +377,7 @@ fn generate_and_store_keypairs<F>(
         &[u8],
         &[u8],
         &str,
-        chrono::DateTime<chrono::Utc>,
+        time::OffsetDateTime,
     ) -> Result<GeneratedKey, String>,
 {
     for &years in staggered_years {
@@ -386,7 +387,7 @@ fn generate_and_store_keypairs<F>(
         let encrypted = liblinkkeys::crypto::encrypt_private_key(&sk_bytes, passphrase.as_bytes())
             .expect("Failed to encrypt private key");
         let fp = liblinkkeys::crypto::fingerprint(&pk_bytes);
-        let expires = chrono::Utc::now() + chrono::Duration::days(365 * years);
+        let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365 * years);
 
         match store_fn(db_pool, &pk_bytes, &encrypted, &fp, expires) {
             Ok(key) => println!(
@@ -654,13 +655,10 @@ fn domain_emit_revocation_cert(
             println!("Revocation certificate (CBOR hex, publish to peers):\n{hex}");
 
             // Persist it so peers can pull it via DomainKeys/get-revocations.
-            if let Ok(when) = chrono::DateTime::parse_from_rfc3339(&revoked_at) {
-                if let Err(e) = db_pool.insert_issued_revocation(
-                    &revoked.id,
-                    &revoked.fingerprint,
-                    when.with_timezone(&chrono::Utc),
-                    &cbor,
-                ) {
+            if let Ok(when) = liblinkkeys::timestamp::parse_rfc3339(&revoked_at) {
+                if let Err(e) =
+                    db_pool.insert_issued_revocation(&revoked.id, &revoked.fingerprint, when, &cbor)
+                {
                     eprintln!("Warning: failed to store issued revocation: {e}");
                 }
             }
@@ -813,8 +811,6 @@ fn generate_signing_keys(db_pool: &linkkeys::db::DbPool, passphrase: &str) {
 /// fingerprint + expiry). Encryption keys are NOT published in DNS — verifiers
 /// trust them via this vouch chained to a DNS-pinned signing key.
 fn generate_and_store_encryption_key(db_pool: &linkkeys::db::DbPool, passphrase: &str) {
-    use chrono::Timelike;
-
     let signing_keys = db_pool.list_active_domain_keys().unwrap_or_else(|e| {
         eprintln!("Failed to list signing keys: {}", e);
         std::process::exit(1);
@@ -847,8 +843,8 @@ fn generate_and_store_encryption_key(db_pool: &linkkeys::db::DbPool, passphrase:
             .expect("Failed to encrypt encryption private key");
     // Whole-second expiry so the signed value round-trips byte-identically
     // through pg timestamptz / sqlite text (the vouch signs this exact string).
-    let expires = (chrono::Utc::now() + chrono::Duration::days(365 * 2))
-        .with_nanosecond(0)
+    let expires = (time::OffsetDateTime::now_utc() + time::Duration::days(365 * 2))
+        .replace_nanosecond(0)
         .unwrap();
     let expires_str = expires.to_rfc3339();
 
@@ -2551,25 +2547,25 @@ fn claim_set(user_id: &str, claim_type: &str, claim_value: &str, expires: Option
             std::process::exit(1);
         });
 
-    use chrono::Timelike;
-    let expires_chrono = expires.map(|s| {
-        chrono::DateTime::parse_from_rfc3339(s)
+    let expires_time = expires.map(|s| {
+        liblinkkeys::timestamp::parse_rfc3339(s)
             .unwrap_or_else(|e| {
                 eprintln!("Invalid --expires timestamp: {}", e);
                 std::process::exit(1);
             })
-            .with_timezone(&chrono::Utc)
             // Whole-second normalization so the signed expires_at round-trips
             // byte-identically through pg timestamptz / sqlite text (matches set_claim).
-            .with_nanosecond(0)
+            .replace_nanosecond(0)
             .unwrap()
     });
 
     let claim_value_bytes = claim_value.as_bytes();
     let claim_id = uuid::Uuid::now_v7().to_string();
-    let expires_str = expires_chrono.as_ref().map(|e| e.to_rfc3339());
-    let attested_chrono = chrono::Utc::now().with_nanosecond(0).unwrap();
-    let attested_str = attested_chrono.to_rfc3339();
+    let expires_str = expires_time.as_ref().map(|e| e.to_rfc3339());
+    let attested_time = time::OffsetDateTime::now_utc()
+        .replace_nanosecond(0)
+        .unwrap();
+    let attested_str = attested_time.to_rfc3339();
     let subject_domain = linkkeys::conversions::get_domain_name();
     let claim = linkkeys::claim_signing::sign_with_active(
         &liblinkkeys::claims::ClaimSpec {
@@ -2594,8 +2590,8 @@ fn claim_set(user_id: &str, claim_type: &str, claim_value: &str, expires: Option
         claim_type,
         claim_value_bytes,
         &claim.signatures,
-        expires_chrono,
-        attested_chrono,
+        expires_time,
+        attested_time,
     ) {
         Ok(stored) => println!(
             "Claim set: id={} type={} signatures={}",

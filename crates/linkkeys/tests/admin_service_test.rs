@@ -5,6 +5,7 @@ use common::data_factory::{
 };
 use diesel::prelude::*;
 use liblinkkeys::generated::types::*;
+use liblinkkeys::timestamp::Rfc3339 as _;
 use linkkeys::services::{admin, auth};
 use serde_json::Value;
 
@@ -166,7 +167,7 @@ fn test_user_authentication_activity_survives_session_removal() {
     assert_eq!(current.successful_authentication_count, 2);
     assert_eq!(current.active_browser_session_count, 1);
 
-    let earlier = chrono::Utc::now() - chrono::Duration::days(1);
+    let earlier = time::OffsetDateTime::now_utc() - time::Duration::days(1);
     pool.record_user_authentication(&user.id, earlier).unwrap();
     let after_earlier_record = pool
         .find_user_authentication_activity(&user.id)
@@ -732,9 +733,7 @@ fn test_service_remove_claim() {
             b"admin",
             &signed.signatures,
             None,
-            chrono::DateTime::parse_from_rfc3339("2026-07-01T00:00:00+00:00")
-                .unwrap()
-                .with_timezone(&chrono::Utc),
+            liblinkkeys::timestamp::parse_rfc3339("2026-07-01T00:00:00+00:00").unwrap(),
         )
         .unwrap();
 
@@ -1257,7 +1256,7 @@ fn test_expired_credential_filtered_by_find_for_user() {
     let hash = bcrypt::hash("pw-exp", 4).unwrap();
     let cred = create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_PASSWORD, &hash);
 
-    let past = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+    let past = (time::OffsetDateTime::now_utc() - time::Duration::hours(1)).to_rfc3339();
     pool.set_credential_expires_at(&cred.id, &past).unwrap();
 
     let active = pool

@@ -6,6 +6,7 @@
 mod common;
 
 use common::data_factory::{create_domain_key, create_relation, create_user, DataMap};
+use liblinkkeys::timestamp::Rfc3339 as _;
 use linkkeys::db::models::PeerKey;
 use linkkeys::services::attestation;
 use std::sync::{Mutex, MutexGuard};
@@ -59,7 +60,7 @@ fn issuer_signed_claim(
         algorithm: "ed25519".to_string(),
         fingerprint: liblinkkeys::crypto::fingerprint(&pk_bytes),
         key_usage: "sign".to_string(),
-        expires_at: (chrono::Utc::now() + chrono::Duration::days(365)).to_rfc3339(),
+        expires_at: (time::OffsetDateTime::now_utc() + time::Duration::days(365)).to_rfc3339(),
         revoked_at: None,
     };
     (claim, peer)

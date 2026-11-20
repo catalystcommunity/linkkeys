@@ -31,7 +31,6 @@ use crate::identity::LocalRpKeyMaterial;
 use crate::transport::Transport;
 use crate::Error;
 use base64ct::{Base64UrlUnpadded, Encoding};
-use chrono::{DateTime, Duration, Utc};
 use liblinkkeys::act_as::{self, GranteeSigner};
 use liblinkkeys::generated::types::{
     ActAsCredential, ActAsGrantRequest, ActAsRefreshRequest, ApplicationRef, GranteeRef,
@@ -41,6 +40,7 @@ use liblinkkeys::identity_input::parse_identity_input;
 use liblinkkeys::local_rp::LocalRpError;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use time::{Duration, OffsetDateTime};
 use url::Url;
 
 /// Default grant-request window: the request is valid for five minutes.
@@ -117,7 +117,7 @@ pub struct BeginActAsConfig<'a> {
     /// Where the home domain sends the browser after consent. Must be
     /// `http://` or `https://`.
     pub callback_url: String,
-    pub now: DateTime<Utc>,
+    pub now: OffsetDateTime,
     /// The DNS seam for browser endpoint discovery. Defaults to
     /// [`crate::default_dns_resolver`].
     pub dns: Option<&'a dyn DnsResolver>,
@@ -155,7 +155,7 @@ impl<'a> BeginActAsConfig<'a> {
         user_identity: impl Into<String>,
         scope_set: &'a [u8],
         callback_url: impl Into<String>,
-        now: DateTime<Utc>,
+        now: OffsetDateTime,
     ) -> Self {
         Self {
             key_material,
@@ -204,10 +204,10 @@ pub fn begin_act_as(config: BeginActAsConfig<'_>) -> Result<(ActAsRedirect, Pend
     let window = config
         .request_window
         .unwrap_or(DEFAULT_ACT_AS_REQUEST_WINDOW);
-    if window <= Duration::zero() || window > MAX_ACT_AS_REQUEST_WINDOW {
+    if window <= Duration::ZERO || window > MAX_ACT_AS_REQUEST_WINDOW {
         return Err(Error::InvalidInput(format!(
             "request window must be between 1 and {} seconds",
-            MAX_ACT_AS_REQUEST_WINDOW.num_seconds()
+            MAX_ACT_AS_REQUEST_WINDOW.whole_seconds()
         )));
     }
     if config.requested_lifetime_seconds.is_some_and(|v| v <= 0) {
@@ -313,7 +313,7 @@ pub struct RefreshActAsGrantConfig<'a> {
     /// The user's home domain ([`PendingActAs::user_domain`]).
     pub user_domain: &'a str,
     pub grant_id: &'a str,
-    pub now: DateTime<Utc>,
+    pub now: OffsetDateTime,
     /// The TCP dial seam. Defaults to [`crate::default_transport`].
     pub transport: &'a dyn Transport,
     /// The DNS seam. Defaults to [`crate::default_dns_resolver`].
@@ -325,7 +325,7 @@ impl<'a> RefreshActAsGrantConfig<'a> {
         key_material: &'a LocalRpKeyMaterial,
         user_domain: &'a str,
         grant_id: &'a str,
-        now: DateTime<Utc>,
+        now: OffsetDateTime,
     ) -> Self {
         Self {
             key_material,
@@ -408,7 +408,7 @@ pub fn present_act_as(
     grant: &SignedActAsGrant,
     audience: &ApplicationRef,
     request_digest: &[u8],
-    presented_at: DateTime<Utc>,
+    presented_at: OffsetDateTime,
     nonce: &[u8],
     key_material: &LocalRpKeyMaterial,
 ) -> Result<ActAsPresentationCredential, Error> {

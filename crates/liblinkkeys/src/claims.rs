@@ -1,9 +1,10 @@
 // LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 use crate::crypto::{self, CryptoError, SigningAlgorithm};
 use crate::generated::types::{Claim, ClaimSignature, DomainPublicKey};
-use chrono::Utc;
+use crate::timestamp::Rfc3339 as _;
 use std::collections::BTreeSet;
 use std::fmt;
+use time::OffsetDateTime;
 
 #[derive(Debug)]
 pub enum ClaimError {
@@ -191,7 +192,7 @@ pub fn sign_claim(spec: &ClaimSpec<'_>, signers: &[ClaimSigner<'_>]) -> Result<C
         claim_value: spec.claim_value.to_vec(),
         signatures,
         attested_at: spec.attested_at.to_string(),
-        created_at: Utc::now().to_rfc3339(),
+        created_at: OffsetDateTime::now_utc().to_rfc3339(),
         expires_at: spec.expires_at.map(|s| s.to_string()),
         revoked_at: None,
     })
@@ -221,18 +222,18 @@ pub struct DomainKeySet {
 /// Every timestamp involved must parse. Anything unparseable is fail-closed: an
 /// attestation time we cannot read is not evidence of anything.
 fn key_valid_at(key: &DomainPublicKey, at: &str) -> Result<(), ClaimError> {
-    let Ok(at) = chrono::DateTime::parse_from_rfc3339(at) else {
+    let Ok(at) = crate::timestamp::parse_rfc3339(at) else {
         return Err(ClaimError::KeyExpired(key.key_id.clone()));
     };
 
     if let Some(revoked_at) = key.revoked_at.as_deref() {
-        match chrono::DateTime::parse_from_rfc3339(revoked_at) {
+        match crate::timestamp::parse_rfc3339(revoked_at) {
             Ok(revoked) if at < revoked => {}
             _ => return Err(ClaimError::KeyRevoked(key.key_id.clone())),
         }
     }
 
-    match chrono::DateTime::parse_from_rfc3339(&key.expires_at) {
+    match crate::timestamp::parse_rfc3339(&key.expires_at) {
         Ok(expires) if at < expires => Ok(()),
         _ => Err(ClaimError::KeyExpired(key.key_id.clone())),
     }
@@ -389,9 +390,8 @@ pub fn verify_claim(
         return Err(ClaimError::Revoked);
     }
     if let Some(exp) = claim.expires_at.as_deref() {
-        let expires =
-            chrono::DateTime::parse_from_rfc3339(exp).map_err(|_| ClaimError::BadExpiry)?;
-        if Utc::now() > expires {
+        let expires = crate::timestamp::parse_rfc3339(exp).map_err(|_| ClaimError::BadExpiry)?;
+        if OffsetDateTime::now_utc() > expires {
             return Err(ClaimError::Expired);
         }
     }
@@ -415,8 +415,8 @@ mod tests {
             key_usage: "sign".to_string(),
             signed_by_key_id: None,
             key_signature: None,
-            created_at: Utc::now().to_rfc3339(),
-            expires_at: (Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
+            created_at: OffsetDateTime::now_utc().to_rfc3339(),
+            expires_at: (OffsetDateTime::now_utc() + time::Duration::hours(1)).to_rfc3339(),
             revoked_at: None,
         }
     }
@@ -505,7 +505,7 @@ mod tests {
     #[test]
     fn test_claim_expired_rejected() {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
-        let past = (Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+        let past = (OffsetDateTime::now_utc() - time::Duration::hours(1)).to_rfc3339();
         let claim = signed_claim("key-1", &sk, Some(&past));
         assert!(matches!(
             verify(&claim, &keyset(vec![make_domain_key("key-1", &pk)])),
@@ -516,7 +516,7 @@ mod tests {
     #[test]
     fn test_claim_not_yet_expired_ok() {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
-        let future = (Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
+        let future = (OffsetDateTime::now_utc() + time::Duration::hours(1)).to_rfc3339();
         let claim = signed_claim("key-1", &sk, Some(&future));
         assert!(verify(&claim, &keyset(vec![make_domain_key("key-1", &pk)])).is_ok());
     }
@@ -525,7 +525,7 @@ mod tests {
     fn test_claim_revoked_rejected() {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let mut claim = signed_claim("key-1", &sk, None);
-        claim.revoked_at = Some(Utc::now().to_rfc3339());
+        claim.revoked_at = Some(OffsetDateTime::now_utc().to_rfc3339());
         assert!(matches!(
             verify(&claim, &keyset(vec![make_domain_key("key-1", &pk)])),
             Err(ClaimError::Revoked)
@@ -536,9 +536,10 @@ mod tests {
     fn test_claim_tampered_expiry_rejected() {
         // expires_at is part of the signed payload, so extending it breaks the signature.
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
-        let soon = (Utc::now() + chrono::Duration::minutes(1)).to_rfc3339();
+        let soon = (OffsetDateTime::now_utc() + time::Duration::minutes(1)).to_rfc3339();
         let mut claim = signed_claim("key-1", &sk, Some(&soon));
-        claim.expires_at = Some((Utc::now() + chrono::Duration::weeks(520)).to_rfc3339());
+        claim.expires_at =
+            Some((OffsetDateTime::now_utc() + time::Duration::weeks(520)).to_rfc3339());
         assert!(matches!(
             verify(&claim, &keyset(vec![make_domain_key("key-1", &pk)])),
             Err(ClaimError::SignatureInvalid)
@@ -648,9 +649,9 @@ mod tests {
         assert_eq!(claim.signatures.len(), 3);
 
         let mut k1 = make_domain_key("key-1", &pk1);
-        k1.revoked_at = Some(Utc::now().to_rfc3339());
+        k1.revoked_at = Some(OffsetDateTime::now_utc().to_rfc3339());
         let mut k2 = make_domain_key("key-2", &pk2);
-        k2.expires_at = (Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+        k2.expires_at = (OffsetDateTime::now_utc() - time::Duration::hours(1)).to_rfc3339();
         let k3 = make_domain_key("key-3", &pk3); // still valid
 
         assert!(verify(&claim, &keyset(vec![k1, k2, k3])).is_ok());

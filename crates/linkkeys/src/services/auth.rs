@@ -1,9 +1,9 @@
 use crate::db::models::User;
 use crate::db::DbPool;
-use chrono::{DateTime, Utc};
 use liblinkkeys::generated::types::AuthenticationRequirements;
 use std::collections::BTreeSet;
 use std::fmt;
+use time::OffsetDateTime;
 
 pub const CREDENTIAL_TYPE_PASSWORD: &str = "password";
 pub const CREDENTIAL_TYPE_API_KEY: &str = "api_key";
@@ -59,14 +59,14 @@ pub struct AuthenticationMethod {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthenticationEvidence {
     pub method_types: BTreeSet<String>,
-    pub authenticated_at: DateTime<Utc>,
+    pub authenticated_at: OffsetDateTime,
 }
 
 impl AuthenticationEvidence {
     pub fn single(method_type: &str) -> Self {
         Self {
             method_types: [method_type.to_string()].into_iter().collect(),
-            authenticated_at: Utc::now(),
+            authenticated_at: OffsetDateTime::now_utc(),
         }
     }
 
@@ -464,7 +464,7 @@ mod assurance_tests {
             method_types: ["password".to_string(), "device".to_string()]
                 .into_iter()
                 .collect(),
-            authenticated_at: Utc::now(),
+            authenticated_at: OffsetDateTime::now_utc(),
         };
         assert!(evidence_satisfies(
             &evidence,

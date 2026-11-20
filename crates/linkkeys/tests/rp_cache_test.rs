@@ -16,7 +16,6 @@
 
 mod common;
 
-use chrono::{Duration, Utc};
 use common::net::{CannedRpc, StaticDns};
 use liblinkkeys::application_keys::{self as ak, ApplicationKeyRef, InstanceRef};
 use liblinkkeys::claims::ClaimSigner;
@@ -25,9 +24,11 @@ use liblinkkeys::generated::types::{
     ApplicationKeyRevocation, DomainPublicKey, GetApplicationKeysResponse, GetDomainKeysResponse,
     RpResolveApplicationKeysRequest, RpResolveDomainKeysRequest, SignedApplicationKeyAttestation,
 };
+use liblinkkeys::timestamp::Rfc3339 as _;
 use linkkeys::net::{DomainRpc, HttpResponse, Net, NetError};
 use linkkeys::services::rp_cache;
 use std::sync::Arc;
+use time::{Duration, OffsetDateTime};
 
 const APP: &str = "tinku";
 
@@ -54,7 +55,7 @@ fn domain_fixture(domain: &str) -> DomainFixture {
     let (vk, sk) = crypto::generate_ed25519_keypair();
     let pk = vk.as_bytes().to_vec();
     let fp = crypto::fingerprint(&pk);
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let key_id = format!("{domain}-sign-1");
     DomainFixture {
         domain: domain.to_string(),
@@ -104,7 +105,7 @@ fn app_signing_key(id: &str) -> AppKeyFixture {
     let (vk, sk) = crypto::generate_ed25519_keypair();
     let pk = vk.as_bytes().to_vec();
     let fp = crypto::fingerprint(&pk);
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     AppKeyFixture {
         key_ref: ApplicationKeyRef {
             key_id: id.to_string(),
@@ -124,7 +125,7 @@ fn attest(
     domain: &DomainFixture,
     instance: &InstanceRef<'_>,
     key: &AppKeyFixture,
-    attested_at: chrono::DateTime<Utc>,
+    attested_at: time::OffsetDateTime,
 ) -> SignedApplicationKeyAttestation {
     let attestation = ak::build_attestation(instance, &key.key_ref, attested_at, 86_400);
     ak::sign_attestation(
@@ -143,7 +144,7 @@ fn revoke(
     instance: &InstanceRef<'_>,
     target: &AppKeyFixture,
     siblings: &[&AppKeyFixture],
-    revoked_at: chrono::DateTime<Utc>,
+    revoked_at: time::OffsetDateTime,
 ) -> ApplicationKeyRevocation {
     let signers: Vec<ak::ApplicationSigner<'_>> = siblings
         .iter()
@@ -564,7 +565,7 @@ fn application_key_cache_miss_fetches_verifies_stores_and_returns_refreshed() {
         instance_id: "instance-1",
     };
     let key = app_signing_key("k1");
-    let signed = attest(&d, &instance, &key, Utc::now());
+    let signed = attest(&d, &instance, &key, OffsetDateTime::now_utc());
     let net = app_net(
         &d,
         app_keys_response_bytes(&subject, &d.domain, vec![signed.clone()], vec![]),
@@ -608,7 +609,7 @@ fn application_key_cache_hit_returns_fresh_with_no_home_domain_call() {
         instance_id: "instance-1",
     };
     let key = app_signing_key("k1");
-    let signed = attest(&d, &instance, &key, Utc::now());
+    let signed = attest(&d, &instance, &key, OffsetDateTime::now_utc());
     let (net, counting) = app_net_counting(
         &d,
         app_keys_response_bytes(&subject, &d.domain, vec![signed], vec![]),
@@ -651,7 +652,7 @@ fn application_key_restart_persists_cached_signed_records() {
         instance_id: "instance-1",
     };
     let key = app_signing_key("k1");
-    let signed = attest(&d, &instance, &key, Utc::now());
+    let signed = attest(&d, &instance, &key, OffsetDateTime::now_utc());
     let net = app_net(
         &d,
         app_keys_response_bytes(&subject, &d.domain, vec![signed.clone()], vec![]),
@@ -711,7 +712,7 @@ fn application_key_unreachable_with_valid_cache_returns_stale_not_current() {
         instance_id: "instance-1",
     };
     let key = app_signing_key("k1");
-    let signed = attest(&d, &instance, &key, Utc::now());
+    let signed = attest(&d, &instance, &key, OffsetDateTime::now_utc());
     let net = app_net(
         &d,
         app_keys_response_bytes(&subject, &d.domain, vec![signed.clone()], vec![]),
@@ -774,12 +775,22 @@ fn attestation_that_does_not_verify_is_never_cached_or_returned() {
     };
 
     let good_key = app_signing_key("good");
-    let good = attest(&real_domain, &instance, &good_key, Utc::now());
+    let good = attest(
+        &real_domain,
+        &instance,
+        &good_key,
+        OffsetDateTime::now_utc(),
+    );
 
     // "Signed" by a domain key the home domain does NOT publish -- this must
     // never verify, never be cached, and never be returned.
     let bad_key = app_signing_key("bad");
-    let bad = attest(&attacker_domain, &instance, &bad_key, Utc::now());
+    let bad = attest(
+        &attacker_domain,
+        &instance,
+        &bad_key,
+        OffsetDateTime::now_utc(),
+    );
 
     let net = app_net(
         &real_domain,
@@ -845,7 +856,7 @@ fn revocation_refresh_marks_key_revoked_and_later_read_reflects_it() {
     let target = app_signing_key("target");
     let sibling_a = app_signing_key("sibling-a");
     let sibling_b = app_signing_key("sibling-b");
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let attestations = vec![
         attest(&d, &instance, &target, now),
         attest(&d, &instance, &sibling_a, now),
@@ -868,7 +879,12 @@ fn revocation_refresh_marks_key_revoked_and_later_read_reflects_it() {
         .expect("first resolve");
     assert_eq!(first.application_key_revocations.len(), 0);
 
-    let revocation = revoke(&instance, &target, &[&sibling_a, &sibling_b], Utc::now());
+    let revocation = revoke(
+        &instance,
+        &target,
+        &[&sibling_a, &sibling_b],
+        OffsetDateTime::now_utc(),
+    );
     let net2 = app_net(
         &d,
         app_keys_response_bytes(&subject, &d.domain, attestations, vec![revocation.clone()]),
@@ -902,7 +918,7 @@ fn application_key_stricter_max_age_forces_refetch_weaker_does_not_get_staler_da
         instance_id: "instance-1",
     };
     let key = app_signing_key("k1");
-    let signed = attest(&d, &instance, &key, Utc::now());
+    let signed = attest(&d, &instance, &key, OffsetDateTime::now_utc());
     let (net, counting) = app_net_counting(
         &d,
         app_keys_response_bytes(&subject, &d.domain, vec![signed], vec![]),
@@ -944,7 +960,7 @@ fn concurrent_refreshes_for_one_entry_coalesce_into_a_single_fetch() {
         instance_id: "instance-1",
     };
     let key = app_signing_key("k1");
-    let signed = attest(&d, &instance, &key, Utc::now());
+    let signed = attest(&d, &instance, &key, OffsetDateTime::now_utc());
     let dns = dns_for(&d);
     let rpc = CannedRpc::new()
         .with(
@@ -1039,7 +1055,7 @@ fn cache_entries_do_not_bleed_across_instances_or_subjects() {
     let key_a2 = app_signing_key("a2");
     let key_b1 = app_signing_key("b1");
 
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let signed_a1 = attest(&d, &instance_a1, &key_a1, now);
     let signed_a2 = attest(&d, &instance_a2, &key_a2, now);
     let signed_b1 = attest(&d, &instance_b1, &key_b1, now);
@@ -1127,7 +1143,7 @@ fn a_handle_change_does_not_move_the_cache_entry() {
         instance_id: "instance-1",
     };
     let key = app_signing_key("k1");
-    let signed = attest(&d, &instance, &key, Utc::now());
+    let signed = attest(&d, &instance, &key, OffsetDateTime::now_utc());
     let net = app_net(
         &d,
         app_keys_response_bytes(&subject, &d.domain, vec![signed.clone()], vec![]),

@@ -34,11 +34,11 @@ use crate::application_key_cache::{
 use crate::dns::DnsResolver;
 use crate::transport::Transport;
 use crate::Error;
-use chrono::{DateTime, Utc};
 use liblinkkeys::application_keys::{self as ak, VerifiedApplicationKeySet};
 use liblinkkeys::generated::types::{DomainPublicKey, SignedApplicationKeyAttestation};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
+use time::OffsetDateTime;
 
 /// The SDK's own ceiling on cache age when the caller supplies none (design
 /// doc, "RP cache": "A caller can request a stricter maximum cache age. It
@@ -95,8 +95,8 @@ pub struct ResolvedApplicationKeys {
     /// [`VerifiedApplicationKeySet::usable_keys`] to consult it.
     pub keys: VerifiedApplicationKeySet,
     pub freshness: CacheFreshness,
-    pub fetched_at: DateTime<Utc>,
-    pub revocations_checked_at: DateTime<Utc>,
+    pub fetched_at: OffsetDateTime,
+    pub revocations_checked_at: OffsetDateTime,
     /// Which home-domain signing key ids verified each attestation, keyed by
     /// application key id (design doc, "RP cache": "must record... which
     /// home-domain keys verified each attestation").
@@ -109,7 +109,7 @@ pub struct ResolveApplicationKeysConfig<'a> {
     pub subject_domain: &'a str,
     pub application_id: &'a str,
     pub instance_id: &'a str,
-    pub now: DateTime<Utc>,
+    pub now: OffsetDateTime,
     /// A STRICTER ceiling than [`DEFAULT_MAX_CACHE_AGE_SECONDS`]. This can
     /// only tighten the allowed age, never loosen it — see
     /// [`resolve_application_keys`].
@@ -132,7 +132,7 @@ impl<'a> ResolveApplicationKeysConfig<'a> {
         subject_domain: &'a str,
         application_id: &'a str,
         instance_id: &'a str,
-        now: DateTime<Utc>,
+        now: OffsetDateTime,
     ) -> Self {
         Self {
             subject_user_id,
@@ -224,7 +224,7 @@ pub fn resolve_application_keys(
         .unwrap_or(DEFAULT_CLOCK_SKEW_SECONDS);
 
     if let Some(entry) = config.store.get(&key) {
-        let age = (config.now - entry.fetched_at).num_seconds();
+        let age = (config.now - entry.fetched_at).whole_seconds();
         if age <= refresh_ahead_seconds {
             return Ok(classify(
                 &key,
@@ -245,7 +245,7 @@ pub fn resolve_application_keys(
     // Re-check after acquiring the lock: another thread may already have
     // refreshed this exact entry while we were waiting for it.
     if let Some(entry) = config.store.get(&key) {
-        let age = (config.now - entry.fetched_at).num_seconds();
+        let age = (config.now - entry.fetched_at).whole_seconds();
         if age <= refresh_ahead_seconds {
             drop(guard);
             release_refresh_lock_if_unused(&key, &lock);
@@ -272,7 +272,7 @@ pub fn resolve_application_keys(
         }
         Err(fetch_err) => match config.store.get(&key) {
             Some(entry) => {
-                let age = (config.now - entry.fetched_at).num_seconds();
+                let age = (config.now - entry.fetched_at).whole_seconds();
                 if age <= max_age_seconds {
                     // Still inside the allowed window despite the failed
                     // refresh attempt: the refresh was only a proactive
@@ -336,7 +336,7 @@ fn classify(
     key: &InstanceKey,
     entry: &CachedApplicationKeys,
     freshness: CacheFreshness,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
     skew_seconds: i64,
 ) -> ResolvedApplicationKeys {
     let instance = key.as_instance_ref();
@@ -425,7 +425,7 @@ mod tests {
     use crate::application_key_cache::BoundedInMemoryApplicationKeyCache;
     use crate::dns::DnsLookupError;
     use crate::transport::{ReadWrite, TransportError};
-    use chrono::Duration;
+    use time::Duration;
 
     struct AlwaysFailsTransport;
     impl Transport for AlwaysFailsTransport {
@@ -445,7 +445,7 @@ mod tests {
         }
     }
 
-    fn empty_entry(fetched_at: DateTime<Utc>) -> CachedApplicationKeys {
+    fn empty_entry(fetched_at: OffsetDateTime) -> CachedApplicationKeys {
         CachedApplicationKeys {
             signed_attestations: vec![],
             revocations: vec![],
@@ -456,7 +456,7 @@ mod tests {
     }
 
     fn base_config<'a>(
-        now: DateTime<Utc>,
+        now: OffsetDateTime,
         transport: &'a dyn Transport,
         dns: &'a dyn DnsResolver,
         store: &'a dyn ApplicationKeyCacheStore,
@@ -477,7 +477,7 @@ mod tests {
 
     #[test]
     fn fresh_entry_never_touches_the_network() {
-        let now = Utc::now();
+        let now = OffsetDateTime::now_utc();
         let store = BoundedInMemoryApplicationKeyCache::default();
         let key = InstanceKey::new("user-1", "example.test", "tinku", "instance-1");
         store.put(&key, empty_entry(now));
@@ -491,7 +491,7 @@ mod tests {
 
     #[test]
     fn entry_past_max_age_with_unreachable_home_domain_is_stale() {
-        let now = Utc::now();
+        let now = OffsetDateTime::now_utc();
         let store = BoundedInMemoryApplicationKeyCache::default();
         let key = InstanceKey::new("user-1", "example.test", "tinku", "instance-1");
         let old = now - Duration::seconds(DEFAULT_MAX_CACHE_AGE_SECONDS + 1);
@@ -507,7 +507,7 @@ mod tests {
 
     #[test]
     fn entry_past_refresh_ahead_but_within_max_age_survives_a_failed_refresh() {
-        let now = Utc::now();
+        let now = OffsetDateTime::now_utc();
         let store = BoundedInMemoryApplicationKeyCache::default();
         let key = InstanceKey::new("user-1", "example.test", "tinku", "instance-1");
         // Past the refresh-ahead threshold (half of max age) but still within
@@ -524,7 +524,7 @@ mod tests {
 
     #[test]
     fn miss_with_unreachable_home_domain_is_an_error() {
-        let now = Utc::now();
+        let now = OffsetDateTime::now_utc();
         let store = BoundedInMemoryApplicationKeyCache::default();
         let transport = AlwaysFailsTransport;
         let dns = AlwaysFailsDns;
@@ -534,7 +534,7 @@ mod tests {
 
     #[test]
     fn caller_supplied_max_age_can_only_tighten_never_loosen() {
-        let now = Utc::now();
+        let now = OffsetDateTime::now_utc();
         let store = BoundedInMemoryApplicationKeyCache::default();
         let key = InstanceKey::new("user-1", "example.test", "tinku", "instance-1");
         // Just past the SDK's own default ceiling.

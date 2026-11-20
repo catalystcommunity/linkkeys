@@ -10,6 +10,7 @@
 
 mod common;
 
+use liblinkkeys::timestamp::Rfc3339 as _;
 use std::collections::HashMap;
 
 use common::data_factory::{
@@ -666,14 +667,14 @@ fn purge_local_rp_tickets_removes_expired_but_keeps_valid() {
     let mut expired_overrides = DataMap::new();
     expired_overrides.insert(
         "expires_at".to_string(),
-        Value::String((chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339()),
+        Value::String((time::OffsetDateTime::now_utc() - time::Duration::hours(1)).to_rfc3339()),
     );
     let expired_ticket = create_local_rp_claim_ticket(&pool, &expired_overrides);
 
     let mut valid_overrides = DataMap::new();
     valid_overrides.insert(
         "expires_at".to_string(),
-        Value::String((chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339()),
+        Value::String((time::OffsetDateTime::now_utc() + time::Duration::hours(1)).to_rfc3339()),
     );
     let valid_ticket = create_local_rp_claim_ticket(&pool, &valid_overrides);
 

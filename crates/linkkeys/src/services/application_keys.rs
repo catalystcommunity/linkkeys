@@ -26,7 +26,6 @@
 //! those operations is the application key quorum, not a transport credential.
 //! The public read and the challenge issue are anonymous by design.
 
-use chrono::{DateTime, Duration, Utc};
 use liblinkkeys::application_keys::{
     self as ak, ApplicationKeyError, ApplicationKeyRef, InstanceRef,
 };
@@ -39,7 +38,9 @@ use liblinkkeys::generated::types::{
     RevokeApplicationKeyResponse, SignedApplicationKeyAttestation,
     StartApplicationKeyChallengeRequest, StartApplicationKeyChallengeResponse,
 };
+use liblinkkeys::timestamp::Rfc3339 as _;
 use std::sync::LazyLock;
+use time::{Duration, OffsetDateTime};
 
 use crate::conversions::get_domain_name;
 use crate::db::models::ApplicationKey as ApplicationKeyRow;
@@ -244,9 +245,8 @@ fn to_key_ref(row: &ApplicationKeyRow) -> ApplicationKeyRef {
     }
 }
 
-fn parse_rfc3339(value: &str) -> Result<DateTime<Utc>, ServiceError> {
-    DateTime::parse_from_rfc3339(value)
-        .map(|d| d.with_timezone(&Utc))
+fn parse_rfc3339(value: &str) -> Result<OffsetDateTime, ServiceError> {
+    liblinkkeys::timestamp::parse_rfc3339(value)
         .map_err(|e| bad_request(format!("bad timestamp: {e}")))
 }
 
@@ -264,7 +264,7 @@ fn parse_rfc3339(value: &str) -> Result<DateTime<Utc>, ServiceError> {
 pub fn start_challenge(
     pool: &DbPool,
     request: StartApplicationKeyChallengeRequest,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> Result<StartApplicationKeyChallengeResponse, ServiceError> {
     if request.purpose != ak::PURPOSE_ADD && request.purpose != ak::PURPOSE_RENEW {
         return Err(bad_request(format!(
@@ -354,9 +354,9 @@ const CHALLENGE_SWEEP_INTERVAL_SECONDS: i64 = 60;
 
 static LAST_CHALLENGE_SWEEP: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
 
-fn should_sweep_challenges(now: DateTime<Utc>) -> bool {
+fn should_sweep_challenges(now: OffsetDateTime) -> bool {
     use std::sync::atomic::Ordering;
-    let now_secs = now.timestamp();
+    let now_secs = now.unix_timestamp();
     let last = LAST_CHALLENGE_SWEEP.load(Ordering::Relaxed);
     if now_secs - last < CHALLENGE_SWEEP_INTERVAL_SECONDS {
         return false;
@@ -391,7 +391,7 @@ struct ChallengeUse<'a> {
 fn consume_challenge(
     pool: &DbPool,
     use_of: ChallengeUse<'_>,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> Result<(), ServiceError> {
     let ChallengeUse {
         challenge_id,
@@ -450,7 +450,7 @@ fn issue_attestation(
     instance: &InstanceRef<'_>,
     key: &ApplicationKeyRef,
     key_row_id: &str,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> Result<SignedApplicationKeyAttestation, ServiceError> {
     let cfg = config();
     let attestation = ak::build_attestation(instance, key, now, cfg.attestation_lifetime_seconds);
@@ -504,7 +504,7 @@ pub fn enroll_instance(
     pool: &DbPool,
     subject_user_id: &str,
     request: EnrollApplicationInstanceRequest,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> Result<EnrollApplicationInstanceResponse, ServiceError> {
     let cfg = config();
     let domain = get_domain_name();
@@ -610,7 +610,7 @@ fn store_key(
     pool: &DbPool,
     instance_row_id: &str,
     addition: &ApplicationKeyAddition,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> Result<ApplicationKeyRow, ServiceError> {
     let cfg = config();
     // The domain never attests a key for longer than it is willing to, however
@@ -659,7 +659,7 @@ fn check_identifier(field: &str, value: &str) -> Result<(), ServiceError> {
 pub fn add_key(
     pool: &DbPool,
     request: AddApplicationKeyRequest,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> Result<AddApplicationKeyResponse, ServiceError> {
     let cfg = config();
     let domain = get_domain_name();
@@ -742,7 +742,7 @@ pub fn add_key(
 pub fn renew_attestation(
     pool: &DbPool,
     request: RenewApplicationKeyAttestationRequest,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> Result<RenewApplicationKeyAttestationResponse, ServiceError> {
     let cfg = config();
     let domain = get_domain_name();
@@ -833,7 +833,7 @@ pub fn renew_attestation(
 pub fn revoke_key(
     pool: &DbPool,
     request: RevokeApplicationKeyRequest,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> Result<RevokeApplicationKeyResponse, ServiceError> {
     let cfg = config();
     let domain = get_domain_name();
@@ -896,7 +896,7 @@ pub fn revoke_key(
 pub fn get_application_keys(
     pool: &DbPool,
     request: GetApplicationKeysRequest,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> Result<GetApplicationKeysResponse, ServiceError> {
     let cfg = config();
     let domain = get_domain_name();
@@ -957,7 +957,7 @@ pub fn get_application_keys(
 pub fn get_application_keys_encoded(
     pool: &DbPool,
     request: GetApplicationKeysRequest,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> Result<std::sync::Arc<Vec<u8>>, ServiceError> {
     let cfg = config();
     let domain = get_domain_name();

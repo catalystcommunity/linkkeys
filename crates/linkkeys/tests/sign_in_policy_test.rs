@@ -54,13 +54,13 @@ fn new_session_hours(pool: &linkkeys::db::DbPool) -> i64 {
     let user = create_user(pool, &DataMap::new());
     let evidence = AuthenticationEvidence {
         method_types: ["password".to_string()].into_iter().collect(),
-        authenticated_at: chrono::Utc::now(),
+        authenticated_at: time::OffsetDateTime::now_utc(),
     };
     let (_, session) = browser_session::create(pool, &user.id, &evidence).expect("session");
-    let issued = chrono::DateTime::parse_from_rfc3339(&session.issued_at).unwrap();
-    let expires = chrono::DateTime::parse_from_rfc3339(&session.expires_at).unwrap();
+    let issued = liblinkkeys::timestamp::parse_rfc3339(&session.issued_at).unwrap();
+    let expires = liblinkkeys::timestamp::parse_rfc3339(&session.expires_at).unwrap();
     // Round to whole hours: storage can drop sub-second precision.
-    ((expires - issued).num_seconds() + 1_800) / 3_600
+    ((expires - issued).whole_seconds() + 1_800) / 3_600
 }
 
 #[test]

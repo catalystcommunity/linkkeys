@@ -18,6 +18,7 @@ use liblinkkeys::generated::types::{
     IssueForSigningRequestRequest, SessionPasswordLoginRequest,
 };
 use liblinkkeys::signing_request::{sign_signing_request, SigningRequestSpec};
+use liblinkkeys::timestamp::Rfc3339 as _;
 use rocket::http::{ContentType, Header, Status};
 use rocket::local::asynchronous::Client;
 use std::sync::atomic::AtomicBool;
@@ -44,8 +45,8 @@ fn subject_domain() -> SubjectDomain {
         fingerprint: fingerprint.clone(),
         algorithm: "ed25519".to_string(),
         key_usage: "sign".to_string(),
-        created_at: chrono::Utc::now().to_rfc3339(),
-        expires_at: (chrono::Utc::now() + chrono::Duration::days(365)).to_rfc3339(),
+        created_at: time::OffsetDateTime::now_utc().to_rfc3339(),
+        expires_at: (time::OffsetDateTime::now_utc() + time::Duration::days(365)).to_rfc3339(),
         revoked_at: None,
         signed_by_key_id: None,
         key_signature: None,
@@ -94,7 +95,7 @@ fn net(subject: &SubjectDomain, accept_deposit: bool) -> linkkeys::net::Net {
 /// A signing request from `subject-user@SUBJECT`, addressed to `issuer`.
 fn signing_request(subject: &SubjectDomain, issuer: &str, types: &[&str]) -> String {
     let types: Vec<String> = types.iter().map(|t| t.to_string()).collect();
-    let now = chrono::Utc::now();
+    let now = time::OffsetDateTime::now_utc();
     let signed = sign_signing_request(
         &SigningRequestSpec {
             request_id: "request-1",
@@ -104,7 +105,7 @@ fn signing_request(subject: &SubjectDomain, issuer: &str, types: &[&str]) -> Str
             requested_claim_types: &types,
             nonce: "nonce-1",
             issued_at: &now.to_rfc3339(),
-            expires_at: &(now + chrono::Duration::days(2)).to_rfc3339(),
+            expires_at: &(now + time::Duration::days(2)).to_rfc3339(),
             callback: None,
         },
         &[ClaimSigner {

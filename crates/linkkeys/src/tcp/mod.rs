@@ -1747,12 +1747,11 @@ fn dispatch_admin_reject_claim(payload: &[u8], db_pool: &DbPool, caller_id: &str
 /// single-sided window around `issued_at`, checked here rather than via
 /// `liblinkkeys::local_rp::check_timestamps` (which expects an
 /// issued/expires pair).
-fn ticket_redemption_issued_at_fresh(issued_at: &str, now: chrono::DateTime<chrono::Utc>) -> bool {
-    let Ok(issued) = chrono::DateTime::parse_from_rfc3339(issued_at) else {
+fn ticket_redemption_issued_at_fresh(issued_at: &str, now: time::OffsetDateTime) -> bool {
+    let Ok(issued) = liblinkkeys::timestamp::parse_rfc3339(issued_at) else {
         return false;
     };
-    let issued = issued.with_timezone(&chrono::Utc);
-    (now - issued).num_seconds().abs() <= liblinkkeys::local_rp::DEFAULT_CLOCK_SKEW_SECONDS
+    (now - issued).whole_seconds().abs() <= liblinkkeys::local_rp::DEFAULT_CLOCK_SKEW_SECONDS
 }
 
 /// `LocalRp/redeem-claim-ticket` (dns-less-local-rp-design.md, Phase 5).
@@ -1832,7 +1831,7 @@ fn dispatch_local_rp_redeem_claim_ticket(payload: &[u8], db_pool: &DbPool) -> Ve
         );
     }
 
-    let now = chrono::Utc::now();
+    let now = time::OffsetDateTime::now_utc();
     if !ticket_redemption_issued_at_fresh(&request.issued_at, now) {
         return error_response(5, "Ticket redemption request is not fresh");
     }
@@ -2402,7 +2401,7 @@ fn dispatch_account(
                 db_pool,
                 &user.id,
                 request,
-                chrono::Utc::now(),
+                time::OffsetDateTime::now_utc(),
             ) {
                 Ok(resp) => ok_response(
                     liblinkkeys::generated::encode_enroll_application_instance_response(&resp),
@@ -2426,7 +2425,7 @@ fn dispatch_account(
                 db_pool,
                 user,
                 &request,
-                chrono::Utc::now(),
+                time::OffsetDateTime::now_utc(),
             ) {
                 Ok(resp) => ok_response(
                     liblinkkeys::generated::encode_revoke_act_as_grant_response(&resp),
@@ -2463,7 +2462,12 @@ fn dispatch_act_as(
                 net: ctx.net,
                 rt: ctx.rt,
             };
-            match crate::services::act_as::refresh(db_pool, &keys, &request, chrono::Utc::now()) {
+            match crate::services::act_as::refresh(
+                db_pool,
+                &keys,
+                &request,
+                time::OffsetDateTime::now_utc(),
+            ) {
                 Ok(resp) => ok_response(codec::encode_refresh_act_as_grant_response(&resp)),
                 Err(error) => service_error_response(error),
             }
@@ -2728,7 +2732,7 @@ fn public_read_gate(source_key: &str) -> Result<(), Vec<u8>> {
 
 fn dispatch_application_keys(op: &str, payload: &[u8], db_pool: &DbPool) -> Vec<u8> {
     use liblinkkeys::generated::codec;
-    let now = chrono::Utc::now();
+    let now = time::OffsetDateTime::now_utc();
     macro_rules! app_key_op {
         ($decode:path, $handler:expr, $encode:path) => {{
             let request = match $decode(payload) {

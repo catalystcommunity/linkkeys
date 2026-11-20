@@ -17,7 +17,7 @@ pub mod pg {
         conn: &mut diesel::PgConnection,
         target_key_id: &str,
         target_fingerprint: &str,
-        revoked_at: chrono::DateTime<chrono::Utc>,
+        revoked_at: time::OffsetDateTime,
         cert: &[u8],
     ) -> QueryResult<usize> {
         diesel::insert_into(issued_revocations::table)
@@ -37,7 +37,7 @@ pub mod pg {
     /// newest first.
     pub fn list_since(
         conn: &mut diesel::PgConnection,
-        since: Option<chrono::DateTime<chrono::Utc>>,
+        since: Option<time::OffsetDateTime>,
     ) -> QueryResult<Vec<IssuedRevocation>> {
         let mut q = issued_revocations::table.into_boxed();
         if let Some(s) = since {
@@ -52,7 +52,7 @@ pub mod pg {
     /// Whether any revocation was issued with `revoked_at >= since`.
     pub fn exists_since(
         conn: &mut diesel::PgConnection,
-        since: chrono::DateTime<chrono::Utc>,
+        since: time::OffsetDateTime,
     ) -> QueryResult<bool> {
         diesel::select(diesel::dsl::exists(
             issued_revocations::table.filter(issued_revocations::revoked_at.ge(since)),
@@ -75,6 +75,7 @@ pub mod pg {
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
     use diesel::prelude::*;
+    use liblinkkeys::timestamp::Rfc3339 as _;
 
     use crate::db::models::sqlite::{IssuedRevocationRow, NewIssuedRevocationRow};
     use crate::db::models::IssuedRevocation;
@@ -84,7 +85,7 @@ pub mod sqlite {
         conn: &mut diesel::SqliteConnection,
         target_key_id: &str,
         target_fingerprint: &str,
-        revoked_at: chrono::DateTime<chrono::Utc>,
+        revoked_at: time::OffsetDateTime,
         cert: &[u8],
     ) -> QueryResult<usize> {
         diesel::insert_into(issued_revocations::table)
@@ -102,7 +103,7 @@ pub mod sqlite {
 
     pub fn list_since(
         conn: &mut diesel::SqliteConnection,
-        since: Option<chrono::DateTime<chrono::Utc>>,
+        since: Option<time::OffsetDateTime>,
     ) -> QueryResult<Vec<IssuedRevocation>> {
         // RFC3339 UTC strings compare lexicographically in chronological order,
         // matching how the domain_keys/user_keys expiry filters work.
@@ -118,7 +119,7 @@ pub mod sqlite {
 
     pub fn exists_since(
         conn: &mut diesel::SqliteConnection,
-        since: chrono::DateTime<chrono::Utc>,
+        since: time::OffsetDateTime,
     ) -> QueryResult<bool> {
         diesel::select(diesel::dsl::exists(
             issued_revocations::table.filter(issued_revocations::revoked_at.ge(since.to_rfc3339())),

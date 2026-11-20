@@ -45,9 +45,10 @@ use crate::generated::types::{
     SignedApplicationKeyAddition, SignedApplicationKeyAttestation, SignedApplicationKeyRenewal,
 };
 use crate::local_rp::envelope_signature_input;
-use chrono::{DateTime, Duration, Utc};
+use crate::timestamp::Rfc3339 as _;
 use std::collections::{BTreeSet, HashSet};
 use std::fmt;
+use time::{Duration, OffsetDateTime};
 use x25519_dalek::StaticSecret as X25519StaticSecret;
 
 // ---------------------------------------------------------------------------
@@ -278,12 +279,12 @@ pub struct ApplicationKeyRef {
 impl ApplicationKeyRef {
     /// A key that can currently make a quorum signature: a signing key, not
     /// revoked, and inside its own validity window.
-    pub fn is_valid_signing_key(&self, now: DateTime<Utc>) -> bool {
+    pub fn is_valid_signing_key(&self, now: OffsetDateTime) -> bool {
         self.key_usage == KEY_USAGE_SIGN && self.is_valid(now)
     }
 
     /// Not revoked and inside its own validity window at `now`.
-    pub fn is_valid(&self, now: DateTime<Utc>) -> bool {
+    pub fn is_valid(&self, now: OffsetDateTime) -> bool {
         if let Some(r) = &self.revoked_at {
             match parse_time(r) {
                 Ok(t) if t <= now => return false,
@@ -301,7 +302,7 @@ impl ApplicationKeyRef {
     /// revocation long after the fact: a signer that was valid when it signed
     /// authorized the revocation, and a verifier must still be able to confirm
     /// that after the signer itself expires.
-    pub fn was_valid_at(&self, at: DateTime<Utc>) -> bool {
+    pub fn was_valid_at(&self, at: OffsetDateTime) -> bool {
         if let Ok(created) = parse_time(&self.created_at) {
             if created > at {
                 return false;
@@ -413,10 +414,8 @@ fn revocation_payload_of(rev: &ApplicationKeyRevocation) -> Vec<u8> {
 // Small helpers
 // ---------------------------------------------------------------------------
 
-fn parse_time(s: &str) -> Result<DateTime<Utc>, ApplicationKeyError> {
-    DateTime::parse_from_rfc3339(s)
-        .map(|dt| dt.with_timezone(&Utc))
-        .map_err(|e| ApplicationKeyError::BadTimestamp(e.to_string()))
+fn parse_time(s: &str) -> Result<OffsetDateTime, ApplicationKeyError> {
+    crate::timestamp::parse_rfc3339(s).map_err(|e| ApplicationKeyError::BadTimestamp(e.to_string()))
 }
 
 /// The algorithm a key use requires. Ed25519 keys sign; X25519 keys do key
@@ -494,7 +493,7 @@ fn check_identity(
 fn check_window(
     requested_at: &str,
     expires_at: &str,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
     skew_seconds: i64,
 ) -> Result<(), ApplicationKeyError> {
     let start = parse_time(requested_at)?;
@@ -557,7 +556,7 @@ where
 pub fn build_attestation(
     instance: &InstanceRef<'_>,
     key: &ApplicationKeyRef,
-    attested_at: DateTime<Utc>,
+    attested_at: OffsetDateTime,
     attestation_lifetime_seconds: i64,
 ) -> ApplicationKeyAttestation {
     ApplicationKeyAttestation {
@@ -767,7 +766,7 @@ impl VerifiedApplicationKeySet {
 pub fn classify_key(
     attestation: &ApplicationKeyAttestation,
     revoked_at: Option<&str>,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
     skew_seconds: i64,
 ) -> Result<KeyStatus, ApplicationKeyError> {
     if let Some(r) = revoked_at {
@@ -808,7 +807,7 @@ pub fn verify_application_key_set(
     revocations: &[ApplicationKeyRevocation],
     domain_keys: &[DomainPublicKey],
     instance: &InstanceRef<'_>,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
     skew_seconds: i64,
 ) -> VerifiedApplicationKeySet {
     let mut set = VerifiedApplicationKeySet::default();
@@ -959,7 +958,7 @@ pub fn verify_addition(
     signed: &SignedApplicationKeyAddition,
     existing_keys: &[ApplicationKeyRef],
     instance: &InstanceRef<'_>,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
     skew_seconds: i64,
 ) -> Result<ApplicationKeyAddition, ApplicationKeyError> {
     let addition = decode_addition(signed, instance, now, skew_seconds)?;
@@ -995,7 +994,7 @@ pub fn verify_addition(
 pub fn verify_initial_enrollment(
     keys: &[SignedApplicationKeyAddition],
     instance: &InstanceRef<'_>,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
     skew_seconds: i64,
 ) -> Result<Vec<ApplicationKeyAddition>, ApplicationKeyError> {
     let mut out: Vec<ApplicationKeyAddition> = Vec::with_capacity(keys.len());
@@ -1021,7 +1020,7 @@ pub fn verify_initial_enrollment(
 fn decode_addition(
     signed: &SignedApplicationKeyAddition,
     instance: &InstanceRef<'_>,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
     skew_seconds: i64,
 ) -> Result<ApplicationKeyAddition, ApplicationKeyError> {
     let addition = crate::generated::decode_application_key_addition(&signed.addition)
@@ -1135,7 +1134,7 @@ pub fn verify_renewal(
     target: &ApplicationKeyRef,
     sibling_keys: &[ApplicationKeyRef],
     instance: &InstanceRef<'_>,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
     skew_seconds: i64,
 ) -> Result<ApplicationKeyRenewal, ApplicationKeyError> {
     let renewal = crate::generated::decode_application_key_renewal(&signed.renewal)
@@ -1224,7 +1223,7 @@ pub fn verify_renewal(
 pub fn needs_new_attestation(
     attested_at: &str,
     attestation_expires_at: &str,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> Result<bool, ApplicationKeyError> {
     let start = parse_time(attested_at)?;
     let end = parse_time(attestation_expires_at)?;
@@ -1335,7 +1334,7 @@ pub fn verify_revocation(
 /// future beyond the permitted skew.
 pub fn check_revocation_effective_time(
     revoked_at: &str,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
     skew_seconds: i64,
 ) -> Result<(), ApplicationKeyError> {
     let effective = parse_time(revoked_at)?;
@@ -1556,7 +1555,7 @@ mod tests {
         }
     }
 
-    fn now() -> DateTime<Utc> {
+    fn now() -> OffsetDateTime {
         parse_time("2026-06-01T00:00:00Z").unwrap()
     }
 

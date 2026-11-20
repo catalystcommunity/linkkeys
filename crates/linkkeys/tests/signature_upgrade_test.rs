@@ -11,6 +11,7 @@
 
 mod common;
 
+use liblinkkeys::timestamp::Rfc3339 as _;
 use std::collections::HashMap;
 
 use liblinkkeys::claims::{verify_claim, ClaimSpec, DomainKeySet};
@@ -58,9 +59,8 @@ fn keysets(pool: &DbPool) -> Vec<DomainKeySet> {
     }]
 }
 
-fn whole_seconds(t: chrono::DateTime<chrono::Utc>) -> chrono::DateTime<chrono::Utc> {
-    use chrono::Timelike;
-    t.with_nanosecond(0).unwrap()
+fn whole_seconds(t: time::OffsetDateTime) -> time::OffsetDateTime {
+    t.replace_nanosecond(0).unwrap()
 }
 
 /// A stored claim with no signatures, read back so its fields are exactly
@@ -68,7 +68,7 @@ fn whole_seconds(t: chrono::DateTime<chrono::Utc>) -> chrono::DateTime<chrono::U
 fn bare_claim(pool: &DbPool, user_id: &str, claim_type: &str, value: &[u8]) -> Claim {
     let id = uuid::Uuid::now_v7().to_string();
     // Microseconds, as Postgres stored attestation times before 0.14.1.
-    let attested_at = chrono::Utc::now() - chrono::Duration::days(200);
+    let attested_at = time::OffsetDateTime::now_utc() - time::Duration::days(200);
     let row = pool
         .create_claim(&id, user_id, claim_type, value, &[], None, attested_at)
         .unwrap();
@@ -300,7 +300,7 @@ fn unreadable_attested_at_gets_a_new_attestation() {
     assert_eq!(report.claims.reattested, vec![claim.claim_id.clone()]);
     let after = stored(&pool, &claim.claim_id);
     assert_ne!(after.attested_at, "2026-06-10 12:00:00");
-    chrono::DateTime::parse_from_rfc3339(&after.attested_at).expect("RFC3339 now");
+    liblinkkeys::timestamp::parse_rfc3339(&after.attested_at).expect("RFC3339 now");
     verify_claim(&after, &domain(), &keysets(&pool)).expect("re-signed claim verifies");
     assert!(pool
         .list_audit(10)
@@ -314,7 +314,7 @@ fn legacy_consent_grant_is_resigned_and_verifies() {
     let pool = common::create_test_pool();
     let keys = three_keys(&pool);
     let user = common::data_factory::create_user(&pool, &HashMap::new());
-    let issued = whole_seconds(chrono::Utc::now() - chrono::Duration::days(150));
+    let issued = whole_seconds(time::OffsetDateTime::now_utc() - time::Duration::days(150));
     let grant = ConsentGrant {
         grant_id: uuid::Uuid::now_v7().to_string(),
         user_id: user.id.clone(),
@@ -322,7 +322,7 @@ fn legacy_consent_grant_is_resigned_and_verifies() {
         audience: "rp.example".to_string(),
         claim_types: vec!["email".to_string()],
         issued_at: issued.to_rfc3339(),
-        expires_at: (issued + chrono::Duration::days(365)).to_rfc3339(),
+        expires_at: (issued + time::Duration::days(365)).to_rfc3339(),
         revoked_at: None,
         application: None,
     };
@@ -386,9 +386,7 @@ fn legacy_revocation_certificate_is_resigned_and_verifies() {
     pool.insert_issued_revocation(
         &target.id,
         &target.fingerprint,
-        chrono::DateTime::parse_from_rfc3339(&revoked_at)
-            .unwrap()
-            .with_timezone(&chrono::Utc),
+        liblinkkeys::timestamp::parse_rfc3339(&revoked_at).unwrap(),
         &liblinkkeys::generated::encode_revocation_certificate(&cert),
     )
     .unwrap();

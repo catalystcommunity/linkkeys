@@ -29,10 +29,11 @@ use crate::generated::types::{
     SignedActAsScopeSet, SignedLocalRpDescriptor,
 };
 use crate::local_rp::envelope_signature_input;
-use chrono::{DateTime, Duration, Utc};
+use crate::timestamp::Rfc3339 as _;
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::fmt;
+use time::{Duration, OffsetDateTime};
 
 // ---------------------------------------------------------------------------
 // Domain-separation tags
@@ -159,21 +160,19 @@ impl From<CryptoError> for ActAsError {
 // Small helpers
 // ---------------------------------------------------------------------------
 
-fn parse_time(s: &str) -> Result<DateTime<Utc>, ActAsError> {
-    DateTime::parse_from_rfc3339(s)
-        .map(|dt| dt.with_timezone(&Utc))
-        .map_err(|e| ActAsError::BadTimestamp(e.to_string()))
+fn parse_time(s: &str) -> Result<OffsetDateTime, ActAsError> {
+    crate::timestamp::parse_rfc3339(s).map_err(|e| ActAsError::BadTimestamp(e.to_string()))
 }
 
 /// Whole-second RFC3339 in UTC, so a timestamp survives storage unchanged.
-pub fn format_time(t: DateTime<Utc>) -> String {
-    t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+pub fn format_time(t: OffsetDateTime) -> String {
+    t.to_rfc3339_secs_z()
 }
 
 fn check_window(
     starts_at: &str,
     ends_at: &str,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
     skew_seconds: i64,
 ) -> Result<(), ActAsError> {
     let start = parse_time(starts_at)?;
@@ -324,7 +323,7 @@ pub fn verify_grantee_proof(
     message: &[u8],
     grantee: &GranteeRef,
     instance_keys: &[ApplicationKeyRef],
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
     skew_seconds: i64,
 ) -> Result<VerifiedGranteeSigner, ActAsError> {
     check_grantee(grantee)?;
@@ -406,7 +405,7 @@ pub const KEY_CLOCK_SKEW_SECONDS: i64 = 300;
 
 /// The key could vouch at `signed_at`, allowing [`KEY_CLOCK_SKEW_SECONDS`] for
 /// a key the home domain recorded as created slightly later.
-fn valid_at_with_skew(key: &ApplicationKeyRef, signed_at: DateTime<Utc>) -> bool {
+fn valid_at_with_skew(key: &ApplicationKeyRef, signed_at: OffsetDateTime) -> bool {
     if key.was_valid_at(signed_at) {
         return true;
     }
@@ -421,7 +420,7 @@ fn valid_at_with_skew(key: &ApplicationKeyRef, signed_at: DateTime<Utc>) -> bool
 /// Why `key` cannot vouch for something signed at `signed_at`, or None.
 fn key_refusal(
     key: &ApplicationKeyRef,
-    signed_at: DateTime<Utc>,
+    signed_at: OffsetDateTime,
     policy: RevokedKeyPolicy,
 ) -> Option<String> {
     if key.key_usage != KEY_USAGE_SIGN {
@@ -626,7 +625,7 @@ pub fn verify_handle_claim(
 /// At approval only: the scope set has not expired.
 pub fn check_scope_set_current(
     set: &ActAsScopeSet,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
     skew_seconds: i64,
 ) -> Result<(), ActAsError> {
     check_window(&set.issued_at, &set.expires_at, now, skew_seconds)
@@ -698,7 +697,7 @@ pub fn decode_grant_request(
 pub fn verify_grant_request(
     signed: &SignedActAsGrantRequest,
     grantee_instance_keys: &[ApplicationKeyRef],
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
     skew_seconds: i64,
 ) -> Result<ActAsGrantRequest, ActAsError> {
     let request = decode_grant_request(signed)?;
@@ -868,7 +867,7 @@ pub struct NewGrant<'a> {
     pub approved_scope: &'a [String],
     pub lifetime_seconds: i64,
     pub renewal_window_seconds: i64,
-    pub now: DateTime<Utc>,
+    pub now: OffsetDateTime,
 }
 
 /// Build the first grant of a series.
@@ -1004,7 +1003,7 @@ pub enum RefreshDecision {
 pub fn refresh_decision(
     grant: &ActAsGrant,
     lifetime_seconds: i64,
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
 ) -> Result<RefreshDecision, ActAsError> {
     let issued = parse_time(&grant.issued_at)?;
     let expires = parse_time(&grant.expires_at)?;
@@ -1066,7 +1065,7 @@ pub fn verify_refresh_request(
     signed: &SignedActAsRefreshRequest,
     grant_grantee: &GranteeRef,
     grantee_instance_keys: &[ApplicationKeyRef],
-    now: DateTime<Utc>,
+    now: OffsetDateTime,
     skew_seconds: i64,
 ) -> Result<ActAsRefreshRequest, ActAsError> {
     let request = decode_refresh_request(signed)?;
@@ -1099,7 +1098,7 @@ pub fn present(
     grant: &SignedActAsGrant,
     audience: &ApplicationRef,
     request_digest: &[u8],
-    presented_at: DateTime<Utc>,
+    presented_at: OffsetDateTime,
     nonce: &[u8],
     signer: &GranteeSigner<'_>,
 ) -> Result<ActAsCredential, ActAsError> {
@@ -1142,7 +1141,7 @@ pub struct AudienceContext<'a> {
     pub revoked_grant_ids: &'a [String],
     /// Largest accepted age of a presentation, in seconds.
     pub max_presentation_age_seconds: i64,
-    pub now: DateTime<Utc>,
+    pub now: OffsetDateTime,
     pub skew_seconds: i64,
     /// How to treat scope-set signatures by keys revoked since.
     pub revoked_key_policy: RevokedKeyPolicy,

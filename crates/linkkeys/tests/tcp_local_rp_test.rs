@@ -13,6 +13,7 @@
 
 mod common;
 
+use liblinkkeys::timestamp::Rfc3339 as _;
 use std::collections::HashMap;
 
 use common::data_factory::{
@@ -58,7 +59,7 @@ fn build_signed_redemption(
 }
 
 fn now_rfc3339() -> String {
-    chrono::Utc::now().to_rfc3339()
+    time::OffsetDateTime::now_utc().to_rfc3339()
 }
 
 /// Give the test user a "handle" claim (part of the default granted-claims
@@ -315,7 +316,7 @@ fn redeem_claim_ticket_expired_ticket_rejected() {
     overrides.insert("ticket_hash".to_string(), Value::String(ticket_hash));
     overrides.insert(
         "expires_at".to_string(),
-        Value::String((chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339()),
+        Value::String((time::OffsetDateTime::now_utc() - time::Duration::hours(1)).to_rfc3339()),
     );
     create_local_rp_claim_ticket(&pool, &overrides);
 
@@ -341,7 +342,8 @@ fn redeem_claim_ticket_stale_issued_at_rejected() {
     create_local_rp_claim_ticket(&pool, &overrides);
 
     // Well outside DEFAULT_CLOCK_SKEW_SECONDS (300s).
-    let stale_issued_at = (chrono::Utc::now() - chrono::Duration::minutes(20)).to_rfc3339();
+    let stale_issued_at =
+        (time::OffsetDateTime::now_utc() - time::Duration::minutes(20)).to_rfc3339();
     let payload =
         build_signed_redemption(&raw_ticket, &rp.fingerprint, &stale_issued_at, &signing_sk);
     let (status, _) = dispatch_redeem(&pool, payload);

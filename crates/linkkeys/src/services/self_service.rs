@@ -9,6 +9,7 @@
 //! result, so the same logic backs the web editor today and a CLI / native agent
 //! later — the transport only renders.
 
+use liblinkkeys::timestamp::Rfc3339 as _;
 use std::env;
 
 use liblinkkeys::claim_policy::{
@@ -175,9 +176,10 @@ pub(crate) fn prepare_signed_claim(
 
     let claim_id = uuid::Uuid::now_v7().to_string();
     let subject_domain = crate::conversions::get_domain_name();
-    use chrono::Timelike;
-    let attested_chrono = chrono::Utc::now().with_nanosecond(0).unwrap();
-    let attested_str = attested_chrono.to_rfc3339();
+    let attested_time = time::OffsetDateTime::now_utc()
+        .replace_nanosecond(0)
+        .unwrap();
+    let attested_str = attested_time.to_rfc3339();
     let signed = crate::claim_signing::sign_with_active(
         &liblinkkeys::claims::ClaimSpec {
             claim_id: &claim_id,
@@ -197,7 +199,7 @@ pub(crate) fn prepare_signed_claim(
         claim_type: claim_type.to_string(),
         claim_value: value.to_vec(),
         signatures: signed.signatures,
-        attested_at: attested_chrono,
+        attested_at: attested_time,
     })
 }
 
@@ -216,7 +218,7 @@ fn store_unsigned(
         value,
         &[],
         None,
-        chrono::Utc::now(),
+        time::OffsetDateTime::now_utc(),
     )
     .map_err(db_err)?;
     Ok(())

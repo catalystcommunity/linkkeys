@@ -67,7 +67,7 @@ fn seed_claims(pool: &linkkeys::db::DbPool, user_id: &str) {
             val,
             &[],
             None,
-            chrono::Utc::now(),
+            time::OffsetDateTime::now_utc(),
         )
         .expect("create claim");
     }

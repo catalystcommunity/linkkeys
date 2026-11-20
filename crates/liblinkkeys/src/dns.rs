@@ -307,6 +307,7 @@ pub fn txt_exceeds_single_string(txt: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::timestamp::Rfc3339 as _;
 
     #[test]
     fn test_parse_record() {
@@ -429,7 +430,7 @@ mod tests {
     }
 
     use crate::crypto::{fingerprint, generate_keypair, SigningAlgorithm, ALGORITHM_ED25519};
-    use chrono::Utc;
+    use time::OffsetDateTime;
 
     fn make_key(pk_bytes: &[u8]) -> DomainPublicKey {
         DomainPublicKey {
@@ -440,8 +441,8 @@ mod tests {
             key_usage: "sign".to_string(),
             signed_by_key_id: None,
             key_signature: None,
-            created_at: Utc::now().to_rfc3339(),
-            expires_at: (Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
+            created_at: OffsetDateTime::now_utc().to_rfc3339(),
+            expires_at: (OffsetDateTime::now_utc() + time::Duration::hours(1)).to_rfc3339(),
             revoked_at: None,
         }
     }
@@ -501,7 +502,7 @@ mod tests {
 
         let (enc_pk, _) = generate_keypair(SigningAlgorithm::Ed25519);
         let enc_fp = fingerprint(&enc_pk);
-        let enc_expires = (Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
+        let enc_expires = (OffsetDateTime::now_utc() + time::Duration::hours(1)).to_rfc3339();
         let vouch =
             sign_key_vouch(&enc_fp, &enc_expires, SigningAlgorithm::Ed25519, &sign_sk).unwrap();
         let mut enc_key = make_key(&enc_pk);

@@ -370,3 +370,28 @@ and login proofs are single-use. The server signs domain claims about an RP
 again for each request. But a file of pre-signed domain claims
 (`RP_DOMAIN_CLAIMS_SIGNED`) that was signed before 0.14.1 does not verify. Only
 the issuer can sign it again.
+
+## Upgrading to the release after 0.16.9
+
+### Servers: no action
+
+The server and the libraries use the `time` crate in place of `chrono`
+(RUSTSEC-2026-0543: `chrono` is unmaintained). The timestamp text does not
+change: signed payloads, test vectors, and stored SQLite text are
+byte-identical, and the server reads rows that older releases wrote.
+
+### Rust consumers of `liblinkkeys` and `linkkeys-local-rp` (required)
+
+Public functions and fields that used `chrono::DateTime<chrono::Utc>` now use
+`time::OffsetDateTime`. Durations are `time::Duration`. When you move your
+pinned revision past this release:
+
+- Add `time = "0.3"` to your dependencies.
+- Pass `time::OffsetDateTime::now_utc()` where you passed `chrono::Utc::now()`.
+- Write and read LinkKeys timestamp text with `liblinkkeys::timestamp`:
+  `Rfc3339::to_rfc3339` (import the trait) and `parse_rfc3339`. These keep
+  the LinkKeys text format. The `time` crate's own RFC 3339 format writes
+  different bytes (`Z` in place of `+00:00`).
+
+If your own code still uses `chrono`, convert at the call:
+`time::OffsetDateTime::from_unix_timestamp_nanos(dt.timestamp_nanos_opt().unwrap() as i128)`.

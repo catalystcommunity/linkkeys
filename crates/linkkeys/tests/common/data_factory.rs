@@ -3,6 +3,7 @@
 // every helper — Rust treats each test binary as its own crate, so any
 // unused helper would otherwise be flagged per-binary.
 
+use liblinkkeys::timestamp::Rfc3339 as _;
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -58,7 +59,7 @@ pub fn create_domain_key(pool: &DbPool) -> DomainKey {
     let encrypted = liblinkkeys::crypto::encrypt_private_key(&sk_bytes, b"test-passphrase")
         .expect("Failed to encrypt test key");
     let fp = liblinkkeys::crypto::fingerprint(&pk_bytes);
-    let expires = chrono::Utc::now() + chrono::Duration::days(365);
+    let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365);
 
     pool.create_domain_key(&pk_bytes, &encrypted, &fp, "ed25519", expires)
         .expect("Failed to create test domain key")
@@ -85,9 +86,8 @@ pub fn create_domain_encryption_key(pool: &DbPool, signing_key: &DomainKey) -> (
     // Whole-second expiry, as production does: the vouch signs this exact
     // string, and only whole seconds round-trip byte-identically through
     // pg timestamptz (which truncates nanoseconds).
-    use chrono::Timelike;
-    let expires = (chrono::Utc::now() + chrono::Duration::days(365))
-        .with_nanosecond(0)
+    let expires = (time::OffsetDateTime::now_utc() + time::Duration::days(365))
+        .replace_nanosecond(0)
         .expect("zeroing nanoseconds cannot fail");
     let vouch = liblinkkeys::dns::sign_key_vouch(
         &enc_fp,
@@ -367,9 +367,8 @@ pub fn create_local_rp_claim_ticket(pool: &DbPool, overrides: &DataMap) -> Local
     let expires_at = overrides
         .get("expires_at")
         .and_then(|v| v.as_str())
-        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-        .map(|dt| dt.with_timezone(&chrono::Utc))
-        .unwrap_or_else(|| chrono::Utc::now() + chrono::Duration::hours(1));
+        .and_then(|s| liblinkkeys::timestamp::parse_rfc3339(s).ok())
+        .unwrap_or_else(|| time::OffsetDateTime::now_utc() + time::Duration::hours(1));
 
     linkkeys::services::local_rp::issue_ticket(
         pool,
@@ -401,7 +400,7 @@ pub fn create_application_instance(pool: &DbPool, overrides: &DataMap) -> Applic
     let instance_id = extract_str(overrides, "instance_id", || {
         format!("test-instance-{}", rand_suffix())
     });
-    let enrolled_at = extract_datetime(overrides, "enrolled_at", chrono::Utc::now);
+    let enrolled_at = extract_datetime(overrides, "enrolled_at", time::OffsetDateTime::now_utc);
 
     pool.upsert_application_instance(&subject_user_id, &application_id, &instance_id, enrolled_at)
         .expect("Failed to create test application instance")
@@ -433,9 +432,9 @@ pub fn create_application_key(
     let key_id = extract_str(overrides, "key_id", || {
         format!("test-appkey-{}", rand_suffix())
     });
-    let created_at = extract_datetime(overrides, "created_at", chrono::Utc::now);
+    let created_at = extract_datetime(overrides, "created_at", time::OffsetDateTime::now_utc);
     let expires_at = extract_datetime(overrides, "expires_at", || {
-        chrono::Utc::now() + chrono::Duration::days(90)
+        time::OffsetDateTime::now_utc() + time::Duration::days(90)
     });
 
     pool.insert_application_key(
@@ -468,9 +467,9 @@ pub fn create_application_key_attestation(
         .and_then(|v| v.as_str())
         .map(|s| s.as_bytes().to_vec())
         .unwrap_or_else(|| format!("test-attestation-{}", rand_suffix()).into_bytes());
-    let attested_at = extract_datetime(overrides, "attested_at", chrono::Utc::now);
+    let attested_at = extract_datetime(overrides, "attested_at", time::OffsetDateTime::now_utc);
     let expires_at = extract_datetime(overrides, "expires_at", || {
-        chrono::Utc::now() + chrono::Duration::hours(24)
+        time::OffsetDateTime::now_utc() + time::Duration::hours(24)
     });
 
     pool.upsert_application_key_attestation(
@@ -503,7 +502,7 @@ pub fn create_application_key_revocation(
     let target_fingerprint = extract_str(overrides, "target_fingerprint", || {
         liblinkkeys::crypto::fingerprint(format!("test-fp-{}", rand_suffix()).as_bytes())
     });
-    let revoked_at = extract_datetime(overrides, "revoked_at", chrono::Utc::now);
+    let revoked_at = extract_datetime(overrides, "revoked_at", time::OffsetDateTime::now_utc);
     let record = overrides
         .get("record")
         .and_then(|v| v.as_str())
@@ -572,9 +571,9 @@ pub fn create_act_as_grant(pool: &DbPool, overrides: &DataMap) -> ActAsGrantReco
         .get("lifetime_seconds")
         .and_then(|v| v.as_i64())
         .unwrap_or(3600);
-    let issued_at = extract_datetime(overrides, "issued_at", chrono::Utc::now);
+    let issued_at = extract_datetime(overrides, "issued_at", time::OffsetDateTime::now_utc);
     let expires_at = extract_datetime(overrides, "expires_at", || {
-        issued_at + chrono::Duration::seconds(lifetime_seconds)
+        issued_at + time::Duration::seconds(lifetime_seconds)
     });
     let renewable_until = extract_datetime(overrides, "renewable_until", || expires_at);
     let record = ActAsGrantRecord {
@@ -611,13 +610,12 @@ fn extract_bool(overrides: &DataMap, key: &str, default: bool) -> bool {
 fn extract_datetime(
     overrides: &DataMap,
     key: &str,
-    default: impl Fn() -> chrono::DateTime<chrono::Utc>,
-) -> chrono::DateTime<chrono::Utc> {
+    default: impl Fn() -> time::OffsetDateTime,
+) -> time::OffsetDateTime {
     overrides
         .get(key)
         .and_then(|v| v.as_str())
-        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-        .map(|dt| dt.with_timezone(&chrono::Utc))
+        .and_then(|s| liblinkkeys::timestamp::parse_rfc3339(s).ok())
         .unwrap_or_else(default)
 }
 

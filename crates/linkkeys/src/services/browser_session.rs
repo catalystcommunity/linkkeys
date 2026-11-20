@@ -1,11 +1,12 @@
 //! Browser-session operations shared by the HTML routes and the CSIL carrier.
 
 use base64ct::{Base64UrlUnpadded, Encoding};
-use chrono::{DateTime, Utc};
 use liblinkkeys::generated::services::ServiceError;
 use liblinkkeys::generated::types::{BrowserSessionInfo, IntrospectBrowserSessionResponse};
+use liblinkkeys::timestamp::Rfc3339 as _;
 use rand::RngCore;
 use sha2::{Digest, Sha256};
+use time::OffsetDateTime;
 
 use crate::db::{models, DbPool};
 use crate::services::auth::AuthenticationEvidence;
@@ -55,10 +56,8 @@ pub fn token_digest(token: &str) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn parse_time(value: &str) -> Option<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(value)
-        .ok()
-        .map(|v| v.with_timezone(&Utc))
+fn parse_time(value: &str) -> Option<OffsetDateTime> {
+    liblinkkeys::timestamp::parse_rfc3339(value).ok()
 }
 
 fn methods(value: &str) -> Vec<String> {
@@ -76,11 +75,11 @@ fn active(session: &models::BrowserSession) -> bool {
     let Some(expires) = parse_time(&session.expires_at) else {
         return false;
     };
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     session.revoked_at.is_none()
         && now <= expires
         && now >= last_seen
-        && now.signed_duration_since(last_seen).num_seconds() <= idle_ttl_seconds()
+        && (now - last_seen).whole_seconds() <= idle_ttl_seconds()
 }
 
 pub fn create(
@@ -92,8 +91,8 @@ pub fn create(
     rand::rngs::OsRng.fill_bytes(&mut secret);
     let token = Base64UrlUnpadded::encode_string(&secret);
     let digest = token_digest(&token);
-    let now = Utc::now();
-    let expires = now + chrono::Duration::seconds(absolute_ttl_seconds(pool)?);
+    let now = OffsetDateTime::now_utc();
+    let expires = now + time::Duration::seconds(absolute_ttl_seconds(pool)?);
     let method_list = evidence
         .method_types
         .iter()
@@ -125,8 +124,8 @@ pub fn create_after_password(
     rand::rngs::OsRng.fill_bytes(&mut secret);
     let token = Base64UrlUnpadded::encode_string(&secret);
     let digest = token_digest(&token);
-    let now = Utc::now();
-    let expires = now + chrono::Duration::seconds(absolute_ttl_seconds(pool)?);
+    let now = OffsetDateTime::now_utc();
+    let expires = now + time::Duration::seconds(absolute_ttl_seconds(pool)?);
     let method_list = evidence
         .method_types
         .iter()
@@ -166,9 +165,9 @@ pub fn get(
         return Ok(None);
     }
     let should_refresh = parse_time(&session.last_seen_at)
-        .is_some_and(|last_seen| Utc::now().signed_duration_since(last_seen).num_seconds() >= 60);
+        .is_some_and(|last_seen| (OffsetDateTime::now_utc() - last_seen).whole_seconds() >= 60);
     if refresh && should_refresh {
-        if let Err(error) = pool.touch_browser_session(&digest, Utc::now()) {
+        if let Err(error) = pool.touch_browser_session(&digest, OffsetDateTime::now_utc()) {
             log::warn!("Could not refresh browser session activity: {error}");
         }
     }
@@ -207,7 +206,7 @@ pub fn info(
     let effective_expires = parse_time(&session.expires_at)
         .zip(parse_time(&session.last_seen_at))
         .map(|(absolute, last_seen)| {
-            absolute.min(last_seen + chrono::Duration::seconds(idle_ttl_seconds()))
+            absolute.min(last_seen + time::Duration::seconds(idle_ttl_seconds()))
         })
         .map(|value| value.to_rfc3339())
         .unwrap_or_else(|| session.expires_at.clone());
@@ -224,7 +223,7 @@ pub fn introspection(session: &models::BrowserSession) -> IntrospectBrowserSessi
     let effective_expires = parse_time(&session.expires_at)
         .zip(parse_time(&session.last_seen_at))
         .map(|(absolute, last_seen)| {
-            absolute.min(last_seen + chrono::Duration::seconds(idle_ttl_seconds()))
+            absolute.min(last_seen + time::Duration::seconds(idle_ttl_seconds()))
         })
         .map(|value| value.to_rfc3339())
         .unwrap_or_else(|| session.expires_at.clone());

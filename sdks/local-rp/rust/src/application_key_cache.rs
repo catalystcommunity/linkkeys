@@ -11,13 +11,13 @@
 //! (SQLite, a KV store, or this crate's in-memory default) gets that behavior
 //! for free without reimplementing it.
 
-use chrono::{DateTime, Utc};
 use liblinkkeys::application_keys::InstanceRef;
 use liblinkkeys::generated::types::{
     ApplicationKeyRevocation, DomainPublicKey, SignedApplicationKeyAttestation,
 };
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
+use time::OffsetDateTime;
 
 /// The durable cache key: the canonical subject/application/instance
 /// identity, never a handle (design doc, "Peer authorization": "A handle can
@@ -74,8 +74,8 @@ pub struct CachedApplicationKeys {
     /// The home-domain keys fetched alongside the attestations, used to
     /// re-verify their signatures on every read.
     pub domain_keys: Vec<DomainPublicKey>,
-    pub fetched_at: DateTime<Utc>,
-    pub revocations_checked_at: DateTime<Utc>,
+    pub fetched_at: OffsetDateTime,
+    pub revocations_checked_at: OffsetDateTime,
 }
 
 /// Pluggable cache storage (design doc, "DNS-less RP cache"). Implement this
@@ -171,8 +171,8 @@ mod tests {
             signed_attestations: vec![],
             revocations: vec![],
             domain_keys: vec![],
-            fetched_at: Utc::now(),
-            revocations_checked_at: Utc::now(),
+            fetched_at: OffsetDateTime::now_utc(),
+            revocations_checked_at: OffsetDateTime::now_utc(),
         }
     }
 

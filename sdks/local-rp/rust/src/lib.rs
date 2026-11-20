@@ -14,7 +14,7 @@
 //! ## Quickstart
 //!
 //! ```no_run
-//! use chrono::Utc;
+//! use time::OffsetDateTime;
 //! use linkkeys_local_rp::{
 //!     generate_local_rp_identity, begin_local_login, complete_local_login,
 //!     GenerateLocalRpIdentityConfig, BeginLocalLoginConfig, CompleteLocalLoginConfig,
@@ -24,7 +24,7 @@
 //! // Once, at install/setup time — persist the returned bytes with ordinary
 //! // application-secret care (see `identity` module docs).
 //! let identity = generate_local_rp_identity(
-//!     GenerateLocalRpIdentityConfig::new("My LAN Jukebox", Utc::now()),
+//!     GenerateLocalRpIdentityConfig::new("My LAN Jukebox", OffsetDateTime::now_utc()),
 //! ).unwrap();
 //! let stored_bytes = local_rp_identity_to_bytes(&identity);
 //!
@@ -34,7 +34,7 @@
 //!     &identity,
 //!     "http://jukebox.lan:8080/auth/callback",
 //!     "example.com",
-//!     Utc::now(),
+//!     OffsetDateTime::now_utc(),
 //! )).unwrap();
 //! // App: persist `pending` (e.g. in a server-side session), then redirect
 //! // the browser to `redirect.redirect_url`. `begin_local_login` discovers
@@ -51,7 +51,7 @@
 //!     &pending,
 //!     encrypted_token,
 //!     arrived_url,
-//!     Utc::now(),
+//!     OffsetDateTime::now_utc(),
 //! ));
 //! // `verified` carries user id/domain, claims, domain keys used, the local
 //! // RP fingerprint, and expirations — session creation, local user
@@ -183,7 +183,7 @@ pub fn default_dns_resolver() -> &'static dyn DnsResolver {
 /// whether to warn admins, warn users, block login, renew, or ignore.
 pub fn check_expirations(
     identity: &LocalRpKeyMaterial,
-    now: chrono::DateTime<chrono::Utc>,
+    now: time::OffsetDateTime,
 ) -> Result<ExpirationStatus, Error> {
     let descriptor =
         liblinkkeys::generated::decode_local_rp_descriptor(&identity.descriptor.descriptor)
@@ -194,7 +194,7 @@ pub fn check_expirations(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{Duration, Utc};
+    use time::{Duration, OffsetDateTime};
 
     #[test]
     fn check_expirations_wraps_liblinkkeys_thresholds() {
@@ -203,14 +203,14 @@ mod tests {
             local_domain_hint: None,
             supported_suites: None,
             lifetime: Some(Duration::days(100)),
-            now: Utc::now(),
+            now: OffsetDateTime::now_utc(),
         })
         .unwrap();
 
-        let status = check_expirations(&identity, Utc::now()).unwrap();
+        let status = check_expirations(&identity, OffsetDateTime::now_utc()).unwrap();
         assert_eq!(status.level, ExpirationLevel::Notice);
 
-        let far_future = Utc::now() + Duration::days(200);
+        let far_future = OffsetDateTime::now_utc() + Duration::days(200);
         let expired = check_expirations(&identity, far_future).unwrap();
         assert_eq!(expired.level, ExpirationLevel::Expired);
     }

@@ -19,16 +19,16 @@ pub mod pg {
     #[diesel(table_name = used_nonces)]
     struct NewUsedNonce<'a> {
         nonce: &'a str,
-        expires_at: chrono::DateTime<chrono::Utc>,
+        expires_at: time::OffsetDateTime,
     }
 
     /// Returns Ok(true) on first use, Ok(false) on replay.
     pub fn record(
         conn: &mut diesel::PgConnection,
         nonce: &str,
-        expires_at: chrono::DateTime<chrono::Utc>,
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<bool> {
-        let now = chrono::Utc::now();
+        let now = time::OffsetDateTime::now_utc();
         diesel::delete(used_nonces::table.filter(used_nonces::expires_at.lt(now))).execute(conn)?;
         let inserted = diesel::insert_into(used_nonces::table)
             .values(NewUsedNonce { nonce, expires_at })
@@ -41,6 +41,7 @@ pub mod pg {
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
     use diesel::prelude::*;
+    use liblinkkeys::timestamp::Rfc3339 as _;
 
     use crate::schema::sqlite::used_nonces;
 
@@ -59,7 +60,7 @@ pub mod sqlite {
         nonce: &str,
         expires_at: &str,
     ) -> QueryResult<bool> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = time::OffsetDateTime::now_utc().to_rfc3339();
         diesel::delete(used_nonces::table.filter(used_nonces::expires_at.lt(now))).execute(conn)?;
         let inserted = diesel::insert_into(used_nonces::table)
             .values(NewUsedNonce { nonce, expires_at })

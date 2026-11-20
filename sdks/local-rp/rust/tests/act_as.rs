@@ -5,7 +5,6 @@
 //! touches the live network.
 
 use base64ct::{Base64UrlUnpadded, Encoding};
-use chrono::{DateTime, Duration, Utc};
 use csilgen_transport::rpc::RpcResponse;
 use liblinkkeys::act_as::{self, REFRESH_REQUEST_TAG};
 use liblinkkeys::generated::{self, types::ApplicationRef};
@@ -24,6 +23,7 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use time::{Duration, OffsetDateTime};
 
 const HOME_DOMAIN: &str = "home.conformance.example";
 const TLS_SEED: [u8; 32] = [7u8; 32];
@@ -45,10 +45,8 @@ fn s(v: &Value) -> String {
     v.as_str().unwrap().to_string()
 }
 
-fn time(v: &Value) -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339(v.as_str().unwrap())
-        .unwrap()
-        .with_timezone(&Utc)
+fn time(v: &Value) -> OffsetDateTime {
+    liblinkkeys::timestamp::parse_rfc3339(v.as_str().unwrap()).unwrap()
 }
 
 fn local_case(v: &Value) -> &Value {
@@ -293,8 +291,13 @@ fn begin_act_as_falls_back_to_identity_domain() {
             &["v=lk1 tcp=t.example"],
         ),
     ] {
-        let mut config =
-            BeginActAsConfig::new(&m, HOME_DOMAIN, &scope_set, "https://app/cb", Utc::now());
+        let mut config = BeginActAsConfig::new(
+            &m,
+            HOME_DOMAIN,
+            &scope_set,
+            "https://app/cb",
+            OffsetDateTime::now_utc(),
+        );
         config.dns = Some(&dns);
         let (redirect, _) = begin_act_as(config).unwrap();
         assert!(redirect.redirect_url.starts_with(&format!(
@@ -310,7 +313,8 @@ fn begin_act_as_rejects_bad_inputs_and_never_reuses_nonces() {
     let scope_set: &'static [u8] = scope_set_bytes(&v).leak();
     let dns = MapDns::empty();
     let config = |window: Option<Duration>, callback: &str, scope: &'static [u8]| {
-        let mut c = BeginActAsConfig::new(&m, HOME_DOMAIN, scope, callback, Utc::now());
+        let mut c =
+            BeginActAsConfig::new(&m, HOME_DOMAIN, scope, callback, OffsetDateTime::now_utc());
         c.dns = Some(&dns);
         c.request_window = window;
         c
@@ -322,7 +326,7 @@ fn begin_act_as_rejects_bad_inputs_and_never_reuses_nonces() {
         Err(Error::InvalidInput(_))
     ));
     assert!(matches!(
-        ok(Some(Duration::zero())),
+        ok(Some(Duration::ZERO)),
         Err(Error::InvalidInput(_))
     ));
     assert!(matches!(
@@ -348,8 +352,13 @@ fn callback_round_trip_with_begin_nonce() {
     let m = vector_key_material(&v);
     let scope_set = scope_set_bytes(&v);
     let dns = MapDns::empty();
-    let mut config =
-        BeginActAsConfig::new(&m, HOME_DOMAIN, &scope_set, "https://app/cb", Utc::now());
+    let mut config = BeginActAsConfig::new(
+        &m,
+        HOME_DOMAIN,
+        &scope_set,
+        "https://app/cb",
+        OffsetDateTime::now_utc(),
+    );
     config.dns = Some(&dns);
     let (_, pending) = begin_act_as(config).unwrap();
 
@@ -518,7 +527,8 @@ fn refresh_surfaces_transport_errors() {
         "no such op",
     ));
     let dns = home_dns(addr, &fp);
-    let mut config = RefreshActAsGrantConfig::new(&m, HOME_DOMAIN, "grant-1", Utc::now());
+    let mut config =
+        RefreshActAsGrantConfig::new(&m, HOME_DOMAIN, "grant-1", OffsetDateTime::now_utc());
     config.transport = &LoopbackTransport;
     config.dns = &dns;
     match refresh_act_as_grant(config) {
@@ -533,7 +543,8 @@ fn refresh_rejects_a_grant_for_another_grant_id() {
     let m = vector_key_material(&v);
     let (addr, fp, _) = spawn_home(ok_reply(&vector_grant(&v), false));
     let dns = home_dns(addr, &fp);
-    let mut config = RefreshActAsGrantConfig::new(&m, HOME_DOMAIN, "grant-2", Utc::now());
+    let mut config =
+        RefreshActAsGrantConfig::new(&m, HOME_DOMAIN, "grant-2", OffsetDateTime::now_utc());
     config.transport = &LoopbackTransport;
     config.dns = &dns;
     assert!(matches!(

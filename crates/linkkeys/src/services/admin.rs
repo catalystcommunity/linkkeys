@@ -1,3 +1,4 @@
+use liblinkkeys::timestamp::Rfc3339 as _;
 use std::env;
 
 use liblinkkeys::generated::services::ServiceError;
@@ -218,7 +219,7 @@ pub fn create_user(
         let encrypted = liblinkkeys::crypto::encrypt_private_key(&sk_bytes, passphrase.as_bytes())
             .map_err(|e| svc_err(&format!("encrypt error: {}", e)))?;
         let fp = liblinkkeys::crypto::fingerprint(&pk_bytes);
-        let expires = chrono::Utc::now() + chrono::Duration::days(365 * years);
+        let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365 * years);
         pool.create_user_key(&user.id, &pk_bytes, &encrypted, &fp, "ed25519", expires)
             .map_err(db_err)?;
     }
@@ -404,14 +405,9 @@ pub fn revoke_domain_key(
             };
             if let Ok(cert) = build_revocation_certificate(&spec, &signers) {
                 let cbor = liblinkkeys::generated::encode_revocation_certificate(&cert);
-                if let Ok(when) = chrono::DateTime::parse_from_rfc3339(&revoked_at) {
+                if let Ok(when) = liblinkkeys::timestamp::parse_rfc3339(&revoked_at) {
                     if pool
-                        .insert_issued_revocation(
-                            &revoked.id,
-                            &revoked.fingerprint,
-                            when.with_timezone(&chrono::Utc),
-                            &cbor,
-                        )
+                        .insert_issued_revocation(&revoked.id, &revoked.fingerprint, when, &cbor)
                         .is_ok()
                     {
                         certificate_issued = true;
@@ -533,25 +529,26 @@ pub fn set_claim(pool: &DbPool, req: SetClaimRequest) -> Result<SetClaimResponse
     let signers = crate::claim_signing::active_signers(&domain_keys, passphrase.as_bytes())
         .map_err(|e| svc_err(&e.to_string()))?;
 
-    use chrono::Timelike;
-    let expires_chrono = req
+    let expires_time = req
         .expires_at
         .as_deref()
-        .map(|s| chrono::DateTime::parse_from_rfc3339(s).map(|dt| dt.with_timezone(&chrono::Utc)))
+        .map(liblinkkeys::timestamp::parse_rfc3339)
         .transpose()
         .map_err(|e| svc_err(&format!("invalid expires_at: {}", e)))?
         // Normalize to whole seconds: the expires_at is part of the claim's
         // signed payload, so it must round-trip byte-identically through both
         // Postgres (timestamptz, microsecond) and SQLite (RFC3339 text) storage.
-        .map(|dt| dt.with_nanosecond(0).unwrap_or(dt));
+        .map(|dt| dt.replace_nanosecond(0).unwrap_or(dt));
 
     let claim_id = uuid::Uuid::now_v7().to_string();
     let claim_value_bytes = req.claim_value.as_bytes();
-    let expires_str = expires_chrono.as_ref().map(|e| e.to_rfc3339());
+    let expires_str = expires_time.as_ref().map(|e| e.to_rfc3339());
     // Attestation time: signed, so normalize to whole seconds for the same
     // byte-identical round-trip as expires_at.
-    let attested_chrono = chrono::Utc::now().with_nanosecond(0).unwrap();
-    let attested_str = attested_chrono.to_rfc3339();
+    let attested_time = time::OffsetDateTime::now_utc()
+        .replace_nanosecond(0)
+        .unwrap();
+    let attested_str = attested_time.to_rfc3339();
     // The subject is a local user, so the subject's home domain is our own.
     let subject_domain = crate::conversions::get_domain_name();
 
@@ -576,8 +573,8 @@ pub fn set_claim(pool: &DbPool, req: SetClaimRequest) -> Result<SetClaimResponse
             &req.claim_type,
             claim_value_bytes,
             &signed_claim.signatures,
-            expires_chrono,
-            attested_chrono,
+            expires_time,
+            attested_time,
         )
         .map_err(db_err)?;
 
@@ -1226,8 +1223,9 @@ pub fn purge_local_rp_tickets(
     pool: &DbPool,
     _req: PurgeLocalRpTicketsRequest,
 ) -> Result<PurgeLocalRpTicketsResponse, ServiceError> {
-    let purged = crate::services::local_rp::purge_expired_tickets(pool, chrono::Utc::now())
-        .map_err(db_err)?;
+    let purged =
+        crate::services::local_rp::purge_expired_tickets(pool, time::OffsetDateTime::now_utc())
+            .map_err(db_err)?;
     Ok(PurgeLocalRpTicketsResponse {
         purged_count: purged as i64,
     })
@@ -1580,11 +1578,10 @@ pub fn admin_issue_attestation(
     let expires = signed
         .expires_at
         .as_deref()
-        .map(|s| chrono::DateTime::parse_from_rfc3339(s).map(|dt| dt.with_timezone(&chrono::Utc)))
+        .map(liblinkkeys::timestamp::parse_rfc3339)
         .transpose()
         .map_err(|_| svc_err("invalid expires_at"))?;
-    let attested = chrono::DateTime::parse_from_rfc3339(&signed.attested_at)
-        .map(|dt| dt.with_timezone(&chrono::Utc))
+    let attested = liblinkkeys::timestamp::parse_rfc3339(&signed.attested_at)
         .map_err(|_| svc_err("invalid attested_at"))?;
 
     let stored = pool

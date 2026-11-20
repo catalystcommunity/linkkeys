@@ -31,7 +31,6 @@
 //! `revocation_certificate_drops_signing_key_and_login_fails_closed` — would
 //! fail outright).
 
-use chrono::{DateTime, Duration, Utc};
 use liblinkkeys::claims::{sign_claim, ClaimSigner, ClaimSpec};
 use liblinkkeys::crypto::{self, AeadSuite, ALGORITHM_ED25519};
 use liblinkkeys::generated::types::{
@@ -40,6 +39,7 @@ use liblinkkeys::generated::types::{
 };
 use liblinkkeys::local_rp;
 use liblinkkeys::revocation::{build_revocation_certificate, RevocationSpec};
+use liblinkkeys::timestamp::Rfc3339 as _;
 use linkkeys_local_rp::transport::{ReadWrite, Transport, TransportError};
 use linkkeys_local_rp::{
     begin_local_login, complete_local_login, dns::DnsLookupError, dns::DnsResolver,
@@ -48,6 +48,7 @@ use linkkeys_local_rp::{
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::Arc;
+use time::{Duration, OffsetDateTime};
 
 // Same fixed seeds as sdks/local-rp/conformance/keys.json.
 const LOCAL_RP_SIGNING_SEED: [u8; 32] = [1u8; 32];
@@ -179,7 +180,7 @@ where
 // Scenario construction
 // ---------------------------------------------------------------------
 
-fn fixed_key_material(now: DateTime<Utc>) -> LocalRpKeyMaterial {
+fn fixed_key_material(now: OffsetDateTime) -> LocalRpKeyMaterial {
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&LOCAL_RP_SIGNING_SEED);
     let signing_public_key = *signing_key.verifying_key().as_bytes();
     let enc_secret = x25519_dalek::StaticSecret::from(LOCAL_RP_ENCRYPTION_PRIVATE);
@@ -213,7 +214,7 @@ fn fixed_key_material(now: DateTime<Utc>) -> LocalRpKeyMaterial {
 /// Build a domain signing `DomainPublicKey` for an arbitrary seed/key_id —
 /// used both for the primary domain key (`domain_public_key`, below) and for
 /// the sibling keys the certificate-revocation test needs a quorum from.
-fn keyed_domain_public_key(now: DateTime<Utc>, seed: [u8; 32], key_id: &str) -> DomainPublicKey {
+fn keyed_domain_public_key(now: OffsetDateTime, seed: [u8; 32], key_id: &str) -> DomainPublicKey {
     let sk = ed25519_dalek::SigningKey::from_bytes(&seed);
     let pk = *sk.verifying_key().as_bytes();
     DomainPublicKey {
@@ -230,7 +231,7 @@ fn keyed_domain_public_key(now: DateTime<Utc>, seed: [u8; 32], key_id: &str) -> 
     }
 }
 
-fn domain_public_key(now: DateTime<Utc>) -> DomainPublicKey {
+fn domain_public_key(now: OffsetDateTime) -> DomainPublicKey {
     keyed_domain_public_key(now, DOMAIN_SIGNING_SEED, DOMAIN_KEY_ID)
 }
 
@@ -279,7 +280,7 @@ impl Default for Scenario {
 }
 
 fn run_scenario(scenario: Scenario) -> Result<linkkeys_local_rp::VerifiedLocalLogin, Error> {
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let key_material = fixed_key_material(now);
 
     // begin's `_linkkeys_apis` browser discovery gets a canned tcp-only
@@ -503,7 +504,7 @@ fn nonce_mismatch_is_rejected() {
 fn expired_callback_payload_is_rejected() {
     let scenario = Scenario {
         mutate_payload: Box::new(|p| {
-            let n = Utc::now();
+            let n = OffsetDateTime::now_utc();
             p.issued_at = (n - Duration::hours(2)).to_rfc3339();
             p.expires_at = (n - Duration::hours(1)).to_rfc3339();
         }),
@@ -533,7 +534,7 @@ fn dns_fingerprint_pin_mismatch_is_rejected() {
 fn revoked_signing_key_is_rejected() {
     let scenario = Scenario {
         mutate_domain_key: Box::new(|k| {
-            k.revoked_at = Some(Utc::now().to_rfc3339());
+            k.revoked_at = Some(OffsetDateTime::now_utc().to_rfc3339());
         }),
         expected_requests: 2,
         ..Scenario::default()
@@ -671,7 +672,7 @@ fn get_revocations_transport_error_fails_closed() {
 /// (now-revoked) signing key.
 #[test]
 fn revocation_certificate_drops_signing_key_and_login_fails_closed() {
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     let sibling_a = keyed_domain_public_key(now, SIBLING_A_SEED, SIBLING_A_KEY_ID);
     let sibling_b = keyed_domain_public_key(now, SIBLING_B_SEED, SIBLING_B_KEY_ID);
     let target_fingerprint = domain_public_key(now).fingerprint;

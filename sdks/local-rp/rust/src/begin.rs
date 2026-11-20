@@ -16,10 +16,11 @@ use crate::browser::{resolve_browser_endpoint, BROWSER_ROUTE_LOCAL_RP};
 use crate::dns::DnsResolver;
 use crate::identity::LocalRpKeyMaterial;
 use crate::Error;
-use chrono::{DateTime, Duration, Utc};
+use liblinkkeys::timestamp::Rfc3339 as _;
 use liblinkkeys::{encoding, identity_input::parse_identity_input, local_rp};
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use time::{Duration, OffsetDateTime};
 use url::Url;
 
 /// Default requested claims when the caller doesn't specify any (design doc,
@@ -65,7 +66,7 @@ pub struct BeginLocalLoginConfig<'a> {
     /// Login-request lifetime from `now`. Defaults to
     /// [`DEFAULT_LOGIN_REQUEST_LIFETIME`] when `None`.
     pub request_lifetime: Option<Duration>,
-    pub now: DateTime<Utc>,
+    pub now: OffsetDateTime,
     /// The DNS TXT lookup seam for browser endpoint discovery
     /// (`_linkkeys_apis.<user_domain>`, its `https=` endpoint). Defaults to
     /// [`crate::default_dns_resolver`] when `None`, same as
@@ -100,7 +101,7 @@ impl<'a> BeginLocalLoginConfig<'a> {
         key_material: &'a LocalRpKeyMaterial,
         callback_url: impl Into<String>,
         user_domain: impl Into<String>,
-        now: DateTime<Utc>,
+        now: OffsetDateTime,
     ) -> Self {
         Self {
             key_material,
@@ -263,8 +264,11 @@ mod tests {
     const DOMAIN: &str = "ident.example.test";
 
     fn material() -> LocalRpKeyMaterial {
-        generate_local_rp_identity(GenerateLocalRpIdentityConfig::new("Test App", Utc::now()))
-            .unwrap()
+        generate_local_rp_identity(GenerateLocalRpIdentityConfig::new(
+            "Test App",
+            OffsetDateTime::now_utc(),
+        ))
+        .unwrap()
     }
 
     /// A config whose resolver always fails: every test here is hermetic
@@ -279,7 +283,7 @@ mod tests {
             m,
             "http://localhost:8080/callback",
             user_domain,
-            Utc::now(),
+            OffsetDateTime::now_utc(),
         );
         config.dns = Some(dns);
         config
@@ -487,8 +491,12 @@ mod tests {
     #[test]
     fn begin_config_without_resolver_still_compiles() {
         let m = material();
-        let config =
-            BeginLocalLoginConfig::new(&m, "http://localhost:8080/callback", DOMAIN, Utc::now());
+        let config = BeginLocalLoginConfig::new(
+            &m,
+            "http://localhost:8080/callback",
+            DOMAIN,
+            OffsetDateTime::now_utc(),
+        );
         assert!(config.dns.is_none());
         let _default: &dyn DnsResolver = crate::default_dns_resolver();
     }

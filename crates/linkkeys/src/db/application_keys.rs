@@ -38,7 +38,7 @@ pub mod pg {
         subject_user_id: &str,
         application_id: &str,
         instance_id: &str,
-        enrolled_at: chrono::DateTime<chrono::Utc>,
+        enrolled_at: time::OffsetDateTime,
     ) -> QueryResult<ApplicationInstance> {
         let subject_uuid = parse_uuid(subject_user_id)?;
         conn.transaction(|conn| {
@@ -91,7 +91,7 @@ pub mod pg {
     pub fn record_trust_reset(
         conn: &mut diesel::PgConnection,
         instance_row_id: &str,
-        at: chrono::DateTime<chrono::Utc>,
+        at: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         let id = parse_uuid(instance_row_id)?;
         diesel::update(application_instances::table.find(id))
@@ -113,8 +113,8 @@ pub mod pg {
         algorithm: &str,
         public_key: &[u8],
         fingerprint: &str,
-        created_at: chrono::DateTime<chrono::Utc>,
-        expires_at: chrono::DateTime<chrono::Utc>,
+        created_at: time::OffsetDateTime,
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<ApplicationKey> {
         let instance_uuid = parse_uuid(instance_row_id)?;
         diesel::insert_into(application_keys::table)
@@ -175,7 +175,7 @@ pub mod pg {
         conn: &mut diesel::PgConnection,
         instance_row_id: &str,
         key_id: &str,
-        revoked_at: chrono::DateTime<chrono::Utc>,
+        revoked_at: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         let instance_uuid = parse_uuid(instance_row_id)?;
         diesel::update(
@@ -194,11 +194,11 @@ pub mod pg {
         conn: &mut diesel::PgConnection,
         application_key_row_id: &str,
         signed_attestation: &[u8],
-        attested_at: chrono::DateTime<chrono::Utc>,
-        expires_at: chrono::DateTime<chrono::Utc>,
+        attested_at: time::OffsetDateTime,
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         let key_uuid = parse_uuid(application_key_row_id)?;
-        let now = chrono::Utc::now();
+        let now = time::OffsetDateTime::now_utc();
         diesel::insert_into(application_key_attestations::table)
             .values((
                 application_key_attestations::id.eq(uuid::Uuid::now_v7()),
@@ -238,7 +238,7 @@ pub mod pg {
         instance_row_id: &str,
         target_key_id: &str,
         target_fingerprint: &str,
-        revoked_at: chrono::DateTime<chrono::Utc>,
+        revoked_at: time::OffsetDateTime,
         record: &[u8],
     ) -> QueryResult<usize> {
         let instance_uuid = parse_uuid(instance_row_id)?;
@@ -262,7 +262,7 @@ pub mod pg {
     pub fn list_revocations_since(
         conn: &mut diesel::PgConnection,
         instance_row_id: &str,
-        since: Option<chrono::DateTime<chrono::Utc>>,
+        since: Option<time::OffsetDateTime>,
     ) -> QueryResult<Vec<ApplicationKeyRevocationRecord>> {
         let instance_uuid = parse_uuid(instance_row_id)?;
         let mut q = application_key_revocations::table
@@ -289,7 +289,7 @@ pub mod pg {
         algorithm: &str,
         public_key: &[u8],
         nonce: &[u8],
-        expires_at: chrono::DateTime<chrono::Utc>,
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         diesel::insert_into(application_key_challenges::table)
             .values(NewApplicationKeyChallengeRow {
@@ -315,7 +315,7 @@ pub mod pg {
     pub fn consume_challenge(
         conn: &mut diesel::PgConnection,
         challenge_id: &str,
-        now: chrono::DateTime<chrono::Utc>,
+        now: time::OffsetDateTime,
     ) -> QueryResult<Option<ApplicationKeyChallenge>> {
         let affected = diesel::update(
             application_key_challenges::table
@@ -340,7 +340,7 @@ pub mod pg {
 
     pub fn delete_expired_challenges(
         conn: &mut diesel::PgConnection,
-        now: chrono::DateTime<chrono::Utc>,
+        now: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         diesel::delete(
             application_key_challenges::table
@@ -371,13 +371,13 @@ pub mod pg {
         subject_user_id: &str,
         application_id: &str,
         instance_id: &str,
-        revocation_since: Option<chrono::DateTime<chrono::Utc>>,
+        revocation_since: Option<time::OffsetDateTime>,
     ) -> QueryResult<Option<ApplicationPublicRecords>> {
         let subject_uuid = match subject_user_id.parse::<uuid::Uuid>() {
             Ok(u) => u,
             Err(_) => return Ok(None),
         };
-        let now = chrono::Utc::now();
+        let now = time::OffsetDateTime::now_utc();
 
         let instance_row_id = application_instances::table
             .filter(application_instances::subject_user_id.eq(subject_uuid))
@@ -424,6 +424,7 @@ pub mod pg {
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
     use diesel::prelude::*;
+    use liblinkkeys::timestamp::Rfc3339 as _;
 
     use crate::db::models::sqlite::{
         ApplicationInstanceRow, ApplicationKeyAttestationRow, ApplicationKeyChallengeRow,
@@ -446,7 +447,7 @@ pub mod sqlite {
         subject_user_id: &str,
         application_id: &str,
         instance_id: &str,
-        enrolled_at: chrono::DateTime<chrono::Utc>,
+        enrolled_at: time::OffsetDateTime,
     ) -> QueryResult<ApplicationInstance> {
         conn.transaction(|conn| {
             diesel::insert_into(application_instances::table)
@@ -497,7 +498,7 @@ pub mod sqlite {
     pub fn record_trust_reset(
         conn: &mut diesel::SqliteConnection,
         instance_row_id: &str,
-        at: chrono::DateTime<chrono::Utc>,
+        at: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         let at_str = at.to_rfc3339();
         diesel::update(application_instances::table.find(instance_row_id))
@@ -519,8 +520,8 @@ pub mod sqlite {
         algorithm: &str,
         public_key: &[u8],
         fingerprint: &str,
-        created_at: chrono::DateTime<chrono::Utc>,
-        expires_at: chrono::DateTime<chrono::Utc>,
+        created_at: time::OffsetDateTime,
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<ApplicationKey> {
         let id = uuid::Uuid::now_v7().to_string();
         diesel::insert_into(application_keys::table)
@@ -586,7 +587,7 @@ pub mod sqlite {
         conn: &mut diesel::SqliteConnection,
         instance_row_id: &str,
         key_id: &str,
-        revoked_at: chrono::DateTime<chrono::Utc>,
+        revoked_at: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         diesel::update(
             application_keys::table
@@ -604,10 +605,10 @@ pub mod sqlite {
         conn: &mut diesel::SqliteConnection,
         application_key_row_id: &str,
         signed_attestation: &[u8],
-        attested_at: chrono::DateTime<chrono::Utc>,
-        expires_at: chrono::DateTime<chrono::Utc>,
+        attested_at: time::OffsetDateTime,
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<usize> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = time::OffsetDateTime::now_utc().to_rfc3339();
         let attested_at_str = attested_at.to_rfc3339();
         let expires_at_str = expires_at.to_rfc3339();
         diesel::insert_into(application_key_attestations::table)
@@ -648,7 +649,7 @@ pub mod sqlite {
         instance_row_id: &str,
         target_key_id: &str,
         target_fingerprint: &str,
-        revoked_at: chrono::DateTime<chrono::Utc>,
+        revoked_at: time::OffsetDateTime,
         record: &[u8],
     ) -> QueryResult<usize> {
         diesel::insert_into(application_key_revocations::table)
@@ -671,7 +672,7 @@ pub mod sqlite {
     pub fn list_revocations_since(
         conn: &mut diesel::SqliteConnection,
         instance_row_id: &str,
-        since: Option<chrono::DateTime<chrono::Utc>>,
+        since: Option<time::OffsetDateTime>,
     ) -> QueryResult<Vec<ApplicationKeyRevocationRecord>> {
         // RFC3339 UTC strings compare lexicographically in chronological
         // order, matching how issued_revocations::sqlite::list_since works.
@@ -699,7 +700,7 @@ pub mod sqlite {
         algorithm: &str,
         public_key: &[u8],
         nonce: &[u8],
-        expires_at: chrono::DateTime<chrono::Utc>,
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         diesel::insert_into(application_key_challenges::table)
             .values(NewApplicationKeyChallengeRow {
@@ -725,7 +726,7 @@ pub mod sqlite {
     pub fn consume_challenge(
         conn: &mut diesel::SqliteConnection,
         challenge_id: &str,
-        now: chrono::DateTime<chrono::Utc>,
+        now: time::OffsetDateTime,
     ) -> QueryResult<Option<ApplicationKeyChallenge>> {
         let now_str = now.to_rfc3339();
         let affected = diesel::update(
@@ -751,7 +752,7 @@ pub mod sqlite {
 
     pub fn delete_expired_challenges(
         conn: &mut diesel::SqliteConnection,
-        now: chrono::DateTime<chrono::Utc>,
+        now: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         diesel::delete(
             application_key_challenges::table
@@ -782,9 +783,9 @@ pub mod sqlite {
         subject_user_id: &str,
         application_id: &str,
         instance_id: &str,
-        revocation_since: Option<chrono::DateTime<chrono::Utc>>,
+        revocation_since: Option<time::OffsetDateTime>,
     ) -> QueryResult<Option<ApplicationPublicRecords>> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = time::OffsetDateTime::now_utc().to_rfc3339();
 
         let instance_row_id = application_instances::table
             .filter(application_instances::subject_user_id.eq(subject_user_id))

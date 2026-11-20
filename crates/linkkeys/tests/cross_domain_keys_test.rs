@@ -10,6 +10,7 @@ mod common;
 use common::net::{net_with_rpc, CannedRpc, StaticDns};
 use liblinkkeys::crypto;
 use liblinkkeys::generated::types::{DomainPublicKey, GetDomainKeysResponse};
+use liblinkkeys::timestamp::Rfc3339 as _;
 
 const THIRD: &str = "third.example";
 
@@ -31,8 +32,8 @@ async fn fetch_domain_keys_resolves_via_dns_and_http_seam() {
         fingerprint: fp.clone(),
         algorithm: "ed25519".to_string(),
         key_usage: "sign".to_string(),
-        created_at: chrono::Utc::now().to_rfc3339(),
-        expires_at: (chrono::Utc::now() + chrono::Duration::days(365)).to_rfc3339(),
+        created_at: time::OffsetDateTime::now_utc().to_rfc3339(),
+        expires_at: (time::OffsetDateTime::now_utc() + time::Duration::days(365)).to_rfc3339(),
         revoked_at: None,
         signed_by_key_id: None,
         key_signature: None,

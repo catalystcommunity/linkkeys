@@ -301,9 +301,8 @@ fn revocations_application_case_flips_envelope_from_valid_to_invalid() {
         signing_key_id: envelope["signing_key_id"].as_str().unwrap().to_string(),
         signature: hex_decode(envelope["signature_hex"].as_str().unwrap()),
     };
-    let verify_now = chrono::DateTime::parse_from_rfc3339(app["verify_now"].as_str().unwrap())
-        .unwrap()
-        .with_timezone(&chrono::Utc);
+    let verify_now =
+        liblinkkeys::timestamp::parse_rfc3339(app["verify_now"].as_str().unwrap()).unwrap();
     let skew = app["clock_skew_seconds"].as_i64().unwrap();
 
     // BEFORE revocation: against the raw fetched key list (target key carries

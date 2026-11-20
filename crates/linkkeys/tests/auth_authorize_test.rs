@@ -7,12 +7,13 @@
 
 mod common;
 
-use chrono::{Duration, Utc};
 use liblinkkeys::auth_request::{build_auth_request, sign_auth_request};
 use liblinkkeys::crypto::{self, SigningAlgorithm};
 use liblinkkeys::encoding::signed_auth_request_to_url_param;
 use liblinkkeys::generated::types::AuthRequest;
+use liblinkkeys::timestamp::Rfc3339 as _;
 use linkkeys::web::{validate_signed_request, ValidateAuthRequestError};
+use time::{Duration, OffsetDateTime};
 
 const TEST_DOMAIN: &str = "todandlorna.com";
 const TEST_PASSPHRASE: &[u8] = b"test-passphrase";
@@ -30,7 +31,7 @@ fn self_rp_setup() -> (linkkeys::db::DbPool, String, Vec<u8>) {
     let sk_bytes = sk.to_bytes().to_vec();
     let encrypted_sk = crypto::encrypt_private_key(&sk_bytes, TEST_PASSPHRASE).unwrap();
     let fp = crypto::fingerprint(&pk_bytes);
-    let expires = Utc::now() + Duration::days(365);
+    let expires = OffsetDateTime::now_utc() + Duration::days(365);
     let dk = pool
         .create_domain_key(&pk_bytes, &encrypted_sk, &fp, "ed25519", expires)
         .expect("create_domain_key");
@@ -163,7 +164,7 @@ async fn rejects_expired_request() {
         relying_party: TEST_DOMAIN.to_string(),
         callback_url: "https://todandlorna.com/cb".to_string(),
         nonce: "n".to_string(),
-        timestamp: (Utc::now() - Duration::seconds(600)).to_rfc3339(),
+        timestamp: (OffsetDateTime::now_utc() - Duration::seconds(600)).to_rfc3339(),
         signing_key_id: key_id.clone(),
         requested_claims: None,
         authentication_requirements: None,

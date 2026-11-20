@@ -6,7 +6,6 @@
 //! Regenerate the vectors with
 //! `cargo run -p liblinkkeys --example generate_act_as_vectors`.
 
-use chrono::{DateTime, Utc};
 use liblinkkeys::act_as::{
     self, AudienceContext, DomainTermBounds, RefreshDecision, RevokedKeyPolicy,
 };
@@ -17,6 +16,7 @@ use liblinkkeys::generated::{
 };
 use serde_json::Value;
 use std::path::PathBuf;
+use time::OffsetDateTime;
 
 fn load(name: &str) -> Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -38,10 +38,8 @@ fn s(v: &Value) -> String {
     v.as_str().unwrap().to_string()
 }
 
-fn time(v: &Value) -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339(v.as_str().unwrap())
-        .unwrap()
-        .with_timezone(&Utc)
+fn time(v: &Value) -> OffsetDateTime {
+    liblinkkeys::timestamp::parse_rfc3339(v.as_str().unwrap()).unwrap()
 }
 
 fn app_ref(v: &Value) -> ApplicationRef {

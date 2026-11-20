@@ -54,9 +54,9 @@ pub mod pg {
     pub fn upsert_domain_meta(
         conn: &mut diesel::PgConnection,
         domain: &str,
-        fetched_at: chrono::DateTime<chrono::Utc>,
-        revocations_checked_at: chrono::DateTime<chrono::Utc>,
-        now: chrono::DateTime<chrono::Utc>,
+        fetched_at: time::OffsetDateTime,
+        revocations_checked_at: time::OffsetDateTime,
+        now: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         diesel::insert_into(rp_domain_key_cache::table)
             .values((
@@ -79,7 +79,7 @@ pub mod pg {
     pub fn touch_domain_meta(
         conn: &mut diesel::PgConnection,
         domain: &str,
-        now: chrono::DateTime<chrono::Utc>,
+        now: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         diesel::update(rp_domain_key_cache::table.filter(rp_domain_key_cache::domain.eq(domain)))
             .set(rp_domain_key_cache::last_used_at.eq(now))
@@ -141,9 +141,9 @@ pub mod pg {
         subject_domain: &str,
         application_id: &str,
         instance_id: &str,
-        fetched_at: chrono::DateTime<chrono::Utc>,
-        revocations_checked_at: chrono::DateTime<chrono::Utc>,
-        now: chrono::DateTime<chrono::Utc>,
+        fetched_at: time::OffsetDateTime,
+        revocations_checked_at: time::OffsetDateTime,
+        now: time::OffsetDateTime,
     ) -> QueryResult<RpApplicationKeyCacheEntry> {
         conn.transaction(|conn| {
             diesel::insert_into(rp_application_key_cache_entries::table)
@@ -187,7 +187,7 @@ pub mod pg {
     pub fn touch_entry(
         conn: &mut diesel::PgConnection,
         entry_id: &str,
-        now: chrono::DateTime<chrono::Utc>,
+        now: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         let id = parse_uuid(entry_id)?;
         diesel::update(rp_application_key_cache_entries::table.find(id))
@@ -244,9 +244,9 @@ pub mod pg {
         cache_entry_id: &str,
         key_id: &str,
         signed_attestation: &[u8],
-        attestation_expires_at: chrono::DateTime<chrono::Utc>,
+        attestation_expires_at: time::OffsetDateTime,
         verified_by_key_ids: &str,
-        now: chrono::DateTime<chrono::Utc>,
+        now: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         let entry_uuid = parse_uuid(cache_entry_id)?;
         diesel::insert_into(rp_application_key_attestations::table)
@@ -291,7 +291,7 @@ pub mod pg {
         cache_entry_id: &str,
         target_key_id: &str,
         revocation: &[u8],
-        revoked_at: chrono::DateTime<chrono::Utc>,
+        revoked_at: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         let entry_uuid = parse_uuid(cache_entry_id)?;
         diesel::insert_into(rp_application_key_revocations::table)
@@ -330,6 +330,7 @@ pub mod pg {
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
     use diesel::prelude::*;
+    use liblinkkeys::timestamp::Rfc3339 as _;
 
     use crate::db::models::sqlite::{
         NewRpApplicationKeyCacheEntryRow, RpApplicationKeyAttestationRow,
@@ -361,9 +362,9 @@ pub mod sqlite {
     pub fn upsert_domain_meta(
         conn: &mut diesel::SqliteConnection,
         domain: &str,
-        fetched_at: chrono::DateTime<chrono::Utc>,
-        revocations_checked_at: chrono::DateTime<chrono::Utc>,
-        now: chrono::DateTime<chrono::Utc>,
+        fetched_at: time::OffsetDateTime,
+        revocations_checked_at: time::OffsetDateTime,
+        now: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         let fetched_at_str = fetched_at.to_rfc3339();
         let revocations_checked_at_str = revocations_checked_at.to_rfc3339();
@@ -389,7 +390,7 @@ pub mod sqlite {
     pub fn touch_domain_meta(
         conn: &mut diesel::SqliteConnection,
         domain: &str,
-        now: chrono::DateTime<chrono::Utc>,
+        now: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         diesel::update(rp_domain_key_cache::table.filter(rp_domain_key_cache::domain.eq(domain)))
             .set(rp_domain_key_cache::last_used_at.eq(now.to_rfc3339()))
@@ -447,9 +448,9 @@ pub mod sqlite {
         subject_domain: &str,
         application_id: &str,
         instance_id: &str,
-        fetched_at: chrono::DateTime<chrono::Utc>,
-        revocations_checked_at: chrono::DateTime<chrono::Utc>,
-        now: chrono::DateTime<chrono::Utc>,
+        fetched_at: time::OffsetDateTime,
+        revocations_checked_at: time::OffsetDateTime,
+        now: time::OffsetDateTime,
     ) -> QueryResult<RpApplicationKeyCacheEntry> {
         let fetched_at_str = fetched_at.to_rfc3339();
         let revocations_checked_at_str = revocations_checked_at.to_rfc3339();
@@ -496,7 +497,7 @@ pub mod sqlite {
     pub fn touch_entry(
         conn: &mut diesel::SqliteConnection,
         entry_id: &str,
-        now: chrono::DateTime<chrono::Utc>,
+        now: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         diesel::update(
             rp_application_key_cache_entries::table
@@ -552,9 +553,9 @@ pub mod sqlite {
         cache_entry_id: &str,
         key_id: &str,
         signed_attestation: &[u8],
-        attestation_expires_at: chrono::DateTime<chrono::Utc>,
+        attestation_expires_at: time::OffsetDateTime,
         verified_by_key_ids: &str,
-        now: chrono::DateTime<chrono::Utc>,
+        now: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         let expires_str = attestation_expires_at.to_rfc3339();
         let now_str = now.to_rfc3339();
@@ -599,7 +600,7 @@ pub mod sqlite {
         cache_entry_id: &str,
         target_key_id: &str,
         revocation: &[u8],
-        revoked_at: chrono::DateTime<chrono::Utc>,
+        revoked_at: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         let revoked_at_str = revoked_at.to_rfc3339();
         diesel::insert_into(rp_application_key_revocations::table)

@@ -5,6 +5,7 @@ pub mod nonce_store;
 pub mod rp;
 mod session;
 
+use liblinkkeys::timestamp::Rfc3339 as _;
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::form::FromForm;
 use rocket::http::{ContentType, CookieJar, Status};
@@ -923,8 +924,7 @@ pub(super) fn session_evidence(
             .filter(|value| !value.is_empty())
             .map(str::to_string)
             .collect(),
-        authenticated_at: chrono::DateTime::parse_from_rfc3339(&session.authenticated_at)
-            .map(|value| value.with_timezone(&chrono::Utc))
+        authenticated_at: liblinkkeys::timestamp::parse_rfc3339(&session.authenticated_at)
             .map_err(|_| liblinkkeys::generated::services::ServiceError {
                 code: 403,
                 message: "Authentication required".to_string(),
@@ -1325,9 +1325,9 @@ async fn do_finalize_login_url(input: LoginFinalization<'_>) -> Result<String, F
     // authorized set records "asked, granted nothing") OR asserted claims about
     // itself (so the offered terms are recorded even on an auth-only login).
     if !requested.is_empty() || offered_cbor.is_some() {
-        let now = chrono::Utc::now();
+        let now = time::OffsetDateTime::now_utc();
         let issued_at = now.to_rfc3339();
-        let expires_at = (now + chrono::Duration::seconds(consent_ttl_seconds())).to_rfc3339();
+        let expires_at = (now + time::Duration::seconds(consent_ttl_seconds())).to_rfc3339();
         let grant_id = uuid::Uuid::now_v7().to_string();
         let signed = sign_consent_grant_for_user(
             pool,
@@ -2300,7 +2300,7 @@ async fn rpc_cbor(
                                 &keys,
                                 &user,
                                 &value.signed_request,
-                                chrono::Utc::now(),
+                                time::OffsetDateTime::now_utc(),
                             )
                         })
                         .await
@@ -2348,7 +2348,7 @@ async fn rpc_cbor(
                                 &|nonce| nonces.record(nonce),
                                 &user,
                                 &value,
-                                chrono::Utc::now(),
+                                time::OffsetDateTime::now_utc(),
                             )
                         })
                         .await

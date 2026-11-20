@@ -1,3 +1,4 @@
+use liblinkkeys::timestamp::Rfc3339 as _;
 use rocket::form::FromForm;
 use rocket::http::{Cookie, CookieJar, SameSite};
 use rocket::response::content::RawHtml;
@@ -187,8 +188,8 @@ fn get_session(cookies: &CookieJar<'_>) -> Option<Session> {
         .get_private("session")
         .and_then(|c| serde_json::from_str(c.value()).ok())
         .filter(|s: &Session| {
-            chrono::DateTime::parse_from_rfc3339(&s.expires_at)
-                .map(|exp| chrono::Utc::now() < exp)
+            liblinkkeys::timestamp::parse_rfc3339(&s.expires_at)
+                .map(|exp| time::OffsetDateTime::now_utc() < exp)
                 .unwrap_or(false)
         })
 }
@@ -660,7 +661,7 @@ async fn attest_linkidspec_submit(
             return attestation_page(None, Some("That signing request could not be decoded."))
         }
     };
-    let today = chrono::Utc::now().date_naive().to_string();
+    let today = time::OffsetDateTime::now_utc().date().to_string();
     let resp = match rp_call(
         rp_config,
         "issue-attestation",
@@ -798,7 +799,7 @@ async fn callback(
         domain: user_info.domain,
         display_name: user_info.display_name,
         claims,
-        expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
+        expires_at: (time::OffsetDateTime::now_utc() + time::Duration::hours(1)).to_rfc3339(),
     };
 
     set_session(cookies, &session);

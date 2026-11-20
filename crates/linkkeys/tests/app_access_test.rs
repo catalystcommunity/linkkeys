@@ -22,6 +22,7 @@ use liblinkkeys::generated::types::{
     EmptyRequest, PreviewAppAccessRequest, RemoveAppAccessPolicyRequest, RequestedClaim,
     SessionPasswordLoginRequest, SetAppAccessPolicyRequest,
 };
+use liblinkkeys::timestamp::Rfc3339 as _;
 use linkkeys::db::DbPool;
 use linkkeys::services::app_access::{
     denial_for, preview_app_access, remove_app_access_policy, set_app_access_policy,
@@ -64,20 +65,20 @@ fn add_claim(pool: &DbPool, user_id: &str, claim_type: &str, value: &str) {
         value.as_bytes(),
         &[],
         None,
-        chrono::Utc::now(),
+        time::OffsetDateTime::now_utc(),
     )
     .expect("claim");
 }
 
 /// A `YYYY-MM-DD` birth date `years` years before today, minus `days` days.
 fn birth_date(years: i32, days: i64) -> String {
-    let today = chrono::Utc::now().date_naive();
-    let anniversary = today
-        .checked_sub_months(chrono::Months::new(years as u32 * 12))
-        .expect("a valid date");
-    (anniversary - chrono::Duration::days(days))
-        .format("%Y-%m-%d")
-        .to_string()
+    let today = time::OffsetDateTime::now_utc().date();
+    let year = today.year() - years;
+    // 29 February moves to 28 February in a year that has no 29th.
+    let day = today.day().min(today.month().length(year));
+    let anniversary =
+        time::Date::from_calendar_date(year, today.month(), day).expect("a valid date");
+    (anniversary - time::Duration::days(days)).to_string()
 }
 
 fn blocked(pool: &DbPool, user_id: &str, domain: Option<&str>) -> bool {
@@ -646,7 +647,7 @@ async fn seeded_idp() -> (
     let sk_bytes = sk.to_bytes().to_vec();
     let enc_sk = crypto::encrypt_private_key(&sk_bytes, PASSPHRASE).unwrap();
     let fp = crypto::fingerprint(&pk);
-    let expires = chrono::Utc::now() + chrono::Duration::days(365);
+    let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365);
     let signing = pool
         .create_domain_key(&pk, &enc_sk, &fp, "ed25519", expires)
         .expect("signing key");

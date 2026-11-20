@@ -34,6 +34,7 @@ crates/liblinkkeys/src/lib.rs
 crates/liblinkkeys/src/local_rp.rs
 crates/liblinkkeys/src/revocation.rs
 crates/liblinkkeys/src/signing_request.rs
+crates/liblinkkeys/src/timestamp.rs
 crates/liblinkkeys/src/userinfo.rs
 crates/linkkeys-rpc-client/src/tls.rs
 crates/linkkeys/src/dns.rs

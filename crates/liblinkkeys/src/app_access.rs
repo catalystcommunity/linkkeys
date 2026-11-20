@@ -21,7 +21,7 @@
 //! condition logic lives here so that every carrier evaluates it the same way.
 //! This module is pure: no I/O, and the caller supplies today's date.
 
-use chrono::{Datelike, NaiveDate};
+use crate::timestamp::{parse_date_ymd, Date};
 use std::fmt;
 
 /// The longest pattern accepted. It is the longest DNS name.
@@ -305,7 +305,7 @@ fn parse_age(value: &str) -> Option<u32> {
 }
 
 /// Whole years from `birth` to `today`. Negative for a future date.
-fn age_in_years(birth: NaiveDate, today: NaiveDate) -> i64 {
+fn age_in_years(birth: Date, today: Date) -> i64 {
     let mut years = i64::from(today.year()) - i64::from(birth.year());
     if (today.month(), today.day()) < (birth.month(), birth.day()) {
         years -= 1;
@@ -320,7 +320,7 @@ pub fn condition_matches(
     operator: ClaimOperator,
     expected: Option<&str>,
     values: &[&[u8]],
-    today: NaiveDate,
+    today: Date,
 ) -> bool {
     let texts = || values.iter().filter_map(|v| std::str::from_utf8(v).ok());
     match operator {
@@ -337,7 +337,7 @@ pub fn condition_matches(
                 return false;
             };
             texts()
-                .filter_map(|v| NaiveDate::parse_from_str(v.trim(), "%Y-%m-%d").ok())
+                .filter_map(|v| parse_date_ymd(v.trim()).ok())
                 .any(|birth| {
                     let age = age_in_years(birth, today);
                     if operator == ClaimOperator::AgeUnder {
@@ -371,8 +371,8 @@ mod tests {
         }
     }
 
-    fn date(s: &str) -> NaiveDate {
-        NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
+    fn date(s: &str) -> Date {
+        parse_date_ymd(s).unwrap()
     }
 
     #[test]

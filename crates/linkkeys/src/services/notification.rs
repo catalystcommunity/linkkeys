@@ -262,7 +262,7 @@ pub struct NotificationIntent {
     pub destination: String,
     pub token_digest: String,
     pub secret_payload: Vec<u8>,
-    pub expires_at: chrono::DateTime<chrono::Utc>,
+    pub expires_at: time::OffsetDateTime,
     /// When present, the database creates the challenge only while this
     /// password credential remains active.
     pub required_credential_id: Option<String>,
@@ -575,7 +575,7 @@ impl OutboxWorker {
                         &item.id,
                         &self.worker_id,
                         "delivered",
-                        chrono::Utc::now(),
+                        time::OffsetDateTime::now_utc(),
                         None,
                         true,
                     )
@@ -593,7 +593,7 @@ impl OutboxWorker {
                 let terminal = failure.permanent || item.attempt_count >= self.max_attempts;
                 let state = if terminal { "failed" } else { "pending" };
                 let next = if terminal {
-                    chrono::Utc::now()
+                    time::OffsetDateTime::now_utc()
                 } else {
                     next_attempt(item.attempt_count)
                 };
@@ -643,16 +643,16 @@ impl OutboxWorker {
         let lease_expires_at = item
             .lease_expires_at
             .as_deref()
-            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
-            .map(|value| value.with_timezone(&chrono::Utc))
+            .and_then(|value| liblinkkeys::timestamp::parse_rfc3339(value).ok())
             .ok_or(DeliveryFailure {
                 category: "invalid_lease",
                 permanent: false,
             })?;
-        let remaining = lease_expires_at.signed_duration_since(chrono::Utc::now());
+        let remaining = lease_expires_at - time::OffsetDateTime::now_utc();
         let configured_timeout =
             std::time::Duration::from_secs((self.lease_seconds / 2).max(1) as u64);
-        let timeout = (remaining.to_std().unwrap_or_default() / 2).min(configured_timeout);
+        let timeout = (std::time::Duration::try_from(remaining).unwrap_or_default() / 2)
+            .min(configured_timeout);
         if timeout.is_zero() {
             return Err(DeliveryFailure {
                 category: "delivery_timeout",
@@ -669,11 +669,11 @@ impl OutboxWorker {
     }
 }
 
-fn next_attempt(attempt_count: i64) -> chrono::DateTime<chrono::Utc> {
+fn next_attempt(attempt_count: i64) -> time::OffsetDateTime {
     let exponent = u32::try_from(attempt_count.saturating_sub(1).min(10)).unwrap_or(0);
     let base = (5_i64.saturating_mul(2_i64.pow(exponent))).min(MAX_BACKOFF_SECONDS);
     let jitter = rand::thread_rng().gen_range(0..=(base / 4).max(1));
-    chrono::Utc::now() + chrono::Duration::seconds(base + jitter)
+    time::OffsetDateTime::now_utc() + time::Duration::seconds(base + jitter)
 }
 
 struct AvailabilityGuard;

@@ -11,11 +11,11 @@
 
 mod common;
 
+use liblinkkeys::timestamp::Rfc3339 as _;
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard};
 
 use base64ct::{Base64UrlUnpadded, Encoding};
-use chrono::{DateTime, Duration, Utc};
 use common::data_factory::{
     create_app_access_policy, create_local_rp_with_signing_key, create_user, DataMap,
 };
@@ -33,6 +33,7 @@ use linkkeys::db::models::User;
 use linkkeys::db::DbPool;
 use linkkeys::services::act_as::{self as svc, InstanceKeySource};
 use serde_json::json;
+use time::{Duration, OffsetDateTime};
 
 /// The warm domain signer is a process-wide cache that is not keyed by pool.
 /// Each test holds its own rolled-back transaction, so serialize the signing
@@ -46,9 +47,9 @@ fn signing_guard() -> MutexGuard<'static, ()> {
     guard
 }
 
-fn now() -> DateTime<Utc> {
+fn now() -> OffsetDateTime {
     // Whole seconds, so stored timestamps round-trip byte-identically.
-    DateTime::from_timestamp(Utc::now().timestamp(), 0).unwrap()
+    OffsetDateTime::now_utc().replace_nanosecond(0).unwrap()
 }
 
 struct Key {
@@ -82,8 +83,8 @@ impl Key {
             algorithm: "ed25519".into(),
             public_key: self.public.clone(),
             fingerprint: fingerprint(&self.public),
-            created_at: (Utc::now() - Duration::days(1)).to_rfc3339(),
-            expires_at: (Utc::now() + Duration::days(30)).to_rfc3339(),
+            created_at: (OffsetDateTime::now_utc() - Duration::days(1)).to_rfc3339(),
+            expires_at: (OffsetDateTime::now_utc() + Duration::days(30)).to_rfc3339(),
             revoked_at: None,
         }
     }
@@ -102,7 +103,7 @@ impl InstanceKeySource for CannedKeys {
         &self,
         app: &ApplicationRef,
         instance_id: &str,
-        _now: DateTime<Utc>,
+        _now: OffsetDateTime,
     ) -> Result<Vec<ApplicationKeyRef>, ServiceError> {
         Ok(self
             .keys
@@ -273,7 +274,7 @@ impl World {
         &self,
         grant_id: &str,
         signer: &GranteeSigner<'_>,
-        at: DateTime<Utc>,
+        at: OffsetDateTime,
     ) -> Result<(SignedActAsGrant, bool), ServiceError> {
         let request = ActAsRefreshRequest {
             grant_id: grant_id.to_string(),
@@ -760,8 +761,8 @@ fn local_rp_descriptor(signing_private: &[u8]) -> (SignedLocalRpDescriptor, Stri
         encryption_public_key: vec![9; 32],
         fingerprint: fp.clone(),
         supported_suites: vec!["chacha20-poly1305".into()],
-        created_at: (Utc::now() - Duration::days(1)).to_rfc3339(),
-        expires_at: (Utc::now() + Duration::days(30)).to_rfc3339(),
+        created_at: (OffsetDateTime::now_utc() - Duration::days(1)).to_rfc3339(),
+        expires_at: (OffsetDateTime::now_utc() + Duration::days(30)).to_rfc3339(),
     };
     (
         liblinkkeys::local_rp::sign_local_rp_descriptor(&descriptor, signing_private).unwrap(),
@@ -932,7 +933,7 @@ fn a_scope_set_survives_when_one_of_its_signing_keys_expired() {
     .unwrap();
     // The first key expired before the set was issued; the second is valid.
     let mut expired = w.audience_key.key_ref();
-    expired.expires_at = (Utc::now() - Duration::days(1)).to_rfc3339();
+    expired.expires_at = (OffsetDateTime::now_utc() - Duration::days(1)).to_rfc3339();
     w.keys.keys.insert(
         ("audience-app".into(), "audience-inst".into()),
         vec![expired, second.key_ref()],

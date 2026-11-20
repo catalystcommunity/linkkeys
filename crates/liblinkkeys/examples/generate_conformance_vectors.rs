@@ -35,7 +35,6 @@
 //! current directory).
 
 use base64ct::{Base64UrlUnpadded, Encoding};
-use chrono::{DateTime, Duration, Utc};
 use liblinkkeys::claims::{self, ClaimSigner, ClaimSpec, DomainKeySet};
 use liblinkkeys::crypto::{self, AeadSuite, SigningAlgorithm};
 use liblinkkeys::dns::{self, DnsParseError};
@@ -48,8 +47,10 @@ use liblinkkeys::generated::types::{
 use liblinkkeys::local_rp::{self, CTX_LOCAL_RP_CALLBACK, CTX_LOCAL_RP_DESCRIPTOR};
 use liblinkkeys::local_rp::{CTX_LOCAL_RP_LOGIN_REQUEST, CTX_LOCAL_RP_TICKET_REDEMPTION};
 use liblinkkeys::revocation;
+use liblinkkeys::timestamp::Rfc3339 as _;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
+use time::{Duration, OffsetDateTime};
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519StaticSecret};
 
 // ---------------------------------------------------------------------
@@ -107,17 +108,15 @@ const APP_NAME: &str = "Conformance Test App";
 
 // Fixed instants (RFC3339, UTC). Everything else is derived by offset so the
 // whole vector set has one time anchor.
-fn base_instant() -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339("2026-01-01T00:00:00+00:00")
-        .unwrap()
-        .with_timezone(&Utc)
+fn base_instant() -> OffsetDateTime {
+    liblinkkeys::timestamp::parse_rfc3339("2026-01-01T00:00:00+00:00").unwrap()
 }
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
-fn rfc3339(dt: DateTime<Utc>) -> String {
+fn rfc3339(dt: OffsetDateTime) -> String {
     dt.to_rfc3339()
 }
 

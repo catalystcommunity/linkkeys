@@ -25,6 +25,7 @@ use liblinkkeys::generated::types::{
     LocalRpTicketRedemptionResponse, RefreshActAsGrantRequest, RefreshActAsGrantResponse,
     SignedActAsRefreshRequest, SignedLocalRpTicketRedemptionRequest,
 };
+use liblinkkeys::timestamp::Rfc3339 as _;
 use std::io::{Read, Write};
 use std::sync::Arc;
 
@@ -218,7 +219,7 @@ pub fn fetch_domain_keys(
     // Always fetch revocations — never gated on `recent_revocations_available`
     // (see this function's doc comment). A failure here is propagated with
     // `?`, i.e. FATAL: it must never be swallowed to "just proceed unfiltered".
-    let since = (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339();
+    let since = (time::OffsetDateTime::now_utc() - time::Duration::days(30)).to_rfc3339();
     let req_payload =
         liblinkkeys::generated::encode_get_revocations_request(&GetRevocationsRequest {
             since: Some(since),

@@ -9,6 +9,7 @@ use common::data_factory::{create_user, DataMap};
 use liblinkkeys::crypto::{generate_keypair, SigningAlgorithm};
 use liblinkkeys::domain_claims::{sign_domain_claim, DomainClaimSpec};
 use liblinkkeys::generated::types::{ApplicationRef, DomainClaim};
+use liblinkkeys::timestamp::Rfc3339 as _;
 
 const RP: &str = "rp.example";
 
@@ -46,9 +47,9 @@ fn consent_grant_records_offered_claims() {
     let mut offered_cbor = Vec::new();
     ciborium::ser::into_writer(&encoded, &mut offered_cbor).unwrap();
 
-    let now = chrono::Utc::now();
+    let now = time::OffsetDateTime::now_utc();
     let issued = now.to_rfc3339();
-    let expires = (now + chrono::Duration::days(365)).to_rfc3339();
+    let expires = (now + time::Duration::days(365)).to_rfc3339();
     pool.upsert_consent_grant(
         &uuid::Uuid::now_v7().to_string(),
         &user.id,
@@ -86,7 +87,7 @@ fn consent_grant_without_offered_claims_is_null() {
     let pool = common::create_test_pool();
     let user = create_user(&pool, &DataMap::new());
 
-    let now = chrono::Utc::now();
+    let now = time::OffsetDateTime::now_utc();
     pool.upsert_consent_grant(
         &uuid::Uuid::now_v7().to_string(),
         &user.id,
@@ -98,7 +99,7 @@ fn consent_grant_without_offered_claims_is_null() {
         b"signed-grant-bytes",
         None,
         &now.to_rfc3339(),
-        &(now + chrono::Duration::days(365)).to_rfc3339(),
+        &(now + time::Duration::days(365)).to_rfc3339(),
     )
     .expect("upsert grant");
 
@@ -110,7 +111,7 @@ fn consent_grant_without_offered_claims_is_null() {
 }
 
 fn upsert(pool: &linkkeys::db::DbPool, user_id: &str, app: Option<&ApplicationRef>, claim: &str) {
-    let now = chrono::Utc::now();
+    let now = time::OffsetDateTime::now_utc();
     pool.upsert_consent_grant(
         &uuid::Uuid::now_v7().to_string(),
         user_id,
@@ -122,7 +123,7 @@ fn upsert(pool: &linkkeys::db::DbPool, user_id: &str, app: Option<&ApplicationRe
         b"signed-grant-bytes",
         None,
         &now.to_rfc3339(),
-        &(now + chrono::Duration::days(365)).to_rfc3339(),
+        &(now + time::Duration::days(365)).to_rfc3339(),
     )
     .expect("upsert grant");
 }

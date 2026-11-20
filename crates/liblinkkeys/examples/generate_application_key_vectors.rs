@@ -39,7 +39,6 @@
 //! to the repo root (resolved via `CARGO_MANIFEST_DIR`, not the process's
 //! current directory).
 
-use chrono::{DateTime, Duration, Utc};
 use ed25519_dalek::SigningKey;
 use liblinkkeys::application_keys::{
     self as ak, ApplicationKeyError, ApplicationKeyRef, ApplicationSigner, InstanceRef,
@@ -48,8 +47,10 @@ use liblinkkeys::claims::ClaimSigner;
 use liblinkkeys::crypto::{self, SigningAlgorithm};
 use liblinkkeys::generated::{self, types::DomainPublicKey};
 use liblinkkeys::local_rp::DEFAULT_CLOCK_SKEW_SECONDS;
+use liblinkkeys::timestamp::Rfc3339 as _;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
+use time::{Duration, OffsetDateTime};
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519StaticSecret};
 
 // ---------------------------------------------------------------------
@@ -95,17 +96,15 @@ const DOMAIN_KEY_FAR_EXPIRES: &str = "2126-01-01T00:00:00+00:00";
 
 const SKEW_SECONDS: i64 = DEFAULT_CLOCK_SKEW_SECONDS;
 
-fn base_instant() -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339("2026-06-01T00:00:00+00:00")
-        .unwrap()
-        .with_timezone(&Utc)
+fn base_instant() -> OffsetDateTime {
+    liblinkkeys::timestamp::parse_rfc3339("2026-06-01T00:00:00+00:00").unwrap()
 }
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
-fn rfc3339(dt: DateTime<Utc>) -> String {
+fn rfc3339(dt: OffsetDateTime) -> String {
     dt.to_rfc3339()
 }
 
