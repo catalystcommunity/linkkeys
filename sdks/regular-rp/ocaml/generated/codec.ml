@@ -1641,6 +1641,7 @@ and encode_browser_authorization_inspect_response (v : browser_authorization_ins
        [
          Some (Cbor.Text "claims", (Cbor.Array (List.map (fun csil_e -> (encode_browser_consent_claim csil_e)) v.claims)));
          (match v.application with Some csil_x -> Some (Cbor.Text "application", (encode_relying_party_application csil_x)) | None -> None);
+         (match v.return_host with Some csil_x -> Some (Cbor.Text "return_host", (Cbor.Text csil_x)) | None -> None);
          (match v.access_denied with Some csil_x -> Some (Cbor.Text "access_denied", (encode_app_access_denial csil_x)) | None -> None);
          (match v.callback_host with Some csil_x -> Some (Cbor.Text "callback_host", (Cbor.Text csil_x)) | None -> None);
          Some (Cbor.Text "relying_party", (Cbor.Text v.relying_party));
@@ -1885,8 +1886,7 @@ and encode_authorize_finalize_response (v : authorize_finalize_response) : Cbor.
          Some (Cbor.Text "redirect_url", (Cbor.Text v.redirect_url));
        ])
 
-and encode_api_error_code (v : api_error_code) : Cbor.t =
-  match v with Request_already_used -> Cbor.Text "request_already_used" | Rp_key_fetch_failed -> Cbor.Text "rp_key_fetch_failed" | Rp_encrypt_key_untrusted -> Cbor.Text "rp_encrypt_key_untrusted" | Signing_failed -> Cbor.Text "signing_failed" | Storage_failed -> Cbor.Text "storage_failed" | Bad_request -> Cbor.Text "bad_request" | Unauthorized -> Cbor.Text "unauthorized" | Forbidden -> Cbor.Text "forbidden" | Not_found -> Cbor.Text "not_found" | Internal -> Cbor.Text "internal"
+and encode_api_error_code (v : api_error_code) : Cbor.t = Cbor.int64 (api_error_code_to_number v)
 
 and encode_api_error (v : api_error) : Cbor.t =
   Cbor.Map
@@ -5570,6 +5570,7 @@ and decode_browser_authorization_inspect_response (csil_c : Cbor.t) : browser_au
       {
         claims = (match (csil_req "claims") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_browser_consent_claim csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
         application = (match csil_field "application" with Some csil_v -> Some (decode_relying_party_application csil_v) | None -> None);
+        return_host = (match csil_field "return_host" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
         access_denied = (match csil_field "access_denied" with Some csil_v -> Some (decode_app_access_denial csil_v) | None -> None);
         callback_host = (match csil_field "callback_host" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
         relying_party = (Cbor.to_text (csil_req "relying_party"));
@@ -5931,7 +5932,7 @@ and decode_authorize_finalize_response (csil_c : Cbor.t) : authorize_finalize_re
   | _ -> failwith "csilgen: expected map for authorize_finalize_response"
 
 and decode_api_error_code (csil_c : Cbor.t) : api_error_code =
-  match Cbor.to_text csil_c with "request_already_used" -> Request_already_used | "rp_key_fetch_failed" -> Rp_key_fetch_failed | "rp_encrypt_key_untrusted" -> Rp_encrypt_key_untrusted | "signing_failed" -> Signing_failed | "storage_failed" -> Storage_failed | "bad_request" -> Bad_request | "unauthorized" -> Unauthorized | "forbidden" -> Forbidden | "not_found" -> Not_found | "internal" -> Internal | csil_s -> failwith ("csilgen: unknown enum literal " ^ csil_s)
+  match api_error_code_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
 
 and decode_api_error (csil_c : Cbor.t) : api_error =
   match csil_c with
@@ -8939,3 +8940,7 @@ let decode_issued_claim_result_bytes (b : bytes) : issued_claim_result =
 let encode_issue_for_signing_request_response_bytes (v : issue_for_signing_request_response) : bytes = Cbor.encode (encode_issue_for_signing_request_response v)
 let decode_issue_for_signing_request_response_bytes (b : bytes) : issue_for_signing_request_response =
   match Cbor.decode b with Ok c -> decode_issue_for_signing_request_response c | Error e -> failwith e
+
+let resolve_rpc_reply ~service ~op ~variant payload =
+  match service, op, variant with
+  | _ -> payload

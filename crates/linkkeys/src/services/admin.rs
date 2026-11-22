@@ -184,6 +184,22 @@ pub fn get_user_claims(
     })
 }
 
+/// Clean an account display name from Admin: remove control and
+/// bidirectional characters, then refuse a name over the configured limit
+/// (`DISPLAY_NAME_MAX_CHARS`). A consent screen at another server shows this
+/// name, so it is never stored with characters that change the text around it.
+fn clean_display_name(display_name: &str) -> Result<String, ServiceError> {
+    let cleaned = liblinkkeys::display_text::strip_unsafe(display_name);
+    let max = crate::config::display_name_max_chars();
+    if liblinkkeys::display_text::char_len(&cleaned) > max {
+        return Err(ServiceError {
+            code: 400,
+            message: format!("display_name must be at most {max} characters"),
+        });
+    }
+    Ok(cleaned)
+}
+
 pub fn create_user(
     pool: &DbPool,
     req: CreateUserRequest,
@@ -191,10 +207,11 @@ pub fn create_user(
     if let Some(ref value) = req.password {
         password::validate(value)?;
     }
+    let display_name = clean_display_name(&req.display_name)?;
     let passphrase =
         env::var("DOMAIN_KEY_PASSPHRASE").map_err(|_| svc_err("DOMAIN_KEY_PASSPHRASE not set"))?;
     let user = pool
-        .create_user(&req.username, &req.display_name)
+        .create_user(&req.username, &display_name)
         .map_err(db_err)?;
 
     let api_key = if let Some(ref pw) = req.password {
@@ -235,7 +252,8 @@ pub fn update_user(
     req: UpdateUserRequest,
 ) -> Result<UpdateUserResponse, ServiceError> {
     let user = if let Some(ref display_name) = req.display_name {
-        pool.update_display_name(&req.user_id, display_name)
+        let display_name = clean_display_name(display_name)?;
+        pool.update_display_name(&req.user_id, &display_name)
             .map_err(db_err)?
     } else {
         pool.find_user_by_id(&req.user_id).map_err(db_err)?

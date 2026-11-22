@@ -10,12 +10,14 @@ use super::types::*;
 pub enum ClientError {
     Service { code: i64, message: String },
     Transport(String),
+    Decode(String),
 }
 
 impl std::fmt::Display for ClientError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ClientError::Service { code, message } => write!(f, "service error {code}: {message}"),
+            Self::Decode(msg) => write!(f, "invalid reply: {msg}"),
             ClientError::Transport(msg) => write!(f, "transport error: {msg}"),
         }
     }
@@ -30,6 +32,7 @@ impl std::error::Error for ClientError {}
 pub trait Transport {
     fn call(&self, service: &str, op: &str, req: &[u8]) -> Result<Vec<u8>, ClientError>;
 }
+
 
 /// Typed client for the Ops service.
 pub struct OpsClient<T: Transport> {

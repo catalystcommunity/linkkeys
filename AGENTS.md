@@ -18,6 +18,7 @@ These are permanent workflow guidelines for working in this codebase. They apply
 ## Code Generation
 
 - Run `csilgen generate --input csil/linkkeys.csil --target rust --output crates/liblinkkeys/src/generated/` to regenerate types and service traits from CSIL.
+- Use the `tools.sh` commands to regenerate: `generate-core` (Rust types and the web UI client), `generate-local-rp-sdks`, and `generate-regular-rp-bindings`. They use the csilgen release in `CSILGEN_VERSION` in `tools.sh` and fail if no binary of that release is found. Change the pin and regenerate all three in the same change. Run `./tools.sh csil-check` to validate and lint the CSIL.
 - Generated files are checked in but must be reproducible. Never hand-edit generated files — fix the generator or the CSIL instead. Generated code must also work as emitted (idiomatic, rustfmt-clean, compiles); if it doesn't, that's a csilgen defect to fix there, not something to paper over in this repo.
 - If the generator lacks a capability we need, or emits something wrong, file a request in the csilgen repo's inbox — `~/repos/catalystcommunity/csilgen/docs/csilgen-requests/` (one markdown file per request, `Status:` line + the problem from our consumer perspective). That's where csilgen picks up work; do not create a `docs/csilgen-requests/` here.
 - Database models (diesel `Queryable`/`Insertable` structs) are in the server crate and may reference generated types from liblinkkeys but are not themselves generated yet. When a diesel generator exists, switch to it.

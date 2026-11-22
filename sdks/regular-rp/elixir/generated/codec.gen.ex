@@ -133,6 +133,19 @@ defmodule Csilgen.Generated.Cbor do
 
   @doc "Unwraps a CBOR text item."
   @spec to_text(value()) :: binary()
+  def enc_date(%Date{calendar: Calendar.ISO} = date) do
+    text = Date.to_iso8601(date)
+    tag = {:tag, 1004, {:text, text}}
+    as_date(tag)
+    tag
+  end
+
+  def as_date({:tag, 1004, {:text, text}}) when byte_size(text) == 10 do
+    date = Date.from_iso8601!(text)
+    ^text = Date.to_iso8601(date)
+    date
+  end
+
   def to_text({:text, s}), do: s
 
   @doc "Unwraps a CBOR byte-string item."
@@ -147,4 +160,6 @@ defmodule Csilgen.Generated.Cbor do
   @spec to_float(value()) :: float()
   def to_float({:float, f}), do: f
   def to_float({:int, n}), do: n * 1.0
+
+  def resolve_rpc_reply(_service, _op, _variant, payload), do: payload
 end

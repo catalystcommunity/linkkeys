@@ -31,7 +31,7 @@ go 1.26.4
 //     third-party crate; no alternative avoids a dependency here since the
 //     standard library has no ChaCha20-Poly1305 implementation.
 require (
-	github.com/catalystcommunity/csilgen/transports/go v0.0.0-20260713013116-a661c8727022
+	github.com/catalystcommunity/csilgen/transports/go v0.0.0-20260926220402-baec1dad191c
 	golang.org/x/crypto v0.54.0
 )
 

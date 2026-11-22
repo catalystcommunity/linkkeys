@@ -179,7 +179,10 @@ func call(tr Transport, endpoint *DomainEndpoint, service, op string, payload []
 	}
 	defer conn.Close()
 
-	carrier := rpctransport.NewStreamCarrierWithMaxFrame(conn, maxFrameSize)
+	carrier, err := rpctransport.NewStreamCarrierWithMaxFrame(conn, maxFrameSize)
+	if err != nil {
+		return nil, &ProtocolError{Detail: fmt.Sprintf("max frame: %v", err)}
+	}
 
 	req := rpctransport.NewRpcRequest(service, op, payload)
 	encoded, err := req.Encode()

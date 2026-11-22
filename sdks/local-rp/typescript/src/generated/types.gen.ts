@@ -7,6 +7,25 @@ export interface ServiceError {
   message: string;
 }
 
+function makeEnumNumbers<E extends string>(entries: readonly (readonly [E, bigint])[]) {
+  const numbers = new Map(entries);
+  const members = new Map(entries.map(([member, number]) => [number, member] as const));
+  return {
+    numberFromEnum(member: E): bigint {
+      const value = numbers.get(member);
+      if (value === undefined) throw new RangeError("unknown enum member");
+      return value;
+    },
+    enumFromNumber(value: unknown): E {
+      if (typeof value === "bigint" || (typeof value === "number" && Number.isSafeInteger(value))) {
+        const member = members.get(BigInt(value));
+        if (member !== undefined) return member;
+      }
+      throw new RangeError("unknown enum number");
+    },
+  };
+}
+
 export type CheckValue = string | number | number;
 
 export type CheckEntries = Record<string, CheckValue>;
@@ -972,6 +991,7 @@ export interface BrowserAuthorizationInspectResponse {
   accessDenied?: AppAccessDenial;
   application?: RelyingPartyApplication;
   callbackHost?: string;
+  returnHost?: string;
 }
 
 export interface BrowserAuthorizationCompleteRequest {
@@ -1118,7 +1138,31 @@ export interface AuthorizeFinalizeResponse {
   redirectUrl: string;
 }
 
-export type ApiErrorCode = "request_already_used" | "rp_key_fetch_failed" | "rp_encrypt_key_untrusted" | "signing_failed" | "storage_failed" | "bad_request" | "unauthorized" | "forbidden" | "not_found" | "internal";
+export const ApiErrorCode = {
+  REQUEST_ALREADY_USED: "request_already_used",
+  RP_KEY_FETCH_FAILED: "rp_key_fetch_failed",
+  RP_ENCRYPT_KEY_UNTRUSTED: "rp_encrypt_key_untrusted",
+  SIGNING_FAILED: "signing_failed",
+  STORAGE_FAILED: "storage_failed",
+  BAD_REQUEST: "bad_request",
+  UNAUTHORIZED: "unauthorized",
+  FORBIDDEN: "forbidden",
+  NOT_FOUND: "not_found",
+  INTERNAL: "internal",
+} as const;
+export type ApiErrorCode = (typeof ApiErrorCode)[keyof typeof ApiErrorCode];
+export const ApiErrorCodeNumbers = makeEnumNumbers<ApiErrorCode>([
+  [ApiErrorCode.REQUEST_ALREADY_USED, 1n],
+  [ApiErrorCode.RP_KEY_FETCH_FAILED, 2n],
+  [ApiErrorCode.RP_ENCRYPT_KEY_UNTRUSTED, 3n],
+  [ApiErrorCode.SIGNING_FAILED, 4n],
+  [ApiErrorCode.STORAGE_FAILED, 5n],
+  [ApiErrorCode.BAD_REQUEST, 6n],
+  [ApiErrorCode.UNAUTHORIZED, 7n],
+  [ApiErrorCode.FORBIDDEN, 8n],
+  [ApiErrorCode.NOT_FOUND, 9n],
+  [ApiErrorCode.INTERNAL, 10n],
+]);
 
 export interface ApiError {
   code: ApiErrorCode;

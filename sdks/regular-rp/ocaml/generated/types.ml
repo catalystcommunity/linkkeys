@@ -672,6 +672,7 @@ and browser_authorization_inspect_response = {
   access_denied : app_access_denial option;
   application : relying_party_application option;
   callback_host : string option;
+  return_host : string option;
 }
 
 and browser_authorization_complete_request = {
@@ -1441,3 +1442,43 @@ and issued_claim_result = {
 }
 
 and issue_for_signing_request_response = { results : issued_claim_result list }
+
+let api_error_code_label (v : api_error_code) =
+  match v with
+  | Request_already_used -> "request_already_used"
+  | Rp_key_fetch_failed -> "rp_key_fetch_failed"
+  | Rp_encrypt_key_untrusted -> "rp_encrypt_key_untrusted"
+  | Signing_failed -> "signing_failed"
+  | Storage_failed -> "storage_failed"
+  | Bad_request -> "bad_request"
+  | Unauthorized -> "unauthorized"
+  | Forbidden -> "forbidden"
+  | Not_found -> "not_found"
+  | Internal -> "internal"
+
+let api_error_code_to_number (v : api_error_code) =
+  match v with
+  | Request_already_used -> 1L
+  | Rp_key_fetch_failed -> 2L
+  | Rp_encrypt_key_untrusted -> 3L
+  | Signing_failed -> 4L
+  | Storage_failed -> 5L
+  | Bad_request -> 6L
+  | Unauthorized -> 7L
+  | Forbidden -> 8L
+  | Not_found -> 9L
+  | Internal -> 10L
+
+let api_error_code_of_number (n : int64) : api_error_code option =
+  match n with
+  | 1L -> Some Request_already_used
+  | 2L -> Some Rp_key_fetch_failed
+  | 3L -> Some Rp_encrypt_key_untrusted
+  | 4L -> Some Signing_failed
+  | 5L -> Some Storage_failed
+  | 6L -> Some Bad_request
+  | 7L -> Some Unauthorized
+  | 8L -> Some Forbidden
+  | 9L -> Some Not_found
+  | 10L -> Some Internal
+  | _ -> None

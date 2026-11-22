@@ -558,7 +558,9 @@ fn signed_app_request(
             subject_domain: TEST_DOMAIN.to_string(),
             application_id: application_id.to_string(),
         },
-        display_name: "Home Grafana".to_string(),
+        // The signing RP chose this name. The IDP removes the bidi override
+        // and the newline before the consent screen shows it.
+        display_name: "Home \u{202E}Grafana\n".to_string(),
     });
     let signed = sign_auth_request(
         &request,
@@ -706,6 +708,10 @@ async fn off_domain_application_signs_in_with_per_application_consent() {
     );
     assert_eq!(
         inspection.callback_host.as_deref(),
+        Some("homegrafana.catalystsquad.com")
+    );
+    assert_eq!(
+        inspection.return_host.as_deref(),
         Some("homegrafana.catalystsquad.com")
     );
 

@@ -164,7 +164,10 @@ func spawnFakeIDP(t *testing.T, domainSeed [32]byte, expectedRequests int, drop 
 				tlsConn := tls.Server(conn, serverConfig)
 				defer tlsConn.Close()
 
-				carrier := rpctransport.NewStreamCarrierWithMaxFrame(tlsConn, fakeIDPMaxFrame)
+				carrier, err := rpctransport.NewStreamCarrierWithMaxFrame(tlsConn, fakeIDPMaxFrame)
+				if err != nil {
+					return
+				}
 				frame, err := carrier.RecvFrame()
 				if err != nil || frame == nil {
 					return

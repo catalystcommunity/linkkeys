@@ -1430,11 +1430,15 @@ BrowserAuthorizationInspectResponse = {
     ;; empty and the other optional fields are absent.
     ? access_denied: AppAccessDenial,
     ;; The application principal that started this login, from the signed
-    ;; request.
+    ;; request. The server removes control and bidirectional characters from
+    ;; its display_name and shortens it to the display name limit.
     ? application: RelyingPartyApplication,
     ;; The callback host, present only when it is not the RP domain or a
     ;; subdomain of it. The browser returns to this host after sign-in.
-    ? callback_host: text
+    ? callback_host: text,
+    ;; The callback host, for every request that is not denied. The consent
+    ;; screen names it with the application.
+    ? return_host: text
 }
 
 BrowserAuthorizationCompleteRequest = {
@@ -1689,17 +1693,21 @@ AuthorizeFinalizeResponse = {
 ;; - signing_failed / storage_failed: IDP-side fault; the IDP operator checks logs.
 ;; - bad_request / unauthorized / forbidden / not_found / internal: generic
 ;;   transport-shaped failures.
-ApiErrorCode =
-    "request_already_used" /
-    "rp_key_fetch_failed" /
-    "rp_encrypt_key_untrusted" /
-    "signing_failed" /
-    "storage_failed" /
-    "bad_request" /
-    "unauthorized" /
-    "forbidden" /
-    "not_found" /
-    "internal"
+;;
+;; Each code is sent as its number. Never reuse or renumber a code; add new
+;; codes with new numbers.
+ApiErrorCode = &(
+    request_already_used: 1,
+    rp_key_fetch_failed: 2,
+    rp_encrypt_key_untrusted: 3,
+    signing_failed: 4,
+    storage_failed: 5,
+    bad_request: 6,
+    unauthorized: 7,
+    forbidden: 8,
+    not_found: 9,
+    internal: 10
+)
 
 ApiError = {
     code: ApiErrorCode,

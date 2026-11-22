@@ -15,7 +15,7 @@ applications — but doesn't serve a login UI or manage human user accounts.
 │  │   Web App    │    │   LinkKeys RP Server   │  │
 │  │  (any lang)  │───►│  (same linkkeys image) │  │
 │  │              │    │                        │  │
-│  │  HTML/CSS    │    │  ENABLE_RP_ENDPOINTS   │  │
+│  │  HTML/CSS    │    │  ENABLE_API_KEY_AUTH   │  │
 │  │  Sessions    │    │  Holds domain keys     │  │
 │  │  Redirects   │    │  Signs auth requests   │  │
 │  │              │    │  Decrypts tokens       │  │

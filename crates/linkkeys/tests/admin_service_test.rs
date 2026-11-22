@@ -365,6 +365,56 @@ fn test_admin_authenticate_records_only_successful_authentication() {
 }
 
 #[test]
+fn test_service_display_name_is_cleaned_and_limited() {
+    let pool = common::create_test_pool();
+    std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
+    create_domain_key(&pool);
+
+    let created = admin::create_user(
+        &pool,
+        CreateUserRequest {
+            username: "svc-display-clean".to_string(),
+            display_name: " Home\u{202E}Grafana\u{0007} ".to_string(),
+            password: None,
+        },
+    )
+    .unwrap();
+    assert_eq!(created.user.display_name, "HomeGrafana");
+
+    let too_long = "x".repeat(liblinkkeys::display_text::DEFAULT_MAX_DISPLAY_NAME_CHARS + 1);
+    let refused = admin::create_user(
+        &pool,
+        CreateUserRequest {
+            username: "svc-display-long".to_string(),
+            display_name: too_long.clone(),
+            password: None,
+        },
+    )
+    .unwrap_err();
+    assert_eq!(refused.code, 400);
+
+    let refused = admin::update_user(
+        &pool,
+        UpdateUserRequest {
+            user_id: created.user.id.clone(),
+            display_name: Some(too_long),
+        },
+    )
+    .unwrap_err();
+    assert_eq!(refused.code, 400);
+
+    let updated = admin::update_user(
+        &pool,
+        UpdateUserRequest {
+            user_id: created.user.id,
+            display_name: Some("Grafana\u{2066} (home)".to_string()),
+        },
+    )
+    .unwrap();
+    assert_eq!(updated.user.display_name, "Grafana (home)");
+}
+
+#[test]
 fn test_service_create_user_with_password() {
     let pool = common::create_test_pool();
     std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");

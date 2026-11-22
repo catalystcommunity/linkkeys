@@ -136,6 +136,11 @@ pub fn provider_can_satisfy(requirement: AssuranceRequirement) -> bool {
 #[derive(Debug)]
 pub enum AuthError {
     InvalidCredentials,
+    /// The key is valid, but the account is deactivated or purged.
+    AccountInactive,
+    /// Too many failed attempts from this source. Not a statement about the
+    /// presented credential: the caller retries later.
+    RateLimited,
     InvalidAssuranceRequest,
     DbError(String),
 }
@@ -144,6 +149,8 @@ impl fmt::Display for AuthError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             AuthError::InvalidCredentials => write!(f, "invalid credentials"),
+            AuthError::AccountInactive => write!(f, "account deactivated"),
+            AuthError::RateLimited => write!(f, "too many failed authentication attempts"),
             AuthError::InvalidAssuranceRequest => {
                 write!(f, "invalid authentication assurance request")
             }
@@ -302,15 +309,45 @@ impl ApiKeyAuthenticator {
         Self { pool }
     }
 
-    pub fn authenticate_key(&self, api_key: &str) -> Result<User, AuthError> {
-        self.authenticate_key_with_credential(api_key)
-            .map(|authentication| authentication.user)
+    /// Authenticate `api_key` presented from network `source`. This is the
+    /// entry point for every carrier. The source bucket
+    /// (`ratelimit::API_KEY_SOURCE`) is tested first and charged only when the
+    /// key is refused, so valid traffic never throttles itself.
+    pub fn authenticate_from_source(
+        &self,
+        source: &str,
+        api_key: &str,
+    ) -> Result<ApiKeyAuthentication, AuthError> {
+        use crate::services::ratelimit::API_KEY_SOURCE;
+        if !API_KEY_SOURCE.allows(source) {
+            return Err(AuthError::RateLimited);
+        }
+        let result = self.authenticate_key_with_credential(api_key);
+        if matches!(
+            result,
+            Err(AuthError::InvalidCredentials | AuthError::AccountInactive)
+        ) {
+            API_KEY_SOURCE.check(source);
+        }
+        result
     }
 
+    /// Check `api_key` with no source rate limit. Carriers use
+    /// [`Self::authenticate_from_source`]; this is for that method and tests.
+    /// A deactivated or purged account is refused here, so no caller can
+    /// forget that check.
     pub fn authenticate_key_with_credential(
         &self,
         api_key: &str,
     ) -> Result<ApiKeyAuthentication, AuthError> {
+        let authentication = self.match_key(api_key)?;
+        if !authentication.user.is_active || authentication.user.purged_at.is_some() {
+            return Err(AuthError::AccountInactive);
+        }
+        Ok(authentication)
+    }
+
+    fn match_key(&self, api_key: &str) -> Result<ApiKeyAuthentication, AuthError> {
         // Parse prefix.secret format
         let (prefix, secret) = api_key
             .split_once('.')
@@ -390,7 +427,7 @@ impl ApiKeyWorkPermit {
     fn acquire() -> Option<Self> {
         use std::sync::atomic::Ordering;
         ACTIVE_API_KEY_WORK
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |active| {
                 (active < MAX_ACTIVE_API_KEY_WORK).then_some(active + 1)
             })
             .ok()

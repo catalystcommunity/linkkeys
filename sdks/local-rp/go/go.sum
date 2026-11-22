@@ -1,5 +1,5 @@
-github.com/catalystcommunity/csilgen/transports/go v0.0.0-20260713013116-a661c8727022 h1:2Gr90Egbv1QOjg4k+MPwSOZj8xCVp/q8S0EYBvUYUIk=
-github.com/catalystcommunity/csilgen/transports/go v0.0.0-20260713013116-a661c8727022/go.mod h1:7CdM6CycSuRgLJ1Qt8A10qJZlIIlvSZG8PfkU8s0fCM=
+github.com/catalystcommunity/csilgen/transports/go v0.0.0-20260926220402-baec1dad191c h1:9jKjVvpkeHdvT3MPT0He5PW/Mm+M9/MCug280ZGE+5U=
+github.com/catalystcommunity/csilgen/transports/go v0.0.0-20260926220402-baec1dad191c/go.mod h1:7CdM6CycSuRgLJ1Qt8A10qJZlIIlvSZG8PfkU8s0fCM=
 golang.org/x/crypto v0.54.0 h1:YLIA59K4fiNzHzjnZt2tUJQjQtUWfWbeHBqKtk3eScw=
 golang.org/x/crypto v0.54.0/go.mod h1:KWL8ny2AZdGR2cWmzeHrp2azQPGogOv+HeQaVEXC2dk=
 golang.org/x/sys v0.47.0 h1:o7XGOvZQCADBQQ4Y7VNq2dRWQR7JmOUW8Kxx4ZsNgWs=

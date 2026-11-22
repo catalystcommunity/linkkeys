@@ -99,10 +99,11 @@ describe("consent page", () => {
       claims: [],
       application: { application: { subjectUserId: "acct-1", subjectDomain: "todandlorna.com", applicationId: "homegrafana" }, displayName: "Home Grafana" },
       callbackHost: "homegrafana.catalystsquad.com",
+      returnHost: "homegrafana.catalystsquad.com",
     });
     const page = mount(consentPage(context()));
     await settle();
-    expect(page.textContent).toContain(t("app.consent.intro_application", { app: "Home Grafana", domain: "todandlorna.com" }));
+    expect(page.textContent).toContain("Home Grafana (homegrafana with RP domain todandlorna.com and returning to homegrafana.catalystsquad.com) requests information from your profile.");
     expect(page.querySelector(".notice code")!.textContent).toBe("homegrafana.catalystsquad.com");
   });
 

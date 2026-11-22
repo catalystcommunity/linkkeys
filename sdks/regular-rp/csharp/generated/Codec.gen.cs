@@ -5078,26 +5078,30 @@ public static class Codec
         {
             csilEntries.Add((new CborValue.Text("application"), RelyingPartyApplicationToCborValue(csilV1)));
         }
-        if (value.AccessDenied is { } csilV2)
+        if (value.ReturnHost is { } csilV2)
         {
-            csilEntries.Add((new CborValue.Text("access_denied"), AppAccessDenialToCborValue(csilV2)));
+            csilEntries.Add((new CborValue.Text("return_host"), new CborValue.Text(csilV2)));
         }
-        if (value.CallbackHost is { } csilV3)
+        if (value.AccessDenied is { } csilV3)
         {
-            csilEntries.Add((new CborValue.Text("callback_host"), new CborValue.Text(csilV3)));
+            csilEntries.Add((new CborValue.Text("access_denied"), AppAccessDenialToCborValue(csilV3)));
+        }
+        if (value.CallbackHost is { } csilV4)
+        {
+            csilEntries.Add((new CborValue.Text("callback_host"), new CborValue.Text(csilV4)));
         }
         csilEntries.Add((new CborValue.Text("relying_party"), new CborValue.Text(value.RelyingParty)));
-        if (value.RequestReason is { } csilV5)
+        if (value.RequestReason is { } csilV6)
         {
-            csilEntries.Add((new CborValue.Text("request_reason"), new CborValue.Text(csilV5)));
+            csilEntries.Add((new CborValue.Text("request_reason"), new CborValue.Text(csilV6)));
         }
-        if (value.AlreadyConsented is { } csilV6)
+        if (value.AlreadyConsented is { } csilV7)
         {
-            csilEntries.Add((new CborValue.Text("already_consented"), new CborValue.Bool(csilV6)));
+            csilEntries.Add((new CborValue.Text("already_consented"), new CborValue.Bool(csilV7)));
         }
-        if (value.AuthorizedClaims is { } csilV7)
+        if (value.AuthorizedClaims is { } csilV8)
         {
-            csilEntries.Add((new CborValue.Text("authorized_claims"), new CborValue.Array(csilV7.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+            csilEntries.Add((new CborValue.Text("authorized_claims"), new CborValue.Array(csilV8.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
         }
         return new CborValue.Map(csilEntries);
     }
@@ -5113,6 +5117,7 @@ public static class Codec
         AppAccessDenial? csilField5 = Cbor.MapGet(value, "access_denied") is { } csilRaw5 ? AppAccessDenialFromCborValue(csilRaw5) : null;
         RelyingPartyApplication? csilField6 = Cbor.MapGet(value, "application") is { } csilRaw6 ? RelyingPartyApplicationFromCborValue(csilRaw6) : null;
         string? csilField7 = Cbor.MapGet(value, "callback_host") is { } csilRaw7 ? Cbor.AsText(csilRaw7) : null;
+        string? csilField8 = Cbor.MapGet(value, "return_host") is { } csilRaw8 ? Cbor.AsText(csilRaw8) : null;
         return new BrowserAuthorizationInspectResponse
         {
             RelyingParty = csilField0,
@@ -5123,6 +5128,7 @@ public static class Codec
             AccessDenied = csilField5,
             Application = csilField6,
             CallbackHost = csilField7,
+            ReturnHost = csilField8,
         };
     }
 
@@ -5771,37 +5777,15 @@ public static class Codec
         };
     }
 
-    /// <summary>The bare-literal CBOR value for a ApiErrorCode.</summary>
-    public static CborValue ApiErrorCodeToCborValue(ApiErrorCode value) => value switch
-    {
-        ApiErrorCode.RequestAlreadyUsed => new CborValue.Text("request_already_used"),
-        ApiErrorCode.RpKeyFetchFailed => new CborValue.Text("rp_key_fetch_failed"),
-        ApiErrorCode.RpEncryptKeyUntrusted => new CborValue.Text("rp_encrypt_key_untrusted"),
-        ApiErrorCode.SigningFailed => new CborValue.Text("signing_failed"),
-        ApiErrorCode.StorageFailed => new CborValue.Text("storage_failed"),
-        ApiErrorCode.BadRequest => new CborValue.Text("bad_request"),
-        ApiErrorCode.Unauthorized => new CborValue.Text("unauthorized"),
-        ApiErrorCode.Forbidden => new CborValue.Text("forbidden"),
-        ApiErrorCode.NotFound => new CborValue.Text("not_found"),
-        ApiErrorCode.Internal => new CborValue.Text("internal"),
-        _ => throw new CborException("invalid ApiErrorCode"),
-    };
+    public static CborValue ApiErrorCodeToCborValue(ApiErrorCode value) => System.Enum.IsDefined(typeof(ApiErrorCode), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid ApiErrorCode");
 
-    /// <summary>Reconstruct a ApiErrorCode from its bare-literal CBOR value.</summary>
-    public static ApiErrorCode ApiErrorCodeFromCborValue(CborValue value) => Cbor.AsText(value) switch
+    public static ApiErrorCode ApiErrorCodeFromCborValue(CborValue value)
     {
-        "request_already_used" => ApiErrorCode.RequestAlreadyUsed,
-        "rp_key_fetch_failed" => ApiErrorCode.RpKeyFetchFailed,
-        "rp_encrypt_key_untrusted" => ApiErrorCode.RpEncryptKeyUntrusted,
-        "signing_failed" => ApiErrorCode.SigningFailed,
-        "storage_failed" => ApiErrorCode.StorageFailed,
-        "bad_request" => ApiErrorCode.BadRequest,
-        "unauthorized" => ApiErrorCode.Unauthorized,
-        "forbidden" => ApiErrorCode.Forbidden,
-        "not_found" => ApiErrorCode.NotFound,
-        "internal" => ApiErrorCode.Internal,
-        _ => throw new CborException("invalid ApiErrorCode value"),
-    };
+        try { return ApiErrorCodeNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid ApiErrorCode value"); }
+    }
 
     /// <summary>The canonical CBOR value tree for a ApiError.</summary>
     public static CborValue ApiErrorToCborValue(ApiError value)
@@ -8915,5 +8899,10 @@ public static class Codec
         {
             Results = csilField0,
         };
+    }
+
+    public static byte[] ResolveRpcReply(string service, string op, string? variant, byte[] payload)
+    {
+        return payload;
     }
 }

@@ -59,7 +59,6 @@ x509-parser = "0.16"
 tokio-rustls = { version = "0.26", default-features = false }
 
 # Threading
-threadpool = "1.8"
 num_cpus = "1.16"
 
 # Date/time. RFC 3339 text goes through `liblinkkeys::timestamp`.

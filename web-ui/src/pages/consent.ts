@@ -323,7 +323,12 @@ class ConsentPage extends Page {
       ? (hasNewlyRequestedClaim(context.claims) ? t("app.consent.new_title", { app: context.application?.displayName ?? context.relyingParty }) : t("app.consent.title"))
       : this.error ? t("app.consent.stopped_title") : t("app.consent.checking_title");
     const intro = context && (context.application
-      ? t("app.consent.intro_application", { app: context.application.displayName, domain: context.relyingParty })
+      ? t("app.consent.intro_application", {
+        app: context.application.displayName,
+        application_id: context.application.application.applicationId,
+        domain: context.relyingParty,
+        host: context.returnHost ?? context.relyingParty,
+      })
       : t("app.consent.intro", { app: context.relyingParty }));
     fill(this.hero, h("p", { class: "eyebrow" }, t("app.consent.eyebrow")), h("h1", null, title), intro && h("p", null, intro));
     if (context && this.claimForm) {

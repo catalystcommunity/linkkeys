@@ -1702,7 +1702,9 @@ data class BrowserAuthorizationInspectResponse(
     val accessDenied: AppAccessDenial? = null,
     val application: RelyingPartyApplication? = null,
     // wire key: callback_host
-    val callbackHost: String? = null
+    val callbackHost: String? = null,
+    // wire key: return_host
+    val returnHost: String? = null
 )
 
 /** BrowserAuthorizationCompleteRequest record. */
@@ -1946,8 +1948,23 @@ data class AuthorizeFinalizeResponse(
     val redirectUrl: String
 )
 
-/** ApiErrorCode enum (bare-literal wire). */
-enum class ApiErrorCode { RequestAlreadyUsed, RpKeyFetchFailed, RpEncryptKeyUntrusted, SigningFailed, StorageFailed, BadRequest, Unauthorized, Forbidden, NotFound, Internal }
+enum class ApiErrorCode(val label: String, val wireNumber: Long) {
+    RequestAlreadyUsed("request_already_used", 1L),
+    RpKeyFetchFailed("rp_key_fetch_failed", 2L),
+    RpEncryptKeyUntrusted("rp_encrypt_key_untrusted", 3L),
+    SigningFailed("signing_failed", 4L),
+    StorageFailed("storage_failed", 5L),
+    BadRequest("bad_request", 6L),
+    Unauthorized("unauthorized", 7L),
+    Forbidden("forbidden", 8L),
+    NotFound("not_found", 9L),
+    Internal("internal", 10L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): ApiErrorCode? = byNumber[number]
+    }
+}
 
 /** ApiError record. */
 data class ApiError(

@@ -120,7 +120,7 @@ class Codec
         $field = $value instanceof CheckResult ? $value->result : (is_array($value) && array_key_exists('result', $value) ? $value['result'] : null);
         $out['result'] = $field;
         $field = $value instanceof CheckResult ? $value->entries : (is_array($value) && array_key_exists('entries', $value) ? $value['entries'] : null);
-        $out['entries'] = $field;
+        $out['entries'] = self::toCborCheckEntries($field);
         return $out;
     }
 
@@ -128,7 +128,7 @@ class Codec
     {
         return new CheckResult(array(
             'result' => array_key_exists('result', $value) ? $value['result'] : null,
-            'entries' => array_key_exists('entries', $value) ? $value['entries'] : null,
+            'entries' => array_key_exists('entries', $value) ? self::fromCborCheckEntries($value['entries']) : null,
         ));
     }
 
@@ -1632,7 +1632,7 @@ class Codec
         $out['nonce'] = CBOR::bytes($field);
         $field = $value instanceof EncryptedToken ? $value->suite : (is_array($value) && array_key_exists('suite', $value) ? $value['suite'] : null);
         if ($field !== null) {
-            $out['suite'] = $field;
+            $out['suite'] = self::toCborAeadSuite($field);
         }
         return $out;
     }
@@ -1643,7 +1643,7 @@ class Codec
             'ephemeral_public_key' => array_key_exists('ephemeral_public_key', $value) ? $value['ephemeral_public_key'] : null,
             'ciphertext' => array_key_exists('ciphertext', $value) ? $value['ciphertext'] : null,
             'nonce' => array_key_exists('nonce', $value) ? $value['nonce'] : null,
-            'suite' => array_key_exists('suite', $value) ? $value['suite'] : null,
+            'suite' => array_key_exists('suite', $value) ? self::fromCborAeadSuite($value['suite']) : null,
         ));
     }
 
@@ -5366,6 +5366,10 @@ class Codec
         if ($field !== null) {
             $out['callback_host'] = $field;
         }
+        $field = $value instanceof BrowserAuthorizationInspectResponse ? $value->returnHost : (is_array($value) && array_key_exists('return_host', $value) ? $value['return_host'] : null);
+        if ($field !== null) {
+            $out['return_host'] = $field;
+        }
         return $out;
     }
 
@@ -5380,6 +5384,7 @@ class Codec
             'access_denied' => array_key_exists('access_denied', $value) ? self::fromCborAppAccessDenial($value['access_denied']) : null,
             'application' => array_key_exists('application', $value) ? self::fromCborRelyingPartyApplication($value['application']) : null,
             'callback_host' => array_key_exists('callback_host', $value) ? $value['callback_host'] : null,
+            'return_host' => array_key_exists('return_host', $value) ? $value['return_host'] : null,
         ));
     }
 
@@ -6176,18 +6181,14 @@ class Codec
 
     public static function toCborApiErrorCode($value)
     {
-        return $value;
+        try { return ApiErrorCode::toNumber($value); }
+        catch (\InvalidArgumentException $e) { throw new CodecException($e->getMessage()); }
     }
 
     public static function fromCborApiErrorCode($value)
     {
-        static $csilMembers = array('request_already_used', 'rp_key_fetch_failed', 'rp_encrypt_key_untrusted', 'signing_failed', 'storage_failed', 'bad_request', 'unauthorized', 'forbidden', 'not_found', 'internal');
-        foreach ($csilMembers as $csilMember) {
-            if ($value === $csilMember) {
-                return $value;
-            }
-        }
-        throw new CodecException('csil cbor: unknown ApiErrorCode value ' . var_export($value, true));
+        try { return ApiErrorCode::fromNumber($value); }
+        catch (\InvalidArgumentException $e) { throw new CodecException($e->getMessage()); }
     }
 
     public static function encodeApiError($value)
@@ -6204,7 +6205,7 @@ class Codec
     {
         $out = array();
         $field = $value instanceof ApiError ? $value->code : (is_array($value) && array_key_exists('code', $value) ? $value['code'] : null);
-        $out['code'] = $field;
+        $out['code'] = self::toCborApiErrorCode($field);
         $field = $value instanceof ApiError ? $value->message : (is_array($value) && array_key_exists('message', $value) ? $value['message'] : null);
         $out['message'] = $field;
         return $out;
@@ -6284,7 +6285,7 @@ class Codec
         $field = $value instanceof LocalRpDescriptor ? $value->fingerprint : (is_array($value) && array_key_exists('fingerprint', $value) ? $value['fingerprint'] : null);
         $out['fingerprint'] = $field;
         $field = $value instanceof LocalRpDescriptor ? $value->supportedSuites : (is_array($value) && array_key_exists('supported_suites', $value) ? $value['supported_suites'] : null);
-        $out['supported_suites'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
+        $out['supported_suites'] = array_map(function ($item) { return self::toCborAeadSuite($item); }, $field === null ? array() : $field);
         $field = $value instanceof LocalRpDescriptor ? $value->createdAt : (is_array($value) && array_key_exists('created_at', $value) ? $value['created_at'] : null);
         $out['created_at'] = $field;
         $field = $value instanceof LocalRpDescriptor ? $value->expiresAt : (is_array($value) && array_key_exists('expires_at', $value) ? $value['expires_at'] : null);
@@ -6300,7 +6301,7 @@ class Codec
             'signing_public_key' => array_key_exists('signing_public_key', $value) ? $value['signing_public_key'] : null,
             'encryption_public_key' => array_key_exists('encryption_public_key', $value) ? $value['encryption_public_key'] : null,
             'fingerprint' => array_key_exists('fingerprint', $value) ? $value['fingerprint'] : null,
-            'supported_suites' => array_key_exists('supported_suites', $value) ? array_map(function ($item) { return $item; }, $value['supported_suites'] === null ? array() : $value['supported_suites']) : null,
+            'supported_suites' => array_key_exists('supported_suites', $value) ? array_map(function ($item) { return self::fromCborAeadSuite($item); }, $value['supported_suites'] === null ? array() : $value['supported_suites']) : null,
             'created_at' => array_key_exists('created_at', $value) ? $value['created_at'] : null,
             'expires_at' => array_key_exists('expires_at', $value) ? $value['expires_at'] : null,
         ));
@@ -6438,7 +6439,7 @@ class Codec
         $field = $value instanceof LocalRpCallbackHeader ? $value->state : (is_array($value) && array_key_exists('state', $value) ? $value['state'] : null);
         $out['state'] = CBOR::bytes($field);
         $field = $value instanceof LocalRpCallbackHeader ? $value->suite : (is_array($value) && array_key_exists('suite', $value) ? $value['suite'] : null);
-        $out['suite'] = $field;
+        $out['suite'] = self::toCborAeadSuite($field);
         $field = $value instanceof LocalRpCallbackHeader ? $value->ephemeralPublicKey : (is_array($value) && array_key_exists('ephemeral_public_key', $value) ? $value['ephemeral_public_key'] : null);
         $out['ephemeral_public_key'] = CBOR::bytes($field);
         $field = $value instanceof LocalRpCallbackHeader ? $value->aeadNonce : (is_array($value) && array_key_exists('aead_nonce', $value) ? $value['aead_nonce'] : null);
@@ -6456,7 +6457,7 @@ class Codec
             'fingerprint' => array_key_exists('fingerprint', $value) ? $value['fingerprint'] : null,
             'nonce' => array_key_exists('nonce', $value) ? $value['nonce'] : null,
             'state' => array_key_exists('state', $value) ? $value['state'] : null,
-            'suite' => array_key_exists('suite', $value) ? $value['suite'] : null,
+            'suite' => array_key_exists('suite', $value) ? self::fromCborAeadSuite($value['suite']) : null,
             'ephemeral_public_key' => array_key_exists('ephemeral_public_key', $value) ? $value['ephemeral_public_key'] : null,
             'aead_nonce' => array_key_exists('aead_nonce', $value) ? $value['aead_nonce'] : null,
             'issued_at' => array_key_exists('issued_at', $value) ? $value['issued_at'] : null,
@@ -7041,14 +7042,14 @@ class Codec
     {
         $out = array();
         $field = $value instanceof GetLocalRpPolicyResponse ? $value->policy : (is_array($value) && array_key_exists('policy', $value) ? $value['policy'] : null);
-        $out['policy'] = $field;
+        $out['policy'] = self::toCborLocalRpPolicy($field);
         return $out;
     }
 
     public static function fromCborGetLocalRpPolicyResponse($value)
     {
         return new GetLocalRpPolicyResponse(array(
-            'policy' => array_key_exists('policy', $value) ? $value['policy'] : null,
+            'policy' => array_key_exists('policy', $value) ? self::fromCborLocalRpPolicy($value['policy']) : null,
         ));
     }
 
@@ -7066,14 +7067,14 @@ class Codec
     {
         $out = array();
         $field = $value instanceof SetLocalRpPolicyRequest ? $value->policy : (is_array($value) && array_key_exists('policy', $value) ? $value['policy'] : null);
-        $out['policy'] = $field;
+        $out['policy'] = self::toCborLocalRpPolicy($field);
         return $out;
     }
 
     public static function fromCborSetLocalRpPolicyRequest($value)
     {
         return new SetLocalRpPolicyRequest(array(
-            'policy' => array_key_exists('policy', $value) ? $value['policy'] : null,
+            'policy' => array_key_exists('policy', $value) ? self::fromCborLocalRpPolicy($value['policy']) : null,
         ));
     }
 
@@ -7091,14 +7092,14 @@ class Codec
     {
         $out = array();
         $field = $value instanceof SetLocalRpPolicyResponse ? $value->policy : (is_array($value) && array_key_exists('policy', $value) ? $value['policy'] : null);
-        $out['policy'] = $field;
+        $out['policy'] = self::toCborLocalRpPolicy($field);
         return $out;
     }
 
     public static function fromCborSetLocalRpPolicyResponse($value)
     {
         return new SetLocalRpPolicyResponse(array(
-            'policy' => array_key_exists('policy', $value) ? $value['policy'] : null,
+            'policy' => array_key_exists('policy', $value) ? self::fromCborLocalRpPolicy($value['policy']) : null,
         ));
     }
 
@@ -7661,7 +7662,7 @@ class Codec
         $field = $value instanceof TranslationsResponse ? $value->availableLocales : (is_array($value) && array_key_exists('available_locales', $value) ? $value['available_locales'] : null);
         $out['available_locales'] = array_map(function ($item) { return $item; }, $field === null ? array() : $field);
         $field = $value instanceof TranslationsResponse ? $value->messages : (is_array($value) && array_key_exists('messages', $value) ? $value['messages'] : null);
-        $out['messages'] = $field;
+        $out['messages'] = self::toCborLocaleMessages($field);
         return $out;
     }
 
@@ -7670,7 +7671,7 @@ class Codec
         return new TranslationsResponse(array(
             'locale' => array_key_exists('locale', $value) ? $value['locale'] : null,
             'available_locales' => array_key_exists('available_locales', $value) ? array_map(function ($item) { return $item; }, $value['available_locales'] === null ? array() : $value['available_locales']) : null,
-            'messages' => array_key_exists('messages', $value) ? $value['messages'] : null,
+            'messages' => array_key_exists('messages', $value) ? self::fromCborLocaleMessages($value['messages']) : null,
         ));
     }
 

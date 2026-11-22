@@ -12,6 +12,21 @@ module CsilCbor
 
   module_function
 
+  def enc_date(value)
+    raise ArgumentError, "expected a calendar date" unless value.instance_of?(Date)
+    tag = Tag.new(1004, value.iso8601.encode(Encoding::UTF_8))
+    as_date(tag)
+    tag
+  end
+
+  def as_date(node)
+    unless node.is_a?(Tag) && node.tag == 1004 && node.value.is_a?(String) &&
+           node.value.encoding == Encoding::UTF_8 && /\A[0-9]{4}-[0-9]{2}-[0-9]{2}\z/.match?(node.value)
+      raise ArgumentError, "expected tag 1004 with YYYY-MM-DD text"
+    end
+    Date.iso8601(node.value, Date::GREGORIAN)
+  end
+
   # Canonical-CBOR encode of a Ruby value tree to a binary String.
   def encode(value)
     buf = "".b
@@ -4876,6 +4891,7 @@ class BrowserAuthorizationInspectResponse
     csil_map = {}
     csil_map["claims"] = (claims).map { |csil_e| (csil_e).csil_to_tree }
     csil_map["application"] = (application).csil_to_tree unless application.nil?
+    csil_map["return_host"] = return_host unless return_host.nil?
     csil_map["access_denied"] = (access_denied).csil_to_tree unless access_denied.nil?
     csil_map["callback_host"] = callback_host unless callback_host.nil?
     csil_map["relying_party"] = relying_party
@@ -4898,7 +4914,8 @@ class BrowserAuthorizationInspectResponse
       authorized_claims: (node.key?("authorized_claims") ? (node["authorized_claims"]).map { |csil_e| csil_e } : nil),
       access_denied: (node.key?("access_denied") ? AppAccessDenial.csil_from_tree(node["access_denied"]) : nil),
       application: (node.key?("application") ? RelyingPartyApplication.csil_from_tree(node["application"]) : nil),
-      callback_host: (node.key?("callback_host") ? node["callback_host"] : nil)
+      callback_host: (node.key?("callback_host") ? node["callback_host"] : nil),
+      return_host: (node.key?("return_host") ? node["return_host"] : nil)
     )
   end
 end
@@ -5568,7 +5585,7 @@ class ApiError
 
   def csil_to_tree
     csil_map = {}
-    csil_map["code"] = (code)
+    csil_map["code"] = ApiErrorCode.to_number(code)
     csil_map["message"] = message
     csil_map
   end
@@ -5579,20 +5596,7 @@ class ApiError
 
   def self.csil_from_tree(node)
     new(
-      code: (case (node["code"])
-when "request_already_used" then "request_already_used"
-when "rp_key_fetch_failed" then "rp_key_fetch_failed"
-when "rp_encrypt_key_untrusted" then "rp_encrypt_key_untrusted"
-when "signing_failed" then "signing_failed"
-when "storage_failed" then "storage_failed"
-when "bad_request" then "bad_request"
-when "unauthorized" then "unauthorized"
-when "forbidden" then "forbidden"
-when "not_found" then "not_found"
-when "internal" then "internal"
-else
-  raise ArgumentError, "csilgen: unknown inline literal #{(node["code"]).inspect}"
-end),
+      code: ApiErrorCode.from_number(node["code"]),
       message: node["message"]
     )
   end
@@ -8885,5 +8889,13 @@ class IssueForSigningRequestResponse
     new(
       results: (node["results"]).map { |csil_e| IssuedClaimResult.csil_from_tree(csil_e) }
     )
+  end
+end
+
+module CsilCbor
+  module_function
+
+  def resolve_rpc_reply(service, op, variant, payload)
+    payload
   end
 end

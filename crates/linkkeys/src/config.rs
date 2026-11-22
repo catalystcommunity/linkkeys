@@ -95,6 +95,28 @@ pub fn string_env(name: &str, default: &str) -> String {
     }
 }
 
+/// `DISPLAY_NAME_MAX_CHARS`: the longest account display name, in Unicode
+/// scalar values (default 256). Admin refuses a longer name; a consent screen
+/// shortens a longer name that another server signed.
+pub fn display_name_max_chars_from_env() -> Result<usize, String> {
+    let value = nonzero_u64_env(
+        "DISPLAY_NAME_MAX_CHARS",
+        liblinkkeys::display_text::DEFAULT_MAX_DISPLAY_NAME_CHARS as u64,
+    )?;
+    usize::try_from(value).map_err(|_| "DISPLAY_NAME_MAX_CHARS is too large".to_string())
+}
+
+static DISPLAY_NAME_MAX_CHARS: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| {
+    display_name_max_chars_from_env()
+        .unwrap_or_else(|error| panic!("invalid display name configuration: {error}"))
+});
+
+/// The display name limit. `serve` checks `DISPLAY_NAME_MAX_CHARS` at startup
+/// with [`display_name_max_chars_from_env`], so this does not panic there.
+pub fn display_name_max_chars() -> usize {
+    *DISPLAY_NAME_MAX_CHARS
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

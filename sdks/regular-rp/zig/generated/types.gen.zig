@@ -4,17 +4,25 @@
 const std = @import("std");
 
 /// ApiErrorCode is an enumeration.
-pub const ApiErrorCode = enum {
-    request_already_used,
-    rp_key_fetch_failed,
-    rp_encrypt_key_untrusted,
-    signing_failed,
-    storage_failed,
-    bad_request,
-    unauthorized,
-    forbidden,
-    not_found,
-    internal,
+pub const ApiErrorCode = enum(i64) {
+    request_already_used = 1,
+    rp_key_fetch_failed = 2,
+    rp_encrypt_key_untrusted = 3,
+    signing_failed = 4,
+    storage_failed = 5,
+    bad_request = 6,
+    unauthorized = 7,
+    forbidden = 8,
+    not_found = 9,
+    internal = 10,
+
+    pub fn to_number(self: ApiErrorCode) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?ApiErrorCode {
+        return @import("std").meta.intToEnum(ApiErrorCode, number) catch null;
+    }
 
     pub fn wire_name(self: ApiErrorCode) []const u8 {
         return switch (self) {
@@ -1178,6 +1186,7 @@ pub const BrowserAuthorizationInspectResponse = struct {
     access_denied: ?AppAccessDenial = null,
     application: ?RelyingPartyApplication = null,
     callback_host: ?[]const u8 = null,
+    return_host: ?[]const u8 = null,
 };
 
 /// BrowserAuthorizationCompleteRequest is a structured data type.

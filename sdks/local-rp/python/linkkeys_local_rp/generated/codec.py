@@ -4969,6 +4969,9 @@ def _encode_browser_authorization_inspect_response_value(v: "BrowserAuthorizatio
     csil_x = v.application
     if csil_x is not None:
         csil_m["application"] = _encode_relying_party_application_value(csil_x)
+    csil_x = v.return_host
+    if csil_x is not None:
+        csil_m["return_host"] = csil_x
     csil_x = v.access_denied
     if csil_x is not None:
         csil_m["access_denied"] = _encode_app_access_denial_value(csil_x)
@@ -4998,6 +5001,7 @@ def _decode_browser_authorization_inspect_response_value(tree: Any) -> "BrowserA
         access_denied=(None if tree.get("access_denied") is None else _decode_app_access_denial_value(tree["access_denied"])),
         application=(None if tree.get("application") is None else _decode_relying_party_application_value(tree["application"])),
         callback_host=(None if tree.get("callback_host") is None else _csil_expect_text(tree["callback_host"])),
+        return_host=(None if tree.get("return_host") is None else _csil_expect_text(tree["return_host"])),
     )
 
 
@@ -5697,7 +5701,7 @@ AuthorizeFinalizeResponse.from_cbor = staticmethod(_authorize_finalize_response_
 
 def _encode_api_error_value(v: "ApiError") -> Dict[Any, Any]:
     csil_m: Dict[Any, Any] = {}
-    csil_m["code"] = v.code
+    csil_m["code"] = _encode_api_error_code_value(v.code)
     csil_m["message"] = v.message
     return csil_m
 
@@ -9047,8 +9051,12 @@ def _decode_check_value_value(csil_tree):
     raise CsilDecodeError("csil cbor: unknown check_value variant")
 
 
-def _decode_api_error_code_value(csil_v):
-    csil_v = _csil_expect_text(csil_v)
-    if csil_v not in ("request_already_used", "rp_key_fetch_failed", "rp_encrypt_key_untrusted", "signing_failed", "storage_failed", "bad_request", "unauthorized", "forbidden", "not_found", "internal"):
-        raise CsilDecodeError(f"csil cbor: unknown api_error_code value {csil_v!r}")
-    return csil_v
+def _encode_api_error_code_value(value):
+    return ApiErrorCode(value).wire_number
+
+
+def _decode_api_error_code_value(value):
+    try:
+        return ApiErrorCode.from_number(_csil_expect_int(value))
+    except ValueError as exc:
+        raise CsilDecodeError(str(exc)) from exc

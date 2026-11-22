@@ -1,6 +1,6 @@
 //! Generated types from CSIL specification
 
-#![allow(non_camel_case_types, clippy::large_enum_variant)]
+#![allow(clippy::large_enum_variant)]
 
 /// Returned by a generated `validate` method when a field violates one of its
 /// CSIL constraints. `field` names the offending field; `message` explains.
@@ -1163,6 +1163,7 @@ pub struct BrowserAuthorizationInspectResponse {
     pub access_denied: Option<AppAccessDenial>,
     pub application: Option<RelyingPartyApplication>,
     pub callback_host: Option<String>,
+    pub return_host: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1345,6 +1346,70 @@ pub enum ApiErrorCode {
     Forbidden,
     NotFound,
     Internal,
+}
+
+impl ApiErrorCode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::RequestAlreadyUsed => "request_already_used",
+            Self::RpKeyFetchFailed => "rp_key_fetch_failed",
+            Self::RpEncryptKeyUntrusted => "rp_encrypt_key_untrusted",
+            Self::SigningFailed => "signing_failed",
+            Self::StorageFailed => "storage_failed",
+            Self::BadRequest => "bad_request",
+            Self::Unauthorized => "unauthorized",
+            Self::Forbidden => "forbidden",
+            Self::NotFound => "not_found",
+            Self::Internal => "internal",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "request_already_used" => Some(Self::RequestAlreadyUsed),
+            "rp_key_fetch_failed" => Some(Self::RpKeyFetchFailed),
+            "rp_encrypt_key_untrusted" => Some(Self::RpEncryptKeyUntrusted),
+            "signing_failed" => Some(Self::SigningFailed),
+            "storage_failed" => Some(Self::StorageFailed),
+            "bad_request" => Some(Self::BadRequest),
+            "unauthorized" => Some(Self::Unauthorized),
+            "forbidden" => Some(Self::Forbidden),
+            "not_found" => Some(Self::NotFound),
+            "internal" => Some(Self::Internal),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(&self) -> i64 {
+        match self {
+            Self::RequestAlreadyUsed => 1,
+            Self::RpKeyFetchFailed => 2,
+            Self::RpEncryptKeyUntrusted => 3,
+            Self::SigningFailed => 4,
+            Self::StorageFailed => 5,
+            Self::BadRequest => 6,
+            Self::Unauthorized => 7,
+            Self::Forbidden => 8,
+            Self::NotFound => 9,
+            Self::Internal => 10,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::RequestAlreadyUsed),
+            2 => Some(Self::RpKeyFetchFailed),
+            3 => Some(Self::RpEncryptKeyUntrusted),
+            4 => Some(Self::SigningFailed),
+            5 => Some(Self::StorageFailed),
+            6 => Some(Self::BadRequest),
+            7 => Some(Self::Unauthorized),
+            8 => Some(Self::Forbidden),
+            9 => Some(Self::NotFound),
+            10 => Some(Self::Internal),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

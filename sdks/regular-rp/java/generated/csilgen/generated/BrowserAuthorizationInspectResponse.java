@@ -12,6 +12,7 @@ public record BrowserAuthorizationInspectResponse(
     List<String> authorizedClaims /* wire: "authorized_claims" */,
     AppAccessDenial accessDenied /* wire: "access_denied" */,
     RelyingPartyApplication application /* wire: "application" */,
-    String callbackHost /* wire: "callback_host" */
+    String callbackHost /* wire: "callback_host" */,
+    String returnHost /* wire: "return_host" */
 ) {
 }

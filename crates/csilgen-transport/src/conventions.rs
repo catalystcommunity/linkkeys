@@ -22,6 +22,26 @@ pub const CONTROL_SERVICE_ORD: u64 = 0;
 /// carrier rejects anything larger before allocating for it.
 pub const MAX_FRAME_DEFAULT: usize = 16 * 1024 * 1024;
 
+/// Largest max-frame limit a host may configure (2 GiB - 1). The 4-byte length
+/// prefix can express more, but the limit lives in a signed 32-bit integer in
+/// several supported languages, so this is the portable ceiling every CSIL
+/// transport agrees on. Anything above it would also disable the receive guard
+/// outright, since no wire length could exceed it.
+pub const MAX_FRAME_LIMIT: usize = 2_147_483_647;
+
+/// Check a host-supplied max-frame limit against the conventions doc range
+/// (1..=`MAX_FRAME_LIMIT`), so an unusable carrier fails at construction rather
+/// than on its first frame.
+pub fn validate_max_frame(max_frame: usize) -> Result<usize> {
+    if max_frame == 0 || max_frame > MAX_FRAME_LIMIT {
+        return Err(TransportError::InvalidMaxFrame {
+            got: max_frame,
+            limit: MAX_FRAME_LIMIT,
+        });
+    }
+    Ok(max_frame)
+}
+
 /// Transport-level status. Distinct from application errors, which ride inside the
 /// payload as a declared `/ ErrorType` arm. See the conventions doc registry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,6 +107,8 @@ pub enum TransportError {
     Malformed(String),
     #[error("frame of {got} bytes exceeds max-frame guard of {max} bytes")]
     FrameTooLarge { got: usize, max: usize },
+    #[error("max-frame limit of {got} is outside the valid range 1..={limit}")]
+    InvalidMaxFrame { got: usize, limit: usize },
     #[error("unsupported transport version {0}")]
     UnsupportedVersion(u64),
     /// A non-zero transport status returned by the peer.
@@ -135,7 +157,7 @@ pub fn encode_value(value: &Value) -> Result<Vec<u8>> {
 /// matching the other reference libraries instead of silently ignoring them.
 pub fn decode_value(bytes: &[u8]) -> Result<Value> {
     let mut cursor = std::io::Cursor::new(bytes);
-    let value: Value = ciborium::de::from_reader(&mut cursor)
+    let value: Value = ciborium::de::from_reader_with_recursion_limit(&mut cursor, 64)
         .map_err(|e| TransportError::Decode(e.to_string()))?;
     if (cursor.position() as usize) != bytes.len() {
         return Err(TransportError::Decode(

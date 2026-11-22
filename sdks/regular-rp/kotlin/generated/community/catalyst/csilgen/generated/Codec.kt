@@ -304,6 +304,18 @@ object CsilCbor {
     fun asMap(v: CborValue): List<Pair<CborValue, CborValue>> =
         (v as? CborValue.CMap)?.entries ?: throw CborError("expected map")
 
+    fun encDate(date: java.time.LocalDate): CborValue {
+        val text = date.toString()
+        require(text.length == 10) { "date requires a four-digit year" }
+        return CborValue.CTag(1004uL, CborValue.CText(text))
+    }
+
+    fun asDate(v: CborValue): java.time.LocalDate {
+        val text = asTaggedText(v, 1004uL)
+        require(text.length == 10) { "expected YYYY-MM-DD" }
+        return java.time.LocalDate.parse(text)
+    }
+
     fun asTaggedText(v: CborValue, tag: ULong): String {
         if (v is CborValue.CTag && v.tag == tag) return asText(v.value)
         throw CborError("expected tag $tag")
@@ -4155,6 +4167,7 @@ fun BrowserAuthorizationInspectResponse.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("claims") to CborValue.CArray((this.claims).map { csilE -> csilE.toCborValue() }))
     this.application?.let { csilV -> csilEntries.add(CborValue.CText("application") to csilV.toCborValue()) }
+    this.returnHost?.let { csilV -> csilEntries.add(CborValue.CText("return_host") to CborValue.CText(csilV)) }
     this.accessDenied?.let { csilV -> csilEntries.add(CborValue.CText("access_denied") to csilV.toCborValue()) }
     this.callbackHost?.let { csilV -> csilEntries.add(CborValue.CText("callback_host") to CborValue.CText(csilV)) }
     csilEntries.add(CborValue.CText("relying_party") to CborValue.CText(this.relyingParty))
@@ -4177,7 +4190,8 @@ fun browserAuthorizationInspectResponseFromCborValue(cbor: CborValue): BrowserAu
     val accessDenied = CsilCbor.mapGet(cbor, "access_denied")?.let { csilV -> appAccessDenialFromCborValue(csilV) }
     val application = CsilCbor.mapGet(cbor, "application")?.let { csilV -> relyingPartyApplicationFromCborValue(csilV) }
     val callbackHost = CsilCbor.mapGet(cbor, "callback_host")?.let { csilV -> CsilCbor.asText(csilV) }
-    return BrowserAuthorizationInspectResponse(relyingParty = relyingParty, claims = claims, requestReason = requestReason, alreadyConsented = alreadyConsented, authorizedClaims = authorizedClaims, accessDenied = accessDenied, application = application, callbackHost = callbackHost)
+    val returnHost = CsilCbor.mapGet(cbor, "return_host")?.let { csilV -> CsilCbor.asText(csilV) }
+    return BrowserAuthorizationInspectResponse(relyingParty = relyingParty, claims = claims, requestReason = requestReason, alreadyConsented = alreadyConsented, authorizedClaims = authorizedClaims, accessDenied = accessDenied, application = application, callbackHost = callbackHost, returnHost = returnHost)
 }
 
 /** Decode CSIL CBOR bytes into a BrowserAuthorizationInspectResponse. */
@@ -4724,34 +4738,9 @@ fun authorizeFinalizeResponseFromCborValue(cbor: CborValue): AuthorizeFinalizeRe
 /** Decode CSIL CBOR bytes into a AuthorizeFinalizeResponse. */
 fun authorizeFinalizeResponseFromCbor(bytes: ByteArray): AuthorizeFinalizeResponse = authorizeFinalizeResponseFromCborValue(CsilCbor.decode(bytes))
 
-/** Encode a ApiErrorCode enum as its bare literal value. */
-fun ApiErrorCode.toCborValue(): CborValue = when (this) {
-    ApiErrorCode.RequestAlreadyUsed -> CborValue.CText("request_already_used")
-    ApiErrorCode.RpKeyFetchFailed -> CborValue.CText("rp_key_fetch_failed")
-    ApiErrorCode.RpEncryptKeyUntrusted -> CborValue.CText("rp_encrypt_key_untrusted")
-    ApiErrorCode.SigningFailed -> CborValue.CText("signing_failed")
-    ApiErrorCode.StorageFailed -> CborValue.CText("storage_failed")
-    ApiErrorCode.BadRequest -> CborValue.CText("bad_request")
-    ApiErrorCode.Unauthorized -> CborValue.CText("unauthorized")
-    ApiErrorCode.Forbidden -> CborValue.CText("forbidden")
-    ApiErrorCode.NotFound -> CborValue.CText("not_found")
-    ApiErrorCode.Internal -> CborValue.CText("internal")
-}
+fun ApiErrorCode.toCborValue(): CborValue = CborValue.CInt(wireNumber)
 
-/** Decode a bare literal value into a ApiErrorCode enum. */
-fun apiErrorCodeFromCborValue(cbor: CborValue): ApiErrorCode = when (CsilCbor.asText(cbor)) {
-    "request_already_used" -> ApiErrorCode.RequestAlreadyUsed
-    "rp_key_fetch_failed" -> ApiErrorCode.RpKeyFetchFailed
-    "rp_encrypt_key_untrusted" -> ApiErrorCode.RpEncryptKeyUntrusted
-    "signing_failed" -> ApiErrorCode.SigningFailed
-    "storage_failed" -> ApiErrorCode.StorageFailed
-    "bad_request" -> ApiErrorCode.BadRequest
-    "unauthorized" -> ApiErrorCode.Unauthorized
-    "forbidden" -> ApiErrorCode.Forbidden
-    "not_found" -> ApiErrorCode.NotFound
-    "internal" -> ApiErrorCode.Internal
-    else -> throw CborError("unknown ApiErrorCode value")
-}
+fun apiErrorCodeFromCborValue(cbor: CborValue): ApiErrorCode = ApiErrorCode.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown ApiErrorCode value")
 
 /** The CBOR value tree for a ApiError (deep, canonical key order). */
 fun ApiError.toCborValue(): CborValue {
@@ -8137,4 +8126,9 @@ fun csilFromCborValue(type: kotlin.reflect.KClass<*>, cbor: CborValue): Any = wh
     IssuedClaimResult::class -> issuedClaimResultFromCborValue(cbor)
     IssueForSigningRequestResponse::class -> issueForSigningRequestResponseFromCborValue(cbor)
     else -> throw CborError("no CSIL CBOR codec for $type")
+}
+data class RpcReply(val variant: String, val payload: ByteArray)
+
+fun resolveRpcReply(service: String, op: String, variant: String?, payload: ByteArray): ByteArray {
+    return payload
 }

@@ -12,6 +12,7 @@ pub mod claim_policy;
 pub mod claims;
 pub mod consent;
 pub mod crypto;
+pub mod display_text;
 pub mod dns;
 pub mod domain_claims;
 pub mod encoding;

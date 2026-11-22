@@ -10268,10 +10268,13 @@ func DecodeBrowserConsentClaim(csilData []byte) (BrowserConsentClaim, error) {
 
 // csilEncBrowserAuthorizationInspectResponse builds the canonical CBOR value tree for a BrowserAuthorizationInspectResponse.
 func csilEncBrowserAuthorizationInspectResponse(csilV BrowserAuthorizationInspectResponse) cborValue {
-	csilEntries := make(cborMap, 0, 8)
+	csilEntries := make(cborMap, 0, 9)
 	csilEntries = append(csilEntries, cborEntry{cborText("claims"), cborEncArray(csilV.Claims, func(csilElem BrowserConsentClaim) cborValue { return csilEncBrowserConsentClaim(csilElem) })})
 	if csilV.Application != nil {
 		csilEntries = append(csilEntries, cborEntry{cborText("application"), csilEncRelyingPartyApplication((*csilV.Application))})
+	}
+	if csilV.ReturnHost != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("return_host"), cborText((*csilV.ReturnHost))})
 	}
 	if csilV.AccessDenied != nil {
 		csilEntries = append(csilEntries, cborEntry{cborText("access_denied"), csilEncAppAccessDenial((*csilV.AccessDenied))})
@@ -10360,6 +10363,13 @@ func csilDecBrowserAuthorizationInspectResponse(csilRoot cborValue) (BrowserAuth
 			return csilOut, csilErr
 		}
 		csilOut.CallbackHost = &csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "return_host"); csilOk {
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ReturnHost = &csilVal
 	}
 	return csilOut, nil
 }
@@ -11855,7 +11865,7 @@ func DecodeAuthorizeFinalizeResponse(csilData []byte) (AuthorizeFinalizeResponse
 // csilEncApiError builds the canonical CBOR value tree for a ApiError.
 func csilEncApiError(csilV ApiError) cborValue {
 	csilEntries := make(cborMap, 0, 2)
-	csilEntries = append(csilEntries, cborEntry{cborText("code"), cborText(csilV.Code)})
+	csilEntries = append(csilEntries, cborEntry{cborText("code"), cborInt(csilV.Code)})
 	csilEntries = append(csilEntries, cborEntry{cborText("message"), cborText(csilV.Message)})
 	return csilEntries
 }
@@ -11869,19 +11879,11 @@ func csilDecApiError(csilRoot cborValue) (ApiError, error) {
 			return csilOut, csilErr
 		}
 		csilVal, csilErr := (func(csilV cborValue) (ApiErrorCode, error) {
-			csilInner, csilErr := (func(csilV cborValue) (string, error) {
-				csilInner, csilErr := (cborAsText)(csilV)
-				if csilErr != nil {
-					var csilZero string
-					return csilZero, csilErr
-				}
-				if !(csilInner == "request_already_used" || csilInner == "rp_key_fetch_failed" || csilInner == "rp_encrypt_key_untrusted" || csilInner == "signing_failed" || csilInner == "storage_failed" || csilInner == "bad_request" || csilInner == "unauthorized" || csilInner == "forbidden" || csilInner == "not_found" || csilInner == "internal") {
-					var csilZero string
-					return csilZero, fmt.Errorf("csil cbor: value %v is not a member of the declared enum", csilInner)
-				}
-				return csilInner, nil
-			})(csilV)
-			return ApiErrorCode(csilInner), csilErr
+			n, err := cborAsI64(csilV)
+			if err != nil {
+				return 0, err
+			}
+			return ApiErrorCodeFromNumber(n)
 		})(csilField)
 		if csilErr != nil {
 			return csilOut, csilErr

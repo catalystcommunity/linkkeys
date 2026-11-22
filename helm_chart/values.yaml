@@ -93,6 +93,9 @@ server:
   attestationDenySubjectTlds: ""
   # Default lifetime for claims this domain issues as a third-party attestor.
   attestedClaimTtlSeconds: "31536000"
+  # Longest account display name, in characters (DISPLAY_NAME_MAX_CHARS).
+  # Empty uses the server default of 256.
+  displayNameMaxChars: ""
 
 # Outbound email. Email verification and password recovery stay disabled when
 # this section is disabled.
@@ -137,7 +140,9 @@ ui:
 # An RP is a LinkKeys server that holds domain keys and signs/decrypts
 # on behalf of web apps, but doesn't serve a login UI.
 rp:
-  # Enable RP endpoints (sign-request, decrypt-token, verify-assertion)
+  # Apply the RP auth settings below (apiKeyAuth, passwordAuth). The RP
+  # operations (sign-request, decrypt-token, verify-assertion) are always
+  # served; there is no switch for them.
   enabled: false
   # Enable bearer token (API key) authentication on RP endpoints
   apiKeyAuth: true

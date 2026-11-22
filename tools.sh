@@ -17,6 +17,7 @@
 #   ./tools.sh clippy     # cargo clippy (workspace, all targets)
 #   ./tools.sh ui-build   # check and build the embedded Zest UI
 #   ./tools.sh audit      # dependency advisories and license policy
+#   ./tools.sh csil-check # validate and lint csil/linkkeys.csil (linted-validate)
 #   ./tools.sh generate-regular-rp-bindings # regenerate CSIL client bindings
 #   ./tools.sh test-regular-rp-typescript # test the web application SDK
 #   ./tools.sh test-regular-rp-go       # test the Go application-key SDK
@@ -566,13 +567,63 @@ test_local_rp_python() {
     log_status "local-rp Python SDK tests passed"
 }
 
+# The csilgen release every checked-in generated file comes from. Generated
+# output differs between releases, so every generate command checks this pin
+# before it writes anything. Install it with csilgen's
+# `./tools.sh install-all csilgen/v<pin>`.
+CSILGEN_VERSION="0.2.15"
+
+# Print the path of a csilgen binary that matches CSILGEN_VERSION. CSILGEN_BIN
+# wins when set; otherwise the first match among the usual install locations.
+# Fails rather than silently using a different release (a stale
+# ~/.cargo/bin/csilgen next to a newer ~/.local/bin/csilgen is common).
+csilgen_bin() {
+    local candidate version
+    local candidates=()
+    if [ -n "${CSILGEN_BIN:-}" ]; then
+        candidates=("$CSILGEN_BIN")
+    else
+        candidates=("$(command -v csilgen 2>/dev/null || true)" \
+            "$HOME/.local/bin/csilgen" "$HOME/.cargo/bin/csilgen")
+    fi
+    for candidate in "${candidates[@]}"; do
+        [ -n "$candidate" ] && [ -x "$candidate" ] || continue
+        version="$("$candidate" --version 2>/dev/null | awk '{print $2}')"
+        if [ "$version" = "$CSILGEN_VERSION" ]; then
+            echo "$candidate"
+            return 0
+        fi
+        echo "skipping $candidate: csilgen $version, pin is $CSILGEN_VERSION" >&2
+    done
+    echo "csilgen $CSILGEN_VERSION not found; set CSILGEN_BIN or install it (see AGENTS.md)" >&2
+    return 1
+}
+
+# Validate csil/linkkeys.csil and lint it with its imports. A lint warning
+# fails the check.
+csil_check() {
+    log_status "csil-check"
+    local generator
+    generator="$(csilgen_bin)"
+    "$generator" linted-validate --input csil/linkkeys.csil --fail-on-warnings "$@"
+}
+
+# Regenerate the server crate's Rust types and the browser UI's TypeScript
+# client. The SDK bindings have their own generate commands.
+generate_core() {
+    log_status "generate-core"
+    local generator
+    generator="$(csilgen_bin)"
+    "$generator" generate --input csil/linkkeys.csil --target rust \
+        --output crates/liblinkkeys/src/generated/
+    "$generator" generate --input csil/linkkeys.csil --target typescript-client \
+        --output web-ui/src/generated/
+}
+
 generate_local_rp_sdks() {
     log_status "generate-local-rp-sdks"
-    local generator="${CSILGEN_BIN:-csilgen}"
-    if ! command -v "$generator" >/dev/null 2>&1; then
-        echo "csilgen not found; set CSILGEN_BIN or install it (see AGENTS.md)" >&2
-        return 1
-    fi
+    local generator
+    generator="$(csilgen_bin)"
 
     # The Rust SDK (sdks/local-rp/rust/) is a workspace member that path-depends
     # on liblinkkeys directly — there is no separate generation step for it (no
@@ -607,14 +658,8 @@ generate_local_rp_sdks() {
 generate_regular_rp_bindings() {
     log_status "generate-regular-rp-bindings"
 
-    local generator="${CSILGEN_BIN:-}"
-    if [ -z "$generator" ]; then
-        if [ -x "$HOME/.cargo/bin/csilgen" ]; then
-            generator="$HOME/.cargo/bin/csilgen"
-        else
-            generator="csilgen"
-        fi
-    fi
+    local generator
+    generator="$(csilgen_bin)"
 
     local target
     for target in \
@@ -760,6 +805,8 @@ Commands:
   load-test  Build and run a connection/handshake/cache/DDoS load-test smoke
              run (NOT part of test/test-all; see docs/load-testing.md)
 
+  csil-check               Validate and lint csil/linkkeys.csil with the pinned csilgen
+  generate-core            Regenerate liblinkkeys Rust types and the web UI TypeScript client
   generate-local-rp-sdks   Regenerate DNS-less local-RP SDK bindings (sdks/local-rp/)
   generate-regular-rp-bindings Regenerate regular-RP protocol bindings (sdks/regular-rp/)
   test-regular-rp-typescript Test and build the regular-RP TypeScript SDK
@@ -805,6 +852,8 @@ case "${1:-}" in
     ui-build) shift; ui_build "$@" ;;
     audit)    shift; audit "$@" ;;
     load-test) shift; load_test "$@" ;;
+    csil-check) shift; csil_check "$@" ;;
+    generate-core) shift; generate_core "$@" ;;
     generate-local-rp-sdks) shift; generate_local_rp_sdks "$@" ;;
     generate-regular-rp-bindings) shift; generate_regular_rp_bindings "$@" ;;
     test-regular-rp-typescript) shift; test_regular_rp_typescript "$@" ;;

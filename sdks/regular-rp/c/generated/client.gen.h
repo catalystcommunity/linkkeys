@@ -18,6 +18,10 @@ typedef struct CsilgenTransport {
                 const uint8_t *req, size_t req_len,
                 uint8_t **resp, size_t *resp_len);
     void *self;
+    /* A status-zero reply transfers ownership of its variant and payload to the client. */
+    int (*call_reply)(void *self, const char *service, const char *op,
+                      const uint8_t *req, size_t req_len,
+                      uint8_t **resp, size_t *resp_len, char **variant);
 } CsilgenTransport;
 
 /* Invoke Ops/healthcheck with a typed request and decode the typed

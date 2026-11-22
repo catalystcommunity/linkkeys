@@ -1,6 +1,6 @@
 use crate::db::models::User;
 use crate::db::DbPool;
-use crate::services::auth::ApiKeyAuthenticator;
+use crate::services::auth::{ApiKeyAuthenticator, AuthError};
 use rocket::http::Status;
 use rocket::request::{FromRequest, Outcome, Request};
 use std::net::IpAddr;
@@ -131,21 +131,14 @@ impl<'r> FromRequest<'r> for AuthenticatedUser {
             Outcome::Success(value) => value,
             _ => return Outcome::Error((Status::InternalServerError, ())),
         };
-        if !crate::services::ratelimit::API_KEY_SOURCE.check(&source.0) {
-            return Outcome::Error((Status::TooManyRequests, ()));
-        }
-
         let authenticator = ApiKeyAuthenticator::new(pool.clone());
-        match authenticator.authenticate_key_with_credential(api_key) {
-            Ok(authentication) => {
-                if !authentication.user.is_active {
-                    return Outcome::Error((Status::Unauthorized, ()));
-                }
-                Outcome::Success(AuthenticatedUser(
-                    authentication.user,
-                    authentication.credential_id,
-                ))
-            }
+        match authenticator.authenticate_from_source(&source.0, api_key) {
+            Ok(authentication) => Outcome::Success(AuthenticatedUser(
+                authentication.user,
+                authentication.credential_id,
+            )),
+            Err(AuthError::RateLimited) => Outcome::Error((Status::TooManyRequests, ())),
+            Err(AuthError::DbError(_)) => Outcome::Error((Status::InternalServerError, ())),
             Err(_) => Outcome::Error((Status::Unauthorized, ())),
         }
     }

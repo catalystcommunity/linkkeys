@@ -187,6 +187,18 @@ let decode (b : bytes) : (t, string) result =
   | _ -> Error "csilgen: malformed cbor"
 
 let to_i64 = function Uint n | Nint n -> n | _ -> failwith "csilgen: expected int"
+let calendar_date s =
+  let bad () = invalid_arg "expected YYYY-MM-DD" in
+  if String.length s <> 10 || s.[4] <> '-' || s.[7] <> '-' then bad ();
+  String.iteri (fun i c ->
+    if i <> 4 && i <> 7 && (c < '0' || c > '9') then bad ()) s;
+  let number pos len = int_of_string (String.sub s pos len) in
+  let y = number 0 4 and m = number 5 2 and d = number 8 2 in
+  let leap = y mod 4 = 0 && (y mod 100 <> 0 || y mod 400 = 0) in
+  let days = [|31; (if leap then 29 else 28); 31;30;31;30;31;31;30;31;30;31|] in
+  if m < 1 || m > 12 || d < 1 || d > days.(m-1) then bad ();
+  s
+
 let to_text = function Text s -> s | _ -> failwith "csilgen: expected text"
 let to_bytes = function Bytes b -> b | _ -> failwith "csilgen: expected bytes"
 let to_bool = function Bool b -> b | _ -> failwith "csilgen: expected bool"

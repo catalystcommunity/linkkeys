@@ -10135,7 +10135,8 @@ defmodule Csilgen.Generated.BrowserAuthorizationInspectResponse do
     :authorized_claims,
     :access_denied,
     :application,
-    :callback_host
+    :callback_host,
+    :return_host
   ]
 
   @type t :: %__MODULE__{
@@ -10146,7 +10147,8 @@ defmodule Csilgen.Generated.BrowserAuthorizationInspectResponse do
           authorized_claims: [String.t()] | nil,
           access_denied: Csilgen.Generated.AppAccessDenial.t() | nil,
           application: Csilgen.Generated.RelyingPartyApplication.t() | nil,
-          callback_host: String.t() | nil
+          callback_host: String.t() | nil,
+          return_host: String.t() | nil
         }
 
   @wire_keys [
@@ -10157,7 +10159,8 @@ defmodule Csilgen.Generated.BrowserAuthorizationInspectResponse do
     authorized_claims: "authorized_claims",
     access_denied: "access_denied",
     application: "application",
-    callback_host: "callback_host"
+    callback_host: "callback_host",
+    return_host: "return_host"
   ]
   @doc "Maps struct field atoms to their verbatim CBOR wire keys."
   @spec wire_keys() :: keyword()
@@ -10179,6 +10182,10 @@ defmodule Csilgen.Generated.BrowserAuthorizationInspectResponse do
            else:
              {{:text, "application"},
               Csilgen.Generated.RelyingPartyApplication.to_cbor_value(v.application)}
+         ),
+         if(is_nil(v.return_host),
+           do: nil,
+           else: {{:text, "return_host"}, {:text, v.return_host}}
          ),
          if(is_nil(v.access_denied),
            do: nil,
@@ -10227,6 +10234,11 @@ defmodule Csilgen.Generated.BrowserAuthorizationInspectResponse do
         case Map.get(csil_fields, {:text, "application"}) do
           nil -> nil
           csil_v -> Csilgen.Generated.RelyingPartyApplication.from_cbor_value(csil_v)
+        end,
+      return_host:
+        case Map.get(csil_fields, {:text, "return_host"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.Cbor.to_text(csil_v)
         end,
       access_denied:
         case Map.get(csil_fields, {:text, "access_denied"}) do
@@ -11900,8 +11912,49 @@ defmodule Csilgen.Generated.AuthorizeFinalizeResponse do
 end
 
 defmodule Csilgen.Generated.ApiErrorCode do
-  @moduledoc "Type alias for ApiErrorCode."
-  @type t :: String.t()
+  @type t :: :request_already_used | :rp_key_fetch_failed | :rp_encrypt_key_untrusted | :signing_failed | :storage_failed | :bad_request | :unauthorized | :forbidden | :not_found | :internal
+  def to_wire(:request_already_used), do: "request_already_used"
+  def to_wire(:rp_key_fetch_failed), do: "rp_key_fetch_failed"
+  def to_wire(:rp_encrypt_key_untrusted), do: "rp_encrypt_key_untrusted"
+  def to_wire(:signing_failed), do: "signing_failed"
+  def to_wire(:storage_failed), do: "storage_failed"
+  def to_wire(:bad_request), do: "bad_request"
+  def to_wire(:unauthorized), do: "unauthorized"
+  def to_wire(:forbidden), do: "forbidden"
+  def to_wire(:not_found), do: "not_found"
+  def to_wire(:internal), do: "internal"
+  def from_wire("request_already_used"), do: :request_already_used
+  def from_wire("rp_key_fetch_failed"), do: :rp_key_fetch_failed
+  def from_wire("rp_encrypt_key_untrusted"), do: :rp_encrypt_key_untrusted
+  def from_wire("signing_failed"), do: :signing_failed
+  def from_wire("storage_failed"), do: :storage_failed
+  def from_wire("bad_request"), do: :bad_request
+  def from_wire("unauthorized"), do: :unauthorized
+  def from_wire("forbidden"), do: :forbidden
+  def from_wire("not_found"), do: :not_found
+  def from_wire("internal"), do: :internal
+  def from_wire(value), do: raise(ArgumentError, "unknown ApiErrorCode: #{inspect(value)}")
+  def to_number(:request_already_used), do: 1
+  def to_number(:rp_key_fetch_failed), do: 2
+  def to_number(:rp_encrypt_key_untrusted), do: 3
+  def to_number(:signing_failed), do: 4
+  def to_number(:storage_failed), do: 5
+  def to_number(:bad_request), do: 6
+  def to_number(:unauthorized), do: 7
+  def to_number(:forbidden), do: 8
+  def to_number(:not_found), do: 9
+  def to_number(:internal), do: 10
+  def from_number(1), do: :request_already_used
+  def from_number(2), do: :rp_key_fetch_failed
+  def from_number(3), do: :rp_encrypt_key_untrusted
+  def from_number(4), do: :signing_failed
+  def from_number(5), do: :storage_failed
+  def from_number(6), do: :bad_request
+  def from_number(7), do: :unauthorized
+  def from_number(8), do: :forbidden
+  def from_number(9), do: :not_found
+  def from_number(10), do: :internal
+  def from_number(_), do: raise(ArgumentError, "unknown enum number")
 end
 
 defmodule Csilgen.Generated.ApiError do
@@ -11926,7 +11979,7 @@ defmodule Csilgen.Generated.ApiError do
     {:map,
      Enum.reject(
        [
-         {{:text, "code"}, {:text, v.code}},
+         {{:text, "code"}, {:int, Csilgen.Generated.ApiErrorCode.to_number(v.code)}},
          {{:text, "message"}, {:text, v.message}}
        ],
        &is_nil/1
@@ -11940,19 +11993,9 @@ defmodule Csilgen.Generated.ApiError do
 
     %__MODULE__{
       code:
-        case Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "code"})) do
-          "request_already_used" -> "request_already_used"
-          "rp_key_fetch_failed" -> "rp_key_fetch_failed"
-          "rp_encrypt_key_untrusted" -> "rp_encrypt_key_untrusted"
-          "signing_failed" -> "signing_failed"
-          "storage_failed" -> "storage_failed"
-          "bad_request" -> "bad_request"
-          "unauthorized" -> "unauthorized"
-          "forbidden" -> "forbidden"
-          "not_found" -> "not_found"
-          "internal" -> "internal"
-          csil_other -> raise("csilgen: unknown ApiErrorCode literal #{inspect(csil_other)}")
-        end,
+        Csilgen.Generated.ApiErrorCode.from_number(
+          Csilgen.Generated.Cbor.to_int(Map.fetch!(csil_fields, {:text, "code"}))
+        ),
       message: Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "message"}))
     }
   end

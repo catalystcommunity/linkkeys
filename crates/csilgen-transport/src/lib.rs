@@ -16,7 +16,9 @@ pub mod datagrams;
 pub mod events;
 pub mod rpc;
 
-pub use conventions::{Result, Status, TransportError, VERSION};
+pub use conventions::{
+    MAX_FRAME_DEFAULT, MAX_FRAME_LIMIT, Result, Status, TransportError, VERSION, validate_max_frame,
+};
 
 /// A UDP-backed `DatagramCarrier`. Built-in convenience for the native datagram
 /// path; the browser path (WebRTC unreliable / WebTransport) implements the same
@@ -264,6 +266,19 @@ mod tests {
             .unwrap();
         bytes.push(0x00);
         assert!(crate::rpc::RpcPush::decode(&bytes).is_err());
+    }
+
+    #[test]
+    fn cbor_decoder_rejects_excessive_depth_and_invalid_text() {
+        assert!(crate::conventions::decode_value(&[0x61, 0xff]).is_err());
+
+        let mut too_deep = vec![0xc0; 65];
+        too_deep.push(0x00);
+        assert!(crate::conventions::decode_value(&too_deep).is_err());
+
+        let mut allowed = vec![0xc0; 64];
+        allowed.push(0x00);
+        assert!(crate::conventions::decode_value(&allowed).is_ok());
     }
 
     #[test]

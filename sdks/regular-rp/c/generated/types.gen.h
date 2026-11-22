@@ -26,6 +26,54 @@ typedef enum ApiErrorCode {
     API_ERROR_CODE_INTERNAL,
 } ApiErrorCode;
 
+static inline const char *csil_ApiErrorCode_label(ApiErrorCode value) {
+    switch (value) {
+    case API_ERROR_CODE_REQUEST_ALREADY_USED: return "request_already_used";
+    case API_ERROR_CODE_RP_KEY_FETCH_FAILED: return "rp_key_fetch_failed";
+    case API_ERROR_CODE_RP_ENCRYPT_KEY_UNTRUSTED: return "rp_encrypt_key_untrusted";
+    case API_ERROR_CODE_SIGNING_FAILED: return "signing_failed";
+    case API_ERROR_CODE_STORAGE_FAILED: return "storage_failed";
+    case API_ERROR_CODE_BAD_REQUEST: return "bad_request";
+    case API_ERROR_CODE_UNAUTHORIZED: return "unauthorized";
+    case API_ERROR_CODE_FORBIDDEN: return "forbidden";
+    case API_ERROR_CODE_NOT_FOUND: return "not_found";
+    case API_ERROR_CODE_INTERNAL: return "internal";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_ApiErrorCode_to_number(ApiErrorCode value, int64_t *out) {
+    switch (value) {
+    case API_ERROR_CODE_REQUEST_ALREADY_USED: *out = 1; return true;
+    case API_ERROR_CODE_RP_KEY_FETCH_FAILED: *out = 2; return true;
+    case API_ERROR_CODE_RP_ENCRYPT_KEY_UNTRUSTED: *out = 3; return true;
+    case API_ERROR_CODE_SIGNING_FAILED: *out = 4; return true;
+    case API_ERROR_CODE_STORAGE_FAILED: *out = 5; return true;
+    case API_ERROR_CODE_BAD_REQUEST: *out = 6; return true;
+    case API_ERROR_CODE_UNAUTHORIZED: *out = 7; return true;
+    case API_ERROR_CODE_FORBIDDEN: *out = 8; return true;
+    case API_ERROR_CODE_NOT_FOUND: *out = 9; return true;
+    case API_ERROR_CODE_INTERNAL: *out = 10; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_ApiErrorCode_from_number(int64_t number, ApiErrorCode *out) {
+    switch (number) {
+    case 1: *out = API_ERROR_CODE_REQUEST_ALREADY_USED; return true;
+    case 2: *out = API_ERROR_CODE_RP_KEY_FETCH_FAILED; return true;
+    case 3: *out = API_ERROR_CODE_RP_ENCRYPT_KEY_UNTRUSTED; return true;
+    case 4: *out = API_ERROR_CODE_SIGNING_FAILED; return true;
+    case 5: *out = API_ERROR_CODE_STORAGE_FAILED; return true;
+    case 6: *out = API_ERROR_CODE_BAD_REQUEST; return true;
+    case 7: *out = API_ERROR_CODE_UNAUTHORIZED; return true;
+    case 8: *out = API_ERROR_CODE_FORBIDDEN; return true;
+    case 9: *out = API_ERROR_CODE_NOT_FOUND; return true;
+    case 10: *out = API_ERROR_CODE_INTERNAL; return true;
+    default: return false;
+    }
+}
+
 /* Forward declarations (resolve mutual and out-of-order references). */
 typedef struct CheckValue CheckValue;
 typedef struct CheckEntries CheckEntries;
@@ -1544,6 +1592,7 @@ typedef struct BrowserAuthorizationInspectResponse {
     AppAccessDenial *access_denied;
     RelyingPartyApplication *application;
     char *callback_host;
+    char *return_host;
 } BrowserAuthorizationInspectResponse;
 
 /* BrowserAuthorizationCompleteRequest is a structured data type. */

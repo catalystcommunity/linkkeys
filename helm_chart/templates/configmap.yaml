@@ -88,6 +88,9 @@ data:
   {{- if .Values.server.attestationDenySubjectTlds }}
   ATTESTATION_DENY_SUBJECT_TLDS: {{ .Values.server.attestationDenySubjectTlds | quote }}
   {{- end }}
+  {{- if .Values.server.displayNameMaxChars }}
+  DISPLAY_NAME_MAX_CHARS: {{ .Values.server.displayNameMaxChars | quote }}
+  {{- end }}
   {{- if .Values.server.attestedClaimTtlSeconds }}
   ATTESTED_CLAIM_TTL_SECONDS: {{ .Values.server.attestedClaimTtlSeconds | quote }}
   {{- end }}
@@ -97,7 +100,6 @@ data:
   RP_CLAIMS_CONFIG: "/config/rp-claims.toml"
   {{- end }}
   {{- if .Values.rp.enabled }}
-  ENABLE_RP_ENDPOINTS: "true"
   {{- if .Values.rp.apiKeyAuth }}
   ENABLE_API_KEY_AUTH: "true"
   {{- end }}
