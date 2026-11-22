@@ -2,4 +2,44 @@
 
 package csilgen.generated;
 
-public record ApiErrorCode(Object value) {}
+import java.util.Map;
+
+public enum ApiErrorCode {
+    REQUEST_ALREADY_USED("request_already_used", 1L),
+    RP_KEY_FETCH_FAILED("rp_key_fetch_failed", 2L),
+    RP_ENCRYPT_KEY_UNTRUSTED("rp_encrypt_key_untrusted", 3L),
+    SIGNING_FAILED("signing_failed", 4L),
+    STORAGE_FAILED("storage_failed", 5L),
+    BAD_REQUEST("bad_request", 6L),
+    UNAUTHORIZED("unauthorized", 7L),
+    FORBIDDEN("forbidden", 8L),
+    NOT_FOUND("not_found", 9L),
+    INTERNAL("internal", 10L);
+
+    private final String value;
+
+    ApiErrorCode(String value, long number) { this.value = value; this.number = number; }
+
+    private final long number;
+    private static final Map<Long, ApiErrorCode> byNumber = new java.util.HashMap<>();
+    static {
+        for (ApiErrorCode member : values()) byNumber.put(member.number, member);
+    }
+
+    public long toNumber() { return number; }
+
+    public static ApiErrorCode fromNumber(long number) {
+        ApiErrorCode member = byNumber.get(number);
+        if (member != null) return member;
+        throw new IllegalArgumentException("unknown ApiErrorCode number: " + number);
+    }
+
+    public String value() { return value; }
+
+    public static ApiErrorCode fromWire(String value) {
+        for (ApiErrorCode member : values()) {
+            if (member.value.equals(value)) return member;
+        }
+        throw new IllegalArgumentException("unknown ApiErrorCode value: " + value);
+    }
+}

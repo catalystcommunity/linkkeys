@@ -4789,6 +4789,9 @@ class BrowserAuthorizationInspectResponse
     /** @var mixed */
     public $callbackHost;
 
+    /** @var mixed */
+    public $returnHost;
+
     /** @param array<string,mixed> $values */
     public function __construct(array $values = array())
     {
@@ -4800,6 +4803,7 @@ class BrowserAuthorizationInspectResponse
         $this->accessDenied = array_key_exists('access_denied', $values) ? $values['access_denied'] : null;
         $this->application = array_key_exists('application', $values) ? $values['application'] : null;
         $this->callbackHost = array_key_exists('callback_host', $values) ? $values['callback_host'] : null;
+        $this->returnHost = array_key_exists('return_host', $values) ? $values['return_host'] : null;
     }
 
     /** @return array<string,mixed> */
@@ -4814,6 +4818,7 @@ class BrowserAuthorizationInspectResponse
             'access_denied' => $this->accessDenied,
             'application' => $this->application,
             'callback_host' => $this->callbackHost,
+            'return_host' => $this->returnHost,
         );
     }
 }
@@ -5536,6 +5541,38 @@ class AuthorizeFinalizeResponse
             'redirect_url' => $this->redirectUrl,
         );
     }
+}
+
+final class ApiErrorCode
+{
+    const REQUEST_ALREADY_USED = 'request_already_used';
+    const RP_KEY_FETCH_FAILED = 'rp_key_fetch_failed';
+    const RP_ENCRYPT_KEY_UNTRUSTED = 'rp_encrypt_key_untrusted';
+    const SIGNING_FAILED = 'signing_failed';
+    const STORAGE_FAILED = 'storage_failed';
+    const BAD_REQUEST = 'bad_request';
+    const UNAUTHORIZED = 'unauthorized';
+    const FORBIDDEN = 'forbidden';
+    const NOT_FOUND = 'not_found';
+    const INTERNAL = 'internal';
+
+    private static $byNumber = array(1 => self::REQUEST_ALREADY_USED, 2 => self::RP_KEY_FETCH_FAILED, 3 => self::RP_ENCRYPT_KEY_UNTRUSTED, 4 => self::SIGNING_FAILED, 5 => self::STORAGE_FAILED, 6 => self::BAD_REQUEST, 7 => self::UNAUTHORIZED, 8 => self::FORBIDDEN, 9 => self::NOT_FOUND, 10 => self::INTERNAL);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown ApiErrorCode member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown ApiErrorCode number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
 }
 
 class ApiError

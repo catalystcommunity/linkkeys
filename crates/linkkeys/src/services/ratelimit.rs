@@ -62,6 +62,32 @@ impl RateLimiter {
         }
     }
 
+    /// True when `key` (and the global bucket) still has a token, without
+    /// consuming one. Use with [`RateLimiter::check`] to charge only some
+    /// outcomes: test with `allows` before the work, charge with `check`
+    /// after a failure. A poisoned lock fails open, like `check`.
+    pub fn allows(&self, key: &str) -> bool {
+        let state = match self.inner.lock() {
+            Ok(g) => g,
+            Err(_) => return true,
+        };
+        let now = Instant::now();
+        let global_elapsed = now.duration_since(state.global.last).as_secs_f64();
+        let global = (state.global.tokens + global_elapsed * self.global_refill_per_sec)
+            .min(self.global_capacity);
+        if global < 1.0 {
+            return false;
+        }
+        let key: [u8; 32] = Sha256::digest(key.as_bytes()).into();
+        match state.buckets.get(&key) {
+            None => true,
+            Some(bucket) => {
+                let elapsed = now.duration_since(bucket.last).as_secs_f64();
+                (bucket.tokens + elapsed * self.refill_per_sec).min(self.capacity) >= 1.0
+            }
+        }
+    }
+
     /// Consume one token for `key`. Returns true if allowed, false if the caller
     /// is currently rate limited. A poisoned lock fails open (returns true): the
     /// limiter must never wedge a legitimate login.
@@ -126,8 +152,9 @@ pub static LOGIN: LazyLock<RateLimiter> =
 /// slots when an attacker rotates usernames.
 pub static LOGIN_SOURCE: LazyLock<RateLimiter> =
     LazyLock::new(|| RateLimiter::new(20.0, 1.0, 4096, 100.0, 10.0));
-/// API-key checks by network source. API keys are for applications, so this
-/// limit permits a larger burst than browser login.
+/// Failed API-key checks by network source. Only a failure is charged (see
+/// `ApiKeyAuthenticator::authenticate_from_source`), so a busy application
+/// with a valid key is never throttled here; a source that guesses keys is.
 pub static API_KEY_SOURCE: LazyLock<RateLimiter> =
     LazyLock::new(|| RateLimiter::new(10.0, 2.0, 4096, 100.0, 20.0));
 /// Expensive legacy API-key checks by the old eight-character user prefix.
@@ -177,6 +204,25 @@ pub static TICKET_REDEMPTION: LazyLock<RateLimiter> =
 #[cfg(test)]
 mod tests {
     use super::RateLimiter;
+
+    #[test]
+    fn allows_peeks_without_charging() {
+        let rl = RateLimiter::new(2.0, 0.0001, 16, 16.0, 0.0001);
+        for _ in 0..10 {
+            assert!(rl.allows("a"), "allows never consumes a token");
+        }
+        assert!(rl.check("a"));
+        assert!(rl.check("a"));
+        assert!(!rl.allows("a"), "an empty bucket is reported");
+        assert!(rl.allows("b"), "other keys are not affected");
+    }
+
+    #[test]
+    fn allows_reports_an_empty_global_bucket() {
+        let rl = RateLimiter::new(5.0, 0.0001, 16, 1.0, 0.0001);
+        assert!(rl.check("a"));
+        assert!(!rl.allows("b"));
+    }
 
     #[test]
     fn allows_burst_then_blocks() {

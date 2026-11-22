@@ -19,7 +19,7 @@ go 1.26.4
 //     implementation. Everything else this package needs (crypto/ed25519,
 //     crypto/ecdh X25519, crypto/hkdf, crypto/sha256) is standard library.
 require (
-	github.com/catalystcommunity/csilgen/transports/go v0.0.0-20260713013116-a661c8727022
+	github.com/catalystcommunity/csilgen/transports/go v0.0.0-20260926220402-baec1dad191c
 	golang.org/x/crypto v0.54.0
 )
 

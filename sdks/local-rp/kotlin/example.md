@@ -23,7 +23,7 @@ directory's own `settings.gradle` uses) — nothing here is hypothetical.
 
 Per `docs/DEPLOYING-RP.md`: your Kotlin app runs alongside **its own LinkKeys
 server in RP mode** — the same `linkkeys` binary/image, different
-configuration (`rp.enabled: true` in the Helm chart, or `ENABLE_RP_ENDPOINTS`
+configuration (`rp.enabled: true` in the Helm chart, or `ENABLE_API_KEY_AUTH=true`
 outside Helm). Your app never touches a private key; it holds an API key and
 talks to its RP server over TCP.
 

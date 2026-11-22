@@ -3464,8 +3464,10 @@ public struct BrowserAuthorizationInspectResponse: Equatable, Sendable {
     public let application: RelyingPartyApplication?
     /// wire key: callback_host
     public let callbackHost: String?
+    /// wire key: return_host
+    public let returnHost: String?
 
-    public init(relyingParty: String, claims: [BrowserConsentClaim], requestReason: String? = nil, alreadyConsented: Bool? = nil, authorizedClaims: [String]? = nil, accessDenied: AppAccessDenial? = nil, application: RelyingPartyApplication? = nil, callbackHost: String? = nil) {
+    public init(relyingParty: String, claims: [BrowserConsentClaim], requestReason: String? = nil, alreadyConsented: Bool? = nil, authorizedClaims: [String]? = nil, accessDenied: AppAccessDenial? = nil, application: RelyingPartyApplication? = nil, callbackHost: String? = nil, returnHost: String? = nil) {
         self.relyingParty = relyingParty
         self.claims = claims
         self.requestReason = requestReason
@@ -3474,6 +3476,7 @@ public struct BrowserAuthorizationInspectResponse: Equatable, Sendable {
         self.accessDenied = accessDenied
         self.application = application
         self.callbackHost = callbackHost
+        self.returnHost = returnHost
     }
 
     /// CBOR wire keys (verbatim) keyed by Swift property name.
@@ -3485,7 +3488,8 @@ public struct BrowserAuthorizationInspectResponse: Equatable, Sendable {
         "authorizedClaims": "authorized_claims",
         "accessDenied": "access_denied",
         "application": "application",
-        "callbackHost": "callback_host"
+        "callbackHost": "callback_host",
+        "returnHost": "return_host"
     ]
 }
 
@@ -4026,7 +4030,7 @@ public struct AuthorizeFinalizeResponse: Equatable, Sendable {
 }
 
 /// ApiErrorCode is a generated CSIL string enum (a closed set of wire values).
-public enum ApiErrorCode: String, Equatable, Sendable, CaseIterable {
+public enum ApiErrorCode: String, Equatable, Sendable, CaseIterable, Codable {
     case requestAlreadyUsed = "request_already_used"
     case rpKeyFetchFailed = "rp_key_fetch_failed"
     case rpEncryptKeyUntrusted = "rp_encrypt_key_untrusted"
@@ -4037,6 +4041,37 @@ public enum ApiErrorCode: String, Equatable, Sendable, CaseIterable {
     case forbidden = "forbidden"
     case notFound = "not_found"
     case `internal` = "internal"
+
+    public var wireNumber: Int64 {
+        switch self {
+        case .requestAlreadyUsed: return 1
+        case .rpKeyFetchFailed: return 2
+        case .rpEncryptKeyUntrusted: return 3
+        case .signingFailed: return 4
+        case .storageFailed: return 5
+        case .badRequest: return 6
+        case .unauthorized: return 7
+        case .forbidden: return 8
+        case .notFound: return 9
+        case .`internal`: return 10
+        }
+    }
+
+    public init?(wireNumber: Int64) {
+        switch wireNumber {
+        case 1: self = .requestAlreadyUsed
+        case 2: self = .rpKeyFetchFailed
+        case 3: self = .rpEncryptKeyUntrusted
+        case 4: self = .signingFailed
+        case 5: self = .storageFailed
+        case 6: self = .badRequest
+        case 7: self = .unauthorized
+        case 8: self = .forbidden
+        case 9: self = .notFound
+        case 10: self = .`internal`
+        default: return nil
+        }
+    }
 }
 
 /// ApiError is a generated CSIL record type.

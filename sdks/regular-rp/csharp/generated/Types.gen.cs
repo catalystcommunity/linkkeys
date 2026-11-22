@@ -1595,6 +1595,8 @@ public sealed record BrowserAuthorizationInspectResponse
     public RelyingPartyApplication? Application { get; init; }
     // CBOR key: callback_host
     public string? CallbackHost { get; init; }
+    // CBOR key: return_host
+    public string? ReturnHost { get; init; }
 }
 
 public sealed record BrowserAuthorizationCompleteRequest
@@ -1839,28 +1841,61 @@ public sealed record AuthorizeFinalizeResponse
     public required string RedirectUrl { get; init; }
 }
 
-public enum ApiErrorCode
+[System.Text.Json.Serialization.JsonConverter(typeof(ApiErrorCodeJsonConverter))]
+public enum ApiErrorCode : long
 {
-    // wire value: request_already_used
-    RequestAlreadyUsed,
-    // wire value: rp_key_fetch_failed
-    RpKeyFetchFailed,
-    // wire value: rp_encrypt_key_untrusted
-    RpEncryptKeyUntrusted,
-    // wire value: signing_failed
-    SigningFailed,
-    // wire value: storage_failed
-    StorageFailed,
-    // wire value: bad_request
-    BadRequest,
-    // wire value: unauthorized
-    Unauthorized,
-    // wire value: forbidden
-    Forbidden,
-    // wire value: not_found
-    NotFound,
-    // wire value: internal
-    Internal,
+    RequestAlreadyUsed = 1,
+    RpKeyFetchFailed = 2,
+    RpEncryptKeyUntrusted = 3,
+    SigningFailed = 4,
+    StorageFailed = 5,
+    BadRequest = 6,
+    Unauthorized = 7,
+    Forbidden = 8,
+    NotFound = 9,
+    Internal = 10,
+}
+
+public static class ApiErrorCodeNumbers
+{
+    public static long ToNumber(this ApiErrorCode value) => (long)value;
+
+    public static ApiErrorCode FromNumber(long number) => System.Enum.IsDefined(typeof(ApiErrorCode), number)
+        ? (ApiErrorCode)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class ApiErrorCodeJsonConverter : System.Text.Json.Serialization.JsonConverter<ApiErrorCode>
+{
+    public override ApiErrorCode Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "request_already_used" => ApiErrorCode.RequestAlreadyUsed,
+        "rp_key_fetch_failed" => ApiErrorCode.RpKeyFetchFailed,
+        "rp_encrypt_key_untrusted" => ApiErrorCode.RpEncryptKeyUntrusted,
+        "signing_failed" => ApiErrorCode.SigningFailed,
+        "storage_failed" => ApiErrorCode.StorageFailed,
+        "bad_request" => ApiErrorCode.BadRequest,
+        "unauthorized" => ApiErrorCode.Unauthorized,
+        "forbidden" => ApiErrorCode.Forbidden,
+        "not_found" => ApiErrorCode.NotFound,
+        "internal" => ApiErrorCode.Internal,
+        _ => throw new System.Text.Json.JsonException("unknown ApiErrorCode label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, ApiErrorCode value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        ApiErrorCode.RequestAlreadyUsed => "request_already_used",
+        ApiErrorCode.RpKeyFetchFailed => "rp_key_fetch_failed",
+        ApiErrorCode.RpEncryptKeyUntrusted => "rp_encrypt_key_untrusted",
+        ApiErrorCode.SigningFailed => "signing_failed",
+        ApiErrorCode.StorageFailed => "storage_failed",
+        ApiErrorCode.BadRequest => "bad_request",
+        ApiErrorCode.Unauthorized => "unauthorized",
+        ApiErrorCode.Forbidden => "forbidden",
+        ApiErrorCode.NotFound => "not_found",
+        ApiErrorCode.Internal => "internal",
+        _ => throw new System.Text.Json.JsonException("unknown ApiErrorCode value"),
+    });
 }
 
 public sealed record ApiError

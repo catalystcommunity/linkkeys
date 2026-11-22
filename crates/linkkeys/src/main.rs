@@ -34,6 +34,10 @@ async fn main() {
                 eprintln!("Act-as grant configuration is unusable: {error}");
                 std::process::exit(1);
             }
+            if let Err(error) = linkkeys::config::display_name_max_chars_from_env() {
+                eprintln!("Display name configuration is unusable: {error}");
+                std::process::exit(1);
+            }
 
             let db_pool = linkkeys::db::create_pool();
             let ready_flag = Arc::new(AtomicBool::new(false));

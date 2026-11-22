@@ -5,7 +5,7 @@
 //! media stack, or anything else by implementing one of these traits — without
 //! changing the library.
 
-use crate::conventions::{MAX_FRAME_DEFAULT, Result, TransportError};
+use crate::conventions::{MAX_FRAME_DEFAULT, Result, TransportError, validate_max_frame};
 use std::io::{Read, Write};
 
 /// A stream/frame carrier: sends and receives one *delimited message* at a time.
@@ -82,8 +82,19 @@ impl<S: Read + Write> StreamCarrier<S> {
         }
     }
 
-    pub fn with_max_frame(stream: S, max_frame: usize) -> Self {
-        Self { stream, max_frame }
+    /// Build a carrier with a host-chosen max-frame limit. The limit is validated
+    /// here rather than at the first frame, so a misconfigured carrier is a
+    /// construction-time error the host can surface at startup.
+    pub fn with_max_frame(stream: S, max_frame: usize) -> Result<Self> {
+        Ok(Self {
+            stream,
+            max_frame: validate_max_frame(max_frame)?,
+        })
+    }
+
+    /// The max-frame limit this carrier enforces in both directions.
+    pub fn max_frame(&self) -> usize {
+        self.max_frame
     }
 
     pub fn into_inner(self) -> S {

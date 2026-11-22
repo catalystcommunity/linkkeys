@@ -106,7 +106,10 @@ func (t *PinnedRpcTransport) Call(ctx context.Context, service, op string, paylo
 		_ = conn.SetDeadline(deadline)
 	}
 
-	carrier := rpctransport.NewStreamCarrierWithMaxFrame(conn, maxFrameSize)
+	carrier, err := rpctransport.NewStreamCarrierWithMaxFrame(conn, maxFrameSize)
+	if err != nil {
+		return nil, &ProtocolError{Detail: fmt.Sprintf("max frame: %v", err)}
+	}
 
 	req := rpctransport.NewRpcRequest(service, op, payload).WithAuth(t.opts.APIKey)
 	encoded, err := req.Encode()

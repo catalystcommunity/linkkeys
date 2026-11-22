@@ -23,7 +23,7 @@ SDK's built `liblinkkeys_local_rp.a`, and the non-network parts were run
 
 Per `docs/DEPLOYING-RP.md`: your app runs alongside its **own** LinkKeys
 server deployed in RP mode (the same Docker image/binary as a full identity
-provider, different configuration — `ENABLE_RP_ENDPOINTS`/`rp.enabled` Helm
+provider, different configuration — `ENABLE_API_KEY_AUTH`/`rp.enabled` Helm
 values). The RP server holds your domain's private keys, signs auth
 requests, and decrypts callback tokens on your behalf. **Your app never
 touches private keys** — it authenticates to its own RP server with a plain

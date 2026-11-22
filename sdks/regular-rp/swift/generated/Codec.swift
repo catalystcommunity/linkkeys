@@ -271,6 +271,32 @@ public enum CsilCbor {
         throw CsilCborError.typeMismatch
     }
 
+    static func validDate(_ text: String) -> Bool {
+        let s = Array(text.utf8)
+        guard s.count == 10, s[4] == 45, s[7] == 45 else { return false }
+        for i in s.indices where i != 4 && i != 7 {
+            guard (48...57).contains(s[i]) else { return false }
+        }
+        func number(_ range: Range<Int>) -> Int {
+            s[range].reduce(0) { $0 * 10 + Int($1 - 48) }
+        }
+        let year = number(0..<4), month = number(5..<7), day = number(8..<10)
+        let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+        let days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        return (1...12).contains(month) && (1...days[month - 1]).contains(day)
+    }
+
+    public static func encodeDate(_ text: String) -> CsilCborValue {
+        precondition(validDate(text), "expected YYYY-MM-DD")
+        return .tag(1004, .text(text))
+    }
+
+    public static func decodeDate(_ value: CsilCborValue) throws -> String {
+        let text = try asTaggedText(value, 1004)
+        guard validDate(text) else { throw CsilCborError.typeMismatch }
+        return text
+    }
+
     public static func asTaggedText(_ v: CsilCborValue, _ num: UInt64) throws -> String {
         if case .tag(let t, let inner) = v, t == num { return try asText(inner) }
         throw CsilCborError.typeMismatch
@@ -4471,6 +4497,7 @@ public extension BrowserAuthorizationInspectResponse {
         var csilEntries: [(CsilCborValue, CsilCborValue)] = []
         csilEntries.append((.text("claims"), CsilCborValue.array(self.claims.map { $0.toCborValue() })))
         if let csilV = self.application { csilEntries.append((.text("application"), csilV.toCborValue())) }
+        if let csilV = self.returnHost { csilEntries.append((.text("return_host"), .text(csilV))) }
         if let csilV = self.accessDenied { csilEntries.append((.text("access_denied"), csilV.toCborValue())) }
         if let csilV = self.callbackHost { csilEntries.append((.text("callback_host"), .text(csilV))) }
         csilEntries.append((.text("relying_party"), .text(self.relyingParty)))
@@ -4490,7 +4517,8 @@ public extension BrowserAuthorizationInspectResponse {
         let accessDenied: AppAccessDenial? = if let csilV = CsilCbor.mapGet(cborValue, "access_denied") { try AppAccessDenial(cborValue: csilV) } else { nil }
         let application: RelyingPartyApplication? = if let csilV = CsilCbor.mapGet(cborValue, "application") { try RelyingPartyApplication(cborValue: csilV) } else { nil }
         let callbackHost: String? = if let csilV = CsilCbor.mapGet(cborValue, "callback_host") { try CsilCbor.asText(csilV) } else { nil }
-        self.init(relyingParty: relyingParty, claims: claims, requestReason: requestReason, alreadyConsented: alreadyConsented, authorizedClaims: authorizedClaims, accessDenied: accessDenied, application: application, callbackHost: callbackHost)
+        let returnHost: String? = if let csilV = CsilCbor.mapGet(cborValue, "return_host") { try CsilCbor.asText(csilV) } else { nil }
+        self.init(relyingParty: relyingParty, claims: claims, requestReason: requestReason, alreadyConsented: alreadyConsented, authorizedClaims: authorizedClaims, accessDenied: accessDenied, application: application, callbackHost: callbackHost, returnHost: returnHost)
     }
 
     /// Encode this record to canonical CSIL CBOR bytes.
@@ -5088,21 +5116,15 @@ public extension AuthorizeFinalizeResponse {
 }
 
 public extension ApiErrorCode {
-    /// The CBOR value tree for this enum: its wire string verbatim.
-    func toCborValue() -> CsilCborValue { .text(self.rawValue) }
+    func toCborValue() -> CsilCborValue { wireNumber >= 0 ? .uint(UInt64(wireNumber)) : .int(wireNumber) }
 
-    /// Reconstruct this enum from a decoded CBOR value tree, rejecting a wire
-    /// string outside the declared closed set.
     init(cborValue: CsilCborValue) throws {
-        let csilS = try CsilCbor.asText(cborValue)
-        guard let csilV = ApiErrorCode(rawValue: csilS) else { throw CsilCborError.typeMismatch }
-        self = csilV
+        guard let value = Self(wireNumber: try CsilCbor.asI64(cborValue)) else { throw CsilCborError.typeMismatch }
+        self = value
     }
 
-    /// Encode this enum to canonical CSIL CBOR bytes.
     func toCbor() -> [UInt8] { CsilCbor.encode(toCborValue()) }
 
-    /// Decode a CSIL CBOR byte payload into this enum.
     static func fromCbor(_ bytes: [UInt8]) throws -> ApiErrorCode { try ApiErrorCode(cborValue: CsilCbor.decode(bytes)) }
 }
 
@@ -8082,3 +8104,6 @@ public extension IssueForSigningRequestResponse {
     static func fromCbor(_ bytes: [UInt8]) throws -> IssueForSigningRequestResponse { try IssueForSigningRequestResponse(cborValue: CsilCbor.decode(bytes)) }
 }
 
+public func resolveRpcReply(service: String, op: String, variant: String?, payload: [UInt8]) throws -> [UInt8] {
+    return payload
+}

@@ -10,7 +10,11 @@ export interface AsyncServiceTransport {
 }
 
 export class AccountAsyncClient {
-  constructor(private readonly t: AsyncServiceTransport) {}
+  private readonly t: AsyncServiceTransport;
+
+  constructor(t: AsyncServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -167,7 +171,11 @@ export class AccountAsyncClient {
 }
 
 export class ActAsAsyncClient {
-  constructor(private readonly t: AsyncServiceTransport) {}
+  private readonly t: AsyncServiceTransport;
+
+  constructor(t: AsyncServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -189,7 +197,11 @@ export class ActAsAsyncClient {
 }
 
 export class AdminAsyncClient {
-  constructor(private readonly t: AsyncServiceTransport) {}
+  private readonly t: AsyncServiceTransport;
+
+  constructor(t: AsyncServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -697,7 +709,11 @@ export class AdminAsyncClient {
 }
 
 export class ApplicationKeysAsyncClient {
-  constructor(private readonly t: AsyncServiceTransport) {}
+  private readonly t: AsyncServiceTransport;
+
+  constructor(t: AsyncServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -746,7 +762,11 @@ export class ApplicationKeysAsyncClient {
 }
 
 export class AttestationAsyncClient {
-  constructor(private readonly t: AsyncServiceTransport) {}
+  private readonly t: AsyncServiceTransport;
+
+  constructor(t: AsyncServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -759,7 +779,11 @@ export class AttestationAsyncClient {
 }
 
 export class BrowserAuthorizationAsyncClient {
-  constructor(private readonly t: AsyncServiceTransport) {}
+  private readonly t: AsyncServiceTransport;
+
+  constructor(t: AsyncServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -817,7 +841,11 @@ export class BrowserAuthorizationAsyncClient {
 }
 
 export class BrowserIssuerAsyncClient {
-  constructor(private readonly t: AsyncServiceTransport) {}
+  private readonly t: AsyncServiceTransport;
+
+  constructor(t: AsyncServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -839,7 +867,11 @@ export class BrowserIssuerAsyncClient {
 }
 
 export class DomainKeysAsyncClient {
-  constructor(private readonly t: AsyncServiceTransport) {}
+  private readonly t: AsyncServiceTransport;
+
+  constructor(t: AsyncServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -861,7 +893,11 @@ export class DomainKeysAsyncClient {
 }
 
 export class GuestbookAsyncClient {
-  constructor(private readonly t: AsyncServiceTransport) {}
+  private readonly t: AsyncServiceTransport;
+
+  constructor(t: AsyncServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -901,7 +937,11 @@ export class GuestbookAsyncClient {
 }
 
 export class HandshakeAsyncClient {
-  constructor(private readonly t: AsyncServiceTransport) {}
+  private readonly t: AsyncServiceTransport;
+
+  constructor(t: AsyncServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -914,7 +954,11 @@ export class HandshakeAsyncClient {
 }
 
 export class HelloAsyncClient {
-  constructor(private readonly t: AsyncServiceTransport) {}
+  private readonly t: AsyncServiceTransport;
+
+  constructor(t: AsyncServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -927,7 +971,11 @@ export class HelloAsyncClient {
 }
 
 export class I18nAsyncClient {
-  constructor(private readonly t: AsyncServiceTransport) {}
+  private readonly t: AsyncServiceTransport;
+
+  constructor(t: AsyncServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -949,7 +997,11 @@ export class I18nAsyncClient {
 }
 
 export class IdentityAsyncClient {
-  constructor(private readonly t: AsyncServiceTransport) {}
+  private readonly t: AsyncServiceTransport;
+
+  constructor(t: AsyncServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -962,7 +1014,11 @@ export class IdentityAsyncClient {
 }
 
 export class LocalRpAsyncClient {
-  constructor(private readonly t: AsyncServiceTransport) {}
+  private readonly t: AsyncServiceTransport;
+
+  constructor(t: AsyncServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -975,7 +1031,11 @@ export class LocalRpAsyncClient {
 }
 
 export class NotificationAsyncClient {
-  constructor(private readonly t: AsyncServiceTransport) {}
+  private readonly t: AsyncServiceTransport;
+
+  constructor(t: AsyncServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -988,7 +1048,11 @@ export class NotificationAsyncClient {
 }
 
 export class OpsAsyncClient {
-  constructor(private readonly t: AsyncServiceTransport) {}
+  private readonly t: AsyncServiceTransport;
+
+  constructor(t: AsyncServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -1010,7 +1074,11 @@ export class OpsAsyncClient {
 }
 
 export class RecoveryAsyncClient {
-  constructor(private readonly t: AsyncServiceTransport) {}
+  private readonly t: AsyncServiceTransport;
+
+  constructor(t: AsyncServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -1041,7 +1109,11 @@ export class RecoveryAsyncClient {
 }
 
 export class RpAsyncClient {
-  constructor(private readonly t: AsyncServiceTransport) {}
+  private readonly t: AsyncServiceTransport;
+
+  constructor(t: AsyncServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -1126,7 +1198,11 @@ export class RpAsyncClient {
 }
 
 export class SessionAsyncClient {
-  constructor(private readonly t: AsyncServiceTransport) {}
+  private readonly t: AsyncServiceTransport;
+
+  constructor(t: AsyncServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -1166,7 +1242,11 @@ export class SessionAsyncClient {
 }
 
 export class UiAsyncClient {
-  constructor(private readonly t: AsyncServiceTransport) {}
+  private readonly t: AsyncServiceTransport;
+
+  constructor(t: AsyncServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -1179,7 +1259,11 @@ export class UiAsyncClient {
 }
 
 export class UserKeysAsyncClient {
-  constructor(private readonly t: AsyncServiceTransport) {}
+  private readonly t: AsyncServiceTransport;
+
+  constructor(t: AsyncServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response

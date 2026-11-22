@@ -10,7 +10,11 @@ export interface ServiceTransport {
 }
 
 export class AccountClient {
-  constructor(private readonly t: ServiceTransport) {}
+  private readonly t: ServiceTransport;
+
+  constructor(t: ServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -167,7 +171,11 @@ export class AccountClient {
 }
 
 export class ActAsClient {
-  constructor(private readonly t: ServiceTransport) {}
+  private readonly t: ServiceTransport;
+
+  constructor(t: ServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -189,7 +197,11 @@ export class ActAsClient {
 }
 
 export class AdminClient {
-  constructor(private readonly t: ServiceTransport) {}
+  private readonly t: ServiceTransport;
+
+  constructor(t: ServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -697,7 +709,11 @@ export class AdminClient {
 }
 
 export class ApplicationKeysClient {
-  constructor(private readonly t: ServiceTransport) {}
+  private readonly t: ServiceTransport;
+
+  constructor(t: ServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -746,7 +762,11 @@ export class ApplicationKeysClient {
 }
 
 export class AttestationClient {
-  constructor(private readonly t: ServiceTransport) {}
+  private readonly t: ServiceTransport;
+
+  constructor(t: ServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -759,7 +779,11 @@ export class AttestationClient {
 }
 
 export class BrowserAuthorizationClient {
-  constructor(private readonly t: ServiceTransport) {}
+  private readonly t: ServiceTransport;
+
+  constructor(t: ServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -817,7 +841,11 @@ export class BrowserAuthorizationClient {
 }
 
 export class BrowserIssuerClient {
-  constructor(private readonly t: ServiceTransport) {}
+  private readonly t: ServiceTransport;
+
+  constructor(t: ServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -839,7 +867,11 @@ export class BrowserIssuerClient {
 }
 
 export class DomainKeysClient {
-  constructor(private readonly t: ServiceTransport) {}
+  private readonly t: ServiceTransport;
+
+  constructor(t: ServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -861,7 +893,11 @@ export class DomainKeysClient {
 }
 
 export class GuestbookClient {
-  constructor(private readonly t: ServiceTransport) {}
+  private readonly t: ServiceTransport;
+
+  constructor(t: ServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -901,7 +937,11 @@ export class GuestbookClient {
 }
 
 export class HandshakeClient {
-  constructor(private readonly t: ServiceTransport) {}
+  private readonly t: ServiceTransport;
+
+  constructor(t: ServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -914,7 +954,11 @@ export class HandshakeClient {
 }
 
 export class HelloClient {
-  constructor(private readonly t: ServiceTransport) {}
+  private readonly t: ServiceTransport;
+
+  constructor(t: ServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -927,7 +971,11 @@ export class HelloClient {
 }
 
 export class I18nClient {
-  constructor(private readonly t: ServiceTransport) {}
+  private readonly t: ServiceTransport;
+
+  constructor(t: ServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -949,7 +997,11 @@ export class I18nClient {
 }
 
 export class IdentityClient {
-  constructor(private readonly t: ServiceTransport) {}
+  private readonly t: ServiceTransport;
+
+  constructor(t: ServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -962,7 +1014,11 @@ export class IdentityClient {
 }
 
 export class LocalRpClient {
-  constructor(private readonly t: ServiceTransport) {}
+  private readonly t: ServiceTransport;
+
+  constructor(t: ServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -975,7 +1031,11 @@ export class LocalRpClient {
 }
 
 export class NotificationClient {
-  constructor(private readonly t: ServiceTransport) {}
+  private readonly t: ServiceTransport;
+
+  constructor(t: ServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -988,7 +1048,11 @@ export class NotificationClient {
 }
 
 export class OpsClient {
-  constructor(private readonly t: ServiceTransport) {}
+  private readonly t: ServiceTransport;
+
+  constructor(t: ServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -1010,7 +1074,11 @@ export class OpsClient {
 }
 
 export class RecoveryClient {
-  constructor(private readonly t: ServiceTransport) {}
+  private readonly t: ServiceTransport;
+
+  constructor(t: ServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -1041,7 +1109,11 @@ export class RecoveryClient {
 }
 
 export class RpClient {
-  constructor(private readonly t: ServiceTransport) {}
+  private readonly t: ServiceTransport;
+
+  constructor(t: ServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -1126,7 +1198,11 @@ export class RpClient {
 }
 
 export class SessionClient {
-  constructor(private readonly t: ServiceTransport) {}
+  private readonly t: ServiceTransport;
+
+  constructor(t: ServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -1166,7 +1242,11 @@ export class SessionClient {
 }
 
 export class UiClient {
-  constructor(private readonly t: ServiceTransport) {}
+  private readonly t: ServiceTransport;
+
+  constructor(t: ServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response
@@ -1179,7 +1259,11 @@ export class UiClient {
 }
 
 export class UserKeysClient {
-  constructor(private readonly t: ServiceTransport) {}
+  private readonly t: ServiceTransport;
+
+  constructor(t: ServiceTransport) {
+    this.t = t;
+  }
 
   /**
    * @throws {ServiceError} when the API returns an error response

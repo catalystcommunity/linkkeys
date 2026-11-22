@@ -822,12 +822,6 @@ async fn dispatch_one_frame(
     if !check_cbor_depth(&envelope.payload) {
         return error_response(1, "Malformed request: excessive nesting depth");
     }
-    if envelope.auth.is_some()
-        && !crate::services::ratelimit::API_KEY_SOURCE.check(recovery_source_key)
-    {
-        return error_response(5, "Too many authentication attempts. Wait and try again");
-    }
-
     let rt = tokio::runtime::Handle::current();
     let net = ctx.net.clone();
     let db_pool = ctx.db_pool.clone();
@@ -1371,10 +1365,11 @@ fn dispatch(
             }
         }
         ("Session", "introspect") => {
-            let caller = match authenticate_tcp_request(&envelope.auth, db_pool) {
-                Ok(value) => value,
-                Err(response) => return response,
-            };
+            let caller =
+                match authenticate_tcp_request(&envelope.auth, db_pool, recovery_source_key) {
+                    Ok(value) => value,
+                    Err(response) => return response,
+                };
             if !crate::services::authorization::user_has_permission(
                 db_pool,
                 &caller.id,
@@ -1531,7 +1526,12 @@ fn dispatch(
             {
                 return error_response(5, "Too many attempts. Wait and try again");
             }
-            let user = match authenticate_request(&envelope.auth, db_pool, browser_user) {
+            let user = match authenticate_request(
+                &envelope.auth,
+                db_pool,
+                browser_user,
+                recovery_source_key,
+            ) {
                 Ok(u) => u,
                 Err(resp) => return resp,
             };
@@ -1573,7 +1573,12 @@ fn dispatch(
             dispatch_admin(op, &envelope.payload, db_pool, &user.id)
         }
         ("Account", op) => {
-            let user = match authenticate_request(&envelope.auth, db_pool, browser_user) {
+            let user = match authenticate_request(
+                &envelope.auth,
+                db_pool,
+                browser_user,
+                recovery_source_key,
+            ) {
                 Ok(u) => u,
                 Err(resp) => return resp,
             };
@@ -1584,7 +1589,8 @@ fn dispatch(
         // userinfo-fetch make an onward server-to-server call to the issuing IDP,
         // so they require the outbound context (TCP carrier only).
         ("Rp", op) => {
-            let user = match authenticate_tcp_request(&envelope.auth, db_pool) {
+            let user = match authenticate_tcp_request(&envelope.auth, db_pool, recovery_source_key)
+            {
                 Ok(u) => u,
                 Err(resp) => return resp,
             };
@@ -2803,9 +2809,10 @@ fn authenticate_request(
     auth: &Option<String>,
     db_pool: &DbPool,
     browser_user: Option<&crate::db::models::User>,
+    source: &str,
 ) -> Result<crate::db::models::User, Vec<u8>> {
     if auth.is_some() {
-        return authenticate_tcp_request(auth, db_pool);
+        return authenticate_tcp_request(auth, db_pool, source);
     }
     browser_user
         .filter(|user| user.is_active && user.purged_at.is_none())
@@ -2813,26 +2820,34 @@ fn authenticate_request(
         .ok_or_else(|| error_response(5, "Authentication required"))
 }
 
-/// Authenticate a TCP request using the auth field from the envelope.
+/// Authenticate a request using the API key in the envelope's auth field.
+/// `source` is the caller's network source: failed attempts are charged to
+/// it, and a throttled source gets `Unavailable` (retry later), never the
+/// `Forbidden` that means the key was refused.
 /// Returns the authenticated user or an error response ready to send.
 fn authenticate_tcp_request(
     auth: &Option<String>,
     db_pool: &DbPool,
+    source: &str,
 ) -> Result<crate::db::models::User, Vec<u8>> {
+    use crate::services::auth::AuthError;
     let api_key = match auth {
         Some(key) => key,
         None => return Err(error_response(5, "Authentication required")),
     };
 
     let authenticator = crate::services::auth::ApiKeyAuthenticator::new(db_pool.clone());
-    match authenticator.authenticate_key(api_key) {
-        Ok(user) => {
-            if !user.is_active {
-                return Err(error_response(5, "Account deactivated"));
-            }
-            Ok(user)
+    match authenticator.authenticate_from_source(source, api_key) {
+        Ok(authentication) => Ok(authentication.user),
+        Err(AuthError::RateLimited) => Err(error_response(
+            6,
+            "Too many failed authentication attempts. Wait and try again",
+        )),
+        Err(AuthError::AccountInactive) => Err(error_response(5, "Account deactivated")),
+        Err(AuthError::DbError(error)) => Err(error_response(4, &db_error_message(error))),
+        Err(AuthError::InvalidCredentials | AuthError::InvalidAssuranceRequest) => {
+            Err(error_response(5, "Invalid credentials"))
         }
-        Err(_) => Err(error_response(5, "Invalid credentials")),
     }
 }
 

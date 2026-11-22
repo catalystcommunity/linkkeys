@@ -1027,6 +1027,7 @@ async fn inspect_browser_authorization(
                 access_denied: Some(denial),
                 application: None,
                 callback_host: None,
+                return_host: None,
             },
         );
     }
@@ -1069,6 +1070,13 @@ async fn inspect_browser_authorization(
         Vec::new()
     };
     let callback_host = callback_host_outside_rp_domain(&request);
+    let return_host = crate::services::callback_url::callback_host(&request.callback_url).ok();
+    let max_display_chars = crate::config::display_name_max_chars();
+    let application = request.application.map(|mut application| {
+        application.display_name =
+            liblinkkeys::display_text::for_display(&application.display_name, max_display_chars);
+        application
+    });
     Ok(
         liblinkkeys::generated::types::BrowserAuthorizationInspectResponse {
             relying_party: request.relying_party,
@@ -1077,8 +1085,9 @@ async fn inspect_browser_authorization(
             already_consented,
             authorized_claims,
             access_denied: None,
-            application: request.application,
+            application,
             callback_host,
+            return_host,
         },
     )
 }
@@ -2008,13 +2017,6 @@ async fn rpc_cbor(
             ))
         }
     };
-    if request.auth.is_some() && !crate::services::ratelimit::API_KEY_SOURCE.check(&source.0) {
-        return cbor_response(rpc_error(
-            csilgen_transport::Status::Forbidden,
-            "Too many authentication attempts. Wait and try again",
-        ));
-    }
-
     let needs_browser = request.auth.is_none()
         && (matches!(
             request.service.as_str(),

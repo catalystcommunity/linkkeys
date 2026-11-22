@@ -9,7 +9,10 @@ const codec = @import("codec.gen.zig");
 /// by (service, op) with the already-encoded req bytes (CBOR over HTTP, say) and
 /// returns the response bytes, allocated with `alloc` so the generated client frees
 /// them. The generator owns serialization; the carrier only moves bytes.
+pub const WireReply = struct { variant: ?[]u8, payload: []u8 };
+
 pub const CsilgenTransport = struct {
+    call_reply: ?*const fn (*anyopaque, std.mem.Allocator, []const u8, []const u8, []const u8) anyerror!WireReply = null,
     ptr: *anyopaque,
     call: *const fn (ptr: *anyopaque, alloc: std.mem.Allocator, service: []const u8, op: []const u8, req: []const u8) anyerror![]u8,
 };

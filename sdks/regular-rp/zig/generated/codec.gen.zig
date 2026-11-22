@@ -330,6 +330,20 @@ fn as_bytes(v: Value) CodecError![]const u8 {
     };
 }
 
+fn calendar_date(s: []const u8) CodecError![]const u8 {
+    if (s.len != 10 or s[4] != '-' or s[7] != '-') return error.WrongType;
+    for (s, 0..) |c, i| {
+        if (i != 4 and i != 7 and (c < '0' or c > '9')) return error.WrongType;
+    }
+    const year = std.fmt.parseInt(u16, s[0..4], 10) catch return error.WrongType;
+    const month = std.fmt.parseInt(u8, s[5..7], 10) catch return error.WrongType;
+    const day = std.fmt.parseInt(u8, s[8..10], 10) catch return error.WrongType;
+    const leap = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0);
+    const days = [_]u8{ 31, if (leap) 29 else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+    if (month < 1 or month > 12 or day < 1 or day > days[month - 1]) return error.WrongType;
+    return s;
+}
+
 fn as_tagged_text(v: Value, num: u64) CodecError![]const u8 {
     if (v != .tag or v.tag.num != num or v.tag.content.* != .text) return error.WrongType;
     return v.tag.content.text;
@@ -5199,6 +5213,7 @@ fn dec_BrowserConsentClaim(alloc: std.mem.Allocator, m: Value, out: *types.Brows
 fn enc_BrowserAuthorizationInspectResponse(out: *std.ArrayList(u8), v: *const types.BrowserAuthorizationInspectResponse) CodecError!void {
     var csil_n: usize = 2;
     if (v.application != null) csil_n += 1;
+    if (v.return_host != null) csil_n += 1;
     if (v.access_denied != null) csil_n += 1;
     if (v.callback_host != null) csil_n += 1;
     if (v.request_reason != null) csil_n += 1;
@@ -5213,6 +5228,10 @@ fn enc_BrowserAuthorizationInspectResponse(out: *std.ArrayList(u8), v: *const ty
     if (v.application) |csil_x| {
         try w_text(out, "application");
         try enc_RelyingPartyApplication(out, &(csil_x));
+    }
+    if (v.return_host) |csil_x| {
+        try w_text(out, "return_host");
+        try w_text(out, csil_x);
     }
     if (v.access_denied) |csil_x| {
         try w_text(out, "access_denied");
@@ -5258,6 +5277,13 @@ fn dec_BrowserAuthorizationInspectResponse(alloc: std.mem.Allocator, m: Value, o
             out.application = csil_tmp;
         } else {
             out.application = null;
+        }
+    }
+    {
+        if (mget(m, "return_host")) |csil_fv| {
+            out.return_host = try as_text(csil_fv);
+        } else {
+            out.return_host = null;
         }
     }
     {
@@ -6233,53 +6259,12 @@ fn dec_AuthorizeFinalizeResponse(alloc: std.mem.Allocator, m: Value, out: *types
 }
 
 fn enc_ApiErrorCode(out: *std.ArrayList(u8), v: *const types.ApiErrorCode) CodecError!void {
-    try w_text(out, v.wire_name());
+    try w_int(out, @intFromEnum(v.*));
 }
 
 fn dec_ApiErrorCode(alloc: std.mem.Allocator, src: Value, out: *types.ApiErrorCode) CodecError!void {
     _ = alloc;
-    const csil_s = try as_text(src);
-    if (std.mem.eql(u8, csil_s, "request_already_used")) {
-        out.* = .request_already_used;
-        return;
-    }
-    if (std.mem.eql(u8, csil_s, "rp_key_fetch_failed")) {
-        out.* = .rp_key_fetch_failed;
-        return;
-    }
-    if (std.mem.eql(u8, csil_s, "rp_encrypt_key_untrusted")) {
-        out.* = .rp_encrypt_key_untrusted;
-        return;
-    }
-    if (std.mem.eql(u8, csil_s, "signing_failed")) {
-        out.* = .signing_failed;
-        return;
-    }
-    if (std.mem.eql(u8, csil_s, "storage_failed")) {
-        out.* = .storage_failed;
-        return;
-    }
-    if (std.mem.eql(u8, csil_s, "bad_request")) {
-        out.* = .bad_request;
-        return;
-    }
-    if (std.mem.eql(u8, csil_s, "unauthorized")) {
-        out.* = .unauthorized;
-        return;
-    }
-    if (std.mem.eql(u8, csil_s, "forbidden")) {
-        out.* = .forbidden;
-        return;
-    }
-    if (std.mem.eql(u8, csil_s, "not_found")) {
-        out.* = .not_found;
-        return;
-    }
-    if (std.mem.eql(u8, csil_s, "internal")) {
-        out.* = .internal;
-        return;
-    }
-    return error.WrongType;
+    out.* = std.meta.intToEnum(types.ApiErrorCode, try as_i64(src)) catch return error.WrongType;
 }
 
 fn enc_ApiError(out: *std.ArrayList(u8), v: *const types.ApiError) CodecError!void {

@@ -8380,7 +8380,7 @@ pub fn decode_browser_consent_claim(
 fn csil_enc_browser_authorization_inspect_response(
     csil_v: &BrowserAuthorizationInspectResponse,
 ) -> CsilCborValue {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(8);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(9);
     csil_entries.push((
         cbor_text("claims"),
         cbor_enc_array(&csil_v.claims, csil_enc_browser_consent_claim),
@@ -8390,6 +8390,9 @@ fn csil_enc_browser_authorization_inspect_response(
             cbor_text("application"),
             csil_enc_relying_party_application(csil_inner),
         ));
+    }
+    if let Some(csil_inner) = &csil_v.return_host {
+        csil_entries.push((cbor_text("return_host"), cbor_text(csil_inner)));
     }
     if let Some(csil_inner) = &csil_v.access_denied {
         csil_entries.push((
@@ -8472,6 +8475,13 @@ fn csil_dec_browser_authorization_inspect_response(
         }
         None => None,
     };
+    let return_host = match cbor_map_get(csil_root, "return_host") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_text;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
     Ok(BrowserAuthorizationInspectResponse {
         relying_party,
         claims,
@@ -8481,6 +8491,7 @@ fn csil_dec_browser_authorization_inspect_response(
         access_denied,
         application,
         callback_host,
+        return_host,
     })
 }
 
@@ -16505,38 +16516,13 @@ fn csil_dec_check_value(csil_v: &CsilCborValue) -> Result<CheckValue, CsilCborEr
     }
 }
 
-/// Encode a ApiErrorCode enum as its bare literal value.
+/// Encode a ApiErrorCode enum as its CBOR value.
 fn csil_enc_api_error_code(csil_v: &ApiErrorCode) -> CsilCborValue {
-    match csil_v {
-        ApiErrorCode::RequestAlreadyUsed => cbor_text("request_already_used"),
-        ApiErrorCode::RpKeyFetchFailed => cbor_text("rp_key_fetch_failed"),
-        ApiErrorCode::RpEncryptKeyUntrusted => cbor_text("rp_encrypt_key_untrusted"),
-        ApiErrorCode::SigningFailed => cbor_text("signing_failed"),
-        ApiErrorCode::StorageFailed => cbor_text("storage_failed"),
-        ApiErrorCode::BadRequest => cbor_text("bad_request"),
-        ApiErrorCode::Unauthorized => cbor_text("unauthorized"),
-        ApiErrorCode::Forbidden => cbor_text("forbidden"),
-        ApiErrorCode::NotFound => cbor_text("not_found"),
-        ApiErrorCode::Internal => cbor_text("internal"),
-    }
+    cbor_int(csil_v.to_number())
 }
 
-/// Decode a bare literal value into a ApiErrorCode enum.
 fn csil_dec_api_error_code(csil_v: &CsilCborValue) -> Result<ApiErrorCode, CsilCborError> {
-    let csil_val = cbor_as_text(csil_v)?;
-    match csil_val.as_str() {
-        "request_already_used" => Ok(ApiErrorCode::RequestAlreadyUsed),
-        "rp_key_fetch_failed" => Ok(ApiErrorCode::RpKeyFetchFailed),
-        "rp_encrypt_key_untrusted" => Ok(ApiErrorCode::RpEncryptKeyUntrusted),
-        "signing_failed" => Ok(ApiErrorCode::SigningFailed),
-        "storage_failed" => Ok(ApiErrorCode::StorageFailed),
-        "bad_request" => Ok(ApiErrorCode::BadRequest),
-        "unauthorized" => Ok(ApiErrorCode::Unauthorized),
-        "forbidden" => Ok(ApiErrorCode::Forbidden),
-        "not_found" => Ok(ApiErrorCode::NotFound),
-        "internal" => Ok(ApiErrorCode::Internal),
-        csil_other => Err(CsilCborError(format!(
-            "csil cbor: unknown ApiErrorCode value {csil_other:?}"
-        ))),
-    }
+    let number = cbor_as_i64(csil_v)?;
+    ApiErrorCode::from_number(number)
+        .ok_or_else(|| CsilCborError(format!("csil cbor: unknown ApiErrorCode value {number}")))
 }

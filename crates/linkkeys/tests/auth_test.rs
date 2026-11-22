@@ -270,7 +270,11 @@ fn test_api_key_authenticator_accepts_current_and_upgrades_legacy_keys() {
     create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_API_KEY, &hash);
     let authenticator = auth::ApiKeyAuthenticator::new(pool.clone());
     assert_eq!(
-        authenticator.authenticate_key(&api_key).unwrap().id,
+        authenticator
+            .authenticate_key_with_credential(&api_key)
+            .unwrap()
+            .user
+            .id,
         user.id
     );
 
@@ -281,7 +285,11 @@ fn test_api_key_authenticator_accepts_current_and_upgrades_legacy_keys() {
     let legacy =
         create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_API_KEY, &legacy_hash);
     assert_eq!(
-        authenticator.authenticate_key(&legacy_key).unwrap().id,
+        authenticator
+            .authenticate_key_with_credential(&legacy_key)
+            .unwrap()
+            .user
+            .id,
         user.id
     );
     let upgraded = pool
@@ -292,11 +300,80 @@ fn test_api_key_authenticator_accepts_current_and_upgrades_legacy_keys() {
         .unwrap();
     assert!(upgraded.credential_hash.starts_with("sha256:"));
     assert_eq!(
-        authenticator.authenticate_key(&legacy_key).unwrap().id,
+        authenticator
+            .authenticate_key_with_credential(&legacy_key)
+            .unwrap()
+            .user
+            .id,
         user.id,
         "an upgraded legacy key uses the indexed digest lookup"
     );
-    assert!(authenticator.authenticate_key("deadbeef.short").is_err());
+    assert!(authenticator
+        .authenticate_key_with_credential("deadbeef.short")
+        .is_err());
+}
+
+#[test]
+fn test_api_key_source_is_charged_only_for_failed_attempts() {
+    let pool = common::create_test_pool();
+    let user = create_user(&pool, &DataMap::new());
+    let (api_key, hash) = auth::generate_api_key(&user.id);
+    create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_API_KEY, &hash);
+    let authenticator = auth::ApiKeyAuthenticator::new(pool.clone());
+
+    // The limiter is process-wide; a source unique to this test keeps it isolated.
+    let busy_source = format!("busy-{}", uuid::Uuid::new_v4());
+    for _ in 0..50 {
+        assert!(
+            authenticator
+                .authenticate_from_source(&busy_source, &api_key)
+                .is_ok(),
+            "a valid key never drains its own source bucket"
+        );
+    }
+
+    let guessing_source = format!("guessing-{}", uuid::Uuid::new_v4());
+    let wrong_key = format!("{}.{}", user.id, "x".repeat(43));
+    let mut refusals = 0;
+    let throttled = loop {
+        match authenticator.authenticate_from_source(&guessing_source, &wrong_key) {
+            Err(auth::AuthError::InvalidCredentials) => refusals += 1,
+            Err(auth::AuthError::RateLimited) => break true,
+            other => panic!("unexpected result: {other:?}"),
+        }
+        if refusals > 100 {
+            break false;
+        }
+    };
+    assert!(throttled, "repeated failures throttle the source");
+    assert!(
+        matches!(
+            authenticator.authenticate_from_source(&guessing_source, &api_key),
+            Err(auth::AuthError::RateLimited)
+        ),
+        "a throttled source is refused before the key is checked"
+    );
+    assert!(authenticator
+        .authenticate_from_source(&busy_source, &api_key)
+        .is_ok());
+}
+
+#[test]
+fn test_api_key_of_deactivated_account_is_refused() {
+    let pool = common::create_test_pool();
+    let authenticator = auth::ApiKeyAuthenticator::new(pool.clone());
+    let user = create_user(&pool, &DataMap::new());
+    let (api_key, hash) = auth::generate_api_key(&user.id);
+    create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_API_KEY, &hash);
+    assert!(authenticator
+        .authenticate_key_with_credential(&api_key)
+        .is_ok());
+
+    pool.deactivate_user(&user.id).unwrap();
+    assert!(matches!(
+        authenticator.authenticate_key_with_credential(&api_key),
+        Err(auth::AuthError::AccountInactive)
+    ));
 }
 
 #[test]

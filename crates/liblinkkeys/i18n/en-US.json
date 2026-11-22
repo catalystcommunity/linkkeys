@@ -326,7 +326,7 @@
   "app.consent.forced_allow": "This site always shares this detail.",
   "app.consent.forced_deny": "This site does not allow this detail to be shared. Select Cancel and contact support.",
   "app.consent.intro": "{app} requests information from your profile.",
-  "app.consent.intro_application": "{app}, an application of {domain}, requests information from your profile.",
+  "app.consent.intro_application": "{app} ({application_id} with RP domain {domain} and returning to {host}) requests information from your profile.",
   "app.consent.missing": "This sign-in request is missing. Start again from the application.",
   "app.consent.new_badge": "New!",
   "app.consent.new_notice": "Items marked New! were not in your last approval for this application.",

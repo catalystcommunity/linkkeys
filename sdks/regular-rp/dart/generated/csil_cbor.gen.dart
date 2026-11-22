@@ -5,11 +5,39 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+class _CsilDate {
+  final String text;
+  const _CsilDate(this.text);
+
+  @override
+  bool operator ==(Object other) => other is _CsilDate && other.text == text;
+
+  @override
+  int get hashCode => text.hashCode;
+}
+
 /// A minimal canonical-CBOR (RFC 8949 subset) encoder/decoder over the dynamic
 /// value tree the generated records map to. Scalars, bytes (major type 2),
 /// timestamps (DateTime -> tag 0), lists, and maps are supported; the generated
 /// records call this behind their toCbor/fromCbor.
 class CsilCbor {
+  static Object dateValue(Object? text) {
+    if (text is String && text.length == 10 && RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(text)) {
+      final y = int.parse(text.substring(0, 4));
+      final m = int.parse(text.substring(5, 7));
+      final d = int.parse(text.substring(8));
+      final leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
+      final days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+      if (m >= 1 && m <= 12 && d >= 1 && d <= days[m - 1]) return _CsilDate(text);
+    }
+    throw FormatException('expected YYYY-MM-DD');
+  }
+
+  static String asDate(Object? value) {
+    if (value is _CsilDate) return value.text;
+    throw FormatException('expected calendar date tag 1004');
+  }
+
   static Uint8List encodeValue(Object? value) {
     final b = BytesBuilder();
     _enc(b, value);
@@ -62,6 +90,9 @@ class CsilCbor {
     } else if (v is Uint8List) {
       _head(b, 2, v.length);
       b.add(v);
+    } else if (v is _CsilDate) {
+      _head(b, 6, 1004);
+      _enc(b, v.text);
     } else if (v is DateTime) {
       b.addByte(0xc0);
       // Canonical RFC3339 (tag 0): Dart's toIso8601String always emits a
@@ -138,7 +169,15 @@ class CsilCbor {
 
   static _CsilRead _readArg(Uint8List b, int pos, int low) {
     if (low < 24) return _CsilRead(low, pos + 1);
-    final width = low == 24 ? 1 : low == 25 ? 2 : low == 26 ? 4 : low == 27 ? 8 : 0;
+    final width = low == 24
+        ? 1
+        : low == 25
+        ? 2
+        : low == 26
+        ? 4
+        : low == 27
+        ? 8
+        : 0;
     if (width == 0 || pos >= b.length || b.length - pos - 1 < width) {
       throw ArgumentError('CsilCbor: truncated argument');
     }
@@ -163,7 +202,8 @@ class CsilCbor {
 
   static _CsilDecoded _dec(Uint8List b, int pos, int depth) {
     if (depth > 64) throw ArgumentError('CsilCbor: nesting limit exceeded');
-    if (pos >= b.length) throw ArgumentError('CsilCbor: unexpected end of input');
+    if (pos >= b.length)
+      throw ArgumentError('CsilCbor: unexpected end of input');
     final ib = b[pos];
     final major = ib >> 5;
     final low = ib & 0x1f;
@@ -172,12 +212,14 @@ class CsilCbor {
       if (low == 21) return _CsilDecoded(true, pos + 1);
       if (low == 22 || low == 23) return _CsilDecoded(null, pos + 1);
       if (low == 26) {
-        if (b.length - pos < 5) throw ArgumentError('CsilCbor: truncated float');
+        if (b.length - pos < 5)
+          throw ArgumentError('CsilCbor: truncated float');
         final bd = ByteData.sublistView(b, pos + 1, pos + 5);
         return _CsilDecoded(bd.getFloat32(0, Endian.big), pos + 5);
       }
       if (low == 27) {
-        if (b.length - pos < 9) throw ArgumentError('CsilCbor: truncated float');
+        if (b.length - pos < 9)
+          throw ArgumentError('CsilCbor: truncated float');
         final bd = ByteData.sublistView(b, pos + 1, pos + 9);
         return _CsilDecoded(bd.getFloat64(0, Endian.big), pos + 9);
       }
@@ -192,13 +234,16 @@ class CsilCbor {
       case 1:
         return _CsilDecoded(-1 - arg, p);
       case 2:
-        if (arg > b.length - p) throw ArgumentError('CsilCbor: truncated byte string');
+        if (arg > b.length - p)
+          throw ArgumentError('CsilCbor: truncated byte string');
         return _CsilDecoded(Uint8List.sublistView(b, p, p + arg), p + arg);
       case 3:
-        if (arg > b.length - p) throw ArgumentError('CsilCbor: truncated text string');
+        if (arg > b.length - p)
+          throw ArgumentError('CsilCbor: truncated text string');
         return _CsilDecoded(utf8.decode(b.sublist(p, p + arg)), p + arg);
       case 4:
-        if (arg > b.length - p) throw ArgumentError('CsilCbor: array length exceeds remaining input');
+        if (arg > b.length - p)
+          throw ArgumentError('CsilCbor: array length exceeds remaining input');
         final list = <Object?>[];
         var off4 = p;
         for (var i = 0; i < arg; i++) {
@@ -208,7 +253,8 @@ class CsilCbor {
         }
         return _CsilDecoded(list, off4);
       case 5:
-        if (arg > b.length - p) throw ArgumentError('CsilCbor: map length exceeds remaining input');
+        if (arg > b.length - p)
+          throw ArgumentError('CsilCbor: map length exceeds remaining input');
         final map = <Object?, Object?>{};
         var off5 = p;
         for (var i = 0; i < arg; i++) {
@@ -219,7 +265,12 @@ class CsilCbor {
         }
         return _CsilDecoded(map, off5);
       case 6:
+        if (arg == 1004 && (p >= b.length || b[p] >> 5 != 3)) {
+          throw FormatException('calendar date tag 1004 requires text');
+        }
         final inner = _dec(b, p, depth + 1);
+        if (arg == 1004) return _CsilDecoded(dateValue(inner.value), inner.next);
+        if (inner.value is _CsilDate) throw FormatException('unexpected nested date tag');
         if (arg == 0 && inner.value is String) {
           return _CsilDecoded(
             DateTime.parse(inner.value as String).toUtc(),

@@ -672,6 +672,7 @@ and browser_authorization_inspect_response = {
   access_denied : app_access_denial option;
   application : relying_party_application option;
   callback_host : string option;
+  return_host : string option;
 }
 
 and browser_authorization_complete_request = {
@@ -1441,3 +1442,7 @@ and issued_claim_result = {
 }
 
 and issue_for_signing_request_response = { results : issued_claim_result list }
+
+val api_error_code_label : api_error_code -> string
+val api_error_code_to_number : api_error_code -> int64
+val api_error_code_of_number : int64 -> api_error_code option

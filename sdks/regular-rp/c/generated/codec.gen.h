@@ -589,6 +589,23 @@ static inline bool csilc_get_tagged_text(const csilc_value *v, uint64_t num, con
     return true;
 }
 
+static inline bool csilc_valid_date(const char *s) {
+    if (!s || strlen(s) != 10 || s[4] != '-' || s[7] != '-') return false;
+    for (int i = 0; i < 10; ++i)
+        if (i != 4 && i != 7 && (s[i] < '0' || s[i] > '9')) return false;
+    int year = (s[0]-'0')*1000 + (s[1]-'0')*100 + (s[2]-'0')*10 + (s[3]-'0');
+    int month = (s[5]-'0')*10 + (s[6]-'0');
+    int day = (s[8]-'0')*10 + (s[9]-'0');
+    const int days[] = {31, 28 + (year%4 == 0 && (year%100 != 0 || year%400 == 0)),
+                        31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    return month >= 1 && month <= 12 && day >= 1 && day <= days[month-1];
+}
+
+static inline bool csilc_get_date(const csilc_value *v, const char **out) {
+    return csilc_get_tagged_text(v, 1004, out) && v->as.tag.content->as.bytes.len == 10
+        && csilc_valid_date(*out);
+}
+
 static inline bool csilc_get_decimal(const csilc_value *v, int64_t *exp, int64_t *mant) {
     if (!v || v->kind != CSILC_TAG || v->as.tag.num != 4) return false;
     const csilc_value *arr = v->as.tag.content;
@@ -6455,6 +6472,7 @@ static inline int csilc_dec_BrowserConsentClaim(const csilc_value *m, CsilCodecA
 static inline int csilc_enc_BrowserAuthorizationInspectResponse(csilc_buf *b, const BrowserAuthorizationInspectResponse *v) {
     size_t csilc_n = 2;
     if (v->application) csilc_n++;
+    if (v->return_host) csilc_n++;
     if (v->access_denied) csilc_n++;
     if (v->callback_host) csilc_n++;
     if (v->request_reason) csilc_n++;
@@ -6469,6 +6487,10 @@ static inline int csilc_enc_BrowserAuthorizationInspectResponse(csilc_buf *b, co
     if (v->application) {
         if (csilc_w_text(b, "application", 11)) return -1;
         if (csilc_enc_RelyingPartyApplication(b, &((*v->application)))) return -1;
+    }
+    if (v->return_host) {
+        if (csilc_w_text(b, "return_host", 11)) return -1;
+        if (csilc_w_text(b, (v->return_host), (v->return_host) ? strlen(v->return_host) : 0)) return -1;
     }
     if (v->access_denied) {
         if (csilc_w_text(b, "access_denied", 13)) return -1;
@@ -6522,6 +6544,8 @@ static inline int csilc_dec_BrowserAuthorizationInspectResponse(const csilc_valu
         if (csilc_dec_RelyingPartyApplication(csilc_f, a, &((*csilc_p)))) return -1;
         out->application = csilc_p;
     }
+    csilc_f = csilc_map_get(m, "return_host");
+    out->return_host = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "access_denied");
     out->access_denied = NULL;
     if (csilc_f) {
@@ -7518,36 +7542,15 @@ static inline int csilc_dec_AuthorizeFinalizeResponse(const csilc_value *m, Csil
     return 0;
 }
 
-static CSILC_UNUSED const char *const csilc_ApiErrorCode_names[] = {
-    "request_already_used",
-    "rp_key_fetch_failed",
-    "rp_encrypt_key_untrusted",
-    "signing_failed",
-    "storage_failed",
-    "bad_request",
-    "unauthorized",
-    "forbidden",
-    "not_found",
-    "internal",
-};
-/* csilc_enc_ApiErrorCode writes the ApiErrorCode variant's wire text. */
 static inline int csilc_enc_ApiErrorCode(csilc_buf *b, const ApiErrorCode *v) {
-    const char *csilc_s = csilc_ApiErrorCode_names[(size_t)(*v)];
-    return csilc_w_text(b, csilc_s, strlen(csilc_s));
+    int64_t number;
+    return csil_ApiErrorCode_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
 }
 
-/* csilc_dec_ApiErrorCode matches the wire text back to a ApiErrorCode variant. */
 static inline int csilc_dec_ApiErrorCode(const csilc_value *src, CsilCodecArena *a, ApiErrorCode *out) {
     (void)a;
-    if (!src || src->kind != CSILC_TEXT) return -1;
-    for (size_t csilc_i = 0; csilc_i < sizeof(csilc_ApiErrorCode_names) / sizeof(csilc_ApiErrorCode_names[0]); csilc_i++) {
-        if (strlen(csilc_ApiErrorCode_names[csilc_i]) == src->as.bytes.len &&
-            memcmp(csilc_ApiErrorCode_names[csilc_i], src->as.bytes.ptr, src->as.bytes.len) == 0) {
-            *out = (ApiErrorCode)csilc_i;
-            return 0;
-        }
-    }
-    return -1;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_ApiErrorCode_from_number(number, out) ? 0 : -1;
 }
 
 /* csilc_enc_ApiError writes ApiError as a canonical CBOR map. */

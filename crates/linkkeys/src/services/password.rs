@@ -37,7 +37,7 @@ struct PasswordWorkPermit;
 impl PasswordWorkPermit {
     fn acquire() -> Option<Self> {
         ACTIVE_PASSWORD_WORK
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |active| {
                 (active < MAX_ACTIVE_PASSWORD_WORK).then_some(active + 1)
             })
             .ok()

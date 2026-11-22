@@ -10813,6 +10813,7 @@ final class BrowserAuthorizationInspectResponse {
   final AppAccessDenial? accessDenied;
   final RelyingPartyApplication? application;
   final String? callbackHost;
+  final String? returnHost;
 
   const BrowserAuthorizationInspectResponse({
     required this.relyingParty,
@@ -10823,6 +10824,7 @@ final class BrowserAuthorizationInspectResponse {
     this.accessDenied,
     this.application,
     this.callbackHost,
+    this.returnHost,
   });
 
   Map<String, Object?> toMap() {
@@ -10835,6 +10837,7 @@ final class BrowserAuthorizationInspectResponse {
     if (accessDenied != null) map['access_denied'] = accessDenied;
     if (application != null) map['application'] = application;
     if (callbackHost != null) map['callback_host'] = callbackHost;
+    if (returnHost != null) map['return_host'] = returnHost;
     return map;
   }
 
@@ -10850,6 +10853,7 @@ final class BrowserAuthorizationInspectResponse {
       accessDenied: map['access_denied'] as AppAccessDenial?,
       application: map['application'] as RelyingPartyApplication?,
       callbackHost: map['callback_host'] as String?,
+      returnHost: map['return_host'] as String?,
     );
   }
 
@@ -10863,7 +10867,8 @@ final class BrowserAuthorizationInspectResponse {
         authorizedClaims == other.authorizedClaims &&
         accessDenied == other.accessDenied &&
         application == other.application &&
-        callbackHost == other.callbackHost;
+        callbackHost == other.callbackHost &&
+        returnHost == other.returnHost;
   }
 
   @override
@@ -10876,6 +10881,7 @@ final class BrowserAuthorizationInspectResponse {
     accessDenied,
     application,
     callbackHost,
+    returnHost,
   ]);
 
   /// The CBOR-encodable dynamic tree for this record (deep).
@@ -10890,6 +10896,7 @@ final class BrowserAuthorizationInspectResponse {
       map['access_denied'] = accessDenied!.toCborValue();
     if (application != null) map['application'] = application!.toCborValue();
     if (callbackHost != null) map['callback_host'] = callbackHost!;
+    if (returnHost != null) map['return_host'] = returnHost!;
     return map;
   }
 
@@ -10923,6 +10930,9 @@ final class BrowserAuthorizationInspectResponse {
       callbackHost: map['callback_host'] == null
           ? null
           : map['callback_host'] as String,
+      returnHost: map['return_host'] == null
+          ? null
+          : map['return_host'] as String,
     );
   }
 
@@ -12594,7 +12604,38 @@ final class AuthorizeFinalizeResponse {
       AuthorizeFinalizeResponse.fromCborValue(CsilCbor.decode(bytes));
 }
 
-typedef ApiErrorCode = String;
+enum ApiErrorCode {
+  requestAlreadyUsed('request_already_used', 1),
+  rpKeyFetchFailed('rp_key_fetch_failed', 2),
+  rpEncryptKeyUntrusted('rp_encrypt_key_untrusted', 3),
+  signingFailed('signing_failed', 4),
+  storageFailed('storage_failed', 5),
+  badRequest('bad_request', 6),
+  unauthorized('unauthorized', 7),
+  forbidden('forbidden', 8),
+  notFound('not_found', 9),
+  internal('internal', 10);
+
+  const ApiErrorCode(this.wireValue, this.wireNumber);
+  final String wireValue;
+  final int wireNumber;
+  static final _byNumber = <int, ApiErrorCode>{for (final member in values) member.wireNumber: member};
+
+  static ApiErrorCode fromNumber(Object? value) {
+    final member = value is int ? _byNumber[value] : null;
+    if (member != null) return member;
+    throw FormatException('unknown ApiErrorCode number', value);
+  }
+
+  String toJson() => wireValue;
+
+  static ApiErrorCode fromWire(Object? value) {
+    for (final member in values) {
+      if (member.wireValue == value) return member;
+    }
+    throw FormatException('unknown ApiErrorCode value', value);
+  }
+}
 
 final class ApiError {
   final ApiErrorCode code;
@@ -12604,14 +12645,14 @@ final class ApiError {
 
   Map<String, Object?> toMap() {
     final map = <String, Object?>{};
-    map['code'] = code;
+    map['code'] = code.wireValue;
     map['message'] = message;
     return map;
   }
 
   factory ApiError.fromMap(Map<String, Object?> map) {
     return ApiError(
-      code: map['code'] as ApiErrorCode,
+      code: ApiErrorCode.fromWire(map['code']),
       message: map['message'] as String,
     );
   }
@@ -12628,7 +12669,7 @@ final class ApiError {
   /// The CBOR-encodable dynamic tree for this record (deep).
   Map<String, Object?> toCborValue() {
     final map = <String, Object?>{};
-    map['code'] = code;
+    map['code'] = code.wireNumber;
     map['message'] = message;
     return map;
   }
@@ -12637,18 +12678,7 @@ final class ApiError {
   factory ApiError.fromCborValue(Object? cbor) {
     final map = cbor as Map;
     return ApiError(
-      code: CsilCbor.expectOneOf<String>(map['code'], const [
-        'request_already_used',
-        'rp_key_fetch_failed',
-        'rp_encrypt_key_untrusted',
-        'signing_failed',
-        'storage_failed',
-        'bad_request',
-        'unauthorized',
-        'forbidden',
-        'not_found',
-        'internal',
-      ]),
+      code: ApiErrorCode.fromNumber(map['code']),
       message: map['message'] as String,
     );
   }

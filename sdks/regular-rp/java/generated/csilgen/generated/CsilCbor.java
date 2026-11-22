@@ -9,7 +9,6 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.function.Function;
 
 /**
@@ -4595,10 +4594,13 @@ public final class CsilCbor {
     }
 
     static CborValue encBrowserAuthorizationInspectResponse(BrowserAuthorizationInspectResponse v) {
-        List<CborEntry> csilEntries = new ArrayList<>(8);
+        List<CborEntry> csilEntries = new ArrayList<>(9);
         csilEntries.add(new CborEntry(new CborText("claims"), encArray(v.claims(), csilElem0 -> encBrowserConsentClaim(csilElem0))));
         if (v.application() != null) {
             csilEntries.add(new CborEntry(new CborText("application"), encRelyingPartyApplication(v.application())));
+        }
+        if (v.returnHost() != null) {
+            csilEntries.add(new CborEntry(new CborText("return_host"), new CborText(v.returnHost())));
         }
         if (v.accessDenied() != null) {
             csilEntries.add(new CborEntry(new CborText("access_denied"), encAppAccessDenial(v.accessDenied())));
@@ -4652,7 +4654,12 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "callback_host");
             callbackHost = csilField != null ? asText(csilField) : null;
         }
-        return new BrowserAuthorizationInspectResponse(relyingParty, claims, requestReason, alreadyConsented, authorizedClaims, accessDenied, application, callbackHost);
+        String returnHost;
+        {
+            CborValue csilField = mapGet(csilRoot, "return_host");
+            returnHost = csilField != null ? asText(csilField) : null;
+        }
+        return new BrowserAuthorizationInspectResponse(relyingParty, claims, requestReason, alreadyConsented, authorizedClaims, accessDenied, application, callbackHost, returnHost);
     }
 
     public static byte[] encodeBrowserAuthorizationInspectResponse(BrowserAuthorizationInspectResponse v) {
@@ -8511,14 +8518,17 @@ public final class CsilCbor {
     }
 
     static CborValue encApiErrorCode(ApiErrorCode v) {
-        return new CborText((String) v.value());
+        return new CborInt(v.toNumber());
     }
 
-    static ApiErrorCode decApiErrorCode(CborValue csilRoot) {
-        var csilVal = asText(csilRoot);
-        if (!(Objects.equals(csilVal, "request_already_used") || Objects.equals(csilVal, "rp_key_fetch_failed") || Objects.equals(csilVal, "rp_encrypt_key_untrusted") || Objects.equals(csilVal, "signing_failed") || Objects.equals(csilVal, "storage_failed") || Objects.equals(csilVal, "bad_request") || Objects.equals(csilVal, "unauthorized") || Objects.equals(csilVal, "forbidden") || Objects.equals(csilVal, "not_found") || Objects.equals(csilVal, "internal"))) {
-            throw new CsilCborException("csil cbor: ApiErrorCode value " + csilVal + " is not a member of the declared enum");
-        }
-        return new ApiErrorCode(csilVal);
+    static ApiErrorCode decApiErrorCode(CborValue root) {
+        try { return ApiErrorCode.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    public record RpcReply(String variant, byte[] payload) {}
+
+    public static byte[] resolveRpcReply(String service, String op, String variant, byte[] payload) {
+        return payload;
     }
 }

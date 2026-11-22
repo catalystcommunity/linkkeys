@@ -85,7 +85,6 @@ export DATABASE_BACKEND=sqlite
 export DATABASE_URL=linkkeys-rp.db
 export DOMAIN_NAME=localhost:9443
 export HTTPS_PORT=9443
-export ENABLE_RP_ENDPOINTS=true
 export ENABLE_API_KEY_AUTH=true
 export ENABLE_PASSWORD_AUTH=false
 
@@ -141,10 +140,10 @@ Click "Log Out" on the dashboard. This clears the session cookie.
 - `DOMAIN_NAME` — The domain's identity (e.g., `localhost:8443`)
 - `HTTPS_PORT` — HTTP server port (default: `8443`)
 - `TCP_PORT` — TCP server port (default: `4987`)
+- `DISPLAY_NAME_MAX_CHARS` — Longest account display name, in characters (default: `256`)
 
 ### RP (Relying Party)
 Same as IDP, plus:
-- `ENABLE_RP_ENDPOINTS` — Set to `true` to enable RP endpoints
 - `ENABLE_API_KEY_AUTH` — Set to `true` to enable bearer token auth
 - `ENABLE_PASSWORD_AUTH` — Set to `false` to disable password login UI
 

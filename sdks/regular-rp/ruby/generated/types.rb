@@ -941,8 +941,9 @@ end
 # access_denied [AppAccessDenial]
 # application [RelyingPartyApplication]
 # callback_host [String]
-BrowserAuthorizationInspectResponse = Data.define(:relying_party, :claims, :request_reason, :already_consented, :authorized_claims, :access_denied, :application, :callback_host) do
-  def initialize(relying_party:, claims:, request_reason: nil, already_consented: nil, authorized_claims: nil, access_denied: nil, application: nil, callback_host: nil)
+# return_host [String]
+BrowserAuthorizationInspectResponse = Data.define(:relying_party, :claims, :request_reason, :already_consented, :authorized_claims, :access_denied, :application, :callback_host, :return_host) do
+  def initialize(relying_party:, claims:, request_reason: nil, already_consented: nil, authorized_claims: nil, access_denied: nil, application: nil, callback_host: nil, return_host: nil)
     super
   end
 end
@@ -1108,7 +1109,34 @@ AuthorizeFinalizeRequest = Data.define(:user_id, :signed_request, :authorized_cl
 # redirect_url [String]
 AuthorizeFinalizeResponse = Data.define(:redirect_url)
 
-# ApiErrorCode is an alias for String.
+class ApiErrorCode < String
+  REQUEST_ALREADY_USED = new("request_already_used").freeze
+  RP_KEY_FETCH_FAILED = new("rp_key_fetch_failed").freeze
+  RP_ENCRYPT_KEY_UNTRUSTED = new("rp_encrypt_key_untrusted").freeze
+  SIGNING_FAILED = new("signing_failed").freeze
+  STORAGE_FAILED = new("storage_failed").freeze
+  BAD_REQUEST = new("bad_request").freeze
+  UNAUTHORIZED = new("unauthorized").freeze
+  FORBIDDEN = new("forbidden").freeze
+  NOT_FOUND = new("not_found").freeze
+  INTERNAL = new("internal").freeze
+  NUMBERS = {REQUEST_ALREADY_USED => 1, RP_KEY_FETCH_FAILED => 2, RP_ENCRYPT_KEY_UNTRUSTED => 3, SIGNING_FAILED => 4, STORAGE_FAILED => 5, BAD_REQUEST => 6, UNAUTHORIZED => 7, FORBIDDEN => 8, NOT_FOUND => 9, INTERNAL => 10}.freeze
+  BY_NUMBER = NUMBERS.invert.freeze
+  def self.to_number(value)
+    NUMBERS.fetch(value) { raise ArgumentError, "unknown ApiErrorCode member" }
+  end
+
+  def self.from_number(value)
+    BY_NUMBER.fetch(value) { raise ArgumentError, "unknown ApiErrorCode number" }
+  end
+
+  MEMBERS_BY_WIRE = [REQUEST_ALREADY_USED, RP_KEY_FETCH_FAILED, RP_ENCRYPT_KEY_UNTRUSTED, SIGNING_FAILED, STORAGE_FAILED, BAD_REQUEST, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, INTERNAL].to_h { |v| [v, v] }.freeze
+  private_class_method :new
+
+  def self.from_wire(value)
+    MEMBERS_BY_WIRE.fetch(value) { raise ArgumentError, "unknown ApiErrorCode value: #{value.inspect}" }
+  end
+end
 
 # code [ApiErrorCode]
 # message [String]

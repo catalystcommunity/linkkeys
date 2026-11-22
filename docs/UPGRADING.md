@@ -395,3 +395,59 @@ pinned revision past this release:
 
 If your own code still uses `chrono`, convert at the call:
 `time::OffsetDateTime::from_unix_timestamp_nanos(dt.timestamp_nanos_opt().unwrap() as i128)`.
+
+### Servers: API-key rate limit
+
+A request with an API key is charged to the rate limit of its network source
+only when the key is refused. Before, each request was charged. A busy
+application with a valid key is no longer limited by this check. A source
+that is limited now gets status `Unavailable` (6) over CSIL-RPC, and HTTP 429
+on the bearer-token HTTP routes. Before, it got `Forbidden` (5). Retry
+`Unavailable` later. Do not treat it as a refused key.
+
+The API key of a deactivated or purged account is refused on every carrier.
+
+### Servers: display names
+
+Admin `create-user` and `update-user` remove control characters, line and
+paragraph separators, and bidirectional control characters from
+`display_name`. They refuse a name longer than `DISPLAY_NAME_MAX_CHARS`
+characters (default 256; Helm `server.displayNameMaxChars`). `serve` does not
+start when the value is not an integer greater than zero.
+
+The consent screen of an identity provider cleans the application name in a
+sign-in request the same way, and shortens it to the limit. The consent text
+for an application is now
+`<display name> (<application_id> with RP domain <RP domain> and returning to <callback host>)`.
+`BrowserAuthorizationInspectResponse` has a new optional field `return_host`.
+
+### Helm: `ENABLE_RP_ENDPOINTS` removed
+
+The chart no longer sets `ENABLE_RP_ENDPOINTS`. No code read it. The `Rp`
+service is available to each account with the `api_access` relation.
+`rp.enabled` now only applies `rp.apiKeyAuth` and `rp.passwordAuth`.
+
+### csilgen 0.2.15 and error code numbers
+
+The generated code in this repository comes from csilgen 0.2.15.
+`tools.sh` checks the version (`CSILGEN_VERSION`) before it generates.
+`./tools.sh csil-check` fails on a lint warning.
+
+`ApiError.code` is now a CBOR unsigned integer, not a text label. The labels
+in the generated types do not change. The numbers are:
+
+| Code | Number |
+| --- | --- |
+| `request_already_used` | 1 |
+| `rp_key_fetch_failed` | 2 |
+| `rp_encrypt_key_untrusted` | 3 |
+| `signing_failed` | 4 |
+| `storage_failed` | 5 |
+| `bad_request` | 6 |
+| `unauthorized` | 7 |
+| `forbidden` | 8 |
+| `not_found` | 9 |
+| `internal` | 10 |
+
+A client that decodes `ApiError` with its own code, not with the generated
+types or an SDK of this release, must read the number.
