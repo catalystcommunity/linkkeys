@@ -164,7 +164,8 @@ pub(crate) fn sign_request_core(
     pool.insert_rp_login_nonce(
         &caller.id,
         &login_nonce_hash(&req.nonce),
-        time::OffsetDateTime::now_utc() + time::Duration::seconds(LOGIN_NONCE_TTL_SECONDS),
+        liblinkkeys::timestamp::now_whole_milliseconds()
+            + time::Duration::seconds(LOGIN_NONCE_TTL_SECONDS),
     )
     .map_err(|e| core_internal("sign-request: recording the login", e))?;
 
@@ -286,7 +287,7 @@ pub(crate) async fn decrypt_token_core(
         .map_err(|_| core_bad_request("decrypt-token: the assertion does not verify"))?;
     check_assertion_application(&assertion, &application)?;
     let nonce_hash = login_nonce_hash(&assertion.nonce);
-    let now = time::OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_milliseconds();
     if !pool
         .rp_login_nonce_open(&caller.id, &nonce_hash, now)
         .map_err(|e| core_internal("decrypt-token: reading the login", e))?
@@ -304,7 +305,7 @@ pub(crate) async fn decrypt_token_core(
         &caller.id,
         &passphrase,
         &identity,
-        time::OffsetDateTime::now_utc(),
+        liblinkkeys::timestamp::now_whole_milliseconds(),
     ) {
         Ok(crate::services::applications::Admission::Admitted) => {}
         Ok(crate::services::applications::Admission::Full) => {
@@ -834,7 +835,7 @@ async fn fetch_and_apply_revocations(
     fingerprints: &[String],
     trusted: &[liblinkkeys::generated::types::DomainPublicKey],
 ) -> Vec<String> {
-    let since = time::OffsetDateTime::now_utc()
+    let since = liblinkkeys::timestamp::now_whole_milliseconds()
         - time::Duration::days(crate::services::revocations::fetch_default_days());
     let payload = liblinkkeys::generated::encode_get_revocations_request(
         &liblinkkeys::generated::types::GetRevocationsRequest { since: Some(since) },

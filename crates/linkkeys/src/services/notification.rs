@@ -581,7 +581,7 @@ impl OutboxWorker {
                         &item.id,
                         &self.worker_id,
                         "delivered",
-                        time::OffsetDateTime::now_utc(),
+                        liblinkkeys::timestamp::now_whole_milliseconds(),
                         None,
                         true,
                     )
@@ -599,7 +599,7 @@ impl OutboxWorker {
                 let terminal = failure.permanent || item.attempt_count >= self.max_attempts;
                 let state = if terminal { "failed" } else { "pending" };
                 let next = if terminal {
-                    time::OffsetDateTime::now_utc()
+                    liblinkkeys::timestamp::now_whole_milliseconds()
                 } else {
                     next_attempt(item.attempt_count)
                 };
@@ -650,7 +650,7 @@ impl OutboxWorker {
             category: "invalid_lease",
             permanent: false,
         })?;
-        let remaining = lease_expires_at - time::OffsetDateTime::now_utc();
+        let remaining = lease_expires_at - liblinkkeys::timestamp::now_whole_milliseconds();
         let configured_timeout =
             std::time::Duration::from_secs((self.lease_seconds / 2).max(1) as u64);
         let timeout = (std::time::Duration::try_from(remaining).unwrap_or_default() / 2)
@@ -675,7 +675,7 @@ fn next_attempt(attempt_count: i64) -> time::OffsetDateTime {
     let exponent = u32::try_from(attempt_count.saturating_sub(1).min(10)).unwrap_or(0);
     let base = (5_i64.saturating_mul(2_i64.pow(exponent))).min(MAX_BACKOFF_SECONDS);
     let jitter = rand::thread_rng().gen_range(0..=(base / 4).max(1));
-    time::OffsetDateTime::now_utc() + time::Duration::seconds(base + jitter)
+    liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::seconds(base + jitter)
 }
 
 struct AvailabilityGuard;

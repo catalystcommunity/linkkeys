@@ -41,11 +41,9 @@ pub mod pg {
             .filter(auth_credentials::user_id.eq(uid))
             .filter(auth_credentials::credential_type.eq(cred_type))
             .filter(auth_credentials::revoked_at.is_null())
-            .filter(
-                auth_credentials::expires_at
-                    .is_null()
-                    .or(auth_credentials::expires_at.gt(time::OffsetDateTime::now_utc())),
-            )
+            .filter(auth_credentials::expires_at.is_null().or(
+                auth_credentials::expires_at.gt(liblinkkeys::timestamp::now_whole_milliseconds()),
+            ))
             .load::<AuthCredentialRow>(conn)
             .map(|rows| rows.into_iter().map(Into::into).collect())
     }
@@ -59,11 +57,9 @@ pub mod pg {
             .filter(auth_credentials::credential_type.eq(cred_type))
             .filter(auth_credentials::credential_hash.eq(credential_hash))
             .filter(auth_credentials::revoked_at.is_null())
-            .filter(
-                auth_credentials::expires_at
-                    .is_null()
-                    .or(auth_credentials::expires_at.gt(time::OffsetDateTime::now_utc())),
-            )
+            .filter(auth_credentials::expires_at.is_null().or(
+                auth_credentials::expires_at.gt(liblinkkeys::timestamp::now_whole_milliseconds()),
+            ))
             .first::<AuthCredentialRow>(conn)
             .optional()
             .map(|row| row.map(Into::into))
@@ -83,11 +79,9 @@ pub mod pg {
             .filter(auth_credentials::credential_type.eq("api_key"))
             .filter(auth_credentials::credential_hash.like("$2%"))
             .filter(auth_credentials::revoked_at.is_null())
-            .filter(
-                auth_credentials::expires_at
-                    .is_null()
-                    .or(auth_credentials::expires_at.gt(time::OffsetDateTime::now_utc())),
-            )
+            .filter(auth_credentials::expires_at.is_null().or(
+                auth_credentials::expires_at.gt(liblinkkeys::timestamp::now_whole_milliseconds()),
+            ))
             .limit(limit)
             .load::<(UserRow, AuthCredentialRow)>(conn)
             .map(|rows| {
@@ -123,8 +117,8 @@ pub mod pg {
                 .filter(auth_credentials::revoked_at.is_null()),
         )
         .set((
-            auth_credentials::revoked_at.eq(Some(time::OffsetDateTime::now_utc())),
-            auth_credentials::updated_at.eq(time::OffsetDateTime::now_utc()),
+            auth_credentials::revoked_at.eq(Some(liblinkkeys::timestamp::now_whole_milliseconds())),
+            auth_credentials::updated_at.eq(liblinkkeys::timestamp::now_whole_milliseconds()),
         ))
         .execute(conn)
     }
@@ -138,8 +132,9 @@ pub mod pg {
             .map_err(|_| diesel::result::Error::NotFound)?;
         diesel::update(auth_credentials::table.find(id))
             .set((
-                auth_credentials::revoked_at.eq(Some(time::OffsetDateTime::now_utc())),
-                auth_credentials::updated_at.eq(time::OffsetDateTime::now_utc()),
+                auth_credentials::revoked_at
+                    .eq(Some(liblinkkeys::timestamp::now_whole_milliseconds())),
+                auth_credentials::updated_at.eq(liblinkkeys::timestamp::now_whole_milliseconds()),
             ))
             .get_result::<AuthCredentialRow>(conn)
             .map(Into::into)
@@ -156,7 +151,7 @@ pub mod pg {
         diesel::update(auth_credentials::table.find(id))
             .set((
                 auth_credentials::credential_hash.eq(new_hash),
-                auth_credentials::updated_at.eq(time::OffsetDateTime::now_utc()),
+                auth_credentials::updated_at.eq(liblinkkeys::timestamp::now_whole_milliseconds()),
             ))
             .get_result::<AuthCredentialRow>(conn)
             .map(Into::into)
@@ -165,8 +160,8 @@ pub mod pg {
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
+    use crate::db::db_time::DbText as _;
     use diesel::prelude::*;
-    use liblinkkeys::timestamp::Rfc3339 as _;
 
     use crate::db::models::sqlite::{AuthCredentialRow, NewAuthCredentialRow, UserRow};
     use crate::db::models::{AuthCredential, User};
@@ -205,7 +200,7 @@ pub mod sqlite {
         user_id: &str,
         cred_type: &str,
     ) -> QueryResult<Vec<AuthCredential>> {
-        let now_rfc3339 = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now_rfc3339 = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
         auth_credentials::table
             .filter(auth_credentials::user_id.eq(user_id))
             .filter(auth_credentials::credential_type.eq(cred_type))
@@ -224,7 +219,7 @@ pub mod sqlite {
         cred_type: &str,
         credential_hash: &str,
     ) -> QueryResult<Option<AuthCredential>> {
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
         auth_credentials::table
             .filter(auth_credentials::credential_type.eq(cred_type))
             .filter(auth_credentials::credential_hash.eq(credential_hash))
@@ -244,7 +239,7 @@ pub mod sqlite {
         user_id_prefix: &str,
         limit: i64,
     ) -> QueryResult<Vec<(User, AuthCredential)>> {
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
         users::table
             .inner_join(auth_credentials::table)
             .filter(
@@ -282,7 +277,7 @@ pub mod sqlite {
         conn: &mut diesel::SqliteConnection,
         user_id: &str,
     ) -> QueryResult<usize> {
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
         diesel::update(
             auth_credentials::table
                 .filter(auth_credentials::user_id.eq(user_id))
@@ -299,7 +294,7 @@ pub mod sqlite {
         conn: &mut diesel::SqliteConnection,
         credential_id: &str,
     ) -> QueryResult<AuthCredential> {
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
         diesel::update(auth_credentials::table.find(credential_id))
             .set((
                 auth_credentials::revoked_at.eq(Some(&now)),
@@ -318,7 +313,7 @@ pub mod sqlite {
         credential_id: &str,
         new_hash: &str,
     ) -> QueryResult<AuthCredential> {
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
         diesel::update(auth_credentials::table.find(credential_id))
             .set((
                 auth_credentials::credential_hash.eq(new_hash),

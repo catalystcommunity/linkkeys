@@ -220,7 +220,7 @@ pub mod pg {
         expires_at: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         let key_uuid = parse_uuid(application_key_row_id)?;
-        let now = time::OffsetDateTime::now_utc();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds();
         diesel::insert_into(application_key_attestations::table)
             .values((
                 application_key_attestations::id.eq(uuid::Uuid::now_v7()),
@@ -399,7 +399,7 @@ pub mod pg {
             Ok(u) => u,
             Err(_) => return Ok(None),
         };
-        let now = time::OffsetDateTime::now_utc();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds();
 
         let instance_row_id = application_instances::table
             .filter(application_instances::subject_user_id.eq(subject_uuid))
@@ -445,8 +445,8 @@ pub mod pg {
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
+    use crate::db::db_time::DbText as _;
     use diesel::prelude::*;
-    use liblinkkeys::timestamp::Rfc3339 as _;
 
     use crate::db::models::sqlite::{
         ApplicationInstanceRow, ApplicationKeyAttestationRow, ApplicationKeyChallengeRow,
@@ -478,7 +478,7 @@ pub mod sqlite {
                     subject_user_id: subject_user_id.to_string(),
                     application_id: application_id.to_string(),
                     instance_id: instance_id.to_string(),
-                    enrolled_at: enrolled_at.to_rfc3339(),
+                    enrolled_at: enrolled_at.to_db_text(),
                 })
                 .on_conflict((
                     application_instances::subject_user_id,
@@ -522,7 +522,7 @@ pub mod sqlite {
         instance_row_id: &str,
         at: time::OffsetDateTime,
     ) -> QueryResult<usize> {
-        let at_str = at.to_rfc3339();
+        let at_str = at.to_db_text();
         diesel::update(application_instances::table.find(instance_row_id))
             .set((
                 application_instances::trust_reset_count
@@ -555,8 +555,8 @@ pub mod sqlite {
                 algorithm: algorithm.to_string(),
                 public_key: public_key.to_vec(),
                 fingerprint: fingerprint.to_string(),
-                created_at: created_at.to_rfc3339(),
-                expires_at: expires_at.to_rfc3339(),
+                created_at: created_at.to_db_text(),
+                expires_at: expires_at.to_db_text(),
             })
             .execute(conn)?;
 
@@ -639,7 +639,7 @@ pub mod sqlite {
                 .filter(application_keys::key_id.eq(key_id))
                 .filter(application_keys::revoked_at.is_null()),
         )
-        .set(application_keys::revoked_at.eq(Some(revoked_at.to_rfc3339())))
+        .set(application_keys::revoked_at.eq(Some(revoked_at.to_db_text())))
         .execute(conn)
     }
 
@@ -652,9 +652,9 @@ pub mod sqlite {
         attested_at: time::OffsetDateTime,
         expires_at: time::OffsetDateTime,
     ) -> QueryResult<usize> {
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
-        let attested_at_str = attested_at.to_rfc3339();
-        let expires_at_str = expires_at.to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
+        let attested_at_str = attested_at.to_db_text();
+        let expires_at_str = expires_at.to_db_text();
         diesel::insert_into(application_key_attestations::table)
             .values((
                 application_key_attestations::id.eq(uuid::Uuid::now_v7().to_string()),
@@ -702,7 +702,7 @@ pub mod sqlite {
                 instance_row_id: instance_row_id.to_string(),
                 target_key_id: target_key_id.to_string(),
                 target_fingerprint: target_fingerprint.to_string(),
-                revoked_at: revoked_at.to_rfc3339(),
+                revoked_at: revoked_at.to_db_text(),
                 record: record.to_vec(),
             })
             .on_conflict((
@@ -724,7 +724,7 @@ pub mod sqlite {
             .filter(application_key_revocations::instance_row_id.eq(instance_row_id))
             .into_boxed();
         if let Some(s) = since {
-            q = q.filter(application_key_revocations::revoked_at.ge(s.to_rfc3339()));
+            q = q.filter(application_key_revocations::revoked_at.ge(s.to_db_text()));
         }
         q.order(application_key_revocations::revoked_at.desc())
             .select(ApplicationKeyRevocationRow::as_select())
@@ -758,7 +758,7 @@ pub mod sqlite {
                 algorithm: algorithm.to_string(),
                 public_key: public_key.to_vec(),
                 nonce: nonce.to_vec(),
-                expires_at: expires_at.to_rfc3339(),
+                expires_at: expires_at.to_db_text(),
             })
             .execute(conn)
     }
@@ -772,7 +772,7 @@ pub mod sqlite {
         challenge_id: &str,
         now: time::OffsetDateTime,
     ) -> QueryResult<Option<ApplicationKeyChallenge>> {
-        let now_str = now.to_rfc3339();
+        let now_str = now.to_db_text();
         let affected = diesel::update(
             application_key_challenges::table
                 .filter(application_key_challenges::challenge_id.eq(challenge_id))
@@ -800,7 +800,7 @@ pub mod sqlite {
     ) -> QueryResult<usize> {
         diesel::delete(
             application_key_challenges::table
-                .filter(application_key_challenges::expires_at.le(now.to_rfc3339())),
+                .filter(application_key_challenges::expires_at.le(now.to_db_text())),
         )
         .execute(conn)
     }
@@ -829,7 +829,7 @@ pub mod sqlite {
         instance_id: &str,
         revocation_since: Option<time::OffsetDateTime>,
     ) -> QueryResult<Option<ApplicationPublicRecords>> {
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
 
         let instance_row_id = application_instances::table
             .filter(application_instances::subject_user_id.eq(subject_user_id))
@@ -857,7 +857,7 @@ pub mod sqlite {
             .filter(application_key_revocations::instance_row_id.eq(&instance_row_id))
             .into_boxed();
         if let Some(since) = revocation_since {
-            rev_q = rev_q.filter(application_key_revocations::revoked_at.ge(since.to_rfc3339()));
+            rev_q = rev_q.filter(application_key_revocations::revoked_at.ge(since.to_db_text()));
         }
         let revocation_records: Vec<Vec<u8>> = rev_q
             .select(application_key_revocations::record)

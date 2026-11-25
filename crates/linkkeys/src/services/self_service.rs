@@ -227,7 +227,7 @@ fn store_unsigned(
         value,
         &[],
         None,
-        time::OffsetDateTime::now_utc(),
+        liblinkkeys::timestamp::now_whole_milliseconds(),
     )
     .map_err(db_err)?;
     Ok(())

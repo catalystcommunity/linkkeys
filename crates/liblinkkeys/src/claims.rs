@@ -399,7 +399,7 @@ pub fn verify_claim(
         return Err(ClaimError::Revoked);
     }
     if let Some(expires) = claim.expires_at {
-        if OffsetDateTime::now_utc() > expires {
+        if crate::timestamp::now_whole_milliseconds() > expires {
             return Err(ClaimError::Expired);
         }
     }
@@ -427,8 +427,8 @@ mod tests {
             key_usage: crate::generated::types::KeyUsage::Sign,
             signed_by_key_id: None,
             key_signature: None,
-            created_at: OffsetDateTime::now_utc(),
-            expires_at: OffsetDateTime::now_utc() + time::Duration::hours(1),
+            created_at: crate::timestamp::now_whole_milliseconds(),
+            expires_at: crate::timestamp::now_whole_milliseconds() + time::Duration::hours(1),
             revoked_at: None,
         }
     }
@@ -537,7 +537,7 @@ mod tests {
     fn test_claim_revoked_rejected() {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let mut claim = signed_claim("key-1", &sk, None);
-        claim.revoked_at = Some(OffsetDateTime::now_utc());
+        claim.revoked_at = Some(crate::timestamp::now_whole_milliseconds());
         assert!(matches!(
             verify(&claim, &keyset(vec![make_domain_key("key-1", &pk)])),
             Err(ClaimError::Revoked)
@@ -661,9 +661,9 @@ mod tests {
         assert_eq!(claim.signatures.len(), 3);
 
         let mut k1 = make_domain_key("key-1", &pk1);
-        k1.revoked_at = Some(OffsetDateTime::now_utc());
+        k1.revoked_at = Some(crate::timestamp::now_whole_milliseconds());
         let mut k2 = make_domain_key("key-2", &pk2);
-        k2.expires_at = OffsetDateTime::now_utc() - time::Duration::hours(1);
+        k2.expires_at = crate::timestamp::now_whole_milliseconds() - time::Duration::hours(1);
         let k3 = make_domain_key("key-3", &pk3); // still valid
 
         assert!(verify(&claim, &keyset(vec![k1, k2, k3])).is_ok());

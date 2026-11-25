@@ -4,6 +4,28 @@ This file collects the steps an operator must do when they upgrade across the
 named versions. Put the applicable entries in the release notes of each
 release.
 
+## Millisecond timestamps (the release after 0.16.11)
+
+Version 0.16.11 sends stored times with microsecond precision. The web UI
+decodes replies with the generated TypeScript codec. That codec rejects a
+time that is finer than a millisecond, because a JavaScript `Date` holds
+milliseconds. After sign-in, the UI shows "Could not sign in" or "Could not
+check your session". The TypeScript regular-RP SDK cannot decode the same
+replies.
+
+This release stores and sends each time with millisecond precision:
+
+- A migration changes each Postgres `timestamptz` column to `timestamptz(3)`.
+  It rounds the stored values down to milliseconds. Postgres then keeps each
+  later write at millisecond precision.
+- A migration rewrites the SQLite timestamp text that has more than three
+  fraction digits.
+- The server makes each new time with millisecond precision.
+
+The migrations run when the server starts. You do not have to do a manual
+step. The Postgres migration rewrites each table that has a timestamp
+column, so the first start can take more time on a large database.
+
 ## API keys after the full-user-ID update
 
 New API keys use `<user-id>.<secret>`. LinkKeys stores a SHA-256 digest because

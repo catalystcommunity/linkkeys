@@ -190,7 +190,6 @@ pub fn verify_revocation_certificate(
 mod tests {
     use super::*;
     use crate::crypto::{fingerprint, generate_ed25519_keypair, SigningAlgorithm};
-    use time::OffsetDateTime;
 
     struct Sibling {
         key_id: String,
@@ -214,8 +213,8 @@ mod tests {
             fingerprint: fingerprint(&domain_active.public_key),
             algorithm: crate::generated::types::KeyAlgorithm::Ed25519,
             key_usage: crate::generated::types::KeyUsage::Sign,
-            created_at: OffsetDateTime::now_utc(),
-            expires_at: OffsetDateTime::now_utc() + time::Duration::days(365),
+            created_at: crate::timestamp::now_whole_milliseconds(),
+            expires_at: crate::timestamp::now_whole_milliseconds() + time::Duration::days(365),
             revoked_at: None,
             signed_by_key_id: None,
             key_signature: None,

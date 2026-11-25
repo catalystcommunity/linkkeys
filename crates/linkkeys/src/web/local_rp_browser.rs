@@ -410,9 +410,11 @@ pub(super) fn inspect(
     session: &BrowserSession,
     signed_request: &str,
 ) -> Result<BrowserLocalRpInspectResponse, ServiceError> {
-    let (request, descriptor, _suite) =
-        validate_signed_local_rp_request(signed_request, time::OffsetDateTime::now_utc())
-            .map_err(|r| refused(400, r))?;
+    let (request, descriptor, _suite) = validate_signed_local_rp_request(
+        signed_request,
+        liblinkkeys::timestamp::now_whole_milliseconds(),
+    )
+    .map_err(|r| refused(400, r))?;
     let user = check_person(pool, user, session, &request)?;
     let callback_host =
         extract_host(&request.callback_url).unwrap_or_else(|| request.callback_url.clone());
@@ -485,9 +487,11 @@ pub(super) fn complete(
     session: &BrowserSession,
     value: BrowserLocalRpCompleteRequest,
 ) -> Result<BrowserLocalRpCompleteResponse, ServiceError> {
-    let (request, descriptor, suite) =
-        validate_signed_local_rp_request(&value.signed_request, time::OffsetDateTime::now_utc())
-            .map_err(|r| refused(400, r))?;
+    let (request, descriptor, suite) = validate_signed_local_rp_request(
+        &value.signed_request,
+        liblinkkeys::timestamp::now_whole_milliseconds(),
+    )
+    .map_err(|r| refused(400, r))?;
     let user = check_person(pool, user, session, &request)?;
     // Before any claim write. Finalize checks again before it issues.
     if let Some(denial) = crate::services::app_access::denial_for(pool, &user.id, None)? {
@@ -650,8 +654,8 @@ fn finalize_local_rp_login(
     let mut raw_ticket = [0u8; 32];
     rand::thread_rng().fill(&mut raw_ticket);
     let ticket_hash = liblinkkeys::crypto::fingerprint(&raw_ticket);
-    let ticket_expires_at =
-        time::OffsetDateTime::now_utc() + time::Duration::seconds(LOCAL_RP_TICKET_TTL_SECONDS);
+    let ticket_expires_at = liblinkkeys::timestamp::now_whole_milliseconds()
+        + time::Duration::seconds(LOCAL_RP_TICKET_TTL_SECONDS);
     crate::services::local_rp::issue_ticket(
         pool,
         &ticket_hash,
@@ -663,7 +667,7 @@ fn finalize_local_rp_login(
     )
     .map_err(|_| refused(500, reason::INTERNAL))?;
 
-    let now = time::OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_milliseconds();
     let issued_at = now;
     let expires_at = now + time::Duration::seconds(LOCAL_RP_CALLBACK_TTL_SECONDS);
     let payload = liblinkkeys::local_rp::build_local_rp_callback_payload(
@@ -741,11 +745,13 @@ pub(super) fn auth_local_rp_get(
     let Some(sr) = signed_request else {
         return error(reason::MALFORMED);
     };
-    let (request, descriptor, _) =
-        match validate_signed_local_rp_request(sr, time::OffsetDateTime::now_utc()) {
-            Ok(v) => v,
-            Err(r) => return error(r),
-        };
+    let (request, descriptor, _) = match validate_signed_local_rp_request(
+        sr,
+        liblinkkeys::timestamp::now_whole_milliseconds(),
+    ) {
+        Ok(v) => v,
+        Err(r) => return error(r),
+    };
     if let Err(r) = precheck_local_rp_gate(pool, &descriptor.fingerprint) {
         return error(r);
     }

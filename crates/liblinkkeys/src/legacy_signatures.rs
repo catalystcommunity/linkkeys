@@ -769,7 +769,7 @@ mod tests {
             signed_by_key_id: None,
             key_signature: None,
             created_at: at("2026-01-01T00:00:00+00:00"),
-            expires_at: OffsetDateTime::now_utc() + time::Duration::days(30),
+            expires_at: crate::timestamp::now_whole_milliseconds() + time::Duration::days(30),
             revoked_at: None,
         }
     }

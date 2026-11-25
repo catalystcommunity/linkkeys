@@ -24,10 +24,10 @@ pub mod user_keys;
 pub mod user_release_prefs;
 pub mod users;
 
+#[cfg(feature = "sqlite")]
+use crate::db::db_time::DbText as _;
 use diesel::prelude::*;
 use diesel::r2d2::{self, ConnectionManager};
-#[cfg(feature = "sqlite")]
-use liblinkkeys::timestamp::Rfc3339 as _;
 use std::env;
 
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
@@ -1052,7 +1052,7 @@ impl DbPool {
                     .parse()
                     .map_err(|_| diesel::result::Error::NotFound)?;
                 conn.transaction(|conn| {
-                    let now = time::OffsetDateTime::now_utc();
+                    let now = liblinkkeys::timestamp::now_whole_milliseconds();
                     user_rows::table
                         .find(uid)
                         .select(user_rows::id)
@@ -1210,7 +1210,7 @@ impl DbPool {
                     )
                 })?;
                 conn.transaction(|conn| {
-                    let now = time::OffsetDateTime::now_utc().to_rfc3339();
+                    let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
 
                     let profile_ids: Vec<String> = profiles::table
                         .filter(profiles::account_id.eq(user_id))
@@ -2919,8 +2919,8 @@ impl DbPool {
                     claim_type,
                     claim_value,
                     signatures,
-                    expires_at.map(|e| e.to_rfc3339()).as_deref(),
-                    &attested_at.to_rfc3339(),
+                    expires_at.map(|e| e.to_db_text()).as_deref(),
+                    &attested_at.to_db_text(),
                 )
             }
         }
@@ -2965,7 +2965,7 @@ impl DbPool {
                 destination,
                 token_digest,
                 encrypted_payload,
-                &expires_at.to_rfc3339(),
+                &expires_at.to_db_text(),
                 required_credential_id,
             ),
         }
@@ -3106,14 +3106,14 @@ impl DbPool {
                 models::sqlite::BrowserSessionRow {
                     token_digest: token_digest.to_string(),
                     user_id: user_id.to_string(),
-                    issued_at: issued_at.to_rfc3339(),
-                    last_seen_at: issued_at.to_rfc3339(),
-                    authenticated_at: authenticated_at.to_rfc3339(),
+                    issued_at: issued_at.to_db_text(),
+                    last_seen_at: issued_at.to_db_text(),
+                    authenticated_at: authenticated_at.to_db_text(),
                     authentication_methods: methods.to_string(),
-                    expires_at: expires_at.to_rfc3339(),
+                    expires_at: expires_at.to_db_text(),
                     revoked_at: None,
-                    created_at: issued_at.to_rfc3339(),
-                    updated_at: issued_at.to_rfc3339(),
+                    created_at: issued_at.to_db_text(),
+                    updated_at: issued_at.to_db_text(),
                 },
             ),
         }
@@ -3158,14 +3158,14 @@ impl DbPool {
                 models::sqlite::BrowserSessionRow {
                     token_digest: token_digest.to_string(),
                     user_id: user_id.to_string(),
-                    issued_at: issued_at.to_rfc3339(),
-                    last_seen_at: issued_at.to_rfc3339(),
-                    authenticated_at: authenticated_at.to_rfc3339(),
+                    issued_at: issued_at.to_db_text(),
+                    last_seen_at: issued_at.to_db_text(),
+                    authenticated_at: authenticated_at.to_db_text(),
                     authentication_methods: methods.to_string(),
-                    expires_at: expires_at.to_rfc3339(),
+                    expires_at: expires_at.to_db_text(),
                     revoked_at: None,
-                    created_at: issued_at.to_rfc3339(),
-                    updated_at: issued_at.to_rfc3339(),
+                    created_at: issued_at.to_db_text(),
+                    updated_at: issued_at.to_db_text(),
                 },
                 credential_id,
             ),
@@ -3204,7 +3204,7 @@ impl DbPool {
             DbPool::Sqlite(p) => account_security::sqlite::record_authentication(
                 &mut *sqlite_conn(p)?,
                 user_id,
-                &authenticated_at.to_rfc3339(),
+                &authenticated_at.to_db_text(),
             ),
         }
     }
@@ -3234,7 +3234,7 @@ impl DbPool {
         user_id: &str,
         idle_ttl_seconds: i64,
     ) -> QueryResult<i64> {
-        let now = time::OffsetDateTime::now_utc();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds();
         let idle_cutoff = now - time::Duration::seconds(idle_ttl_seconds);
         match self {
             #[cfg(feature = "postgres")]
@@ -3250,8 +3250,8 @@ impl DbPool {
             DbPool::Sqlite(p) => account_security::sqlite::count_active_sessions(
                 &mut *sqlite_conn(p)?,
                 user_id,
-                &now.to_rfc3339(),
-                &idle_cutoff.to_rfc3339(),
+                &now.to_db_text(),
+                &idle_cutoff.to_db_text(),
             ),
         }
     }
@@ -3283,7 +3283,7 @@ impl DbPool {
             DbPool::Sqlite(p) => account_security::sqlite::touch_session(
                 &mut *sqlite_conn(p)?,
                 digest,
-                &at.to_rfc3339(),
+                &at.to_db_text(),
             ),
         }
     }
@@ -3419,7 +3419,7 @@ impl DbPool {
                 id,
                 worker_id,
                 state,
-                &next_attempt_at.to_rfc3339(),
+                &next_attempt_at.to_db_text(),
                 error_category,
                 redact_payload,
             ),
@@ -3848,7 +3848,7 @@ impl DbPool {
                     private_key_encrypted,
                     fingerprint,
                     algorithm,
-                    &expires_at.to_rfc3339(),
+                    &expires_at.to_db_text(),
                 )
             }
         }
@@ -3910,8 +3910,8 @@ impl DbPool {
                     claim_type,
                     claim_value,
                     signatures,
-                    expires_at.map(|e| e.to_rfc3339()).as_deref(),
-                    &attested_at.to_rfc3339(),
+                    expires_at.map(|e| e.to_db_text()).as_deref(),
+                    &attested_at.to_db_text(),
                 )
             }
         }
@@ -4009,7 +4009,7 @@ impl DbPool {
         audience: &str,
         application: Option<&liblinkkeys::generated::types::ApplicationRef>,
     ) -> QueryResult<Option<models::ConsentGrantRow>> {
-        let now = time::OffsetDateTime::now_utc();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds();
         let app = grant_app(application);
         match self {
             #[cfg(feature = "postgres")]
@@ -4038,7 +4038,7 @@ impl DbPool {
                     user_id,
                     audience,
                     app,
-                    &now.to_rfc3339(),
+                    &now.to_db_text(),
                 )
             }
         }
@@ -4051,7 +4051,7 @@ impl DbPool {
         user_id: &str,
         audience: &str,
     ) -> QueryResult<bool> {
-        let now = time::OffsetDateTime::now_utc();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds();
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
@@ -4065,7 +4065,7 @@ impl DbPool {
                 &mut *sqlite_conn(p)?,
                 user_id,
                 audience,
-                &now.to_rfc3339(),
+                &now.to_db_text(),
             ),
         }
     }
@@ -4173,13 +4173,13 @@ impl DbPool {
 
     /// Every current consent grant of every user.
     pub fn list_all_active_consent_grants(&self) -> QueryResult<Vec<models::ConsentGrantRow>> {
-        let now = time::OffsetDateTime::now_utc();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds();
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => consent_grants::pg::list_active_all(&mut *pg_conn(p)?, now),
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                consent_grants::sqlite::list_active_all(&mut *sqlite_conn(p)?, &now.to_rfc3339())
+                consent_grants::sqlite::list_active_all(&mut *sqlite_conn(p)?, &now.to_db_text())
             }
         }
     }
@@ -4227,7 +4227,7 @@ impl DbPool {
     /// Record a nonce as used (durable, shared replay protection).
     /// Returns Ok(true) on first use, Ok(false) if already used (replay).
     pub fn record_nonce(&self, nonce: &str, ttl: std::time::Duration) -> QueryResult<bool> {
-        let expires_at = time::OffsetDateTime::now_utc()
+        let expires_at = liblinkkeys::timestamp::now_whole_milliseconds()
             + time::Duration::try_from(ttl).unwrap_or_else(|_| time::Duration::seconds(300));
         match self {
             #[cfg(feature = "postgres")]
@@ -4248,7 +4248,7 @@ impl DbPool {
                         Box::new(e.to_string()),
                     )
                 })?;
-                nonces::sqlite::record(&mut conn, nonce, &expires_at.to_rfc3339())
+                nonces::sqlite::record(&mut conn, nonce, &expires_at.to_db_text())
             }
         }
     }
@@ -4426,7 +4426,7 @@ impl DbPool {
                     private_key_encrypted,
                     fingerprint,
                     algorithm,
-                    &expires_at.to_rfc3339(),
+                    &expires_at.to_db_text(),
                 )
             }
         }
@@ -4477,7 +4477,7 @@ impl DbPool {
                     fingerprint,
                     signed_by_key_id,
                     key_signature,
-                    &expires_at.to_rfc3339(),
+                    &expires_at.to_db_text(),
                 )
             }
         }
@@ -4670,7 +4670,7 @@ impl DbPool {
                 app_name,
                 local_domain_hint,
                 status,
-                expires_at.map(|d| d.to_rfc3339()).as_deref(),
+                expires_at.map(|d| d.to_db_text()).as_deref(),
             ),
         }
     }
@@ -4821,7 +4821,7 @@ impl DbPool {
                 user_id,
                 user_domain,
                 granted_claims_json,
-                &expires_at.to_rfc3339(),
+                &expires_at.to_db_text(),
             ),
         }
     }
@@ -4849,7 +4849,7 @@ impl DbPool {
             DbPool::Postgres(p) => local_rp::pg::delete_expired_tickets(&mut *pg_conn(p)?, now),
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
-                local_rp::sqlite::delete_expired_tickets(&mut *sqlite_conn(p)?, &now.to_rfc3339())
+                local_rp::sqlite::delete_expired_tickets(&mut *sqlite_conn(p)?, &now.to_db_text())
             }
         }
     }

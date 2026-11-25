@@ -67,7 +67,7 @@ pub mod pg {
         diesel::update(users::table.find(id).filter(users::purged_at.is_null()))
             .set((
                 users::display_name.eq(new_display_name),
-                users::updated_at.eq(time::OffsetDateTime::now_utc()),
+                users::updated_at.eq(liblinkkeys::timestamp::now_whole_milliseconds()),
             ))
             .get_result::<UserRow>(conn)
             .map(Into::into)
@@ -80,7 +80,7 @@ pub mod pg {
         diesel::update(users::table.find(id))
             .set((
                 users::is_active.eq(false),
-                users::updated_at.eq(time::OffsetDateTime::now_utc()),
+                users::updated_at.eq(liblinkkeys::timestamp::now_whole_milliseconds()),
             ))
             .get_result::<UserRow>(conn)
             .map(Into::into)
@@ -94,7 +94,7 @@ pub mod pg {
         let id: uuid::Uuid = user_id
             .parse()
             .map_err(|_| diesel::result::Error::NotFound)?;
-        let now = time::OffsetDateTime::now_utc();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds();
         diesel::update(users::table.find(id))
             .set((
                 users::is_active.eq(false),
@@ -118,7 +118,7 @@ pub mod pg {
         diesel::update(users::table.find(id).filter(users::purged_at.is_null()))
             .set((
                 users::password_locked.eq(locked),
-                users::updated_at.eq(time::OffsetDateTime::now_utc()),
+                users::updated_at.eq(liblinkkeys::timestamp::now_whole_milliseconds()),
             ))
             .get_result::<UserRow>(conn)
             .map(Into::into)
@@ -131,7 +131,7 @@ pub mod pg {
         diesel::update(users::table.find(id).filter(users::purged_at.is_null()))
             .set((
                 users::is_active.eq(true),
-                users::updated_at.eq(time::OffsetDateTime::now_utc()),
+                users::updated_at.eq(liblinkkeys::timestamp::now_whole_milliseconds()),
             ))
             .get_result::<UserRow>(conn)
             .map(Into::into)
@@ -140,8 +140,8 @@ pub mod pg {
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
+    use crate::db::db_time::DbText as _;
     use diesel::prelude::*;
-    use liblinkkeys::timestamp::Rfc3339 as _;
 
     use crate::db::models::sqlite::{NewUserRow, UserRow};
     use crate::db::models::User;
@@ -201,7 +201,7 @@ pub mod sqlite {
         user_id: &str,
         new_display_name: &str,
     ) -> QueryResult<User> {
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
         diesel::update(
             users::table
                 .find(user_id)
@@ -225,7 +225,7 @@ pub mod sqlite {
         user_id: &str,
         locked: bool,
     ) -> QueryResult<User> {
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
         diesel::update(
             users::table
                 .find(user_id)
@@ -245,7 +245,7 @@ pub mod sqlite {
     }
 
     pub fn deactivate(conn: &mut diesel::SqliteConnection, user_id: &str) -> QueryResult<User> {
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
         diesel::update(users::table.find(user_id))
             .set((users::is_active.eq(0), users::updated_at.eq(&now)))
             .execute(conn)?;
@@ -261,7 +261,7 @@ pub mod sqlite {
         user_id: &str,
         reason: Option<&str>,
     ) -> QueryResult<User> {
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
         diesel::update(users::table.find(user_id))
             .set((
                 users::is_active.eq(0),
@@ -279,7 +279,7 @@ pub mod sqlite {
     }
 
     pub fn activate(conn: &mut diesel::SqliteConnection, user_id: &str) -> QueryResult<User> {
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
         diesel::update(
             users::table
                 .find(user_id)

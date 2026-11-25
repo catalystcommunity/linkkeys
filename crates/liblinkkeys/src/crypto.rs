@@ -239,7 +239,7 @@ pub fn signing_key_validity(
     if revoked_at.is_some() {
         return KeyValidity::Revoked;
     }
-    if time::OffsetDateTime::now_utc() > *expires_at {
+    if crate::timestamp::now_whole_milliseconds() > *expires_at {
         KeyValidity::Expired
     } else {
         KeyValidity::Valid

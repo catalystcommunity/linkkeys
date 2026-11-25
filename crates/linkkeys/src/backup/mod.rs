@@ -26,7 +26,7 @@
 //! by a future Postgres path (the migration mechanism for sqlite→postgres).
 
 #[cfg(feature = "sqlite")]
-use liblinkkeys::timestamp::Rfc3339 as _;
+use crate::db::db_time::DbText as _;
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
@@ -649,7 +649,7 @@ mod sqlite_backend {
         let row = BackupKeyRow {
             id: uuid::Uuid::now_v7().to_string(),
             key_encrypted: enc,
-            created_at: crate::db::db_time::store(&time::OffsetDateTime::now_utc()),
+            created_at: crate::db::db_time::store(&liblinkkeys::timestamp::now_whole_milliseconds()),
             rotated_at: None,
         };
         diesel::insert_into(backup_keys::table)
@@ -664,7 +664,9 @@ mod sqlite_backend {
     ) -> Result<[u8; 32], BackupError> {
         use crate::schema::sqlite::backup_keys::dsl as bk;
         diesel::update(bk::backup_keys.filter(bk::rotated_at.is_null()))
-            .set(bk::rotated_at.eq(Some(time::OffsetDateTime::now_utc().to_rfc3339())))
+            .set(bk::rotated_at.eq(Some(
+                liblinkkeys::timestamp::now_whole_milliseconds().to_db_text(),
+            )))
             .execute(conn)?;
         store_new_backup_key(conn, passphrase)
     }
@@ -697,7 +699,9 @@ mod sqlite_backend {
             let bundle = BackupBundle {
                 format_version: FORMAT_VERSION,
                 domain_name: domain.clone(),
-                created_at: crate::db::db_time::store(&time::OffsetDateTime::now_utc()),
+                created_at: crate::db::db_time::store(
+                    &liblinkkeys::timestamp::now_whole_milliseconds(),
+                ),
                 db_backend: "sqlite".to_string(),
                 domain_key_passphrase: if opts.include_passphrase {
                     Some(passphrase.to_string())

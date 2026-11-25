@@ -159,7 +159,7 @@ pub mod pg {
             .parse()
             .map_err(|_| diesel::result::Error::NotFound)?;
         // Active = not revoked AND (no expiry OR expiry in the future).
-        let now = time::OffsetDateTime::now_utc();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds();
         let db_rows = claims::table
             .filter(claims::user_id.eq(uid))
             .filter(claims::revoked_at.is_null())
@@ -191,8 +191,8 @@ pub mod pg {
             .map_err(|_| diesel::result::Error::NotFound)?;
         diesel::update(claims::table.find(id))
             .set((
-                claims::revoked_at.eq(Some(time::OffsetDateTime::now_utc())),
-                claims::updated_at.eq(time::OffsetDateTime::now_utc()),
+                claims::revoked_at.eq(Some(liblinkkeys::timestamp::now_whole_milliseconds())),
+                claims::updated_at.eq(liblinkkeys::timestamp::now_whole_milliseconds()),
             ))
             .execute(conn)?;
         load_with_signatures(conn, id)
@@ -209,7 +209,7 @@ pub mod pg {
         let uid: uuid::Uuid = user_id_str
             .parse()
             .map_err(|_| diesel::result::Error::NotFound)?;
-        let now = time::OffsetDateTime::now_utc();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds();
         diesel::update(
             claims::table
                 .filter(claims::user_id.eq(uid))
@@ -235,7 +235,7 @@ pub mod pg {
         attested_at: time::OffsetDateTime,
     ) -> QueryResult<ClaimRow> {
         conn.transaction(|conn| {
-            let now = time::OffsetDateTime::now_utc();
+            let now = liblinkkeys::timestamp::now_whole_milliseconds();
             diesel::update(
                 claims::table
                     .filter(claims::user_id.eq(user_id))
@@ -279,8 +279,8 @@ pub mod pg {
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
+    use crate::db::db_time::DbText as _;
     use diesel::prelude::*;
-    use liblinkkeys::timestamp::Rfc3339 as _;
     use std::collections::HashMap;
 
     use crate::db::models::sqlite::{
@@ -437,7 +437,7 @@ pub mod sqlite {
         // expires_at is stored as RFC3339 UTC text; lexicographic comparison is
         // correct as long as all timestamps use the same UTC format (they do,
         // via chrono to_rfc3339).
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
         let db_rows = claims::table
             .filter(claims::user_id.eq(user_id))
             .filter(claims::revoked_at.is_null())
@@ -464,7 +464,7 @@ pub mod sqlite {
     }
 
     pub fn remove(conn: &mut diesel::SqliteConnection, claim_id: &str) -> QueryResult<ClaimRow> {
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
         diesel::update(claims::table.find(claim_id))
             .set((
                 claims::revoked_at.eq(Some(&now)),
@@ -481,7 +481,7 @@ pub mod sqlite {
         user_id: &str,
         claim_type: &str,
     ) -> QueryResult<usize> {
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
         diesel::update(
             claims::table
                 .filter(claims::user_id.eq(user_id))
@@ -509,7 +509,7 @@ pub mod sqlite {
         attested_at: &str,
     ) -> QueryResult<ClaimRow> {
         conn.transaction(|conn| {
-            let now = time::OffsetDateTime::now_utc().to_rfc3339();
+            let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
             diesel::update(
                 claims::table
                     .filter(claims::user_id.eq(user_id))

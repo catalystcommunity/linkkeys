@@ -471,7 +471,7 @@ pub mod pg {
         .set((
             admin_review_queue::status.eq(status),
             admin_review_queue::resolved_by.eq(resolved_by),
-            admin_review_queue::resolved_at.eq(time::OffsetDateTime::now_utc()),
+            admin_review_queue::resolved_at.eq(liblinkkeys::timestamp::now_whole_milliseconds()),
         ))
         .execute(conn)
     }
@@ -509,8 +509,8 @@ pub mod pg {
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
+    use crate::db::db_time::DbText as _;
     use diesel::prelude::*;
-    use liblinkkeys::timestamp::Rfc3339 as _;
 
     use crate::db::models::sqlite::{
         AdminReviewRow, AuditLogRow, ClaimLabelI18nRow, ClaimTypePolicyRow, NewAdminReviewRow,
@@ -886,7 +886,8 @@ pub mod sqlite {
         .set((
             admin_review_queue::status.eq(status),
             admin_review_queue::resolved_by.eq(resolved_by),
-            admin_review_queue::resolved_at.eq(time::OffsetDateTime::now_utc().to_rfc3339()),
+            admin_review_queue::resolved_at
+                .eq(liblinkkeys::timestamp::now_whole_milliseconds().to_db_text()),
         ))
         .execute(conn)
     }

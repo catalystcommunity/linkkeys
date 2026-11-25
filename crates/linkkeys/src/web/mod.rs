@@ -2322,7 +2322,7 @@ async fn rpc_cbor(
                                 &keys,
                                 &user,
                                 &value.signed_request,
-                                time::OffsetDateTime::now_utc(),
+                                liblinkkeys::timestamp::now_whole_milliseconds(),
                             )
                         })
                         .await
@@ -2370,7 +2370,7 @@ async fn rpc_cbor(
                                 &|nonce| nonces.record(nonce),
                                 &user,
                                 &value,
-                                time::OffsetDateTime::now_utc(),
+                                liblinkkeys::timestamp::now_whole_milliseconds(),
                             )
                         })
                         .await

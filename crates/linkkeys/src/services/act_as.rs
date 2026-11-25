@@ -1172,7 +1172,12 @@ pub fn rp_forward_refresh(
     };
     if domain == get_domain_name() {
         let keys = CachedKeySource { pool, net, rt };
-        return refresh(pool, &keys, &request, OffsetDateTime::now_utc());
+        return refresh(
+            pool,
+            &keys,
+            &request,
+            liblinkkeys::timestamp::now_whole_milliseconds(),
+        );
     }
     let payload = liblinkkeys::generated::encode_refresh_act_as_grant_request(&request)
         .map_err(|e| internal("encoding refresh request", e))?;

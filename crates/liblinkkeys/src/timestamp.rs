@@ -84,6 +84,24 @@ pub fn now_whole_seconds() -> OffsetDateTime {
     whole_seconds(OffsetDateTime::now_utc())
 }
 
+/// `t` without its sub-millisecond part (rounded down), in UTC.
+///
+/// Every timestamp that LinkKeys stores or sends has millisecond precision or
+/// coarser. A JavaScript `Date` holds milliseconds, and the generated
+/// TypeScript codec rejects a finer timestamp instead of rounding it.
+pub fn whole_milliseconds(t: OffsetDateTime) -> OffsetDateTime {
+    let nanos = t.nanosecond();
+    t.to_offset(UtcOffset::UTC)
+        .replace_nanosecond(nanos - nanos % 1_000_000)
+        .expect("a smaller nanosecond is valid")
+}
+
+/// The current time in whole milliseconds. Use it for every timestamp that is
+/// not signed. A signed timestamp uses [`now_whole_seconds`].
+pub fn now_whole_milliseconds() -> OffsetDateTime {
+    whole_milliseconds(OffsetDateTime::now_utc())
+}
+
 /// The LinkKeys RFC 3339 text forms of an [`OffsetDateTime`].
 pub trait Rfc3339 {
     /// The default form, with a numeric offset and an automatic fraction.
@@ -299,6 +317,17 @@ pub fn parse_date_ymd(s: &str) -> Result<Date, TimestampError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn whole_milliseconds_drops_only_the_sub_millisecond_part() {
+        let t = parse_rfc3339("2026-04-08T01:51:13.616455789+02:00").unwrap();
+        let ms = whole_milliseconds(t);
+        assert_eq!(ms.to_rfc3339(), "2026-04-07T23:51:13.616+00:00");
+        assert_eq!(whole_milliseconds(ms), ms);
+        let whole = parse_rfc3339("2026-04-08T01:51:13+00:00").unwrap();
+        assert_eq!(whole_milliseconds(whole), whole);
+        assert_eq!(now_whole_milliseconds().nanosecond() % 1_000_000, 0);
+    }
 
     #[test]
     fn signed_time_is_whole_unix_seconds() {

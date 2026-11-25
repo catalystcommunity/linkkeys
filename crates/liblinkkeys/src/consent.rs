@@ -13,7 +13,7 @@
 //! and the shared signature quorum) so consent verification cannot drift from
 //! claim verification.
 //!
-//! This module is pure: no I/O, no clock authority beyond `OffsetDateTime::now_utc()` for
+//! This module is pure: no I/O, no clock authority beyond `crate::timestamp::now_whole_milliseconds()` for
 //! expiry (mirroring [`crate::claims`]). The server is responsible for
 //! persisting grants, resolving keys, and applying the result.
 
@@ -296,7 +296,7 @@ pub fn verify_consent(
     if grant.revoked_at.is_some() {
         return Err(ConsentError::Revoked);
     }
-    if OffsetDateTime::now_utc() > grant.expires_at {
+    if crate::timestamp::now_whole_milliseconds() > grant.expires_at {
         return Err(ConsentError::Expired);
     }
 
@@ -519,8 +519,8 @@ mod tests {
             key_usage: crate::generated::types::KeyUsage::Sign,
             signed_by_key_id: None,
             key_signature: None,
-            created_at: OffsetDateTime::now_utc(),
-            expires_at: OffsetDateTime::now_utc() + time::Duration::days(400),
+            created_at: crate::timestamp::now_whole_milliseconds(),
+            expires_at: crate::timestamp::now_whole_milliseconds() + time::Duration::days(400),
             revoked_at: None,
         }
     }
@@ -767,7 +767,7 @@ mod tests {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let signed = signed_grant("key-1", &sk, &types(&["email"]), RP);
         let mut grant = crate::generated::decode_consent_grant(&signed.grant[..]).unwrap();
-        grant.revoked_at = Some(OffsetDateTime::now_utc());
+        grant.revoked_at = Some(crate::timestamp::now_whole_milliseconds());
         let grant_bytes = crate::generated::encode_consent_grant(&grant).unwrap();
         let revoked = SignedConsentGrant {
             grant: grant_bytes,
@@ -922,8 +922,8 @@ mod tests {
             subject_domain: HOME.into(),
             audience: RP.into(),
             claim_types: types(&["email"]),
-            issued_at: OffsetDateTime::now_utc(),
-            expires_at: OffsetDateTime::now_utc(),
+            issued_at: crate::timestamp::now_whole_milliseconds(),
+            expires_at: crate::timestamp::now_whole_milliseconds(),
             revoked_at: None,
             application: None,
         };
@@ -934,8 +934,8 @@ mod tests {
                 claim_type: "email".into(),
                 claim_value: b"a@b.com".to_vec(),
                 signatures: vec![],
-                attested_at: OffsetDateTime::now_utc(),
-                created_at: OffsetDateTime::now_utc(),
+                attested_at: crate::timestamp::now_whole_milliseconds(),
+                created_at: crate::timestamp::now_whole_milliseconds(),
                 expires_at: None,
                 revoked_at: None,
             },
@@ -945,8 +945,8 @@ mod tests {
                 claim_type: "display_name".into(),
                 claim_value: b"Tod".to_vec(),
                 signatures: vec![],
-                attested_at: OffsetDateTime::now_utc(),
-                created_at: OffsetDateTime::now_utc(),
+                attested_at: crate::timestamp::now_whole_milliseconds(),
+                created_at: crate::timestamp::now_whole_milliseconds(),
                 expires_at: None,
                 revoked_at: None,
             },
@@ -1039,8 +1039,8 @@ mod tests {
             claim_type: ct.into(),
             claim_value: b"v".to_vec(),
             signatures: vec![],
-            attested_at: OffsetDateTime::now_utc(),
-            created_at: OffsetDateTime::now_utc(),
+            attested_at: crate::timestamp::now_whole_milliseconds(),
+            created_at: crate::timestamp::now_whole_milliseconds(),
             expires_at: None,
             revoked_at: None,
         };

@@ -249,7 +249,8 @@ pub fn create_user(
         let encrypted = liblinkkeys::crypto::encrypt_private_key(&sk_bytes, passphrase.as_bytes())
             .map_err(|e| svc_err(&format!("encrypt error: {}", e)))?;
         let fp = liblinkkeys::crypto::fingerprint(&pk_bytes);
-        let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365 * years);
+        let expires =
+            liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::days(365 * years);
         pool.create_user_key(&user.id, &pk_bytes, &encrypted, &fp, "ed25519", expires)
             .map_err(db_err)?;
     }
@@ -440,7 +441,7 @@ pub fn revoke_domain_key(
             let revoked_at = liblinkkeys::timestamp::whole_seconds(
                 revoked
                     .revoked_at
-                    .unwrap_or_else(time::OffsetDateTime::now_utc),
+                    .unwrap_or_else(liblinkkeys::timestamp::now_whole_milliseconds),
             );
             let signers: Vec<ClaimSigner> = active_signers
                 .iter()
@@ -1270,9 +1271,11 @@ pub fn purge_local_rp_tickets(
     pool: &DbPool,
     _req: PurgeLocalRpTicketsRequest,
 ) -> Result<PurgeLocalRpTicketsResponse, ServiceError> {
-    let purged =
-        crate::services::local_rp::purge_expired_tickets(pool, time::OffsetDateTime::now_utc())
-            .map_err(db_err)?;
+    let purged = crate::services::local_rp::purge_expired_tickets(
+        pool,
+        liblinkkeys::timestamp::now_whole_milliseconds(),
+    )
+    .map_err(db_err)?;
     Ok(PurgeLocalRpTicketsResponse {
         purged_count: purged as i64,
     })

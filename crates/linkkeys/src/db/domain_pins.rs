@@ -44,7 +44,7 @@ pub mod pg {
         domain: &str,
         fingerprints: &str,
     ) -> QueryResult<usize> {
-        let now = time::OffsetDateTime::now_utc();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds();
         diesel::update(domain_key_pins::table.find(domain))
             .set((
                 domain_key_pins::fingerprints.eq(fingerprints),
@@ -56,7 +56,10 @@ pub mod pg {
     /// Record that the pin was verified unchanged at this instant.
     pub fn touch(conn: &mut diesel::PgConnection, domain: &str) -> QueryResult<usize> {
         diesel::update(domain_key_pins::table.find(domain))
-            .set(domain_key_pins::last_checked_at.eq(time::OffsetDateTime::now_utc()))
+            .set(
+                domain_key_pins::last_checked_at
+                    .eq(liblinkkeys::timestamp::now_whole_milliseconds()),
+            )
             .execute(conn)
     }
 
@@ -71,8 +74,8 @@ pub mod pg {
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
+    use crate::db::db_time::DbText as _;
     use diesel::prelude::*;
-    use liblinkkeys::timestamp::Rfc3339 as _;
 
     use crate::db::models::sqlite::{DomainKeyPinRow, NewDomainKeyPinRow};
     use crate::db::models::DomainKeyPin;
@@ -109,7 +112,7 @@ pub mod sqlite {
         domain: &str,
         fingerprints: &str,
     ) -> QueryResult<usize> {
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
         diesel::update(domain_key_pins::table.find(domain))
             .set((
                 domain_key_pins::fingerprints.eq(fingerprints),
@@ -120,7 +123,10 @@ pub mod sqlite {
 
     pub fn touch(conn: &mut diesel::SqliteConnection, domain: &str) -> QueryResult<usize> {
         diesel::update(domain_key_pins::table.find(domain))
-            .set(domain_key_pins::last_checked_at.eq(time::OffsetDateTime::now_utc().to_rfc3339()))
+            .set(
+                domain_key_pins::last_checked_at
+                    .eq(liblinkkeys::timestamp::now_whole_milliseconds().to_db_text()),
+            )
             .execute(conn)
     }
 

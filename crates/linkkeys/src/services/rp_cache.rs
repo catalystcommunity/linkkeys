@@ -292,7 +292,7 @@ pub fn resolve_domain_keys(
         rt,
         domain,
         request.max_cache_age_seconds,
-        OffsetDateTime::now_utc(),
+        liblinkkeys::timestamp::now_whole_milliseconds(),
     )
 }
 
@@ -522,7 +522,7 @@ async fn fetch_remote_revocations_inner(
     trusted_keys: &[DomainPublicKey],
 ) -> Result<Vec<RevocationCertificate>, String> {
     let (addr, hostname, fingerprints) = discover(net, domain).await?;
-    let since = OffsetDateTime::now_utc()
+    let since = liblinkkeys::timestamp::now_whole_milliseconds()
         - Duration::days(crate::services::revocations::fetch_default_days());
     let payload = liblinkkeys::generated::encode_get_revocations_request(&GetRevocationsRequest {
         since: Some(since),
@@ -633,7 +633,7 @@ pub fn resolve_application_keys(
             "subject_user_id, subject_domain, application_id, and instance_id are all required",
         ));
     }
-    let now = OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_milliseconds();
     let effective_max_age = clamp_max_age(max_age_seconds(), request.max_cache_age_seconds);
     let rev_interval = revocation_check_interval_seconds();
     let ahead = refresh_ahead_seconds();

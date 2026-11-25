@@ -66,7 +66,7 @@ fn methods(value: &str) -> Vec<String> {
 fn active(session: &models::BrowserSession) -> bool {
     let last_seen = session.last_seen_at;
     let expires = session.expires_at;
-    let now = OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_milliseconds();
     session.revoked_at.is_none()
         && now <= expires
         && now >= last_seen
@@ -82,7 +82,7 @@ pub fn create(
     rand::rngs::OsRng.fill_bytes(&mut secret);
     let token = Base64UrlUnpadded::encode_string(&secret);
     let digest = token_digest(&token);
-    let now = OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_milliseconds();
     let expires = now + time::Duration::seconds(absolute_ttl_seconds(pool)?);
     let method_list = evidence
         .method_types
@@ -115,7 +115,7 @@ pub fn create_after_password(
     rand::rngs::OsRng.fill_bytes(&mut secret);
     let token = Base64UrlUnpadded::encode_string(&secret);
     let digest = token_digest(&token);
-    let now = OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_milliseconds();
     let expires = now + time::Duration::seconds(absolute_ttl_seconds(pool)?);
     let method_list = evidence
         .method_types
@@ -155,9 +155,13 @@ pub fn get(
         let _ = pool.revoke_browser_session(&digest);
         return Ok(None);
     }
-    let should_refresh = (OffsetDateTime::now_utc() - session.last_seen_at).whole_seconds() >= 60;
+    let should_refresh = (liblinkkeys::timestamp::now_whole_milliseconds() - session.last_seen_at)
+        .whole_seconds()
+        >= 60;
     if refresh && should_refresh {
-        if let Err(error) = pool.touch_browser_session(&digest, OffsetDateTime::now_utc()) {
+        if let Err(error) =
+            pool.touch_browser_session(&digest, liblinkkeys::timestamp::now_whole_milliseconds())
+        {
             log::warn!("Could not refresh browser session activity: {error}");
         }
     }

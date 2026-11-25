@@ -136,7 +136,7 @@ pub fn verify_domain_claim(
     )?;
 
     if let Some(expires) = claim.expires_at {
-        if OffsetDateTime::now_utc() > expires {
+        if crate::timestamp::now_whole_milliseconds() > expires {
             return Err(ClaimError::Expired);
         }
     }
@@ -179,8 +179,8 @@ mod tests {
             key_usage: crate::generated::types::KeyUsage::Sign,
             signed_by_key_id: None,
             key_signature: None,
-            created_at: OffsetDateTime::now_utc(),
-            expires_at: OffsetDateTime::now_utc() + time::Duration::days(400),
+            created_at: crate::timestamp::now_whole_milliseconds(),
+            expires_at: crate::timestamp::now_whole_milliseconds() + time::Duration::days(400),
             revoked_at: None,
         }
     }

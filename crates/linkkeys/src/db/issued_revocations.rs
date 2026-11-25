@@ -74,8 +74,8 @@ pub mod pg {
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
+    use crate::db::db_time::DbText as _;
     use diesel::prelude::*;
-    use liblinkkeys::timestamp::Rfc3339 as _;
 
     use crate::db::models::sqlite::{IssuedRevocationRow, NewIssuedRevocationRow};
     use crate::db::models::IssuedRevocation;
@@ -93,7 +93,7 @@ pub mod sqlite {
                 id: uuid::Uuid::now_v7().to_string(),
                 target_key_id: target_key_id.to_string(),
                 target_fingerprint: target_fingerprint.to_string(),
-                revoked_at: revoked_at.to_rfc3339(),
+                revoked_at: revoked_at.to_db_text(),
                 cert: cert.to_vec(),
             })
             .on_conflict(issued_revocations::target_key_id)
@@ -109,7 +109,7 @@ pub mod sqlite {
         // matching how the domain_keys/user_keys expiry filters work.
         let mut q = issued_revocations::table.into_boxed();
         if let Some(s) = since {
-            q = q.filter(issued_revocations::revoked_at.ge(s.to_rfc3339()));
+            q = q.filter(issued_revocations::revoked_at.ge(s.to_db_text()));
         }
         q.order(issued_revocations::revoked_at.desc())
             .select(IssuedRevocationRow::as_select())
@@ -122,7 +122,7 @@ pub mod sqlite {
         since: time::OffsetDateTime,
     ) -> QueryResult<bool> {
         diesel::select(diesel::dsl::exists(
-            issued_revocations::table.filter(issued_revocations::revoked_at.ge(since.to_rfc3339())),
+            issued_revocations::table.filter(issued_revocations::revoked_at.ge(since.to_db_text())),
         ))
         .get_result(conn)
     }

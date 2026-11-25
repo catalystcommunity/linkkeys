@@ -66,7 +66,7 @@ impl AuthenticationEvidence {
     pub fn single(method_type: &str) -> Self {
         Self {
             method_types: [method_type.to_string()].into_iter().collect(),
-            authenticated_at: OffsetDateTime::now_utc(),
+            authenticated_at: liblinkkeys::timestamp::now_whole_milliseconds(),
         }
     }
 
@@ -347,7 +347,7 @@ impl ApiKeyAuthenticator {
         // Coarse last-use time for the owner's key list; never fails the call.
         if let Err(e) = self.pool.touch_api_key(
             &authentication.credential_id,
-            time::OffsetDateTime::now_utc(),
+            liblinkkeys::timestamp::now_whole_milliseconds(),
         ) {
             log::warn!("could not record API key use: {e}");
         }
@@ -508,7 +508,7 @@ mod assurance_tests {
             method_types: ["password".to_string(), "device".to_string()]
                 .into_iter()
                 .collect(),
-            authenticated_at: OffsetDateTime::now_utc(),
+            authenticated_at: liblinkkeys::timestamp::now_whole_milliseconds(),
         };
         assert!(evidence_satisfies(
             &evidence,

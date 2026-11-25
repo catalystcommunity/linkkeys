@@ -86,7 +86,8 @@ pub fn request_contact_verification(
     }
     let token = new_token();
     let digest = token_digest(&token);
-    let expires = time::OffsetDateTime::now_utc() + time::Duration::hours(VERIFICATION_TTL_HOURS);
+    let expires = liblinkkeys::timestamp::now_whole_milliseconds()
+        + time::Duration::hours(VERIFICATION_TTL_HOURS);
     let link = format!("{}/app/verify/contact#token={token}", public_origin());
     notification::DatabaseNotificationDispatcher::new(pool.clone())
         .dispatch(notification::NotificationIntent {
