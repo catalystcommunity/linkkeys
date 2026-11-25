@@ -226,7 +226,7 @@ pub fn verify_signing_request(
     })
     .map_err(SigningRequestError::Signature)?;
 
-    if OffsetDateTime::now_utc() > request.expires_at {
+    if crate::timestamp::now_whole_milliseconds() > request.expires_at {
         return Err(SigningRequestError::Expired);
     }
 
@@ -248,8 +248,8 @@ mod tests {
                 fingerprint: fingerprint(pk),
                 algorithm: crate::generated::types::KeyAlgorithm::Ed25519,
                 key_usage: crate::generated::types::KeyUsage::Sign,
-                created_at: OffsetDateTime::now_utc(),
-                expires_at: OffsetDateTime::now_utc() + time::Duration::days(365),
+                created_at: crate::timestamp::now_whole_milliseconds(),
+                expires_at: crate::timestamp::now_whole_milliseconds() + time::Duration::days(365),
                 revoked_at: None,
                 signed_by_key_id: None,
                 key_signature: None,

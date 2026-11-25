@@ -400,7 +400,8 @@ fn generate_and_store_keypairs<F>(
         let encrypted = liblinkkeys::crypto::encrypt_private_key(&sk_bytes, passphrase.as_bytes())
             .expect("Failed to encrypt private key");
         let fp = liblinkkeys::crypto::fingerprint(&pk_bytes);
-        let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365 * years);
+        let expires =
+            liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::days(365 * years);
 
         match store_fn(db_pool, &pk_bytes, &encrypted, &fp, expires) {
             Ok(key) => println!(
@@ -637,7 +638,7 @@ fn domain_emit_revocation_cert(
     let revoked_at = liblinkkeys::timestamp::whole_seconds(
         revoked
             .revoked_at
-            .unwrap_or_else(time::OffsetDateTime::now_utc),
+            .unwrap_or_else(liblinkkeys::timestamp::now_whole_milliseconds),
     );
     let signers: Vec<ClaimSigner> = active_signers
         .iter()

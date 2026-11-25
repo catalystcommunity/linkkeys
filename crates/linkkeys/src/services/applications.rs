@@ -241,7 +241,11 @@ pub fn revoke_api_key(
     req: RevokeApiKeyRequest,
 ) -> Result<RevokeApiKeyResponse, ServiceError> {
     let revoked = pool
-        .revoke_api_key(&req.user_id, &req.key_id, OffsetDateTime::now_utc())
+        .revoke_api_key(
+            &req.user_id,
+            &req.key_id,
+            liblinkkeys::timestamp::now_whole_milliseconds(),
+        )
         .map_err(|e| internal("revoking the API key", e))?;
     if revoked == 0 {
         return Err(not_found("no such active API key of this account"));
@@ -388,13 +392,14 @@ pub fn admit_user(
 /// Remove application users older than the longest window an administrator
 /// may set. Run at start-up.
 pub fn prune_on_startup(pool: &DbPool) {
-    let before = OffsetDateTime::now_utc() - time::Duration::days(i64::from(MAX_WINDOW_DAYS));
+    let before = liblinkkeys::timestamp::now_whole_milliseconds()
+        - time::Duration::days(i64::from(MAX_WINDOW_DAYS));
     match pool.prune_application_users(before) {
         Ok(n) if n > 0 => log::info!("removed {n} application user record(s) past every window"),
         Ok(_) => {}
         Err(e) => log::error!("pruning application users failed: {e}"),
     }
-    match pool.prune_rp_login_nonces(OffsetDateTime::now_utc()) {
+    match pool.prune_rp_login_nonces(liblinkkeys::timestamp::now_whole_milliseconds()) {
         Ok(n) if n > 0 => log::info!("removed {n} expired RP login record(s)"),
         Ok(_) => {}
         Err(e) => log::error!("pruning RP login records failed: {e}"),
@@ -516,7 +521,7 @@ static PENDING_USAGE: LazyLock<Mutex<HashMap<UsageKey, (i64, i64)>>> =
 
 /// Count one `Rp` operation of an account. In memory until the next flush.
 pub fn record_usage(account_id: &str, operation: &str, succeeded: bool) {
-    let day = OffsetDateTime::now_utc().date();
+    let day = liblinkkeys::timestamp::now_whole_milliseconds().date();
     let Ok(mut pending) = PENDING_USAGE.lock() else {
         return;
     };
@@ -584,7 +589,7 @@ pub fn get_application_usage(
     let limits = pool
         .account_limits(&req.user_id)
         .map_err(|e| internal("reading account limits", e))?;
-    let since = OffsetDateTime::now_utc()
+    let since = liblinkkeys::timestamp::now_whole_milliseconds()
         - time::Duration::days(i64::from(limits.distinct_user_window_days));
     let distinct_users = pool
         .count_application_users_since(&req.user_id, since)

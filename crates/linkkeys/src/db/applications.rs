@@ -506,7 +506,7 @@ pub mod sqlite {
         user_id: &str,
         limits: &AccountLimitsRecord,
     ) -> QueryResult<usize> {
-        let now = store(&OffsetDateTime::now_utc());
+        let now = store(&liblinkkeys::timestamp::now_whole_milliseconds());
         diesel::insert_into(account_limits::table)
             .values((
                 account_limits::user_id.eq(user_id),

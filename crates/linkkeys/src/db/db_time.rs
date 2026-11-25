@@ -37,10 +37,25 @@ pub fn load_opt(stored: Option<&str>) -> Option<OffsetDateTime> {
     stored.map(load)
 }
 
-/// The text to store in a SQLite timestamp column.
+/// The text to store in a SQLite timestamp column: RFC 3339 at millisecond
+/// precision or coarser. A finer value is rounded down. Postgres columns are
+/// `timestamptz(3)`, so neither backend sends a timestamp that the generated
+/// TypeScript codec rejects.
 pub fn store(t: &OffsetDateTime) -> String {
     use liblinkkeys::timestamp::Rfc3339 as _;
-    t.to_rfc3339()
+    liblinkkeys::timestamp::whole_milliseconds(*t).to_rfc3339()
+}
+
+/// [`store`] as a method, for SQLite query code.
+pub trait DbText {
+    /// The text to store in, or compare with, a SQLite timestamp column.
+    fn to_db_text(&self) -> String;
+}
+
+impl DbText for OffsetDateTime {
+    fn to_db_text(&self) -> String {
+        store(self)
+    }
 }
 
 #[cfg(test)]

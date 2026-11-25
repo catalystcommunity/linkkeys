@@ -234,7 +234,8 @@ fn is_active(
     revoked_at: Option<&time::OffsetDateTime>,
     expires_at: Option<&time::OffsetDateTime>,
 ) -> bool {
-    revoked_at.is_none() && expires_at.is_none_or(|e| *e > time::OffsetDateTime::now_utc())
+    revoked_at.is_none()
+        && expires_at.is_none_or(|e| *e > liblinkkeys::timestamp::now_whole_milliseconds())
 }
 
 fn upgrade_claims(

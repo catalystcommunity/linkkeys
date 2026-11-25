@@ -329,8 +329,8 @@ pub mod pg {
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
+    use crate::db::db_time::DbText as _;
     use diesel::prelude::*;
-    use liblinkkeys::timestamp::Rfc3339 as _;
 
     use crate::db::models::sqlite::{
         NewRpApplicationKeyCacheEntryRow, RpApplicationKeyAttestationRow,
@@ -366,9 +366,9 @@ pub mod sqlite {
         revocations_checked_at: time::OffsetDateTime,
         now: time::OffsetDateTime,
     ) -> QueryResult<usize> {
-        let fetched_at_str = fetched_at.to_rfc3339();
-        let revocations_checked_at_str = revocations_checked_at.to_rfc3339();
-        let now_str = now.to_rfc3339();
+        let fetched_at_str = fetched_at.to_db_text();
+        let revocations_checked_at_str = revocations_checked_at.to_db_text();
+        let now_str = now.to_db_text();
         diesel::insert_into(rp_domain_key_cache::table)
             .values((
                 rp_domain_key_cache::domain.eq(domain),
@@ -393,7 +393,7 @@ pub mod sqlite {
         now: time::OffsetDateTime,
     ) -> QueryResult<usize> {
         diesel::update(rp_domain_key_cache::table.filter(rp_domain_key_cache::domain.eq(domain)))
-            .set(rp_domain_key_cache::last_used_at.eq(now.to_rfc3339()))
+            .set(rp_domain_key_cache::last_used_at.eq(now.to_db_text()))
             .execute(conn)
     }
 
@@ -452,9 +452,9 @@ pub mod sqlite {
         revocations_checked_at: time::OffsetDateTime,
         now: time::OffsetDateTime,
     ) -> QueryResult<RpApplicationKeyCacheEntry> {
-        let fetched_at_str = fetched_at.to_rfc3339();
-        let revocations_checked_at_str = revocations_checked_at.to_rfc3339();
-        let now_str = now.to_rfc3339();
+        let fetched_at_str = fetched_at.to_db_text();
+        let revocations_checked_at_str = revocations_checked_at.to_db_text();
+        let now_str = now.to_db_text();
         conn.transaction(|conn| {
             diesel::insert_into(rp_application_key_cache_entries::table)
                 .values(NewRpApplicationKeyCacheEntryRow {
@@ -503,7 +503,7 @@ pub mod sqlite {
             rp_application_key_cache_entries::table
                 .filter(rp_application_key_cache_entries::id.eq(entry_id)),
         )
-        .set(rp_application_key_cache_entries::last_used_at.eq(now.to_rfc3339()))
+        .set(rp_application_key_cache_entries::last_used_at.eq(now.to_db_text()))
         .execute(conn)
     }
 
@@ -557,8 +557,8 @@ pub mod sqlite {
         verified_by_key_ids: &str,
         now: time::OffsetDateTime,
     ) -> QueryResult<usize> {
-        let expires_str = attestation_expires_at.to_rfc3339();
-        let now_str = now.to_rfc3339();
+        let expires_str = attestation_expires_at.to_db_text();
+        let now_str = now.to_db_text();
         diesel::insert_into(rp_application_key_attestations::table)
             .values((
                 rp_application_key_attestations::id.eq(uuid::Uuid::now_v7().to_string()),
@@ -602,7 +602,7 @@ pub mod sqlite {
         revocation: &[u8],
         revoked_at: time::OffsetDateTime,
     ) -> QueryResult<usize> {
-        let revoked_at_str = revoked_at.to_rfc3339();
+        let revoked_at_str = revoked_at.to_db_text();
         diesel::insert_into(rp_application_key_revocations::table)
             .values((
                 rp_application_key_revocations::id.eq(uuid::Uuid::now_v7().to_string()),

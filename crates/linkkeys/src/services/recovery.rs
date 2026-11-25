@@ -76,7 +76,8 @@ pub fn request(
     }
     let token = verification::new_token();
     let digest = verification::token_digest(&token);
-    let expires = time::OffsetDateTime::now_utc() + time::Duration::minutes(RECOVERY_TTL_MINUTES);
+    let expires = liblinkkeys::timestamp::now_whole_milliseconds()
+        + time::Duration::minutes(RECOVERY_TTL_MINUTES);
     let origin = std::env::var("PUBLIC_ORIGIN")
         .unwrap_or_else(|_| format!("https://{}", crate::conversions::get_domain_name()));
     let link = format!(

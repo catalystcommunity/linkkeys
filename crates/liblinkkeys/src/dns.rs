@@ -440,7 +440,6 @@ mod tests {
     }
 
     use crate::crypto::{fingerprint, generate_keypair, SigningAlgorithm};
-    use time::OffsetDateTime;
 
     fn make_key(pk_bytes: &[u8]) -> DomainPublicKey {
         DomainPublicKey {
@@ -451,8 +450,8 @@ mod tests {
             key_usage: crate::generated::types::KeyUsage::Sign,
             signed_by_key_id: None,
             key_signature: None,
-            created_at: OffsetDateTime::now_utc(),
-            expires_at: OffsetDateTime::now_utc() + time::Duration::hours(1),
+            created_at: crate::timestamp::now_whole_milliseconds(),
+            expires_at: crate::timestamp::now_whole_milliseconds() + time::Duration::hours(1),
             revoked_at: None,
         }
     }

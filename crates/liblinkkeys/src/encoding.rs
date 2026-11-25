@@ -224,13 +224,12 @@ mod tests {
             build_local_rp_descriptor, build_local_rp_login_request, sign_local_rp_descriptor,
             sign_local_rp_login_request,
         };
-        use time::OffsetDateTime;
 
         let (pk, sk) = generate_ed25519_keypair();
         let (enc_pk, _enc_sk) = generate_x25519_keypair();
         let pk_arr: [u8; 32] = pk.as_bytes().to_owned();
         let enc_pk_arr: [u8; 32] = enc_pk.try_into().unwrap();
-        let now = OffsetDateTime::now_utc();
+        let now = crate::timestamp::now_whole_milliseconds();
 
         let descriptor = build_local_rp_descriptor(
             "Test App",

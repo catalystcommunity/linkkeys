@@ -116,7 +116,7 @@ impl Subject<'_> {
                     log::warn!("app access: skipping a claim target with no valid operator");
                     return Ok(false);
                 };
-                let today = time::OffsetDateTime::now_utc().date();
+                let today = liblinkkeys::timestamp::now_whole_milliseconds().date();
                 let values = self.claim_values(claim_type)?;
                 aa::condition_matches(operator, target.claim_value.as_deref(), &values, today)
             }

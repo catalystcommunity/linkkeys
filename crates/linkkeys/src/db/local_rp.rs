@@ -227,7 +227,7 @@ pub mod pg {
     ) -> QueryResult<LocalRp> {
         diesel::update(local_rps::table.find(fingerprint))
             .set((
-                local_rps::last_seen_at.eq(Some(time::OffsetDateTime::now_utc())),
+                local_rps::last_seen_at.eq(Some(liblinkkeys::timestamp::now_whole_milliseconds())),
                 local_rps::app_name.eq(app_name),
                 local_rps::local_domain_hint.eq(local_domain_hint),
             ))
@@ -341,8 +341,8 @@ pub mod pg {
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
+    use crate::db::db_time::DbText as _;
     use diesel::prelude::*;
-    use liblinkkeys::timestamp::Rfc3339 as _;
 
     use crate::db::models::sqlite::{
         LocalRpClaimTicketRow, LocalRpDomainPolicyRow, LocalRpRow, NewLocalRpClaimTicketRow,
@@ -512,7 +512,7 @@ pub mod sqlite {
         app_name: &str,
         local_domain_hint: Option<&str>,
     ) -> QueryResult<LocalRp> {
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
         diesel::update(local_rps::table.find(fingerprint))
             .set((
                 local_rps::last_seen_at.eq(Some(now)),

@@ -1911,7 +1911,7 @@ fn dispatch_local_rp_redeem_claim_ticket(payload: &[u8], db_pool: &DbPool) -> Ve
         );
     }
 
-    let now = time::OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_milliseconds();
     if !ticket_redemption_issued_at_fresh(&request.issued_at, now) {
         return error_response(5, "Ticket redemption request is not fresh");
     }
@@ -2521,7 +2521,7 @@ fn dispatch_account(
                 db_pool,
                 &user.id,
                 request,
-                time::OffsetDateTime::now_utc(),
+                liblinkkeys::timestamp::now_whole_milliseconds(),
             ) {
                 Ok(resp) => ok_response(
                     liblinkkeys::generated::encode_enroll_application_instance_response(&resp),
@@ -2545,7 +2545,7 @@ fn dispatch_account(
                 db_pool,
                 user,
                 &request,
-                time::OffsetDateTime::now_utc(),
+                liblinkkeys::timestamp::now_whole_milliseconds(),
             ) {
                 Ok(resp) => ok_response(
                     liblinkkeys::generated::encode_revoke_act_as_grant_response(&resp),
@@ -2586,7 +2586,7 @@ fn dispatch_act_as(
                 db_pool,
                 &keys,
                 &request,
-                time::OffsetDateTime::now_utc(),
+                liblinkkeys::timestamp::now_whole_milliseconds(),
             ) {
                 Ok(resp) => ok_response(codec::encode_refresh_act_as_grant_response(&resp)),
                 Err(error) => service_error_response(error),
@@ -2967,7 +2967,7 @@ fn public_read_gate(source_key: &str) -> Result<(), Vec<u8>> {
 
 fn dispatch_application_keys(op: &str, payload: &[u8], db_pool: &DbPool) -> Vec<u8> {
     use liblinkkeys::generated::codec;
-    let now = time::OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_milliseconds();
     macro_rules! app_key_op {
         ($decode:path, $handler:expr, $encode:path) => {{
             let request = match $decode(payload) {

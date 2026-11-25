@@ -35,8 +35,8 @@ pub mod pg {
             .map_err(|_| diesel::result::Error::NotFound)?;
         diesel::update(relations::table.find(id))
             .set((
-                relations::removed_at.eq(Some(time::OffsetDateTime::now_utc())),
-                relations::updated_at.eq(time::OffsetDateTime::now_utc()),
+                relations::removed_at.eq(Some(liblinkkeys::timestamp::now_whole_milliseconds())),
+                relations::updated_at.eq(liblinkkeys::timestamp::now_whole_milliseconds()),
             ))
             .get_result::<RelationRow>(conn)
             .map(Into::into)
@@ -102,8 +102,8 @@ pub mod pg {
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
+    use crate::db::db_time::DbText as _;
     use diesel::prelude::*;
-    use liblinkkeys::timestamp::Rfc3339 as _;
 
     use crate::db::models::sqlite::{NewRelationRow, RelationRow};
     use crate::db::models::Relation;
@@ -138,7 +138,7 @@ pub mod sqlite {
     }
 
     pub fn remove(conn: &mut diesel::SqliteConnection, relation_id: &str) -> QueryResult<Relation> {
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
         diesel::update(relations::table.find(relation_id))
             .set((
                 relations::removed_at.eq(Some(&now)),

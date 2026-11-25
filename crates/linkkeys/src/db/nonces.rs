@@ -28,7 +28,7 @@ pub mod pg {
         nonce: &str,
         expires_at: time::OffsetDateTime,
     ) -> QueryResult<bool> {
-        let now = time::OffsetDateTime::now_utc();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds();
         diesel::delete(used_nonces::table.filter(used_nonces::expires_at.lt(now))).execute(conn)?;
         let inserted = diesel::insert_into(used_nonces::table)
             .values(NewUsedNonce { nonce, expires_at })
@@ -40,8 +40,8 @@ pub mod pg {
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
+    use crate::db::db_time::DbText as _;
     use diesel::prelude::*;
-    use liblinkkeys::timestamp::Rfc3339 as _;
 
     use crate::schema::sqlite::used_nonces;
 
@@ -60,7 +60,7 @@ pub mod sqlite {
         nonce: &str,
         expires_at: &str,
     ) -> QueryResult<bool> {
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
         diesel::delete(used_nonces::table.filter(used_nonces::expires_at.lt(now))).execute(conn)?;
         let inserted = diesel::insert_into(used_nonces::table)
             .values(NewUsedNonce { nonce, expires_at })

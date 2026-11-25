@@ -38,7 +38,7 @@ pub mod pg {
         let uid: uuid::Uuid = user_id_str
             .parse()
             .map_err(|_| diesel::result::Error::NotFound)?;
-        let now = time::OffsetDateTime::now_utc();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds();
         user_keys::table
             .filter(user_keys::user_id.eq(uid))
             .filter(user_keys::expires_at.gt(now))
@@ -57,15 +57,15 @@ pub mod pg {
             .map_err(|_| diesel::result::Error::NotFound)?;
         diesel::update(user_keys::table.find(id))
             .filter(user_keys::revoked_at.is_null())
-            .set(user_keys::revoked_at.eq(time::OffsetDateTime::now_utc()))
+            .set(user_keys::revoked_at.eq(liblinkkeys::timestamp::now_whole_milliseconds()))
             .execute(conn)
     }
 }
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
+    use crate::db::db_time::DbText as _;
     use diesel::prelude::*;
-    use liblinkkeys::timestamp::Rfc3339 as _;
 
     use crate::db::models::sqlite::{NewUserKeyRow, UserKeyRow};
     use crate::db::models::UserKey;
@@ -105,7 +105,7 @@ pub mod sqlite {
         conn: &mut diesel::SqliteConnection,
         user_id: &str,
     ) -> QueryResult<Vec<UserKey>> {
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
         user_keys::table
             .filter(user_keys::user_id.eq(user_id))
             .filter(user_keys::expires_at.gt(&now))
@@ -119,7 +119,10 @@ pub mod sqlite {
     pub fn revoke(conn: &mut diesel::SqliteConnection, key_id: &str) -> QueryResult<usize> {
         diesel::update(user_keys::table.find(key_id))
             .filter(user_keys::revoked_at.is_null())
-            .set(user_keys::revoked_at.eq(time::OffsetDateTime::now_utc().to_rfc3339()))
+            .set(
+                user_keys::revoked_at
+                    .eq(liblinkkeys::timestamp::now_whole_milliseconds().to_db_text()),
+            )
             .execute(conn)
     }
 }

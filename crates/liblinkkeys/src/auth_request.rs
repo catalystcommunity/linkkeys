@@ -5,7 +5,6 @@ use crate::generated::types::{
     AuthFlowContext, AuthRequest, ClaimRequest, DomainPublicKey, RelyingPartyApplication,
     SignedAuthRequest,
 };
-use time::OffsetDateTime;
 
 /// Build an unsigned auth request with the current timestamp. `requested_claims`
 /// advertises the claims the RP wants released for this login or later
@@ -23,7 +22,7 @@ pub fn build_auth_request(
         relying_party: relying_party.to_string(),
         callback_url: callback_url.to_string(),
         nonce: nonce.to_string(),
-        timestamp: OffsetDateTime::now_utc(),
+        timestamp: crate::timestamp::now_whole_milliseconds(),
         signing_key_id: signing_key_id.to_string(),
         requested_claims,
         authentication_requirements: None,
@@ -85,7 +84,7 @@ pub fn verify_auth_request(
     let request = crate::generated::decode_auth_request(signed.request.as_slice())
         .map_err(|e| VerifyError::DeserializationFailed(format!("CBOR decode failed: {}", e)))?;
 
-    let age = OffsetDateTime::now_utc() - request.timestamp;
+    let age = crate::timestamp::now_whole_milliseconds() - request.timestamp;
     if age.whole_seconds() > max_age_seconds || age.whole_seconds() < 0 {
         return Err(VerifyError::Expired);
     }
@@ -107,8 +106,8 @@ mod tests {
             key_usage: crate::generated::types::KeyUsage::Sign,
             signed_by_key_id: None,
             key_signature: None,
-            created_at: OffsetDateTime::now_utc(),
-            expires_at: OffsetDateTime::now_utc() + time::Duration::hours(1),
+            created_at: crate::timestamp::now_whole_milliseconds(),
+            expires_at: crate::timestamp::now_whole_milliseconds() + time::Duration::hours(1),
             revoked_at: None,
         }
     }
@@ -157,7 +156,7 @@ mod tests {
             relying_party: "linkidspec.com".to_string(),
             callback_url: "https://linkidspec.com/callback".to_string(),
             nonce: "nonce".to_string(),
-            timestamp: OffsetDateTime::now_utc() - time::Duration::seconds(120),
+            timestamp: crate::timestamp::now_whole_milliseconds() - time::Duration::seconds(120),
             signing_key_id: "key-1".to_string(),
             requested_claims: None,
             authentication_requirements: None,

@@ -28,7 +28,7 @@
 //!   [`open_local_rp_callback`] for the exact KDF/AAD layout.
 //!
 //! This module performs no I/O: every "current time" is an explicit `now`
-//! parameter, never `OffsetDateTime::now_utc()`, so verification stays deterministic and
+//! parameter, never `crate::timestamp::now_whole_milliseconds()`, so verification stays deterministic and
 //! WASM-viable.
 
 use crate::assertions::{check_signing_key_valid, VerifyError};
@@ -968,7 +968,7 @@ mod tests {
     use time::Duration;
 
     fn now() -> OffsetDateTime {
-        OffsetDateTime::now_utc()
+        crate::timestamp::now_whole_milliseconds()
     }
 
     fn make_domain_key(key_id: &str, pk_bytes: &[u8]) -> DomainPublicKey {
@@ -980,8 +980,8 @@ mod tests {
             key_usage: crate::generated::types::KeyUsage::Sign,
             signed_by_key_id: None,
             key_signature: None,
-            created_at: OffsetDateTime::now_utc(),
-            expires_at: OffsetDateTime::now_utc() + Duration::hours(1),
+            created_at: crate::timestamp::now_whole_milliseconds(),
+            expires_at: crate::timestamp::now_whole_milliseconds() + Duration::hours(1),
             revoked_at: None,
         }
     }

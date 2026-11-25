@@ -17,6 +17,26 @@ fn envelope(service: &str, operation: &str, payload: Vec<u8>) -> Vec<u8> {
         .unwrap()
 }
 
+/// The web UI decodes these replies with the generated TypeScript codec, which
+/// rejects a timestamp finer than a millisecond. A stored time with
+/// microseconds once made every sign-in fail in the browser.
+fn assert_millisecond_times(info: &liblinkkeys::generated::types::BrowserSessionInfo) {
+    let times = [
+        ("issued_at", info.issued_at),
+        ("authenticated_at", info.authenticated_at),
+        ("expires_at", info.expires_at),
+        ("user.created_at", info.user.created_at),
+        ("user.updated_at", info.user.updated_at),
+    ];
+    for (name, value) in times {
+        assert_eq!(
+            value.nanosecond() % 1_000_000,
+            0,
+            "{name} is finer than milliseconds: {value}"
+        );
+    }
+}
+
 #[rocket::async_test]
 async fn browser_csil_login_current_and_account_dispatch_share_one_session() {
     std::env::set_var("DOMAIN_NAME", DOMAIN);
@@ -81,6 +101,7 @@ async fn browser_csil_login_current_and_account_dispatch_share_one_session() {
     let login = liblinkkeys::generated::decode_session_password_login_response(&response.payload)
         .expect("decode login response");
     assert_eq!(login.session.user.id, user.id);
+    assert_millisecond_times(&login.session);
 
     let response = client
         .post("/csil/v1/rpc")
@@ -99,6 +120,9 @@ async fn browser_csil_login_current_and_account_dispatch_share_one_session() {
         .await;
     let response = RpcResponse::decode(&response.into_bytes().await.unwrap()).unwrap();
     assert_eq!(response.status, RpcStatus::Ok);
+    let current = liblinkkeys::generated::decode_session_current_response(&response.payload)
+        .expect("decode current session");
+    assert_millisecond_times(&current.session);
 
     let response = client
         .post("/csil/v1/rpc")

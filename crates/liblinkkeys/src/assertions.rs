@@ -4,7 +4,6 @@ use crate::generated::types::{
     ApplicationRef, DomainPublicKey, IdentityAssertion, SignedIdentityAssertion,
 };
 use std::fmt;
-use time::OffsetDateTime;
 
 #[derive(Debug)]
 pub enum VerifyError {
@@ -104,7 +103,7 @@ pub fn build_assertion(
     authorized_claims: Vec<String>,
     application: ApplicationRef,
 ) -> IdentityAssertion {
-    let now = OffsetDateTime::now_utc();
+    let now = crate::timestamp::now_whole_milliseconds();
     let expires = now + time::Duration::seconds(ttl_seconds as i64);
     IdentityAssertion {
         user_id: user_id.to_string(),
@@ -169,7 +168,7 @@ pub fn verify_assertion(
     let assertion = crate::generated::decode_identity_assertion(signed.assertion.as_slice())
         .map_err(|e| VerifyError::DeserializationFailed(format!("CBOR decode failed: {}", e)))?;
 
-    if OffsetDateTime::now_utc() > assertion.expires_at {
+    if crate::timestamp::now_whole_milliseconds() > assertion.expires_at {
         return Err(VerifyError::Expired);
     }
 
@@ -190,8 +189,8 @@ mod tests {
             key_usage: crate::generated::types::KeyUsage::Sign,
             signed_by_key_id: None,
             key_signature: None,
-            created_at: OffsetDateTime::now_utc(),
-            expires_at: OffsetDateTime::now_utc() + time::Duration::hours(1),
+            created_at: crate::timestamp::now_whole_milliseconds(),
+            expires_at: crate::timestamp::now_whole_milliseconds() + time::Duration::hours(1),
             revoked_at: None,
         }
     }
@@ -298,7 +297,7 @@ mod tests {
     fn test_assertion_revoked_key_rejected() {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let mut domain_key = make_domain_key("key-1", &pk);
-        domain_key.revoked_at = Some(OffsetDateTime::now_utc());
+        domain_key.revoked_at = Some(crate::timestamp::now_whole_milliseconds());
 
         let assertion = build_assertion(
             "user-123",
@@ -320,7 +319,8 @@ mod tests {
     fn test_assertion_expired_key_rejected() {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let mut domain_key = make_domain_key("key-1", &pk);
-        domain_key.expires_at = OffsetDateTime::now_utc() - time::Duration::hours(1);
+        domain_key.expires_at =
+            crate::timestamp::now_whole_milliseconds() - time::Duration::hours(1);
 
         let assertion = build_assertion(
             "user-123",

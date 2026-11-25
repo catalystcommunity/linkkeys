@@ -30,7 +30,7 @@ pub mod pg {
         required_credential_id: Option<uuid::Uuid>,
     ) -> QueryResult<AccountChallenge> {
         conn.transaction(|conn| {
-            let now = time::OffsetDateTime::now_utc();
+            let now = liblinkkeys::timestamp::now_whole_milliseconds();
             // Serialize challenge replacement for one account. Without this
             // lock, two requests can both insert an active challenge.
             let active_user = users::table
@@ -141,7 +141,9 @@ pub mod pg {
             .filter(account_challenges::kind.eq(kind))
             .filter(account_challenges::consumed_at.is_null())
             .filter(account_challenges::revoked_at.is_null())
-            .filter(account_challenges::expires_at.gt(time::OffsetDateTime::now_utc()))
+            .filter(
+                account_challenges::expires_at.gt(liblinkkeys::timestamp::now_whole_milliseconds()),
+            )
             .select(AccountChallengeRow::as_select())
             .first(conn)
             .optional()
@@ -157,7 +159,7 @@ pub mod pg {
             .parse()
             .map_err(|_| diesel::result::Error::NotFound)?;
         conn.transaction(|conn| {
-            let now = time::OffsetDateTime::now_utc();
+            let now = liblinkkeys::timestamp::now_whole_milliseconds();
             let candidate = account_challenges::table
                 .find(challenge_id)
                 .filter(account_challenges::kind.eq("verify_contact"))
@@ -264,7 +266,7 @@ pub mod pg {
         credential_id: uuid::Uuid,
     ) -> QueryResult<usize> {
         conn.transaction(|conn| {
-            let now = time::OffsetDateTime::now_utc();
+            let now = liblinkkeys::timestamp::now_whole_milliseconds();
             users::table
                 .find(user_id)
                 .filter(users::purged_at.is_null())
@@ -372,7 +374,7 @@ pub mod pg {
                     return Err(diesel::result::Error::NotFound);
                 }
             }
-            let now = time::OffsetDateTime::now_utc();
+            let now = liblinkkeys::timestamp::now_whole_milliseconds();
             let user = diesel::update(users::table.find(user_id))
                 .set((users::is_active.eq(false), users::updated_at.eq(now)))
                 .get_result::<crate::db::models::pg::UserRow>(conn)?;
@@ -501,7 +503,7 @@ pub mod pg {
         credential_id: uuid::Uuid,
     ) -> QueryResult<BrowserSession> {
         conn.transaction(|conn| {
-            let now = time::OffsetDateTime::now_utc();
+            let now = liblinkkeys::timestamp::now_whole_milliseconds();
             let active_user = users::table
                 .find(row.user_id)
                 .select((users::is_active, users::purged_at))
@@ -579,7 +581,9 @@ pub mod pg {
         browser_sessions::table
             .find(digest)
             .filter(browser_sessions::revoked_at.is_null())
-            .filter(browser_sessions::expires_at.gt(time::OffsetDateTime::now_utc()))
+            .filter(
+                browser_sessions::expires_at.gt(liblinkkeys::timestamp::now_whole_milliseconds()),
+            )
             .select(BrowserSessionRow::as_select())
             .first(conn)
             .optional()
@@ -642,7 +646,7 @@ pub mod pg {
     }
 
     pub fn revoke_session(conn: &mut diesel::PgConnection, digest: &str) -> QueryResult<usize> {
-        let now = time::OffsetDateTime::now_utc();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds();
         diesel::update(
             browser_sessions::table
                 .find(digest)
@@ -661,7 +665,7 @@ pub mod pg {
         password_hash: &str,
     ) -> QueryResult<()> {
         conn.transaction(|conn| {
-            let now = time::OffsetDateTime::now_utc();
+            let now = liblinkkeys::timestamp::now_whole_milliseconds();
             let candidate = account_challenges::table
                 .find(challenge_id)
                 .filter(account_challenges::kind.eq("reset_password"))
@@ -747,7 +751,7 @@ pub mod pg {
         password_hash: &str,
     ) -> QueryResult<()> {
         conn.transaction(|conn| {
-            let now = time::OffsetDateTime::now_utc();
+            let now = liblinkkeys::timestamp::now_whole_milliseconds();
             users::table
                 .find(user_id)
                 .filter(users::purged_at.is_null())
@@ -802,7 +806,7 @@ pub mod pg {
         password_hash: &str,
     ) -> QueryResult<()> {
         conn.transaction(|conn| {
-            let now = time::OffsetDateTime::now_utc();
+            let now = liblinkkeys::timestamp::now_whole_milliseconds();
             users::table
                 .find(user_id)
                 .select(users::id)
@@ -892,7 +896,7 @@ pub mod pg {
         let id = id
             .parse::<uuid::Uuid>()
             .map_err(|_| diesel::result::Error::NotFound)?;
-        let now = time::OffsetDateTime::now_utc();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds();
         if redact_payload {
             diesel::update(
                 notification_outbox::table
@@ -930,7 +934,7 @@ pub mod pg {
     }
 
     pub fn expire_outbox(conn: &mut diesel::PgConnection) -> QueryResult<usize> {
-        let now = time::OffsetDateTime::now_utc();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds();
         diesel::update(
             notification_outbox::table
                 .filter(notification_outbox::expires_at.le(now))
@@ -980,6 +984,7 @@ pub mod pg {
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
+    use crate::db::db_time::DbText as _;
     use crate::db::models::sqlite::{
         AccountChallengeRow, BrowserSessionRow, NotificationOutboxRow,
         UserAuthenticationActivityRow, VerifiedContactMethodRow,
@@ -993,7 +998,6 @@ pub mod sqlite {
     };
     use diesel::connection::{AnsiTransactionManager, TransactionManager};
     use diesel::prelude::*;
-    use liblinkkeys::timestamp::Rfc3339 as _;
 
     fn write_transaction<T, F>(conn: &mut diesel::SqliteConnection, callback: F) -> QueryResult<T>
     where
@@ -1024,7 +1028,7 @@ pub mod sqlite {
         required_credential_id: Option<&str>,
     ) -> QueryResult<AccountChallenge> {
         write_transaction(conn, |conn| {
-            let now = time::OffsetDateTime::now_utc().to_rfc3339();
+            let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
             let active_user = users::table
                 .find(user_id)
                 .select((users::is_active, users::purged_at))
@@ -1130,7 +1134,10 @@ pub mod sqlite {
             .filter(account_challenges::kind.eq(kind))
             .filter(account_challenges::consumed_at.is_null())
             .filter(account_challenges::revoked_at.is_null())
-            .filter(account_challenges::expires_at.gt(time::OffsetDateTime::now_utc().to_rfc3339()))
+            .filter(
+                account_challenges::expires_at
+                    .gt(liblinkkeys::timestamp::now_whole_milliseconds().to_db_text()),
+            )
             .select(AccountChallengeRow::as_select())
             .first(conn)
             .optional()
@@ -1142,7 +1149,7 @@ pub mod sqlite {
         claims: &[crate::db::models::PreparedClaim],
     ) -> QueryResult<VerifiedContactMethod> {
         write_transaction(conn, |conn| {
-            let now = time::OffsetDateTime::now_utc().to_rfc3339();
+            let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
             let c = account_challenges::table
                 .find(challenge_id)
                 .filter(account_challenges::kind.eq("verify_contact"))
@@ -1181,7 +1188,7 @@ pub mod sqlite {
                     &claim.claim_value,
                     &claim.signatures,
                     None,
-                    &claim.attested_at.to_rfc3339(),
+                    &claim.attested_at.to_db_text(),
                 )?;
             }
             diesel::update(account_challenges::table.find(challenge_id))
@@ -1234,7 +1241,7 @@ pub mod sqlite {
         credential_id: &str,
     ) -> QueryResult<usize> {
         write_transaction(conn, |conn| {
-            let now = time::OffsetDateTime::now_utc().to_rfc3339();
+            let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
             auth_credentials::table
                 .find(credential_id)
                 .filter(auth_credentials::user_id.eq(user_id))
@@ -1350,7 +1357,7 @@ pub mod sqlite {
                     return Err(diesel::result::Error::NotFound);
                 }
             }
-            let now = time::OffsetDateTime::now_utc().to_rfc3339();
+            let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
             diesel::update(users::table.find(user_id))
                 .set((users::is_active.eq(0), users::updated_at.eq(&now)))
                 .execute(conn)?;
@@ -1471,7 +1478,7 @@ pub mod sqlite {
         credential_id: &str,
     ) -> QueryResult<BrowserSession> {
         write_transaction(conn, |conn| {
-            let now = time::OffsetDateTime::now_utc().to_rfc3339();
+            let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
             let active_user = crate::schema::sqlite::users::table
                 .find(&row.user_id)
                 .select((
@@ -1552,7 +1559,10 @@ pub mod sqlite {
         browser_sessions::table
             .find(digest)
             .filter(browser_sessions::revoked_at.is_null())
-            .filter(browser_sessions::expires_at.gt(time::OffsetDateTime::now_utc().to_rfc3339()))
+            .filter(
+                browser_sessions::expires_at
+                    .gt(liblinkkeys::timestamp::now_whole_milliseconds().to_db_text()),
+            )
             .select(BrowserSessionRow::as_select())
             .first(conn)
             .optional()
@@ -1613,7 +1623,7 @@ pub mod sqlite {
         })
     }
     pub fn revoke_session(conn: &mut diesel::SqliteConnection, digest: &str) -> QueryResult<usize> {
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
         diesel::update(
             browser_sessions::table
                 .find(digest)
@@ -1631,7 +1641,7 @@ pub mod sqlite {
         password_hash: &str,
     ) -> QueryResult<()> {
         write_transaction(conn, |conn| {
-            let now = time::OffsetDateTime::now_utc().to_rfc3339();
+            let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
             let c = account_challenges::table
                 .find(challenge_id)
                 .filter(account_challenges::kind.eq("reset_password"))
@@ -1707,7 +1717,7 @@ pub mod sqlite {
         password_hash: &str,
     ) -> QueryResult<()> {
         write_transaction(conn, |conn| {
-            let now = time::OffsetDateTime::now_utc().to_rfc3339();
+            let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
             users::table
                 .find(user_id)
                 .filter(users::purged_at.is_null())
@@ -1761,7 +1771,7 @@ pub mod sqlite {
         password_hash: &str,
     ) -> QueryResult<()> {
         write_transaction(conn, |conn| {
-            let now = time::OffsetDateTime::now_utc().to_rfc3339();
+            let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
             auth_credentials::table
                 .find(credential_id)
                 .filter(auth_credentials::user_id.eq(user_id))
@@ -1843,7 +1853,7 @@ pub mod sqlite {
         error_category: Option<&str>,
         redact_payload: bool,
     ) -> QueryResult<usize> {
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
         if redact_payload {
             diesel::update(
                 notification_outbox::table
@@ -1881,7 +1891,7 @@ pub mod sqlite {
     }
 
     pub fn expire_outbox(conn: &mut diesel::SqliteConnection) -> QueryResult<usize> {
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
         diesel::update(
             notification_outbox::table
                 .filter(notification_outbox::expires_at.le(&now))

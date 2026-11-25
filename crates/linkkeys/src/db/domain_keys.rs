@@ -69,7 +69,7 @@ pub mod pg {
     }
 
     pub fn list_active(conn: &mut diesel::PgConnection) -> QueryResult<Vec<DomainKey>> {
-        let now = time::OffsetDateTime::now_utc();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds();
         domain_keys::table
             .filter(domain_keys::expires_at.gt(now))
             .filter(domain_keys::revoked_at.is_null())
@@ -127,7 +127,7 @@ pub mod pg {
             .map_err(|_| diesel::result::Error::NotFound)?;
         diesel::update(domain_keys::table.find(id))
             .filter(domain_keys::revoked_at.is_null())
-            .set(domain_keys::revoked_at.eq(time::OffsetDateTime::now_utc()))
+            .set(domain_keys::revoked_at.eq(liblinkkeys::timestamp::now_whole_milliseconds()))
             .execute(conn)?;
         domain_keys::table
             .find(id)
@@ -138,8 +138,8 @@ pub mod pg {
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
+    use crate::db::db_time::DbText as _;
     use diesel::prelude::*;
-    use liblinkkeys::timestamp::Rfc3339 as _;
 
     use crate::db::models::sqlite::{DomainKeyRow, NewDomainKeyRow};
     use crate::db::models::DomainKey;
@@ -218,7 +218,7 @@ pub mod sqlite {
     }
 
     pub fn list_active(conn: &mut diesel::SqliteConnection) -> QueryResult<Vec<DomainKey>> {
-        let now = time::OffsetDateTime::now_utc().to_rfc3339();
+        let now = liblinkkeys::timestamp::now_whole_milliseconds().to_db_text();
         domain_keys::table
             .filter(domain_keys::expires_at.gt(&now))
             .filter(domain_keys::revoked_at.is_null())
@@ -269,7 +269,10 @@ pub mod sqlite {
     pub fn revoke(conn: &mut diesel::SqliteConnection, key_id: &str) -> QueryResult<DomainKey> {
         diesel::update(domain_keys::table.find(key_id))
             .filter(domain_keys::revoked_at.is_null())
-            .set(domain_keys::revoked_at.eq(time::OffsetDateTime::now_utc().to_rfc3339()))
+            .set(
+                domain_keys::revoked_at
+                    .eq(liblinkkeys::timestamp::now_whole_milliseconds().to_db_text()),
+            )
             .execute(conn)?;
         domain_keys::table
             .find(key_id)

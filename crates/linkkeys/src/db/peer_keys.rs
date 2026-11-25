@@ -5,8 +5,8 @@
 
 #[cfg(feature = "postgres")]
 pub mod pg {
+    use crate::db::db_time::DbText as _;
     use diesel::prelude::*;
-    use liblinkkeys::timestamp::Rfc3339 as _;
 
     use crate::db::models::pg::PeerKeyRow;
     use crate::db::models::PeerKey;
@@ -23,8 +23,8 @@ pub mod pg {
                 algorithm: key.algorithm.clone(),
                 fingerprint: key.fingerprint.clone(),
                 key_usage: key.key_usage.clone(),
-                expires_at: key.expires_at.clone().to_rfc3339(),
-                revoked_at: key.revoked_at.map(|t| t.to_rfc3339()),
+                expires_at: key.expires_at.clone().to_db_text(),
+                revoked_at: key.revoked_at.map(|t| t.to_db_text()),
             })
             .on_conflict((peer_keys::domain, peer_keys::key_id))
             .do_nothing()
@@ -56,7 +56,9 @@ pub mod pg {
                 .filter(peer_keys::fingerprint.eq(fingerprint))
                 .filter(peer_keys::revoked_at.is_null()),
         )
-        .set(peer_keys::revoked_at.eq(time::OffsetDateTime::now_utc().to_rfc3339()))
+        .set(
+            peer_keys::revoked_at.eq(liblinkkeys::timestamp::now_whole_milliseconds().to_db_text()),
+        )
         .execute(conn)
     }
 
@@ -82,8 +84,8 @@ pub mod pg {
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite {
+    use crate::db::db_time::DbText as _;
     use diesel::prelude::*;
-    use liblinkkeys::timestamp::Rfc3339 as _;
 
     use crate::db::models::sqlite::PeerKeyRow;
     use crate::db::models::PeerKey;
@@ -98,8 +100,8 @@ pub mod sqlite {
                 algorithm: key.algorithm.clone(),
                 fingerprint: key.fingerprint.clone(),
                 key_usage: key.key_usage.clone(),
-                expires_at: key.expires_at.clone().to_rfc3339(),
-                revoked_at: key.revoked_at.map(|t| t.to_rfc3339()),
+                expires_at: key.expires_at.clone().to_db_text(),
+                revoked_at: key.revoked_at.map(|t| t.to_db_text()),
             })
             .on_conflict((peer_keys::domain, peer_keys::key_id))
             .do_nothing()
@@ -130,7 +132,9 @@ pub mod sqlite {
                 .filter(peer_keys::fingerprint.eq(fingerprint))
                 .filter(peer_keys::revoked_at.is_null()),
         )
-        .set(peer_keys::revoked_at.eq(time::OffsetDateTime::now_utc().to_rfc3339()))
+        .set(
+            peer_keys::revoked_at.eq(liblinkkeys::timestamp::now_whole_milliseconds().to_db_text()),
+        )
         .execute(conn)
     }
 
